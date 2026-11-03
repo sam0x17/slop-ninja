@@ -1,6 +1,12 @@
-//! Round-2 two-block evaluator (protocol A2 §9.2, §11 and §12.6 V2, V15 and
-//! V16, with amendments 1.8–1.10, 8.1 and 15; build B10). This is B10's first
-//! part (BUILD-PLAN waves 4–5); [`PENDING`] lists what the second part adds.
+//! Round-2 two-block evaluator (protocol A2 §9.1, §9.2, §11 and §12.6 V2,
+//! V15 and V16, with amendments 1.8–1.10, 1.13, 8.1 and 15; build B10). This
+//! module is B10's first part; [`part2`] holds the second (BUILD-PLAN waves
+//! 4–5): T2's slice plan and gate, FS and FRI, the H-inj IV (T3f), the MWL
+//! and era slopes (T3e, T3h), B11's slack (T4a, T4b), T8b, S3-1's s and
+//! S3-4's SD, the null-check record, selection, the §11.10 decision record,
+//! report sets and the S6-1 replacement inputs. [`PENDING`] lists what is
+//! still open, and [`part2::READINGS`] the readings that need a forward
+//! amendment before their first use.
 //!
 //! Numeric only, like the bound evaluator: it reads bundle metadata through
 //! [`comp_eval::parse_rows`], predictions and operating points, and never
@@ -140,10 +146,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+pub mod part2;
+#[cfg(test)]
+mod tests2;
+
 pub const CONFIG_SCHEMA: &str = "slop_ninja_a_r2_evaluate_config_v1";
 pub const EVAL_SCHEMA: &str = "slop_ninja_a_r2_evaluation_v1";
 pub const MARGINS_SCHEMA: &str = "slop_ninja_a_r2_margins_v1";
-pub const PROTOCOL: &str = "PROTOCOL-A2.md §9.2, §11, §12.6 V2/V15/V16, amendments 1.8-1.10, 8.1 and 15 (build B10, part 1)";
+pub const PROTOCOL: &str = "PROTOCOL-A2.md §9.1, §9.2, §11, §12.3, §12.6 V2/V15/V16, S3-1, S3-4, S4-1 and S6-1, amendments 1.8-1.10, 1.13, 8.1 and 15 (build B10, parts 1 and 2)";
 /// The bound evaluator (BUILD-PLAN flag G4), used read-only.
 pub const BOUND_EVALUATOR: &str = "grammar-a-baseline src/comp_eval.rs (blob 09898ce2971c9de518c814283f37502c0040c7b7) and examples/a_comp_evaluate.rs (blob 0806075e6d5ca5f0e7c7a4334d4143121504a051), bound at ec397c2d";
 /// Git blob ids of the bound files (tested against the compiled sources).
@@ -226,22 +236,26 @@ pub const BOUND_POINTERS: [&str; 8] = [
     "/tpr_at_0_5/n",
 ];
 
-/// What part 2 (wave 5) adds; recorded in every evaluation.
-pub const PENDING: [&str; 14] = [
-    "S3-1's s on the Dev-iter-2 mock (section 12.3: paired SE of r per 1,000 self-weighted documents, scaled by sqrt(ESS/1,000)) and S3-4's slice planning SD, the inputs of t8a_branch and slice_gate_k",
-    "T2 slice wiring (gated slices from pipeline counts and S3-4, SE_realised, pooled T+C slices)",
-    "FS, FRI and the format-v1 DiD (T5b, T5e; needs B3's N/R pairing fields)",
-    "IV per H-inj group, two-sided for H-inj-L (T3f) and T3g on the B14 probe manifest slop_ninja_a_form_inject_probe_v1, line-form L twins as a stratum",
-    "MWL slope (T3e) and era no-worse (T3h as amended by item 1.8)",
-    "T4a/T4b slack (cross-fitted, from B11)",
-    "null-check runner over item 1.10's subset with the margin-rule faults (a)-(c)",
-    "selection eligibility (section 9.2 step 5), the U7 rule and selection-record-r2.json",
-    "the section 11.10 decision record (recipe and artifact levels per gate), T8b reports",
-    "reported R0-recal and R0-shipped companions (T1e, T5d, T3h) as named report sets",
-    "sigma_eff, delta, w and epsilon from the consumed Test-2 mock at W_A8 (with B12's sigma', item 1.13; BUILD-PLAN sections 1.4 and 8)",
-    "the d check on 2,000 x 1,024-document batches of the consumed Test-2 mock (BUILD-PLAN section 8)",
-    "the gate floors at 0.5 on the consumed Test-2 mock, and the strict pure-human tier (BUILD-PLAN sections 1.4 and 8)",
-    "the report populations' split names (old Dev-iter continuity, the CC format-v1 paired set, the CC pilot sample) by forward amendment to item 15.4's list",
+/// What B10 still leaves open after its second part; recorded in every
+/// evaluation (see also [`part2::READINGS`]).
+pub const PENDING: [&str; 17] = [
+    "the report populations' split names (old Dev-iter continuity, the CC format-v1 paired set, the CC pilot sample) by forward amendment to item 15.4's list; until then T3h runs only on a listed split",
+    "the CC format-v1 paired-set difference-in-differences (r1's T5e, continuity only): needs that population's split name and r1's definition",
+    "mwl_alpha_v1 (mean length of alphabetic runs) has no implementation on main: T3e reads it as a numeric row field that the round-2 rows writer (B7, B8, B18) or a feature pass must write",
+    "B3b (frontier and spliced raw twins): until it lands, frontier and spliced positives have no raw twin and enter no FS pair",
+    "B11 (not built) writes the slop_ninja_a_r2_slack_v1 record that T4a and T4b read: population_rows_sha256, system, export (product, mainnet or testnet), cal_population.split (cal2_t, cal2_c or cal2_mock), cross_fitted true, and seeds.<seed>.slack_share_of_b0",
+    "B13 (not built) writes the slop_ninja_a_r2_planned_v1 values for the null check: joint_pass_probability_at_zero (item 1.10 (a)) and, per subset gate and block (key <gate>.<block>, e.g. T1c.C), pass_probability_at_zero and planned_se",
+    "B15 (not built): the Dev-iter-2, CAL-2 and Test-2 mocks at W_A8 x 20/55/25 with ledger units and batches, amendment 8.1's reserve-check record, and the consumed Test-2 mock for S6-1",
+    "B7, B8 and B18 (not built) write the round-2 rows: item 15.4's split names, B3's twin_of and stratum, B14's probe_of and form_inject, a crawl-year field on CC humans and the MWL field",
+    "the tools behind T5a (G0d), T6a-T6c, T7a-T7c and T7e write (or are wrapped into) slop_ninja_a_r2_external_gate_v1 records (protocol, candidate, status) that the decision record reads by digest",
+    "B17's held-out family pin: until it exists, T5e's family list and T2's held-out generators are configuration, recorded in the evaluation and the slice plan",
+    "the d check's 2,000 x 1,024-document batches: their draw rule is not fixed (item 1.13 says random); B10 reads them as a file of 2,000 lines of 1,024 distinct ids",
+    "the gate floors (share, attribution, span) and both pure-human FPR tiers' bounds and comparison rule: the manifest in force (reward-v1-live) defines them; B10 reports the pure-human counts at 0.5",
+    "§9.2 step 8's Dev-iter-2 vs Dev-select-2 rank agreement: needs the Dev-iter-2 evaluation as an input and a rank statistic (a reading); the selection record holds every candidate's Dev-select-2 values",
+    "T3e's flags by within-domain MWL quintile (reported): needs a quintile rule and the flag point (a reading)",
+    "the old Dev-iter continuity score is the bound evaluator's, on a per-split export that parses no old Dev-select line",
+    "B18's seal carries S3-4's SD from the B10 evaluation record that S4-1's slice plan binds by digest",
+    "a forward amendment fixing part2::READINGS before §9.1 step 1 (the first B10 scoring of Dev-iter-2), S3-1, S3-4 and S4-1",
 ];
 
 // ------------------------------------------------------------------ config
@@ -300,6 +314,24 @@ pub struct Config {
     pub blends: Vec<BlendSpec>,
     #[serde(default)]
     pub gates: Vec<GateSpec>,
+    /// S3-1's s and S3-4's SD (part 2).
+    #[serde(default)]
+    pub measures: Vec<part2::MeasureSpec>,
+    /// §9.1 step 4's null-check record (only with `null_check`).
+    #[serde(default)]
+    pub null_check_plan: Option<part2::NullPlan>,
+    /// §9.2 steps 5–9 (selection-record-r2.json).
+    #[serde(default)]
+    pub selection: Option<part2::SelectionSpec>,
+    /// §11.10's decision record.
+    #[serde(default)]
+    pub decision: Option<part2::DecisionSpec>,
+    /// Named sets of reported comparisons (R0-recal and R0-shipped companions).
+    #[serde(default)]
+    pub report_sets: Vec<part2::ReportSet>,
+    /// S6-1's inputs on the consumed Test-2 mock.
+    #[serde(default)]
+    pub replacement: Option<part2::ReplacementSpec>,
 }
 
 fn released() -> u64 {
@@ -319,6 +351,20 @@ pub struct PopulationSpec {
     /// Mock only: the row field naming each row's ledger unit.
     #[serde(default)]
     pub unit_field: Option<String>,
+    /// B14's H-inj twins of another population's humans (part 2).
+    #[serde(default)]
+    pub probe: Option<ProbeSpec>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProbeSpec {
+    /// `h_inj_c` or `h_inj_l`.
+    pub kind: String,
+    /// The population whose humans these twin.
+    pub of: String,
+    /// B14's `slop_ninja_a_form_inject_probe_v1` manifest.
+    pub manifest: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -351,6 +397,10 @@ pub enum Statistic {
     Brier,
     /// Human-only involvement Brier, balanced over the primary humans (S2 H1).
     HumanBrierBalanced,
+    /// T3e's MWL slope on humans (margins only; needs `field`).
+    MwlSlope,
+    /// T3h's |β| (margins only; needs `field`, the crawl year).
+    EraAbsSlope,
 }
 
 impl Statistic {
@@ -358,7 +408,13 @@ impl Statistic {
         match self {
             Statistic::Brier => "brier_gate_weights",
             Statistic::HumanBrierBalanced => "human_brier_balanced",
+            Statistic::MwlSlope => "mwl_slope",
+            Statistic::EraAbsSlope => "era_abs_slope",
         }
+    }
+
+    fn needs_field(self) -> bool {
+        matches!(self, Statistic::MwlSlope | Statistic::EraAbsSlope)
     }
 }
 
@@ -379,6 +435,9 @@ pub struct MarginSpec {
     pub statistic: Statistic,
     pub population: String,
     pub system: String,
+    /// The row field of a slope statistic.
+    #[serde(default)]
+    pub field: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -545,6 +604,115 @@ pub enum GateSpec {
         system: String,
         levels: Vec<Level>,
     },
+    /// T2 (`r2_slice_gate_v2`) on the S4-1 slice plan record (part 2).
+    Slices {
+        id: String,
+        plan: PathBuf,
+        plan_sha256: String,
+        candidate: String,
+        comparator: String,
+        #[serde(default)]
+        comparator_recipe: Option<String>,
+        levels: Vec<Level>,
+    },
+    /// T5b, T5e: FS(candidate) − FS(comparator) over paired positives; two
+    /// pairs (one per block) pool both blocks' paired positives (T5e, reading R15).
+    Fs {
+        id: String,
+        pairs: Vec<FsPair>,
+        candidate: String,
+        comparator: String,
+        #[serde(default)]
+        comparator_recipe: Option<String>,
+        levels: Vec<Level>,
+        /// T5e: only positives of these generator families.
+        #[serde(default)]
+        families: Option<Vec<String>>,
+        #[serde(default)]
+        margin: Option<MarginRef>,
+        #[serde(default)]
+        strict: bool,
+    },
+    /// FRI (reported with T5b).
+    Fri {
+        id: String,
+        n_population: String,
+        r_population: String,
+        system: String,
+    },
+    /// T3f: the H-inj shift of one system on a twin population.
+    Shift {
+        id: String,
+        population: String,
+        system: String,
+        levels: Vec<Level>,
+        #[serde(default)]
+        margin: Option<MarginRef>,
+        /// H-inj-L: `draws[24] ≥ −m` as well.
+        #[serde(default)]
+        two_sided: bool,
+    },
+    /// T3e: the MWL slope difference among humans.
+    Slope {
+        id: String,
+        population: String,
+        field: String,
+        candidate: String,
+        comparator: String,
+        #[serde(default)]
+        comparator_recipe: Option<String>,
+        levels: Vec<Level>,
+        #[serde(default)]
+        margin: Option<MarginRef>,
+    },
+    /// T3h: era no-worse, |β_cand| − |β_comp|.
+    EraSlope {
+        id: String,
+        population: String,
+        field: String,
+        candidate: String,
+        comparator: String,
+        #[serde(default)]
+        comparator_recipe: Option<String>,
+        levels: Vec<Level>,
+        #[serde(default)]
+        margin: Option<MarginRef>,
+        /// Reported only: the slope of the uncalibrated involvement logit
+        /// (item 1.8; reading R8) on the uncalibrated systems named.
+        #[serde(default)]
+        logit: bool,
+    },
+    /// T4a, T4b: B11's cross-fitted slack record against a frozen bound;
+    /// without a bound it is reported (R0's and R0-recal's slack, §9.1 step 5).
+    Slack {
+        id: String,
+        population: String,
+        system: String,
+        record: PathBuf,
+        record_sha256: String,
+        #[serde(default)]
+        bound: Option<part2::SlackBound>,
+        levels: Vec<Level>,
+    },
+    /// T8b: T8a's r on a mock population, overall and by row field (reported).
+    T8b {
+        id: String,
+        population: String,
+        candidate: String,
+        comparator: String,
+        #[serde(default)]
+        comparator_recipe: Option<String>,
+        levels: Vec<Level>,
+        #[serde(default)]
+        by: Vec<String>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsPair {
+    pub n_population: String,
+    pub r_population: String,
 }
 
 impl GateSpec {
@@ -554,7 +722,15 @@ impl GateSpec {
             | GateSpec::CpFlags { id, .. }
             | GateSpec::ExactPaired { id, .. }
             | GateSpec::T8a { id, .. }
-            | GateSpec::Completion { id, .. } => id,
+            | GateSpec::Completion { id, .. }
+            | GateSpec::Slices { id, .. }
+            | GateSpec::Fs { id, .. }
+            | GateSpec::Fri { id, .. }
+            | GateSpec::Shift { id, .. }
+            | GateSpec::Slope { id, .. }
+            | GateSpec::EraSlope { id, .. }
+            | GateSpec::Slack { id, .. }
+            | GateSpec::T8b { id, .. } => id,
         }
     }
 
@@ -571,11 +747,93 @@ impl GateSpec {
             GateSpec::CpFlags { system, .. } | GateSpec::Completion { system, .. } => {
                 s.insert(system.as_str());
             }
-            GateSpec::ExactPaired { candidate, .. } | GateSpec::T8a { candidate, .. } => {
+            GateSpec::ExactPaired { candidate, .. }
+            | GateSpec::T8a { candidate, .. }
+            | GateSpec::Slices { candidate, .. }
+            | GateSpec::Fs { candidate, .. }
+            | GateSpec::Slope { candidate, .. }
+            | GateSpec::EraSlope { candidate, .. }
+            | GateSpec::T8b { candidate, .. } => {
                 s.insert(candidate.as_str());
             }
+            // A slack record without a bound is a report (R0's and R0-recal's, §9.1 step 5).
+            GateSpec::Slack { system, bound, .. } => {
+                if bound.is_some() {
+                    s.insert(system.as_str());
+                }
+            }
+            // A shift without a margin is a report (R0's own shifts, a comparator).
+            GateSpec::Shift { system, margin, .. } => {
+                if margin.is_some() {
+                    s.insert(system.as_str());
+                }
+            }
+            GateSpec::Fri { .. } => {}
         }
         s
+    }
+
+    /// Whether the gate has a pass rule (otherwise it is reported only).
+    pub fn gated(&self) -> bool {
+        match self {
+            GateSpec::Paired { margin, .. }
+            | GateSpec::Fs { margin, .. }
+            | GateSpec::Shift { margin, .. }
+            | GateSpec::Slope { margin, .. }
+            | GateSpec::EraSlope { margin, .. } => margin.is_some(),
+            GateSpec::Slack { bound, .. } => bound.is_some(),
+            GateSpec::CpFlags { .. }
+            | GateSpec::ExactPaired { .. }
+            | GateSpec::T8a { .. }
+            | GateSpec::Completion { .. }
+            | GateSpec::Slices { .. } => true,
+            GateSpec::Fri { .. } | GateSpec::T8b { .. } => false,
+        }
+    }
+
+    /// The levels the gate evaluates.
+    pub fn levels(&self) -> &[Level] {
+        match self {
+            GateSpec::Paired { levels, .. }
+            | GateSpec::CpFlags { levels, .. }
+            | GateSpec::ExactPaired { levels, .. }
+            | GateSpec::T8a { levels, .. }
+            | GateSpec::Completion { levels, .. }
+            | GateSpec::Slices { levels, .. }
+            | GateSpec::Fs { levels, .. }
+            | GateSpec::Shift { levels, .. }
+            | GateSpec::Slope { levels, .. }
+            | GateSpec::EraSlope { levels, .. }
+            | GateSpec::Slack { levels, .. }
+            | GateSpec::T8b { levels, .. } => levels,
+            GateSpec::Fri { .. } => &[],
+        }
+    }
+
+    /// The populations the gate reads (T2's come from its plan record).
+    pub fn populations(&self) -> Vec<&str> {
+        match self {
+            GateSpec::Paired { terms, .. } => terms.iter().map(|t| t.population.as_str()).collect(),
+            GateSpec::CpFlags { population, .. }
+            | GateSpec::ExactPaired { population, .. }
+            | GateSpec::T8a { population, .. }
+            | GateSpec::Shift { population, .. }
+            | GateSpec::Slope { population, .. }
+            | GateSpec::EraSlope { population, .. }
+            | GateSpec::Slack { population, .. }
+            | GateSpec::T8b { population, .. } => vec![population.as_str()],
+            GateSpec::Completion { populations, .. } => populations.iter().map(String::as_str).collect(),
+            GateSpec::Fs { pairs, .. } => pairs
+                .iter()
+                .flat_map(|t| [t.n_population.as_str(), t.r_population.as_str()])
+                .collect(),
+            GateSpec::Fri {
+                n_population,
+                r_population,
+                ..
+            } => vec![n_population.as_str(), r_population.as_str()],
+            GateSpec::Slices { .. } => vec![],
+        }
     }
 }
 
@@ -833,6 +1091,14 @@ pub struct Population {
     pub human_weights: Vec<f64>,
     /// Extra named fields per primary position (batch fields).
     pub extra: BTreeMap<String, Vec<String>>,
+    /// Optional named raw fields per primary position (part 2: B3's
+    /// `twin_of` and `stratum`, B14's `probe_of` and `form_inject`, numeric
+    /// fields, T8b's by-fields); never a text field.
+    pub opt: BTreeMap<String, Vec<Option<Value>>>,
+    /// Block C: the share table its cohort weights use (slice weights).
+    pub table: Option<ShareTable>,
+    /// B14's H-inj twins (part 2).
+    pub probe: Option<part2::Probe>,
 }
 
 fn scalar_key(v: &Value, what: &str, id: &str) -> Result<String> {
@@ -1048,7 +1314,11 @@ pub fn field_weights(raw: &[f64]) -> Result<Vec<f64>> {
     Ok(raw.iter().map(|x| x / t).collect())
 }
 
-fn load_population(spec: &PopulationSpec, extra_fields: &BTreeSet<String>) -> Result<Population> {
+fn load_population(
+    spec: &PopulationSpec,
+    extra_fields: &BTreeSet<String>,
+    opt_fields: &BTreeSet<String>,
+) -> Result<Population> {
     split_policy(&spec.split)?;
     let bytes = read(&spec.rows)?;
     // Every line's split from its bytes, before any line is parsed or hashed.
@@ -1072,7 +1342,17 @@ fn load_population(spec: &PopulationSpec, extra_fields: &BTreeSet<String>) -> Re
             r.split
         );
     }
+    ensure!(
+        !opt_fields.contains("text") && !extra_fields.contains("text"),
+        "population {}: the text field is never read",
+        spec.id
+    );
+    let mut opt_fields = opt_fields.clone();
+    if spec.probe.is_some() {
+        opt_fields.extend(part2::PROBE_FIELDS.iter().map(|s| s.to_string()));
+    }
     let mut wanted: BTreeSet<String> = extra_fields.clone();
+    wanted.extend(opt_fields.iter().cloned());
     wanted.insert("block".into());
     if let WeightSpec::Field { field } = &spec.weights {
         wanted.insert(field.clone());
@@ -1113,13 +1393,17 @@ fn load_population(spec: &PopulationSpec, extra_fields: &BTreeSet<String>) -> Re
         spec.id
     );
     let balanced = balanced_weights(&rows, &primary);
+    let mut table = None;
     let (weights, weight_record) = match &spec.weights {
         WeightSpec::Balanced => (
             balanced.clone(),
             json!({"rule": "protocol balanced weights (comp_eval::balanced_weights over the primary rows)"}),
         ),
         WeightSpec::Cohort { shares } => {
-            cohort_weights(&rows, &primary, &ShareTable::parse(&read(shares)?)?)?
+            let t = ShareTable::parse(&read(shares)?)?;
+            let w = cohort_weights(&rows, &primary, &t)?;
+            table = Some(t);
+            w
         }
         WeightSpec::Field { field } => {
             let mut v = Vec::with_capacity(primary.len());
@@ -1181,6 +1465,23 @@ fn load_population(spec: &PopulationSpec, extra_fields: &BTreeSet<String>) -> Re
             .collect::<Result<Vec<_>>>()?;
         extra.insert(f.clone(), v);
     }
+    let opt: BTreeMap<String, Vec<Option<Value>>> = opt_fields
+        .iter()
+        .map(|f| {
+            let v = primary
+                .iter()
+                .map(|&i| raw[&rows[i].id].get(f).cloned().filter(|x| !x.is_null()))
+                .collect();
+            (f.clone(), v)
+        })
+        .collect();
+    let probe = match &spec.probe {
+        Some(ps) => Some(
+            part2::load_probe(ps, &spec.split, &rows, &primary, &opt)
+                .with_context(|| format!("population {}", spec.id))?,
+        ),
+        None => None,
+    };
     let ids = rows.iter().map(|r| r.id.clone()).collect();
     Ok(Population {
         id: spec.id.clone(),
@@ -1199,6 +1500,9 @@ fn load_population(spec: &PopulationSpec, extra_fields: &BTreeSet<String>) -> Re
         humans,
         human_weights,
         extra,
+        opt,
+        table,
+        probe,
     })
 }
 
@@ -1220,6 +1524,8 @@ impl Population {
             "unit": if self.block == Block::Mock { "ledger unit (named field)" } else { "source group" },
             "weights": rec,
             "human_weights_kish_ess": kish_ess(&self.human_weights),
+            "probe": self.probe.as_ref().map(|p| json!({"kind": p.kind, "of": p.of, "manifest": p.manifest,
+                "manifest_sha256": p.manifest_sha256, "manifest_lines": p.manifest_lines})),
         })
     }
 
@@ -1238,6 +1544,10 @@ pub struct SeedRun {
     pub seed: u64,
     pub loss: Vec<f64>,
     pub flag: Vec<f64>,
+    /// Involvement per primary position (worst case for a failure; part 2).
+    pub inv: Vec<f64>,
+    /// Whether the primary position's prediction failed or is missing (part 2).
+    pub fail: Vec<bool>,
     pub failed: usize,
     pub missing: usize,
     pub ops: Option<BTreeMap<&'static str, f64>>,
@@ -1291,7 +1601,9 @@ fn load_run(pop: &Population, spec: &SystemSpec) -> Result<SeedRun> {
         }
         None => (None, None),
     };
-    let (mut loss, mut flag) = (
+    let (mut loss, mut flag, mut inv, mut fail) = (
+        Vec::with_capacity(pop.primary.len()),
+        Vec::with_capacity(pop.primary.len()),
         Vec::with_capacity(pop.primary.len()),
         Vec::with_capacity(pop.primary.len()),
     );
@@ -1303,12 +1615,16 @@ fn load_run(pop: &Population, spec: &SystemSpec) -> Result<SeedRun> {
         let (l, f, x) = score_doc(r, o);
         loss.push(l);
         flag.push(f);
+        inv.push(part2::involvement_doc(r, o));
+        fail.push(x);
         failed += x as usize;
     }
     Ok(SeedRun {
         seed: spec.seed,
         loss,
         flag,
+        inv,
+        fail,
         failed,
         missing,
         ops,
@@ -1916,17 +2232,34 @@ fn pick(seeds: &BTreeMap<u64, SeedRun>, released: u64) -> Result<&SeedRun> {
 fn stat_value(pop: &Population, stat: Statistic, loss: &[f64]) -> f64 {
     match stat {
         Statistic::Brier => wmean(&pop.weights, loss),
-        Statistic::HumanBrierBalanced => {
+        Statistic::HumanBrierBalanced | Statistic::MwlSlope | Statistic::EraAbsSlope => {
             let h: Vec<f64> = pop.humans.iter().map(|&p| loss[p]).collect();
             wmean(&pop.human_weights, &h)
         }
     }
 }
 
+/// A margin statistic on one seed: part 1's loss statistics, or part 2's slopes.
+fn margin_stat(pop: &Population, m: &MarginSpec, r: &SeedRun) -> Result<f64> {
+    match (m.statistic, &m.field) {
+        (Statistic::MwlSlope, Some(f)) => part2::mwl_slope_seed(pop, f, r),
+        (Statistic::EraAbsSlope, Some(f)) => part2::era_abs_slope_seed(pop, f, r),
+        (s, None) if !s.needs_field() => Ok(stat_value(pop, s, &r.loss)),
+        _ => bail!(
+            "margin {}: statistic {} {} a field",
+            m.id,
+            m.statistic.name(),
+            if m.statistic.needs_field() { "needs" } else { "takes no" }
+        ),
+    }
+}
+
 fn stat_ess(pop: &Population, stat: Statistic) -> f64 {
     match stat {
         Statistic::Brier => kish_ess(&pop.weights),
-        Statistic::HumanBrierBalanced => kish_ess(&pop.human_weights),
+        Statistic::HumanBrierBalanced | Statistic::MwlSlope | Statistic::EraAbsSlope => {
+            kish_ess(&pop.human_weights)
+        }
     }
 }
 
@@ -1949,7 +2282,12 @@ fn compute_margins(
         let pop = pops
             .get(&m.population)
             .with_context(|| format!("margin {}: unknown population {}", m.id, m.population))?;
-        if m.statistic == Statistic::HumanBrierBalanced {
+        ensure!(
+            !(m.statistic.needs_field() && m.kind == MarginKind::SigmaMB0),
+            "margin {}: a slope margin is a reseed SD",
+            m.id
+        );
+        if m.statistic != Statistic::Brier {
             ensure!(
                 !pop.humans.is_empty(),
                 "margin {}: population {} has no humans",
@@ -1960,8 +2298,8 @@ fn compute_margins(
         let seeds = runs(book, &m.population, &m.system)?;
         let per: BTreeMap<u64, f64> = seeds
             .iter()
-            .map(|(s, r)| (*s, stat_value(pop, m.statistic, &r.loss)))
-            .collect();
+            .map(|(s, r)| Ok((*s, margin_stat(pop, m, r)?)))
+            .collect::<Result<_>>()?;
         let (value, artifact, fault) = match m.kind {
             MarginKind::ReseedSd => {
                 let v: Vec<f64> = per.values().copied().collect();
@@ -1994,6 +2332,7 @@ fn compute_margins(
             json!({
                 "kind": match m.kind { MarginKind::ReseedSd => "reseed_sd", MarginKind::SigmaMB0 => "sigma_m_b0" },
                 "statistic": m.statistic.name(),
+                "field": m.field,
                 "population": m.population,
                 "system": m.system,
                 "per_seed": per.iter().map(|(s, v)| (s.to_string(), json!(v))).collect::<Map<_, _>>(),
@@ -2031,7 +2370,11 @@ fn compute_margins(
 
 /// Every system a gate evaluates.
 fn gate_candidates(cfg: &Config) -> BTreeSet<&str> {
-    cfg.gates.iter().flat_map(|g| g.candidates()).collect()
+    cfg.gates
+        .iter()
+        .flat_map(|g| g.candidates())
+        .chain(cfg.measures.iter().map(|m| m.candidate()))
+        .collect()
 }
 
 // ------------------------------------------------------------------ gates
@@ -2054,32 +2397,7 @@ fn level_loss(
     released: u64,
     recipe_side: bool,
 ) -> Result<(Vec<f64>, Vec<u64>)> {
-    match level {
-        Level::Artifact => {
-            let r = pick(seeds, released)?;
-            Ok((r.loss.clone(), vec![r.seed]))
-        }
-        Level::Recipe => {
-            let s = seed_list(seeds);
-            if recipe_side {
-                ensure!(
-                    s == RECIPE_SEEDS,
-                    "recipe level needs seeds {RECIPE_SEEDS:?}, got {s:?}"
-                );
-            } else {
-                ensure!(
-                    s == RECIPE_SEEDS || s.len() == 1,
-                    "a recipe comparator needs seeds {RECIPE_SEEDS:?} or one seed, got {s:?}"
-                );
-            }
-            let rs: Vec<&SeedRun> = seeds.values().collect();
-            let n = rs[0].loss.len();
-            let v = (0..n)
-                .map(|p| rs.iter().map(|r| r.loss[p]).sum::<f64>() / rs.len() as f64)
-                .collect();
-            Ok((v, s))
-        }
-    }
+    part2::level_values(seeds, level, released, recipe_side, &|r, p| r.loss[p])
 }
 
 fn margin_value(
@@ -2182,6 +2500,9 @@ fn paired_gate(ctx: &Ctx, spec: &GateSpec) -> Result<Value> {
             let (pos, w): (Vec<usize>, &[f64]) = match statistic {
                 Statistic::Brier => ((0..pop.primary.len()).collect(), &pop.weights),
                 Statistic::HumanBrierBalanced => (pop.humans.clone(), &pop.human_weights),
+                Statistic::MwlSlope | Statistic::EraAbsSlope => {
+                    bail!("gate {id}: {} is a slope; use a slope or era_slope gate", statistic.name())
+                }
             };
             ensure!(
                 !pos.is_empty(),
@@ -2707,16 +3028,25 @@ fn validate(cfg: &Config) -> Result<()> {
     let mut ids = BTreeSet::new();
     for m in &cfg.margins {
         ensure!(ids.insert(m.id.as_str()), "margin {} named twice", m.id);
+        ensure!(
+            m.statistic.needs_field() == m.field.is_some(),
+            "margin {}: a field is named exactly for a slope statistic",
+            m.id
+        );
     }
     let mut gids = BTreeSet::new();
     for g in &cfg.gates {
         ensure!(gids.insert(g.id()), "gate {} named twice", g.id());
-        if let GateSpec::Paired {
-            margin: Some(m),
-            id,
-            ..
-        } = g
-        {
+        let margin = match g {
+            GateSpec::Paired { margin, .. }
+            | GateSpec::Fs { margin, .. }
+            | GateSpec::Shift { margin, .. }
+            | GateSpec::Slope { margin, .. }
+            | GateSpec::EraSlope { margin, .. } => margin.as_ref(),
+            _ => None,
+        };
+        if let Some(m) = margin {
+            let id = g.id();
             ensure!(
                 m.margin.is_some() != m.value.is_some(),
                 "gate {id}: a margin names exactly one of margin and value"
@@ -2724,6 +3054,47 @@ fn validate(cfg: &Config) -> Result<()> {
             if let Some(r) = &m.margin {
                 ensure!(ids.contains(r.as_str()), "gate {id}: unknown margin {r}");
             }
+        }
+        if let GateSpec::Slack {
+            bound: Some(b),
+            id,
+            population,
+            ..
+        } = g
+        {
+            let block = cfg
+                .populations
+                .iter()
+                .find(|p| &p.id == population)
+                .with_context(|| format!("gate {id}: unknown population {population}"))?
+                .block;
+            part2::check_slack_bound(id, block, b)?;
+        }
+        if let GateSpec::EraSlope {
+            logit: true,
+            margin: Some(_),
+            id,
+            ..
+        } = g
+        {
+            bail!("gate {id}: the logit-scale era slope is reported only (item 1.8) and takes no margin");
+        }
+        if let GateSpec::Fs { pairs, id, .. } = g {
+            let blocks: Vec<Block> = pairs
+                .iter()
+                .map(|t| {
+                    cfg.populations
+                        .iter()
+                        .find(|p| p.id == t.n_population)
+                        .map(|p| p.block)
+                        .with_context(|| format!("gate {id}: unknown population {}", t.n_population))
+                })
+                .collect::<Result<_>>()?;
+            let distinct: BTreeSet<Block> = blocks.iter().copied().collect();
+            ensure!(
+                !pairs.is_empty() && pairs.len() <= 2 && distinct.len() == pairs.len(),
+                "gate {id}: an FS gate takes one N/R pair, or one per block pooled (T5e, reading R15)"
+            );
         }
         if let GateSpec::T8a { sealed, id, .. } = g {
             let (b, n, _) = t8a_branch(sealed.s)?;
@@ -2757,6 +3128,24 @@ fn validate(cfg: &Config) -> Result<()> {
             );
         }
     }
+    let mut mids = BTreeSet::new();
+    for m in &cfg.measures {
+        ensure!(mids.insert(m.id()), "measure {} named twice", m.id());
+    }
+    if let Some(np) = &cfg.null_check_plan {
+        ensure!(cfg.null_check, "a null-check plan needs a null-check configuration (§9.1 step 4)");
+        part2::validate_null_plan(cfg, np)?;
+    }
+    if let Some(sel) = &cfg.selection {
+        part2::validate_selection(cfg, sel)?;
+    }
+    if let Some(d) = &cfg.decision {
+        part2::validate_decision(cfg, d)?;
+    }
+    part2::validate_report_sets(cfg, &cfg.report_sets)?;
+    if let Some(r) = &cfg.replacement {
+        part2::validate_replacement(cfg, r)?;
+    }
     if !cfg.null_check {
         let comparators: BTreeSet<&str> = cfg.comparators.iter().map(String::as_str).collect();
         for c in gate_candidates(cfg) {
@@ -2782,6 +3171,42 @@ fn extra_fields(cfg: &Config) -> BTreeMap<String, BTreeSet<String>> {
             m.entry(population.clone())
                 .or_default()
                 .insert(batch_field.clone());
+        }
+    }
+    m
+}
+
+/// Optional row fields each population loads for part 2's gates and margins.
+fn opt_fields(cfg: &Config) -> BTreeMap<String, BTreeSet<String>> {
+    let mut m: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut add = |p: &str, f: &str| {
+        m.entry(p.to_string()).or_default().insert(f.to_string());
+    };
+    for g in &cfg.gates {
+        match g {
+            GateSpec::Fs { pairs, .. } => {
+                for t in pairs {
+                    add(&t.r_population, "twin_of");
+                    add(&t.r_population, "stratum");
+                }
+            }
+            GateSpec::Slope {
+                population, field, ..
+            }
+            | GateSpec::EraSlope {
+                population, field, ..
+            } => add(population, field),
+            GateSpec::T8b { population, by, .. } => {
+                for f in by {
+                    add(population, f);
+                }
+            }
+            _ => {}
+        }
+    }
+    for x in &cfg.margins {
+        if let Some(f) = &x.field {
+            add(&x.population, f);
         }
     }
     m
@@ -2878,16 +3303,32 @@ pub fn run(cfg: &Config, margins_path: &Path, out_path: &Path) -> Result<Value> 
         "{} exists: a new output is required",
         out_path.display()
     );
+    if let Some(sel) = &cfg.selection {
+        ensure!(
+            !sel.record.exists(),
+            "{} exists: a new selection record is required",
+            sel.record.display()
+        );
+    }
     let extra = extra_fields(cfg);
+    let opt = opt_fields(cfg);
+    for k in opt.keys() {
+        ensure!(
+            cfg.populations.iter().any(|p| &p.id == k),
+            "a gate or margin names unknown population {k}"
+        );
+    }
     let mut pops = BTreeMap::new();
     for p in &cfg.populations {
         let e = extra.get(&p.id).cloned().unwrap_or_default();
+        let o = opt.get(&p.id).cloned().unwrap_or_default();
         pops.insert(
             p.id.clone(),
-            load_population(p, &e).with_context(|| format!("population {}", p.id))?,
+            load_population(p, &e, &o).with_context(|| format!("population {}", p.id))?,
         );
     }
     check_form_humans(&pops)?;
+    part2::check_probes(&pops)?;
     // 1. Margins, from comparator outputs only, written before any difference.
     let comparators: BTreeSet<&str> = cfg.comparators.iter().map(String::as_str).collect();
     let mut book: Book = BTreeMap::new();
@@ -2961,9 +3402,64 @@ pub fn run(cfg: &Config, margins_path: &Path, out_path: &Path) -> Result<Value> 
                 GateSpec::ExactPaired { .. } => exact_gate(&ctx, g)?,
                 GateSpec::T8a { .. } => t8a_gate(&ctx, g)?,
                 GateSpec::Completion { .. } => completion_gate(&ctx, g)?,
+                GateSpec::Slices { .. } => part2::slices_gate(&ctx, g)?,
+                GateSpec::Fs { .. } => part2::fs_gate(&ctx, g)?,
+                GateSpec::Fri { .. } => part2::fri_gate(&ctx, g)?,
+                GateSpec::Shift { .. } => part2::shift_gate(&ctx, g)?,
+                GateSpec::Slope { .. } => part2::slope_gate(&ctx, g)?,
+                GateSpec::EraSlope { .. } => part2::era_gate(&ctx, g)?,
+                GateSpec::Slack { .. } => part2::slack_gate(&ctx, g)?,
+                GateSpec::T8b { .. } => part2::t8b_gate(&ctx, g)?,
             }
         });
     }
+    let ne = || json!({"status": "not_evaluated", "reasons": [UNEQUAL]});
+    let measures: Vec<Value> = if equal {
+        cfg.measures
+            .iter()
+            .map(|m| part2::measure(&ctx, m))
+            .collect::<Result<_>>()?
+    } else {
+        cfg.measures
+            .iter()
+            .map(|m| json!({"id": m.id(), "status": "not_evaluated", "reasons": [UNEQUAL]}))
+            .collect()
+    };
+    let null_rec = match &cfg.null_check_plan {
+        Some(np) if equal => part2::null_check_record(np, &gates)?,
+        Some(_) => ne(),
+        None => Value::Null,
+    };
+    // The selection record is computed here and written last, just before the
+    // evaluation, so that no later step can fail after it exists.
+    let (selection, selection_bytes) = match &cfg.selection {
+        Some(sel) if equal => {
+            let (v, b) = part2::selection(&ctx, sel, &gates, &blend)?;
+            (v, Some((sel.record.clone(), b)))
+        }
+        Some(_) => (ne(), None),
+        None => (Value::Null, None),
+    };
+    let decision = match &cfg.decision {
+        Some(d) if equal => part2::decision_record(d, &gates)?,
+        Some(_) => ne(),
+        None => Value::Null,
+    };
+    let reports = if equal {
+        part2::report_sets(&cfg.report_sets, &gates)?
+    } else {
+        Value::Object(
+            cfg.report_sets
+                .iter()
+                .map(|r| (r.id.clone(), ne()))
+                .collect(),
+        )
+    };
+    let replacement = match &cfg.replacement {
+        Some(r) if equal => part2::replacement(&ctx, r)?,
+        Some(_) => ne(),
+        None => Value::Null,
+    };
     let out = json!({
         "schema": EVAL_SCHEMA,
         "protocol": PROTOCOL,
@@ -2979,9 +3475,20 @@ pub fn run(cfg: &Config, margins_path: &Path, out_path: &Path) -> Result<Value> 
         "per_seed_equality": eq,
         "blends": blend,
         "gates": gates,
-        "pending_part_2": PENDING,
+        "measures": measures,
+        "null_check": null_rec,
+        "selection": selection,
+        "decision": decision,
+        "report_sets": reports,
+        "replacement": replacement,
+        "readings": part2::READINGS,
+        "pending": PENDING,
     });
-    write_new(out_path, &pretty(&out)?)?;
+    let out_bytes = pretty(&out)?;
+    if let Some((p, b)) = &selection_bytes {
+        write_new(p, b)?;
+    }
+    write_new(out_path, &out_bytes)?;
     Ok(out)
 }
 
@@ -2991,18 +3498,18 @@ mod tests {
     use crate::comp_eval::group_values;
     use crate::pangram_subsample::bootstrap_interval;
 
-    fn unif(s: &str) -> f64 {
+    pub(super) fn unif(s: &str) -> f64 {
         let d = Sha256::digest(s.as_bytes());
         (u64::from_le_bytes(d[..8].try_into().unwrap()) >> 11) as f64 / (1u64 << 53) as f64
     }
 
     /// The tracked `cc_launch_shares_v5` table (pinned by [`SHARES_SHA256`]).
-    const SHARES: &[u8] = include_bytes!("../../grammar-cc-human/rules/launch-shares-v5.json");
-    const T_SPLIT: &str = "deviter2_t";
-    const C_SPLIT: &str = "deviter2_c";
-    const MOCK_SPLIT: &str = "deviter2_mock";
+    pub(super) const SHARES: &[u8] = include_bytes!("../../grammar-cc-human/rules/launch-shares-v5.json");
+    pub(super) const T_SPLIT: &str = "deviter2_t";
+    pub(super) const C_SPLIT: &str = "deviter2_c";
+    pub(super) const MOCK_SPLIT: &str = "deviter2_mock";
 
-    fn row(
+    pub(super) fn row(
         id: &str,
         split: &str,
         origin: &str,
@@ -3019,7 +3526,7 @@ mod tests {
                "population": population, "text": "synthetic text, never read"})
     }
 
-    fn t_rows(form: &str) -> Vec<Value> {
+    pub(super) fn t_rows(form: &str) -> Vec<Value> {
         let mut v = vec![];
         for g in 0..24 {
             let d = if g % 2 == 0 { "wikipedia" } else { "reddit" };
@@ -3069,7 +3576,7 @@ mod tests {
         v
     }
 
-    fn c_rows() -> Vec<Value> {
+    pub(super) fn c_rows() -> Vec<Value> {
         let strata = ["news", "essays", "email"];
         let mut v = vec![];
         for g in 0..18 {
@@ -3113,7 +3620,7 @@ mod tests {
     /// 12 ledger units over 5 source groups: every unit's rows span two or
     /// more groups and every group holds rows of several units, so units and
     /// groups give different bootstraps; W_A8 weights vary by row.
-    fn mock_rows() -> Vec<Value> {
+    pub(super) fn mock_rows() -> Vec<Value> {
         let mut v = vec![];
         for u in 0..12usize {
             let mut add = |id: String, origin: &str, k: usize| {
@@ -3134,7 +3641,7 @@ mod tests {
         v
     }
 
-    fn pred_line(system: &str, seed: u64, r: &Value) -> Option<Value> {
+    pub(super) fn pred_line(system: &str, seed: u64, r: &Value) -> Option<Value> {
         // Twin.p is Cand.p's exact copy (the zero-difference tie case).
         let system = if system == "Twin.p" { "Cand.p" } else { system };
         let id = r["id"].as_str().unwrap();
@@ -3156,17 +3663,17 @@ mod tests {
         )
     }
 
-    struct Fixture {
-        dir: tempfile::TempDir,
-        cfg: Value,
+    pub(super) struct Fixture {
+        pub(super) dir: tempfile::TempDir,
+        pub(super) cfg: Value,
     }
 
-    fn write_lines(p: &Path, v: &[Value]) {
+    pub(super) fn write_lines(p: &Path, v: &[Value]) {
         let s: Vec<String> = v.iter().map(|x| x.to_string()).collect();
         std::fs::write(p, s.join("\n") + "\n").unwrap();
     }
 
-    fn reserve_check(d: &Path, tag: &str, b_m: u64, b_m_prime: u64, binding: &[&str]) -> Value {
+    pub(super) fn reserve_check(d: &Path, tag: &str, b_m: u64, b_m_prime: u64, binding: &[&str]) -> Value {
         let p = d.join(format!("reserve-check-{tag}.json"));
         let body = json!({"synthetic": true, "b_m": b_m, "b_m_prime": b_m_prime, "binding_domains": binding});
         std::fs::write(&p, body.to_string()).unwrap();
@@ -3174,7 +3681,7 @@ mod tests {
                "b_m": b_m, "b_m_prime": b_m_prime, "binding_domains": binding})
     }
 
-    fn fixture() -> Fixture {
+    pub(super) fn fixture() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path();
         let pops: [(&str, &str, Vec<Value>); 4] = [
@@ -3297,7 +3804,7 @@ mod tests {
         Fixture { dir, cfg }
     }
 
-    fn set_gate(cfg: &mut Value, id: &str, f: impl FnOnce(&mut Value)) {
+    pub(super) fn set_gate(cfg: &mut Value, id: &str, f: impl FnOnce(&mut Value)) {
         f(cfg["gates"]
             .as_array_mut()
             .unwrap()
@@ -3307,7 +3814,7 @@ mod tests {
     }
 
     /// The bound evaluator's output for one population, as a_comp_evaluate writes it (inputs block included).
-    fn release_eval(fx: &Fixture, pop: &str, comparisons: &[(String, String)]) -> (PathBuf, Value) {
+    pub(super) fn release_eval(fx: &Fixture, pop: &str, comparisons: &[(String, String)]) -> (PathBuf, Value) {
         let cfg = parse_config(&serde_json::to_vec(&fx.cfg).unwrap()).unwrap();
         let spec = cfg.populations.iter().find(|p| p.id == pop).unwrap();
         let rows: Vec<Row> = parse_rows(&std::fs::read_to_string(&spec.rows).unwrap()).unwrap();
@@ -3353,7 +3860,7 @@ mod tests {
         (p, e)
     }
 
-    fn run_value(fx: &Fixture, cfg: &Value, tag: &str) -> Result<Value> {
+    pub(super) fn run_value(fx: &Fixture, cfg: &Value, tag: &str) -> Result<Value> {
         let c = parse_config(&serde_json::to_vec(cfg).unwrap())?;
         run(
             &c,
@@ -3362,7 +3869,7 @@ mod tests {
         )
     }
 
-    fn gate<'a>(out: &'a Value, id: &str) -> &'a Value {
+    pub(super) fn gate<'a>(out: &'a Value, id: &str) -> &'a Value {
         out["gates"]
             .as_array()
             .unwrap()
@@ -3371,11 +3878,11 @@ mod tests {
             .unwrap()
     }
 
-    fn f(v: &Value) -> f64 {
+    pub(super) fn f(v: &Value) -> f64 {
         v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
     }
 
-    fn err(r: Result<Value>) -> String {
+    pub(super) fn err(r: Result<Value>) -> String {
         format!("{:#}", r.expect_err("expected an error"))
     }
 
@@ -3421,9 +3928,10 @@ mod tests {
                 assert_eq!(mode & 0o777, 0o600, "{f}");
             }
         }
+        assert_eq!(out["pending"].as_array().unwrap().len(), PENDING.len());
         assert_eq!(
-            out["pending_part_2"].as_array().unwrap().len(),
-            PENDING.len()
+            out["readings"].as_array().unwrap().len(),
+            part2::READINGS.len()
         );
         // A second run into the same output is refused.
         assert!(run_value(&fx, &cfg, "e2e").is_err());
@@ -3797,7 +4305,7 @@ mod tests {
     }
 
     /// Per-row (loss, failed) from a predictions file, by the bound scoring rule, computed here.
-    fn losses(path: &Path, rows: &[Value]) -> Vec<f64> {
+    pub(super) fn losses(path: &Path, rows: &[Value]) -> Vec<f64> {
         let mut p: BTreeMap<String, Value> = BTreeMap::new();
         for l in std::fs::read_to_string(path).unwrap().lines() {
             let v: Value = serde_json::from_str(l).unwrap();

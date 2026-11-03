@@ -37,13 +37,14 @@ evaluation is part of the protocol.
 | Piece | State |
 | --- | --- |
 | `slop_ninja_validator` startup checks, `observe`, the dry run and journaled dispatch | built and tested on Linux x86_64; live commits, per-tempo re-commits and fault drills ran on subnet 601 on October 30, 2026, under a fixture package |
-| Verification of `reward-v1` packages | not yet in a released build |
+| Verification of `reward-v1` packages | in the first signed release, not yet published |
 | Published packages on the public status host | not yet live |
 | The package fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, which must also publish the current authorization (below) |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
 | Committing the launch burn row | built and tested offline (rtao's owner-row opt-in, below); not yet committed live on subnet 601 |
+| Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Signed release binaries | not yet live |
+| Signed release binaries (Linux x86_64) | built and signed; published with the public repository |
 
 Today an outside validator can install the binary, create its journal, run the
 startup checks and use `observe`. Committing rows waits for the pieces above.
@@ -265,9 +266,20 @@ It runs on Linux only. The release directory must hold `SHA256SUMS` listing
 each of the two binaries exactly once, and both must match it;
 `--unverified` skips this for binaries you built yourself. `SHA256SUMS` sits
 beside the binaries, so it proves only that the download is intact: verify
-the release's detached signature over it with the published release key
-before you install. No release key is published yet; until one is, build
-from source. Then:
+the release's detached signature over it before you run the installer
+above, with the key and allowed-signers line on the [landing
+page](README.md#release-key):
+
+```sh
+cd <directory with the release binaries>
+ssh-keygen -Y verify -f allowed_signers -I slop-ninja-testnet-release -n file \
+  -s SHA256SUMS.sig < SHA256SUMS
+```
+
+Write `allowed_signers` from the landing page, not from the release's copy,
+and stop unless `ssh-keygen` prints `Good "file" signature`. The release
+binaries are Linux x86_64 (glibc 2.34 or later); elsewhere, build from
+source and pass `--unverified`. Once the unit runs:
 
 ```sh
 systemctl --user status slop_ninja_validator-dispatch@my-instance
@@ -399,11 +411,11 @@ on any failure:
 - every stored receipt object matches its index entry;
 - the package names this validator's chain genesis and netuid.
 
-For `reward-v1` bundles (not yet in a released build) it also checks every
-receipt chunk, the published-artifact index against the manifest's binding, the
-recomputed outcome, the cohort closure against the manifest's minimums, and the
-reward-intent authorization against the active target and its lease, at every
-tempo's re-commit as well.
+For `reward-v1` bundles (from the first signed release, not yet published)
+it also checks every receipt chunk, the published-artifact index against the
+manifest's binding, the recomputed outcome, the cohort closure against the
+manifest's minimums, and the reward-intent authorization against the active
+target and its lease, at every tempo's re-commit as well.
 
 It then reads the subnet's registrations (`SubnetworkN`, `Keys`,
 `BlockAtRegistration`, `SubnetOwnerHotkey`) at the same finalized block and

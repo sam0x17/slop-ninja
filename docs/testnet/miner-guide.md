@@ -19,8 +19,9 @@ closes.
 | Local scorer (`slop_ninja_a_local_score`), the hidden scorer's engine on your machine | built and tested on Linux x86_64; runs offline |
 | Graph exporter (`export_a_onnx.py`) | in the repository |
 | [Training guide](training-guide.md) and its public recipe, the path from ModernBERT-base and public data to an admissible artifact | in the repository; tested end to end on Linux x86_64 with CUDA (a smoke run) |
+| Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Signed release binaries | not yet live |
+| Signed release binaries (Linux x86_64) | built and signed; published with the public repository |
 | Coordinator admission routes, used by `commit`, `upload`, `abort` and the hotkey view of `status` | not yet live |
 | Public status host, used by `status` and `next-cohort`, with the published packages, leaderboard and artifacts | not yet live |
 | The coordinator's admission origin pinned in the release trust file | not yet live |
@@ -33,7 +34,7 @@ are live you cannot commit or upload: `commit` takes the admitting cohort from
 the coordinator, so it does not run without one. The steps below say where they depend on a piece that is not yet
 live. The public repository is
 <https://github.com/sam0x17/slop-ninja>; this page will name the status host
-and the release key when they go live.
+when it goes live. The release key is on the [landing page](README.md#release-key).
 
 ## 1. What you need
 
@@ -55,15 +56,34 @@ and the release key when they go live.
 
 ## 2. Install
 
-### Release binaries (not yet live)
+### Release binaries (Linux x86_64)
 
-Each release will carry the Linux x86_64 binaries, a `SHA256SUMS` file, a
-detached signature over `SHA256SUMS`, and `testnet-trust.json`. The signature
-scheme, the release public key and the exact verification command will be
-published on the [landing page](README.md) with the first release. Verify the
-signature before you run anything, then check each binary against
-`SHA256SUMS` (`sha256sum -c SHA256SUMS`). Keep the release's
-`testnet-trust.json`: the client reads it to decide where it may upload.
+Releases appear on the public repository's Releases page (not yet live).
+Each release holds the Linux x86_64 binaries `slop_ninja_miner` and
+`slop_ninja_artifact_check` (and the validator's two), `testnet-trust.json`,
+`SHA256SUMS` and the detached signature `SHA256SUMS.sig`. The binaries need
+glibc 2.34 or later; on any other platform, build from source.
+
+Download every file of the release into one directory, then verify it before
+you run anything, with the key and allowed-signers line from the [landing
+page](README.md#release-key):
+
+```sh
+printf '%s\n' 'slop-ninja-testnet-release namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGCXMX0I4LTRrHt0MkCsDfg/OUeQ7Sfd0/EytxMUdYPK slop-ninja testnet release' > allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I slop-ninja-testnet-release -n file \
+  -s SHA256SUMS.sig < SHA256SUMS
+sha256sum -c SHA256SUMS
+mkdir -p ~/.local/bin
+install -m 0755 slop_ninja_miner slop_ninja_artifact_check ~/.local/bin/
+slop_ninja_miner --version
+```
+
+`ssh-keygen` must print `Good "file" signature for
+slop-ninja-testnet-release` with the fingerprint
+`SHA256:4YzEnNK8C7zjNWvasiQhv0XDJKdrnKB6L33stMQra1Q`, and `sha256sum` `OK`
+for every file; stop if either does not. Take the key from the landing page,
+not from the release's own copy. Keep the release's `testnet-trust.json`: the
+signature covers it, and the client reads it to decide where it may upload.
 
 ### Build from source
 

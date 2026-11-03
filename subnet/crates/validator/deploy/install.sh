@@ -8,8 +8,8 @@
 # --from DIR       install slop_ninja_validator and slop-ninja-journal from DIR
 #                  into ~/.local/bin. DIR/SHA256SUMS must list both binaries,
 #                  and both must match it. Verify the release signature over
-#                  SHA256SUMS first (no release key is published yet; see the
-#                  validator guide).
+#                  SHA256SUMS first (SHA256SUMS.sig, ssh-keygen -Y verify;
+#                  the key is in docs/testnet/README.md, "Release key").
 # --unverified     install from DIR without SHA256SUMS (a local build)
 # --config FILE    install FILE as the instance configuration (mode 600) when
 #                  none exists; an existing configuration is never replaced

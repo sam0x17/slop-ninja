@@ -50,7 +50,8 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Graph exporter | in the repository |
 | Training guide and public training recipe | in the repository; tested end to end on Linux x86_64 with CUDA (a smoke run) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Signed release binaries and the release public key | not yet live |
+| Release public key | published below ([Release key](#release-key)) |
+| Signed release binaries (Linux x86_64) | built and signed; published with the public repository |
 | Coordinator admission routes (`commit`, `upload`, hotkey status) | not yet live |
 | Public status host: status snapshot, cohort index, signed packages, leaderboard, published artifacts | not yet live |
 | Validator package fetcher | not yet live |
@@ -61,8 +62,60 @@ The links below will appear here when each goes live:
 
 - public repository: <https://github.com/sam0x17/slop-ninja>; issue tracker: not yet live;
 - status host: not yet live;
-- release public key: not yet live;
+- release public key: [below](#release-key);
 - private security contact: not yet live.
+
+## Release key
+
+Each release carries `SHA256SUMS` and a detached signature over it,
+`SHA256SUMS.sig`, made with `ssh-keygen -Y sign -n file` by this OpenSSH
+Ed25519 key:
+
+```text
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGCXMX0I4LTRrHt0MkCsDfg/OUeQ7Sfd0/EytxMUdYPK slop-ninja testnet release
+```
+
+Its fingerprint is
+`SHA256:4YzEnNK8C7zjNWvasiQhv0XDJKdrnKB6L33stMQra1Q`. The allowed-signers
+line for `ssh-keygen -Y verify` is:
+
+```text
+slop-ninja-testnet-release namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGCXMX0I4LTRrHt0MkCsDfg/OUeQ7Sfd0/EytxMUdYPK slop-ninja testnet release
+```
+
+The key signs testnet releases only; mainnet releases will use another key.
+Take the key from this page, not from the release: the copies of
+`allowed_signers` and the `.pub` file in a release prove nothing by
+themselves. Verification needs OpenSSH 8.1 or later (`ssh -V`).
+
+In the directory holding the downloaded release files:
+
+```sh
+printf '%s\n' 'slop-ninja-testnet-release namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGCXMX0I4LTRrHt0MkCsDfg/OUeQ7Sfd0/EytxMUdYPK slop-ninja testnet release' > allowed_signers
+ssh-keygen -Y verify -f allowed_signers -I slop-ninja-testnet-release -n file \
+  -s SHA256SUMS.sig < SHA256SUMS
+sha256sum -c SHA256SUMS
+chmod 0755 slop_ninja_miner slop_ninja_artifact_check slop_ninja_validator slop-ninja-journal
+```
+
+The first command must print
+`Good "file" signature for slop-ninja-testnet-release with ED25519 key SHA256:4YzEnNK8C7zjNWvasiQhv0XDJKdrnKB6L33stMQra1Q`,
+and the second `OK` for every file. Stop if either does not. A release holds:
+
+| File | What it is |
+| --- | --- |
+| `slop_ninja_miner` | the miner client |
+| `slop_ninja_artifact_check` | the artifact checker |
+| `slop_ninja_validator` | the native validator |
+| `slop-ninja-journal` | the validator's journal tool, which the validator installer also installs |
+| `testnet-trust.json` | the trust roots: the coordinator's public application keys and any pinned admission origins |
+| `SHA256SUMS`, `SHA256SUMS.sig` | the digests of the five files above, and the signature over them |
+| `allowed_signers`, `slop-ninja-release-testnet.pub` | copies of the key above, for convenience only |
+
+The binaries are for Linux x86_64. Their symbol versions require glibc 2.34
+or later; they were smoke-tested on one Linux x86_64 host with a newer glibc.
+There are no macOS or Linux arm64 binaries: build from source as the guides
+describe. Those platforms are untested.
 
 ## Getting help
 

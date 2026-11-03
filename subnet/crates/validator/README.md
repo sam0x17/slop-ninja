@@ -603,10 +603,11 @@ subnet/crates/validator/deploy/install.sh --instance <name> --from <target>/rele
 
 The installer requires `SHA256SUMS` in the source directory to list each of
 the two binaries exactly once and both to match it (`--unverified` installs
-without `SHA256SUMS`, for binaries you built yourself). No release signing
-key is published yet (decision D14): until it is, verify the release's
-detached signature over `SHA256SUMS` by the release instructions before
-running the installer. It installs the configuration with mode 0600 only
+without `SHA256SUMS`, for binaries you built yourself). `SHA256SUMS` only
+shows the download is intact: before running the installer, verify the
+release's detached signature `SHA256SUMS.sig` with `ssh-keygen -Y verify` and
+the release key on the testnet landing page (`docs/testnet/README.md`,
+section "Release key"). It installs the configuration with mode 0600 only
 when none exists, runs
 `check-config`, creates the journal with `--init` (`init` refuses an existing
 path, so a typo never replaces history), enables lingering

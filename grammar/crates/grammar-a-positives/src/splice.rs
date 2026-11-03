@@ -1039,6 +1039,7 @@ pub fn build(inp: &PlanInputs) -> Result<Plan> {
                 request_sha256: rs,
                 op: Some(e.operation.clone()),
                 cohort: Some(format!("{COHORT_ID}:{}", it.population)),
+                attempt_limit: None,
             });
         }
     }

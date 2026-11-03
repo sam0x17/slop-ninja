@@ -93,6 +93,7 @@ fn request(id: &str, parent: &str, span: Option<(usize, usize)>, target: usize) 
         seed: 7,
         op: None,
         cohort: None,
+        attempt_limit: None,
     }
 }
 
@@ -854,6 +855,21 @@ fn write_humans(path: &Path, split: &str) {
     std::fs::write(path, out).unwrap();
 }
 
+/// `split-copy`: the one-split copy of `pdir` for `split` (B5b; ruling R2),
+/// which `generate` runs on.
+fn split_copy(pdir: &Path, split: &str, out: &Path) {
+    let o = std::process::Command::new(BIN)
+        .args(["split-copy", "--plan", pdir.to_str().unwrap(), "--split", split, "--out", out.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+}
+
+// B5b (ruling R2): `generate` refuses a request or items file of more than
+// one split, so these tests run it on one-split copies of their two-split
+// plans (each change recorded in the B5b commit): the train runs on the train
+// copy, the dev_iter runs on the dev_iter copy, and the two-split plan itself
+// is refused.
 #[test]
 fn generate_profile_flags_and_dry_run_prior() {
     let dir = tempfile::tempdir().unwrap();
@@ -874,15 +890,22 @@ fn generate_profile_flags_and_dry_run_prior() {
     // the dry run opens neither the index nor the tokenizer
     let missing = d.join("missing");
     let runs = d.join("runs");
-    let run = |extra: &[&str]| {
+    let (copy_t, copy_d) = (d.join("plan-train"), d.join("plan-dev-iter"));
+    split_copy(&pdir, "train", &copy_t);
+    split_copy(&pdir, "dev_iter", &copy_d);
+    let run_on = |plan: &Path, extra: &[&str]| {
         std::process::Command::new(BIN)
-            .args(["generate", "--plan", pdir.to_str().unwrap(), "--generator", generator.as_str(), "--config", cfg.to_str().unwrap()])
+            .args(["generate", "--plan", plan.to_str().unwrap(), "--generator", generator.as_str(), "--config", cfg.to_str().unwrap()])
             .args(["--runs", runs.to_str().unwrap(), "--index", missing.to_str().unwrap(), "--tokenizer", missing.to_str().unwrap(), "--dry-run"])
             .args(extra)
             .output()
             .unwrap()
     };
+    let run = |extra: &[&str]| run_on(if extra.contains(&"dev_iter") && !extra.contains(&"train,dev_iter") { &copy_d } else { &copy_t }, extra);
     let err = |o: &std::process::Output| String::from_utf8_lossy(&o.stderr).into_owned();
+    // the two-split plan is refused at its first line of the second split, before any parse
+    let o = run_on(&pdir, &["--splits", "train"]);
+    assert!(!o.status.success() && err(&o).contains("holds one split") && err(&o).contains("another plan split ("), "{}", err(&o));
     // profile off: no profile in the dry run, and `raw` is the same run
     let off = run(&["--splits", "train"]);
     assert!(off.status.success(), "{}", err(&off));
@@ -1060,9 +1083,13 @@ fn generate_binary_wires_the_profile_into_its_context() {
     )
     .unwrap();
     let (index, tok) = index_and_tokenizer(d);
+    let (copy_t, copy_d) = (d.join("plan-train"), d.join("plan-dev-iter"));
+    split_copy(&pdir, "train", &copy_t);
+    split_copy(&pdir, "dev_iter", &copy_d);
     let gen_cmd = |runs: &Path, extra: &[&str]| {
         let mut cmd = std::process::Command::new(BIN);
-        cmd.args(["generate", "--plan", pdir.to_str().unwrap(), "--generator", generator.as_str(), "--config", cfg.to_str().unwrap()])
+        let plan = if extra.contains(&"dev_iter") { &copy_d } else { &copy_t };
+        cmd.args(["generate", "--plan", plan.to_str().unwrap(), "--generator", generator.as_str(), "--config", cfg.to_str().unwrap()])
             .args(["--runs", runs.to_str().unwrap(), "--index", index.to_str().unwrap(), "--tokenizer", tok.to_str().unwrap()])
             .args(["--limit", "2", "--workers", "1"])
             .args(extra);

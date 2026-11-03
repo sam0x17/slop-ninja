@@ -53,7 +53,13 @@ slop_ninja_a_positives output-breadth | rates | briefs | brief-library ...
   whose frozen partition is Train. The order interleaves domains, so every
   prefix is itself stratified. A budget counts items to attempt, not accepted
   rows. `--floor` defaults to 60; that default is the tool's, not a protocol
-  value.
+  value. `--target GEN --values VALUES-R2.json` budgets a generator at
+  `v_fam` (S0-7, read from the register, never the command line; refused
+  while absent) less its existing accepted Train items (D7, counting R0's
+  base rows through `--prior`). Every plan and journal is read for its Train
+  lines only: each line's split is read from its bytes before any parse, and
+  lines of other splits are skipped unparsed and counted in `selection.json`
+  (a journal line without a split is read when its request is a Train item's).
 - **Style library v2** (`library.rs`). `human-sample` draws the passages for
   human-derived descriptions from Train and Train-mining and assigns their
   describers. `library-session` runs one inventor model against a local
@@ -275,10 +281,9 @@ directory (files mode 600). Every echo verdict comes from
     OUT/regenerate-order-{GEN}.txt` on the output journals. Without the
     order file every request of the split that is not done would be pending,
     including items R0 never attempted. Mirrors are regenerated through B5b's
-    new requests, not by resume. `generate` parses its plan's whole request
-    file, so it must not run on a plan whose request or item files hold old
-    Dev-select or consumed-Test lines (plans v1 and v2) until it reads splits
-    from bytes or runs on a filtered plan copy.
+    new requests, not by resume. `generate` refuses a request or items
+    file of more than one split, so D4 runs on a one-split copy of R0's plan
+    (`split-copy`, below).
 - **`renorm-rows --rows ROWS [--donors HUMANS] [--raid-documents DOCS]
   --profile cc_cohort_profile_v2 --profile-population P`** normalises Train
   bundle rows that no journal regenerates.
@@ -315,6 +320,98 @@ window on rows, the RAID echo and the byte-level split selection with
 deliberately unparsable lines of other splits; `tests/renorm_cli.rs`
 re-verdicts profile-off journals written by `generate` and resumes the
 output with `generate --profile --request-order`.
+
+## One-split copies, D4's plan and keyed pilots (B5b)
+
+Round 2's planner steps (protocol A2 §4.3, §6.3, D4, V22, V23; BUILD-PLAN
+rulings R2 and R6). Every output is a new directory or file, mode 700 and
+600; records hold ids, counts and digests.
+- **One split per plan file (R2; amendment 20 item 20.1).** `generate`
+  refuses a request file, and under `--profile` an items file, that holds
+  more than one split; `finalize` refuses the same for its items, request and
+  plan-failure files, and `mirror-plan` and `pilot` for the files they read.
+  Every line's split keys are read from its bytes before any parse
+  (amendment 15 item 15.4's reading, `renorm::line_split`), and the refusal
+  names the line number and the split's class, never an id. A line naming
+  `dev_select` or `test` is refused even when every line of the file names
+  it. In a plan-failures file a plan-wide line (no split, item or parent
+  key, such as plan v2's ladder relaxation count) is passed over. `generate`
+  and `finalize` also refuse, before reading any plan file, a plan that
+  records an old Dev-select input they would read.
+- **`split-copy --plan PLAN --split S --out COPY`** writes a one-split copy
+  of a local plan. Each line of its items, request and plan-failure files is
+  selected by its split read from its bytes and copied byte for byte; lines
+  of other splits are skipped unparsed and counted; a line whose split
+  cannot be read refuses the copy by line number (a plan-wide plan-failure
+  line is skipped and counted: it describes the source plan's ladders over
+  every split). `dev_select` and `test` are refused as the split.
+  `plan.json` keeps the split's input and, when the source records one and
+  the split is not CAL, the CAL input unchanged as `generate`'s overlap extra
+  (R0's screen for the same plan: CAL is not in the protected index;
+  protocol A2 amendment 24). A consumed-Test input is never kept. It also
+  holds the copied files' digests and a `split_copy` record with the
+  source's digests and input names. Profile v2's batch binding names no plan
+  path or digest, so renorm's output runs resume under `generate --profile
+  --plan COPY`. `replan-check` refuses a copy.
+- **Carried attempts (R6).** A request may carry `attempt_limit`, the
+  attempts it gets counted from its first; absent (every planned request) it
+  gets `generation::ATTEMPTS` and is not serialised, so request bytes and
+  `replan-check` are unchanged. `generate`'s attempt loop, its pending
+  selection, `finalize` and renorm's regeneration plan read it. `generate`
+  journals it on the request's intent lines (only when present, so R0's
+  journal bytes are unchanged), so readers that hold journals alone
+  (`rates`, `stratify-train`) count such a request done at its own limit.
+- **`mirror-plan --plan COPY --renorm OUT --split S --values VALUES-R2.json
+  --out D4`** (`mirror_regen.rs`) turns renorm's `regenerate_mirror` rows into
+  new requests of the same items: `mirror_target_words_v2` words
+  (`max(parent words, ⌈150 / r05⌉)`, r05 read from the register's S0-6 as an
+  exact decimal or ratio, refused while S0-6 is absent),
+  the old prompt with only its length changed, a request digest and seed of
+  their own, and `attempt_limit` = the row's remaining attempts. Every other
+  line is the copy's. The new mirrors are judged in renorm's batch (D4 is one
+  batch with one prior, item 10.8): the plan keeps every parent, and it
+  checks that `generate --profile` builds renorm's record before writing.
+  `d4-order-GEN.txt` lists the `regenerate` items and the new mirrors; D4 is
+  `generate --profile ... --plan D4 --runs OUT --request-order
+  D4/d4-order-{GEN}.txt`.
+- **`pilot --plan PLAN [--request-order ORDER] --step D4 --out P`**
+  (`pilot.rs`; protocol A2 §4.3, V22 and amendment 24): the D-step's rows
+  are its planned items, one per item (the listed items, or every item), in
+  ascending plan key `SHA-256("slop_ninja_a_comp_r2_plan_v1:pilot:" + item
+  id)`; a row's cell is domain × origin (`model_only` for a mirror, `mixed`
+  otherwise). The pilot is the shortest prefix holding 59 rows of every
+  touched cell; when a touched cell holds fewer than 59 rows in the whole
+  D-step, the D-step is piloted whole. It writes `pilot-order-GEN.txt`,
+  `bulk-order-GEN.txt` (input order) and `PILOT.json`, the record S0-11
+  binds. Pilot and bulk are one batch. D8's spliced plans are not piloted
+  here.
+- **`enron-half --pool POOL --root ROOT --values VALUES-R2.json --out
+  TRAIN`** (`enron_half.rs`, V23): the writer keys ordered by plan key
+  `SHA-256("slop_ninja_a_comp_r2_plan_v1:enron_half:" + key)`, the first 50
+  of 99 the Train half. The pool must be the one S0-9's `SHA256SUMS` input
+  names under ROOT, with S0-9's digest, and its `documents.jsonl` the digest
+  that `SHA256SUMS` lists (amendment 23 item 23.1's rule for Enron inputs).
+  Each line's `writer_key` and `collection` are read from its bytes; only
+  Train-half lines are parsed, and they are written with `frozen_split`
+  `train`. The halves must equal S0-9's lists, and the Train half's document
+  count and words, and the diagnostic half's document count, S0-9's. Writer
+  keys are never printed.
+
+`tests/b5b_cli.rs` runs these on synthetic text: byte-level selection with
+deliberately unparsable `dev_select` and `test` lines, the refusals, a
+one-split copy that runs, renorm's binding accepted on the copy, D4's plan
+from renorm's output with its new mirrors pending in renorm's batch,
+attempts that stop at the carried limit, the pilot, `stratify-train`'s Train
+lines and targets, and the Enron half, with a negative case for each guard
+the B5b review's mutations reached (files of a refused split alone, the
+split checks of `generate --profile` and `finalize`, mirror-plan's renorm
+bindings and order files, carried limits in renorm and `rates`, the pilot's
+order files, the Enron bindings).
+
+**Not built here** (BUILD-PLAN section 4's B5b scope, open): a Train-only
+planner for new mirrors (D5's top-up mirrors, D6's Enron positives) at
+`mirror_target_words_v2`, the top-up plan from Train-mining against S0-8,
+D6's plan over the Enron Train half, and D8's pilot on spliced plans.
 
 ## Plan v3: exact-span supervision cohorts
 

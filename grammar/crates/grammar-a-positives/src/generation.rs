@@ -65,6 +65,10 @@ impl Drop for Journal {
 pub struct ReqState {
     pub intents: Vec<u32>,
     pub responses: BTreeMap<u32, Value>,
+    /// The attempt limit its intent lines carry (`attempt_limit`: written
+    /// only for a request that carries one, B5b's regenerated mirrors; R0's
+    /// requests and their journals have none).
+    pub limit: Option<u32>,
 }
 impl ReqState {
     pub fn accepted(&self) -> Option<&Value> {
@@ -75,8 +79,37 @@ impl ReqState {
     pub fn used(&self) -> u32 {
         self.intents.iter().copied().max().map(|m| m + 1).unwrap_or(0)
     }
+    /// Done under the limit its journal carries (`limit`), else R0's
+    /// (`ATTEMPTS`): for readers that hold journals but not the request
+    /// (`rates`, `stratify-train`). A reader that holds the request uses
+    /// `done_within(Request::attempts())`.
     pub fn done(&self) -> bool {
-        self.accepted().is_some() || self.used() >= ATTEMPTS
+        self.done_within(self.limit.unwrap_or(ATTEMPTS))
+    }
+    /// Records one journal line's kind and attempt (and an intent's carried
+    /// limit, which every intent of the request must give alike).
+    fn add(&mut self, v: Value, a: u32) -> Result<()> {
+        match v["kind"].as_str() {
+            Some("intent") => {
+                if let Some(l) = v.get("attempt_limit") {
+                    let l = l.as_u64().context("attempt_limit")? as u32;
+                    ensure!(self.limit.is_none_or(|x| x == l), "request {}: its intents carry different attempt limits", v["request_id"]);
+                    self.limit = Some(l);
+                }
+                self.intents.push(a)
+            }
+            Some("response") => {
+                self.responses.insert(a, v);
+            }
+            _ => bail!("journal kind"),
+        }
+        Ok(())
+    }
+    /// Done under `limit` attempts counted from the first: accepted, or
+    /// `limit` attempts used (B5b; ruling R6). A request's limit is
+    /// `Request::attempts`.
+    pub fn done_within(&self, limit: u32) -> bool {
+        self.accepted().is_some() || self.used() >= limit
     }
 }
 
@@ -114,18 +147,67 @@ pub fn load_states(dirs: &[PathBuf]) -> Result<HashMap<String, ReqState>> {
                 };
                 let id = v["request_id"].as_str().context("request_id")?.to_owned();
                 let a = v["attempt"].as_u64().context("attempt")? as u32;
-                let st = m.entry(id).or_default();
-                match v["kind"].as_str() {
-                    Some("intent") => st.intents.push(a),
-                    Some("response") => {
-                        st.responses.insert(a, v);
-                    }
-                    _ => bail!("journal kind"),
-                }
+                m.entry(id).or_default().add(v, a)?;
             }
         }
     }
     Ok(m)
+}
+
+/// Journal lines a split's reader skipped unparsed: by split, and those with
+/// no readable split (torn lines among them).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SkippedLines {
+    pub other_splits: BTreeMap<String, usize>,
+    pub unreadable: usize,
+}
+
+/// [`load_states`] over the journal lines of one split only: each line's
+/// split keys are read from its bytes before it is parsed
+/// (`renorm::line_split`, amendment 15 item 15.4's reading). A line is
+/// parsed when it names `split`, or names no split and its `request_id`,
+/// read from its bytes, is one of `ids` (renorm's `SPLIT_RULE`); every other
+/// line (another split, an unreadable split, a torn line) is skipped
+/// unparsed and counted. Used where a reader must never parse old Dev-select
+/// or consumed-Test lines (protocol A2 §2.4; B5b).
+pub fn load_states_of_split(dirs: &[PathBuf], split: &str, ids: &std::collections::HashSet<String>) -> Result<(HashMap<String, ReqState>, SkippedLines)> {
+    let mut m: HashMap<String, ReqState> = HashMap::new();
+    let mut sk = SkippedLines::default();
+    for d in dirs {
+        for p in journal_files(d)? {
+            let f = BufReader::new(File::open(&p)?);
+            for (n, line) in f.split(b'\n').enumerate() {
+                let line = line?;
+                if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                match crate::renorm::line_split(&line, "split") {
+                    crate::renorm::LineSplit::One(s) if s == split => {}
+                    crate::renorm::LineSplit::One(s) => {
+                        *sk.other_splits.entry(s).or_default() += 1;
+                        continue;
+                    }
+                    crate::renorm::LineSplit::Missing
+                        if matches!(crate::renorm::line_split(&line, "request_id"), crate::renorm::LineSplit::One(r) if ids.contains(&r)) => {}
+                    _ => {
+                        sk.unreadable += 1;
+                        continue;
+                    }
+                }
+                let v: Value = match serde_json::from_slice(&line) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("torn journal line {}:{}: {e}", p.display(), n + 1);
+                        continue;
+                    }
+                };
+                let id = v["request_id"].as_str().context("request_id")?.to_owned();
+                let a = v["attempt"].as_u64().context("attempt")? as u32;
+                m.entry(id).or_default().add(v, a)?;
+            }
+        }
+    }
+    Ok((m, sk))
 }
 
 /// Result of a [`PostProcess`] step: the text that every later acceptance
@@ -421,11 +503,19 @@ pub fn run_with(ctx: Arc<Ctx>, pending: Vec<(Request, u32)>, out: &Path, workers
                 let next = queue.lock().unwrap().pop_front();
                 let Some((r, first)) = next else { break };
                 let mut ok = false;
-                for attempt in first..ATTEMPTS {
+                // the request's limit (`Request::attempts`): ATTEMPTS unless
+                // it carries a regenerated mirror's remaining attempts
+                for attempt in first..r.attempts() {
                     let seed = r.seed.wrapping_add(attempt);
                     let b = body(&ctx, &r, seed);
-                    j.write(&json!({"kind":"intent","request_id":r.request_id,"item_id":r.item_id,"split":r.split,
-                        "generator":r.generator,"attempt":attempt,"seed":seed,"t":now_ms(),"body":b}))?;
+                    let mut intent = json!({"kind":"intent","request_id":r.request_id,"item_id":r.item_id,"split":r.split,
+                        "generator":r.generator,"attempt":attempt,"seed":seed,"t":now_ms(),"body":b});
+                    // a carried limit is journaled, so journal readers see it
+                    // (`ReqState::done`); R0's intent bytes are unchanged
+                    if let Some(l) = r.attempt_limit {
+                        intent["attempt_limit"] = json!(l);
+                    }
+                    j.write(&intent)?;
                     let url = if r.endpoint == "completion" { format!("{}/completion", ctx.endpoint) } else { format!("{}/v1/chat/completions", ctx.endpoint) };
                     let ts = now_ms();
                     let clock = Instant::now();
@@ -603,5 +693,51 @@ mod tests {
         assert!(!st.done());
         st.intents.push(1);
         assert!(st.done());
+    }
+
+    #[test]
+    fn a_request_limit_bounds_its_attempts() {
+        let r: Request = serde_json::from_value(json!({"request_id": "r1", "item_id": "i1", "parent_id": "p", "split": "train", "generator": "g",
+            "endpoint": "chat", "template_id": "t", "prompt": "p", "span_index": 0, "source_span": null, "target_words": 23, "cut_budget": null,
+            "decoding": {"profile": "A", "temperature": 0.7, "top_p": 0.9, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0, "max_tokens": 512},
+            "request_sha256": "x", "seed": 1}))
+        .unwrap();
+        // absent: R0's two, and the field is not serialised (request bytes unchanged)
+        assert_eq!((r.attempt_limit, r.attempts()), (None, ATTEMPTS));
+        assert!(!serde_json::to_string(&r).unwrap().contains("attempt_limit"));
+        let mut st = ReqState::default();
+        assert!(st.done_within(0) && !st.done_within(1) && !st.done());
+        st.intents.push(0);
+        assert!(st.done_within(1) && !st.done_within(2) && !st.done());
+        let one = Request { attempt_limit: Some(1), ..r.clone() };
+        assert_eq!(one.attempts(), 1);
+        assert!(serde_json::to_string(&one).unwrap().contains("\"attempt_limit\":1"));
+        let back: Request = serde_json::from_str(&serde_json::to_string(&one).unwrap()).unwrap();
+        assert_eq!(back.attempts(), 1);
+    }
+
+    #[test]
+    fn a_journaled_limit_bounds_done_for_readers_without_the_request() {
+        // B5b review finding 6: rates and stratify-train hold journals only
+        let dir = tempfile::tempdir().unwrap();
+        let j = dir.path().join("journal-1-w0.jsonl");
+        let lines = [
+            json!({"kind": "intent", "request_id": "carried", "split": "train", "attempt": 0, "attempt_limit": 1}),
+            json!({"kind": "response", "request_id": "carried", "split": "train", "attempt": 0, "verdict": {"accepted": false}}),
+            json!({"kind": "intent", "request_id": "r0", "split": "train", "attempt": 0}),
+            json!({"kind": "response", "request_id": "r0", "split": "train", "attempt": 0, "verdict": {"accepted": false}}),
+        ];
+        std::fs::write(&j, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+        let ids: std::collections::HashSet<String> = ["carried".to_string(), "r0".to_string()].into();
+        for st in [load_states(&[dir.path().to_owned()]).unwrap(), load_states_of_split(&[dir.path().to_owned()], "train", &ids).unwrap().0] {
+            assert_eq!(st["carried"].limit, Some(1));
+            assert!(st["carried"].done() && st["carried"].done_within(1));
+            assert_eq!(st["r0"].limit, None);
+            assert!(!st["r0"].done() && st["r0"].done_within(1));
+        }
+        // intents of one request carrying different limits are refused
+        let more = json!({"kind": "intent", "request_id": "carried", "split": "train", "attempt": 1, "attempt_limit": 2});
+        std::fs::write(&j, format!("{}\n{more}\n", lines[0])).unwrap();
+        assert!(load_states(&[dir.path().to_owned()]).unwrap_err().to_string().contains("different attempt limits"));
     }
 }

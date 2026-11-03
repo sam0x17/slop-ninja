@@ -877,6 +877,7 @@ pub fn build_v2(inp: &V2Inputs) -> Result<Plan> {
                 request_sha256: rs,
                 op: it.operation.clone(),
                 cohort: Some(it.cohort.clone()),
+                attempt_limit: None,
             };
             it.requests.push(req.request_id.clone());
             out.requests.push(req);

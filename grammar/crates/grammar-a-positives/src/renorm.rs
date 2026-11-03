@@ -66,7 +66,10 @@
 //!   when none is given) whose every request was accepted in the journals.
 //!   Attempts are counted per request from the first (r2 F19g):
 //!   `attempts_used` is one more than the highest journaled attempt, and
-//!   `attempts_remaining` is `generation::ATTEMPTS` less that. An item with a
+//!   `attempts_remaining` is the request's limit less that
+//!   (`Request::attempts`: its `attempt_limit` when it carries one, B5b's
+//!   regenerated mirrors; else `generation::ATTEMPTS`, R0's two for every
+//!   planned request). An item with a
 //!   rejected request that has no attempt left is dropped with a receipt
 //!   (`drop_out_of_attempts`; refilled by §6.4's rules); a mirror is
 //!   regenerated through B5b's new request with `mirror_target_words_v2`
@@ -107,7 +110,7 @@
 //! Every reading above that the protocol left open is fixed by amendment
 //! 20 and named in the summaries' `rules` and `readings`.
 use crate::form_post::{self, FormPost, ItemSpec};
-use crate::generation::{self, ATTEMPTS, PostProcess, ReqState};
+use crate::generation::{self, PostProcess, ReqState};
 use crate::plan::{self, Request};
 use crate::{diverse, overlap, span_ops, splice, text};
 use anyhow::{Context, Result, bail, ensure};
@@ -156,7 +159,7 @@ pub const SPLICED_RULE: &str = "the original splice verdict (its raw-response ch
 /// The item rule.
 pub const ITEM_RULE: &str = "an item's requests are re-verdicted in item order; each sees the item's earlier requests that passed as accepted (FormPost::with_items), so the last one judged with every sibling accepted gets the item check and earlier ones their own edit's rules (form_post::ITEM_CHECK_RULE)";
 /// The attempt rule of the regeneration plan.
-pub const ATTEMPT_RULE: &str = "attempts are counted per request from the first (r2 F19g; amendment 20): attempts_used is one more than the highest journaled attempt (intent or response) and attempts_remaining is generation::ATTEMPTS (2) less that; an item with a rejected request that has no attempt left is dropped with a receipt (drop_out_of_attempts; refilled by section 6.4's rules); otherwise a mirror's rejected request is regenerated through B5b's new request with mirror_target_words_v2 and the remaining attempts (regenerate_mirror), and any other item's rejected requests resume under generate --profile (regenerate)";
+pub const ATTEMPT_RULE: &str = "attempts are counted per request from the first (r2 F19g; amendment 20): attempts_used is one more than the highest journaled attempt (intent or response) and attempts_remaining is the request's limit less that (Request::attempts: its attempt_limit when it carries one, B5b's regenerated mirrors; else generation::ATTEMPTS = 2, R0's limit for every planned request), reported as attempt_limit; an item with a rejected request that has no attempt left is dropped with a receipt (drop_out_of_attempts; refilled by section 6.4's rules); otherwise a mirror's rejected request is regenerated through B5b's new request with mirror_target_words_v2 and the remaining attempts (regenerate_mirror), and any other item's rejected requests resume under generate --profile (regenerate)";
 
 fn sha(b: &[u8]) -> String {
     text::sha_hex(b)
@@ -868,7 +871,7 @@ fn reverdict(batch: &Batch, post: &FormPost, r: &Request, parent: &str, acc: &Ac
 /// An accepted verdict as a sibling's journal state (`FormPost::with_items`
 /// reads its `text` and `raw_text`).
 fn accepted_state(attempt: u32, verdict: &Value) -> ReqState {
-    ReqState { intents: vec![attempt], responses: BTreeMap::from([(attempt, json!({"verdict": verdict}))]) }
+    ReqState { intents: vec![attempt], responses: BTreeMap::from([(attempt, json!({"verdict": verdict}))]), limit: None }
 }
 
 /// Judges every item in plan order (`ITEM_RULE`), in two bindings that
@@ -965,7 +968,8 @@ fn judge(batch: &Batch, j: &Journals) -> Result<Judged> {
                 for x in &item_reasons {
                     *by_reason.entry(x.clone()).or_default() += 1;
                 }
-                let a = if rejected.iter().any(|(_, used, _)| *used >= ATTEMPTS) {
+                // a request's limit is Request::attempts: ATTEMPTS for every R0 request
+                let a = if rejected.iter().any(|(rid, used, _)| *used >= batch.requests[*rid].attempts()) {
                     "drop_out_of_attempts"
                 } else if it.kind == "mirror" {
                     "regenerate_mirror"
@@ -978,8 +982,8 @@ fn judge(batch: &Batch, j: &Journals) -> Result<Judged> {
                     let r = &batch.requests[*rid];
                     plan_rows.push(json!({"schema": REGEN_SCHEMA, "request_id": rid, "item_id": it.item_id, "parent_id": it.parent_id, "generator": r.generator,
                         "split": r.split, "kind": it.kind, "cohort": it.cohort, "domain": it.domain, "batch": batch.name, "reasons": reasons,
-                        "item_reasons": item_reasons.iter().collect::<Vec<_>>(), "attempts_used": used, "attempt_limit": ATTEMPTS,
-                        "attempts_remaining": ATTEMPTS.saturating_sub(*used), "action": a, "target_words": r.target_words, "rule": ATTEMPT_RULE}));
+                        "item_reasons": item_reasons.iter().collect::<Vec<_>>(), "attempts_used": used, "attempt_limit": r.attempts(),
+                        "attempts_remaining": r.attempts().saturating_sub(*used), "action": a, "target_words": r.target_words, "rule": ATTEMPT_RULE}));
                 }
             }
         } else if r0 && reqs.iter().any(|x| x["accepted_in_journals"] == true) {
@@ -1211,7 +1215,7 @@ pub fn run_batch(batch: &Batch, runs: &Path, out: &Path) -> Result<Value> {
             "raw_child": "the accepted verdict's raw_text when a post step ran (digest-checked), else its text; never trimmed; raw_body re-cleaned as a check (raw_body_check)"},
         "readings": [
             "an item is in the regeneration plan when it is one of R0's records (--records; every item when none is given) and every request has an accepted response in the journals (complete_in_journals)",
-            "the regeneration plan counts attempts per request (generation::ATTEMPTS = 2, R0's limit for every request), from the first attempt (amendment 20)",
+            "the regeneration plan counts attempts per request from the first attempt (amendment 20) against the request's limit (Request::attempts: its attempt_limit when it carries one, B5b's regenerated mirrors; else generation::ATTEMPTS = 2, R0's limit for every planned request)",
             "the overlap screen is not re-run on laid-out text; finalize's dedup re-runs on the final texts"
         ]});
     write_new(&out.join(format!("RENORM-{}.json", batch.name)), &pretty(&summary)?)?;
@@ -1800,6 +1804,7 @@ mod tests {
             seed: 7,
             op: None,
             cohort: None,
+            attempt_limit: None,
         }
     }
 

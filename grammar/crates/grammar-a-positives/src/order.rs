@@ -66,7 +66,7 @@ pub fn select_pending(
     let mut pending = Vec::new();
     for r in kept {
         let st = states.get(&r.request_id).cloned().unwrap_or_default();
-        if !st.done() {
+        if !st.done_within(r.attempts()) {
             let first = st.used();
             pending.push((r, first));
         }
@@ -101,6 +101,7 @@ mod tests {
             seed: 1,
             op: None,
             cohort: Some(cohort.into()),
+            attempt_limit: None,
         }
     }
 
@@ -146,6 +147,27 @@ mod tests {
         st.insert("r2".to_owned(), done);
         let p = select_pending(reqs(), &s, None, Some(&o), &st).unwrap();
         assert_eq!(ids(&p), ["r3", "r1"]);
+    }
+
+    #[test]
+    fn a_carried_attempt_limit_bounds_pending() {
+        // B5b (ruling R6): a regenerated mirror's request carries its remaining attempts
+        let s = vec!["train".to_owned()];
+        let mut rs = reqs();
+        rs[0].attempt_limit = Some(1);
+        rs[1].attempt_limit = Some(0);
+        let mut st = HashMap::new();
+        let p = select_pending(rs.clone(), &s, None, None, &st).unwrap();
+        // a limit of 0 is never pending; a limit of 1 is pending from attempt 0
+        assert_eq!(ids(&p), ["r1", "r3", "r4"]);
+        assert_eq!(p[0].1, 0);
+        // one attempt used: done under a limit of 1, pending (attempt 1) under R0's two
+        let mut one = ReqState::default();
+        one.intents.push(0);
+        st.insert("r1".to_owned(), one.clone());
+        st.insert("r3".to_owned(), one);
+        let p = select_pending(rs, &s, None, None, &st).unwrap();
+        assert_eq!(p.iter().map(|(r, a)| (r.request_id.as_str(), *a)).collect::<Vec<_>>(), [("r3", 1), ("r4", 0)]);
     }
 
     #[test]

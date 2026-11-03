@@ -8,21 +8,26 @@
 pub mod breadth;
 pub mod briefs;
 pub mod diverse;
+pub mod enron_half;
 pub mod finalize;
 pub mod form_post;
 pub mod generation;
 pub mod human_derived;
 pub mod library;
+pub mod mirror_regen;
 pub mod order;
 pub mod overlap;
+pub mod pilot;
 pub mod plan;
 pub mod renorm;
 pub mod span_ops;
 pub mod splice;
 pub mod splice_amend;
 pub mod splice_bundle;
+pub mod split_copy;
 pub mod stratify;
 pub mod text;
+pub mod values;
 
 /// Version tag bound into every plan and record.
 pub const CODE_ID: &str = "grammar-a-positives-v1";

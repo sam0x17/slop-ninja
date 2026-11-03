@@ -721,6 +721,7 @@ mod tests {
             seed: 1,
             op: None,
             cohort: None,
+            attempt_limit: None,
         }
     }
 

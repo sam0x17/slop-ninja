@@ -623,7 +623,7 @@ pub fn finalize(
             match st.accepted() {
                 Some(v) => reps.push(v["verdict"]["text"].as_str().context("accepted text")?.to_owned()),
                 None => {
-                    if st.done() {
+                    if st.done_within(r.attempts()) {
                         status = "terminal_failure";
                     } else if status == "accepted" {
                         status = "not_run";
@@ -843,6 +843,7 @@ mod tests {
                 seed: 7,
                 op: None,
                 cohort: Some(cohort.into()),
+                attempt_limit: None,
             });
         }
         assert_eq!(requests.len(), replies.len());

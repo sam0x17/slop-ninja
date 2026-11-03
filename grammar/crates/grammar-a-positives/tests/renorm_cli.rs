@@ -178,9 +178,21 @@ fn renorm_rereads_profile_off_journals_and_resumes_under_generate_profile() {
     let tok = d.join("tok.json");
     std::fs::write(&tok, tokenizer_json()).unwrap();
     let runs = d.join("runs");
+    // B5b (ruling R2): generate refuses the two-split plan, so its journals are
+    // written on one-split copies (split-copy), and D4's resume runs on the
+    // train copy with renorm's output runs (recorded change)
+    let (copy_t, copy_d) = (d.join("plan-train"), d.join("plan-dev-iter"));
+    for (split, c) in [("train", &copy_t), ("dev_iter", &copy_d)] {
+        let o = std::process::Command::new(BIN)
+            .args(["split-copy", "--plan", pdir.to_str().unwrap(), "--split", split, "--out", c.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    }
     let gen_cmd = |runs: &Path, extra: &[&str]| {
         let mut c = std::process::Command::new(BIN);
-        c.args(["generate", "--plan", pdir.to_str().unwrap(), "--generator", generator.as_str(), "--config", cfg.to_str().unwrap()])
+        let plan = if extra.contains(&"dev_iter") { &copy_d } else { &copy_t };
+        c.args(["generate", "--plan", plan.to_str().unwrap(), "--generator", generator.as_str(), "--config", cfg.to_str().unwrap()])
             .args(["--runs", runs.to_str().unwrap(), "--index", idx.to_str().unwrap(), "--tokenizer", tok.to_str().unwrap(), "--workers", "1"])
             .args(extra);
         c

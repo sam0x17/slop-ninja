@@ -403,6 +403,7 @@ pub fn batch(a: &BatchArgs) -> Result<Value> {
             request_sha256: rs,
             op,
             cohort: Some(p.role.clone()),
+            attempt_limit: None,
         };
         p.request_id = Some(req.request_id.clone());
         requests.get_mut(&g).unwrap().push(req);

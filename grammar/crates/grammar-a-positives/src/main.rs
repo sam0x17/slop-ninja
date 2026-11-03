@@ -1,9 +1,9 @@
 use anyhow::{Context, Result, ensure};
 use clap::{Parser, Subcommand};
-use grammar_a_positives::{CODE_ID, briefs, diverse, finalize, form_post, generation, library, order, overlap, plan, renorm, span_ops, stratify, text};
+use grammar_a_positives::{CODE_ID, briefs, diverse, enron_half, finalize, form_post, generation, library, mirror_regen, order, overlap, pilot, plan, renorm, span_ops, split_copy, stratify, text, values};
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
@@ -126,6 +126,16 @@ enum Cmd {
         /// GENERATOR=BUDGET, repeated.
         #[arg(long = "generator")]
         generators: Vec<String>,
+        /// GENERATOR, repeated: a target of v_fam accepted Train items (D7;
+        /// protocol A2 section 6.4), v_fam read from --values (S0-7); the
+        /// budget is the target less the generator's existing accepted Train
+        /// items (this plan's runs and --prior). Only Train lines of every
+        /// plan and journal are parsed.
+        #[arg(long = "target")]
+        targets: Vec<String>,
+        /// VALUES-R2.json, whose S0-7 (v_fam) --target reads.
+        #[arg(long)]
+        values: Option<PathBuf>,
         #[arg(long, default_value_t = 60)]
         floor: usize,
         /// COHORT=SHARE list; items of unlisted cohorts are not selected.
@@ -367,6 +377,72 @@ enum Cmd {
         #[arg(long)]
         runs: PathBuf,
     },
+    /// Write a one-split copy of a local plan (B5b; ruling R2): every line of
+    /// its items, request and plan-failure files is selected by the split read
+    /// from its bytes before any parse, and copied byte for byte. `dev_select`
+    /// and `test` are refused as the copy's split. The source's CAL input is
+    /// kept as generate's overlap extra (R0's screen; amendment 24).
+    SplitCopy {
+        #[arg(long)]
+        plan: PathBuf,
+        #[arg(long)]
+        split: String,
+        /// New output directory.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// D4's plan (B5b; ruling R6): renorm's regenerate_mirror rows as new
+    /// requests at mirror_target_words_v2 with their remaining attempts, in
+    /// renorm's batch, with D4's request-order files.
+    MirrorPlan {
+        /// A plan whose files hold renorm's split only (a split copy).
+        #[arg(long)]
+        plan: PathBuf,
+        /// Renorm's output directory for the split.
+        #[arg(long)]
+        renorm: PathBuf,
+        #[arg(long)]
+        split: String,
+        /// VALUES-R2.json, whose S0-6 (r05) the new requests' target reads.
+        #[arg(long)]
+        values: PathBuf,
+        /// New output directory.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Keyed pilot prefix of a D-step (B5b; V22, S0-11): pilot and bulk
+    /// request-order files and PILOT.json.
+    Pilot {
+        #[arg(long)]
+        plan: PathBuf,
+        /// The D-step's `generate --request-order` files, with `{GEN}`
+        /// (default: every item of the plan).
+        #[arg(long)]
+        request_order: Option<String>,
+        /// The D-step's name (D4 ... D7).
+        #[arg(long)]
+        step: String,
+        /// New output directory.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// The Enron Train half (V23, S0-9): its writer keys' documents as a Train
+    /// input file; the diagnostic half's lines are skipped unparsed.
+    EnronHalf {
+        /// The enron-v1 pool directory S0-9 binds (its SHA256SUMS); its
+        /// documents.jsonl is read, checked against that SHA256SUMS.
+        #[arg(long)]
+        pool: PathBuf,
+        /// The repository root, against which S0-9's input paths resolve.
+        #[arg(long)]
+        root: PathBuf,
+        /// VALUES-R2.json, whose S0-9 halves, counts and words the run must equal.
+        #[arg(long)]
+        values: PathBuf,
+        /// New output file (mode 600).
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn read_jsonl(path: &Path) -> Result<Vec<Value>> {
@@ -385,6 +461,30 @@ use grammar_a_positives::{write_json, write_jsonl};
 
 fn file_sha(p: &Path) -> Result<String> {
     Ok(text::sha_hex(&fs::read(p)?))
+}
+
+/// The non-blank lines of JSONL bytes, parsed (as `read_jsonl` reads a file).
+fn jsonl_bytes(b: &[u8]) -> Result<Vec<Value>> {
+    let mut v = Vec::new();
+    for l in b.split(|&x| x == b'\n') {
+        if !l.iter().all(u8::is_ascii_whitespace) {
+            v.push(serde_json::from_slice(l)?);
+        }
+    }
+    Ok(v)
+}
+
+/// `generate` and `finalize` read every input their plan records
+/// (`load_humans`); a plan that records an old Dev-select input they would
+/// read (R0's plans v1 and v2) is refused before any is opened (protocol A2
+/// §2.4; amendment 20 item 20.1): run on a one-split copy (`split-copy`).
+fn refuse_old_dev_select_inputs(meta: &Value) -> Result<()> {
+    for sp in plan::ALL_SPLITS {
+        if !meta["inputs"][sp].is_null() && span_ops::plan_reads_input(meta["schema"].as_str(), sp) {
+            ensure!(sp != "dev_select", "the plan records a dev_select input, which generate and finalize would read: old Dev-select is never read, scored or parsed (protocol A2 section 2.4); run on a one-split copy (split-copy)");
+        }
+    }
+    Ok(())
 }
 
 
@@ -427,15 +527,15 @@ fn form_for_split(
     ensure!(want.len() == 1, "a profile run selects exactly one split (--splits), so its population and prior are one batch's; selected {want:?}");
     let split = want[0].as_str();
     let items_path = pdir.join("items.jsonl");
-    ensure!(meta["items_sha256"] == file_sha(&items_path)?, "items.jsonl changed since planning");
+    // one split, read from the lines' bytes before any parse (ruling R2)
+    let (ib, isplit) = split_copy::one_split_file(&items_path, "split", split_copy::OneSplit::Rows)?;
+    ensure!(meta["items_sha256"] == text::sha_hex(&ib).as_str(), "items.jsonl changed since planning");
+    ensure!(isplit.as_deref() == Some(split), "the plan's items are of split {isplit:?}, not the run's {split}");
     let spans: HashMap<&str, Option<(usize, usize)>> = reqs.iter().map(|r| (r.request_id.as_str(), r.source_span)).collect();
     let mut ids: BTreeSet<String> = BTreeSet::new();
     let mut specs: Vec<form_post::ItemSpec> = Vec::new();
     let mut batch: Vec<String> = Vec::new();
-    for v in read_jsonl(&items_path)? {
-        if v["split"] != split {
-            continue;
-        }
+    for v in jsonl_bytes(&ib)? {
         let it: plan::Item = serde_json::from_value(v)?;
         ids.insert(it.parent_id.clone());
         batch.extend(it.requests.iter().cloned());
@@ -502,12 +602,45 @@ fn run_dirs(root: &Path) -> Result<Vec<PathBuf>> {
 /// `stratify::Item`'s cohort and stratum.
 type StratumAcc = BTreeMap<(String, String, String, String), BTreeSet<String>>;
 
+/// The Train lines of a plan's `items.jsonl`, each selected by the split read
+/// from its bytes before any parse (amendment 15 item 15.4's reading): lines
+/// of other splits are skipped unparsed and counted in `skipped`, and a line
+/// whose split cannot be read refuses the file. R0's plans hold old
+/// Dev-select lines, which are never parsed (protocol A2 §2.4; B5b).
+fn train_items(plan_dir: &Path, skipped: &mut split_copy::Skipped) -> Result<Vec<Value>> {
+    let p = plan_dir.join("items.jsonl");
+    let b = fs::read(&p).with_context(|| p.display().to_string())?;
+    let (sel, _) = split_copy::select_lines(&b, "split", "train", &p.display().to_string(), &format!("{}:items", plan_dir.display()), false, skipped)?;
+    jsonl_bytes(&sel)
+}
+
+/// The Train journal states of a runs root (`generation::load_states_of_split`;
+/// `ids`: the Train items' requests, for journal lines that name no split).
+fn train_states(runs: &Path, ids: &HashSet<String>, skipped: &mut split_copy::Skipped) -> Result<HashMap<String, generation::ReqState>> {
+    let (st, sk) = generation::load_states_of_split(&run_dirs(runs)?, "train", ids)?;
+    let e = skipped.entry(format!("{}:journals", runs.display())).or_default();
+    for (k, n) in sk.other_splits {
+        *e.entry(k).or_default() += n;
+    }
+    if sk.unreadable > 0 {
+        *e.entry("no_readable_split".into()).or_default() += sk.unreadable;
+    }
+    Ok(st)
+}
+
+/// The request ids of plan items.
+fn request_ids(items: &[Value]) -> HashSet<String> {
+    items.iter().flat_map(|v| v["requests"].as_array().into_iter().flatten().filter_map(|r| r.as_str().map(String::from))).collect()
+}
+
 /// Accepted Train items of one plan/run pair, per (generator, domain) and per
-/// (generator, domain, cohort, stratum).
-fn accepted_train(plan_dir: &Path, runs: &Path, acc: &mut BTreeMap<(String, String), BTreeSet<String>>, by_stratum: &mut StratumAcc) -> Result<usize> {
-    let states = generation::load_states(&run_dirs(runs)?)?;
+/// (generator, domain, cohort, stratum). Only Train lines of the plan and
+/// its journals are parsed.
+fn accepted_train(plan_dir: &Path, runs: &Path, acc: &mut BTreeMap<(String, String), BTreeSet<String>>, by_stratum: &mut StratumAcc, skipped: &mut split_copy::Skipped) -> Result<usize> {
+    let items = train_items(plan_dir, skipped)?;
+    let states = train_states(runs, &request_ids(&items), skipped)?;
     let mut n = 0;
-    for v in read_jsonl(&plan_dir.join("items.jsonl"))? {
+    for v in items {
         if v["split"] != "train" {
             continue;
         }
@@ -532,6 +665,8 @@ fn stratify_train(
     prior: &[String],
     partitions: &Path,
     generators: &[String],
+    targets: &[String],
+    values: Option<&Path>,
     floor: usize,
     cohort_shares: &str,
     priority_domains: &str,
@@ -568,7 +703,8 @@ fn stratify_train(
             Ok((k.to_owned(), v.parse::<usize>()?))
         })
         .collect::<Result<_>>()?;
-    ensure!(!gens.is_empty(), "no generators");
+    ensure!(!gens.is_empty() || !targets.is_empty(), "no generators");
+    let mut target_rec = serde_json::Map::new();
     let prio: BTreeSet<String> = priority_domains.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
     for d in &prio {
         ensure!(humans.contains_key(d), "priority domain {d} has no Train humans in the plan");
@@ -577,23 +713,43 @@ fn stratify_train(
     for v in read_jsonl(partitions)? {
         parts.insert(v["id"].as_str().context("partition id")?.to_owned(), v["partition"].as_str().context("partition")?.to_owned());
     }
-    // existing accepted Train positives
+    // existing accepted Train positives (Train lines only, read from bytes)
+    let mut skipped = split_copy::Skipped::new();
     let mut acc: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
     let mut acc_strata = StratumAcc::new();
     let mut prior_rec = Vec::new();
-    let n0 = accepted_train(pdir, runs, &mut acc, &mut acc_strata)?;
+    let n0 = accepted_train(pdir, runs, &mut acc, &mut acc_strata, &mut skipped)?;
     prior_rec.push(json!({"plan":pdir.display().to_string(),"runs":runs.display().to_string(),"accepted_train_items":n0}));
     for pr in prior {
         let (pp, rr) = pr.split_once('=').context("PLAN_DIR=RUNS_DIR")?;
-        let n = accepted_train(Path::new(pp), Path::new(rr), &mut acc, &mut acc_strata)?;
+        let n = accepted_train(Path::new(pp), Path::new(rr), &mut acc, &mut acc_strata, &mut skipped)?;
         prior_rec.push(json!({"plan":pp,"runs":rr,"accepted_train_items":n,
             "plan_sha256":file_sha(&Path::new(pp).join("plan.json"))?}));
     }
+    // a target of v_fam accepted rows per listed generator, v_fam read from
+    // VALUES-R2.json (S0-7; protocol A2 sections 2.8 and 6.4): the budget is
+    // the target less the generator's existing accepted Train items (B5b: D7)
+    let mut gens = gens;
+    let mut values_rec = Value::Null;
+    if !targets.is_empty() {
+        let vp = values.context("--target reads v_fam from --values VALUES-R2.json (S0-7)")?;
+        let (t, rec) = values::v_fam(&values::Values::open(vp)?)?;
+        values_rec = rec;
+        for k in targets {
+            ensure!(!k.contains('='), "--target {k}: a generator name; its target is S0-7's v_fam, read from --values");
+            ensure!(!gens.iter().any(|(g, _)| g == k), "generator {k} has both a budget and a target");
+            let have: usize = acc.iter().filter(|((g, _), _)| g == k).map(|(_, s)| s.len()).sum();
+            target_rec.insert(k.to_owned(), json!({"target_accepted": t, "existing_accepted_train": have, "budget": t.saturating_sub(have)}));
+            gens.push((k.to_owned(), t.saturating_sub(have)));
+        }
+    }
+    ensure!(!gens.is_empty(), "no generators");
     // candidates: Train, listed cohort, Train-partition styles, not all requests done
-    let states = generation::load_states(&run_dirs(runs)?)?;
+    let titems = train_items(pdir, &mut split_copy::Skipped::new())?;
+    let states = train_states(runs, &request_ids(&titems), &mut split_copy::Skipped::new())?;
     let mut cands: BTreeMap<String, Vec<stratify::Item>> = BTreeMap::new();
     let mut excluded: BTreeMap<String, BTreeMap<&str, usize>> = BTreeMap::new();
-    for v in read_jsonl(&pdir.join("items.jsonl"))? {
+    for v in titems {
         if v["split"] != "train" {
             continue;
         }
@@ -677,7 +833,8 @@ fn stratify_train(
         "plan_sha256":file_sha(&pdir.join("plan.json"))?,"items_sha256":file_sha(&pdir.join("items.jsonl"))?,
         "partitions":partitions.display().to_string(),"partitions_sha256":file_sha(partitions)?,"existing_sources":prior_rec,
         "floor":floor,"cohort_shares":shares.iter().map(|(c, s)| json!([c, s])).collect::<Vec<_>>(),"priority_domains":prio,
-        "seed":seed,"train_humans":humans,"domain_weights":dweights,
+        "seed":seed,"train_humans":humans,"domain_weights":dweights,"targets":target_rec,"target_values":values_rec,
+        "lines_of_other_splits_skipped_unparsed":skipped,
         "policy":"per-generator domain quotas water-filled so existing accepted plus new Train items track the Train human mix, floor per domain bounded by availability; cohort shares and share-bin rotation inside a domain (in the balanced cohorts, train_base_v3, the kind with the fewest accepted plus selected items in the domain first, so kinds stay 1:1 across batches); voice ladders whole; styles only from the frozen Train partition; domains interleaved so any prefix is stratified, priority domains front-loaded",
         "generators":table});
     write_json(&out.join("selection.json"), &rec)?;
@@ -1205,6 +1362,8 @@ fn run_plan_test(train: &Path, test: &Path, seal: &Path, seal_sha256: &str, out:
 fn replan_check(pdir: &Path, library: Option<&Path>, fix_slop: Option<&Path>, out: &Path) -> Result<bool> {
     ensure!(!out.exists(), "scratch output {} must not exist", out.display());
     let meta: Value = serde_json::from_slice(&fs::read(pdir.join("plan.json"))?)?;
+    ensure!(meta.get("split_copy").is_none() && meta.get("mirror_regeneration").is_none(),
+        "{} is a split copy or a D4 plan: replan-check re-plans from every split's input; check its source plan", pdir.display());
     let input = |sp: &str| -> Result<PathBuf> {
         let i = &meta["inputs"][sp];
         let p = PathBuf::from(i["path"].as_str().with_context(|| format!("input {sp}"))?);
@@ -1324,8 +1483,8 @@ fn main() -> Result<()> {
                 std::process::exit(3);
             }
         }
-        Cmd::StratifyTrain { plan: pdir, runs, prior, partitions, generators, floor, cohort_shares, priority_domains, domain_weights, seed, out } => {
-            stratify_train(&pdir, &runs, &prior, &partitions, &generators, floor, &cohort_shares, &priority_domains, &domain_weights, &seed, &out)?;
+        Cmd::StratifyTrain { plan: pdir, runs, prior, partitions, generators, targets, values, floor, cohort_shares, priority_domains, domain_weights, seed, out } => {
+            stratify_train(&pdir, &runs, &prior, &partitions, &generators, &targets, values.as_deref(), floor, &cohort_shares, &priority_domains, &domain_weights, &seed, &out)?;
         }
         Cmd::Generate {
             plan: pdir,
@@ -1346,6 +1505,9 @@ fn main() -> Result<()> {
         } => {
             let population = form_post::profile_population(profile.as_deref(), profile_population.as_deref())?;
             let meta: Value = serde_json::from_slice(&fs::read(pdir.join("plan.json"))?)?;
+            // a plan recording an old Dev-select input it would read is refused
+            // before any plan file is read (B5b review finding 3)
+            refuse_old_dev_select_inputs(&meta)?;
             let cfg_bytes = fs::read(&config)?;
             let cfg: Value = serde_json::from_slice(&cfg_bytes)?;
             ensure!(cfg["key"] == generator.as_str(), "config key mismatch");
@@ -1355,14 +1517,12 @@ fn main() -> Result<()> {
                 Some(s) => s.split(',').map(String::from).collect(),
                 None => allowed.clone(),
             };
-            let reqs: Vec<plan::Request> = read_jsonl(&pdir.join("requests").join(format!("{generator}.jsonl")))?
-                .into_iter()
-                .map(serde_json::from_value)
-                .collect::<Result<_, _>>()?;
-            ensure!(
-                meta["request_files"][&generator]["sha256"] == file_sha(&pdir.join("requests").join(format!("{generator}.jsonl")))?,
-                "request file changed"
-            );
+            // one split per request file, never dev_select or test, read from
+            // the lines' bytes before any parse (ruling R2; amendment 20 item
+            // 20.1; B5b review finding 3)
+            let (rb, _) = split_copy::one_split_file(&pdir.join("requests").join(format!("{generator}.jsonl")), "split", split_copy::OneSplit::Rows)?;
+            ensure!(meta["request_files"][&generator]["sha256"] == text::sha_hex(&rb).as_str(), "request file changed");
+            let reqs: Vec<plan::Request> = jsonl_bytes(&rb)?.into_iter().map(serde_json::from_value).collect::<Result<_, _>>()?;
             for r in &reqs {
                 ensure!(allowed.contains(&r.split), "generator {generator} is not allowed on split {}", r.split);
             }
@@ -1538,16 +1698,45 @@ fn main() -> Result<()> {
         }
         Cmd::Finalize { plan: pdir, runs, configs, tokenizer, out } => {
             let meta: Value = serde_json::from_slice(&fs::read(pdir.join("plan.json"))?)?;
-            let items: Vec<plan::Item> =
-                read_jsonl(&pdir.join("items.jsonl"))?.into_iter().map(serde_json::from_value).collect::<Result<_, _>>()?;
+            refuse_old_dev_select_inputs(&meta)?;
+            // every plan file finalize parses holds one split, the same one, and
+            // never dev_select or test, read from the lines' bytes before any
+            // parse (ruling R2; B5b's reading for finalize, which D4 runs on the
+            // same copy; B5b review findings 3 and 9)
+            let (ib, isplit) = split_copy::one_split_file(&pdir.join("items.jsonl"), "split", split_copy::OneSplit::Rows)?;
+            let mut one: Option<String> = isplit;
+            let mut same = |s: Option<String>, what: &str| -> Result<()> {
+                match (&one, s) {
+                    (_, None) => Ok(()),
+                    (None, Some(x)) => {
+                        one = Some(x);
+                        Ok(())
+                    }
+                    (Some(a), Some(b)) => {
+                        ensure!(*a == b, "{what} holds split {b}, items.jsonl split {a}: finalize reads one split (ruling R2)");
+                        Ok(())
+                    }
+                }
+            };
+            let mut req_bytes = Vec::new();
+            let mut rpaths: Vec<PathBuf> = fs::read_dir(pdir.join("requests"))?.map(|e| e.map(|e| e.path())).collect::<Result<_, _>>()?;
+            rpaths.sort();
+            for p in rpaths {
+                let (b, s) = split_copy::one_split_file(&p, "split", split_copy::OneSplit::Rows)?;
+                same(s, &p.display().to_string())?;
+                req_bytes.push(b);
+            }
+            let (fb, fsplit) = split_copy::one_split_file(&pdir.join("plan-failures.jsonl"), "split", split_copy::OneSplit::PlanFailures)?;
+            same(fsplit, "plan-failures.jsonl")?;
+            let items: Vec<plan::Item> = jsonl_bytes(&ib)?.into_iter().map(serde_json::from_value).collect::<Result<_, _>>()?;
             let mut requests = HashMap::new();
-            for e in fs::read_dir(pdir.join("requests"))? {
-                for r in read_jsonl(&e?.path())? {
+            for b in &req_bytes {
+                for r in jsonl_bytes(b)? {
                     let r: plan::Request = serde_json::from_value(r)?;
                     requests.insert(r.request_id.clone(), r);
                 }
             }
-            let plan_failures = read_jsonl(&pdir.join("plan-failures.jsonl"))?;
+            let plan_failures = jsonl_bytes(&fb)?;
             let (_, rows) = load_humans(&meta)?;
             let mut generators = HashMap::new();
             for e in fs::read_dir(&configs)? {
@@ -1820,6 +2009,23 @@ fn main() -> Result<()> {
             let v = json!({"schema":"slop_ninja_a_comp_output_breadth_v1","method":"function-word, punctuation, layout, casing and sentence-length profile (unit-normalised); per group a keyed sample of at most cap documents; dispersion = 1 - mean pairwise cosine; leader clusters at cosine 0.90/0.95; outputs under 40 words skipped","cap":cap,"groups":rep,"detector_or_pangram_calls":0});
             write_json(&out, &v)?;
             println!("{}", serde_json::to_string(&json!({"groups":groups.len()}))?);
+        }
+        Cmd::SplitCopy { plan: pdir, split, out } => {
+            let r = split_copy::split_copy(&pdir, &split, &out)?;
+            println!("{}", serde_json::to_string(&json!({"split": r["split"], "copied_lines": r["copied_lines"], "skipped": r["lines_of_other_splits_skipped_unparsed"], "plan_sha256": r["plan_sha256"]}))?);
+        }
+        Cmd::MirrorPlan { plan: pdir, renorm: rdir, split, values, out } => {
+            let r = mirror_regen::mirror_plan(&pdir, &rdir, &split, &values::Values::open(&values)?, &out)?;
+            println!("{}", serde_json::to_string(&json!({"regenerated_mirrors": r["regenerated_mirrors"], "rows_by_action": r["rows_by_action"], "d4_orders": r["d4_orders"], "plan_sha256": r["plan_sha256"]}))?);
+        }
+        Cmd::Pilot { plan: pdir, request_order, step, out } => {
+            let r = pilot::run(&pdir, request_order.as_deref(), &step, &out)?;
+            println!("{}", serde_json::to_string(&json!({"rows": r["rows"], "pilot_rows": r["pilot_rows"], "bulk_rows": r["bulk_rows"], "pilot_sha256": r["pilot_sha256"]}))?);
+        }
+        Cmd::EnronHalf { pool, root, values, out } => {
+            let r = enron_half::run(&pool, &root, &values, &out)?;
+            println!("{}", serde_json::to_string(&json!({"train_half": r["train_half"], "diagnostic_half": r["diagnostic_half"], "documents": r["documents"],
+                "checks": r["checks"], "out_sha256": r["out_sha256"]}))?);
         }
         Cmd::Rates { runs } => {
             let mut outm = serde_json::Map::new();

@@ -249,6 +249,21 @@ pub struct Request {
     /// Item cohort (plan v2), used to run core cohorts before supplementary ones.
     #[serde(default)]
     pub cohort: Option<String>,
+    /// The attempts this request gets, counted from its first (B5b; ruling
+    /// R6, protocol A2 amendment 20 item 20.5): absent on every planned
+    /// request, which gets `generation::ATTEMPTS`; a regenerated mirror's new
+    /// request carries the item's remaining attempts. Absent is not
+    /// serialised, so existing request bytes and `replan-check` are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_limit: Option<u32>,
+}
+
+impl Request {
+    /// The request's attempt limit: `attempt_limit`, else
+    /// `generation::ATTEMPTS` (R0's two per request).
+    pub fn attempts(&self) -> u32 {
+        self.attempt_limit.unwrap_or(crate::generation::ATTEMPTS)
+    }
 }
 
 pub struct Human {
@@ -460,6 +475,61 @@ pub fn rewrite_prompt(span: &str) -> String {
     format!("{REWRITE_INSTRUCTION}\n\n{span}")
 }
 
+/// `mirror_target_words_v2` (protocol A2 §6.3; B5b): the requested length of
+/// every new or regenerated mirror in every population.
+pub const MIRROR_TARGET_V2_ID: &str = "mirror_target_words_v2";
+/// The 150 of §6.3: the final-document window's lower bound
+/// (`grammar_a_form::window::LENGTH_WINDOW`, a test pins it).
+pub const MIRROR_TARGET_V2_FLOOR: u128 = 150;
+/// The rule as records state it.
+pub const MIRROR_TARGET_V2_RULE: &str = "mirror_target_words_v2 (protocol A2 section 6.3): requested words = max(parent words, ceil(150 / r05)), parent words in whitespace words (text::words), r05 the S0-6 value read as an exact decimal or ratio and ceil computed in integers, never in floating point";
+
+/// r05 (S0-6, `VALUES-R2.json`) as the exact positive rational `num / den`:
+/// a decimal (`0.8125`, digits only, no sign or exponent) or a ratio of
+/// positive integers (`13/16`). Kept as given for records.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct R05 {
+    num: u128,
+    den: u128,
+    text: String,
+}
+
+impl R05 {
+    /// At most 30 digits in all, so `150 * den` cannot overflow.
+    pub fn parse(s: &str) -> Result<R05> {
+        let t = s.trim();
+        let digits = |x: &str| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit());
+        let (num, den) = if let Some((a, b)) = t.split_once('/') {
+            ensure!(digits(a) && digits(b) && a.len() + b.len() <= 30, "r05 {s:?}: a ratio is two positive integers a/b");
+            (a.parse::<u128>()?, b.parse::<u128>()?)
+        } else {
+            let (i, f) = t.split_once('.').unwrap_or((t, ""));
+            ensure!(digits(i) && (f.is_empty() || digits(f)) && i.len() + f.len() <= 30 && !(t.ends_with('.')),
+                "r05 {s:?}: a decimal is digits with an optional fraction (no sign or exponent)");
+            (format!("{i}{f}").parse::<u128>()?, 10u128.pow(f.len() as u32))
+        };
+        ensure!(num > 0 && den > 0, "r05 {s:?} must be positive");
+        Ok(R05 { num, den, text: t.to_string() })
+    }
+    /// ceil(150 / r05) = ceil(150 * den / num), in integers.
+    pub fn floor_words(&self) -> usize {
+        (MIRROR_TARGET_V2_FLOOR * self.den).div_ceil(self.num) as usize
+    }
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+    /// The value as records hold it: as given, the exact ratio and the floor.
+    pub fn record(&self) -> Value {
+        json!({"r05": self.text, "r05_ratio": [self.num.to_string(), self.den.to_string()], "floor_words": self.floor_words(),
+            "rule": MIRROR_TARGET_V2_RULE})
+    }
+}
+
+/// `mirror_target_words_v2`: max(parent words, ceil(150 / r05)).
+pub fn mirror_target_words_v2(parent_words: usize, r05: &R05) -> usize {
+    parent_words.max(r05.floor_words())
+}
+
 pub struct Plan {
     pub items: Vec<Item>,
     pub requests: Vec<Request>,
@@ -564,6 +634,7 @@ pub fn build(humans: &[Human], idf: &HashMap<&'static str, Idf>) -> Result<Plan>
                 request_sha256: rs,
                 op: None,
                 cohort: Some(item.cohort.clone()),
+                attempt_limit: None,
             };
             item.requests.push(req.request_id.clone());
             requests.push(req);
@@ -744,6 +815,7 @@ pub fn build_test(humans: &[Human], idf: &HashMap<&'static str, Idf>) -> Result<
                     request_sha256: rs,
                     op: None,
                     cohort: Some(it.cohort.clone()),
+                    attempt_limit: None,
                 };
                 it.requests.push(req.request_id.clone());
                 p.requests.push(req);
@@ -847,6 +919,26 @@ mod tests {
         assert_eq!(r5_runs(&c, 2), Some(vec![(0, 4)]));
         assert_eq!(r5_runs(&c, 1), Some(vec![(0, 2), (3, 5)]));
         assert_eq!(r5_runs(&cum(&[10]), 1), None);
+    }
+    #[test]
+    fn mirror_target_words_v2_is_exact() {
+        assert_eq!(MIRROR_TARGET_V2_FLOOR as usize, grammar_a_form::window::LENGTH_WINDOW.0);
+        // ceil(150 / r05) in integers: 150 / 0.6 is 250 exactly (f64 gives 250.00000000000003)
+        for (r, want) in [("0.6", 250), ("0.75", 200), ("0.8125", 185), ("13/16", 185), ("1", 150), ("0.7", 215), ("2", 75), ("0.5", 300),
+            ("0.333", 451), ("1/3", 450), ("150", 1), ("1000", 1)]
+        {
+            assert_eq!(R05::parse(r).unwrap().floor_words(), want, "{r}");
+        }
+        let r = R05::parse("0.8").unwrap();
+        assert_eq!(r.floor_words(), 188);
+        assert_eq!(mirror_target_words_v2(120, &r), 188);
+        assert_eq!(mirror_target_words_v2(188, &r), 188);
+        assert_eq!(mirror_target_words_v2(189, &r), 189);
+        assert_eq!(mirror_target_words_v2(400, &r), 400);
+        for bad in ["0", "0.0", "-0.5", "+0.5", "1e-1", ".5", "5.", "0x1", "", "a/b", "1/0", "0/3", "0.5.1", "1 /2", "0.1234567890123456789012345678901"] {
+            assert!(R05::parse(bad).is_err(), "{bad}");
+        }
+        assert_eq!(R05::parse(" 0.8 ").unwrap().as_str(), "0.8");
     }
     #[test]
     fn keys_and_seed_are_stable() {

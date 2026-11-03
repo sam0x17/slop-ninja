@@ -284,6 +284,7 @@ pub fn build_v3(inp: &V3Inputs) -> Result<Plan> {
                 request_sha256: rs,
                 op: it.operation.clone(),
                 cohort: Some(it.cohort.clone()),
+                attempt_limit: None,
             };
             it.requests.push(req.request_id.clone());
             requests.push(req);
@@ -506,6 +507,7 @@ pub fn build_v3_base(humans: &[Human], gens: &[&'static str]) -> Result<Plan> {
             request_sha256: rs,
             op: None,
             cohort: Some(COHORT_BASE.into()),
+            attempt_limit: None,
         };
         let style = json!({"style_policy":BASE_RULES_ID,"style_kind":"base_checkpoint","operation":kind,"voice_id":null,"brief_id":null,
             "default_voice":true,"prompt":"verbatim_prefix_no_template","kept_prefix_words":cum[a],"kept_prefix_sentences":a,

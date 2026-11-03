@@ -399,6 +399,31 @@ pub async fn r2_bytes(bucket: &worker::Bucket, key: &str, bound: usize, deadline
     read(body, Length::Exact(size as usize), bound, deadline_ms).await.map(Some)
 }
 
+/// An R2 object's size from a `head` (no body is read), raced against
+/// `deadline_ms` like [`r2_bytes`]. `Ok(None)`: no object.
+pub async fn r2_size(bucket: &worker::Bucket, key: &str, deadline_ms: Option<u64>) -> Result<Option<u64>, BodyError> {
+    let b: &JsValue = bucket.as_ref();
+    let head: Function = Reflect::get(b, &JsValue::from_str("head"))
+        .ok()
+        .and_then(|f| f.dyn_into().ok())
+        .ok_or(BodyError::Transport)?;
+    let promise: js_sys::Promise =
+        head.call1(b, &JsValue::from_str(key)).ok().and_then(|p| p.dyn_into().ok()).ok_or(BodyError::Transport)?;
+    let obj = match settle(promise, deadline_ms).await {
+        Settled::Value(v) => v,
+        Settled::Error(_) => return Err(BodyError::Transport),
+        Settled::Timeout => return Err(BodyError::Timeout),
+    };
+    if obj.is_null() || obj.is_undefined() {
+        return Ok(None);
+    }
+    let size = Reflect::get(&obj, &JsValue::from_str("size")).ok().and_then(|v| v.as_f64()).ok_or(BodyError::Transport)?;
+    if !(size >= 0.0 && size.fract() == 0.0) {
+        return Err(BodyError::Transport);
+    }
+    Ok(Some(size as u64))
+}
+
 /// Writes `bytes` to `key`, raced against `deadline_ms` in JS (`settle`):
 /// `true` when the put completed in time. The bytes are copied into JS
 /// before the call.

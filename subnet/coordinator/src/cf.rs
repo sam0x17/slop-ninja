@@ -292,9 +292,9 @@ fn more_default() -> bool {
     true
 }
 
-/// `/sign-pointer-written`: the SHA-256 of the pointer body read back.
+/// `/sign-pointer-object`: the SHA-256 of an object the pointer names.
 #[derive(Deserialize)]
-struct PointerWritten {
+struct PointerObjectRequest {
     sha256: String,
 }
 
@@ -310,6 +310,10 @@ struct AdminRequest {
     /// `restart_target`: the restarted record's first epoch.
     #[serde(default)]
     from_epoch: Option<u64>,
+    /// `revoke`: the Worker's RPC reading of the subnet epoch index at the
+    /// finalized cursor, when it has one (`signing::install_revocation`).
+    #[serde(default)]
+    observed_epoch: Option<u64>,
 }
 
 /// Authoritative chain observation state for one chain: delivery dedup, the
@@ -616,16 +620,31 @@ impl ChainJournal {
                     Err(_) => error("store_unavailable", 503),
                 }
             }
-            "/sign-pointer" => match transaction(&storage, move |sql| signing::pointer_plan(sql, &cfg)) {
+            "/sign-pointer" => match transaction(&storage, move |sql| signing::pointer_plan(sql, &cfg, &trusted)) {
                 Ok(plan) => json(&plan),
                 Err(_) => error("store_unavailable", 503),
             },
-            "/sign-pointer-written" => {
-                let r = match cf_io::request_json::<PointerWritten>(&mut req, SMALL_BODY_BYTES).await {
+            "/sign-pointer-object" => {
+                let r = match cf_io::request_json::<PointerObjectRequest>(&mut req, SMALL_BODY_BYTES).await {
                     Ok(v) => v,
                     Err(e) => return error(e.code(), e.status()),
                 };
-                match transaction(&storage, move |sql| signing::pointer_written(sql, &r.sha256, now)) {
+                match transaction(&storage, move |sql| signing::pointer_object(sql, &cfg, &trusted, &r.sha256)) {
+                    Ok(Some(bytes)) => {
+                        let mut response = Response::from_bytes(bytes)?;
+                        response.headers_mut().set("content-type", "application/octet-stream")?;
+                        Ok(response)
+                    }
+                    Ok(None) => error("not_found", 404),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
+            "/sign-pointer-outcome" => {
+                let r = match cf_io::request_json::<signing::PointerOutcome>(&mut req, SMALL_BODY_BYTES).await {
+                    Ok(v) => v,
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                match transaction(&storage, move |sql| signing::pointer_outcome(sql, &r, now)) {
                     Ok(changed) => json(&changed),
                     Err(_) => error("store_unavailable", 503),
                 }
@@ -676,7 +695,14 @@ fn admin(
         },
         // A signed revocation (hex): journaled and applied at once, refused
         // with nothing changed (`signing::install_revocation`).
-        "revoke" => match signing::install_revocation(sql, cfg, trusted, r.bundle.as_deref().unwrap_or_default(), now)? {
+        "revoke" => match signing::install_revocation(
+            sql,
+            cfg,
+            trusted,
+            r.bundle.as_deref().unwrap_or_default(),
+            r.observed_epoch,
+            now,
+        )? {
             Ok(done) => json!({"revoked": done}),
             Err(refusal) => json!({"refused": refusal}),
         },
@@ -1573,6 +1599,7 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
                 drill: None,
                 count: None,
                 from_epoch: None,
+                observed_epoch: None,
             })?
         }
         "restart" => {
@@ -1592,6 +1619,7 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
                 drill: None,
                 count: None,
                 from_epoch: Some(from_epoch),
+                observed_epoch: None,
             })?
         }
         "revoke" => serde_json::to_string(&AdminRequest {
@@ -1600,6 +1628,9 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
             drill: None,
             count: None,
             from_epoch: None,
+            // The epoch bound's second source: a journal that never ran a
+            // signing preflight has no schedule of its own.
+            observed_epoch: epoch_read(&env, &d).await.map(|e| e.index),
         })?,
         "kick" => {
             let budget = Budget::new(crate::arena_routes::UNBOUNDED_FETCH_MS);
@@ -1625,7 +1656,18 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
         return error("signing_unavailable", 503);
     }
     match cf_io::response_json::<serde_json::Value>(&mut response, ROUTE_REPLY_BYTES).await {
-        Ok(outcome) => json(&outcome),
+        Ok(mut outcome) => {
+            // A journaled revocation reaches validators only through the
+            // pointer: write it now rather than at the next tick, and say
+            // how that went (the tick retries a failure either way).
+            if which == "revoke" && outcome.get("revoked").is_some() {
+                let written = pointer_drive(&env, &d).await;
+                if let Some(o) = outcome.as_object_mut() {
+                    o.insert("pointer".into(), serde_json::json!(written.err().unwrap_or("confirmed")));
+                }
+            }
+            json(&outcome)
+        }
         Err(e) => error(e.code(), 503),
     }
 }
@@ -1878,10 +1920,13 @@ async fn scheduled(env: Env) {
     let holder = format!("tick:{}", now_ms());
     // The cron handler's own wall limit, from the tick's start.
     let budget = Budget { until_ms: started.saturating_add(slop_ninja_arena::limits::CRON_MS) };
-    drive(&env, &d, report.plan, d.settings.tick_rounds, holder.clone(), budget).await;
-    drive_sign(&env, &d, holder, TICK_SIGN_ROUNDS, budget).await;
-    if budget.allows(2 * JOURNAL_CALL_MS) {
-        pointer_drive(&env, &d).await;
+    // The pointer pass's worst case is reserved first, so catch-up or
+    // fallback rounds that use the rest of the tick never starve it.
+    let rounds = Budget { until_ms: budget.until_ms.saturating_sub(POINTER_PASS_MS) };
+    drive(&env, &d, report.plan, d.settings.tick_rounds, holder.clone(), rounds).await;
+    drive_sign(&env, &d, holder, TICK_SIGN_ROUNDS, rounds).await;
+    if budget.allows(POINTER_PASS_MS) {
+        let _ = pointer_drive(&env, &d).await;
     }
     if eval_do::enabled(&env) && config::eval_cohort_name(&d.chain).is_some() {
         let epoch = epoch_read(&env, &d).await;
@@ -1918,57 +1963,115 @@ async fn scheduled(env: Env) {
     }
 }
 
+/// The bucket operations of one pointer pass share one deadline of the
+/// platform allowance a journal call has (`liveness::TIMEOUT_MS`): a stalled
+/// bucket fails the pass at that deadline instead of holding the tick.
+const POINTER_BUCKET_MS: u64 = liveness::TIMEOUT_MS;
+/// A pointer pass's worst case: the plan call, at most one object call, the
+/// bucket operations and the outcome call.
+const POINTER_PASS_MS: u64 = 3 * JOURNAL_CALL_MS + POINTER_BUCKET_MS;
+
 /// Keeps `authorizations/current.json` in the receipts bucket equal to the
-/// signing journal's pointer ([`signing::pointer_plan`]): reads the stored
-/// pointer back and, when its bytes differ or it is missing, writes the
-/// signed objects it names (content-addressed), then the pointer, reads it
-/// back and records the write. A deployment without signing, or with no
-/// reward-v1 bundle installed, writes nothing. Every failure is retried at
-/// the next tick; nothing here expires.
-async fn pointer_drive(env: &Env, d: &Deployment) {
-    let Ok(mut r) = journal_call(env, d, Method::Post, "/sign-pointer", None).await else {
-        return;
+/// signing journal's pointer ([`signing::pointer_plan`]): checks every signed
+/// object the pointer names (content-addressed) and stores one that is
+/// missing or of another length, fetching its bytes from the journal
+/// ([`signing::pointer_object`]); reads the stored pointer back and, when its
+/// bytes differ or it is missing, writes it after the objects and reads it
+/// back. Every pass reports its outcome to the journal
+/// ([`signing::pointer_outcome`]): the pointer confirmed stored, or the
+/// failure code returned here, so `/status` shows a writer that stopped
+/// (the journal cannot be told when the journal call itself fails; the
+/// confirmation's age shows that too). A deployment without signing, or
+/// with no reward-v1 bundle installed, writes nothing. Every failure is
+/// retried at the next tick; nothing here expires.
+async fn pointer_drive(env: &Env, d: &Deployment) -> std::result::Result<(), &'static str> {
+    let outcome = pointer_pass(env, d).await;
+    let report = match &outcome {
+        Ok(None) => return Ok(()),
+        Ok(Some(sha)) => signing::PointerOutcome { sha256: Some(sha.clone()), error: None },
+        Err(code) => signing::PointerOutcome { sha256: None, error: Some((*code).into()) },
     };
+    if let Ok(body) = serde_json::to_string(&report)
+        && let Ok(mut r) = journal_call(env, d, Method::Post, "/sign-pointer-outcome", Some(body)).await
+    {
+        cf_io::discard(&mut r);
+    }
+    outcome.map(|_| ())
+}
+
+/// One pass of [`pointer_drive`]: `Ok(Some(sha))` when the stored pointer
+/// with body SHA-256 `sha` was confirmed, `Ok(None)` when there is nothing
+/// to write, or the failure's code.
+async fn pointer_pass(env: &Env, d: &Deployment) -> std::result::Result<Option<String>, &'static str> {
+    let mut r = journal_call(env, d, Method::Post, "/sign-pointer", None).await.map_err(|_| "plan_call")?;
     if r.status_code() != 200 {
         cf_io::discard(&mut r);
-        return;
+        return Err("plan_status");
     }
-    let Ok(Some(plan)) = cf_io::response_json::<Option<signing::PointerPlan>>(&mut r, ROUTE_REPLY_BYTES).await else {
-        return;
+    let plan = cf_io::response_json::<Option<signing::PointerPlan>>(&mut r, ROUTE_REPLY_BYTES)
+        .await
+        .map_err(|_| "plan_unreadable")?;
+    let Some(plan) = plan else {
+        return Ok(None);
     };
-    let Ok(bucket) = env.bucket(eval_do::RECEIPTS_BUCKET) else {
-        return;
-    };
+    let bucket = env.bucket(eval_do::RECEIPTS_BUCKET).map_err(|_| "bucket_binding")?;
+    let deadline = Some(now_ms().saturating_add(POINTER_BUCKET_MS));
     // The stored pointer, bounded by the exact length it should have: a
     // longer object differs.
-    let stored = cf_io::r2_bytes(&bucket, signing::authority::POINTER_KEY, plan.body.len(), None).await;
+    let stored = cf_io::r2_bytes(&bucket, signing::authority::POINTER_KEY, plan.body.len(), deadline).await;
     let current = matches!(&stored, Ok(Some(bytes)) if bytes.as_slice() == plan.body.as_bytes());
+    drop(stored);
+    // Every object the pointer names is checked on every pass, whether the
+    // pointer changed or not: a content-addressed object of the right length
+    // is the one named, and a missing or different one is stored again, so
+    // a deleted object is restored without waiting for the pointer to change.
+    for o in &plan.objects {
+        let size = cf_io::r2_size(&bucket, &o.path, deadline).await.map_err(|_| "object_head")?;
+        if size == Some(o.bytes) {
+            continue;
+        }
+        let bytes = pointer_object_bytes(env, d, o).await?;
+        if !cf_io::r2_put(&bucket, &o.path, &bytes, deadline).await {
+            return Err("object_put");
+        }
+    }
     if !current {
-        for o in &plan.objects {
-            let Ok(bytes) = hex::decode(&o.hex) else { return };
-            if bucket.put(&o.key, bytes).execute().await.is_err() {
-                return;
-            }
+        if !cf_io::r2_put(&bucket, signing::authority::POINTER_KEY, plan.body.as_bytes(), deadline).await {
+            return Err("pointer_put");
         }
-        if bucket
-            .put(signing::authority::POINTER_KEY, plan.body.as_bytes().to_vec())
-            .execute()
-            .await
-            .is_err()
-        {
-            return;
-        }
-        let back = cf_io::r2_bytes(&bucket, signing::authority::POINTER_KEY, plan.body.len(), None).await;
+        let back = cf_io::r2_bytes(&bucket, signing::authority::POINTER_KEY, plan.body.len(), deadline).await;
         if !matches!(&back, Ok(Some(bytes)) if bytes.as_slice() == plan.body.as_bytes()) {
-            return;
+            return Err("pointer_read_back");
         }
     }
-    if plan.written.as_deref() != Some(plan.sha256.as_str()) {
-        let body = serde_json::json!({"sha256": plan.sha256}).to_string();
-        if let Ok(mut r) = journal_call(env, d, Method::Post, "/sign-pointer-written", Some(body)).await {
-            cf_io::discard(&mut r);
-        }
+    Ok(Some(plan.sha256))
+}
+
+/// The bytes of one object the plan names, from the journal, checked
+/// against the plan's length and digest. Read as one admitted block of its
+/// declared length, within the revocation set's bound
+/// ([`signing::authority::REVOCATION_SET_BYTES`], which also bounds the
+/// smaller authorization and renewal objects).
+async fn pointer_object_bytes(
+    env: &Env,
+    d: &Deployment,
+    o: &slop_ninja_admission_wire::json::ObjectRef,
+) -> std::result::Result<Vec<u8>, &'static str> {
+    let bound = signing::authority::REVOCATION_SET_BYTES;
+    if o.bytes > bound as u64 {
+        return Err("object_too_large");
     }
+    let body = serde_json::json!({"sha256": o.sha256}).to_string();
+    let mut r = journal_call(env, d, Method::Post, "/sign-pointer-object", Some(body)).await.map_err(|_| "object_call")?;
+    if r.status_code() != 200 {
+        cf_io::discard(&mut r);
+        return Err("object_status");
+    }
+    let bytes = cf_io::response_bytes(&mut r, o.bytes as usize).await.map_err(|_| "object_unreadable")?;
+    if bytes.len() as u64 != o.bytes || crate::chain::sha256_hex(&bytes) != o.sha256 {
+        return Err("object_mismatch");
+    }
+    Ok(bytes)
 }
 
 /// The commitment reader's rounds for this block (a new block's delivery, or

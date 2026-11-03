@@ -53,10 +53,12 @@
 //! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error) |
 //! | `ledger_threshold_unset` | the eval status's ledger standing names no alert threshold (the deploy did not pass `SPEND_ALERT_MICROUSD`), so `ledger_threshold` cannot fire |
 //! | `commit_gap` | the coordinator has not committed weights for two or more tempos |
+//! | `pointer_stale` | the coordinator's authorization-pointer writer has not confirmed the private pointer (its last pass failed, or its last confirmation is older than two cron periods) for a whole tempo: re-authorizations and revocations are not reaching validators |
 //! | `coordinator_reveal_mismatch` | a reveal of the coordinator's weights did not match its committed row |
 //! | `publication_refused` | a closed cohort, an artifact's admission record or copy, or the authorization failed verification or the memory budget |
 //! | `publication_pending` | a closed cohort, an artifact copy or the authorization has been incomplete for a whole tempo |
 //! | `publication_unverifiable` | closed cohorts whose manifest does not open under the compiled trust roots (one alert for all) |
+//! | `revocation_unverifiable` | entries of the copied revocation set that do not open under the compiled trust roots (copied unchanged; validators skip them) |
 //! | `config_refused` | the publisher's configuration was refused; only the status fault snapshot is written |
 //! | `config_warning` | the configuration was accepted with a setting ignored (an `ALERT_SINK_URL` while `ALERT_RELAY` is on) |
 //! | `run_interrupted` | every run for a whole tempo stopped before it finished (it never released its lease) |
@@ -76,12 +78,13 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v5: `webhook_paused` and `retention_stalled` (v4: an unknown status read, unanswered or answered
+/// v6: `pointer_stale` and `revocation_unverifiable` (v5: `webhook_paused`
+/// and `retention_stalled`; v4: an unknown status read, unanswered or answered
 /// without a field an open entry needs, carries the open entries it would
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v5";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v6";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -142,6 +145,9 @@ pub struct PublisherObs {
     /// Closed cohorts whose manifest does not open under the trust roots.
     #[serde(default)]
     pub unverifiable: Vec<String>,
+    /// Revocation-set entries that do not open under the trust roots.
+    #[serde(default)]
+    pub revocations_unopened: u32,
     /// The configuration error, when the configuration was refused.
     #[serde(default)]
     pub config: Option<String>,
@@ -354,6 +360,30 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
             ));
         }
     }
+    if let Some(pointer) = o
+        .coordinator
+        .as_ref()
+        .and_then(|w| w.signing.as_ref())
+        .and_then(|s| s.pointer.as_ref())
+    {
+        let stale = pointer
+            .confirmed_age_ms
+            .is_none_or(|age| age > r.unreachable_hold_ms);
+        if !pointer.current || stale {
+            out.push(cond(
+                "pointer_stale",
+                "coordinator",
+                format!(
+                    "authorization pointer last confirmed {}; last failure: {}",
+                    pointer
+                        .confirmed_age_ms
+                        .map_or_else(|| "never".into(), |a| format!("{} s ago", a / 1000)),
+                    pointer.error.as_deref().unwrap_or("none")
+                ),
+                r.publication_hold_ms,
+            ));
+        }
+    }
     if let Some(why) = &p.config {
         out.push(cond("config_refused", "publisher", why.clone(), 0));
     }
@@ -389,6 +419,18 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
             0,
         ));
     }
+    if p.revocations_unopened > 0 {
+        out.push(cond(
+            "revocation_unverifiable",
+            "authorizations",
+            format!(
+                "{} revocation set entries do not open under the compiled trust roots; copied \
+                 unchanged, validators skip them (a trust-root rotation not yet deployed here?)",
+                p.revocations_unopened
+            ),
+            0,
+        ));
+    }
     for (label, reason) in &p.pending {
         out.push(cond(
             "publication_pending",
@@ -416,6 +458,7 @@ pub const STATUS_RULES: &[&str] = &[
     "ledger_threshold_unset",
     "commit_gap",
     "coordinator_reveal_mismatch",
+    "pointer_stale",
 ];
 
 /// What a status-dependent rule's decision lacks this run: a source that
@@ -432,6 +475,11 @@ type WorkerField = (&'static str, fn(&WorkerView) -> bool);
 /// The coordinator's signing view (`commit_gap`, the reveal check and a
 /// `.signing` subject's `durable_fault`).
 const SIGNING: WorkerField = ("signing", |w| w.signing.is_some());
+/// The pointer writer's fields `pointer_stale` reads (needed only while an
+/// authorization is installed).
+const POINTER: WorkerField = ("signing.authorization.pointer_current", |w| {
+    w.signing.as_ref().is_some_and(|s| !s.authorization || s.pointer.is_some())
+});
 /// The journal block a Worker's `durable_fault` reads.
 const JOURNAL: WorkerField = ("chain_journal", |w| !w.journal_missing);
 /// The mode `fallback_too_long` reads, and its age while in fallback.
@@ -535,6 +583,7 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
             need_worker(o, "coordinator", &[SIGNING], &mut n);
             need_eval(o, Some(("epoch", |e| e.epoch.is_some())), &mut n);
         }
+        "pointer_stale" => need_worker(o, "coordinator", &[SIGNING, POINTER], &mut n),
         "status_incomplete" => match subject {
             "eval" => need_eval(o, None, &mut n),
             name => need_worker(o, name, &[], &mut n),
@@ -985,6 +1034,7 @@ mod tests {
                 commit_block: Some(1),
                 reveal_weights_match: Some(false),
             }],
+            ..SigningView::default()
         });
         assert_eq!(
             rules_of(&evaluate(&o, &p, &r)),
@@ -997,6 +1047,7 @@ mod tests {
             refused: vec![("c9".into(), "invalid".into())],
             pending: vec![("c10".into(), "missing".into())],
             unverifiable: vec!["old-a".into(), "old-b".into()],
+            revocations_unopened: 0,
             config: Some("NETWORK must be testnet".into()),
             interrupted: true,
             warnings: vec![],
@@ -2041,6 +2092,44 @@ mod tests {
         )
         .unwrap();
         assert_eq!(post.events[0].firing_id(RULES_ID), events[0].id);
+    }
+
+    /// The pointer writer: a failed last pass, or a confirmation older than
+    /// two cron periods, holds `pointer_stale` for a tempo before it fires;
+    /// a coordinator without the fields (older build) or without an
+    /// authorization raises nothing, and the field is needed only then.
+    #[test]
+    fn a_stale_authorization_pointer_alerts_after_a_tempo() {
+        let r = rules();
+        let p = PublisherObs::default();
+        let with = |pointer: Option<crate::status::PointerView>, authorization: bool| {
+            let mut o = healthy();
+            let s = o.coordinator.as_mut().unwrap().signing.as_mut().unwrap();
+            s.authorization = authorization;
+            s.pointer = pointer;
+            o
+        };
+        let fresh = crate::status::PointerView { current: true, confirmed_age_ms: Some(60_000), error: None };
+        assert!(evaluate(&with(Some(fresh.clone()), true), &p, &r).is_empty());
+        assert!(evaluate(&with(None, false), &p, &r).is_empty());
+        assert!(evaluate(&with(None, true), &p, &r).is_empty());
+        for stale in [
+            crate::status::PointerView { current: false, error: Some("object_put".into()), ..fresh.clone() },
+            crate::status::PointerView { confirmed_age_ms: Some(r.unreachable_hold_ms + 1), ..fresh.clone() },
+            crate::status::PointerView { current: false, confirmed_age_ms: None, error: None },
+        ] {
+            let c = evaluate(&with(Some(stale), true), &p, &r);
+            assert_eq!(rules_of(&c), vec!["pointer_stale"]);
+            assert_eq!(c[0].hold_ms, TEMPO);
+        }
+        assert!(decided("pointer_stale", "coordinator", &with(Some(fresh), true)));
+        assert!(!decided("pointer_stale", "coordinator", &with(None, true)));
+        assert!(decided("pointer_stale", "coordinator", &with(None, false)));
+        // Revocation entries that do not open are one alert.
+        let unopened = PublisherObs { revocations_unopened: 2, ..PublisherObs::default() };
+        let c = evaluate(&healthy(), &unopened, &r);
+        assert_eq!(rules_of(&c), vec!["revocation_unverifiable"]);
+        assert!(c[0].detail.starts_with("2 revocation set entries"));
     }
 
     /// A setting the configuration ignored is alerted, not refused.

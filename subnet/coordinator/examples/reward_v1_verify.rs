@@ -8,7 +8,7 @@
 //!     [--authorization-seed FILE --issued-epoch E --carrier DIR2]
 //! reward_v1_verify launch --trust TRUST.json --authorization-seed FILE --issued-epoch E [--generation G] --out FILE
 //! reward_v1_verify revoke --trust TRUST.json --authorization-seed FILE --bundle FILE --issued-epoch E
-//!     [--generation G] --out FILE
+//!     --finalized-epoch F [--generation G] --out FILE
 //! ```
 //!
 //! `cohort`: DIR holds the cohort's receipts-bucket objects at their key
@@ -56,9 +56,15 @@
 //! `revoke`: signs the revocation of the authorization in `--bundle` (either
 //! form): it withdraws every authorization of that bundle's target issued at
 //! or before `--issued-epoch`, which must not precede the authorization's
-//! own issue. Writes the signed record's bytes to `--out`, the body that
-//! `POST /signing/revoke` and `slop_ninja_validator revoke` take. Never run
-//! against the live target except to withdraw it.
+//! own issue and must not pass `--finalized-epoch` (the chain's finalized
+//! epoch index now, as `/status` or the validator's `epoch_schedule` reports
+//! it) by more than one: an authorization that re-authorizes the target must
+//! be issued later than the revocation and cannot commit before its own
+//! issue, so a mistyped far-future epoch would withdraw the target that long
+//! (the coordinator's `POST /signing/revoke` applies the same bound). Writes
+//! the signed record's bytes to `--out`, the body that `POST /signing/revoke`
+//! and `slop_ninja_validator revoke` take. Never run against the live target
+//! except to withdraw it.
 //!
 //! Prints a content-free JSON report.
 use serde_json::{Value, json};
@@ -92,6 +98,7 @@ struct Args {
     trust: PathBuf,
     seed: Option<PathBuf>,
     issued: Option<u64>,
+    finalized: Option<u64>,
     carrier: Option<PathBuf>,
     out: Option<PathBuf>,
     bundle: Option<PathBuf>,
@@ -110,6 +117,7 @@ fn args() -> Args {
         trust: PathBuf::new(),
         seed: None,
         issued: None,
+        finalized: None,
         carrier: None,
         out: None,
         bundle: None,
@@ -124,6 +132,9 @@ fn args() -> Args {
             "--trust" => a.trust = PathBuf::from(val("--trust")),
             "--authorization-seed" => a.seed = Some(PathBuf::from(val("--authorization-seed"))),
             "--issued-epoch" => a.issued = Some(val("--issued-epoch").parse().unwrap_or_else(|_| fail("epoch"))),
+            "--finalized-epoch" => {
+                a.finalized = Some(val("--finalized-epoch").parse().unwrap_or_else(|_| fail("finalized epoch")))
+            }
             "--carrier" => a.carrier = Some(PathBuf::from(val("--carrier"))),
             "--out" => a.out = Some(PathBuf::from(val("--out"))),
             "--bundle" => a.bundle = Some(PathBuf::from(val("--bundle"))),
@@ -498,6 +509,10 @@ fn revoke(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
     }
     if issued < auth_issued {
         fail(format!("--issued-epoch precedes the authorization's issue (epoch {auth_issued})"));
+    }
+    let finalized = a.finalized.unwrap_or_else(|| fail("--finalized-epoch"));
+    if issued > finalized.saturating_add(1) {
+        fail(format!("--issued-epoch {issued} is past the finalized epoch index {finalized} plus one"));
     }
     let revocation = RewardIntentRevocation {
         chain: chain(),

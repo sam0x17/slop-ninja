@@ -37,7 +37,7 @@ fn measure(f: impl FnOnce()) -> (u32, usize) {
 /// Runs `f` under `Strict` in a scope of exactly `control` bytes and fails
 /// the test on any violation; prints the scope's peak pages (state page
 /// included), the measured input of the route's footprint.
-fn witness<R>(route: Route, control: usize, f: impl FnOnce() -> R) -> R {
+pub(crate) fn witness<R>(route: Route, control: usize, f: impl FnOnce() -> R) -> R {
     let prev = set_mode(Mode::Strict);
     let _ = strict::take();
     let armed = strict::arm();

@@ -34,8 +34,15 @@
 //!   superseded authority holds no target once it accepted its successor's
 //!   notice ([`accept_notice`]): the restart set its targets aside and the
 //!   successor's two completions show its own chain is active; or
-//! - the current authorization names it, as its carrying cohort or through
-//!   its target ([`Hold`]): read from the private pointer
+//! - the current authorization names it through its target ([`Hold`]):
+//!   while the authorization commits that target, it is not superseded, so
+//!   the approved N+2 rule (delete after N+1 and N+2 complete and N's
+//!   target is superseded) keeps its cohort. The authorization's carrying
+//!   cohort is recorded but not held: holding it past N+2 is a change to
+//!   that rule awaiting the user's decision (the operator proposal records
+//!   the text), and until then a validator that starts after the carrier's
+//!   deletion waits for the next authorization (`receipts_expired`). Read
+//!   from the private pointer
 //!   `authorizations/current.json` (the shared contract
 //!   `slop_ninja_admission_wire::receipts`) before every deletion step. An
 //!   authorization stays valid until a newer one replaces the pointer, so the
@@ -218,14 +225,15 @@ pub fn hold(sql: &impl Sql) -> R<Hold> {
     })
 }
 
-/// The cohorts the current authorization names: its carrier (number and
-/// manifest digest) and its target's cohort.
+/// The cohorts the current authorization holds: its target's cohort, whose
+/// target the authorization still commits (module docs). The carrier
+/// (number and manifest digest) is recorded with the hold but not held
+/// under the current rule.
 fn held_by_authorization(sql: &impl Sql) -> R<Vec<i64>> {
-    let Hold::Cohort { cohort, manifest, target } = hold(sql)? else { return Ok(Vec::new()) };
+    let Hold::Cohort { target, .. } = hold(sql)? else { return Ok(Vec::new()) };
     sql.exec(
-        "SELECT seq FROM cohorts WHERE (cohort = ? AND manifest_digest = ?)
-           OR seq IN (SELECT seq FROM eval_targets WHERE target_digest = ?) ORDER BY seq",
-        &[bind_u64(cohort)?, s(manifest), s(target)],
+        "SELECT seq FROM cohorts WHERE seq IN (SELECT seq FROM eval_targets WHERE target_digest = ?) ORDER BY seq",
+        &[s(target)],
     )?
     .iter()
     .map(|r| Ok(int(r, 0)?))

@@ -3086,28 +3086,31 @@ fn a_launch_bundle_commits_only_the_burn_row_with_no_end() -> Result<()> {
     }
     assert_eq!(v.operation(&keys, &[], hk, 99).unwrap_err(), Error::Invalid("epoch before authorization"));
     // A signed revocation of the burn row's authorization stops it; one of
-    // another target, or a forged one, does not pass for it.
+    // another target or chain does not. The holder checks the signature
+    // when it journals one; a journaled one is not verified again, so a
+    // rotated trust root never turns it into an error.
     let auth = Signed::<LaunchAuthorization>::from_bytes(&launch)?;
     let checked = LaunchAuthorization::check(&auth, &keys, &chain(), &ActiveTarget::launch(&chain())?)?;
     let revocation = fx::signed(RewardIntentRevocation::new(&checked, 1, 150)?)?;
-    assert_eq!(v.revoked_by(&keys, std::slice::from_ref(&revocation))?, Some(revocation.record.digest()?));
-    assert_eq!(
-        v.operation(&keys, std::slice::from_ref(&revocation), hk, 151).unwrap_err(),
-        Error::Revoked("reward intent authorization")
-    );
+    RewardIntentRevocation::check(&revocation, &keys, &chain())?;
+    let journal = std::slice::from_ref(&revocation.record);
+    assert_eq!(v.revoked_by(&keys, journal)?, Some(revocation.record.digest()?));
+    assert_eq!(v.operation(&keys, journal, hk, 151).unwrap_err(), Error::Revoked("reward intent authorization"));
     let mut other = revocation.record.clone();
     other.target = Digest([7; 32]);
-    let other = fx::signed(other)?;
-    assert_eq!(v.revoked_by(&keys, std::slice::from_ref(&other))?, None);
-    v.operation(&keys, std::slice::from_ref(&other), hk, 151)?;
+    let mut elsewhere = revocation.record.clone();
+    elsewhere.chain.netuid += 1;
+    let unrelated = [other, elsewhere];
+    assert_eq!(v.revoked_by(&keys, &unrelated)?, None);
+    v.operation(&keys, &unrelated, hk, 151)?;
     let mut forged = revocation.clone();
     forged.signature[1] ^= 4;
-    assert_eq!(v.operation(&keys, &[forged], hk, 151).unwrap_err(), Error::BadSignature);
+    assert_eq!(RewardIntentRevocation::check(&forged, &keys, &chain()).unwrap_err(), Error::BadSignature);
     // A later launch authorization re-authorizes the burn row.
     let again = fx::signed(LaunchAuthorization::new(&chain(), 2, 151)?)?.to_bytes()?;
     let again = target_bundle::verify(&chain(), &keys, &ActiveTarget::launch(&chain())?, None, Authorizing::Launch { authorization: &again, renewal: None })?;
-    assert_eq!(again.revoked_by(&keys, std::slice::from_ref(&revocation))?, None);
-    again.operation(&keys, std::slice::from_ref(&revocation), hk, 151)?;
+    assert_eq!(again.revoked_by(&keys, journal)?, None);
+    again.operation(&keys, journal, hk, 151)?;
     // The row burns through the owner hotkey of the holder's snapshot.
     let snapshot = RegistrationSnapshotV2 {
         chain: chain(),

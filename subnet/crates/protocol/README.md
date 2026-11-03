@@ -172,7 +172,18 @@ refuses an epoch before the authorization's issue.
 `RewardIntentRevocation::check(signed, keys, chain)` verifies the signature
 under the authorization key and the chain and returns a `CheckedRevocation`;
 `CheckedRevocation::withdraws(&CheckedAuthorization)` applies the rule.
-Holders journal every checked revocation and pass them to each operation.
+Holders journal every checked revocation and pass them to each operation as
+`RewardIntentRevocation::journaled`, which does not verify the signature
+again: a revocation can only withdraw, and only authorizations of its own
+chain and target, so a trust root rotated since one was journaled never
+turns it into an error that stops other targets. Whoever signs or admits a
+revocation bounds its issue epoch by the finalized epoch index plus one
+(`reward_v1_verify revoke --finalized-epoch`, the coordinator's
+`POST /signing/revoke`): a re-authorization must be issued later than the
+revocation and cannot commit before its own issue, so a far-future epoch
+would withdraw the target that long. Recovery from one that was journaled
+anyway is a re-authorization issued after its epoch (committing from that
+epoch) or, for a cohort target, the next cohort's activation.
 
 `CheckedAuthorization::operation(renewal, revocations, active, hotkey, epoch)` is the only
 path to a new per-tempo commitment. Neither authorization record has an
@@ -538,7 +549,9 @@ that has not yet seen a newer bundle keeps committing the target it holds,
 with no end, until a newer bundle supersedes it or a revocation withdraws it.
 `VerifiedTarget::operation(keys, revocations, hotkey, epoch)` checks the
 authorization again at every tempo against the holder's journaled
-revocations and returns the `WeightOperationV2`; `VerifiedTarget::revoked_by`
+revocation records (each checked when journaled; one of another chain or
+target withdraws nothing and is never an error) and returns the
+`WeightOperationV2`; `VerifiedTarget::revoked_by`
 names the revocation that withdraws it, `checked_terms` its digest, issue and
 hint; and
 `derive_row` derives the canonical row against the holder's own finalized

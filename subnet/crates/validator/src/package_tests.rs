@@ -338,7 +338,10 @@ fn guard_refuses_attempts_of_a_withdrawn_operation() {
 }
 
 /// The revocation store keeps each checked revocation once, across reloads,
-/// and refuses a forged one, another chain's, and an altered file.
+/// and refuses a forged one and another chain's. Loading does not verify
+/// signatures again: an entry journaled under a rotated key still loads, and
+/// an altered entry is reported and applied from its summary while the
+/// others load as before.
 #[test]
 fn the_revocation_store_journals_checked_revocations_once() -> Result<()> {
     let root = scratch()?;
@@ -356,12 +359,12 @@ fn the_revocation_store_journals_checked_revocations_once() -> Result<()> {
             .to_bytes()
             .unwrap()
     };
-    assert!(crate::revocations::load(&store, &trusted(), &chain())?.is_empty());
+    assert_eq!(crate::revocations::load(&store, &chain())?, Default::default());
     let first = revocation(20, &authorization_key());
     assert!(crate::revocations::record(&store, &trusted(), &chain(), &first)?.new);
     assert!(!crate::revocations::record(&store, &trusted(), &chain(), &first)?.new);
     assert!(crate::revocations::record(&store, &trusted(), &chain(), &revocation(30, &authorization_key()))?.new);
-    assert_eq!(crate::revocations::load(&store, &trusted(), &chain())?.len(), 2);
+    assert_eq!(crate::revocations::load(&store, &chain())?.records.len(), 2);
     assert_eq!(crate::revocations::entries(&store)?[0].issued_epoch, 20);
     use std::os::unix::fs::PermissionsExt as _;
     assert_eq!(std::fs::metadata(&store)?.permissions().mode() & 0o777, 0o600);
@@ -369,15 +372,32 @@ fn the_revocation_store_journals_checked_revocations_once() -> Result<()> {
     assert!(crate::revocations::record(&store, &trusted(), &chain(), &revocation(40, &package_key())).is_err());
     let other = ChainBinding { netuid: NETUID + 1, ..chain() };
     assert!(crate::revocations::record(&store, &trusted(), &other, &first).is_err());
-    assert_eq!(crate::revocations::load(&store, &trusted(), &chain())?.len(), 2);
-    // An altered entry fails the whole load: the operator must look.
+    let loaded = crate::revocations::load(&store, &chain())?;
+    assert_eq!((loaded.records.len(), loaded.problems.len()), (2, 0));
+    // After the trust roots rotate, the journaled entries still load as
+    // they were checked; nothing re-verifies them under the new keys.
+    let rotated = TrustedKeys::new(
+        package_key().verifying_key().to_bytes(),
+        slop_ninja_protocol::fixtures::receipt_key().verifying_key().to_bytes(),
+        SigningKey::from_bytes(&[0x77; 32]).verifying_key().to_bytes(),
+    )
+    .unwrap();
+    assert!(crate::revocations::record(&store, &rotated, &chain(), &first).is_err(), "a new entry is checked");
+    assert_eq!(crate::revocations::load(&store, &chain())?, loaded);
+    // An altered entry is reported and applied from its recorded summary;
+    // the other entry loads as before.
     let text = std::fs::read_to_string(&store)?;
     let entry = &crate::revocations::entries(&store)?[0].signed;
-    let mut flipped = entry.clone();
-    let last = flipped.pop().unwrap();
-    flipped.push(if last == '0' { '1' } else { '0' });
-    std::fs::write(&store, text.replace(entry.as_str(), &flipped))?;
-    assert!(crate::revocations::load(&store, &trusted(), &chain()).is_err());
+    std::fs::write(&store, text.replace(entry.as_str(), "zz"))?;
+    let altered = crate::revocations::load(&store, &chain())?;
+    assert_eq!(altered.problems.len(), 1, "{altered:?}");
+    assert_eq!(altered.records.len(), 2);
+    assert_eq!(altered.records[0].target, loaded.records[0].target);
+    assert_eq!(altered.records[0].issued_epoch, 20);
+    assert_eq!(altered.records[1], loaded.records[1]);
+    // A store that is not readable as a whole is an error.
+    std::fs::write(&store, b"{")?;
+    assert!(crate::revocations::load(&store, &chain()).is_err());
     Ok(())
 }
 
@@ -603,14 +623,14 @@ impl AppPorts for TestApp {
     fn chain(&self) -> ([u8; 32], u16) {
         self.served
     }
-    fn revocations(&self) -> Result<Vec<slop_ninja_protocol::Signed<slop_ninja_protocol::RewardIntentRevocation>>> {
-        let Some(store) = &self.revocation_store else { return Ok(Vec::new()) };
+    fn revocations(&self) -> Result<crate::revocations::Loaded> {
+        let Some(store) = &self.revocation_store else { return Ok(Default::default()) };
         let chain = ChainBinding {
             genesis: slop_ninja_protocol::Digest(self.served.0),
             netuid: self.served.1,
             mechanism: 0,
         };
-        crate::revocations::load(store, &AppPorts::trusted_keys(self)?, &chain)
+        crate::revocations::load(store, &chain)
     }
     async fn registration_snapshot(
         &mut self,
@@ -1355,13 +1375,26 @@ fn a_reward_v1_launch_bundle_never_expires_and_a_revocation_stops_it() -> Result
     .unwrap();
     assert!(crate::revocations::record(&store, &trusted(), &chain(), &revocation)?.new);
     app.revocation_store = Some(store.clone());
+    // The burn row queued at epoch 60 never signed: it is retirable now.
+    let queued: Vec<String> = AppPorts::pending_operations(&app, 0)?
+        .into_iter()
+        .filter(|p| p.retirable())
+        .map(|p| p.id)
+        .collect();
+    assert!(!queued.is_empty(), "the burn row queued at epoch 60 is still pending");
     app.epoch = 62;
     match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
         AppOutcome::Deferred { code, .. } => assert_eq!(code, "authorization_revoked"),
         other => panic!("expected the revocation deferral, got {other:?}"),
     }
+    for id in &queued {
+        assert_eq!(retired_reason(&app, id).as_deref(), Some("authorization_revoked"), "{id} is retired");
+    }
     let pending = AppPorts::pending_operations(&app, 0)?;
-    assert!(pending.iter().all(|p| !p.retirable()), "never-signed work of the revoked target is retired: {pending:?}");
+    assert!(
+        pending.iter().all(|p| !queued.contains(&p.id)),
+        "never-signed work of the revoked target is no longer pending: {pending:?}"
+    );
     // A later launch authorization re-authorizes the burn row.
     app.bundle = launch_bundle(63);
     app.epoch = 63;
@@ -1399,6 +1432,93 @@ fn a_reward_v1_launch_bundle_never_expires_and_a_revocation_stops_it() -> Result
     Ok(())
 }
 
+
+/// The continuous dispatch loop's revocation path, the one a running
+/// validator takes ([`LivePorts::revocation_head`] at each finalized head),
+/// against the real journal and signing guard: a revocation journaled mid-run
+/// withdraws the queued operation's signing grant (the guard refuses it as
+/// `slop_ninja_authorization_revoked`), retires it because it never signed,
+/// alerts once, and the re-commit path derives nothing for the target; a
+/// later authorization fetched resumes commits with a fresh grant.
+#[test]
+fn the_dispatch_loop_withdraws_a_revoked_target_then_resumes_on_reauthorization() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let mut app = TestApp::open(&config, &bundle())?;
+    app.bundle = launch_bundle(10);
+    app.epoch = 60;
+    let first = match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Enqueued { operation_id, .. } => operation_id,
+        other => panic!("expected the burn row queued, got {other:?}"),
+    };
+    assert!(app.live.authorized_for_tests().get(&first).is_some(), "the queued burn row holds a grant");
+    let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
+    let current = crate::package_v2::verify(&launch_bundle(10), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap();
+    let hotkey = identity().hotkey.0;
+    let mut watch = crate::live::RevocationWatch::default();
+    // No revocation journaled: the head changes nothing.
+    assert_eq!(app.live.revocation_head(&current, &mut watch, 0)?, Default::default());
+    assert!(current.check_epoch(hotkey, 61).is_ok());
+
+    // A revocation journaled mid-run (by the operator or the fetcher).
+    let launch = slop_ninja_protocol::sign(
+        slop_ninja_protocol::LaunchAuthorization::new(&chain(), 1, 10).unwrap(),
+        &authorization_key(),
+    )
+    .unwrap();
+    let checked = slop_ninja_protocol::LaunchAuthorization::check(&launch, &trusted(), &chain(), &launch_held).unwrap();
+    let revocation = slop_ninja_protocol::sign(
+        slop_ninja_protocol::RewardIntentRevocation::new(&checked, 1, 61).unwrap(),
+        &authorization_key(),
+    )
+    .unwrap();
+    let store = crate::revocations::path(&config.journal_path);
+    assert!(crate::revocations::record(&store, &trusted(), &chain(), &revocation.to_bytes()?)?.new);
+    let revoked = app.live.revocation_head(&current, &mut watch, 0)?;
+    assert_eq!(revoked.revoked, Some(slop_ninja_protocol::Record::digest(&revocation.record)?));
+    assert!(revoked.alerted, "alerted at the first head");
+    assert_eq!((revoked.withdrawn, revoked.retired), (1, 1), "{revoked:?}");
+    let guard = app.live.authorized_for_tests();
+    assert!(guard.is_withdrawn(&first) && guard.get(&first).is_none());
+    assert_eq!(retired_reason(&app, &first).as_deref(), Some("authorization_revoked"));
+    assert!(AppPorts::pending_operations(&app, 0)?.iter().all(|p| p.id != first));
+    // The re-commit path derives no new operation for the revoked target.
+    assert_eq!(current.check_epoch(hotkey, 62).unwrap_err().code, "authorization_revoked");
+    // The next head finds it again without alerting again.
+    let again = app.live.revocation_head(&current, &mut watch, 0)?;
+    assert_eq!((again.revoked, again.alerted, again.withdrawn), (Some(slop_ninja_protocol::Record::digest(&revocation.record)?), false, 0));
+    // A store that can no longer be read as a whole keeps the revocations
+    // this process loaded in force (alerted once per distinct error by the
+    // head path); a process with none loaded yet refuses instead.
+    let saved = std::fs::read(&store)?;
+    std::fs::write(&store, b"{ not json")?;
+    let kept = app.live.revocation_head(&current, &mut watch, 0)?;
+    assert_eq!(kept.revoked, again.revoked, "the loaded revocation stays in force");
+    assert!(AppPorts::revocations(&app.live)?.store_error.is_some());
+    assert!(current.check_epoch(hotkey, 62).is_err());
+    let fresh = crate::live::LivePorts::new(config.clone(), identity());
+    assert!(AppPorts::revocations(&fresh).is_err(), "nothing loaded yet: refused");
+    std::fs::write(&store, &saved)?;
+    assert!(AppPorts::revocations(&app.live)?.store_error.is_none());
+
+    // A later authorization is fetched: the next head finds no revocation of
+    // it, its operations derive again, and a new commitment gets a grant.
+    let renewed = crate::package_v2::verify(&launch_bundle(63), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap();
+    assert_eq!(app.live.revocation_head(&renewed, &mut watch, 0)?, Default::default());
+    assert!(renewed.check_epoch(hotkey, 63).is_ok());
+    app.revocation_store = Some(store);
+    app.bundle = launch_bundle(63);
+    app.epoch = 63;
+    let resumed = match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Enqueued { operation_id, .. } => operation_id,
+        other => panic!("expected the re-authorized burn row queued, got {other:?}"),
+    };
+    assert_ne!(resumed, first);
+    let guard = app.live.authorized_for_tests();
+    assert!(guard.get(&resumed).is_some() && !guard.is_withdrawn(&resumed));
+    Ok(())
+}
 
 // reward-v1 cohort bundles against the real journal: the held target, a
 // target switch, a missed tempo, a re-derived row and rollbacks.

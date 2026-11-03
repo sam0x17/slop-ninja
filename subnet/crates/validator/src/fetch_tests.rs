@@ -230,7 +230,7 @@ fn point(
     authorization: &[u8],
     renewal: Option<&[u8]>,
 ) {
-    point_revoked(host, chain, kind, authorization, renewal, None);
+    point_revoked(host, chain, kind, authorization, renewal, &[]);
 }
 
 fn point_revoked(
@@ -239,7 +239,7 @@ fn point_revoked(
     kind: &str,
     authorization: &[u8],
     renewal: Option<&[u8]>,
-    revocation: Option<&[u8]>,
+    revocations: &[&[u8]],
 ) {
     let object = |bytes: &[u8]| {
         let digest = sha(bytes);
@@ -254,7 +254,7 @@ fn point_revoked(
         "kind": kind,
         "authorization": object(authorization),
         "renewal": renewal.map(object),
-        "revocation": revocation.map(object),
+        "revocations": (!revocations.is_empty()).then(|| object(&revocations.concat())),
     });
     host.put(
         fetch::AUTHORIZATION_PATH,
@@ -743,10 +743,10 @@ fn a_published_hint_refresh_is_not_newer_but_a_reauthorization_is() -> Result<()
     Ok(())
 }
 
-/// A revocation the pointer names is checked and journaled before anything
-/// else; the staged authorization it withdraws yields no operation
-/// (`authorization_revoked`), and a forged one is refused without being
-/// journaled.
+/// Every revocation of the pointer's set is checked and journaled before
+/// anything else; the staged authorization one withdraws yields no operation
+/// (`authorization_revoked`). A forged entry is skipped and not journaled,
+/// while the valid entries beside it are.
 #[test]
 fn a_pointer_revocation_is_journaled_and_withdraws_the_authorization() -> Result<()> {
     let root = scratch()?;
@@ -757,7 +757,79 @@ fn a_pointer_revocation_is_journaled_and_withdraws_the_authorization() -> Result
     let checked = slop_ninja_protocol::LaunchAuthorization::check(&launch, &keys, &chain, &launch_held())?;
     let revocation = fx::signed(slop_ninja_protocol::RewardIntentRevocation::new(&checked, 1, 20)?)?.to_bytes()?;
     let launch = launch.to_bytes()?;
-    point_revoked(&host, &chain, "launch", &launch, None, Some(&revocation));
+    point_revoked(&host, &chain, "launch", &launch, None, &[&revocation]);
+    let store = root.path().join("journal.json.revocations.json");
+    let session = |cache: &str, store: &'_ std::path::Path| {
+        block_on(
+            Session {
+                transport: &host,
+                cache: &root.path().join(cache),
+                keys: &keys,
+                chain: &chain,
+                held: launch_held(),
+                previous: None,
+                keep: &[],
+                revocations: Some(store),
+            }
+            .run(),
+        )
+    };
+    let staged = ready(session("cache", &store)?);
+    let journaled = crate::revocations::load(&store, &chain)?;
+    assert_eq!(journaled.records.len(), 1);
+    staged.authorized.set_revocations(journaled.records);
+    assert_eq!(staged.authorized.check_epoch([0x42; 32], 21).unwrap_err().code, "authorization_revoked");
+    assert!(staged.authorized.revoked_by().is_some());
+    // Recording it again changes nothing.
+    assert!(!crate::revocations::record(&store, &keys, &chain, &revocation)?.new);
+    // A forged entry is skipped and not journaled; the session goes on.
+    let mut forged = revocation.clone();
+    let last = forged.len() - 1;
+    forged[last] ^= 1;
+    point_revoked(&host, &chain, "launch", &launch, None, &[&forged]);
+    let other_store = root.path().join("other.revocations.json");
+    let outcome = session("cache2", &other_store)?;
+    assert!(matches!(outcome, Outcome::Ready(_)), "{outcome:?}");
+    assert_eq!(crate::revocations::load(&other_store, &chain)?, Default::default());
+    // A set whose length is not whole revocations is refused.
+    let digest = sha(&revocation[1..]);
+    let path = format!("v1/authorizations/{digest}.signed");
+    host.put(&path, revocation[1..].to_vec());
+    let mut pointer: serde_json::Value = serde_json::from_slice(&host.get_bytes(fetch::AUTHORIZATION_PATH))?;
+    pointer["revocations"] = json!({"path": path, "sha256": digest, "bytes": revocation.len() - 1});
+    host.put(fetch::AUTHORIZATION_PATH, serde_json::to_vec(&pointer)?);
+    let outcome = session("cache3", &other_store)?;
+    assert!(matches!(&outcome, Outcome::Refused(r) if r.code == "authorization_malformed"), "{outcome:?}");
+    Ok(())
+}
+
+/// A validator that saw neither of two revocations (offline across both,
+/// or unable to assemble the successor bundle) journals both from the set,
+/// though the later one names another target, and the earlier one still
+/// withdraws the target it holds.
+#[test]
+fn a_validator_that_missed_two_revocations_journals_both() -> Result<()> {
+    let root = scratch()?;
+    let host = Host::default();
+    let keys = slop_ninja_protocol::fixtures::trusted_keys();
+    let chain = fx::chain();
+    let launch = fx::signed(slop_ninja_protocol::LaunchAuthorization::new(&chain, 1, 10)?)?;
+    let checked = slop_ninja_protocol::LaunchAuthorization::check(&launch, &keys, &chain, &launch_held())?;
+    // The held burn row is revoked first; a revocation of another target
+    // follows it.
+    let held_revocation = fx::signed(slop_ninja_protocol::RewardIntentRevocation::new(&checked, 1, 20)?)?;
+    let mut other = held_revocation.record.clone();
+    other.target = slop_ninja_protocol::Digest([0x5c; 32]);
+    other.issued_epoch = 30;
+    let later = fx::signed(other)?;
+    point_revoked(
+        &host,
+        &chain,
+        "launch",
+        &launch.to_bytes()?,
+        None,
+        &[&held_revocation.to_bytes()?, &later.to_bytes()?],
+    );
     let store = root.path().join("journal.json.revocations.json");
     let staged = ready(block_on(
         Session {
@@ -772,34 +844,11 @@ fn a_pointer_revocation_is_journaled_and_withdraws_the_authorization() -> Result
         }
         .run(),
     )?);
-    let journaled = crate::revocations::load(&store, &keys, &chain)?;
-    assert_eq!(journaled.len(), 1);
-    staged.authorized.set_revocations(journaled);
-    assert_eq!(staged.authorized.check_epoch([0x42; 32], 21).unwrap_err().code, "authorization_revoked");
-    assert!(staged.authorized.revoked_by().is_some());
-    // Recording it again changes nothing.
-    assert!(!crate::revocations::record(&store, &keys, &chain, &revocation)?.new);
-    // A forged revocation is refused and not journaled.
-    let mut forged = revocation.clone();
-    let last = forged.len() - 1;
-    forged[last] ^= 1;
-    point_revoked(&host, &chain, "launch", &launch, None, Some(&forged));
-    let other_store = root.path().join("other.revocations.json");
-    let outcome = block_on(
-        Session {
-            transport: &host,
-            cache: &root.path().join("cache2"),
-            keys: &keys,
-            chain: &chain,
-            held: launch_held(),
-            previous: None,
-            keep: &[],
-            revocations: Some(&other_store),
-        }
-        .run(),
-    )?;
-    assert!(matches!(outcome, Outcome::Refused(_)), "{outcome:?}");
-    assert!(crate::revocations::load(&other_store, &keys, &chain)?.is_empty());
+    let journaled = crate::revocations::load(&store, &chain)?;
+    assert_eq!(journaled.records, vec![held_revocation.record.clone(), later.record.clone()]);
+    staged.authorized.set_revocations(journaled.records);
+    assert_eq!(staged.authorized.check_epoch([0x42; 32], 31).unwrap_err().code, "authorization_revoked");
+    assert_eq!(staged.authorized.revoked_by(), Some(held_revocation.record.digest()?));
     Ok(())
 }
 

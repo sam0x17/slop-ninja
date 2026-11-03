@@ -752,8 +752,28 @@ or a signed revocation withdraws it.
 `RewardIntentRevocation` as the body (the bytes `reward_v1_verify revoke`
 writes), runs the journal action `revoke`, which `/signing/control` refuses.
 It checks the signature under the trusted authorization key and this chain,
-journals the revocation in `sign_revocations` (schema v9; only ever added;
-a second post answers `new: false`), and applies it in the same transaction:
+refuses an issue epoch past the finalized epoch index plus one
+(`revocation_epoch_future`), because a re-authorization must be issued later
+and cannot commit before its own issue. The finalized epoch index is the
+later of the journal's last preflight schedule advanced to the finalized
+cursor and the Worker's RPC reading of `SubnetEpochIndex` at the finalized
+cursor block, taken just before the call; with neither (no preflight and the
+reading failed, for example no cursor yet) the revocation is refused
+`revocation_epoch_unknown`, and while the cursor lags the chain by more than
+an epoch (catch-up, webhook silence) a revocation dated at the chain's
+current epoch is refused `revocation_epoch_future` until it catches up. Both
+journal nothing; retry them. Do not resume signing to obtain a preflight
+while the target to withdraw is installed: that would commit it. It refuses
+a revocation that would add a new target once the revocation set is full
+(`revocation_set_full`: the set is one journal reply the revoke route reads
+whole, so its bound is that route's control footprint,
+`authority::REVOCATION_SET_BYTES`, divided by the revocation's fixed signed
+length, about 4,000 targets (258-byte records); only targets whose latest revocation is signed
+under the trusted key count). That is not a stop: a target that can no
+longer be revoked is withdrawn by installing a successor bundle. It journals
+the revocation in `sign_revocations` (schema v9, indexed by target in v10;
+only ever added; a second
+post answers `new: false`), and applies it in the same transaction:
 when it withdraws the installed authorization (same target, authorization
 issued at or before the revocation's epoch), every preparing operation of
 that target, never signed, fails `authorization_revoked`, and from then on
@@ -761,7 +781,15 @@ the active target is refused with that code at every step, before any
 preflight, registration read or signature. Committed operations keep their
 read-back and reveal checks. It answers `{"revoked": {...,
 "withdraws_installed": ..., "failed_ops": ...}}` or `{"refused": {"code":
-"revocation_malformed" | "revocation_refused", ...}}` with nothing changed.
+"revocation_malformed" | "revocation_refused" | "revocation_epoch_future" |
+"revocation_epoch_unknown" | "revocation_set_full", ...}}` with nothing
+changed. A journaled revocation is written to the pointer at once (the
+reply's `pointer` is `confirmed` or the pass's failure code; the cron tick
+retries a failure). Each check reads only the installed target's journaled
+revocation with the latest issue epoch, one entry of the target index (it
+withdraws whatever an earlier one of that target does), and does not verify
+its signature again, so neither the number of revocations nor a rotated
+trust root changes its cost or outcome.
 Installing a bundle whose authorization a journaled revocation withdraws is
 refused (`authorization_revoked`); a bundle with an authorization of the same
 target issued after the revocation re-authorizes it. Signing may be paused
@@ -770,13 +798,31 @@ or active.
 The cron tick keeps the private authorization pointer
 (`authorizations/current.json` in the receipts bucket) equal to the journal:
 the installed bundle's authorization, its hint refresh if any, and the
-latest journaled revocation, each stored first as
-`authorizations/<sha256>.signed`. It reads the stored pointer back every
-minute and rewrites it whenever its bytes differ (a lost write, a deleted
-object, another writer), then records the write (`sign_pointer`,
-`signing.authorization.pointer_sha256` and `pointer_age_ms` in `/status`).
-The publisher copies it to `v1/authorizations/` for validators. Neither the
-pointer nor the authorization has a validity window.
+revocation set (pointer schema v2: the latest journaled revocation of every
+revoked target signed under the trusted authorization key, oldest first,
+concatenated), each stored first as `authorizations/<sha256>.signed`. A
+validator that missed earlier revocations journals them all from the set.
+The journal's plan names the objects (key, digest, length); the Worker
+fetches an object's bytes from the journal only when the bucket lacks it.
+Each pass checks every object the pointer names (a missing one, or one of
+another length, is written again), reads the stored pointer back and
+rewrites it whenever its bytes differ (a lost write, another writer). The
+tick reserves the pass's worst case (three journal calls and one shared
+bucket deadline) before its catch-up and signing rounds, so they never
+starve it. Every pass reports its outcome to the journal (schema v10,
+`sign_pointer_drive`): `/status` `signing.authorization` shows
+`pointer_current` (the last pass confirmed the stored pointer equal to the
+plan), `pointer_confirmed_age_ms` (refreshed by every healthy pass, so
+within a cron period or two), `pointer_error` and `pointer_error_age_ms`
+(the last pass's failure code, such as `plan_unreadable`, `object_head`,
+`object_put`, `pointer_put` or `pointer_read_back`, and how long the
+failures have lasted), beside `pointer_sha256` and `pointer_age_ms` of the
+last changed write. The sign log records only transitions
+(`authorization_pointer_written`, `_failed`, `_recovered`). The publisher
+alerts `pointer_stale` when the last pass failed or the confirmation is
+older than two cron periods for a whole tempo, and copies the pointer to
+`v1/authorizations/` for validators. Neither the pointer nor the
+authorization has a validity window.
 
 `POST /signing/restart?from_epoch=F`, with the launch bundle as the request
 body (operator token; signing paused only, refused `signing_active`
@@ -1283,8 +1329,13 @@ only moves a deletion later.
   predecessor a reward-v0 package chains to). A rule that stopped
   producing targets is released once a later target activates. A
   superseded authority holds no target once it accepted its successor's
-  notice. A cohort is also held while the current authorization names it,
-  as its carrying cohort or through its target. The authorization is read
+  notice. A cohort is also held while the current authorization names its
+  target (that target is not superseded while the authorization commits
+  it, so the approved rule keeps it). The authorization's carrying cohort
+  is recorded but not held: holding it past N+2 changes the approved rule
+  and awaits the user's decision, so until then a validator that starts
+  after a carrier's deletion waits for the next authorization
+  (`receipts_expired`). The authorization is read
   from the private pointer `authorizations/current.json` and the object it
   names before every deletion step; the pointer must carry the known
   schema, this deployment's chain binding and content-addressed object
@@ -1902,13 +1953,14 @@ milestone M7.
   falls more than two completed cohorts behind cannot copy the deleted
   receipts of the cohorts it missed; it lists them as retired before
   publication (`retired_unpublished`), a gap in the public record. The
-  authorization hold protects the carrier and target the current
-  authorization names from the coordinator's first write of the private
+  authorization hold protects the target's cohort the current
+  authorization names (not its carrier, above) from the coordinator's first write of the private
   pointer `authorizations/current.json` after the bundle's install (the
   next cron tick; `/status` `signing.authorization` shows the write). A
   deletion step in between reads the previous pointer, so a cohort
-  authorization whose carrier is older than the two newest completions is
-  not held until that write is confirmed. A retention step that keeps failing shows
+  authorization whose target's cohort is older than the two newest
+  completions and no longer active is not held until that write is
+  confirmed. A retention step that keeps failing shows
   in `/eval/status` and raises `retention_stalled` once a further cohort
   completes.
 - **Published-index rebuilds.** Validators and the coordinator's signing path

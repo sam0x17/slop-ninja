@@ -36,7 +36,13 @@
 //! `issued_epoch`; an authorization of the same target issued later
 //! re-authorizes it. A validator journals every checked revocation and passes
 //! them to each per-tempo operation, which refuses a withdrawn authorization
-//! (`revoked`). Revocation is the only way to stop an authorized target
+//! (`revoked`). A journaled revocation is not verified again
+//! ([`RewardIntentRevocation::journaled`]): it can only withdraw, and only
+//! authorizations of its own chain and target, so a rotated trust root never
+//! turns an old revocation into a stop for other targets. Its signer bounds
+//! `issued_epoch` by the finalized epoch index when it signs or admits one,
+//! because an authorization that re-authorizes the target must be issued
+//! later and cannot commit before its own issue. Revocation is the only way to stop an authorized target
 //! short of supersession, and it is explicit and signed.
 //!
 //! Checking takes the signed envelope, never the bare record:
@@ -748,9 +754,10 @@ impl Record for RewardIntentRevocation {
 }
 
 /// A signed [`RewardIntentRevocation`] that [`RewardIntentRevocation::check`]
-/// accepted: its signature verified under the trusted authorization key and
-/// it names the validator's chain. It is the only form a revocation takes in
-/// [`CheckedAuthorization::operation`].
+/// accepted (its signature verified under the trusted authorization key and
+/// it names the validator's chain), or one its holder journaled after that
+/// check ([`RewardIntentRevocation::journaled`]). It is the only form a
+/// revocation takes in [`CheckedAuthorization::operation`].
 #[derive(Clone, Copy, Debug)]
 pub struct CheckedRevocation<'a> {
     revocation: &'a RewardIntentRevocation,
@@ -799,6 +806,20 @@ impl RewardIntentRevocation {
             authorization: authorization.digest,
             checkpoint_generation,
             issued_epoch,
+        })
+    }
+
+    /// A revocation its holder checked ([`Self::check`]) when it journaled
+    /// it, as every later check takes it. Its signature is not verified
+    /// again: a revocation can only withdraw, never authorize, so trusting
+    /// the holder's own journal can never yield a commitment, and a trust
+    /// root rotated since it was journaled must not turn it into an error
+    /// that stops commitments of other targets. It withdraws nothing on
+    /// another chain or of another target ([`CheckedRevocation::withdraws`]).
+    pub fn journaled(&self) -> Result<CheckedRevocation<'_>> {
+        Ok(CheckedRevocation {
+            revocation: self,
+            digest: self.digest()?,
         })
     }
 

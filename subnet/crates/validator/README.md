@@ -254,14 +254,38 @@ commitment against all of them. Revocations arrive two ways:
 - `slop_ninja_validator --config ... revoke <file>`: the signed record's
   bytes, as `reward_v1_verify revoke` writes them. Safe while the unit runs;
   the run applies it at its next finalized head.
-- the fetcher: when `v1/authorizations/current.json` names a `revocation`,
-  it is checked and journaled before anything else in the session
-  (`revocation_recorded`, `alert = true`); a forged one refuses the session
-  and is not journaled.
+- the fetcher: every entry of the revocation set that
+  `v1/authorizations/current.json` names that the store does not hold yet is
+  checked and journaled before anything else in the session, in one locked
+  read and at most one write per session (`revocation_recorded`,
+  `alert = true`, for each new one), so a validator that missed earlier
+  revocations journals them all; entries already journaled are not verified
+  again, and an entry that does not verify is skipped and not journaled
+  (`revocation_skipped`).
 
-A store entry that no longer verifies (rotated trust roots or an altered
-file) is an error the operator resolves; the run keeps the revocations it
-already loaded (`revocation_store_unreadable`, `alert = true`).
+The signature is checked once, when an entry is journaled; loading the store
+does not check it again. A revocation can only withdraw authorizations of
+its own chain and target, so a trust root rotated since an entry was
+journaled never stops commitments of other targets.
+
+An entry whose bytes no longer decode to its recorded digest (a hand edit or
+disk damage; the validator's own writes are atomic) is alerted once
+(`revocation_entry_unreadable`, `alert = true`) and still applied from its
+recorded target and epoch. That withdraws a target with no verifiable
+signature behind it, deliberately: the entry was verified when this
+validator journaled it, and for an entry that can no longer be read the
+safe direction is not committing its target rather than resuming
+commitments a revocation may have stopped. It withdraws only its own target
+at or before its epoch; restore the entry, or remove it by hand, to clear it.
+
+A store that cannot be read as a whole (unparseable, or another schema):
+- while running, the revocations already loaded stay in force and the error
+  is alerted once per distinct error (`revocation_store_unreadable`,
+  `alert = true`); successors are still checked against them;
+- at startup, with nothing loaded yet, the validator alerts
+  (`revocation_store_unreadable`, `kept = 0`) and exits with an error rather
+  than commit on a check that did not run; systemd restarts it, alerting
+  each time, until the store is restored or fixed.
 
 Any refusal leaves the journal paused, and the journal is paused again before
 exit, so the next run recovers first.
@@ -394,7 +418,7 @@ Dependency crates log at `warn` and above.
 `fetch.rs` reads the publisher's layout `v1`
 ([`docs/testnet/public-layout.md`](../../../docs/testnet/public-layout.md)):
 `v1/authorizations/current.json` names the current
-authorization, any renew-by hint refresh and the latest revocation as
+authorization, any renew-by hint refresh and the revocation set as
 content-addressed objects; the cohort index
 names each cohort's target and whether its receipts are retained; each
 cohort's `publication.json` and `chunk-map.json` list every object's SHA-256
@@ -414,19 +438,22 @@ it:
 
 ```json
 {
-  "schema": "slop_ninja.public.authorization/v1",
+  "schema": "slop_ninja.public.authorization/v2",
   "chain": { "genesis": "<64 hex>", "netuid": 601, "mechanism": 0 },
   "kind": "cohort",
   "authorization": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": 309 },
   "renewal": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": 196 },
-  "revocation": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
+  "revocations": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
 }
 ```
 
 `kind` is `launch` (a `LaunchAuthorization`) or `cohort` (a
 `RewardIntentAuthorization`); `renewal` is a refresh of that
-authorization's renew-by hint, or absent; `revocation` is the latest
-`RewardIntentRevocation` the coordinator holds, or absent. Each object is
+authorization's renew-by hint, or absent; `revocations` is the revocation
+set, or absent: the latest `RewardIntentRevocation` of every revoked target
+the coordinator holds, concatenated, its `bytes` a whole multiple of one
+revocation's signed length. A validator built for schema v1 refuses a v2
+pointer by its schema and cannot see revocations. Each object is
 the coordinator's signed bytes, named by its SHA-256, and its `bytes` must be
 the record's exact signed length (fixed by the schema,
 `fetch::authorization_lengths` and `fetch::revocation_length`: 230 bytes for

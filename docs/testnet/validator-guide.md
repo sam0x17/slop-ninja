@@ -298,8 +298,13 @@ layout](public-layout.md)):
 
 - `v1/authorizations/current.json`: the authorization that lets validators
   commit now (`launch` or `cohort`), any refresh of its renew-by hint, and
-  the latest signed revocation, each a content-addressed object listed with
-  its SHA-256 and its exact signed length. **The public host is not deployed
+  the revocation set (the latest signed revocation of every revoked target,
+  concatenated), each a content-addressed object listed with its SHA-256
+  and its exact signed length (for the set, a whole multiple of one
+  revocation's). The pointer's schema is
+  `slop_ninja.public.authorization/v2`: a validator built before it refuses
+  the pointer by its schema (`fetch_refused`), cannot see revocations, and
+  must be upgraded. **The public host is not deployed
   yet**; until it is, the fetcher reports `unpublished` and the validator
   keeps the bundle you install;
 - `v1/cohorts/index.json`: every published cohort, its target digest and

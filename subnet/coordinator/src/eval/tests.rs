@@ -3604,13 +3604,14 @@ fn the_targets_signing_reads_are_held() {
     assert_eq!(held, vec![6]);
 }
 
-/// The current authorization holds the cohorts it names, its carrier and
-/// its target's, read from the private pointer before a deletion step,
+/// The current authorization holds its target's cohort (not its carrier,
+/// pending the user's decision on the N+2 rule), read from the private
+/// pointer before a deletion step,
 /// with no count or time limit: a due cohort it names goes back to waiting
 /// until its deletion has started, and becomes due again once the pointer
 /// names something else.
 #[test]
-fn the_current_authorization_holds_its_carrier_and_target() {
+fn the_current_authorization_holds_its_target_cohort() {
     use super::retention::{Hold, apply_hold, hold_of, pointer_ref};
     use slop_ninja_admission_wire::json::{AUTHORIZATION_POINTER_SCHEMA, Chain, ObjectRef};
     use slop_ninja_protocol::{Digest, RewardIntentAuthorization, sign};
@@ -3633,7 +3634,8 @@ fn the_current_authorization_holds_its_carrier_and_target() {
     let due = |s: i64| retention_of(&db, s).0;
     assert_eq!((due(seqs[0]), due(seqs[1]), due(seqs[2]), due(seqs[3])), (Some(4), Some(4), Some(5), None));
     // The pointer still names an authorization for target 1, carried by
-    // cohort 2: both go back to waiting; cohort 3 stays due.
+    // cohort 2: cohort 1 goes back to waiting; the carrier 2 and cohort 3
+    // stay due.
     let key = slop_ninja_protocol::SigningKey::from_bytes(&[9; 32]);
     let a = sign(
         RewardIntentAuthorization {
@@ -3660,22 +3662,23 @@ fn the_current_authorization_holds_its_carrier_and_target() {
     let hold = hold_of(&kind, &r, &a).unwrap();
     assert_eq!(hold, Hold::Cohort { cohort: 2, manifest: m2.clone(), target: t1.clone() });
     assert!(!tx(&db, |s| apply_hold(s, &hold, seqs[0], 100)).unwrap(), "cohort 1 is held");
-    assert_eq!((due(seqs[0]), due(seqs[1]), due(seqs[2])), (None, None, Some(5)));
+    assert_eq!((due(seqs[0]), due(seqs[1]), due(seqs[2])), (None, Some(4), Some(5)));
     assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 0, "still held");
     let Some(Work::RetireReceipts { seq, .. }) = tx(&db, |s| super::retention::next_work(s, &cfg())).unwrap() else {
         panic!("retire")
     };
-    assert_eq!(seq, seqs[2]);
+    assert_eq!(seq, seqs[1], "the carrier is not held");
+    tx(&db, |s| super::retention::note_retiring(s, seqs[1], 150)).unwrap();
     // Once a cohort's deletion started (its marker is stored), a hold no
     // longer returns it to waiting.
     tx(&db, |s| super::retention::note_retiring(s, seqs[2], 200)).unwrap();
     let m3 = Hold::Cohort { cohort: 3, manifest: String::new(), target: String::new() };
     db.conn.execute("UPDATE cohorts SET manifest_digest = '' WHERE seq = ?1", [seqs[2]]).unwrap();
     assert!(tx(&db, |s| apply_hold(s, &m3, seqs[2], 300)).unwrap());
-    // A launch authorization (or no pointer) names no receipts: 1 and 2 are
-    // due again at the next marking.
+    // A launch authorization (or no pointer) names no receipts: 1 is due
+    // again at the next marking.
     assert!(tx(&db, |s| apply_hold(s, &Hold::Launch, seqs[2], 400)).unwrap());
-    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 2);
+    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 1);
     assert_eq!((due(seqs[0]), due(seqs[1])), (Some(4), Some(4)));
     let st = tx(&db, super::retention::status).unwrap();
     assert_eq!(st["authorization_hold"]["kind"], "launch");
@@ -3888,11 +3891,14 @@ fn a_predecessors_authorization_hold_ends_with_the_pointer() {
     // Its own rule: 2 is due (3 and 4 completed); 1's target is still held.
     assert_eq!(retire_steps(&old, &retired, &Hold::None), 1);
     assert_eq!(retention_of(&old, seqs[0]).1, None, "the predecessor's target stays before any notice");
-    let held = Hold::Cohort { cohort: 4, manifest: "m4".into(), target: "none".into() };
+    // The pointer names an authorization of 1's target carried by 4: the
+    // target's cohort is held, the carrier is not (pending the user's
+    // decision on holding carriers).
+    let held = Hold::Cohort { cohort: 4, manifest: "m4".into(), target: "t1".into() };
     let v = tx(&old, |s| super::retention::accept_notice(s, 14)).unwrap().unwrap();
     assert_eq!(v["remaining"], 3);
-    assert_eq!(retire_steps(&old, &retired, &held), 2, "1 (target released) and 3 go; 4 is held");
-    assert_eq!(retention_of(&old, seqs[3]).0, None);
+    assert_eq!(retire_steps(&old, &retired, &held), 2, "3 and the carrier 4 go; 1 is held by the authorization");
+    assert_eq!(retention_of(&old, seqs[0]).0, None);
     let v = tx(&old, |s| super::retention::accept_notice(s, 14)).unwrap().unwrap();
     assert_eq!(v["remaining"], 1);
     assert_eq!(retire_steps(&old, &retired, &Hold::Launch), 1);

@@ -470,11 +470,12 @@ impl VerifiedTarget {
         })
     }
 
-    /// The first of the holder's signed `revocations` that withdraws this
-    /// bundle's authorization, by its digest. Each is checked under `keys`
-    /// and the bundle's chain; one that fails its check is an error.
-    pub fn revoked_by(&self, keys: &TrustedKeys, revocations: &[Signed<RewardIntentRevocation>]) -> Result<Option<Digest>> {
-        let checked = check_revocations(keys, &self.chain, revocations)?;
+    /// The first of the holder's journaled `revocations` that withdraws this
+    /// bundle's authorization, by its digest. Each was checked when it was
+    /// journaled ([`RewardIntentRevocation::journaled`]); one of another
+    /// chain or target withdraws nothing, and none is an error.
+    pub fn revoked_by(&self, keys: &TrustedKeys, revocations: &[RewardIntentRevocation]) -> Result<Option<Digest>> {
+        let checked = journaled(revocations)?;
         self.with_checked(keys, |authorization, _| Ok(authorization.revoked_by(&checked).map(|r| r.digest())))
     }
 
@@ -510,15 +511,16 @@ impl VerifiedTarget {
     /// The per-tempo operation of validator `hotkey` at `epoch`, read from a
     /// fresh finalized view: the authorization is checked again, against the
     /// active target, its activation epoch, its issue epoch and every one of
-    /// the holder's journaled `revocations`. No end epoch applies.
+    /// the holder's journaled `revocations` (each checked when journaled,
+    /// [`RewardIntentRevocation::journaled`]). No end epoch applies.
     pub fn operation(
         &self,
         keys: &TrustedKeys,
-        revocations: &[Signed<RewardIntentRevocation>],
+        revocations: &[RewardIntentRevocation],
         hotkey: AccountId,
         epoch: u64,
     ) -> Result<WeightOperationV2> {
-        let checked_revocations = check_revocations(keys, &self.chain, revocations)?;
+        let checked_revocations = journaled(revocations)?;
         self.with_checked(keys, |checked, renewal| {
             checked.operation(renewal, &checked_revocations, &self.active, hotkey, epoch)
         })
@@ -573,11 +575,7 @@ impl VerifiedTarget {
     }
 }
 
-/// Checks each signed revocation under `keys` for `chain`.
-fn check_revocations<'a>(
-    keys: &TrustedKeys,
-    chain: &ChainBinding,
-    revocations: &'a [Signed<RewardIntentRevocation>],
-) -> Result<Vec<crate::CheckedRevocation<'a>>> {
-    revocations.iter().map(|r| RewardIntentRevocation::check(r, keys, chain)).collect()
+/// The holder's journaled revocations as checked revocations.
+fn journaled(revocations: &[RewardIntentRevocation]) -> Result<Vec<crate::CheckedRevocation<'_>>> {
+    revocations.iter().map(RewardIntentRevocation::journaled).collect()
 }

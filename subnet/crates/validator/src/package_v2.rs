@@ -36,7 +36,7 @@ use rtao_primitives::{MechId, Uid};
 use serde::{Deserialize, Serialize};
 use slop_ninja_protocol::{
     AccountId, ActiveTarget, ChainBinding, Digest, NeuronIdentity, Record, RegistrationSnapshot,
-    RegistrationSnapshotV2, RewardIntentRevocation, Signed, TrustedKeys, VerifiedTarget,
+    RegistrationSnapshotV2, RewardIntentRevocation, TrustedKeys, VerifiedTarget,
 };
 use slop_ninja_subnet::WeightWork;
 
@@ -192,7 +192,7 @@ pub struct Authorized {
     pub receipts_verified: u64,
     /// This validator's journaled revocations, refreshed by the dispatch loop
     /// from [`crate::revocations`] ([`Self::set_revocations`]).
-    revocations: std::sync::Mutex<Vec<Signed<RewardIntentRevocation>>>,
+    revocations: std::sync::Mutex<Vec<RewardIntentRevocation>>,
 }
 
 impl Authorized {
@@ -213,12 +213,14 @@ impl Authorized {
     }
 
     /// Replaces the revocations every later check uses.
-    pub fn set_revocations(&self, revocations: Vec<Signed<RewardIntentRevocation>>) {
+    pub fn set_revocations(&self, revocations: Vec<RewardIntentRevocation>) {
         *self.revocations.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = revocations;
     }
 
     /// The digest of the journaled revocation that withdraws this bundle's
-    /// authorization, if any.
+    /// authorization, if any. An authorization that no longer verifies is
+    /// not reported here: [`Self::check_epoch`] refuses it
+    /// (`authorization_refused`) with its own cause.
     pub fn revoked_by(&self) -> Option<Digest> {
         let revocations = self.revocations.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         self.verified.revoked_by(&self.keys, &revocations).ok().flatten()

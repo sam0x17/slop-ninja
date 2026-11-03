@@ -2454,7 +2454,8 @@ are evidence of the earlier design.
   `<journal>.revocations.json`; the fetcher journals one the pointer names.
   A revoked authorization pauses new commitments (`authorization_paused`),
   retires never-signed work of its target and withdraws its signing grants.
-- **Publisher.** Copies the pointer's `revocation` object with the rest.
+- **Publisher.** Copies the pointer's revocation object with the rest
+  (since round 1, the revocation set).
 - **Operator tool.** `reward_v1_verify revoke --bundle B --issued-epoch E
   --out R` signs a revocation of `B`'s authorization; `launch` and `cohort`
   take `--generation G`. Never revoke the live target except to withdraw it.
@@ -2472,6 +2473,74 @@ are evidence of the earlier design.
   `weights_match` true. No revocation was issued live. The lease end itself
   (epoch 117) is checked in tests with the chain 60 epochs past the hint;
   the live check comes when the chain passes epoch 117.
+- **Review fixes (2026-11-03, round 1; not deployed with this record).**
+  The pointer is schema v2: it names a revocation set (the latest
+  revocation of every revoked target, concatenated) instead of the latest
+  revocation alone, so a validator that missed earlier revocations journals
+  them all; validators built for v1 refuse a v2 pointer by its schema. A
+  journaled revocation is checked once, when journaled, and only against
+  its own chain and target afterwards, so a rotated authorization key never
+  stops commitments of other targets; the coordinator reads only the
+  installed target's latest revocation per check. `POST /signing/revoke`
+  and `reward_v1_verify revoke --finalized-epoch F` refuse an issue epoch
+  past the finalized epoch index plus one. The cron tick checks each pointer
+  object every minute and restores a deleted one. The validator's per-head
+  revocation path is a tested function, and its store alerts are once per
+  distinct error. The operator's alert rules v7 classify `authorization_paused`,
+  `authorization_revoked` and `authorization_resumed`.
+- **Review fixes (2026-11-03, round 2; not deployed with this record).**
+  Journal schema v10: an index on revocations by target (each check reads
+  one index entry), and `sign_pointer_drive`, the pointer writer's last
+  pass. Every pass of the writer reports its outcome; `/status`
+  `signing.authorization` shows `pointer_current`,
+  `pointer_confirmed_age_ms`, `pointer_error` and its age, and the
+  publisher (rules v6) alerts `pointer_stale` after a tempo without a
+  confirmation. The tick reserves the pass's worst case before its catch-up
+  and signing rounds; a successful `POST /signing/revoke` runs the pass at
+  once. The plan names objects by key, digest and length; the Worker
+  fetches bytes only for a missing object. The revocation set's bound is
+  the revoke route's control footprint (about 4,000 targets (258-byte records)), counting only
+  carried entries; at that bound a new target is withdrawn by a successor
+  bundle. The publisher copies a revocation set byte for byte and alerts
+  (`revocation_unverifiable`) on entries that do not open under its trust
+  roots instead of refusing the pointer. The revoke route also passes the
+  Worker's RPC reading of the finalized epoch index, so a journal that
+  never ran a preflight accepts a revocation; a cursor lagging by more than
+  an epoch still refuses one dated at the current epoch until it catches up
+  (retry; do not resume signing to get a preflight while the target to
+  withdraw is installed). The validator journals a set's new entries in one
+  locked write per session; while running, an unreadable store keeps the
+  revocations already loaded, and at startup it alerts and refuses to run.
+  The eval retention hold keeps the authorization's target cohort only:
+  holding its carrying cohort past N+2 awaits the user's decision on the
+  receipts rule.
+- **Deploy order for the v2 pointer.** Three Workers read the private
+  pointer: the coordinator writes it, and the publisher (public copy) and
+  the eval Worker (retention hold, `receipts::parse_pointer`) read it; each
+  accepts exactly its own schema. Deploy them back to back from one commit
+  containing the v2 schema: publisher, coordinator, then eval. Between the
+  coordinator and the eval deploy the eval hold refuses the v2 pointer and
+  deletion waits (never early; `retention_stalled` fires only after a
+  further cohort completion, so a window of minutes raises nothing); before
+  the coordinator deploy the new publisher refuses the v1 pointer and the
+  public copy waits (validators keep committing their held target). An eval
+  build without the v2 schema must not be deployed after the coordinator.
+  Validators built for v1 (validator2 at `c6be699c`) refuse the v2 public
+  pointer and keep their held target until reinstalled.
+- **Eval bucket lifecycle (2026-11-03).** The testnet eval bucket's default
+  rule "abort incomplete multipart uploads after 7 days" was removed: the
+  coordinator aborts its own incomplete admission uploads from durable state
+  (sessions still uploading are refused at the close and their uploads
+  aborted by the clean-up once the cohort freezes or is abandoned), so the
+  rule could only drop the parts of a session still live across an outage
+  of more than 7 days. The other testnet buckets have no multipart writers
+  and keep the default rule. One exception: the session object creates the
+  multipart upload before it records the upload id, in a separate
+  transaction, so an eviction or a failed transaction between them leaves
+  an upload no journal row names, which nothing aborts now. It holds no
+  parts (the Worker writes parts only through the upload id the session
+  records), so it costs no storage beyond the upload record; there is at
+  most one per session creation.
 
 ### Coordinator follow-ups: receipts, watchdog, commitment reader (2026-11-03)
 
@@ -2486,7 +2555,8 @@ stage. Two eval-store migrations (v12 to v14) and no journal migration.
   path reads (the newest `reward-v1` target and the newest target of any
   rule) and every cohort the current authorization names (carrier or
   target, from the private `authorizations/current.json`, read before each
-  deletion step) keep their receipts; a superseded authority holds no
+  deletion step; since the no-expiry round 2, the target's cohort only,
+  pending the user's decision on holding the carrier) keep their receipts; a superseded authority holds no
   target once it accepted its successor's notice. Deletion also runs while
   an active cohort only waits on its lanes. A due cohort left after a
   further completion, or a predecessor not finished after one, is listed in

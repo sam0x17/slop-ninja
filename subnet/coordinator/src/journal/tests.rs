@@ -9,7 +9,7 @@ const NOW: u64 = 1_793_000_000_000;
 pub(crate) fn journal() -> Sqlite {
     let db = Sqlite::open();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (0, 9));
+    assert_eq!((report.from, report.to), (0, 10));
     db
 }
 
@@ -45,22 +45,22 @@ fn status_of(db: &Sqlite) -> JournalStatus {
 fn migrations_are_versioned_and_idempotent() {
     let db = journal();
     let again = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((again.from, again.to), (9, 9));
+    assert_eq!((again.from, again.to), (10, 10));
     assert_eq!(
         tx(&db, |sql| migrate(sql, &EVAL_COHORT_SCHEMA)),
         Err(MigrationError::Family)
     );
     db.conn
         .execute(
-            "UPDATE schema_meta SET value = '10' WHERE name = 'version'",
+            "UPDATE schema_meta SET value = '11' WHERE name = 'version'",
             [],
         )
         .unwrap();
     assert_eq!(
         tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)),
         Err(MigrationError::NewerStoredVersion {
-            stored: 10,
-            supported: 9
+            stored: 11,
+            supported: 10
         })
     );
     const GAPPED: Schema = Schema {
@@ -94,7 +94,7 @@ fn v1_storage_upgrades_in_place_to_latest() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (1, 9));
+    assert_eq!((report.from, report.to), (1, 10));
     assert_eq!(db.count("deliveries"), 1);
     assert_eq!(db.count("watchdog"), 1);
     assert_eq!(db.count("rpc_budget"), 1);
@@ -501,7 +501,7 @@ fn v2_storage_upgrades_with_the_watermark_seeded_at_its_anchor() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (2, 9));
+    assert_eq!((report.from, report.to), (2, 10));
     let s = status_of(&db);
     assert_eq!((s.cursor, s.confirmed), (Some(block(13)), Some(block(10))));
     assert_eq!(s.provisional_blocks, Some(3));

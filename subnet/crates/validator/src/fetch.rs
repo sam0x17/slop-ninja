@@ -4,12 +4,18 @@
 //!
 //! The layout is the publisher's `v1` (`docs/testnet/public-layout.md`):
 //!
-//! - `v1/authorizations/current.json` names the authorization that lets
-//!   validators commit now (launch or cohort), any renew-by hint refresh of
-//!   it, and the latest signed revocation, if any, each a content-addressed
-//!   object with its SHA-256 and length. A named revocation is checked and
-//!   journaled ([`crate::revocations`]) before anything else is fetched, so
-//!   it takes effect whatever the rest of the session does;
+//! - `v1/authorizations/current.json` (schema v2) names the authorization
+//!   that lets validators commit now (launch or cohort), any renew-by hint
+//!   refresh of it, and the revocation set, if any: the latest signed
+//!   revocation of every revoked target, concatenated, each a
+//!   content-addressed object with its SHA-256 and length. Every entry of
+//!   the set is checked and journaled ([`crate::revocations`]) before
+//!   anything else is fetched, so it takes effect whatever the rest of the
+//!   session does, and a validator that missed earlier revocations (offline,
+//!   or holding an older target) still journals each of them. An entry that
+//!   does not verify under the pinned keys is skipped, never journaled. A
+//!   validator built for schema v1 refuses a v2 pointer by its schema and
+//!   cannot see revocations; it must be upgraded;
 //! - `v1/cohorts/index.json` lists every published cohort with its target
 //!   digest and whether its detailed receipts are still published;
 //! - each cohort's `publication.json` lists every object copied, with its
@@ -23,9 +29,10 @@
 //! the session bound:
 //!
 //! - authorization, renewal and revocation objects are fixed-size records: their listed
-//!   length must be the schema's exact signed length, they are read into
-//!   memory and their signature is checked before anything else is fetched;
-//!   they are never cached;
+//!   length must be the schema's exact signed length (for the revocation
+//!   set, a whole multiple of it), they are read into memory and their
+//!   signature is checked before anything else is fetched; they are never
+//!   cached;
 //! - every receipt bundle the chunk map names must also be listed in
 //!   `publication.json`, the chunk map's receipt root and count must be the
 //!   signed receipt index's, and the bundles' total length must be exactly
@@ -96,7 +103,7 @@ use crate::package_v2::{
 
 pub const AUTHORIZATION_PATH: &str = "v1/authorizations/current.json";
 pub const INDEX_PATH: &str = "v1/cohorts/index.json";
-pub const AUTHORIZATION_SCHEMA: &str = "slop_ninja.public.authorization/v1";
+pub const AUTHORIZATION_SCHEMA: &str = "slop_ninja.public.authorization/v2";
 pub const INDEX_SCHEMA: &str = "slop_ninja.public.cohort_index/v1";
 pub const PUBLICATION_SCHEMA: &str = "slop_ninja.public.publication/v1";
 pub const CHUNK_FORMAT: &str = "slop_ninja_receipt_chunk_v1";
@@ -237,9 +244,11 @@ pub struct AuthorizationPointer {
     pub authorization: ObjectRef,
     #[serde(default)]
     pub renewal: Option<ObjectRef>,
-    /// The latest signed revocation the coordinator issued, if any.
+    /// The revocation set: the latest signed revocation of every revoked
+    /// target, concatenated, each of [`revocation_length`]; absent when there
+    /// is none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub revocation: Option<ObjectRef>,
+    pub revocations: Option<ObjectRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -925,8 +934,9 @@ pub struct Session<'a, T: Transport> {
     pub previous: Option<&'a str>,
     /// Cohorts of the installed bundle, which pruning keeps.
     pub keep: &'a [String],
-    /// Where a revocation the pointer names is journaled
-    /// ([`crate::revocations::record`]); `None` checks it without keeping it.
+    /// Where each revocation of the pointer's set is journaled
+    /// ([`crate::revocations::record`]); `None` checks them without keeping
+    /// them.
     pub revocations: Option<&'a Path>,
 }
 
@@ -1091,25 +1101,30 @@ impl<T: Transport> Session<'_, T> {
         pointer
             .chain
             .check(self.chain, "the authorization pointer")?;
-        if let Some(r) = &pointer.revocation {
-            let bytes = step!(
-                self.authorization_object::<RewardIntentRevocation>(reader, r, revocation_length(self.chain)?)
-                    .await?
-            );
-            if let Err(error) = crate::revocations::check(&bytes, self.keys, self.chain) {
-                return Ok(Outcome::Refused(Refusal::new("revocation_refused", format!("{error:#}"))));
-            }
-            if let Some(store) = self.revocations {
-                let recorded = crate::revocations::record(store, self.keys, self.chain, &bytes)?;
-                if recorded.new {
+        if let Some(r) = &pointer.revocations {
+            let set = step!(self.revocation_set(reader, r).await?);
+            let len = revocation_length(self.chain)? as usize;
+            // One locked read of the store per session; only entries it
+            // does not hold yet are verified and journaled, in one write.
+            let recorded = crate::revocations::record_set(self.revocations, self.keys, self.chain, &set, len)?;
+            drop(set);
+            if self.revocations.is_some() {
+                for entry in &recorded.new {
                     tracing::warn!(
                         event = "revocation_recorded",
                         source = "fetch",
-                        revocation = %recorded.entry.digest,
-                        target = %recorded.entry.target,
+                        revocation = %entry.digest,
+                        target = %entry.target,
                         alert = true
                     );
                 }
+            }
+            if recorded.skipped > 0 {
+                tracing::warn!(
+                    event = "revocation_skipped",
+                    skipped = recorded.skipped,
+                    reason = "does not verify under the pinned keys"
+                );
             }
         }
         let (launch_len, cohort_len, renewal_len) = authorization_lengths(self.chain)?;
@@ -1213,6 +1228,34 @@ impl<T: Transport> Session<'_, T> {
     /// length must be the record's exact signed length, and it is read into
     /// memory and its signature checked before anything else uses it. It is
     /// never cached: it is a few hundred bytes.
+    /// The revocation set the pointer names, read into memory once its
+    /// listed length is a non-zero whole multiple of the revocation's signed
+    /// length (counted against the session bound like any object).
+    async fn revocation_set(&self, reader: &mut Reader<'_, T>, r: &ObjectRef) -> Result<Step<Vec<u8>>> {
+        ensure!(safe_rel(&r.path), "unsafe authorization path");
+        let sha = hex::encode(hex32(&r.sha256, "revocation set sha256")?);
+        let len = revocation_length(self.chain)?;
+        if r.bytes == 0 || !r.bytes.is_multiple_of(len) {
+            return Ok(Step::Stop(Outcome::Refused(Refusal::new(
+                "authorization_malformed",
+                "the revocation set's listed length is not whole revocations",
+            ))));
+        }
+        match reader.memory_object(&r.path, &sha, r.bytes).await? {
+            InMemory::Bytes(bytes) => Ok(Step::Go(bytes)),
+            InMemory::Missing => Ok(Step::Stop(incomplete(
+                None,
+                "authorization_missing",
+                "the named revocation set is not published",
+            ))),
+            InMemory::Mismatch => Ok(Step::Stop(incomplete(
+                None,
+                "object_digest_mismatch",
+                "the revocation set failed its digest",
+            ))),
+        }
+    }
+
     async fn authorization_object<R: Record>(
         &self,
         reader: &mut Reader<'_, T>,

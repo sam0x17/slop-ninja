@@ -942,6 +942,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
         refused: report.refused.clone(),
         pending: report.pending.clone(),
         unverifiable: report.unverifiable.clone(),
+        revocations_unopened: report.revocations_unopened,
         config: None,
         interrupted: false,
         warnings: Vec::new(),

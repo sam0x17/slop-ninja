@@ -1053,9 +1053,10 @@ pub enum Verified {
 pub struct ActiveTarget {
     pub digest: String,
     pub verified: Verified,
-    /// The journaled signed revocations every reward-v1 operation is checked
-    /// against ([`authority`]).
-    pub revocations: Vec<slop_ninja_protocol::Signed<slop_ninja_protocol::RewardIntentRevocation>>,
+    /// The journaled revocation of this target with the latest issue epoch,
+    /// if any ([`authority::revocation_of`]), that every reward-v1 operation
+    /// is checked against: it withdraws whatever an earlier one does.
+    pub revocations: Vec<slop_ninja_protocol::RewardIntentRevocation>,
     /// v1: the protocol weight operation of (target, hotkey); each epoch's
     /// identity is [`commit_op_id`]. v2: the target digest; each epoch's
     /// identity is the protocol `WeightOperationV2`, issued only under the
@@ -1468,7 +1469,8 @@ fn install_target_v2(
     }
     // A bundle whose authorization a journaled revocation withdraws would
     // commit nothing; a newer authorization of the target is needed.
-    match verified.revoked_by(keys, &authority::revocations(sql)?) {
+    let revocations = authority::revocation_of(sql, &verified.target_digest.to_string())?;
+    match verified.revoked_by(keys, &revocations) {
         Ok(None) => {}
         Ok(Some(revocation)) => {
             return Ok(Err(target::Refusal {
@@ -1478,7 +1480,7 @@ fn install_target_v2(
         }
         Err(e) => {
             return Ok(Err(target::Refusal {
-                code: "revocation_unverified",
+                code: "authorization_refused",
                 detail: format!("{e} ({})", e.code()),
             }));
         }
@@ -1554,7 +1556,10 @@ fn active_target(
         // A journaled signed revocation withdraws the installed
         // authorization: nothing of its target is planned or signed until a
         // newer authorization is installed. Time alone never refuses it.
-        let revocations = authority::revocations(sql)?;
+        // Only this target's latest revocation is read (one row), and it is
+        // not verified again, so neither the journal's length nor a rotated
+        // trust root changes what this costs or whether it succeeds.
+        let revocations = authority::revocation_of(sql, &digest)?;
         match verified.revoked_by(keys, &revocations) {
             Ok(None) => {}
             Ok(Some(revocation)) => {
@@ -1565,7 +1570,7 @@ fn active_target(
             }
             Err(e) => {
                 return Ok(Some(Err(target::Refusal {
-                    code: "revocation_unverified",
+                    code: "authorization_refused",
                     detail: format!("{e} ({})", e.code()),
                 })));
             }
@@ -4675,7 +4680,9 @@ pub fn status(
 }
 
 pub mod authority;
-pub use authority::{PointerPlan, Revoked, install_revocation, pointer_plan, pointer_written};
+pub use authority::{
+    PointerOutcome, PointerPlan, Revoked, install_revocation, pointer_object, pointer_outcome, pointer_plan, pointer_written,
+};
 
 /// The installed target's digest and stored bundle, if any.
 fn signer_target_bundle(sql: &impl Sql) -> Result<Option<(String, String)>, StoreError> {

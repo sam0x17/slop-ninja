@@ -1741,7 +1741,7 @@ fn v4_storage_upgrades_with_its_signing_journal_intact() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (4, 9));
+    assert_eq!((report.from, report.to), (4, 10));
     let s = tx(&db, signer).unwrap();
     assert_eq!(
         (s.state.as_str(), s.nonce_floor, s.runtime, s.runtime_block),
@@ -2323,16 +2323,16 @@ fn the_coordinator_commits_past_the_renew_by_hint_until_a_signed_revocation() {
     let mut forged = hex::decode(launch_revocation_hex(1, second.epoch)).unwrap();
     let last = forged.len() - 1;
     forged[last] ^= 1;
-    let refused = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex::encode(&forged), T0)).unwrap().unwrap_err();
+    let refused = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex::encode(&forged), None, T0)).unwrap().unwrap_err();
     assert_eq!(refused.code, "revocation_refused");
     assert!(tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted)).unwrap().unwrap().is_ok());
 
     // The signed revocation withdraws the installed launch authorization.
     let revoked_at = second.epoch;
     let hex_rev = launch_revocation_hex(1, revoked_at);
-    let r = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_rev, T0)).unwrap().unwrap();
+    let r = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_rev, None, T0)).unwrap().unwrap();
     assert!(r.new && r.withdraws_installed, "{r:?}");
-    let again = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_rev, T0)).unwrap().unwrap();
+    let again = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_rev, None, T0)).unwrap().unwrap();
     assert!(!again.new, "journaled once");
     match tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted)).unwrap().unwrap() {
         Err(r) => assert_eq!(r.code, "authorization_revoked"),
@@ -2359,29 +2359,60 @@ fn the_coordinator_commits_past_the_renew_by_hint_until_a_signed_revocation() {
     h.until(800, |h| h.ops().iter().any(|o| o.epoch >= resume_at && o.state == "committed"));
 }
 
-/// The pointer names the installed authorization and the latest revocation
-/// by content; it is rewritten only when its bytes change, and the write is
+/// Records a preflight's schedule at epoch `epoch`, observed at a block past
+/// the finalized cursor, as the finalized epoch index a revocation's issue is
+/// bounded by.
+fn observe_epoch(h: &H, epoch: u64) {
+    tx(&h.db, |sql| {
+        sql.exec(
+            "INSERT INTO chain_schedule (id, block_number, block_hash, tempo, last_epoch_block, pending_epoch_at,
+                subnet_epoch_index, blocks_since_last_step, reveal_period, observed_at_ms)
+             VALUES (1, 1000000000, '00', 360, 0, 0, ?, 1, 1, 0)
+             ON CONFLICT(id) DO UPDATE SET subnet_epoch_index = excluded.subnet_epoch_index",
+            &[crate::sql::bind_u64(epoch)?],
+        )
+    })
+    .unwrap();
+}
+
+/// A signed revocation of an arbitrary `target`, dated `issued_epoch`, under
+/// `key`.
+fn revocation_of_target(target: u8, issued_epoch: u64, key: &slop_ninja_protocol::SigningKey) -> Vec<u8> {
+    let revocation = slop_ninja_protocol::RewardIntentRevocation {
+        chain: chain_binding(),
+        target: slop_ninja_protocol::Digest([target; 32]),
+        authorization: slop_ninja_protocol::Digest([target ^ 0xff; 32]),
+        checkpoint_generation: 1,
+        issued_epoch,
+    };
+    sign(revocation, key).unwrap().to_bytes().unwrap()
+}
+
+/// The pointer names the installed authorization and the revocation set by
+/// content; it is rewritten only when its bytes change, and the write is
 /// recorded once.
 #[test]
-fn the_authorization_pointer_names_the_installed_authorization_and_latest_revocation() {
+fn the_authorization_pointer_names_the_installed_authorization_and_the_revocation_set() {
     let h = H::new();
+    observe_epoch(&h, 10);
     // A T12 v1 bundle has no reward-v1 authorization: no pointer.
-    assert!(tx(&h.db, |sql| pointer_plan(sql, &h.cfg)).unwrap().is_none());
+    assert!(tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap().is_none());
     tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
-    let plan = tx(&h.db, |sql| pointer_plan(sql, &h.cfg)).unwrap().unwrap();
+    let plan = tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap().unwrap();
     assert_eq!(plan.written, None);
     let pointer: slop_ninja_admission_wire::json::AuthorizationPointer = serde_json::from_str(&plan.body).unwrap();
     assert_eq!(pointer.kind, "launch");
     assert_eq!(pointer.schema, slop_ninja_admission_wire::json::AUTHORIZATION_POINTER_SCHEMA);
     assert_eq!(pointer.chain.binding(), Some(chain_binding()));
-    assert!(pointer.revocation.is_none() && pointer.renewal.is_none());
-    assert!(!plan.body.contains("revocation"), "an absent revocation is not written");
+    assert!(pointer.revocations.is_none() && pointer.renewal.is_none());
+    assert!(!plan.body.contains("revocation"), "an absent revocation set is not written");
     assert_eq!(plan.objects.len(), 1);
     let o = &plan.objects[0];
-    let bytes = hex::decode(&o.hex).unwrap();
-    assert_eq!(o.key, pointer.authorization.path);
-    assert_eq!(o.key, format!("authorizations/{}.signed", hex::encode(sha2::Sha256::digest(&bytes))));
+    assert_eq!(*o, pointer.authorization, "the plan names objects, never carries them");
+    let bytes = tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, &o.sha256)).unwrap().unwrap();
+    assert_eq!(o.path, format!("authorizations/{}.signed", hex::encode(sha2::Sha256::digest(&bytes))));
     assert_eq!(pointer.authorization.bytes, bytes.len() as u64);
+    assert_eq!(tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, &"0".repeat(64))).unwrap(), None);
     slop_ninja_protocol::Signed::<slop_ninja_protocol::LaunchAuthorization>::open(&bytes, &h.trusted).unwrap();
     // The receipts contract the retention hold and the publisher read accepts
     // what this writes, within its read bounds; a launch hold names no cohort.
@@ -2395,25 +2426,298 @@ fn the_authorization_pointer_names_the_installed_authorization_and_latest_revoca
         Ok(crate::eval::retention::Hold::Launch)
     );
     assert_eq!(plan.sha256, hex::encode(sha2::Sha256::digest(plan.body.as_bytes())));
-    // Recorded once; the same plan reports it written.
-    assert!(tx(&h.db, |sql| pointer_written(sql, &plan.sha256, T0)).unwrap());
-    assert!(!tx(&h.db, |sql| pointer_written(sql, &plan.sha256, T0 + 1)).unwrap());
-    let again = tx(&h.db, |sql| pointer_plan(sql, &h.cfg)).unwrap().unwrap();
+    // Recorded once; the same plan reports it written. Every pass is
+    // recorded: a failure keeps the last confirmation and shows on
+    // `/status` until a later pass confirms the pointer again.
+    let view = |h: &H| h.status().authorization.unwrap();
+    assert!(!view(&h).pointer_current && view(&h).pointer_confirmed_age_ms.is_none());
+    let confirmed = PointerOutcome { sha256: Some(plan.sha256.clone()), error: None };
+    assert!(tx(&h.db, |sql| pointer_outcome(sql, &confirmed, T0)).unwrap());
+    assert!(!tx(&h.db, |sql| pointer_outcome(sql, &confirmed, T0 + 1)).unwrap());
+    assert!(view(&h).pointer_current && view(&h).pointer_error.is_none());
+    let failed = PointerOutcome { sha256: None, error: Some("object_put".into()) };
+    for _ in 0..3 {
+        assert!(!tx(&h.db, |sql| pointer_outcome(sql, &failed, T0 + 2)).unwrap());
+    }
+    let v = view(&h);
+    assert!(!v.pointer_current);
+    assert_eq!(v.pointer_error.as_deref(), Some("object_put"));
+    assert!(v.pointer_confirmed_age_ms.is_some(), "a failure keeps the last confirmation");
+    assert_eq!(logged(&h, "authorization_pointer_failed").len(), 1, "a repeated failure is logged once");
+    let odd = PointerOutcome { sha256: None, error: Some("not a code!".into()) };
+    tx(&h.db, |sql| pointer_outcome(sql, &odd, T0 + 3)).unwrap();
+    assert_eq!(view(&h).pointer_error.as_deref(), Some("outcome_malformed"));
+    tx(&h.db, |sql| pointer_outcome(sql, &confirmed, T0 + 4)).unwrap();
+    assert!(view(&h).pointer_current && view(&h).pointer_error.is_none());
+    assert_eq!(logged(&h, "authorization_pointer_recovered").len(), 1);
+    let again = tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap().unwrap();
     assert_eq!(again.written.as_deref(), Some(plan.sha256.as_str()));
     assert_eq!(again.body, plan.body, "the pointer does not change with time");
-    // A revocation changes the pointer: it names the revocation object.
+    // A revocation changes the pointer: it names the revocation set.
     let hex_rev = launch_revocation_hex(1, 5);
-    tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_rev, T0)).unwrap().unwrap();
-    let revoked = tx(&h.db, |sql| pointer_plan(sql, &h.cfg)).unwrap().unwrap();
+    tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_rev, None, T0)).unwrap().unwrap();
+    let revoked = tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap().unwrap();
     assert_ne!(revoked.sha256, plan.sha256);
     let pointer: slop_ninja_admission_wire::json::AuthorizationPointer = serde_json::from_str(&revoked.body).unwrap();
-    let r = pointer.revocation.unwrap();
-    let robj = revoked.objects.iter().find(|o| o.key == r.path).unwrap();
-    assert_eq!(robj.hex, hex_rev);
+    let r = pointer.revocations.unwrap();
+    assert!(revoked.objects.contains(&r));
+    let set_bytes = tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, &r.sha256)).unwrap().unwrap();
+    assert_eq!(hex::encode(set_bytes), hex_rev);
     assert!(revoked.body.len() as u64 <= contract::AUTHORIZATION_POINTER_BOUND);
-    assert!(hex_rev.len() as u64 / 2 <= contract::AUTHORIZATION_OBJECT_BOUND);
+    assert_eq!(hex_rev.len() as u64 / 2, contract::revocation_len(&chain_binding()));
     contract::parse_pointer(revoked.body.as_bytes(), &chain_binding()).unwrap();
     assert_eq!(h.status().authorization.unwrap().revocations, 1);
+
+    // Revocations of other targets join the set, oldest first; a later one
+    // of a target replaces its earlier one, which it covers; one a rotated
+    // trust root no longer verifies is left out. Every earlier revocation
+    // stays in the set however many later ones of other targets follow.
+    let other = fx::package_key();
+    for (target, epoch) in [(0x11, 6), (0x22, 7), (0x11, 9)] {
+        let hex_other = hex::encode(revocation_of_target(target, epoch, &fx::authorization_key()));
+        tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_other, None, T0)).unwrap().unwrap();
+    }
+    let stale = revocation_of_target(0x33, 8, &other);
+    tx(&h.db, |sql| {
+        sql.exec(
+            "INSERT INTO sign_revocations (digest, target, authorization, issued_epoch, signed_hex, at_ms)
+             VALUES ('stale', ?, 'x', 8, ?, 0)",
+            &[slop_ninja_protocol::Digest([0x33; 32]).to_string().into(), hex::encode(&stale).into()],
+        )
+    })
+    .unwrap();
+    let set_plan = tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap().unwrap();
+    let pointer: slop_ninja_admission_wire::json::AuthorizationPointer = serde_json::from_str(&set_plan.body).unwrap();
+    let r = pointer.revocations.unwrap();
+    let set = tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, &r.sha256)).unwrap().unwrap();
+    assert_eq!(r.bytes, set.len() as u64);
+    let entries: Vec<_> = contract::revocation_set_entries(&set, &chain_binding())
+        .unwrap()
+        .map(|e| slop_ninja_protocol::Signed::<slop_ninja_protocol::RewardIntentRevocation>::open(e, &h.trusted).unwrap())
+        .map(|r| (r.target, r.issued_epoch))
+        .collect();
+    let burn = slop_ninja_protocol::CalculationTargetV2::launch_burn(chain_binding()).digest().unwrap();
+    assert_eq!(
+        entries,
+        vec![
+            (burn, 5),
+            (slop_ninja_protocol::Digest([0x22; 32]), 7),
+            (slop_ninja_protocol::Digest([0x11; 32]), 9)
+        ]
+    );
+    assert!(set_plan.body.len() as u64 <= contract::AUTHORIZATION_POINTER_BOUND);
+}
+
+/// A revocation's issue epoch is bounded by the finalized epoch index plus
+/// one, read from chain state; none is accepted before any is observed.
+#[test]
+fn a_revocation_dated_past_the_finalized_epoch_is_refused() {
+    let h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let unknown = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &launch_revocation_hex(1, 5), None, T0)).unwrap();
+    assert_eq!(unknown.unwrap_err().code, "revocation_epoch_unknown");
+    observe_epoch(&h, 20);
+    for epoch in [22, 1_000_000] {
+        let far = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &launch_revocation_hex(1, epoch), None, T0)).unwrap();
+        assert_eq!(far.unwrap_err().code, "revocation_epoch_future", "epoch {epoch}");
+    }
+    assert_eq!(h.status().authorization.unwrap().revocations, 0, "a refusal journals nothing");
+    let ok = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &launch_revocation_hex(1, 21), None, T0)).unwrap().unwrap();
+    assert!(ok.new && ok.withdraws_installed);
+    assert_eq!(super::authority::finalized_epoch(&h.db).unwrap(), Some(20));
+    // A schedule observed before the cursor is advanced to it.
+    let cursor = crate::journal::cursor(&h.db).unwrap().map_or(0, |c| c.number);
+    tx(&h.db, |sql| {
+        sql.exec(
+            "UPDATE chain_schedule SET block_number = ?, last_epoch_block = ?, blocks_since_last_step = 0",
+            &[crate::sql::bind_u64(cursor.saturating_sub(3 * 361))?, crate::sql::bind_u64(cursor.saturating_sub(3 * 361))?],
+        )
+    })
+    .unwrap();
+    if cursor > 3 * 361 {
+        assert!(super::authority::finalized_epoch(&h.db).unwrap() > Some(20));
+    }
+    // The set capacity follows from the set's bound: whole records in what
+    // the revoke route reads whole.
+    let len = slop_ninja_admission_wire::receipts::revocation_len(&chain_binding()) as usize;
+    let capacity = super::authority::revocation_set_capacity(len);
+    assert_eq!(capacity, super::authority::REVOCATION_SET_BYTES / len);
+    assert!(capacity * len <= crate::arena_routes::WORKER_CONTROL_BYTES);
+}
+
+/// A journal that never ran a signing preflight (paused since it was
+/// created) takes the Worker's RPC reading of the finalized epoch index;
+/// the later of the two sources bounds the issue epoch.
+#[test]
+fn a_revocation_without_a_preflight_uses_the_observed_epoch() {
+    let h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let far = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &launch_revocation_hex(1, 32), Some(30), T0)).unwrap();
+    assert_eq!(far.unwrap_err().code, "revocation_epoch_future");
+    let ok = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &launch_revocation_hex(1, 31), Some(30), T0)).unwrap().unwrap();
+    assert!(ok.new && ok.withdraws_installed);
+    // A schedule that lags the reading does not lower it.
+    observe_epoch(&h, 10);
+    let ok = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &launch_revocation_hex(1, 31), Some(30), T0)).unwrap().unwrap();
+    assert!(!ok.new);
+}
+
+/// Journals `count` revocations of distinct targets under the trusted key,
+/// directly (as `install_revocation` would store them).
+fn fill_revocation_set(h: &H, count: usize) {
+    let key = fx::authorization_key();
+    tx(&h.db, |sql| {
+        for i in 0..count {
+            let mut target = [0u8; 32];
+            target[..8].copy_from_slice(&(i as u64).to_le_bytes());
+            target[31] = 0xee;
+            let revocation = slop_ninja_protocol::RewardIntentRevocation {
+                chain: chain_binding(),
+                target: slop_ninja_protocol::Digest(target),
+                authorization: slop_ninja_protocol::Digest([1; 32]),
+                checkpoint_generation: 1,
+                issued_epoch: 5,
+            };
+            let bytes = sign(revocation, &key).unwrap().to_bytes().unwrap();
+            sql.exec(
+                "INSERT INTO sign_revocations (digest, target, authorization, issued_epoch, signed_hex, at_ms)
+                 VALUES (?, ?, 'x', 5, ?, 0)",
+                &[format!("d{i}").into(), slop_ninja_protocol::Digest(target).to_string().into(), hex::encode(bytes).into()],
+            )?;
+        }
+        Ok::<(), crate::sql::StoreError>(())
+    })
+    .unwrap();
+}
+
+/// Arena witness (`--features arena-witness`): at full revocation-set
+/// capacity the journal builds the plan and the set within its footprint,
+/// and the operator's revoke route (the smaller of the two routes that run
+/// the pointer pass) holds the plan reply and the set within its own.
+#[cfg(feature = "arena-witness")]
+#[test]
+fn arena_witness_the_pointer_pass_fits_at_full_revocation_capacity() {
+    use crate::arena_routes::{JOURNAL_CONTROL_BYTES, R_JOURNAL_FETCH, R_OPERATOR, R_SCHEDULED, WORKER_CONTROL_BYTES, CONTINUATION_CONTROL_BYTES};
+    use slop_ninja_arena::{Mode, admit_current_block, set_mode};
+    set_mode(Mode::Enforce);
+    let h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let len = slop_ninja_admission_wire::receipts::revocation_len(&chain_binding()) as usize;
+    let capacity = super::authority::revocation_set_capacity(len);
+    fill_revocation_set(&h, capacity);
+    // Warm the database outside the witnessed scopes, as a live journal is.
+    let warm = tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap().unwrap();
+    let set_ref = warm.objects.last().unwrap().clone();
+    assert_eq!(set_ref.bytes as usize, capacity * len);
+    drop(warm);
+    let reply = crate::arena_witness::witness(R_JOURNAL_FETCH.route(), JOURNAL_CONTROL_BYTES, || {
+        let plan = tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap().unwrap();
+        serde_json::to_vec(&Some(plan)).unwrap().len()
+    });
+    let set_len = crate::arena_witness::witness(R_JOURNAL_FETCH.route(), JOURNAL_CONTROL_BYTES, || {
+        tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, &set_ref.sha256)).unwrap().unwrap().len()
+    });
+    assert_eq!(set_len, set_ref.bytes as usize);
+    // The Worker side: the plan reply and the set arrive as admitted blocks
+    // of their exact lengths; the parse and the digest check run in the
+    // route's control footprint.
+    let plan_bytes = serde_json::to_vec(&tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap()).unwrap();
+    assert_eq!(plan_bytes.len(), reply);
+    let set = tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, &set_ref.sha256)).unwrap().unwrap();
+    for (route, control) in [(R_OPERATOR, WORKER_CONTROL_BYTES), (R_SCHEDULED, CONTINUATION_CONTROL_BYTES)] {
+        crate::arena_witness::witness(route.route(), control, || {
+            assert_eq!(admit_current_block(plan_bytes.len(), 1), Ok(true));
+            let mut raw = Vec::with_capacity(plan_bytes.len());
+            raw.extend_from_slice(&plan_bytes);
+            let plan: Option<PointerPlan> = serde_json::from_slice(&raw).unwrap();
+            let plan = plan.unwrap();
+            assert_eq!(admit_current_block(set.len(), 1), Ok(true));
+            let mut copy = Vec::with_capacity(set.len());
+            copy.extend_from_slice(&set);
+            assert_eq!(crate::chain::sha256_hex(&copy), plan.objects.last().unwrap().sha256);
+            (plan.body.len(), copy.len())
+        });
+    }
+}
+
+/// Only entries the set would carry count against its capacity: a
+/// revocation of a target already carried adds nothing, one of a target
+/// whose latest is under a rotated key adds one; at capacity a new target
+/// is refused and a later revocation of a carried one is still accepted.
+#[test]
+fn the_revocation_set_capacity_counts_carried_entries() {
+    let h = H::new();
+    observe_epoch(&h, 1_000);
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let len = slop_ninja_admission_wire::receipts::revocation_len(&chain_binding()) as usize;
+    let capacity = super::authority::revocation_set_capacity(len);
+    // Fill the set to one below capacity directly (each signed under the
+    // trusted key), plus one stale entry under a rotated key.
+    let key = fx::authorization_key();
+    fill_revocation_set(&h, capacity - 1);
+    tx(&h.db, |sql| {
+        sql.exec(
+            "INSERT INTO sign_revocations (digest, target, authorization, issued_epoch, signed_hex, at_ms)
+             VALUES ('stale', ?, 'x', 5, ?, 0)",
+            &[
+                slop_ninja_protocol::Digest([0x33; 32]).to_string().into(),
+                hex::encode(revocation_of_target(0x33, 5, &fx::package_key())).into(),
+            ],
+        )
+    })
+    .unwrap();
+    // A target whose latest is not carried (rotated key) takes the last place.
+    let replace = hex::encode(revocation_of_target(0x33, 6, &key));
+    tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &replace, None, T0)).unwrap().unwrap();
+    let set = tx(&h.db, |sql| super::authority::revocation_set(sql, &h.cfg, &h.trusted)).unwrap().unwrap();
+    assert_eq!(set.len(), capacity * len);
+    // Full: a new target is refused, and nothing is journaled.
+    let new_target = hex::encode(revocation_of_target(0x44, 6, &key));
+    let full = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &new_target, None, T0)).unwrap();
+    assert_eq!(full.unwrap_err().code, "revocation_set_full");
+    // A later revocation of a carried target replaces its entry: accepted.
+    let later = hex::encode(revocation_of_target(0x33, 7, &key));
+    assert!(tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &later, None, T0)).unwrap().unwrap().new);
+    // The installed target is still withdrawn by a successor (supersession).
+}
+
+/// A journaled revocation is not verified again: one signed under a trust
+/// root rotated since (here a key the coordinator does not trust) for an
+/// unrelated target never stops the installed target's commits, and one of
+/// the installed target still withdraws it.
+#[test]
+fn a_journaled_revocation_under_a_rotated_key_stops_only_its_own_target() {
+    let mut h = H::new();
+    h.chain.snapshot(START - 1, vec![]);
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let journal = |h: &H, digest: &str, target: slop_ninja_protocol::Digest, bytes: &[u8]| {
+        tx(&h.db, |sql| {
+            sql.exec(
+                "INSERT INTO sign_revocations (digest, target, authorization, issued_epoch, signed_hex, at_ms)
+                 VALUES (?, ?, 'x', 1000000, ?, 0)",
+                &[digest.into(), target.to_string().into(), hex::encode(bytes).into()],
+            )
+        })
+        .unwrap();
+    };
+    let rotated = fx::package_key();
+    journal(&h, "old", slop_ninja_protocol::Digest([0x44; 32]), &revocation_of_target(0x44, 1_000_000, &rotated));
+    assert!(tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted)).unwrap().unwrap().is_ok());
+    h.resume();
+    h.until(80, committed);
+    // One of the installed target, journaled under the old key, withdraws it.
+    let burn = slop_ninja_protocol::CalculationTargetV2::launch_burn(chain_binding()).digest().unwrap();
+    let mut record = slop_ninja_protocol::Signed::<slop_ninja_protocol::RewardIntentRevocation>::from_bytes(
+        &revocation_of_target(0x44, 1_000_000, &rotated),
+    )
+    .unwrap()
+    .record;
+    record.target = burn;
+    journal(&h, "own", burn, &sign(record, &rotated).unwrap().to_bytes().unwrap());
+    match tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted)).unwrap().unwrap() {
+        Err(r) => assert_eq!(r.code, "authorization_revoked"),
+        Ok(_) => panic!("the revoked authorization is still active"),
+    }
 }
 
 #[test]

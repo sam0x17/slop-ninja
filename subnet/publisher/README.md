@@ -23,7 +23,12 @@ into static public objects. Once a minute it:
    when the public bucket holds its parts manifest with that SHA-256; the
    operator stages packages and the publisher never writes under that prefix;
 5. copies the current validator authorization, any renew-by hint refresh and
-   the latest signed revocation once the authorization's cohort is listed;
+   the revocation set (copied byte for byte; refused only when malformed:
+   not whole records, a digest or length that differs, an entry that does
+   not decode or names another chain; an entry that does not open under the
+   trust roots is counted and alerted, `revocation_unverifiable`, and
+   validators skip it; its read bound is its declared length, reserved from
+   the run's budget) once the authorization's cohort is listed;
 6. deletes cohort N's detailed receipts from the public host once N+1 and N+2
    are published and N's target is superseded. A cohort whose private
    detailed receipts the coordinator already deleted under its own N+2 rule
@@ -250,7 +255,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v5`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v6`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -274,13 +279,19 @@ The rule set is `slop_ninja.publisher.alerts/v5`. The table is in
   the detail names the last failed step's code, such as an unreadable
   authorization pointer);
 - two tempos without a coordinator commit;
+- the coordinator's authorization-pointer writer not confirming the private
+  pointer for a tempo (`pointer_stale`: `signing.authorization` reports the
+  last pass failed, `pointer_error`, or a last confirmation older than two
+  cron periods; re-authorizations and revocations reach validators only
+  through that pointer);
 - a coordinator reveal that differs from its committed row
   (`coordinator_reveal_mismatch`);
 - unreachable status, and a status that answered without a field an open
   rule reads (`status_incomplete`);
 - refused or stalled publications: cohorts, artifact admission records and
   copies, and the authorization;
-- unverifiable manifests (one aggregated alert);
+- unverifiable manifests (one aggregated alert), and revocation-set entries
+  that do not open under the trust roots (`revocation_unverifiable`);
 - a refused configuration, and a setting the configuration ignored
   (`config_warning`);
 - runs interrupted for a whole tempo.
@@ -440,8 +451,12 @@ receipts bucket, with the same schema and private keys
 opens it under the authorization key, and checks that a renewal renews that
 authorization. A launch authorization must name the launch burn target. A
 cohort authorization waits until its cohort is listed with the same manifest
-and package. A revocation must name this chain and is copied whatever target
-it names (validators journal it before anything else). The objects are then
+and package. A revocation must decode and name this chain and is copied
+whatever target it names (validators journal those that verify before
+anything else); one that does not open under this build's trust roots is
+copied unchanged and alerted, so a trust-root rotation deployed to the
+coordinator first never stops newer authorizations from being published.
+The objects are then
 copied to `v1/authorizations/` and the public pointer is written. The
 coordinator rewrites the private pointer whenever it differs from its
 installed bundle and journaled revocations; nothing in it expires.

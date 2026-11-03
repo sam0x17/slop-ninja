@@ -1257,7 +1257,7 @@ fn write_pointer_revoked(
         kind: kind.into(),
         authorization: auth,
         renewal,
-        revocation,
+        revocations: revocation,
     };
     x.receipts.insert(
         layout::PRIVATE_AUTHORIZATION_POINTER,
@@ -1368,8 +1368,9 @@ fn authorizations_are_published_once_their_cohort_is_listed() {
     write_pointer(&x, "launch", a.clone(), None);
     let (report, _) = run(&config(None, false), &x, &mut Memo::default());
     assert!(report.authorization_written, "{report:?}");
-    // A signed revocation the pointer names is copied with it, byte for byte;
-    // one for another chain is refused.
+    // The revocation set the pointer names is copied with it, byte for
+    // byte, every entry checked; a set with an entry for another chain, or
+    // that is not whole revocations, is refused.
     let revocation = slop_ninja_protocol::RewardIntentRevocation {
         chain: m.chain.clone(),
         target: launch.target,
@@ -1377,18 +1378,52 @@ fn authorizations_are_published_once_their_cohort_is_listed() {
         checkpoint_generation: 1,
         issued_epoch: 12,
     };
-    let revocation_bytes = fx::signed(revocation.clone()).unwrap().to_bytes().unwrap();
-    let rv = store_authorization(&x, revocation_bytes.clone());
+    let mut older = revocation.clone();
+    older.target = slop_ninja_protocol::Digest([0x5a; 32]);
+    let mut set = fx::signed(older).unwrap().to_bytes().unwrap();
+    set.extend(fx::signed(revocation.clone()).unwrap().to_bytes().unwrap());
+    let rv = store_authorization(&x, set.clone());
     write_pointer_revoked(&x, "launch", a.clone(), None, Some(rv));
     let (report, _) = run(&config(None, false), &x, &mut Memo::default());
     assert!(report.authorization_written, "{report:?}");
     let public: publish::AuthorizationPointer = public_json(&x, layout::AUTHORIZATION_CURRENT);
-    let obj = public.revocation.as_ref().unwrap();
+    assert_eq!(public.schema, "slop_ninja.public.authorization/v2");
+    let obj = public.revocations.as_ref().unwrap();
     assert!(obj.path.starts_with("v1/authorizations/"));
-    assert_eq!(&x.public.bytes(&obj.path).unwrap(), &revocation_bytes);
+    assert_eq!(&x.public.bytes(&obj.path).unwrap(), &set);
+    assert_eq!(report.revocations_unopened, 0);
+    // An entry signed under another key (a trust root rotated on the
+    // coordinator's side first) is copied unchanged and counted for an
+    // alert, never a refusal: validators skip it, and newer authorizations
+    // keep reaching them.
+    let mut other = revocation.clone();
+    other.target = slop_ninja_protocol::Digest([0x6b; 32]);
+    let mut rotated = set.clone();
+    rotated.extend(
+        slop_ninja_protocol::sign(other, &slop_ninja_protocol::fixtures::package_key())
+            .unwrap()
+            .to_bytes()
+            .unwrap(),
+    );
+    let rv_rotated = store_authorization(&x, rotated.clone());
+    write_pointer_revoked(&x, "launch", a.clone(), None, Some(rv_rotated));
+    let (report, _) = run(&config(None, false), &x, &mut Memo::default());
+    assert!(report.authorization_written && report.refused.is_empty(), "{report:?}");
+    assert_eq!(report.revocations_unopened, 1);
+    let copied: publish::AuthorizationPointer = public_json(&x, layout::AUTHORIZATION_CURRENT);
+    assert_eq!(&x.public.bytes(&copied.revocations.unwrap().path).unwrap(), &rotated);
+    let rv = store_authorization(&x, set[1..].to_vec());
+    write_pointer_revoked(&x, "launch", a.clone(), None, Some(rv));
+    let (report, _) = run(&config(None, false), &x, &mut Memo::default());
+    assert!(
+        report.refused.iter().any(|(s, why)| s == "authorizations" && why.contains("not whole revocations")),
+        "{report:?}"
+    );
     let mut foreign = revocation;
     foreign.chain.netuid += 1;
-    let rv = store_authorization(&x, fx::signed(foreign).unwrap().to_bytes().unwrap());
+    let mut set = fx::signed(foreign).unwrap().to_bytes().unwrap();
+    set.extend(&x.public.bytes(&obj.path).unwrap()[..set.len()]);
+    let rv = store_authorization(&x, set);
     write_pointer_revoked(&x, "launch", a, None, Some(rv));
     let (report, _) = run(&config(None, false), &x, &mut Memo::default());
     assert!(

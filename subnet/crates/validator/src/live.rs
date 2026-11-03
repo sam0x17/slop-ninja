@@ -301,6 +301,10 @@ pub struct LivePorts {
     /// `Tempo(netuid)` read when the signing context was built (dispatch
     /// only); sizes the missed-commit-window alert.
     tempo: Option<u64>,
+    /// The revocations last loaded from the store: a store that later
+    /// cannot be read as a whole keeps them in force ([`AppPorts::revocations`]).
+    /// Entries are only ever added, so they are a subset of the store's.
+    revocations_loaded: std::sync::Mutex<Option<Vec<slop_ninja_protocol::RewardIntentRevocation>>>,
 }
 
 /// The installed bundle's facts in a dispatch run.
@@ -337,6 +341,7 @@ impl LivePorts {
             startup_wait: None,
             loop_installed: None,
             tempo: None,
+            revocations_loaded: std::sync::Mutex::new(None),
         }
     }
 
@@ -1402,10 +1407,29 @@ impl AppPorts for LivePorts {
         read_held(&held_target_path(&self.config.journal_path), &self.trusted_keys()?, !self.dry_run)
     }
 
-    fn revocations(&self) -> Result<Vec<slop_ninja_protocol::Signed<slop_ninja_protocol::RewardIntentRevocation>>> {
+    /// The journaled revocations. A store that cannot be read as a whole
+    /// keeps the revocations this process last loaded in force and reports
+    /// the error in [`crate::revocations::Loaded::store_error`] (alerted once
+    /// per distinct error by the caller); with none loaded yet (at startup)
+    /// it is an error, so nothing is committed on a check that did not run.
+    fn revocations(&self) -> Result<crate::revocations::Loaded> {
         let (genesis, netuid) = AppPorts::chain(self);
         let chain = ChainBinding { genesis: slop_ninja_protocol::Digest(genesis), netuid, mechanism: 0 };
-        crate::revocations::load(&crate::revocations::path(&self.config.journal_path), &self.trusted_keys()?, &chain)
+        let mut kept = self.revocations_loaded.lock().map_err(|_| anyhow::anyhow!("revocation cache poisoned"))?;
+        match crate::revocations::load(&crate::revocations::path(&self.config.journal_path), &chain) {
+            Ok(loaded) => {
+                *kept = Some(loaded.records.clone());
+                Ok(loaded)
+            }
+            Err(error) => match kept.as_ref() {
+                Some(records) => Ok(crate::revocations::Loaded {
+                    records: records.clone(),
+                    problems: Vec::new(),
+                    store_error: Some(format!("{error:#}")),
+                }),
+                None => Err(error),
+            },
+        }
     }
 
     fn record_target(&mut self, held: &crate::package_v2::HeldTargetFile) -> Result<()> {
@@ -1559,8 +1583,8 @@ impl AppPorts for LivePorts {
             });
         }
         let mut authorization_paused = false;
-        // The revocation that withdrew the current authorization, once alerted.
-        let mut revoked_alerted: Option<String> = None;
+        // What the per-head revocation check alerted already.
+        let mut revocation_watch = RevocationWatch::default();
         let mut last_decision_error: Option<String> = None;
         // What rtao reported for the tracked operation while it waits to be
         // signed: alerted once per distinct outcome kind ([`not_submitted`]).
@@ -2131,45 +2155,10 @@ impl AppPorts for LivePorts {
                 // grant (no new attempt is signed), work that never signed is
                 // retired, and new commitments pause until a newer
                 // authorization is installed.
-                if let Some(current) = &authority {
-                    match AppPorts::revocations(self) {
-                        Ok(revocations) => current.set_revocations(revocations),
-                        Err(error) => {
-                            // The previous revocations stay in force.
-                            tracing::warn!(event = "revocation_store_unreadable", error = %format!("{error:#}"), alert = true);
-                        }
-                    }
-                    match current.revoked_by() {
-                        Some(revocation) => {
-                            let target = current.verified.target_digest.0;
-                            let mut withdrawn = 0usize;
-                            let mut retired = 0usize;
-                            for pending in AppPorts::pending_operations(self, mechanism.0)? {
-                                if pending.work.as_ref().and_then(|w| w.v2_target) != Some(target) {
-                                    continue;
-                                }
-                                if self.authorized.withdraw(&pending.id) {
-                                    withdrawn += 1;
-                                }
-                                if pending.retirable() && AppPorts::retire(self, &pending.id, "authorization_revoked")? {
-                                    retired += 1;
-                                }
-                            }
-                            if revoked_alerted.as_deref() != Some(revocation.hex().as_str()) {
-                                tracing::warn!(
-                                    event = "authorization_revoked",
-                                    target = %current.verified.target_digest,
-                                    revocation = %revocation,
-                                    withdrawn,
-                                    retired,
-                                    alert = true
-                                );
-                                revoked_alerted = Some(revocation.hex());
-                            }
-                            authorization_paused = true;
-                        }
-                        None => revoked_alerted = None,
-                    }
+                if let Some(current) = &authority
+                    && self.revocation_head(current, &mut revocation_watch, mechanism.0)?.revoked.is_some()
+                {
+                    authorization_paused = true;
                 }
 
                 // Commitments whose reveal is not yet compared: rtao still
@@ -2973,7 +2962,7 @@ impl LoopPorts for LivePorts {
     }
 
     fn installed(&mut self, epoch: u64) -> Result<Option<Candidate>> {
-        let revocations = AppPorts::revocations(self)?;
+        let revocations = AppPorts::revocations(self)?.records;
         Ok(self.loop_installed.as_ref().map(|installed| {
             installed.authorized.set_revocations(revocations);
             let covers = installed.authorized.check_epoch(self.identity.hotkey.0, epoch).is_ok();
@@ -2984,8 +2973,8 @@ impl LoopPorts for LivePorts {
     fn covers(&self, staged: &Staged, epoch: u64) -> bool {
         // A store that cannot be read counts as no cover: nothing is
         // installed on a revocation check that did not run.
-        let Ok(revocations) = AppPorts::revocations(self) else { return false };
-        staged.authorized.set_revocations(revocations);
+        let Ok(loaded) = AppPorts::revocations(self) else { return false };
+        staged.authorized.set_revocations(loaded.records);
         staged.authorized.check_epoch(self.identity.hotkey.0, epoch).is_ok()
     }
 }
@@ -3232,6 +3221,109 @@ pub async fn observe(
     .await;
     client.close().await;
     result
+}
+
+/// What [`LivePorts::revocation_head`] alerted already: the revocation that
+/// withdrew the current authorization, and the revocation store's last read
+/// failure or entry problems, each alerted once per distinct value.
+#[derive(Debug, Default)]
+pub(crate) struct RevocationWatch {
+    revoked_alerted: Option<String>,
+    store_alerted: Option<String>,
+}
+
+/// What one finalized head's revocation check found and did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct RevocationHead {
+    /// The journaled revocation withdrawing the current authorization.
+    pub revoked: Option<slop_ninja_protocol::Digest>,
+    /// Queued operations of its target whose signing grant was withdrawn.
+    pub withdrawn: usize,
+    /// Of those, the ones that never signed and were retired.
+    pub retired: usize,
+    /// Whether `authorization_revoked` was alerted at this head.
+    pub alerted: bool,
+}
+
+impl LivePorts {
+    /// The dispatch loop's per-head revocation check: journaled revocations
+    /// take effect at the next finalized head. The store is read again
+    /// (a read failure keeps the previous revocations in force; entry
+    /// problems are applied from their summaries; each is alerted once per
+    /// distinct text). When one withdraws `current`, every queued operation
+    /// of its target on `mechanism` loses its signing grant (no new attempt
+    /// is signed: `slop_ninja_authorization_revoked`), the ones that never
+    /// signed are retired, and `authorization_revoked` is alerted once per
+    /// revocation; the caller pauses new commitments until a newer
+    /// authorization is fetched.
+    pub(crate) fn revocation_head(
+        &mut self,
+        current: &crate::package_v2::Authorized,
+        watch: &mut RevocationWatch,
+        mechanism: u8,
+    ) -> Result<RevocationHead> {
+        match AppPorts::revocations(self) {
+            Ok(loaded) => {
+                if let Some(error) = &loaded.store_error {
+                    if watch.store_alerted.as_deref() != Some(error.as_str()) {
+                        tracing::warn!(
+                            event = "revocation_store_unreadable",
+                            error = %error,
+                            kept = loaded.records.len(),
+                            alert = true
+                        );
+                        watch.store_alerted = Some(error.clone());
+                    }
+                } else if loaded.problems.is_empty() {
+                    watch.store_alerted = None;
+                } else {
+                    let text = loaded.problems.join("; ");
+                    if watch.store_alerted.as_deref() != Some(text.as_str()) {
+                        tracing::warn!(event = "revocation_entry_unreadable", problems = %text, alert = true);
+                        watch.store_alerted = Some(text);
+                    }
+                }
+                current.set_revocations(loaded.records);
+            }
+            Err(error) => {
+                let text = format!("{error:#}");
+                if watch.store_alerted.as_deref() != Some(text.as_str()) {
+                    tracing::warn!(event = "revocation_store_unreadable", error = %text, alert = true);
+                    watch.store_alerted = Some(text);
+                }
+            }
+        }
+        let Some(revocation) = current.revoked_by() else {
+            watch.revoked_alerted = None;
+            return Ok(RevocationHead::default());
+        };
+        let target = current.verified.target_digest.0;
+        let mut head = RevocationHead { revoked: Some(revocation), ..RevocationHead::default() };
+        for pending in AppPorts::pending_operations(self, mechanism)? {
+            if pending.work.as_ref().and_then(|w| w.v2_target) != Some(target) {
+                continue;
+            }
+            if self.authorized.withdraw(&pending.id) {
+                head.withdrawn += 1;
+            }
+            if pending.retirable() && AppPorts::retire(self, &pending.id, "authorization_revoked")? {
+                head.retired += 1;
+            }
+        }
+        if watch.revoked_alerted.as_deref() != Some(revocation.hex().as_str()) {
+            tracing::warn!(
+                event = "authorization_revoked",
+                target = %current.verified.target_digest,
+                revocation = %revocation,
+                withdrawn = head.withdrawn,
+                retired = head.retired,
+                alert = true
+            );
+            watch.revoked_alerted = Some(revocation.hex());
+            head.alerted = true;
+        }
+        Ok(head)
+    }
 }
 
 // Offline test helpers stay at the end of the file: the `no_runtime_gates`

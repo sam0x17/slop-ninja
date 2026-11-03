@@ -25,13 +25,54 @@ pub const KIND_LAUNCH: &str = "launch";
 /// A reward-intent authorization: it names its carrying cohort and target.
 pub const KIND_COHORT: &str = "cohort";
 
-/// Read bound of the pointer: its schema, chain, kind and up to three object
-/// references (each a key under `authorizations/`, a 64-hex digest and a
-/// length), pretty-printed, within four fixed-record overheads.
+/// Read bound of the pointer: its schema, chain, kind and its three object
+/// references (authorization, renewal, revocation set; each a key under
+/// `authorizations/`, a 64-hex digest and a length), pretty-printed, within
+/// four fixed-record overheads. However many revocations exist, the pointer
+/// names one set object, so this bound does not grow with them.
 pub const AUTHORIZATION_POINTER_BOUND: u64 = 4 * 1024;
-/// Read bound of one signed authorization, renewal or revocation object
+/// Read bound of one signed authorization, renewal or revocation record
 /// (fixed fields only).
 pub const AUTHORIZATION_OBJECT_BOUND: u64 = 1024;
+
+/// The schema's fixed signed length of one revocation on `chain`: every
+/// field is fixed-width, so any instance has it.
+pub fn revocation_len(chain: &ChainBinding) -> u64 {
+    slop_ninja_protocol::Signed {
+        record: slop_ninja_protocol::RewardIntentRevocation {
+            chain: chain.clone(),
+            target: slop_ninja_protocol::Digest([0; 32]),
+            authorization: slop_ninja_protocol::Digest([0; 32]),
+            checkpoint_generation: 0,
+            issued_epoch: 0,
+        },
+        public_key: [0; 32],
+        signature: [0; 64],
+    }
+    .to_bytes()
+    .map_or(0, |b| b.len() as u64)
+}
+
+/// Read bound of the revocation set the pointer names: its declared length,
+/// which must be a non-zero whole multiple of [`revocation_len`]. The set's
+/// bound follows from its entry count; the reader still reserves it from
+/// its own budget.
+pub fn revocation_set_bound(declared: u64, chain: &ChainBinding) -> Result<u64, &'static str> {
+    let len = revocation_len(chain);
+    if len == 0 || declared == 0 || !declared.is_multiple_of(len) {
+        return Err("revocation_set");
+    }
+    Ok(declared)
+}
+
+/// The signed records of a revocation set, each [`revocation_len`] bytes.
+pub fn revocation_set_entries<'a>(
+    set: &'a [u8],
+    chain: &ChainBinding,
+) -> Result<core::slice::ChunksExact<'a, u8>, &'static str> {
+    revocation_set_bound(set.len() as u64, chain)?;
+    Ok(set.chunks_exact(revocation_len(chain) as usize))
+}
 
 /// Whether `r` names a content-addressed authorization object:
 /// `authorizations/<sha256>.signed`.
@@ -65,7 +106,7 @@ pub fn parse_pointer(
     }
     let refs = core::iter::once(&p.authorization)
         .chain(p.renewal.as_ref())
-        .chain(p.revocation.as_ref());
+        .chain(p.revocations.as_ref());
     if !refs.into_iter().all(content_addressed) {
         return Err("authorization_pointer");
     }
@@ -135,7 +176,7 @@ mod tests {
             kind: KIND_COHORT.into(),
             authorization: obj('a'),
             renewal: None,
-            revocation: Some(obj('b')),
+            revocations: Some(obj('b')),
         }
     }
 
@@ -149,13 +190,13 @@ mod tests {
         };
         assert_eq!(parse_pointer(&ok, &other), Err("authorization_chain"));
         let mut p = pointer();
-        p.schema = "slop_ninja.public.authorization/v2".into();
+        p.schema = "slop_ninja.public.authorization/v1".into();
         assert_eq!(
             parse_pointer(&serde_json::to_vec(&p).unwrap(), &chain()),
             Err("authorization_pointer")
         );
         let mut p = pointer();
-        p.revocation.as_mut().unwrap().path = "authorizations/elsewhere.signed".into();
+        p.revocations.as_mut().unwrap().path = "authorizations/elsewhere.signed".into();
         assert_eq!(
             parse_pointer(&serde_json::to_vec(&p).unwrap(), &chain()),
             Err("authorization_pointer")
@@ -170,6 +211,18 @@ mod tests {
             serde_json::to_vec_pretty(&pointer()).unwrap().len() as u64
                 <= AUTHORIZATION_POINTER_BOUND
         );
+    }
+
+    #[test]
+    fn a_revocation_set_is_whole_fixed_length_records() {
+        let len = revocation_len(&chain());
+        assert!(len > 0 && len <= AUTHORIZATION_OBJECT_BOUND);
+        assert_eq!(revocation_set_bound(3 * len, &chain()), Ok(3 * len));
+        assert_eq!(revocation_set_bound(0, &chain()), Err("revocation_set"));
+        assert_eq!(revocation_set_bound(3 * len + 1, &chain()), Err("revocation_set"));
+        let set = vec![0u8; 2 * len as usize];
+        assert_eq!(revocation_set_entries(&set, &chain()).unwrap().count(), 2);
+        assert!(revocation_set_entries(&set[1..], &chain()).is_err());
     }
 
     #[test]

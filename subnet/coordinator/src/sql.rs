@@ -212,6 +212,8 @@ pub fn migrate(sql: &impl Sql, schema: &Schema) -> Result<MigrationReport, Migra
 ///   a search cut short by a round's step limit continues where it stopped.
 /// - v7-v8: the held reward-v1 target and its restarts (see each migration).
 /// - v9: signed revocations and the authorization pointer's confirmed write.
+/// - v10: an index on revocations by target, and the pointer writer's
+///   last pass (confirmed pointer, failure since).
 pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
     family: "chain_journal",
     migrations: &[
@@ -589,6 +591,24 @@ pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     sha256 TEXT NOT NULL,
                     written_at_ms INTEGER NOT NULL
+                ) STRICT",
+            ],
+        },
+        // v10: revocation lookups by target read one index entry (the
+        // latest issue epoch, then the latest row), and every pass of the
+        // Worker's pointer writer is recorded: the pointer it last
+        // confirmed stored, when, and the failure it last met since then,
+        // so `/status` shows a writer that stopped.
+        Migration {
+            version: 10,
+            statements: &[
+                "CREATE INDEX sign_revocations_target ON sign_revocations (target, issued_epoch, seq)",
+                "CREATE TABLE sign_pointer_drive (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    confirmed_sha256 TEXT,
+                    confirmed_at_ms INTEGER,
+                    error TEXT,
+                    error_since_ms INTEGER
                 ) STRICT",
             ],
         },

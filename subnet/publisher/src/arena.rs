@@ -131,8 +131,13 @@ pub const AUTHORIZATION_OBJECT_BOUND: u64 =
 const _: () = assert!(AUTHORIZATION_OBJECT_BOUND == RECORD_OVERHEAD_BYTES);
 
 /// Bound of the private authorization pointer: its schema, chain, kind and
-/// up to three object references, each a key under `authorizations/`, a
-/// 64-hex digest and a length; pretty-printed. Shared with the coordinator
+/// its three object references (authorization, renewal, revocation set),
+/// each a key under `authorizations/`, a 64-hex digest and a length;
+/// pretty-printed. The pointer names one revocation set however many
+/// revocations exist, so the bound is fixed; the set's own read bound is its
+/// declared length, a whole number of fixed-length revocations
+/// (`slop_ninja_admission_wire::receipts::revocation_set_bound`), reserved
+/// from the run's budget. Shared with the coordinator
 /// (`slop_ninja_admission_wire::receipts`).
 pub const AUTHORIZATION_POINTER_BOUND: u64 =
     slop_ninja_admission_wire::receipts::AUTHORIZATION_POINTER_BOUND;

@@ -43,6 +43,24 @@ pub struct SigningView {
     pub state: String,
     pub reason: Option<String>,
     pub ops: Vec<OpView>,
+    /// `signing.authorization` is present: a reward-v1 bundle is installed
+    /// and the coordinator writes the private authorization pointer.
+    pub authorization: bool,
+    /// The pointer writer's last pass (`authorization.pointer_current` and
+    /// the fields beside it); `None` from a coordinator built before they
+    /// existed, or without an authorization.
+    pub pointer: Option<PointerView>,
+}
+
+/// The coordinator's authorization-pointer writer, as `/status` reports it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PointerView {
+    /// The last pass confirmed the stored pointer equal to the plan.
+    pub current: bool,
+    /// Age of the last confirmation; `None` before the first.
+    pub confirmed_age_ms: Option<u64>,
+    /// The last pass's failure code, when it failed.
+    pub error: Option<String>,
 }
 
 /// One weight-commit operation of the coordinator's signing journal.
@@ -200,6 +218,15 @@ struct SigningJson {
     state: Option<String>,
     reason: Option<String>,
     ops: Vec<OpJson>,
+    authorization: Option<AuthorizationJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct AuthorizationJson {
+    pointer_current: Option<bool>,
+    pointer_confirmed_age_ms: Option<u64>,
+    pointer_error: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -377,6 +404,14 @@ fn worker_view(j: ServiceJson) -> WorkerView {
             .and_then(|s| s.state),
         signing: c.signing.and_then(|s| {
             Some(SigningView {
+                authorization: s.authorization.is_some(),
+                pointer: s.authorization.and_then(|a| {
+                    Some(PointerView {
+                        current: a.pointer_current?,
+                        confirmed_age_ms: a.pointer_confirmed_age_ms,
+                        error: a.pointer_error,
+                    })
+                }),
                 state: s.state?,
                 reason: s.reason,
                 ops: s

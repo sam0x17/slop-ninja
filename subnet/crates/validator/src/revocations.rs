@@ -11,11 +11,36 @@
 //! retires queued work of a withdrawn target that never signed and withdraws
 //! its signing grants, so no new attempt is signed for it.
 //!
+//! The signature is checked once, when an entry is journaled; [`load`] does
+//! not check it again ([`RewardIntentRevocation::journaled`]). A revocation
+//! can only withdraw, and only authorizations of its own chain and target, so
+//! a trust root rotated since an entry was journaled never stops commitments
+//! of other targets.
+//!
+//! An entry whose signed bytes no longer decode, or no longer match its
+//! recorded digest (a hand edit or disk damage: writes are atomic), is
+//! reported ([`Loaded::problems`], alerted once per distinct problem) and
+//! still applied from its recorded target and epoch. That deliberately
+//! withdraws a target with no verifiable signature behind it: the file is
+//! this operator's own journal, an entry in it was verified when it was
+//! written, and the safe direction for an entry that can no longer be read
+//! is not committing its target rather than resuming commitments a
+//! revocation may have stopped. It can only withdraw (its own target, at or
+//! before its epoch); it never stops the others, and the operator clears it
+//! by restoring the entry or removing it by hand.
+//!
+//! A store that cannot be read as a whole is an error here; the validator
+//! keeps the revocations it last loaded and alerts once per distinct error
+//! while running, and refuses to start (alerted) until the store is fixed
+//! when it has none loaded yet (`live.rs`, `app.rs`).
+//!
 //! Revocations arrive from the operator (`slop_ninja_validator revoke`) or
-//! from the fetcher, when the authorization pointer names one. Read-modify-
-//! write holds `<journal>.revocations.json.lock`, so both writers can run at
-//! once. The file holds only signed records, which only the authorization key
-//! can produce; it grows by one entry per revocation and has no other bound.
+//! from the fetcher, which journals every new entry of the authorization
+//! pointer's revocation set in one locked write per session ([`record_set`]).
+//! Read-modify-write holds `<journal>.revocations.json.lock`, so both writers
+//! can run at once. The file holds only signed records, which only the
+//! authorization key can produce; it grows by one entry per revoked target
+//! (the set carries each target's latest) and has no other bound.
 
 use std::path::{Path, PathBuf};
 
@@ -107,19 +132,51 @@ pub fn check(bytes: &[u8], keys: &TrustedKeys, chain: &ChainBinding) -> Result<S
     Ok(signed)
 }
 
-/// Every journaled revocation, each checked again under `keys` and `chain`.
-/// A missing store is empty. An entry that fails its check is an error: the
-/// store is written only with checked records, so a failure means the trust
-/// roots changed or the file was altered, and the operator must look.
-pub fn load(store: &Path, keys: &TrustedKeys, chain: &ChainBinding) -> Result<Vec<Signed<RewardIntentRevocation>>> {
+/// What [`load`] read.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Loaded {
+    /// Every journaled revocation, as checked when it was journaled.
+    pub records: Vec<RewardIntentRevocation>,
+    /// Entries whose signed bytes no longer decode or match their digest
+    /// (each applied from its recorded target and epoch when those parse).
+    /// For an alert; never a reason to stop.
+    pub problems: Vec<String>,
+    /// Set when the store could not be read as a whole and `records` are
+    /// the ones loaded before (never set by [`load`] itself).
+    pub store_error: Option<String>,
+}
+
+/// Every journaled revocation (module docs). A missing store is empty; a
+/// store that is not readable as a whole is an error.
+pub fn load(store: &Path, chain: &ChainBinding) -> Result<Loaded> {
     let file = read_file(store)?;
-    file.entries
-        .iter()
-        .map(|e| {
-            let bytes = hex::decode(&e.signed).context("revocation entry is not hex")?;
-            check(&bytes, keys, chain)
-        })
-        .collect()
+    let mut loaded = Loaded::default();
+    for e in &file.entries {
+        let decoded = hex::decode(&e.signed)
+            .ok()
+            .and_then(|bytes| Signed::<RewardIntentRevocation>::from_bytes(&bytes).ok())
+            .filter(|s| s.record.digest().is_ok_and(|d| d.to_string() == e.digest));
+        match decoded {
+            Some(signed) => loaded.records.push(signed.record),
+            None => {
+                loaded.problems.push(format!("revocation entry {} does not decode to its digest", e.digest));
+                // Applied from its recorded summary: it can only withdraw.
+                let digest = |h: &str| -> Option<slop_ninja_protocol::Digest> {
+                    hex::decode(h).ok()?.try_into().ok().map(slop_ninja_protocol::Digest)
+                };
+                if let (Some(target), Some(authorization)) = (digest(&e.target), digest(&e.authorization)) {
+                    loaded.records.push(RewardIntentRevocation {
+                        chain: chain.clone(),
+                        target,
+                        authorization,
+                        checkpoint_generation: 0,
+                        issued_epoch: e.issued_epoch,
+                    });
+                }
+            }
+        }
+    }
+    Ok(loaded)
 }
 
 /// The journaled entries, unchecked (for reports).
@@ -155,4 +212,75 @@ pub fn record(store: &Path, keys: &TrustedKeys, chain: &ChainBinding, bytes: &[u
     file.entries.push(entry.clone());
     crate::supersede::write_private_atomic(store, &serde_json::to_vec_pretty(&file)?)?;
     Ok(Recorded { entry, new: true })
+}
+
+/// What [`record_set`] did with a revocation set.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecordedSet {
+    /// Entries journaled by this call.
+    pub new: Vec<Entry>,
+    /// Entries the store already held (not verified again).
+    pub known: usize,
+    /// Entries that do not decode or verify under `keys` for `chain`.
+    pub skipped: usize,
+}
+
+/// Journals every entry of a revocation set (each `len` bytes) that the
+/// store does not hold yet, after checking it under `keys` for `chain`, in
+/// one locked read and at most one durable write; entries already
+/// journaled (by digest) are not verified again, and entries that do not
+/// verify are counted and skipped. With `store` `None`, checks the new
+/// entries without keeping them.
+pub fn record_set(
+    store: Option<&Path>,
+    keys: &TrustedKeys,
+    chain: &ChainBinding,
+    set: &[u8],
+    len: usize,
+) -> Result<RecordedSet> {
+    if len == 0 || !set.len().is_multiple_of(len) {
+        bail!("the revocation set is not whole revocations");
+    }
+    let _lock = store.map(lock).transpose()?;
+    let mut file = match store {
+        Some(store) => read_file(store)?,
+        None => File { schema: REVOCATIONS_SCHEMA.into(), entries: Vec::new() },
+    };
+    let mut known: std::collections::BTreeSet<String> = file.entries.iter().map(|e| e.digest.clone()).collect();
+    let mut out = RecordedSet::default();
+    for bytes in set.chunks_exact(len) {
+        let Ok(signed) = Signed::<RewardIntentRevocation>::from_bytes(bytes) else {
+            out.skipped += 1;
+            continue;
+        };
+        let Ok(digest) = signed.record.digest().map(|d| d.to_string()) else {
+            out.skipped += 1;
+            continue;
+        };
+        if known.contains(&digest) {
+            out.known += 1;
+            continue;
+        }
+        if RewardIntentRevocation::check(&signed, keys, chain).is_err() {
+            out.skipped += 1;
+            continue;
+        }
+        let r = &signed.record;
+        let entry = Entry {
+            digest: digest.clone(),
+            target: hex::encode(r.target.0),
+            authorization: hex::encode(r.authorization.0),
+            issued_epoch: r.issued_epoch,
+            signed: hex::encode(bytes),
+        };
+        known.insert(digest);
+        file.entries.push(entry.clone());
+        out.new.push(entry);
+    }
+    if let Some(store) = store
+        && !out.new.is_empty()
+    {
+        crate::supersede::write_private_atomic(store, &serde_json::to_vec_pretty(&file)?)?;
+    }
+    Ok(out)
 }

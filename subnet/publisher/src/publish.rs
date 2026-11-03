@@ -133,6 +133,10 @@ pub struct Report {
     pub pending: Vec<(String, String)>,
     /// Closed cohorts whose manifest does not open: one aggregated alert.
     pub unverifiable: Vec<String>,
+    /// Entries of the copied revocation set that do not open under this
+    /// build's trust roots (copied unchanged; validators skip them): one
+    /// alert.
+    pub revocations_unopened: u32,
     /// Closed cohorts outside the record seen this run.
     pub outside: u32,
     pub receipts_deleted: u32,
@@ -512,7 +516,8 @@ impl Keepalive for NoLease {
 
 /// `v1/authorizations/current.json` and its private source: the
 /// authorization that lets validators commit now, any renew-by hint refresh
-/// and the latest signed revocation, each a content-addressed object. The
+/// and the revocation set (the latest signed revocation of every revoked
+/// target, concatenated), each a content-addressed object. The
 /// coordinator writes the private one with the same type.
 pub use slop_ninja_admission_wire::json::{AuthorizationPointer, ObjectRef};
 
@@ -1569,7 +1574,10 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     /// points `v1/authorizations/current.json` at them; reports problems.
     pub async fn authorizations(&self, idx: &CohortIndex, report: &mut Report) {
         match self.copy_authorizations(idx).await {
-            Ok(written) => report.authorization_written = written,
+            Ok((written, unopened)) => {
+                report.authorization_written = written;
+                report.revocations_unopened = unopened;
+            }
             Err(r) if r.retryable() => report
                 .pending
                 .push(("authorizations".into(), r.to_string())),
@@ -1582,6 +1590,11 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     /// Reads one private authorization object named by `r`, checked against
     /// its digest and length.
     async fn authorization_object(&self, r: &ObjectRef) -> Result<(Digest, Vec<u8>), Refusal> {
+        self.authorization_object_within(r, arena::AUTHORIZATION_OBJECT_BOUND).await
+    }
+
+    /// [`Self::authorization_object`] within `bound`.
+    async fn authorization_object_within(&self, r: &ObjectRef, bound: u64) -> Result<(Digest, Vec<u8>), Refusal> {
         let what = "authorization object";
         let sha = digest_hex(&r.sha256)
             .filter(|d| r.path == layout::private_authorization(d))
@@ -1589,7 +1602,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         let bytes = match self
             .buckets
             .receipts
-            .get(&r.path, arena::AUTHORIZATION_OBJECT_BOUND)
+            .get(&r.path, bound)
             .await
         {
             Ok(Some(b)) => b,
@@ -1640,8 +1653,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         }
     }
 
-    async fn copy_authorizations(&self, idx: &CohortIndex) -> Result<bool, Refusal> {
+    async fn copy_authorizations(&self, idx: &CohortIndex) -> Result<(bool, u32), Refusal> {
         let b = &self.buckets;
+        let mut unopened = 0u32;
         let pointer: AuthorizationPointer = match b
             .receipts
             .get(
@@ -1650,7 +1664,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             )
             .await
         {
-            Ok(None) => return Ok(false),
+            Ok(None) => return Ok((false, 0)),
             Ok(Some(bytes)) => serde_json::from_slice(&bytes).map_err(|e| {
                 Refusal::Invalid(layout::PRIVATE_AUTHORIZATION_POINTER.into(), e.to_string())
             })?,
@@ -1721,16 +1735,37 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 Some((r, sha))
             }
         };
-        // A revocation is copied whatever it names: validators check it and
-        // journal it before anything else.
-        let revocation = match &pointer.revocation {
+        // The revocation set is copied byte for byte whatever its entries
+        // name: validators check each, journal those that verify and skip
+        // the rest. Only a malformed set is refused (not whole records, a
+        // digest or length that differs from the pointer, an entry that does
+        // not decode or names another chain); an entry that does not open
+        // under this build's trust roots (one signed under a root rotated on
+        // the coordinator's side first) is counted and alerted, never a
+        // reason to stop publishing newer authorizations. Its read bound is
+        // its declared length (a whole number of fixed-length revocations),
+        // reserved from the run's budget before it is read.
+        let revocations = match &pointer.revocations {
             None => None,
             Some(r) => {
-                let (sha, bytes) = self.authorization_object(r).await?;
-                let revocation = Signed::<RewardIntentRevocation>::open(&bytes, keys)
-                    .map_err(|e| invalid(&format!("revocation: {e}")))?;
-                if revocation.chain != self.cfg.chain {
-                    return Err(invalid("the revocation names another chain or subnet"));
+                let bound = slop_ninja_admission_wire::receipts::revocation_set_bound(r.bytes, &self.cfg.chain)
+                    .map_err(|_| invalid("the revocation set is not whole revocations"))?;
+                let _hold = self
+                    .budget
+                    .reserve(bound)
+                    .map_err(|_| invalid("the revocation set exceeds the run's budget"))?;
+                let (sha, bytes) = self.authorization_object_within(r, bound).await?;
+                let entries = slop_ninja_admission_wire::receipts::revocation_set_entries(&bytes, &self.cfg.chain)
+                    .map_err(|_| invalid("the revocation set is not whole revocations"))?;
+                for entry in entries {
+                    let signed = Signed::<RewardIntentRevocation>::from_bytes(entry)
+                        .map_err(|e| invalid(&format!("revocation: {e}")))?;
+                    if signed.record.chain != self.cfg.chain {
+                        return Err(invalid("a revocation names another chain or subnet"));
+                    }
+                    if signed.verify(keys).is_err() {
+                        unopened += 1;
+                    }
                 }
                 Some((r, sha))
             }
@@ -1746,7 +1781,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 Some((r, sha)) => Some(self.copy_authorization(r, sha).await?),
                 None => None,
             },
-            revocation: match revocation {
+            revocations: match revocations {
                 Some((r, sha)) => Some(self.copy_authorization(r, sha).await?),
                 None => None,
             },
@@ -1761,6 +1796,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             Cache::Snapshot,
         )
         .await
+        .map(|written| (written, unopened))
         .map_err(|e| Refusal::Store(layout::AUTHORIZATION_CURRENT.into(), e))
     }
 }

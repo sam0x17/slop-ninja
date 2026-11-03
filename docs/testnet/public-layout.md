@@ -52,7 +52,7 @@ up at announce time. `{public}` below is the host's base URL.
 | `v1/reference/current.json`, `v1/reference/previous.json` | `R_k` and `R_k-1` after the newest cohort's close, schema `slop_ninja.public.reference/v1` | when a cohort closes |
 | `v1/reference/packages/<sha256>/...` | One staged [reference package](reference-packages.md), named by its parts manifest's SHA-256: `artifact-files.json`, `parts/<sha256>`, `package.json`, `NOTICE.md`, `upstream/` and `reference/`, and for `R_0` its training companion `training/` | never, once staged |
 | `v1/artifacts/<sha256>.bin` | An admitted outside entrant's artifact object, named by its SHA-256 | never, once written |
-| `v1/authorizations/current.json` | The authorization validators commit under now, any renew-by hint refresh and the latest signed revocation, schema `slop_ninja.public.authorization/v1` | when the coordinator installs an authorization or journals a revocation |
+| `v1/authorizations/current.json` | The authorization validators commit under now, any renew-by hint refresh and the revocation set, schema `slop_ninja.public.authorization/v2` | when the coordinator installs an authorization or journals a revocation |
 | `v1/authorizations/<sha256>.signed` | One signed authorization, refresh or revocation, named by its SHA-256 | never, once written |
 | `v1/trust/testnet-trust.json` | The trust roots, byte-identical to the release's file | when the roots rotate (decision D20) |
 
@@ -180,28 +180,37 @@ role.
 
 `v1/authorizations/current.json` names the authorization validators commit
 under now and, when there are any, a refresh of its renew-by hint and the
-latest signed revocation:
+revocation set:
 
 ```json
 {
-  "schema": "slop_ninja.public.authorization/v1",
+  "schema": "slop_ninja.public.authorization/v2",
   "chain": { "genesis": "8f9c…3105", "netuid": 601, "mechanism": 0 },
   "kind": "cohort",
   "authorization": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> },
   "renewal": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> },
-  "revocation": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
+  "revocations": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
 }
 ```
 
 - `kind` is `launch` (a `LaunchAuthorization` of the launch burn row) or
   `cohort` (a `RewardIntentAuthorization`); `renewal` is a
-  `RewardIntentRenewal` of that authorization, or absent; `revocation` is a
-  `RewardIntentRevocation`, or absent (the key is left out).
+  `RewardIntentRenewal` of that authorization, or absent; `revocations` is
+  the revocation set, or absent (the key is left out): the latest signed
+  `RewardIntentRevocation` of every revoked target, oldest first,
+  concatenated. Every revocation has the same fixed signed length on a
+  chain, so `bytes` is a whole multiple of it and the entries are cut at
+  that length. A validator that missed earlier revocations (offline, or
+  still holding an older target) journals every entry, so the set reaches it
+  whatever target it holds. Schema v2 replaced v1's single latest
+  `revocation`; a validator built for v1 refuses a v2 pointer by its schema,
+  cannot see revocations, and must be upgraded.
 - No authorization expires. Its `renew_by_epoch` is a non-binding hint: an
   authorization keeps validators committing its target until a newer one
   supersedes it or a revocation withdraws it (every authorization of the
   revocation's target issued at or before the revocation's epoch). Validators
-  journal a revocation before anything else.
+  journal the revocation set before anything else, and skip an entry that
+  does not verify under their trust roots.
 - Each object is content-addressed and signed with the authorization key.
   Check its SHA-256 and length, then open it under the trust roots.
 - A `cohort` authorization appears only once the cohort that carries it is

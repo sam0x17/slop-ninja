@@ -177,9 +177,9 @@ pub trait AppPorts {
     /// active; `None` before it accepted any bundle (the launch burn row).
     fn held_target(&self) -> Result<Option<crate::package_v2::HeldTargetFile>>;
     /// Every signed revocation this validator journaled ([`crate::revocations`]),
-    /// checked under the trusted keys. None by default.
-    fn revocations(&self) -> Result<Vec<slop_ninja_protocol::Signed<slop_ninja_protocol::RewardIntentRevocation>>> {
-        Ok(Vec::new())
+    /// as checked when journaled. None by default.
+    fn revocations(&self) -> Result<crate::revocations::Loaded> {
+        Ok(crate::revocations::Loaded::default())
     }
     /// Durably records the target held active after a verified bundle.
     fn record_target(&mut self, held: &crate::package_v2::HeldTargetFile) -> Result<()>;
@@ -464,7 +464,24 @@ async fn apply_v2<P: AppPorts>(
         Ok(a) => std::sync::Arc::new(a),
         Err(refusal) => return Ok(refused(refusal)),
     };
-    authorized.set_revocations(ports.revocations().context("revocation store read failed")?);
+    let loaded = match ports.revocations() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            // No revocations loaded yet (startup, or a re-apply before any
+            // load): refuse rather than commit on a check that did not run.
+            // The process exits and its supervisor restarts it, alerting
+            // each time until the store is fixed.
+            tracing::warn!(event = "revocation_store_unreadable", error = %format!("{error:#}"), kept = 0, alert = true);
+            return Err(error.context("revocation store read failed (fix or restore the store; nothing commits until it reads)"));
+        }
+    };
+    if let Some(error) = &loaded.store_error {
+        tracing::warn!(event = "revocation_store_unreadable", error = %error, kept = loaded.records.len(), alert = true);
+    }
+    for problem in &loaded.problems {
+        tracing::warn!(event = "revocation_entry_unreadable", problem = %problem, alert = true);
+    }
+    authorized.set_revocations(loaded.records);
     let active = authorized.verified.active.clone();
     if active != held {
         if !advances(&held, &active) {

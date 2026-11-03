@@ -47,6 +47,7 @@ use crate::renorm::{self, Batch, LineSplit, line_split};
 use crate::splice;
 use crate::text;
 use anyhow::{Context, Result, bail, ensure};
+use grammar_a_dryrun::count6::{self, ItemDoc, ItemEdit};
 use grammar_a_dryrun::engine::{self, Code, Edit, Failure, Slot, Source};
 use grammar_a_dryrun::tally::{Case, Fin, Recorded, Tally};
 use grammar_a_form::profile::replacement_lead;
@@ -388,6 +389,9 @@ struct Rec {
     accepted: bool,
     reasons: Vec<String>,
     text_sha256: String,
+    /// The per-request record's `remeasure.differs` (amendment 31 item
+    /// 31.3).
+    remeasure_differs: Option<bool>,
 }
 
 /// One code's verdicts of every child of a batch, as `renorm::judge`
@@ -543,6 +547,7 @@ fn count_journal_batch(label: &str, out: &Path, summary: &Value, b: &Wired, r0: 
                 accepted: j.accepted,
                 reasons: j.reasons.clone(),
                 text_sha256,
+                remeasure_differs: count6::remeasure_differs(&q["profile_record"]),
             });
         }
     }
@@ -555,6 +560,7 @@ fn count_journal_batch(label: &str, out: &Path, summary: &Value, b: &Wired, r0: 
     };
     let mut tally = Tally::default();
     let items: HashMap<&str, &renorm::RItem> = b.batch.items.iter().map(|i| (i.item_id.as_str(), i)).collect();
+    let mut item_docs: HashMap<String, Option<ItemDocOwned>> = HashMap::new();
     for q in &cases {
         let rid = q.request_id.as_str();
         let item_id = q.item_id.as_str();
@@ -580,19 +586,17 @@ fn count_journal_batch(label: &str, out: &Path, summary: &Value, b: &Wired, r0: 
             None => vec![part.clone()],
         };
         let k = item_parts.iter().position(|p| p.request_id == rid).unwrap_or(0);
-        // an item's edit is laid out in its item with the raw texts the
-        // verdict path's layout read: its own, and those of the requests
-        // before it (item order) that passed (amendment 29 item 29.1)
-        let passed = |p: &Part| matches!(landed.get(&p.request_id), Some(Ok((true, _, _))));
-        let slots: Vec<Slot> = item_parts
-            .iter()
-            .enumerate()
-            .map(|(j, p)| Slot {
-                span: p.span,
-                insert_sep: p.insert_sep.as_deref(),
-                raw: (j == k || (j < k && passed(p))).then(|| children.get(&p.request_id).map(|c| c.raw.as_str())).flatten(),
-            })
-            .collect();
+        let slots = item_slots(&item_parts, k, &children, &landed);
+        // count 6's item reading (amendment 31 item 31.1): the item
+        // assembled from every edit with a re-derived laid-out child
+        if ri.spec.is_some() && !item_docs.contains_key(item_id) {
+            let d = item_doc(b.spliced(), parent, &item_parts, &children, &landed);
+            item_docs.insert(item_id.to_string(), d);
+        }
+        let item = match item_docs.get(item_id) {
+            Some(Some((doc, edits, rids))) => rids.iter().position(|x| x == rid).map(|index| ItemDoc { parent, doc, edits, index }),
+            _ => None,
+        };
         let src = if ri.spec.is_some() {
             Source::InItem { parent, slots: &slots, index: k }
         } else if b.spliced() {
@@ -636,11 +640,63 @@ fn count_journal_batch(label: &str, out: &Path, summary: &Value, b: &Wired, r0: 
             landed: lv,
             a7: av,
             fin,
+            item,
+            remeasure_differs: q.remeasure_differs,
         });
     }
     let children_rec = json!({"children": cases.len(), "items": seen, "journals": jrec});
     let inputs = json!({"reverdict": rv_rec, "journals": jrec["files"]});
     Ok(Counted { tally, inputs, children: children_rec })
+}
+
+/// An item's edit is laid out in its item with the raw texts the verdict
+/// path's layout read: its own (edit `k`), and those of the requests before
+/// it (item order) that passed under the landed code (amendment 29 item
+/// 29.1).
+fn item_slots<'a>(item_parts: &'a [Part], k: usize, children: &'a HashMap<String, Child>, landed: &Verdicts) -> Vec<Slot<'a>> {
+    let passed = |p: &Part| matches!(landed.get(&p.request_id), Some(Ok((true, _, _))));
+    item_parts
+        .iter()
+        .enumerate()
+        .map(|(j, p)| Slot {
+            span: p.span,
+            insert_sep: p.insert_sep.as_deref(),
+            raw: (j == k || (j < k && passed(p))).then(|| children.get(&p.request_id).map(|c| c.raw.as_str())).flatten(),
+        })
+        .collect()
+}
+
+/// Count 6's item document: the assembled text, the placed edits and their
+/// request ids, in item order.
+type ItemDocOwned = (String, Vec<ItemEdit>, Vec<String>);
+
+/// Count 6's item reading (amendment 31 item 31.1): the item assembled, as
+/// the dry run's final document is built (`assemble`), from every edit that
+/// has a re-derived laid-out child (each re-derived in its item, as its own
+/// child is), with each edit's units. None when no edit re-derives or the
+/// assembly fails.
+fn item_doc(spliced: bool, parent: &str, item_parts: &[Part], children: &HashMap<String, Child>, landed: &Verdicts) -> Option<ItemDocOwned> {
+    let mut parts: Vec<&Part> = Vec::new();
+    let mut laid: Vec<(String, Vec<(usize, usize)>)> = Vec::new();
+    for (j, p) in item_parts.iter().enumerate() {
+        let Some(ch) = children.get(&p.request_id) else { continue };
+        let slots = item_slots(item_parts, j, children, landed);
+        let Ok((_, t)) = engine::landed_transfer(Source::InItem { parent, slots: &slots, index: j }, &ch.conv, &ch.raw) else { continue };
+        parts.push(p);
+        laid.push((t.text, t.paragraphs));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let reps: Vec<&str> = laid.iter().map(|x| x.0.as_str()).collect();
+    let (doc, spans) = assemble(spliced, parent, &parts, &reps).ok()?;
+    let edits = parts
+        .iter()
+        .zip(&laid)
+        .zip(&spans)
+        .map(|((p, (rep, units)), sp)| ItemEdit { span: p.span, sep: p.insert_sep.clone(), fin: (sp.0 - replacement_lead(rep).unwrap_or(0), sp.1), units: units.clone() })
+        .collect();
+    Some((doc, edits, parts.iter().map(|p| p.request_id.clone()).collect()))
 }
 
 /// Counts a local batch: `out` its renorm output directory, `summary_sha256`
@@ -818,6 +874,8 @@ pub fn count_rows(label: &str, out: &Path, summary_sha256: &str) -> Result<Count
             landed: lv,
             a7: av,
             fin,
+            item: None,
+            remeasure_differs: count6::remeasure_differs(rec),
         });
         *seen.entry("children".into()).or_default() += 1;
     }
@@ -875,47 +933,188 @@ pub fn write_batch(out: &Path, ids_out: &Path, label: &str, c: &Counted, code: &
     Ok(rec)
 }
 
+/// The schema of index 60's figures record (`DRY-RUN-FIGURES.json`, and
+/// `figures.py` run over one batch's records).
+pub const FIGURES_SCHEMA: &str = "slop_ninja_a_r2_reverdict_dry_run_figures_v1";
+
+/// A figures record (`FIGURES_SCHEMA`) given to the merge: its path and the
+/// SHA-256 it must have.
+#[derive(Clone, Debug)]
+pub struct FiguresFile {
+    pub path: PathBuf,
+    pub sha256: String,
+}
+
+/// A re-run batch (protocol A2 item 29.3): its label, index 60's figures of
+/// that batch alone and the re-run's (index 60's `figures.py` over each
+/// batch's records).
+#[derive(Clone, Debug)]
+pub struct Rerun {
+    pub label: String,
+    pub index60: FiguresFile,
+    pub rerun: FiguresFile,
+}
+
+/// A batch not counted (frontier wave1 under ruling W9-R3): its label and
+/// index 60's figures of that batch alone.
+#[derive(Clone, Debug)]
+pub struct NotCounted {
+    pub label: String,
+    pub index60: FiguresFile,
+}
+
+/// Each cell's (children, accepted children).
+type CellPop = BTreeMap<String, (u64, u64)>;
+
+fn cell_pop(cells: &Value) -> CellPop {
+    cells
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(k, c)| (k.clone(), (c["children"].as_u64().unwrap_or(0), c["children_accepted"].as_u64().unwrap_or(0))))
+        .collect()
+}
+
+/// A figures record's cells, refused unless its SHA-256 is the one given
+/// and its schema is `FIGURES_SCHEMA`.
+fn figures_pop(f: &FiguresFile) -> Result<(CellPop, Value)> {
+    let v = checked_summary(&f.path, &f.sha256)?;
+    ensure!(v["schema"] == FIGURES_SCHEMA, "{}: not a dry-run figures record", f.path.display());
+    Ok((cell_pop(&v["cells"]), json!({"path": f.path, "sha256": f.sha256})))
+}
+
+fn sum(p: &CellPop) -> (u64, u64) {
+    p.values().fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
+}
+
+/// The cells where `a` and `b` differ in children (`children`) or accepted
+/// children (`accepted`), as `{cell, figure, <names>}` lines.
+fn pop_differences(a: &CellPop, b: &CellPop, names: (&str, &str), children: bool, accepted: bool, check: &str, batch: Option<&str>) -> Vec<Value> {
+    let keys: BTreeSet<&String> = a.keys().chain(b.keys()).collect();
+    let mut out = Vec::new();
+    for k in keys {
+        let (x, y) = (a.get(k).copied().unwrap_or_default(), b.get(k).copied().unwrap_or_default());
+        for (f, on, u, w) in [("children", children, x.0, y.0), ("children_accepted", accepted, x.1, y.1)] {
+            if on && u != w {
+                let mut d = json!({"check": check, "batch": batch, "cell": k, "figure": f});
+                d[names.0] = json!(u);
+                d[names.1] = json!(w);
+                out.push(d);
+            }
+        }
+    }
+    out
+}
+
 /// Merges batch records into `DRY-RUN-COUNTS.json` (`COUNTS_SCHEMA`) at the
-/// new path `out`: refuses a batch that mismatched, a batch counted twice,
-/// and any cell whose children or accepted children differ from
-/// `DRY-RUN-FIGURES.json`'s (`figures`, refused unless its SHA-256 is
-/// `figures_sha256`).
-pub fn merge(batches: &[PathBuf], figures: &Path, figures_sha256: &str, out: &Path, code: &Value) -> Result<Value> {
+/// new path `out`. Refuses a batch that mismatched, a batch counted twice,
+/// and any cell whose children or accepted children differ from what the
+/// figures records give:
+/// * `figures` is index 60's `DRY-RUN-FIGURES.json` (all nine batches),
+///   refused unless its SHA-256 is `figures_sha256`;
+/// * a re-run batch (`reruns`; item 29.3) is checked against the re-run's
+///   figures, and the re-run's children must equal index 60's for that
+///   batch cell by cell (the population does not change); its accepted
+///   children's differences from index 60's are reported by cell;
+/// * a batch not counted (`not_counted`; ruling W9-R3) is recorded as not
+///   counted with index 60's figures of that batch, and no count of it is
+///   emitted;
+/// * every other batch together must equal `figures` less the per-batch
+///   figures of the re-run and not-counted batches, cell by cell.
+#[allow(clippy::too_many_arguments)]
+pub fn merge(batches: &[PathBuf], figures: &Path, figures_sha256: &str, reruns: &[Rerun], not_counted: &[NotCounted], out: &Path, code: &Value) -> Result<Value> {
     let fig = checked_summary(figures, figures_sha256)?;
+    ensure!(fig["schema"] == FIGURES_SCHEMA, "{}: not a dry-run figures record", figures.display());
     let mut recs = Vec::new();
     let mut inputs = Vec::new();
     let mut labels = BTreeSet::new();
+    let mut pops: BTreeMap<String, CellPop> = BTreeMap::new();
     for p in batches {
         let b = fs::read(p).with_context(|| p.display().to_string())?;
         let v: Value = serde_json::from_slice(&b)?;
         ensure!(v["schema"] == grammar_a_dryrun::BATCH_SCHEMA, "{}: not a batch counts record", p.display());
         ensure!(v["counts"]["mismatched_children"] == 0 && v["stopped"].is_null(), "{}: the batch mismatched", p.display());
-        ensure!(labels.insert(v["batch"].as_str().unwrap_or_default().to_string()), "batch {} given twice", v["batch"]);
+        let label = v["batch"].as_str().unwrap_or_default().to_string();
+        ensure!(labels.insert(label.clone()), "batch {} given twice", v["batch"]);
+        pops.insert(label, cell_pop(&v["counts"]["cells"]));
         inputs.push(json!({"path": p, "sha256": sha(&b), "batch": v["batch"], "inputs": v["inputs"], "ids": v["ids"], "code": v["code"]}));
         recs.push(v);
     }
-    let merged = grammar_a_dryrun::tally::merge(&recs);
-    // the population check: every cell's children as the figures file counts them
-    let mut differ = Vec::new();
-    let empty = serde_json::Map::new();
-    let fcells = fig["cells"].as_object().unwrap_or(&empty);
-    let keys: BTreeSet<&String> = fcells.keys().chain(merged["cells"].as_object().unwrap_or(&empty).keys()).collect();
+    let mut named = BTreeSet::new();
+    for l in reruns.iter().map(|r| &r.label).chain(not_counted.iter().map(|n| &n.label)) {
+        ensure!(named.insert(l.clone()), "batch {l} is named twice as re-run or not counted");
+    }
+    let mut differ: Vec<Value> = Vec::new();
+    let mut accepted_changes: Vec<Value> = Vec::new();
+    // what the batches without figures of their own must sum to: index 60's
+    // figures less the per-batch figures set aside
+    let mut rest: BTreeMap<String, (i128, i128)> = cell_pop(&fig["cells"]).into_iter().map(|(k, (a, b))| (k, (a as i128, b as i128))).collect();
+    let mut set_aside = |p: &CellPop| {
+        for (k, (a, b)) in p {
+            let e = rest.entry(k.clone()).or_default();
+            e.0 -= *a as i128;
+            e.1 -= *b as i128;
+        }
+    };
+    let mut rerun_rec = Vec::new();
+    for r in reruns {
+        let counted = pops.get(&r.label).with_context(|| format!("re-run batch {} has no batch record among --batch", r.label))?;
+        let (i60, i60_rec) = figures_pop(&r.index60)?;
+        let (rr, rr_rec) = figures_pop(&r.rerun)?;
+        differ.extend(pop_differences(&i60, &rr, ("index60", "rerun"), true, false, "rerun_children_equal_index60s", Some(&r.label)));
+        differ.extend(pop_differences(&rr, counted, ("rerun_figures", "counted"), true, true, "counted_equal_the_reruns_figures", Some(&r.label)));
+        let changes = pop_differences(&i60, &rr, ("index60", "rerun"), false, true, "accepted_children_changed_by_the_rerun", Some(&r.label));
+        let (n, a60) = sum(&i60);
+        let (_, arr) = sum(&rr);
+        rerun_rec.push(json!({"batch": r.label, "index60_figures": i60_rec, "rerun_figures": rr_rec, "children": n, "children_accepted_index60": a60,
+            "children_accepted_rerun": arr, "cells_with_accepted_changes": changes.len()}));
+        accepted_changes.extend(changes);
+        set_aside(&i60);
+    }
+    let mut not_counted_rec = Vec::new();
+    for n in not_counted {
+        ensure!(!labels.contains(&n.label), "batch {} is given as not counted and has a batch record", n.label);
+        let (i60, i60_rec) = figures_pop(&n.index60)?;
+        let (c, a) = sum(&i60);
+        not_counted_rec.push(json!({"batch": n.label, "index60_figures": i60_rec, "children_index60": c, "children_accepted_index60": a,
+            "note": "not counted: no count of this batch is emitted; its index-60 figures are set aside in the population check (ruling W9-R3)"}));
+        set_aside(&i60);
+    }
+    let mut others: BTreeMap<String, (i128, i128)> = BTreeMap::new();
+    for (l, p) in &pops {
+        if reruns.iter().any(|r| &r.label == l) {
+            continue;
+        }
+        for (k, (a, b)) in p {
+            let e = others.entry(k.clone()).or_default();
+            e.0 += *a as i128;
+            e.1 += *b as i128;
+        }
+    }
+    let keys: BTreeSet<&String> = rest.keys().chain(others.keys()).collect();
     for k in keys {
-        for f in ["children", "children_accepted"] {
-            let a = fcells.get(k).and_then(|c| c[f].as_u64()).unwrap_or(0);
-            let b = merged["cells"][k][f].as_u64().unwrap_or(0);
-            if a != b {
-                differ.push(json!({"cell": k, "figure": f, "figures_file": a, "counted": b}));
+        let (x, y) = (rest.get(k).copied().unwrap_or_default(), others.get(k).copied().unwrap_or_default());
+        for (f, u, w) in [("children", x.0, y.0), ("children_accepted", x.1, y.1)] {
+            if u != w {
+                differ.push(json!({"check": "batches_in_force_at_index60_equal_the_figures_file", "batch": null, "cell": k, "figure": f, "figures_file_less_set_aside": u.to_string(), "counted": w.to_string()}));
             }
         }
     }
+    let merged = grammar_a_dryrun::tally::merge(&recs);
+    let scope = if not_counted.is_empty() {
+        "every batch given".to_string()
+    } else {
+        format!("complete except {}", not_counted.iter().map(|n| n.label.as_str()).collect::<Vec<_>>().join(", "))
+    };
     let rec = json!({"schema": grammar_a_dryrun::COUNTS_SCHEMA, "code": code, "a7_commit": grammar_a_dryrun::A7_COMMIT, "dry_run_commit": grammar_a_dryrun::DRY_RUN_COMMIT,
-        "model_calls": renorm::NO_MODEL_CALL, "figures": {"path": figures, "sha256": figures_sha256}, "batches": inputs,
-        "population_check": {"cells_compared": "children and children_accepted of every cell, against DRY-RUN-FIGURES.json", "differences": differ},
+        "model_calls": renorm::NO_MODEL_CALL, "figures": {"path": figures, "sha256": figures_sha256}, "batches": inputs, "scope": scope,
+        "rerun_batches": rerun_rec, "not_counted": not_counted_rec,
+        "population_check": {"cells_compared": "children and children_accepted of every cell: re-run batches against their re-run's figures (their children equal to index 60's for the batch, item 29.3), every other counted batch together against DRY-RUN-FIGURES.json less the per-batch figures of the re-run and not-counted batches",
+            "differences": differ, "accepted_children_changed_by_reruns": accepted_changes},
         "counts": merged, "rules": grammar_a_dryrun::rules()});
     let mut b = serde_json::to_vec_pretty(&rec)?;
     b.push(b'\n');
-    ensure!(differ.is_empty(), "{} cells' children differ from DRY-RUN-FIGURES.json; no counts record written", differ.len());
+    ensure!(differ.is_empty(), "{} cells' children differ from the figures records; no counts record written", differ.len());
     write_new(out, &b)?;
     Ok(rec)
 }
@@ -1422,7 +1621,7 @@ mod tests {
         // the merge refuses a stopped batch
         let fig = dir.path().join("figures.json");
         fs::write(&fig, b"{\"cells\":{}}\n").unwrap();
-        assert!(merge(&[dir.path().join("COUNTS.json")], &fig, &file_sha(&fig).unwrap(), &dir.path().join("M.json"), &json!({})).is_err());
+        assert!(merge(&[dir.path().join("COUNTS.json")], &fig, &file_sha(&fig).unwrap(), &[], &[], &dir.path().join("M.json"), &json!({})).is_err());
     }
 
     fn row(id: &str, kind: &str, cohort: &str, origin: &str, group: &str, domain: &str, t: &str) -> Value {
@@ -1446,9 +1645,11 @@ mod tests {
         (parent, child)
     }
 
-    #[test]
-    fn a_rows_batch_is_counted_against_its_raid_humans_parents_and_donors() {
-        engine::quiet_panics();
+    /// The rows fixture: a RAID human and its model row (closed em dashes
+    /// against two spaced hyphens), stage-3 parents, a mixed row, model
+    /// rows and an email donor; renorm-rows run over it into `d`. Returns
+    /// the output directory.
+    fn rows_fixture(d: &Path) -> PathBuf {
         let q1 = format!("{}\n\n{}", prose(&SYN, 31, 7, 11), prose(&SYN, 32, 7, 12));
         // the RAID human uses closed em dashes; its model row has two spaced hyphens one space apart
         let q2 = format!("{} The pier stayed open\u{2014}briefly. {}\n\n{}", prose(&SYN, 33, 6, 11), prose(&SYN, 35, 1, 11), prose(&SYN, 34, 7, 11));
@@ -1471,18 +1672,28 @@ mod tests {
             row("stage3:hm", "stage3_legacy", "stage3_legacy_train", "human_only", "g-hm", "mail", &em),
             row("stage3:mm", "stage3_legacy", "stage3_legacy_train", "model_only", "g-mm", "mail", &ec),
         ];
-        let dir = tempfile::tempdir().unwrap();
-        let rows_p = dir.path().join("rows.jsonl");
+        let rows_p = d.join("rows.jsonl");
         let mut rb = jsonl(&rows_v).unwrap();
         rb.extend_from_slice(NOT_TRAIN);
         fs::write(&rows_p, rb).unwrap();
         let doc = json!({"schema": "slop_ninja_a_pool_document_v1", "id": "raid-h1", "origin": "human_only", "source_group": "raid_source:1", "domain": "raid_books",
             "cohort_id": "raid-v1-paired", "intended_use": "train_only", "split_assigned": false, "text": q2, "text_sha256": sha(q2.as_bytes()),
             "raid": {"attack": {"name": "none", "attacked": false}}});
-        let docs_p = dir.path().join("raid.jsonl");
+        let docs_p = d.join("raid.jsonl");
         fs::write(&docs_p, jsonl(&[doc]).unwrap()).unwrap();
-        let out = dir.path().join("rows-train");
+        let out = d.join("rows-train");
         renorm::renorm_rows(&rows_p, None, Some(&docs_p), POPULATION, &out, false).unwrap();
+        out
+    }
+
+    #[test]
+    fn a_rows_batch_is_counted_against_its_raid_humans_parents_and_donors() {
+        engine::quiet_panics();
+        let (_dir, out) = {
+            let d = tempfile::tempdir().unwrap();
+            let o = rows_fixture(d.path());
+            (d, o)
+        };
         let h = file_sha(&out.join("ROWS-RENORM.json")).unwrap();
         let c = count_rows("rows-train", &out, &h).unwrap();
         assert_eq!(c.tally.mismatched(), 0, "{:?}", c.tally.mismatches);
@@ -1526,4 +1737,297 @@ mod tests {
         let c2 = count_rows("rows-train", &out, &file_sha(&sp).unwrap()).unwrap();
         assert_eq!(c2.tally.mismatches.get("final_document_differs").copied(), Some(1), "{:?}", c2.tally.mismatches);
     }
+
+    // ------------------------------------------------------------------ B27 review: count 6's wiring through the counting tool
+
+    /// Sets every `remeasure.differs` member of each request's profile
+    /// record in a spliced or local batch's re-verdict records (`Some`), or
+    /// removes each `remeasure` (`None`); returns the summary's new digest.
+    fn set_record_remeasure(out: &Path, summary: &str, records: &str, to: Option<bool>) -> String {
+        fn walk(v: &mut Value, to: Option<bool>) {
+            match v {
+                Value::Object(m) => {
+                    match to {
+                        Some(b) => {
+                            if let Some(r) = m.get_mut("remeasure").and_then(Value::as_object_mut) {
+                                r.insert("differs".into(), json!(b));
+                            }
+                        }
+                        None => {
+                            m.remove("remeasure");
+                        }
+                    }
+                    for x in m.values_mut() {
+                        walk(x, to);
+                    }
+                }
+                Value::Array(a) => a.iter_mut().for_each(|x| walk(x, to)),
+                _ => {}
+            }
+        }
+        let rp = out.join(records);
+        let lines: Vec<Value> = fs::read_to_string(&rp)
+            .unwrap()
+            .lines()
+            .map(|l| {
+                let mut v: Value = serde_json::from_str(l).unwrap();
+                match v.get_mut("requests").and_then(Value::as_array_mut) {
+                    Some(qs) => qs.iter_mut().for_each(|q| walk(&mut q["profile_record"], to)),
+                    None => walk(&mut v, to),
+                }
+                v
+            })
+            .collect();
+        fs::write(&rp, jsonl(&lines).unwrap()).unwrap();
+        let sp = out.join(summary);
+        let mut sv = read_json(&sp).unwrap();
+        sv["outputs"]["reverdict"]["sha256"] = json!(file_sha(&rp).unwrap());
+        fs::write(&sp, serde_json::to_vec_pretty(&sv).unwrap()).unwrap();
+        file_sha(&sp).unwrap()
+    }
+
+    /// The number of records (or requests) whose `remeasure.differs` the
+    /// counting tool reads as true.
+    fn records_remeasure_true(out: &Path, records: &str) -> u64 {
+        fs::read_to_string(out.join(records))
+            .unwrap()
+            .lines()
+            .map(|l| {
+                let v: Value = serde_json::from_str(l).unwrap();
+                match v["requests"].as_array() {
+                    Some(qs) => qs.iter().filter(|q| count6::remeasure_differs(&q["profile_record"]) == Some(true)).count() as u64,
+                    // a rows line: its record, when it has a transfer (count_rows)
+                    None => u64::from(!v["record"]["transfer"].is_null() && count6::remeasure_differs(&v["record"]) == Some(true)),
+                }
+            })
+            .sum()
+    }
+
+    #[test]
+    fn count6_reads_the_item_through_the_counting_tool_where_a_siblings_unit_boundary_cuts_the_join() {
+        // Amendment 31 item 31.1 end to end (count_spliced): an item of two
+        // edits, each across a parent paragraph break, so each child is
+        // laid out in two units. In the parent's middle paragraph the first
+        // edit's last unit (5 words) meets the second edit's first unit (2
+        // words): 7 words in the item, though each is 8 alone with the
+        // parent words it joins (3 after, 6 before).
+        engine::quiet_panics();
+        let lead = prose(&SYN, 40, 2, 10);
+        let (c1, c2, s1, s2) = (prose(&SYN, 41, 1, 10), prose(&SYN, 42, 1, 6), prose(&SYN, 43, 1, 3), prose(&SYN, 44, 1, 10));
+        let q = format!("{lead} {c1}\n\n{c2} {s1}\n\n{s2} {}\n\n{}", prose(&SYN, 45, 2, 10), prose(&SYN, 46, 4, 10));
+        let cs = lead.len() + 1;
+        let ce = cs + c1.len() + 2 + c2.len();
+        let ss = ce + 1;
+        let se = ss + s1.len() + 2 + s2.len();
+        assert_eq!((&q[cs..cs + c1.len()], &q[ss..ss + s1.len()], &q[se - s2.len()..se]), (c1.as_str(), s1.as_str(), s2.as_str()));
+        let raws = [format!("{} {}", prose(&ALT, 51, 1, 10), prose(&ALT, 52, 1, 5)), format!("{} {}", prose(&ALT, 53, 1, 2), prose(&ALT, 54, 1, 10))];
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let p = sparent("p1", "fiction", &q);
+        let sw = |sp: (usize, usize)| text::words(&q[sp.0..sp.1]);
+        let spans = [(cs, ce), (ss, se)];
+        let item = sitem("s-cut", &p, (0..2).map(|k| sedit(&format!("w{}", k + 1), "run", spans[k], None, sw(spans[k]))).collect());
+        let pdir = d.join("plan");
+        fs::create_dir_all(pdir.join("requests")).unwrap();
+        let ib = jsonl(&[serde_json::to_value(&item).unwrap()]).unwrap();
+        let pbytes = jsonl(&[serde_json::to_value(&p).unwrap()]).unwrap();
+        fs::write(pdir.join("items.jsonl"), &ib).unwrap();
+        fs::write(pdir.join("parents.jsonl"), &pbytes).unwrap();
+        let reqs: Vec<Request> = item.edits.iter().map(|e| request(&e.request_id, &item.item_id, "p1", Some(e.parent_span), e.target_words)).collect();
+        let rb = jsonl(&reqs.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()).unwrap();
+        fs::write(pdir.join("requests/g.jsonl"), &rb).unwrap();
+        fs::write(pdir.join("plan.json"), serde_json::to_vec(&json!({"schema": splice::PLAN_SCHEMA, "items": {"sha256": sha(&ib)}, "parents": {"sha256": sha(&pbytes)},
+            "request_files": {"g": {"sha256": sha(&rb)}}})).unwrap()).unwrap();
+        let ov = Overlap::new(PriorIndex::empty());
+        let mut lines = Vec::new();
+        for (r, (e, raw)) in reqs.iter().zip(item.edits.iter().zip(&raws)) {
+            let parsed = chat_body(raw);
+            let v = splice::verdict(e, &q, &ov, 200, &parsed);
+            assert_eq!(v["accepted"], true, "{}: {v}", r.request_id);
+            lines.push(json!({"kind":"intent","request_id":r.request_id,"item_id":r.item_id,"split":r.split,"generator":r.generator,"attempt":0,"seed":r.seed,"t":1,"body":{"prompt":r.prompt}}));
+            lines.push(json!({"kind":"response","request_id":r.request_id,"item_id":r.item_id,"split":r.split,"generator":r.generator,"attempt":0,"seed":r.seed,
+                "t_start":1,"t_end":2,"elapsed_ms":1,"status":200,"raw_body":serde_json::to_string(&parsed).unwrap(),"timings":{},"usage":{},"verdict":v}));
+        }
+        let runs = d.join("runs");
+        fs::create_dir_all(runs.join("g")).unwrap();
+        fs::write(runs.join("g/journal-1-w0.jsonl"), jsonl(&lines).unwrap()).unwrap();
+        let b = renorm::spliced_batch(&pdir, "train", POPULATION).unwrap();
+        let out = d.join("spliced-train");
+        renorm::run_batch(&b, &runs, &out).unwrap();
+        let snap = d.join("snapshot.jsonl");
+        fs::write(&snap, jsonl(&[json!({"id": "s-cut", "split": "train"})]).unwrap()).unwrap();
+        let sh = file_sha(&snap).unwrap();
+        let (summary, records) = ("RENORM-population-train.json", "reverdict-population-train.jsonl");
+        let count = |h: &str| {
+            let c = count_spliced("spliced-train", &out, h, &snap, &sh).unwrap();
+            assert_eq!(c.tally.mismatched(), 0, "{:?}", c.tally.mismatches);
+            assert_eq!(c.children["children"], 2, "{}", c.children);
+            let t = grammar_a_dryrun::tally::totals(&c.tally.cells)["all"].clone();
+            (c, t)
+        };
+        let (c, all) = count(&file_sha(&out.join(summary)).unwrap());
+        let g = |k: &str| all.get(k).copied().unwrap_or(0);
+        println!("count 6 through the counting tool: {all:?}");
+        // the item reading is taken for every placed unit, and it alone gives the two 7-word paragraphs
+        assert_eq!(g("c6_placed_paragraphs"), 4, "{all:?}");
+        assert_eq!((g("c6_constructed_item_readings"), g("c6_constructed_alone_readings")), (4, 4), "{all:?}");
+        assert_eq!((g("c6_constructed_item_short"), g("c6_constructed_alone_short")), (2, 0), "the item reading differs from the alone reading: {all:?}");
+        assert_eq!((g("c6_gate"), g("c6_gate_children")), (2, 2), "{all:?}");
+        assert_eq!(g("c6_construction_differs"), 2, "pre_words/post_words count the replaced parent words: {all:?}");
+        let gate = c.tally.to_json()["gate"]["count6_placed_break_paragraph_under_8_words"].clone();
+        assert_eq!(gate["gate"], 2, "{gate}");
+        // the re-measured reading of the item: the same two units; the record's remeasure.differs reaches the gate
+        assert_eq!(g("c6_remeasured_short"), 2, "{all:?}");
+        let recorded = records_remeasure_true(&out, records);
+        assert_eq!(g("c6_children_record_remeasure_differs"), recorded, "{all:?}");
+        assert_eq!(g("c6_remeasured_short_figure1"), if recorded == 2 { 2 } else { 0 }, "{all:?}");
+        // None last: it removes the members
+        for (to, figure1) in [(Some(false), 0), (Some(true), 2), (None, 0)] {
+            let h = set_record_remeasure(&out, summary, records, to);
+            let (_, t) = count(&h);
+            let g = |k: &str| t.get(k).copied().unwrap_or(0);
+            assert_eq!(
+                (g("c6_children_record_remeasure_differs"), g("c6_remeasured_short_figure1"), g("c6_remeasured_short_failsafe"), g("c6_gate")),
+                (figure1, figure1, 0, 2),
+                "{to:?}: {t:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_rows_counts_read_each_records_remeasure_for_the_fail_safe() {
+        // Item 31.3 through count_rows: the record's remeasure.differs, as
+        // the gate reads it, is reported per child; only an explicit true
+        // counts.
+        engine::quiet_panics();
+        let dir = tempfile::tempdir().unwrap();
+        let out = rows_fixture(dir.path());
+        let (summary, records) = ("ROWS-RENORM.json", "rows-reverdict.jsonl");
+        let c = count_rows("rows-train", &out, &file_sha(&out.join(summary)).unwrap()).unwrap();
+        let n = |c: &Counted| grammar_a_dryrun::tally::totals(&c.tally.cells)["all"].get("c6_children_record_remeasure_differs").copied().unwrap_or(0);
+        assert_eq!(n(&c), records_remeasure_true(&out, records));
+        // None last: it removes the members
+        for to in [Some(false), Some(true), None] {
+            let h = set_record_remeasure(&out, summary, records, to);
+            let c = count_rows("rows-train", &out, &h).unwrap();
+            assert_eq!(c.tally.mismatched(), 0, "{:?}", c.tally.mismatches);
+            let want = records_remeasure_true(&out, records);
+            assert_eq!(want, if to == Some(true) { 4 } else { 0 }, "every counted row's record holds a remeasure");
+            assert_eq!(n(&c), want, "{to:?}");
+        }
+    }
+
+    // ------------------------------------------------------------------ B27: the merge (item 29.3; ruling W9-R3)
+
+    /// A batch counts record with the given cells' (children, accepted).
+    fn batch_file(d: &Path, label: &str, cells: &[(&str, u64, u64)]) -> PathBuf {
+        let n = fs::read_dir(d).unwrap().count();
+        let mut t = Tally::default();
+        for (k, n, a) in cells {
+            t.cells.insert(k.to_string(), BTreeMap::from([("children".to_string(), *n), ("children_accepted".to_string(), *a)]));
+        }
+        let rec = grammar_a_dryrun::batch_record(label, &json!({}), &json!({}), &json!({}), &t, json!({}));
+        let p = d.join(format!("{label}-{n}.json"));
+        fs::write(&p, serde_json::to_vec(&rec).unwrap()).unwrap();
+        p
+    }
+
+    /// A figures record (`FIGURES_SCHEMA`) with the given cells.
+    fn figures_file(d: &Path, name: &str, cells: &[(&str, u64, u64)]) -> FiguresFile {
+        let c: serde_json::Map<String, Value> = cells.iter().map(|(k, n, a)| (k.to_string(), json!({"children": n, "children_accepted": a, "items": n}))).collect();
+        let p = d.join(name);
+        fs::write(&p, serde_json::to_vec(&json!({"schema": FIGURES_SCHEMA, "cells": c})).unwrap()).unwrap();
+        FiguresFile { sha256: file_sha(&p).unwrap(), path: p }
+    }
+
+    #[test]
+    fn the_merge_checks_re_run_batches_against_their_figures_and_records_a_batch_not_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let (fa, fb, fc) = ("local|mixed|web", "spliced|mixed|web", "frontier|mixed|web");
+        // index 60: three batches; B and C share the frontier cell
+        let all = figures_file(d, "F.json", &[(fa, 10, 8), (fb, 20, 15), (fc, 12, 9)]);
+        let a = batch_file(d, "A", &[(fa, 10, 8)]);
+        let b60 = figures_file(d, "B60.json", &[(fb, 20, 15), (fc, 5, 4)]);
+        let c60 = figures_file(d, "C60.json", &[(fc, 7, 5)]);
+        let c = batch_file(d, "C", &[(fc, 7, 5)]);
+        let m = |name: &str, bs: &[PathBuf], rr: &[Rerun], nc: &[NotCounted]| merge(bs, &all.path, &all.sha256, rr, nc, &d.join(name), &json!({}));
+        // every batch at index 60's records
+        let b = batch_file(d, "B", &[(fb, 20, 15), (fc, 5, 4)]);
+        let v = m("M0.json", &[a.clone(), b.clone(), c.clone()], &[], &[]).unwrap();
+        assert_eq!((v["scope"].as_str(), v["population_check"]["differences"].as_array().map(Vec::len)), (Some("every batch given"), Some(0)));
+        // B re-run: its accepted children changed in one cell, its children did not
+        let b_rr = batch_file(d, "B", &[(fb, 20, 13), (fc, 5, 4)]);
+        let brr = figures_file(d, "Brr.json", &[(fb, 20, 13), (fc, 5, 4)]);
+        let rerun = Rerun { label: "B".into(), index60: b60.clone(), rerun: brr.clone() };
+        let v = m("M1.json", &[a.clone(), b_rr.clone(), c.clone()], std::slice::from_ref(&rerun), &[]).unwrap();
+        let ch = v["population_check"]["accepted_children_changed_by_reruns"].as_array().unwrap();
+        assert_eq!(ch.len(), 1, "{ch:?}");
+        assert_eq!((ch[0]["cell"].as_str(), ch[0]["index60"].as_u64(), ch[0]["rerun"].as_u64()), (Some(fb), Some(15), Some(13)));
+        assert_eq!(v["counts"]["totals"]["all"]["children_accepted"], 8 + 13 + 4 + 5);
+        // the same batch record without --rerun is refused (its accepted children are not index 60's)
+        assert!(m("M2.json", &[a.clone(), b_rr.clone(), c.clone()], &[], &[]).is_err());
+        assert!(!d.join("M2.json").exists());
+        // a re-run whose children differ from index 60's is refused, and so is a batch record that is not its figures'
+        let brr_bad = figures_file(d, "Brr2.json", &[(fb, 19, 13), (fc, 5, 4)]);
+        let e = m("M3.json", &[a.clone(), batch_file(d, "B", &[(fb, 19, 13), (fc, 5, 4)]), c.clone()], &[Rerun { label: "B".into(), index60: b60.clone(), rerun: brr_bad }], &[]).unwrap_err();
+        assert!(e.to_string().contains("differ"), "{e}");
+        assert!(m("M4.json", &[a.clone(), b.clone(), c.clone()], std::slice::from_ref(&rerun), &[]).is_err(), "B's record is index 60's, not the re-run's");
+        // C not counted: the merge sets its index-60 figures aside and records it; no count of it is emitted
+        let nc = NotCounted { label: "C".into(), index60: c60.clone() };
+        let v = m("M5.json", &[a.clone(), b_rr.clone()], std::slice::from_ref(&rerun), std::slice::from_ref(&nc)).unwrap();
+        assert_eq!(v["scope"], "complete except C");
+        assert_eq!((v["not_counted"][0]["batch"].as_str(), v["not_counted"][0]["children_index60"].as_u64()), (Some("C"), Some(7)));
+        assert_eq!(v["counts"]["totals"]["all"]["children"], 10 + 20 + 5);
+        assert!(v["batches"].as_array().unwrap().iter().all(|x| x["batch"] != "C"));
+        // without --not-counted the missing batch is refused; a not-counted batch that has a record is refused
+        assert!(m("M6.json", &[a.clone(), b_rr.clone()], std::slice::from_ref(&rerun), &[]).is_err());
+        let e = m("M7.json", &[a.clone(), b_rr.clone(), c.clone()], std::slice::from_ref(&rerun), std::slice::from_ref(&nc)).unwrap_err();
+        assert!(e.to_string().contains("has a batch record"), "{e}");
+        // a re-run batch with no record, a label named twice, figures of another digest or schema
+        assert!(m("M8.json", &[a.clone(), c.clone()], std::slice::from_ref(&rerun), &[]).is_err());
+        assert!(m("M9.json", &[a.clone(), b_rr.clone()], std::slice::from_ref(&rerun), &[NotCounted { label: "B".into(), index60: c60.clone() }]).is_err());
+        let wrong = NotCounted { label: "C".into(), index60: FiguresFile { path: c60.path.clone(), sha256: "0".repeat(64) } };
+        assert!(m("M10.json", &[a.clone(), b_rr.clone()], std::slice::from_ref(&rerun), &[wrong]).is_err());
+        let bad_schema = d.join("X.json");
+        fs::write(&bad_schema, b"{\"cells\":{}}").unwrap();
+        let x = FiguresFile { sha256: file_sha(&bad_schema).unwrap(), path: bad_schema };
+        assert!(m("M11.json", &[a.clone(), b_rr.clone()], std::slice::from_ref(&rerun), &[NotCounted { label: "C".into(), index60: x }]).is_err());
+        // a not-counted batch whose index-60 figures over-claim the population is refused
+        let c60_big = figures_file(d, "C60b.json", &[(fc, 8, 5)]);
+        assert!(m("M12.json", &[a, b_rr], std::slice::from_ref(&rerun), &[NotCounted { label: "C".into(), index60: c60_big }]).is_err());
+    }
+
+    // ------------------------------------------------------------------ B27: byte identity of renorm's records (BUILD-PLAN 14.3)
+
+    /// The SHA-256 of a renorm output file, its temporary directory's path
+    /// read as `<tmp>`.
+    fn norm_sha(p: &Path, tmp: &Path) -> String {
+        let b = fs::read_to_string(p).unwrap();
+        let t = tmp.display().to_string();
+        let esc = serde_json::to_string(&t).unwrap();
+        sha(b.replace(&esc[1..esc.len() - 1], "<tmp>").replace(&t, "<tmp>").as_bytes())
+    }
+
+    #[test]
+    fn renorms_per_request_records_and_summaries_are_byte_identical_to_90561e09() {
+        // B27 exposes `constructed_paragraphs` read-only and changes the
+        // counting tool only, so no re-verdict output may change. The
+        // digests below are renorm's outputs on these fixtures at 90561e09
+        // (the wave-9 re-runs' code), taken by this test at that commit.
+        engine::quiet_panics();
+        let dir = tempfile::tempdir().unwrap();
+        let (out, _, _) = spliced_fixture(dir.path());
+        let got_spliced: Vec<String> = ["reverdict-population-train.jsonl", "g/journal-renorm.jsonl", "RENORM-population-train.json"].iter().map(|f| norm_sha(&out.join(f), dir.path())).collect();
+        let dir2 = tempfile::tempdir().unwrap();
+        let rows_out = rows_fixture(dir2.path());
+        let got_rows: Vec<String> = ["rows-reverdict.jsonl", "ROWS-RENORM.json"].iter().map(|f| norm_sha(&rows_out.join(f), dir2.path())).collect();
+        let got = json!({"spliced": got_spliced, "rows": got_rows});
+        let want: Value = serde_json::from_str(PINNED_90561E09).unwrap();
+        assert_eq!(got, want, "renorm's outputs changed against 90561e09: {got}");
+    }
+
+    /// Taken at 90561e09 (2026-11-03, a detached worktree with this test
+    /// and its fixtures added, its own target directory).
+    const PINNED_90561E09: &str = r#"{"rows":["914393d2616440776bc917afb11cd4e3f831acc41e76a0d05866bd955a1f17b7","da706112c7b875a6f146209122768e6535a94bd4b4279cf8ced107ffd442831a"],"spliced":["0cac28cf6ba3d580bd514e07c339969a59ad222127a662f4aac9d1387b61d76e","730b57e7394733c641229ced9feda48107c95f56a0a6ba445d39fae840ac6f86","fd856b899ca4720a570fc1f326f62a463bfd0eb61ca8adcb42c5f6b763e81f50"]}"#;
 }

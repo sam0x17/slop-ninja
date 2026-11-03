@@ -286,7 +286,9 @@ enum Cmd {
     },
     /// Merges the dry run's batch count records into `DRY-RUN-COUNTS.json`
     /// (`slop_ninja_a_r2_reverdict_dry_run_counts_v1`), checking every cell's
-    /// children against `DRY-RUN-FIGURES.json`.
+    /// children and accepted children against the figures records: index
+    /// 60's `DRY-RUN-FIGURES.json`, a re-run batch's figures (item 29.3) and
+    /// a not-counted batch's index-60 figures (ruling W9-R3).
     DryrunMerge {
         /// The batch count records (local, spliced, rows and frontier).
         #[arg(long, num_args = 1..)]
@@ -296,6 +298,18 @@ enum Cmd {
         /// The SHA-256 `DRY-RUN-FIGURES.json` must have (log index 60's).
         #[arg(long)]
         figures_sha256: String,
+        /// A re-run batch (item 29.3), repeatable: its label, index 60's
+        /// figures of that batch alone with their SHA-256, then the
+        /// re-run's figures of that batch with theirs (index 60's
+        /// `figures.py` over each batch's records).
+        #[arg(long, num_args = 5, value_names = ["LABEL", "INDEX60_FIGURES", "INDEX60_SHA256", "RERUN_FIGURES", "RERUN_SHA256"], action = clap::ArgAction::Append)]
+        rerun: Vec<String>,
+        /// A batch not counted (frontier wave1 under ruling W9-R3),
+        /// repeatable: its label and index 60's figures of that batch alone
+        /// with their SHA-256. It is recorded as not counted, and no count
+        /// of it is emitted.
+        #[arg(long, num_args = 3, value_names = ["LABEL", "INDEX60_FIGURES", "INDEX60_SHA256"], action = clap::ArgAction::Append)]
+        not_counted: Vec<String>,
         #[arg(long)]
         code_commit: String,
         /// New counts record.
@@ -2132,11 +2146,18 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string(&summary)?);
             dryrun_count::write_batch(&out, &ids_out, &label, &c, &code)?;
         }
-        Cmd::DryrunMerge { batch, figures, figures_sha256, code_commit, out } => {
+        Cmd::DryrunMerge { batch, figures, figures_sha256, rerun, not_counted, code_commit, out } => {
             let code = binary_code(&code_commit)?;
-            let r = dryrun_count::merge(&batch, &figures, &figures_sha256, &out, &code);
+            let file = |p: &str, h: &str| dryrun_count::FiguresFile { path: PathBuf::from(p), sha256: h.to_string() };
+            let reruns: Vec<dryrun_count::Rerun> =
+                rerun.chunks(5).map(|c| dryrun_count::Rerun { label: c[0].clone(), index60: file(&c[1], &c[2]), rerun: file(&c[3], &c[4]) }).collect();
+            let not_counted: Vec<dryrun_count::NotCounted> = not_counted.chunks(3).map(|c| dryrun_count::NotCounted { label: c[0].clone(), index60: file(&c[1], &c[2]) }).collect();
+            let r = dryrun_count::merge(&batch, &figures, &figures_sha256, &reruns, &not_counted, &out, &code);
             match r {
-                Ok(v) => println!("{}", serde_json::to_string(&json!({"gate": v["counts"]["gate"], "population_check": v["population_check"]}))?),
+                Ok(v) => println!(
+                    "{}",
+                    serde_json::to_string(&json!({"gate": v["counts"]["gate"], "scope": v["scope"], "not_counted": v["not_counted"], "rerun_batches": v["rerun_batches"], "population_check": v["population_check"]}))?
+                ),
                 Err(e) => return Err(e),
             }
         }

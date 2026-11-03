@@ -498,18 +498,23 @@ pub fn assemble_item(parent: &str, parts: &[Part], reps: &[&str]) -> Result<Asse
 }
 
 /// One edit's place in an assembled document, for reading its paragraphs
-/// by construction (amendment 13 item 13.1).
-#[derive(Clone, Copy)]
-struct Placed<'a> {
+/// by construction (amendment 13 item 13.1). Public, with
+/// `constructed_paragraphs` and `overlapping`, so that the dry run's
+/// counting tool reads count 6's paragraph through this code and copies no
+/// rule (protocol A2 amendment 31 item 31.1); exposing them changes no
+/// output.
+#[derive(Clone, Copy, Debug)]
+pub struct Placed<'a> {
     /// The parent byte range it replaces (`s == e` for an insertion).
-    span: (usize, usize),
+    pub span: (usize, usize),
     /// The separator assembly put before an insertion's text.
-    sep: Option<&'a str>,
-    /// The replacement's byte range in the document.
-    fin: (usize, usize),
+    pub sep: Option<&'a str>,
+    /// The replacement's byte range in the document (a leading line break
+    /// and lead included; amendment 29 item 29.1).
+    pub fin: (usize, usize),
     /// The replacement's units (frame line, body paragraph or kept line; each
     /// line of a line-form child) as byte ranges in the replacement.
-    units: &'a [(usize, usize)],
+    pub units: &'a [(usize, usize)],
 }
 
 fn trim_range(doc: &str, (a, b): (usize, usize)) -> Option<(usize, usize)> {
@@ -526,7 +531,7 @@ fn trim_range(doc: &str, (a, b): (usize, usize)) -> Option<(usize, usize)> {
 /// holds a newline. The first and last units of an edit join the parent text
 /// before and after it up to the parent's nearest boundaries. The document
 /// is never measured again. Returns trimmed byte ranges of `doc`, in order.
-fn constructed_paragraphs(parent: &str, doc: &str, placed: &[Placed]) -> Vec<(usize, usize)> {
+pub fn constructed_paragraphs(parent: &str, doc: &str, placed: &[Placed]) -> Vec<(usize, usize)> {
     let pm = Measure::of(parent);
     // The document offset of parent offset x: edits ending at or before x
     // (strict: before x) come before it.
@@ -580,7 +585,7 @@ fn constructed_paragraphs(parent: &str, doc: &str, placed: &[Placed]) -> Vec<(us
 
 /// The paragraphs of `paras` that overlap the byte range `fin` (an
 /// insertion's empty range overlaps the paragraph holding it).
-fn overlapping(paras: &[(usize, usize)], (a, b): (usize, usize)) -> Vec<(usize, usize)> {
+pub fn overlapping(paras: &[(usize, usize)], (a, b): (usize, usize)) -> Vec<(usize, usize)> {
     paras.iter().copied().filter(|&(s, e)| s < b.max(a + 1) && a < e).collect()
 }
 

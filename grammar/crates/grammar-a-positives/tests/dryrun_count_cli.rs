@@ -321,7 +321,9 @@ fn dryrun_count_reads_a_local_batchs_records_and_merges() {
         cells.insert(k.clone(), json!({"children": c["children"], "children_accepted": c.get("children_accepted").cloned().unwrap_or(json!(0))}));
     }
     let fig = d.join("figures.json");
-    std::fs::write(&fig, serde_json::to_vec(&json!({"cells": cells})).unwrap()).unwrap();
+    // index 60's figures record schema (B27's merge refuses another)
+    let schema = "slop_ninja_a_r2_reverdict_dry_run_figures_v1";
+    std::fs::write(&fig, serde_json::to_vec(&json!({"schema": schema, "cells": cells})).unwrap()).unwrap();
     let fh = text::sha_hex(&std::fs::read(&fig).unwrap());
     let merged = d.join("DRY-RUN-COUNTS.json");
     let o = run(&["dryrun-merge", "--batch", d.join("c1.json").to_str().unwrap(), "--figures", fig.to_str().unwrap(), "--figures-sha256", &fh, "--code-commit", "t", "--out", merged.to_str().unwrap()]);
@@ -335,7 +337,7 @@ fn dryrun_count_reads_a_local_batchs_records_and_merges() {
         "--code-commit", "t", "--out", d.join("M2.json").to_str().unwrap()]);
     assert!(!o.status.success() && String::from_utf8_lossy(&o.stderr).contains("given twice"), "{}", String::from_utf8_lossy(&o.stderr));
     let fig2 = d.join("figures2.json");
-    std::fs::write(&fig2, b"{\"cells\":{\"local|mixed|web\":{\"children\":999}}}").unwrap();
+    std::fs::write(&fig2, b"{\"schema\":\"slop_ninja_a_r2_reverdict_dry_run_figures_v1\",\"cells\":{\"local|mixed|web\":{\"children\":999}}}").unwrap();
     let o = run(&["dryrun-merge", "--batch", d.join("c1.json").to_str().unwrap(), "--figures", fig2.to_str().unwrap(), "--figures-sha256", &text::sha_hex(&std::fs::read(&fig2).unwrap()),
         "--code-commit", "t", "--out", d.join("M3.json").to_str().unwrap()]);
     assert!(!o.status.success() && String::from_utf8_lossy(&o.stderr).contains("differ"), "{}", String::from_utf8_lossy(&o.stderr));
@@ -346,9 +348,37 @@ fn dryrun_count_reads_a_local_batchs_records_and_merges() {
     let acc0 = cells4[&k0]["children_accepted"].as_u64().unwrap();
     cells4[&k0]["children_accepted"] = json!(acc0 + 1);
     let fig4 = d.join("figures4.json");
-    std::fs::write(&fig4, serde_json::to_vec(&json!({"cells": cells4})).unwrap()).unwrap();
+    std::fs::write(&fig4, serde_json::to_vec(&json!({"schema": schema, "cells": cells4})).unwrap()).unwrap();
     let o = run(&["dryrun-merge", "--batch", d.join("c1.json").to_str().unwrap(), "--figures", fig4.to_str().unwrap(), "--figures-sha256", &text::sha_hex(&std::fs::read(&fig4).unwrap()),
         "--code-commit", "t", "--out", d.join("M4.json").to_str().unwrap()]);
     assert!(!o.status.success() && String::from_utf8_lossy(&o.stderr).contains("differ"), "{}", String::from_utf8_lossy(&o.stderr));
     assert!(!d.join("M4.json").exists());
+    // a figures file without the figures schema is refused
+    let fig5 = d.join("figures5.json");
+    std::fs::write(&fig5, serde_json::to_vec(&json!({"cells": cells})).unwrap()).unwrap();
+    let o = run(&["dryrun-merge", "--batch", d.join("c1.json").to_str().unwrap(), "--figures", fig5.to_str().unwrap(), "--figures-sha256", &text::sha_hex(&std::fs::read(&fig5).unwrap()),
+        "--code-commit", "t", "--out", d.join("M5.json").to_str().unwrap()]);
+    assert!(!o.status.success() && String::from_utf8_lossy(&o.stderr).contains("not a dry-run figures record"), "{}", String::from_utf8_lossy(&o.stderr));
+    // --rerun and --not-counted (B27): the batch as a re-run of itself, and a
+    // not-counted batch whose index-60 figures add one cell to the population
+    let label = rec["batch"].as_str().unwrap().to_string();
+    let wide = d.join("figures-wide.json");
+    let mut wcells = cells.clone();
+    wcells.insert("frontier|mixed|web".into(), json!({"children": 3, "children_accepted": 2}));
+    std::fs::write(&wide, serde_json::to_vec(&json!({"schema": schema, "cells": wcells})).unwrap()).unwrap();
+    let w1 = d.join("figures-w1.json");
+    std::fs::write(&w1, serde_json::to_vec(&json!({"schema": schema, "cells": {"frontier|mixed|web": {"children": 3, "children_accepted": 2}}})).unwrap()).unwrap();
+    let (wh, w1h) = (text::sha_hex(&std::fs::read(&wide).unwrap()), text::sha_hex(&std::fs::read(&w1).unwrap()));
+    let out6 = d.join("M6.json");
+    let o = run(&["dryrun-merge", "--batch", d.join("c1.json").to_str().unwrap(), "--figures", wide.to_str().unwrap(), "--figures-sha256", &wh,
+        "--rerun", &label, fig.to_str().unwrap(), &fh, fig.to_str().unwrap(), &fh, "--not-counted", "frontier-wave1", w1.to_str().unwrap(), &w1h,
+        "--code-commit", "t", "--out", out6.to_str().unwrap()]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let m: Value = serde_json::from_slice(&std::fs::read(&out6).unwrap()).unwrap();
+    assert_eq!((m["scope"].as_str(), m["not_counted"][0]["batch"].as_str(), m["rerun_batches"][0]["batch"].as_str()), (Some("complete except frontier-wave1"), Some("frontier-wave1"), Some(label.as_str())));
+    assert_eq!(m["counts"]["totals"]["all"]["children"], want);
+    // without --not-counted the wider population is refused
+    let o = run(&["dryrun-merge", "--batch", d.join("c1.json").to_str().unwrap(), "--figures", wide.to_str().unwrap(), "--figures-sha256", &wh,
+        "--code-commit", "t", "--out", d.join("M7.json").to_str().unwrap()]);
+    assert!(!o.status.success() && String::from_utf8_lossy(&o.stderr).contains("differ"), "{}", String::from_utf8_lossy(&o.stderr));
 }

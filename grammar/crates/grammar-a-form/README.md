@@ -211,6 +211,12 @@ supply the parent, the span and the cleaned response, and keep the records.
 
 ## Diagnostics for the dry run's counts
 
+`profile::constructed_paragraphs`, `profile::overlapping` and
+`profile::Placed` are public so that the counting tool reads count 6's
+paragraph, item 13.1's constructed final paragraph, through the screen's
+own code (protocol A2 amendment 31 item 31.1; B27). Making them public
+changes no output.
+
 `Transferred::diag` (`TransferDiag`) and `Rebuilt::sources`
 (`ParagraphSource`) are diagnostics for the §4.3 dry run's counting tool
 (protocol A2 item 14.1; B23, crate `grammar-a-dryrun`). No rule and no

@@ -367,11 +367,20 @@ spliced and rows batches'.
   wiring, the recorded verdict; amendment 7's verdict comes from the same
   wiring with `grammar-a-form-a7`. Any mismatch is counted, both files are
   written, and the run exits non-zero.
+- Count 6 (protocol A2 amendment 31) reads each record's constructed final
+  paragraph on the edit alone in its passage, since a frontier item has one
+  request, and the `form_check` record's `remeasure.differs` for item
+  31.3's fail-safe. Count 4's document reading exempts a document line only
+  when it holds one word (item 29.2).
 - Outputs (new files, mode 600): the counts record
   (`slop_ninja_a_r2_reverdict_dry_run_counts_batch_v1`; counts, reason
   codes and digests) and the ids-only file (the request ids behind each
   non-zero stop invariant and each mismatch; no text). It makes no model,
   detector or network call.
+- A plan that is not counted (frontier wave1 under ruling W9-R3) is not run.
+  `slop_ninja_a_positives dryrun-merge --not-counted LABEL FIGURES SHA256`
+  records it as not counted, with index 60's figures of that plan alone, and
+  emits no count of it.
 
 ## Stage 0-H re-collection
 

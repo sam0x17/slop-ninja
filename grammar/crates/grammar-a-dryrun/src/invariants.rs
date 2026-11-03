@@ -14,12 +14,15 @@
 //!   29.1), unless the replacement starts it on a new line (no room on a
 //!   shared line), and its last line, when its last unit is wrapped, is
 //!   measured with the parent text after the span, the source's
-//!   `tail_column` (item 13.7). A one-word line is exempt. Two readings (BUILD-PLAN 12.3 open item (c)):
+//!   `tail_column` (item 13.7). Two readings (BUILD-PLAN 12.3 open item (c)):
 //!   - `over_budget`: on the replacement, with `column` and `tail_column`
-//!     (item 13.7's text);
+//!     (item 13.7's text); a line whose own text holds one word is exempt;
 //!   - `over_budget_document`: in the final document, the whole document
 //!     line holding the child's line (they differ only where another edit
-//!     shares the line).
+//!     shares the line). Protocol A2 amendment 29 item 29.2: the exemption
+//!     is read on the document line, so a document line over W is exempt
+//!     only when it holds one word, whoever wrote the words
+//!     (`by_document_line_words` names the lines it adds).
 //! * **Count 5: a kept unit that shares a unit with other text** (item
 //!   13.10, read on the transfer's units): a kept unit (a kept list line, or
 //!   a closed unpunctuated paragraph) and any unit of the laid-out child
@@ -29,12 +32,16 @@
 //! * **Count 6: a body paragraph of fewer than 8 words made by a placed
 //!   break** (item 10.12): a body paragraph with a placed break on either
 //!   edge (two body paragraphs of one prose segment; a frame edge, a kept
-//!   unit's edge and a closed paragraph's end are fixed boundaries, items
-//!   10.6(b) and 13.11). Two readings (open item (d)):
+//!   unit's edge and a closed paragraph's start and end are fixed
+//!   boundaries, items 10.6(b) and 13.11, amendment 30 item 30.3). The
+//!   readings here are item 28.9's, reported beside the gate:
 //!   - `short_alone`: the paragraph's own words;
 //!   - `short_final`: with the parent words a span child's first and last
 //!     paragraphs join in the final document (`pre_words`, `post_words`, as
 //!     `place_breaks` counts them).
+//!
+//!   Count 6's gate reads item 13.1's constructed final paragraph
+//!   (amendment 31 item 31.1; `crate::count6`).
 //!
 //! A transfer whose diagnostics do not cover its units, or a kept unit that
 //! no unit draws on, is inconsistent: the caller stops.
@@ -49,6 +56,10 @@ pub struct LineAt {
     pub line: usize,
     /// The line is measured with the parent text after the span.
     pub with_tail: bool,
+    /// The byte offset in the final document of the start of the document
+    /// line holding it (None without a final document): distinct document
+    /// lines are counted beside child-lines (amendment 29 item 29.2).
+    pub doc_line: Option<usize>,
 }
 
 /// The child's place in its final document: the document and the child's
@@ -67,6 +78,9 @@ pub struct Invariants {
     pub tail_lines: usize,
     pub over_budget: Vec<LineAt>,
     pub over_budget_document: Vec<LineAt>,
+    /// The document-reading lines whose own text holds one word: counted by
+    /// item 29.2's exemption on the document line only.
+    pub by_document_line_words: usize,
     pub kept_units: usize,
     pub kept_list_lines: usize,
     pub closed_units: usize,
@@ -127,19 +141,27 @@ pub fn invariants(src: &SourceLayout, t: &Transferred, fin: Option<Final>) -> In
                     out.tail_lines += 1;
                 }
                 let many = piece.split_whitespace().count() > 1;
-                let here = LineAt { unit: u, line: i, with_tail };
+                let mut here = LineAt { unit: u, line: i, with_tail, doc_line: None };
+                // the document line holding the child's line, and whether
+                // the document reading counts it: over W, with more than one
+                // word on the whole document line (item 29.2)
+                let doc_over = match fin {
+                    Some(f) => {
+                        let (da, db) = (f.fin.0 + pa, f.fin.0 + pb);
+                        let l0 = f.doc[..da].rfind('\n').map_or(0, |k| k + 1);
+                        let l1 = f.doc[db..].find('\n').map_or(f.doc.len(), |k| db + k);
+                        here.doc_line = Some(l0);
+                        let line = &f.doc[l0..l1];
+                        line.split_whitespace().count() > 1 && cols(line) > w
+                    }
+                    None => many && c > w,
+                };
                 if many && c > w {
                     out.over_budget.push(here);
                 }
-                if let Some(f) = fin {
-                    let (da, db) = (f.fin.0 + pa, f.fin.0 + pb);
-                    let l0 = f.doc[..da].rfind('\n').map_or(0, |k| k + 1);
-                    let l1 = f.doc[db..].find('\n').map_or(f.doc.len(), |k| db + k);
-                    if many && cols(&f.doc[l0..l1]) > w {
-                        out.over_budget_document.push(here);
-                    }
-                } else if many && c > w {
+                if doc_over {
                     out.over_budget_document.push(here);
+                    out.by_document_line_words += usize::from(!many);
                 }
             }
         }

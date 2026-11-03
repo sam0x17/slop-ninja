@@ -54,6 +54,42 @@ use crate::{
     WeightOperationV2,
 };
 
+/// The native validator's bundle file bound; a validator refuses a longer
+/// bundle (`bundle_too_large`). A schema v2 bundle
+/// (`slop_ninja.reward_v1_bundle/v1`) holds every object hex-encoded, the
+/// receipt indexes and chunks of the target's cohort and of any carrying
+/// cohort included, so its receipts take [`receipt_bundle_bytes`] of it. A
+/// schema v3 bundle names those by path, digest and length instead, so only
+/// its records count against this bound and a cohort's receipts are
+/// bounded by the receipt index ([`crate::MAX_SEQUENCE_LEN`]).
+pub const VALIDATOR_BUNDLE_BYTES: u64 = 64 << 20;
+
+/// The bytes `receipts` stored receipts take in a schema v2 validator
+/// bundle (embedded): each
+/// receipt's chunk framing (`u32_le(len)`) and object, and its entry in the
+/// signed receipt index, every byte hex-encoded (two characters). A receipt
+/// object and an index entry each have one length whatever they hold
+/// (digests, an attempt number and an outcome class), so this is exact for
+/// the receipts' part of a bundle; the other records (manifests, packages,
+/// published indexes, the authorization) are not counted here.
+pub fn receipt_bundle_bytes(receipts: u64) -> Result<u64> {
+    let receipt = AttemptReceipt {
+        attempt: Digest([0; 32]),
+        assignment: Digest([0; 32]),
+        artifact: Digest([0; 32]),
+        number: 1,
+        outcome: crate::OutcomeClass::Prediction,
+        result_commitment: Digest([0; 32]),
+    };
+    let entry = crate::ReceiptIndexEntry::for_receipt(&receipt)?;
+    let mut e = crate::Encoder::new();
+    crate::Canonical::encode_to(&entry, &mut e);
+    let per = 4 + u64::from(entry.object_len) + e.into_bytes().len() as u64;
+    receipts
+        .checked_mul(2 * per)
+        .ok_or(Error::OutOfRange("receipt bundle bytes"))
+}
+
 /// The bytes of a cohort target's records.
 #[derive(Clone, Copy, Debug)]
 pub struct Source<'a> {
@@ -147,9 +183,38 @@ pub struct VerifiedTarget {
 /// the index: every receipt matches its entry, and every entry is stored
 /// exactly once. Returns the receipts.
 pub fn verify_receipt_chunks(index: &ReceiptIndex, chunks: &[&[u8]]) -> Result<Vec<AttemptReceipt>> {
-    let mut seen = vec![false; index.entries.len()];
+    let mut v = ReceiptChunkVerifier::new(index);
     let mut out = Vec::with_capacity(index.entries.len());
     for chunk in chunks {
+        v.push_with(chunk, |r| out.push(r))?;
+    }
+    v.finish()?;
+    Ok(out)
+}
+
+/// The check of [`verify_receipt_chunks`], one chunk object at a time, so a
+/// holder that keeps the chunks in files (bundle schema v3) never holds more
+/// than one: every receipt must match its index entry, no entry may be
+/// stored twice, and [`finish`](Self::finish) refuses an entry no chunk
+/// stored. Chunk boundaries do not matter, but a receipt cannot span two.
+#[derive(Debug)]
+pub struct ReceiptChunkVerifier<'a> {
+    index: &'a ReceiptIndex,
+    seen: Vec<bool>,
+    verified: u64,
+}
+
+impl<'a> ReceiptChunkVerifier<'a> {
+    pub fn new(index: &'a ReceiptIndex) -> Self {
+        Self { index, seen: vec![false; index.entries.len()], verified: 0 }
+    }
+
+    /// Checks one chunk object.
+    pub fn push(&mut self, chunk: &[u8]) -> Result<()> {
+        self.push_with(chunk, |_| {})
+    }
+
+    fn push_with(&mut self, chunk: &[u8], mut each: impl FnMut(AttemptReceipt)) -> Result<()> {
         let mut rest: &[u8] = chunk;
         while !rest.is_empty() {
             let (len, tail) = rest.split_first_chunk::<4>().ok_or(Error::Mismatch("receipt chunk length"))?;
@@ -160,21 +225,28 @@ pub fn verify_receipt_chunks(index: &ReceiptIndex, chunks: &[&[u8]]) -> Result<V
             let (bytes, tail) = tail.split_at(len);
             rest = tail;
             let receipt = AttemptReceipt::from_bytes(bytes)?;
-            let position = index
+            let position = self
+                .index
                 .entries
                 .binary_search_by(|e| e.attempt.cmp(&receipt.attempt))
                 .map_err(|_| Error::Mismatch("receipt not in index"))?;
-            let slot = seen.get_mut(position).ok_or(Error::OutOfRange("receipt position"))?;
+            let slot = self.seen.get_mut(position).ok_or(Error::OutOfRange("receipt position"))?;
             if core::mem::replace(slot, true) {
                 return Err(Error::Duplicate("receipt stored twice"));
             }
-            out.push(index.verify_object(position, bytes)?);
+            each(self.index.verify_object(position, bytes)?);
+            self.verified += 1;
         }
+        Ok(())
     }
-    if seen.iter().any(|s| !s) {
-        return Err(Error::Mismatch("index entry without a stored receipt"));
+
+    /// The number of receipts verified, once every index entry was stored.
+    pub fn finish(self) -> Result<u64> {
+        if self.seen.iter().any(|s| !s) {
+            return Err(Error::Mismatch("index entry without a stored receipt"));
+        }
+        Ok(self.verified)
     }
-    Ok(out)
 }
 
 fn verify_source(chain: &ChainBinding, keys: &TrustedKeys, s: &Source<'_>) -> Result<(VerifiedSource, CalculationTargetV2)> {
@@ -415,6 +487,22 @@ impl VerifiedTarget {
             None => crate::reward_v1::derive_row(&self.target, None, snapshot),
             Some(s) => crate::reward_v1::derive_row(&self.target, Some((&s.package, &s.index)), snapshot),
         }
+    }
+
+    /// A one-chunk-at-a-time check of the source's retained receipts
+    /// ([`ReceiptChunkVerifier`]).
+    pub fn receipt_verifier(&self) -> Result<ReceiptChunkVerifier<'_>> {
+        let s = self.source.as_ref().ok_or(Error::Invalid("the burn row has no receipts"))?;
+        let index = s.receipt_index.as_ref().ok_or(Error::Invalid("bundle carries no receipt index"))?;
+        Ok(ReceiptChunkVerifier::new(index))
+    }
+
+    /// A one-chunk-at-a-time check of the carrying cohort's retained
+    /// receipts.
+    pub fn carrier_receipt_verifier(&self) -> Result<ReceiptChunkVerifier<'_>> {
+        let c = self.carrier().ok_or(Error::Invalid("bundle has no carrier"))?;
+        let index = c.receipt_index.as_ref().ok_or(Error::Invalid("carrier carries no receipt index"))?;
+        Ok(ReceiptChunkVerifier::new(index))
     }
 
     /// Verifies retained receipt chunk objects against the source's index.

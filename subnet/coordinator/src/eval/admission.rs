@@ -143,10 +143,10 @@ pub fn files_bytes(v: Version) -> Option<u64> {
     graph_bytes(v)?.checked_add(spec::TOKENIZER_BYTES)?.checked_add(v.max_json_bytes()?)
 }
 
-/// The specs an admission run can load by today: the scorer's probe route
-/// admits by spec v2 (a load that names no spec). Spec v3 joins once
-/// admission loads name the cohort's spec.
-pub const ADMISSION_SPECS: &[&str] = &[spec::SPEC_ID_V2];
+/// The specs an admission run can load by: every run names its cohort's spec
+/// to the scorer's probe route ([`LaneRun::body`]), as the cohort's scoring
+/// loads do, so a spec v3 cohort admits the span tower class by spec v3.
+pub const ADMISSION_SPECS: &[&str] = &[spec::SPEC_ID_V2, spec::SPEC_ID_V3];
 
 /// Specs the scorer admits a load by: those that bound the JSON role files.
 fn engine_admits(v: Version) -> bool {
@@ -2166,6 +2166,16 @@ pub struct LaneRun {
 }
 
 impl LaneRun {
+    /// The probe-route request of this run: the package, the control
+    /// document, and the cohort's spec digest (the load names it, so the
+    /// scorer admits the package by the cohort's spec, not its unnamed-load
+    /// spec).
+    pub fn body(&self) -> Value {
+        json!({"package_sha256": self.package_sha256, "manifest_key": self.manifest_key,
+            "spec_sha256": self.spec_sha256,
+            "docs": [{"id": "0", "text": crate::eval::lane_logic::CONTROL_TEXT}]})
+    }
+
     /// The scorer lane's object name: unique per try, so every try starts a
     /// fresh, single-use instance.
     pub fn lane_name(&self, network: &str) -> String {

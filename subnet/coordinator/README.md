@@ -1209,9 +1209,11 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
   pinned tokenizer, the spec's JSON budget and the protocol header bound),
   and the scoring lanes size their load allowance from the same spec
   (`fanout.score.artifact_spec`, replacing the tuned `artifact_max_mib`).
-  Admission plans name spec v2 (`admission::ADMISSION_SPECS`): runs load
-  through the scorer's probe route, which admits by spec v2, so `/plan` and
-  `/template` refuse any other spec (`admission_spec_unsupported`).
+  Admission plans name spec v2 or v3 (`admission::ADMISSION_SPECS`): each
+  run loads through the scorer's probe route naming the cohort's spec
+  (`LaneRun::body`), as the cohort's scoring loads do, so a spec v3 cohort
+  admits the span tower class; `/plan` and `/template` refuse any other spec
+  (`admission_spec_unsupported`).
 - Requests are signed by the hotkey they concern. The Worker verifies the
   signature and body digest statelessly before forwarding; the cohort object
   checks them again against the RPC-confirmed cursor. Sessions (one per
@@ -1311,8 +1313,18 @@ template (`slop_ninja_eval_cohort_template_v1`: a `label_prefix` and a v3
 plan with an `admission` block and no entrants), checked at its own roster
 cap and with a predecessor reference: the plan validates with that many
 admitted entrants, its scoring budget covers their upper bound with two
-references, and its package step fits the memory model
-(`arena_routes::package_fits`). It must run the testnet plan defaults of the
+references, its package step fits the memory model
+(`arena_routes::package_fits`), and every receipt a cohort at the cap can
+record (every scored document at every attempt, `CohortPlan::receipt_bound`)
+fits one receipt index (`plan::receipt_capacity`). Validators hold a target's
+receipts through bundle schema v3, which names the receipt indexes and
+chunks of the target's cohort and its carrier by path, digest and length
+instead of embedding them, so the native validator's 64 MiB file bound
+(`VALIDATOR_BUNDLE_BYTES`) limits only the embedded records. The cap a
+template can take thus follows from its shape and the protocol's bounds;
+`slop_ninja_eval_ops standing-template` derives the largest one up to
+`ROSTER_CAP`, and the install reply reports receipts per cohort and whether
+the embedded schema v2 form would still fit (`capacity`). It must run the testnet plan defaults of the
 2026-11-01 ruling: `lane_docs >= n` (one scoring lane per artifact),
 `prestart_lead_ms = 0`, and `reward_v1.incentive` with its provisional-gates
 flag. When nothing is queued and the latest cohort is in its transition (or
@@ -1505,9 +1517,14 @@ and whether it is the launch burn row, and the reference chain's contents.
 validator would (records, receipt chunks, published index, recomputed
 outcome, closure and an authorization) and writes the active-target bundle
 (`slop_ninja.reward_v1_bundle/v1`) in two forms: the validator's, with the
-receipt index, and the coordinator's, without it (a Durable Object value is
-bounded at 2 MB; the coordinator produced the receipts). The `launch` mode
-writes the launch burn bundle.
+receipt index and chunks, and the coordinator's, without them (a Durable
+Object value is bounded at 2 MB; the coordinator produced the receipts). It
+also writes the validator's bundle schema v3 form
+(`reward-v1-bundle-v3.json`), which names the receipt indexes and chunks in
+DIR by absolute path, digest and length; it is the form for a cohort whose
+embedded receipts exceed the native validator's 64 MiB file bound (the report
+says whether the v2 form fits), and the files must stay in place on the
+validator's host. The `launch` mode writes the launch burn bundle.
 
 **Verification.** `examples/eval_verify.rs` checks a stored package from the
 receipts bucket as a validator would and writes a T12 bundle for the native
@@ -1673,10 +1690,11 @@ milestone M7.
   CPU and peak memory at the spec's largest object are not measured on the
   load instance (`ADMISSION_STEP_BYTES` and `COMMITMENTS_CONTROL_BYTES` are
   estimates). The cron, not the per-block delivery, drives the commitment
-  reader. A full 40-entrant template fits the coordinator's memory model,
-  but its target and carrier receipts exceed the native validator's 64 MiB
-  bundle bound by W7's estimate (about 34 entrants); bundle schema v3 is the
-  fix. The span outputs are not served.
+  reader. A full 40-entrant template fits the coordinator's memory model
+  and one receipt index; a native validator holds its target's receipts
+  only through bundle schema v3 (by reference), so a validator whose build
+  predates it refuses such a target's bundle (`bundle_too_large`) and keeps
+  its old target. The span outputs are not served.
 - **Fresh stock.** No cohort has had an admitted outside entrant, so every
   draw so far is from `EXPOSED_POOLS` (testnet pool v1 and the
   public-candidate refill), where a row may be drawn again (never-drawn rows

@@ -842,17 +842,12 @@ impl EvalCohort {
         .map_err(|_| "claim runs")?;
         let outcomes = futures_util::future::join_all(runs.iter().map(|run| async move {
             let name = run.lane_name(crate::config::NETWORK);
-            let body = j!({"package_sha256": run.package_sha256, "manifest_key": run.manifest_key,
-                "docs": [{"id": "0", "text": crate::eval::lane_logic::CONTROL_TEXT}]});
+            // The load names the cohort's spec (`LaneRun::body`); a scorer
+            // that does not list it fails the prepare as the platform's
+            // failure, never the miner's.
+            let body = run.body();
             let t0 = now_ms();
             let outcome = async {
-                // The probe route admits by spec v2 (a load that names no
-                // spec); plans under another spec are refused at `/plan`
-                // and `/template` (`admission::ADMISSION_SPECS`).
-                let v2 = slop_ninja_artifact_check::spec::Version::V2.spec_sha256();
-                if run.spec_sha256 != v2 {
-                    return LaneOutcome::Platform("admission_spec_unsupported".into());
-                }
                 let Ok(stub) = lane_stub(&self.env, "score", &name) else {
                     return LaneOutcome::Platform("lane_binding".into());
                 };

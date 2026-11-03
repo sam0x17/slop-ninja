@@ -1038,6 +1038,8 @@ fn launch_bundle(issued_epoch: u64) -> Vec<u8> {
         },
         receipt_chunks: Vec::new(),
         carrier_receipt_chunks: Vec::new(),
+        receipts: None,
+        carrier_receipts: None,
     })
     .unwrap()
 }
@@ -1370,8 +1372,53 @@ pub(crate) mod rv1 {
             },
             receipt_chunks: vec![hex::encode(&c.chunk)],
             carrier_receipt_chunks: Vec::new(),
+            receipts: None,
+            carrier_receipts: None,
         })
         .unwrap()
+    }
+
+    /// The bundle schema v3 form of [`bundle`]: the receipt index and the
+    /// receipts (cut into `pieces` chunk objects at receipt boundaries)
+    /// written to `dir` and named by absolute path, digest and length.
+    pub fn bundle_v3(c: &Cohort, dir: &Path, pieces: usize) -> Vec<u8> {
+        use sha2::{Digest as _, Sha256};
+        let rk = slop_ninja_protocol::fixtures::receipt_key();
+        let write = |name: &str, bytes: &[u8]| {
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            crate::package_v2::ObjectRef {
+                path: path.to_str().unwrap().to_owned(),
+                sha256: hex::encode(Sha256::digest(bytes)),
+                bytes: bytes.len() as u64,
+            }
+        };
+        let index = write("receipt-index.signed", &sign(c.receipt_index.clone(), &rk).unwrap().to_bytes().unwrap());
+        // Cut at receipt boundaries: walk the length prefixes.
+        let mut cuts = vec![0usize];
+        let mut at = 0usize;
+        while at < c.chunk.len() {
+            at += 4 + u32::from_le_bytes(c.chunk[at..at + 4].try_into().unwrap()) as usize;
+            cuts.push(at);
+        }
+        let per = (cuts.len() - 1).div_ceil(pieces.max(1)).max(1);
+        let chunks = cuts
+            .iter()
+            .step_by(per)
+            .copied()
+            .chain(std::iter::once(c.chunk.len()))
+            .collect::<Vec<_>>()
+            .windows(2)
+            .filter(|w| w[1] > w[0])
+            .enumerate()
+            .map(|(n, w)| write(&format!("chunk-{n}.bin"), &c.chunk[w[0]..w[1]]))
+            .collect();
+        let mut b: crate::package_v2::BundleV2 = serde_json::from_slice(&bundle(c)).unwrap();
+        b.schema = crate::package_v2::BUNDLE_SCHEMA_V3.into();
+        b.source.as_mut().unwrap().receipt_index = None;
+        b.receipt_chunks.clear();
+        b.receipts = Some(crate::package_v2::ReceiptsRef { index, chunks });
+        serde_json::to_vec(&b).unwrap()
     }
 
     pub fn launch(issued_epoch: u64) -> Vec<u8> {
@@ -1389,6 +1436,8 @@ pub(crate) mod rv1 {
             },
             receipt_chunks: Vec::new(),
             carrier_receipt_chunks: Vec::new(),
+            receipts: None,
+            carrier_receipts: None,
         })
         .unwrap()
     }
@@ -1754,4 +1803,127 @@ fn outcomes_that_leave_queued_work_unsigned_are_alerted() {
     ] {
         assert_eq!(not_submitted(&quiet), None, "{quiet:?}");
     }
+}
+
+/// The coordinator sizes a standing template's roster with the protocol's
+/// `receipt_bundle_bytes`: each receipt grows the bundle this validator
+/// assembles by exactly that many bytes, and the bound is this validator's.
+#[test]
+fn receipts_grow_the_bundle_by_the_protocol_receipt_length() {
+    let size = |n: u64| rv1::bundle(&rv1::sized(n)).len() as u64;
+    let grown = size(2_000) - size(1_000);
+    assert_eq!(grown, slop_ninja_protocol::target_bundle::receipt_bundle_bytes(1_000).unwrap());
+    assert_eq!(crate::package::MAX_BUNDLE_BYTES, 64 << 20);
+}
+
+/// Bundle schema v3 names the receipt index and chunks by reference: the
+/// same cohort verifies with the same receipts as its embedded form,
+/// whatever the chunking, and a cohort whose embedded receipts exceed the
+/// 64 MiB file bound verifies by reference in a file of a few kilobytes.
+#[test]
+fn a_v3_bundle_verifies_receipts_by_reference_beyond_the_embedded_bound() -> Result<()> {
+    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
+    let root = scratch()?;
+    let keys = slop_ninja_protocol::fixtures::trusted_keys();
+    let held = slop_ninja_protocol::ActiveTarget::launch(&slop_ninja_protocol::fixtures_reward_v1::chain())?;
+    let verify = |b: &[u8]| crate::package_v2::verify(b, &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held);
+    let small = rv1::sized(1_000);
+    let embedded = verify(&rv1::bundle(&small)).unwrap();
+    for pieces in [1, 3, 1_000] {
+        let dir = root.path().join(format!("small-{pieces}"));
+        std::fs::create_dir(&dir)?;
+        let v3 = verify(&rv1::bundle_v3(&small, &dir, pieces)).unwrap();
+        assert_eq!(v3.receipts_verified, embedded.receipts_verified);
+        assert_eq!(v3.verified.target_digest, embedded.verified.target_digest);
+    }
+    // Past the embedded bound: the v2 form is refused, the v3 form holds.
+    let per = receipt_bundle_bytes(1)?;
+    let receipts = VALIDATOR_BUNDLE_BYTES / per + 1_000;
+    let big = rv1::sized(receipts);
+    let v1 = rv1::bundle(&big);
+    assert!(v1.len() as u64 > VALIDATOR_BUNDLE_BYTES);
+    assert_eq!(verify(&v1).unwrap_err().code, "bundle_too_large");
+    let dir = root.path().join("big");
+    std::fs::create_dir(&dir)?;
+    let v3 = rv1::bundle_v3(&big, &dir, 7);
+    assert!(v3.len() < 64 << 10, "{} bytes", v3.len());
+    assert_eq!(verify(&v3).unwrap().receipts_verified, receipts);
+    Ok(())
+}
+
+/// Every referenced object is checked before it is used: a missing, short,
+/// altered, relative or extra reference, receipts in the other schema's
+/// form, and an incomplete or duplicated chunk set are all refused.
+#[test]
+fn a_v3_bundle_refuses_objects_that_are_not_the_referenced_ones() -> Result<()> {
+    use crate::package_v2::{BundleV2, ObjectRef};
+    let root = scratch()?;
+    let keys = slop_ninja_protocol::fixtures::trusted_keys();
+    let held = slop_ninja_protocol::ActiveTarget::launch(&slop_ninja_protocol::fixtures_reward_v1::chain())?;
+    let code = |b: &BundleV2| {
+        crate::package_v2::verify(&serde_json::to_vec(b).unwrap(), &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held)
+            .map(|_| "ok")
+            .unwrap_or_else(|r| r.code)
+    };
+    let c = rv1::sized(1_000);
+    let fresh = |name: &str| -> BundleV2 {
+        let dir = root.path().join(name);
+        std::fs::create_dir(&dir).unwrap();
+        serde_json::from_slice(&rv1::bundle_v3(&c, &dir, 4)).unwrap()
+    };
+    assert_eq!(code(&fresh("ok")), "ok");
+    // A missing chunk file, and a missing index file.
+    let b = fresh("missing");
+    std::fs::remove_file(&b.receipts.as_ref().unwrap().chunks[1].path)?;
+    assert_eq!(code(&b), "receipts_incomplete");
+    let b = fresh("missing-index");
+    std::fs::remove_file(&b.receipts.as_ref().unwrap().index.path)?;
+    assert_eq!(code(&b), "receipts_incomplete");
+    // A file of another length, or the same length with other bytes.
+    let b = fresh("short");
+    let p = b.receipts.as_ref().unwrap().chunks[0].path.clone();
+    let mut bytes = std::fs::read(&p)?;
+    bytes.pop();
+    std::fs::write(&p, &bytes)?;
+    assert_eq!(code(&b), "receipt_object_mismatch");
+    let b = fresh("altered");
+    let p = b.receipts.as_ref().unwrap().chunks[2].path.clone();
+    let mut bytes = std::fs::read(&p)?;
+    let last = bytes.len() - 1;
+    bytes[last] ^= 1;
+    std::fs::write(&p, &bytes)?;
+    assert_eq!(code(&b), "receipt_object_mismatch");
+    // A reference whose digest names other bytes, even if they verify.
+    let mut b = fresh("renamed");
+    let r = b.receipts.as_mut().unwrap();
+    r.chunks[0].sha256 = r.chunks[1].sha256.clone();
+    assert_eq!(code(&b), "receipt_object_mismatch");
+    // A relative path.
+    let mut b = fresh("relative");
+    let r = b.receipts.as_mut().unwrap();
+    r.chunks[0].path = std::path::Path::new(&r.chunks[0].path).file_name().unwrap().to_str().unwrap().into();
+    assert_eq!(code(&b), "bundle_malformed");
+    // A chunk left out, and a chunk named twice (each receipt once).
+    let mut b = fresh("dropped");
+    b.receipts.as_mut().unwrap().chunks.pop();
+    assert_eq!(code(&b), "receipt_object_mismatch");
+    let mut b = fresh("twice");
+    let r = b.receipts.as_mut().unwrap();
+    let again: ObjectRef = r.chunks[0].clone();
+    r.chunks.push(again);
+    assert_eq!(code(&b), "receipt_object_mismatch");
+    // Receipts in the other schema's form, or with nothing to belong to.
+    let mut b = fresh("mixed");
+    b.receipt_chunks = vec!["00".into()];
+    assert_eq!(code(&b), "bundle_malformed");
+    let mut b = fresh("v1-with-refs");
+    b.schema = crate::package_v2::BUNDLE_SCHEMA_V2.into();
+    assert_eq!(code(&b), "bundle_malformed");
+    let mut b = fresh("no-receipts");
+    b.receipts = None;
+    assert_eq!(code(&b), "receipts_incomplete");
+    let mut b = fresh("orphan");
+    b.carrier_receipts = b.receipts.clone();
+    assert_eq!(code(&b), "bundle_malformed");
+    Ok(())
 }

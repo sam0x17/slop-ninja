@@ -23,8 +23,9 @@ use slop_ninja_subnet::WeightWork;
 
 /// Bundle schema identifier.
 pub const BUNDLE_SCHEMA: &str = "slop_ninja.fixture_package/v1";
-/// Largest bundle file accepted.
-pub const MAX_BUNDLE_BYTES: u64 = 64 << 20;
+/// Largest bundle file accepted: the protocol's validator bundle bound, which
+/// the coordinator also sizes a standing template's roster against.
+pub const MAX_BUNDLE_BYTES: u64 = slop_ninja_protocol::target_bundle::VALIDATOR_BUNDLE_BYTES;
 
 /// One package as stored on disk. Every field is the hex of exact bytes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

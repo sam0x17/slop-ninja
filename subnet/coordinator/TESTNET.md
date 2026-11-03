@@ -1790,7 +1790,7 @@ Branch `subnet-testnet/admission`, on main as `959bf738` (fixes) over
 | 20 checks not rerun | rerun (see below) |
 | 24 header decoding in the key-holding Worker | open: needs a lane-client change or a key-free Worker; routes stay off outside drills |
 | 30 blobs of non-admitted uploads | fixed: the blobs and manifest a session created are deleted with it |
-| 32 template vs the validator bundle bound | open (bundle schema v3, W7) |
+| 32 template vs the validator bundle bound | done 2026-11-03: bundle schema v3 names receipts by reference (standing template below) |
 | 33 freeze not at a tempo boundary | fixed |
 | 36 cron-driven reader | open (needs a ruling) |
 | 37 W = 1, no pre-start, incentive | fixed in the template check; the D12b canary rule is open |
@@ -2222,6 +2222,58 @@ Nothing of the original authority was reset or deleted.
   validator2's on-chain row is still the earlier record's `[[3, 65535]]`,
   which pays one of our own test UIDs; it is replaced only when validator2
   can commit again.
+
+### Standing template under authority r0 (2026-11-03)
+
+The calendar opens the daily cohorts of the restarted chain from one
+standing template (AR-7). Code (branch `subnet-testnet/standing-r0`):
+
+- **Spec v3 admission.** Every admission run names its cohort's spec to the
+  scorer's probe route (`LaneRun::body`), as the scoring loads do, and spec
+  v3 joins `admission::ADMISSION_SPECS`, so a spec v3 cohort admits the span
+  tower class (S2c's) by spec v3. The object bound and the part count follow
+  the spec (`SpecBounds`); no tuned `artifact_max_mib` remains in the
+  template.
+- **Roster cap against what validators hold.** At the daily shape a cohort
+  records up to 3 x (2 x 1,000 + 2,224 per entrant) receipts (every scored
+  document at every attempt, `CohortPlan::receipt_bound`): 272,880 at 40
+  entrants. Embedded hex-encoded in the native validator's bundle (schema v2,
+  `slop_ninja.reward_v1_bundle/v1`), a receipt takes exactly 448 bytes
+  (`target_bundle::receipt_bundle_bytes`, the figure W7 measured on
+  validator2's bundle), so a target's cohort and its carrier at that cap
+  would need 244,500,480 bytes against the 64 MiB file bound
+  (`VALIDATOR_BUNDLE_BYTES`, now the validator's `MAX_BUNDLE_BYTES`); schema
+  v2 fits 10 such entrants. Bundle schema v3
+  (`slop_ninja.reward_v1_bundle/v3`) closes the gap: it embeds the records
+  and names each cohort's signed receipt index and receipt chunks by
+  absolute path, SHA-256 and length; the validator checks each file before
+  use and verifies the receipts one chunk at a time against the index. The
+  fetcher writes v3 when the embedded form would not fit, pointing into its
+  verified cache, and `reward_v1_verify` writes `reward-v1-bundle-v3.json`
+  beside the v2 form. A cohort's receipts are then bounded by one receipt
+  index (2^20 entries, `plan::receipt_capacity`), which the template check
+  applies at the cap. The install reply reports receipts per cohort and
+  whether the embedded form still fits (`capacity`).
+- **Template tool.** `slop_ninja_eval_ops standing-template` fills a base
+  template for the tracked authority: R_0 and the probe record from the
+  restart, the authority's label prefix, both spec digests, the fewest parts
+  that carry the spec's largest object, the largest roster cap up to
+  `ROSTER_CAP` that the coordinator's own template check admits, and the
+  scoring budget at the plan's upper bound for that cap (a runaway guard).
+
+The daily shape is n = 1,000, K = 20 (one admission tempo, two transition
+tempos), lease 40 tempos, the 1,024-document probe, 200 audit humans, three
+attempts, one scoring lane per artifact, no pre-start, spec v3, the exposed
+pool `testnet-human-pool-pc1`, and the incentive rule with provisional
+gates. Spec v3's tower-class object needs the longest step the alarm wall
+allows for one isolation proof (`step_budget_ms` 780,000: 900 s less the
+generation lease). At this shape the derived cap is the deployment's
+`ROSTER_CAP`, **40 entrants**: 272,880 receipts per cohort against the
+receipt index's 1,048,576, and the package step fits the memory model (it
+refuses 65). A validator whose build predates bundle schema v3 refuses a
+target bundle beyond the embedded bound (`bundle_too_large`) and keeps its
+old target, so every native validator needs a v3 build before a cohort with
+more than 10 scored entrants produces a target.
 
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 

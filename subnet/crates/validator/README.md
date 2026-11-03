@@ -393,11 +393,15 @@ bytes for a launch authorization, 309 for a reward-intent authorization,
 pointer is rewritten in place (`max-age=60`); the objects are never deleted.
 
 A session reads at most `SESSION_BYTES` into memory: `MAX_BUNDLE_BYTES`
-(64 MiB, the file bound of bundle schema v2), documents and objects
-together, counting an object read from the cache as well as one fetched.
-Before reading any object of a cohort it refuses one whose listed objects
-could not fit the bundle (`bundle_too_large`; the bundle stores each object
-hex-encoded, so objects get half the bound). Authorization and renewal
+(64 MiB, the bundle file bound), documents and objects together, counting
+an object read from the cache as well as one fetched. When every listed
+object of the target's cohort and carrier fits the bundle hex-encoded (half
+the bound), the bundle embeds them (schema v2, `slop_ninja.reward_v1_bundle/v1`). Otherwise it embeds the
+records and names each cohort's signed receipt index and receipt bundles by
+their absolute paths in the cache, with SHA-256 and length (schema v3,
+below); those bundles are streamed to the cache and never read into the
+session's memory. Before reading any object of a cohort the session refuses
+one whose listed records alone could not fit (`bundle_too_large`). Authorization and renewal
 objects are read into memory, their length checked against the schema and
 their signature verified before anything else is fetched; they are never
 cached. Before reading any receipt bundle, the signed receipt index is
@@ -407,18 +411,28 @@ length prefix plus each receipt object's signed length), and every bundle
 must be listed in `publication.json` under `receipts/` with the chunk map's
 digest and length (`chunk_map_mismatch` or `object_unlisted` otherwise).
 
-The bound limits the roster. The bundle embeds every receipt of the target
-cohort and, for a carried target, of the carrying cohort, hex-encoded: the
-live testnet bundle of 2026-11-01 held 14,344 receipts in about 6.4 MB of
-receipt objects and index, about 448 bytes per receipt, so the bound holds
-about 150,000 receipts across both cohorts. At about 2,200 receipts per
-scored entrant per cohort (1,000 cases, the 1,024-document probe and a
-200-case audit draw, before retries; an estimate) a carrier bundle fits
-about 34 entrants per cohort: roster 24 leaves about 29% headroom, and
-roster 40 does not fit, so every native validator would refuse such a
-bundle (`bundle_too_large`) and keep its old target until the lease ends.
-Raising it means a new bundle schema that references verified cache
-objects by digest instead of embedding them, verified from files.
+**Bundle schema v3.** Embedded, every receipt takes 448 bytes of the
+bundle (its chunk framing, object and index entry, hex-encoded; exact,
+`target_bundle::receipt_bundle_bytes`), so a schema v2 bundle holds at most
+about 150,000 receipts across a target's cohort and its carrier. A daily
+cohort records up to 2,224 receipts per entrant per attempt (1,000 cases,
+the 1,024-document probe and a 200-case audit draw) plus the references'
+batches, so 40 entrants at three attempts need about 545,000 across both
+cohorts. A `slop_ninja.reward_v1_bundle/v3` bundle therefore names them
+instead: `receipts` and `carrier_receipts` each hold an `index` and a list
+of `chunks`, each an object reference `{ "path", "sha256", "bytes" }` with
+an absolute path; the embedded `receipt_index` fields and chunk lists stay
+empty. The validator checks each referenced file's length before reading
+it and its SHA-256 after, then verifies the receipts one chunk at a time
+against the signed index (each entry exactly once), so a cohort's receipts
+are bounded by the receipt index (2^20 entries), not by the file bound. A
+missing file is `receipts_incomplete`, any other difference
+`receipt_object_mismatch`, a relative path or receipts in the other
+schema's form `bundle_malformed`. The fetcher's references point into its
+cache, which keeps the installed bundle's cohorts; the operator's
+`reward_v1_verify` writes `reward-v1-bundle-v3.json` pointing at the cohort
+directory it read, which must stay in place. A validator built before
+schema v3 refuses a v3 bundle (`bundle_schema`) and keeps its target.
 
 Each session holds the cache lock (`<cache>/.lock`; another process gets
 `cache_busy`, and `fetch` then exits 75), never follows a redirect, sends no
@@ -471,8 +485,8 @@ logged as `fetch_kept`. The last outcome code is the dispatch report's
 installs nothing and prints a content-free report (exit 0 verified, 75
 incomplete or cache busy, 3 refused).
 
-Fetched bundles are written in bundle schema v2, whose `shortcut` field
-must read `T12`: the label names the bundle format the operator tool also
+Fetched bundles are written in bundle schema v2, or v3 when the receipts
+do not fit embedded; in both the `shortcut` field must read `T12`: the label names the bundle format the operator tool also
 writes, not how the bundle arrived, and changing it would need a new bundle
 schema for every reader.
 

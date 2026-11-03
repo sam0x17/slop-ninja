@@ -25,6 +25,8 @@
 //!     --cohort N --label-suffix S --wrangler WRANGLER.toml
 //! slop_ninja_eval_ops authority-check --wrangler WRANGLER.toml --status STATUS.json
 //!     [--switch [--freeze] [--target-status TARGET.json] | --freeze | --first-deploy]
+//! slop_ninja_eval_ops standing-template --restart DIR/restart.json --record RECORD.json
+//!     --template TEMPLATE.json --wrangler WRANGLER.toml [--roster-cap N]
 //! ```
 //!
 //! - `load-plan` writes a `slop_ninja_eval_load_plan_v1` plan: R_0 (the
@@ -74,6 +76,20 @@
 //!   back from the eval bucket) at its key and digest, cohort N and label
 //!   `<prefix><S>`, and the digest of a named artifact spec frozen with it
 //!   (`fanout.score.artifact_spec_sha256`); checked the same way.
+//! - `standing-template` prints a standing template for the tracked main
+//!   authority (`slop_ninja_eval_cohort_template_v1`): TEMPLATE.json (a
+//!   template whose plan is a v3 plan with an admission block naming an
+//!   artifact spec) with R_0 from `restart.json`, no predecessor, the probe
+//!   version in RECORD.json, the authority's label prefix (without its
+//!   trailing `-`), both spec digests and the fewest multipart parts that
+//!   carry the spec's largest object at the block's part size, all derived.
+//!   The roster cap is N if given, else the largest cap up to the tracked
+//!   `ROSTER_CAP` that the coordinator's template check admits (its package
+//!   step and the receipt index); the scoring
+//!   budget is the plan's upper bound at that cap (a runaway guard, never a
+//!   spend cap). The result passes the coordinator's own template check
+//!   under the tracked deployment vars before it is printed; the derived cap,
+//!   its receipts and the validator bundle schema they need go to stderr.
 //! - `authority-check` is the pre-deploy refusal for the eval Worker
 //!   (`config::deploy_check`): the deployed authority (`authority_name`,
 //!   `first_cohort`, `predecessors`, `cohorts`, `superseded_by`,
@@ -647,11 +663,125 @@ fn restart_cohort(flags: &BTreeMap<String, String>) {
     println!("{}", String::from_utf8(bytes).expect("utf-8"));
 }
 
+/// The main instance's evaluation config as a tracked `wrangler.toml`
+/// declares it, for the coordinator's own plan and template checks. The
+/// private seed is never needed by a check (zeros here).
+fn tracked_eval_config(vars: &BTreeMap<String, String>) -> slop_ninja_coordinator::eval::engine::EvalConfig {
+    let v = |k: &str| vars.get(k).cloned().unwrap_or_else(|| fail(&format!("wrangler.toml: {k}")));
+    let genesis: [u8; 32] = hex::decode(v("CHAIN_GENESIS").trim_start_matches("0x"))
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .unwrap_or_else(|| fail("wrangler.toml: CHAIN_GENESIS"));
+    slop_ninja_coordinator::eval::engine::EvalConfig {
+        chain: slop_ninja_protocol::ChainBinding {
+            genesis: slop_ninja_protocol::Digest(genesis),
+            netuid: v("SUBNET_NETUID").parse().unwrap_or_else(|_| fail("wrangler.toml: SUBNET_NETUID")),
+            mechanism: 0,
+        },
+        private_seed: [0; 32],
+        instance: slop_ninja_coordinator::eval::engine::INSTANCE_MAIN.into(),
+        max_score_lanes: v("MAX_SCORE_LANES").parse().unwrap_or_else(|_| fail("wrangler.toml: MAX_SCORE_LANES")),
+        ceilings: main_ceilings(vars),
+        exposed_pools: v("EXPOSED_POOLS").split(',').map(str::trim).filter(|p| !p.is_empty()).map(str::to_owned).collect(),
+        scorer_binary: v("SCORER_BINARY_SHA256"),
+        authority: tracked_authority(vars),
+    }
+}
+
+fn standing_template(flags: &BTreeMap<String, String>) {
+    use slop_ninja_coordinator::eval::{calendar, engine};
+    let r = read_json(&flag::<String>(flags, "restart"));
+    let vars = eval_vars(&flag::<String>(flags, "wrangler"));
+    let cfg = tracked_eval_config(&vars);
+    if r["authority"].as_str() != Some(cfg.authority.name()) || r["first_cohort"].as_u64() != Some(cfg.authority.first_cohort()) {
+        fail("restart.json names another authority than the tree tracks");
+    }
+    let prefix = cfg.authority.label_prefix().unwrap_or_else(|| fail("the tracked authority is the original (no label prefix)"));
+    let record_bytes = std::fs::read(flag::<String>(flags, "record")).unwrap_or_else(|e| fail(&format!("record: {e}")));
+    let record: Value = serde_json::from_slice(&record_bytes).unwrap_or_else(|e| fail(&format!("record: {e}")));
+    let version = record["version"].as_u64().unwrap_or_else(|| fail("record: version"));
+    if Some(version) != r["probe_version"].as_u64() {
+        fail("the record is not the restart's probe version");
+    }
+    let mut t = read_json(&flag::<String>(flags, "template"));
+    if t["schema"] != calendar::TEMPLATE_SCHEMA || t["plan"]["schema"] != PLAN_SCHEMA_V3 {
+        fail("template: not a standing template of a reward-v1 plan");
+    }
+    t["label_prefix"] = json!(prefix.trim_end_matches('-'));
+    let plan = &mut t["plan"];
+    plan["cohort"] = json!(cfg.authority.first_cohort());
+    plan["label"] = json!(format!("{prefix}template"));
+    plan["entrants"] = json!([]);
+    plan["reference"] = r["reference"].clone();
+    plan["previous_reference"] = Value::Null;
+    let v = plan["reward_v1"].as_object_mut().unwrap_or_else(|| fail("template: no reward_v1 block"));
+    v.insert(
+        "probes".into(),
+        json!([{"version": version, "size": record["size"], "key": r["probe_record_key"], "sha256": sha_hex(&record_bytes)}]),
+    );
+    v.remove("probe_version");
+    let id = plan["admission"]["artifact_spec"].as_str().map(str::to_owned).unwrap_or_else(|| fail("template: admission.artifact_spec"));
+    let bounds = slop_ninja_coordinator::eval::admission::SpecBounds::of_id(&id)
+        .unwrap_or_else(|| fail(&format!("template: {id} is not a spec the scorer admits by")));
+    let part = plan["admission"]["part_size"].as_u64().unwrap_or_else(|| fail("template: admission.part_size"));
+    plan["admission"]["artifact_spec_sha256"] = json!(bounds.spec_sha256);
+    plan["admission"]["max_parts"] = json!(bounds.object_bytes.div_ceil(part.max(1)));
+    plan["fanout"]["score"]["artifact_spec"] = json!(id);
+    plan["fanout"]["score"]["artifact_spec_sha256"] = json!(bounds.spec_sha256);
+    plan["fanout"]["score"].as_object_mut().unwrap_or_else(|| fail("template: fanout.score")).remove("artifact_max_mib");
+    // The scoring budget at a cap: the plan's own upper bound there.
+    let budgeted = |t: &Value, cap: u64| -> Result<Value, String> {
+        let mut t = t.clone();
+        t["plan"]["admission"]["roster_cap"] = json!(cap);
+        t["plan"]["fanout"]["score"]["scoring_budget_microusd"] = json!(u64::MAX / 4);
+        let mut full = t["plan"].clone();
+        full["label"] = json!(format!("{prefix}{}", u64::MAX));
+        full["entrants"] = json!((0..cap).map(|n| {
+            let mut a = full["reference"].clone();
+            a["owner"] = json!({"uid": n + 1, "hotkey": format!("0x{}", sha_hex(&n.to_le_bytes())), "registration_block": 1});
+            a["package_sha256"] = json!(sha_hex(format!("standing-template/{n}").as_bytes()));
+            a["opening_nonce"] = json!(sha_hex(&n.to_be_bytes()));
+            a["extrinsic_index"] = json!(n);
+            a["commitment_block"] = json!(2);
+            a["object_key"] = json!(format!("admission/template-check/{n}.object"));
+            a
+        }).collect::<Vec<_>>());
+        if full["previous_reference"].is_null() {
+            full["previous_reference"] = full["reference"].clone();
+            let sha = sha_hex(b"standing-template/predecessor");
+            full["previous_reference"]["manifest_key"] = json!(format!("artifacts/packages/{sha}.json"));
+            full["previous_reference"]["package_sha256"] = json!(sha);
+        }
+        let (_, adm) = engine::admit(&cfg, &serde_json::to_vec(&full).map_err(|e| e.to_string())?).map_err(|e| format!("plan at cap {cap}: {e:?}"))?;
+        t["plan"]["fanout"]["score"]["scoring_budget_microusd"] = json!(adm.scoring_upper_bound_microusd);
+        let bytes = serde_json::to_vec(&t).map_err(|e| e.to_string())?;
+        calendar::check(&cfg, &bytes).map(|_| t).map_err(|e| format!("template at cap {cap}: {e:?}"))
+    };
+    let (cap, out) = match opt::<u64>(flags, "roster-cap") {
+        Some(n) => (n, budgeted(&t, n).unwrap_or_else(|e| fail(&format!("the coordinator's template check refuses roster cap {n}: {e}")))),
+        None => {
+            let ceiling = cfg.ceilings.roster_cap.map_or(u64::from(slop_ninja_protocol::MAX_ROSTER), |c| c as u64);
+            (1..=ceiling)
+                .rev()
+                .find_map(|n| budgeted(&t, n).ok().map(|t| (n, t)))
+                .unwrap_or_else(|| fail(&format!("the coordinator's template check refuses every roster cap ({})", budgeted(&t, 1).err().unwrap_or_default())))
+        }
+    };
+    let bytes = serde_json::to_vec_pretty(&out).expect("template json");
+    let parsed = calendar::check(&cfg, &bytes).unwrap_or_else(|e| fail(&format!("template check: {e:?}")));
+    eprintln!(
+        "standing-template: roster_cap {cap} (ceiling {:?}); {}",
+        cfg.ceilings.roster_cap,
+        calendar::capacity(&parsed)
+    );
+    println!("{}", String::from_utf8(bytes).expect("utf-8"));
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
         fail(
-            "a subcommand: load-plan, gate, summary, watch-line, tail-stats, snapshot-args, keys-check, copy-ties, chunk-keys, report-summary, restart, restart-cohort, authority-check",
+            "a subcommand: load-plan, gate, summary, watch-line, tail-stats, snapshot-args, keys-check, copy-ties, chunk-keys, report-summary, restart, restart-cohort, authority-check, standing-template",
         )
     };
     let (flags, pos) = parse(&args[1..]);
@@ -669,6 +799,7 @@ fn main() {
         "restart" => restart(&flags),
         "restart-cohort" => restart_cohort(&flags),
         "authority-check" => authority_check(&flags),
+        "standing-template" => standing_template(&flags),
         other => fail(&format!("unknown subcommand {other}")),
     }
 }

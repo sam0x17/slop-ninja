@@ -11,7 +11,7 @@ scorer admits each of the cohort's artifacts by that spec: a load names it
 by digest, and a load that names none is admitted by spec v2. The scorer
 admits by spec v2 or v3, never by spec v1, which bounds no JSON file, so an
 artifact spec v1 admits can still be refused when its JSON exceeds spec v2's
-budgets. Testnet cohorts name spec v2 until a cohort template names spec v3.
+budgets. Testnet cohorts opened by the standing template name spec v3.
 Spec v3 admits every artifact spec v2 admits, with the same results, and adds
 the tower class, which only a cohort that names spec v3 admits.
 

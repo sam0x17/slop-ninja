@@ -1352,6 +1352,97 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
     );
 }
 
+/// The daily template shape: n = 1,000, K = 20, the 1,024-document probe,
+/// 200 audit humans, spec v3, under a named authority's labels.
+fn daily_template(prefix: &str, cap: u16) -> crate::eval::calendar::Template {
+    let mut p = admission_plan(0, cap);
+    p.n = 1000;
+    p.k_tempos = 20;
+    p.max_attempts = 3;
+    let v = p.reward_v1.as_mut().unwrap();
+    v.probes[0].size = 1024;
+    v.canary.draw_humans = 200;
+    v.lease_tempos = 40;
+    let f = p.fanout.as_mut().unwrap();
+    f.score.lane_docs = 1000;
+    f.score.scoring_budget_microusd = 1_000_000_000;
+    let b3 = SpecBounds::of(Version::V3).unwrap();
+    f.score.artifact_spec = Some(b3.spec_id.into());
+    let a = p.admission.as_mut().unwrap();
+    a.artifact_spec = b3.spec_id.into();
+    a.artifact_spec_sha256 = b3.spec_sha256.clone();
+    a.max_parts = u32::try_from(b3.object_bytes.div_ceil(a.part_size)).unwrap();
+    crate::eval::calendar::Template {
+        schema: crate::eval::calendar::TEMPLATE_SCHEMA.into(),
+        label_prefix: prefix.into(),
+        plan: p,
+    }
+}
+
+#[test]
+fn the_receipt_index_bounds_the_template_roster_and_validators_hold_it_by_reference() {
+    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
+    let cfg = cfg();
+    let check = |t: &crate::eval::calendar::Template| crate::eval::calendar::check(&cfg, &serde_json::to_vec(t).unwrap());
+    // Receipts per cohort from the shape alone: R_k, R_{k-1} and `cap`
+    // entrants, every document at every attempt.
+    let per_cohort = |cap: u64, attempts: u64| attempts * (2 * 1000 + cap * (1000 + 1024 + 200));
+    // The full 40-entrant daily template is admitted: its receipts fit one
+    // receipt index, although a validator bundle that embeds them (schema
+    // v1) for a target and its carrier would exceed the 64 MiB file bound.
+    let t = daily_template("testnet-cohort", 40);
+    check(&t).unwrap();
+    let c = crate::eval::calendar::capacity(&t);
+    assert_eq!(c["roster_cap"], 40);
+    assert_eq!(c["receipts_per_cohort"], per_cohort(40, 3));
+    assert_eq!(c["receipt_index_bound"], slop_ninja_protocol::MAX_SEQUENCE_LEN);
+    let embedded = 2 * receipt_bundle_bytes(per_cohort(40, 3)).unwrap();
+    assert!(embedded > VALIDATOR_BUNDLE_BYTES);
+    assert_eq!(c["embedded_bundle_receipt_bytes"], embedded);
+    assert_eq!((c["embedded_bundle_fits"].as_bool(), c["validator_bundle_schema"].as_str()), (Some(false), Some("v3")));
+    // The receipt index is the bound: the most attempts whose receipts fit
+    // one index is admitted, one more is refused.
+    let most = (1..=u8::MAX).filter(|&a| per_cohort(40, u64::from(a)) <= u64::from(slop_ninja_protocol::MAX_SEQUENCE_LEN)).max().unwrap();
+    let mut at = daily_template("testnet-cohort", 40);
+    at.plan.max_attempts = most;
+    check(&at).unwrap();
+    at.plan.max_attempts = most + 1;
+    let e = check(&at).unwrap_err();
+    assert!(matches!(&e, EvalError::Plan(c) if c.contains("receipt index")), "{e:?}");
+    // A small template still fits the embedded form.
+    let one = daily_template("testnet-cohort", 1);
+    let c = crate::eval::calendar::capacity(&one);
+    assert_eq!((c["embedded_bundle_fits"].as_bool(), c["validator_bundle_schema"].as_str()), (Some(true), Some("v2 or v3")));
+}
+
+#[test]
+fn a_named_authoritys_spec_v3_template_opens_its_own_numbers_and_labels() {
+    let r0 = EvalConfig { authority: crate::config::Authority::named("r0", 14).unwrap(), ..cfg() };
+    let t = daily_template("testnet-r0", 4);
+    let bytes = serde_json::to_vec(&t).unwrap();
+    // Another prefix is not the authority's: refused at install.
+    let other = serde_json::to_vec(&daily_template("testnet-adm", 4)).unwrap();
+    assert!(crate::eval::calendar::check(&r0, &other).is_err(), "labels carry the authority's prefix");
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let reply = tx(&db, |s| crate::eval::calendar::install(s, &r0, &bytes, NOW)).unwrap();
+    assert_eq!(reply["capacity"]["roster_cap"], 4);
+    let (label, plan_bytes) = tx(&db, |s| crate::eval::calendar::due(s, &r0)).unwrap().unwrap();
+    assert_eq!(label, "testnet-r0-14", "numbered from the authority's first cohort");
+    let plan: plan::CohortPlan = serde_json::from_slice(&plan_bytes).unwrap();
+    assert_eq!((plan.cohort, plan.k_tempos), (14, 20));
+    assert_eq!(plan.load_spec_sha256(), Some(Version::V3.spec_sha256().as_str()));
+    assert_eq!(plan.admission.as_ref().unwrap().artifact_spec, Version::V3.id());
+    tx(&db, |s| engine::queue(s, &r0, &plan_bytes, NOW)).unwrap();
+    // After the authority's operator-posted cohorts 15-17, the next is 18.
+    tx(&db, |s| {
+        s.exec("UPDATE cohorts SET phase = 'closed', cohort = 17, label = 'testnet-r0-c'", &[]).map(|_| ())
+    })
+    .unwrap();
+    let (label, _) = tx(&db, |s| crate::eval::calendar::due(s, &r0)).unwrap().unwrap();
+    assert_eq!(label, "testnet-r0-18");
+}
+
 #[test]
 fn the_memory_model_bounds_the_template_roster() {
     // At n = 1,000 with the 1,024-document probe and 200 audit humans, the
@@ -1845,15 +1936,49 @@ fn copies_of_published_artifacts_and_plans_without_operator_hotkeys_never_unlock
     assert!(plan::CohortPlan::parse(&serde_json::to_vec(&p).unwrap(), cfg().ceilings).is_err());
     p.admission.as_mut().unwrap().fresh_pool = None;
     plan::CohortPlan::parse(&serde_json::to_vec(&p).unwrap(), cfg().ceilings).unwrap();
-    // Admission specs other than v2 are refused until runs name the spec.
+    // Spec v3 admits: admission runs name the cohort's spec. The object
+    // bound and part plan follow the v3 spec (the tower class is longer).
     let mut v3p = admission_plan(1, 2);
     let b3 = SpecBounds::of(Version::V3).unwrap();
     let a = v3p.admission.as_mut().unwrap();
     a.artifact_spec = b3.spec_id.into();
     a.artifact_spec_sha256 = b3.spec_sha256.clone();
     v3p.fanout.as_mut().unwrap().score.artifact_spec = Some(b3.spec_id.into());
-    let e = plan::CohortPlan::parse(&serde_json::to_vec(&v3p).unwrap(), cfg().ceilings).unwrap_err();
-    assert!(e.0.starts_with("admission_spec_unsupported"), "{}", e.0);
+    let parsed = plan::CohortPlan::parse(&serde_json::to_vec(&v3p).unwrap(), cfg().ceilings).unwrap();
+    assert_eq!(parsed.load_spec_sha256(), Some(b3.spec_sha256.as_str()));
+    let mut few = v3p.clone();
+    few.admission.as_mut().unwrap().max_parts = u32::try_from(b3.object_bytes.div_ceil(64 << 20)).unwrap() - 1;
+    assert!(
+        plan::CohortPlan::parse(&serde_json::to_vec(&few).unwrap(), cfg().ceilings).is_err(),
+        "the v3 object bound needs its parts"
+    );
+    // A spec no admission run loads by is refused.
+    let mut v4 = v3p;
+    v4.admission.as_mut().unwrap().artifact_spec = "slop_ninja_a_artifact_spec_v4".into();
+    assert!(plan::CohortPlan::parse(&serde_json::to_vec(&v4).unwrap(), cfg().ceilings).is_err());
+}
+
+#[test]
+fn an_admission_run_names_its_cohorts_spec_to_the_scorer() {
+    for v in [Version::V2, Version::V3] {
+        let run = LaneRun {
+            hotkey: "0x01".into(),
+            commitment: "0x02".into(),
+            package_sha256: "aa".repeat(32),
+            manifest_key: format!("artifacts/packages/{}.json", "aa".repeat(32)),
+            label: "testnet-r0-18".into(),
+            spec_sha256: v.spec_sha256(),
+            scorer_binary: "bb".repeat(32),
+            try_no: 1,
+            claim_until_ms: 0,
+        };
+        let b = run.body();
+        assert_eq!(b["spec_sha256"], v.spec_sha256(), "the load names the cohort's spec");
+        assert_eq!(b["package_sha256"], run.package_sha256);
+        assert_eq!(b["docs"][0]["text"], crate::eval::lane_logic::CONTROL_TEXT);
+        assert_eq!(b.as_object().unwrap().len(), 4);
+    }
+    assert!(ADMISSION_SPECS.contains(&Version::V3.id()) && ADMISSION_SPECS.contains(&Version::V2.id()));
 }
 
 #[test]

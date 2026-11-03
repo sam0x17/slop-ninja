@@ -545,13 +545,12 @@ impl AdmissionPlan {
         let bounds = crate::eval::admission::SpecBounds::of_id(&self.artifact_spec)
             .ok_or(PlanError("admission.artifact_spec (a spec the scorer admits by)"))?;
         e(bounds.spec_sha256 == self.artifact_spec_sha256, "admission.artifact_spec_sha256 (the spec's digest)")?;
-        // The admission run loads through the scorer's probe route, which
-        // admits by spec v2 (a load that names no spec): a cohort under any
-        // other spec could never reach a verdict, so it is refused here until
-        // admission loads name the cohort's spec.
+        // The admission run loads through the scorer's probe route naming the
+        // cohort's spec; a spec no admission run can load by could never reach
+        // a verdict, so it is refused here.
         e(
             crate::eval::admission::ADMISSION_SPECS.contains(&self.artifact_spec.as_str()),
-            "admission_spec_unsupported: admission runs load by spec v2 until they name the cohort's spec",
+            "admission_spec_unsupported: no admission run loads by this spec",
         )?;
         e(self.roster_cap >= 1 && usize::from(self.roster_cap) <= usize::from(slop_ninja_protocol::MAX_ROSTER), "admission.roster_cap")?;
         e(self.selection == slop_ninja_admission_wire::SELECTION_EARLIEST_COMMITMENT_V1, "admission.selection")?;
@@ -950,6 +949,29 @@ impl CohortPlan {
         1 + usize::from(self.previous_reference.is_some()) + self.entrants.len()
     }
 
+    /// Documents the cohort's jobs score, one attempt each: under reward-v1
+    /// the references score the batch and every entrant also scores every
+    /// probe version in use and both canary audit draws; otherwise every
+    /// job scores the batch.
+    pub fn scored_docs(&self) -> u64 {
+        match &self.reward_v1 {
+            Some(v) if !self.is_probe_build() => {
+                let refs = 1 + u64::from(self.previous_reference.is_some());
+                let probe: u64 = v.probes.iter().map(|p| u64::from(p.size)).sum();
+                let per_entrant =
+                    u64::from(self.n) + probe + u64::from(self.audit_humans()) + u64::from(self.audit_b_humans());
+                refs * u64::from(self.n) + self.entrants.len() as u64 * per_entrant
+            }
+            _ => self.jobs() as u64 * u64::from(self.n),
+        }
+    }
+
+    /// Receipts the cohort can record: every scored document at every
+    /// attempt (`max_attempts`).
+    pub fn receipt_bound(&self) -> u64 {
+        self.scored_docs().saturating_mul(u64::from(self.max_attempts))
+    }
+
     pub fn validate(&self, ceilings: Ceilings) -> Result<(), PlanError> {
         let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(PlanError(what)) };
         // New cohorts are reward-v1 (v3) or probe builds; stored v2 plans still
@@ -974,17 +996,7 @@ impl CohortPlan {
         // Every document each job scores, at every attempt, fits one receipt
         // index: references score the batch, entrants the batch, every probe
         // version in use and both canary audit draws.
-        let docs = match &self.reward_v1 {
-            Some(v) if self.schema != PROBE_PLAN_SCHEMA => {
-                let refs = 1 + u64::from(self.previous_reference.is_some());
-                let probe: u64 = v.probes.iter().map(|p| u64::from(p.size)).sum();
-                let per_entrant =
-                    u64::from(self.n) + probe + u64::from(self.audit_humans()) + u64::from(self.audit_b_humans());
-                refs * u64::from(self.n) + self.entrants.len() as u64 * per_entrant
-            }
-            _ => self.jobs() as u64 * u64::from(self.n),
-        };
-        e(receipt_capacity(docs, self.max_attempts), "n (receipts beyond one receipt index)")?;
+        e(receipt_capacity(self.scored_docs(), self.max_attempts), "n (receipts beyond one receipt index)")?;
         // The mix is a plan parameter: whole percentages summing to 100, every
         // origin present, and for a cohort realized exactly at this n (the
         // manifest's batch design checks the same). A probe build has no

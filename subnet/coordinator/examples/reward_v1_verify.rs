@@ -31,7 +31,14 @@
 //! is signed and the bundles are written: `reward-v1-bundle.json` (receipt
 //! index and chunks included, for validators) and
 //! `reward-v1-bundle-coordinator.json` (the coordinator produced the receipts
-//! and stores one value of at most 2 MB). `--carrier DIR2` names a later cohort
+//! and stores one value of at most 2 MB), and `reward-v1-bundle-v3.json`
+//! (bundle schema v3, for validators: the same records, with the receipt
+//! indexes and chunks named by absolute path, SHA-256 and length instead of
+//! embedded, so its size does not grow with the receipts; the paths are the
+//! objects in DIR and DIR2, which must stay in place on the validator's host,
+//! so run the tool there). The v2 form embeds every receipt hex-encoded and
+//! fits the native validator's 64 MiB file bound only up to about 150,000
+//! receipts across both cohorts; the report says whether it does. `--carrier DIR2` names a later cohort
 //! that produced no target and carries this one: the authorization then names
 //! that cohort's manifest and package, and the bundles carry that cohort's
 //! receipt index (and, for validators, its receipt chunks) and its published
@@ -314,12 +321,14 @@ fn cohort(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
         let k = authorization_key(seed, root);
         let issued = a.issued.unwrap_or(c.closed_epoch);
         let mut carrier_chunks = Vec::new();
+        let mut carrier_refs = Value::Null;
         let (carrier_manifest, carrier_package, carrier) = match &a.carrier {
             Some(d2) => {
                 let m2 = Signed::<CohortManifestV2>::open(&read(d2, "manifest.signed"), keys).unwrap_or_else(|e| fail(format!("carrier manifest: {e}")));
                 let p2 = Signed::<ScorePackageV2>::open(&read(d2, "package.signed"), keys).unwrap_or_else(|e| fail(format!("carrier package: {e}")));
                 let i2 = Signed::<ReceiptIndex>::open(&read(d2, "receipt-index.signed"), keys).unwrap_or_else(|e| fail(format!("carrier index: {e}")));
                 carrier_chunks = chunks_of(d2, &m2.cohort_label, &i2).0;
+                carrier_refs = receipt_refs(d2, &m2.cohort_label);
                 (
                     m2,
                     p2,
@@ -371,6 +380,24 @@ fn cohort(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
         let v = target::verify_v2(&reparsed, keys, &TESTNET_GENESIS.0, 601, &held)
             .unwrap_or_else(|r| fail(format!("{}: {}", r.code, r.detail)));
         std::fs::write(dir.join("reward-v1-bundle.json"), &full).unwrap_or_else(|_| fail("write bundle"));
+        // Bundle schema v3: the same records, receipts by reference.
+        let mut v3 = serde_json::to_value(&bundle).unwrap_or_else(|_| fail("bundle json"));
+        v3["schema"] = json!(BUNDLE_SCHEMA_V3);
+        let o = v3.as_object_mut().unwrap_or_else(|| fail("bundle json"));
+        o.remove("receipt_chunks");
+        o.remove("carrier_receipt_chunks");
+        o.insert("receipts".into(), receipt_refs(&dir, &manifest.cohort_label));
+        if !carrier_refs.is_null() {
+            o.insert("carrier_receipts".into(), carrier_refs);
+        }
+        if let Some(s) = v3["source"].as_object_mut() {
+            s.remove("receipt_index");
+        }
+        if let Some(c) = v3["authorization"]["carrier"].as_object_mut() {
+            c.remove("receipt_index");
+        }
+        let v3 = serde_json::to_vec_pretty(&v3).unwrap_or_else(|_| fail("bundle json"));
+        std::fs::write(dir.join("reward-v1-bundle-v3.json"), &v3).unwrap_or_else(|_| fail("write bundle"));
         bundle.receipt_chunks.clear();
         bundle.carrier_receipt_chunks.clear();
         if let Some(s) = bundle.source.as_mut() {
@@ -385,11 +412,42 @@ fn cohort(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
         std::fs::write(dir.join("reward-v1-bundle-coordinator.json"), &small).unwrap_or_else(|_| fail("write bundle"));
         let (i, e) = v.checked_lease(keys).unwrap_or_else(|e| fail(e));
         report["bundles"] = json!({"validator": "reward-v1-bundle.json", "validator_sha256": hex::encode(Sha256::digest(&full)),
-            "validator_bytes": full.len(), "coordinator": "reward-v1-bundle-coordinator.json",
+            "validator_bytes": full.len(),
+            "validator_fits_v2": full.len() as u64 <= slop_ninja_protocol::target_bundle::VALIDATOR_BUNDLE_BYTES,
+            "validator_v3": "reward-v1-bundle-v3.json", "validator_v3_sha256": hex::encode(Sha256::digest(&v3)),
+            "validator_v3_bytes": v3.len(), "coordinator": "reward-v1-bundle-coordinator.json",
             "coordinator_sha256": hex::encode(Sha256::digest(&small)), "coordinator_bytes": small.len(),
             "lease": [i, e], "activated_epoch": c.closed_epoch});
     }
     println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+}
+
+/// The native validator's bundle schema v3 (receipts by reference).
+const BUNDLE_SCHEMA_V3: &str = "slop_ninja.reward_v1_bundle/v3";
+
+/// A file in DIR as a v3 object reference: absolute path, SHA-256, length.
+fn object_ref(dir: &Path, rel: &str) -> Value {
+    let path = std::fs::canonicalize(dir.join(rel)).unwrap_or_else(|e| fail(format!("{rel}: {e}")));
+    let b = std::fs::read(&path).unwrap_or_else(|e| fail(format!("{rel}: {e}")));
+    json!({"path": path.to_str().unwrap_or_else(|| fail("object path is not UTF-8")),
+        "sha256": hex::encode(Sha256::digest(&b)), "bytes": b.len()})
+}
+
+/// A cohort's receipt index and every chunk its chunk map names (checked by
+/// [`chunks_of`] already), as v3 references.
+fn receipt_refs(dir: &Path, label: &str) -> Value {
+    let map: Value = serde_json::from_slice(&read(dir, "chunk-map.json")).unwrap_or_else(|_| fail("chunk map"));
+    let prefix = format!("cohorts/{label}/");
+    let chunks: Vec<Value> = map["objects"]
+        .as_array()
+        .unwrap_or_else(|| fail("chunk objects"))
+        .iter()
+        .map(|o| {
+            let k = o["key"].as_str().unwrap_or_else(|| fail("chunk key"));
+            object_ref(dir, k.strip_prefix(&prefix).unwrap_or_else(|| fail("chunk outside the cohort prefix")))
+        })
+        .collect();
+    json!({"index": object_ref(dir, "receipt-index.signed"), "chunks": chunks})
 }
 
 /// Every chunk object of a cohort's receipt index, checked against its chunk

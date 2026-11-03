@@ -20,8 +20,19 @@
 //! A template is checked when it is installed, at its own roster cap and
 //! with a predecessor reference (as after a promotion): the plan validates
 //! with `roster_cap` admitted entrants, its scoring budget covers their
-//! probe-inclusive upper bound, and its package step fits the memory model
-//! (`arena_routes::package_fits`). It runs the testnet plan defaults of the
+//! probe-inclusive upper bound, its package step fits the memory model
+//! (`arena_routes::package_fits`), and every receipt it can record (every
+//! scored document at every attempt, `CohortPlan::receipt_bound`) fits one
+//! receipt index (`plan::receipt_capacity`, the codec's sequence bound).
+//! That is also what a native validator can hold: its bundle schema v3
+//! names the receipt indexes and chunks of a target's cohort and of its
+//! carrier by reference instead of embedding them, so the validators'
+//! 64 MiB file bound (`VALIDATOR_BUNDLE_BYTES`) limits only the embedded
+//! records. Schema v2 embeds the receipts hex-encoded; [`capacity`] reports
+//! whether that form would still fit ([`embedded_bundle_bytes`]). The roster
+//! cap a template can take therefore follows from its shape (n, the probe
+//! and audit draws, `max_attempts`) and the protocol's bounds, never from a
+//! tuned figure. It runs the testnet plan defaults of the
 //! 2026-11-01 ruling: one scoring lane per artifact (`lane_docs >= n`, so
 //! W = 1), no scoring pre-start, and the incentive rule with its provisional
 //! gates flag. Installing a template never changes a queued or running
@@ -56,17 +67,7 @@ pub struct Template {
 /// over the jobs.
 pub fn package_shape(plan: &CohortPlan) -> (u64, u64) {
     let jobs = (plan.jobs() as u64).max(1);
-    let docs = match &plan.reward_v1 {
-        Some(v) if !plan.is_probe_build() => {
-            let refs = 1 + u64::from(plan.previous_reference.is_some());
-            let probe: u64 = v.probes.iter().map(|p| u64::from(p.size)).sum();
-            let per_entrant =
-                u64::from(plan.n) + probe + u64::from(plan.audit_humans()) + u64::from(plan.audit_b_humans());
-            refs * u64::from(plan.n) + plan.entrants.len() as u64 * per_entrant
-        }
-        _ => jobs * u64::from(plan.n),
-    };
-    (jobs, docs.div_ceil(jobs))
+    (jobs, plan.scored_docs().div_ceil(jobs))
 }
 
 /// The most tasks one job of `plan` scores: an entrant's batch, probe and
@@ -92,6 +93,17 @@ pub fn max_job_tasks(plan: &CohortPlan) -> u64 {
 pub fn fits(plan: &CohortPlan) -> bool {
     let (jobs, docs) = package_shape(plan);
     crate::arena_routes::package_fits(jobs, docs, max_job_tasks(plan))
+}
+
+/// The bytes a bundle schema v2 (receipts embedded) needs for the receipts
+/// when its target's cohort and the cohort carrying it are both `plan`:
+/// twice the protocol's [`receipt_bundle_bytes`] at the plan's receipt bound
+/// (every scored document at every attempt). Schema v3 names them by
+/// reference and needs none of this inside the file.
+///
+/// [`receipt_bundle_bytes`]: slop_ninja_protocol::target_bundle::receipt_bundle_bytes
+pub fn embedded_bundle_bytes(plan: &CohortPlan) -> Option<u64> {
+    slop_ninja_protocol::target_bundle::receipt_bundle_bytes(plan.receipt_bound()).ok()?.checked_mul(2)
 }
 
 /// A synthetic full roster for the template checks: `cap` distinct
@@ -186,6 +198,27 @@ pub fn check(cfg: &EvalConfig, bytes: &[u8]) -> R<Template> {
     Ok(t)
 }
 
+/// The template's roster cap and what it needs at that cap, for the install
+/// reply and the operator's template tool: receipts per cohort against the
+/// receipt index bound, and the bytes a schema v2 validator bundle would
+/// embed for a target and its carrier against the validators' file bound
+/// (beyond it, validators hold the receipts through bundle schema v3).
+pub fn capacity(t: &Template) -> Value {
+    let mut full = t.plan.clone();
+    let cap = t.plan.admission.as_ref().map_or(0, |a| a.roster_cap);
+    full.entrants = full_roster(&t.plan, cap);
+    if full.previous_reference.is_none() {
+        full.previous_reference = Some(t.plan.reference.clone());
+    }
+    let embedded = embedded_bundle_bytes(&full);
+    let bound = slop_ninja_protocol::target_bundle::VALIDATOR_BUNDLE_BYTES;
+    json!({"roster_cap": cap, "receipts_per_cohort": full.receipt_bound(),
+        "receipt_index_bound": slop_ninja_protocol::MAX_SEQUENCE_LEN,
+        "embedded_bundle_receipt_bytes": embedded, "bundle_bound": bound,
+        "embedded_bundle_fits": embedded.is_some_and(|b| b <= bound),
+        "validator_bundle_schema": if embedded.is_some_and(|b| b <= bound) { "v2 or v3" } else { "v3" }})
+}
+
 /// Installs (or replaces) the standing template. A reference chain that
 /// exists must resolve to a stored artifact record (the calendar names it);
 /// the reply says which references the next cohort names.
@@ -201,7 +234,7 @@ pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R
         &[s(text), s(&sha), bind_u64(now_ms)?],
     )?;
     Ok(json!({"installed": true, "sha256": sha, "label_prefix": t.label_prefix,
-        "roster_cap": t.plan.admission.as_ref().map(|a| a.roster_cap),
+        "roster_cap": t.plan.admission.as_ref().map(|a| a.roster_cap), "capacity": capacity(&t),
         "next_references": {"source": source, "reference": next_ref.package_sha256,
             "previous_reference": next_prev.map(|p| p.package_sha256),
             "template_reference_followed": source == "template"}}))

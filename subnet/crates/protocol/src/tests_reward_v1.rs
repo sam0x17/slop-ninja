@@ -3127,6 +3127,43 @@ fn a_launch_bundle_commits_only_the_burn_row_within_its_lease() -> Result<()> {
 }
 
 #[test]
+fn a_receipt_takes_one_length_in_a_validator_bundle() -> Result<()> {
+    // Every receipt object and index entry has one length, whatever its
+    // digests, attempt number and outcome class, so the receipts' part of a
+    // bundle is exact from the receipt count.
+    let classes = [
+        OutcomeClass::Prediction,
+        OutcomeClass::ModelError,
+        OutcomeClass::InvalidOutput,
+        OutcomeClass::ParseFailure,
+        OutcomeClass::InfrastructureError,
+    ];
+    let mut lengths = std::collections::BTreeSet::new();
+    for (n, outcome) in classes.into_iter().enumerate() {
+        let receipt = AttemptReceipt {
+            attempt: Digest([n as u8; 32]),
+            assignment: Digest([0xff; 32]),
+            artifact: Digest([0x11; 32]),
+            number: u8::try_from(n + 1).unwrap_or(u8::MAX).max(1) * 50,
+            outcome,
+            result_commitment: Digest([0x12; 32]),
+        };
+        let entry = ReceiptIndexEntry::for_receipt(&receipt)?;
+        let mut e = Encoder::new();
+        entry.encode_to(&mut e);
+        lengths.insert((receipt.to_bytes()?.len(), e.into_bytes().len()));
+    }
+    assert_eq!(lengths.len(), 1, "{lengths:?}");
+    let (object, entry) = lengths.into_iter().next().unwrap();
+    let per = 2 * (4 + object + entry) as u64;
+    assert_eq!(target_bundle::receipt_bundle_bytes(1)?, per);
+    assert_eq!(target_bundle::receipt_bundle_bytes(150_000)?, 150_000 * per);
+    assert_eq!(target_bundle::receipt_bundle_bytes(0)?, 0);
+    assert!(target_bundle::receipt_bundle_bytes(u64::MAX).is_err());
+    Ok(())
+}
+
+#[test]
 fn receipt_chunks_must_hold_every_indexed_receipt_once() -> Result<()> {
     let receipt = |n: u8| AttemptReceipt {
         attempt: Digest([n; 32]),

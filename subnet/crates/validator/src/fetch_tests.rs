@@ -2183,3 +2183,58 @@ fn a_dry_run_stages_a_fetched_bundle_in_memory() -> Result<()> {
     assert_eq!(live.read_bundle()?, staged.bundle);
     Ok(())
 }
+
+/// A cohort whose embedded receipts would exceed the bundle file bound is
+/// assembled as bundle schema v3: the records embedded, the signed receipt
+/// index and the receipt bundles named by their absolute paths in the
+/// verified cache. The chunks stream to the cache without counting against
+/// the session bound (only the records and the signed index are read into
+/// memory), and the bundle verifies from those files.
+#[test]
+fn receipts_past_the_embedded_bound_are_named_from_the_cache() -> Result<()> {
+    use crate::package_v2::{BUNDLE_SCHEMA_V2, BUNDLE_SCHEMA_V3, BundleV2};
+    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
+    let root = scratch()?;
+    let receipts = VALIDATOR_BUNDLE_BYTES / receipt_bundle_bytes(1)? + 1_000;
+    let big = rv1::sized(receipts);
+    let host = Host::default();
+    publish(&host, &big);
+    index(&host, &[(&big, true)]);
+    point(&host, &fx::chain(), "cohort", &big.authorization, None);
+    let cache = root.path().join("cache");
+    let staged = ready(run(&host, &cache, launch_held())?);
+    let b: BundleV2 = serde_json::from_slice(&staged.bundle)?;
+    assert_eq!(b.schema, BUNDLE_SCHEMA_V3);
+    assert!(staged.bundle.len() < 64 << 10, "{} bytes", staged.bundle.len());
+    assert_eq!(staged.info.receipts_verified, receipts);
+    let r = b.receipts.as_ref().expect("receipts by reference");
+    let local = cache.join("cohorts").join(&big.manifest.cohort_label);
+    assert_eq!(std::path::Path::new(&r.index.path), std::path::absolute(local.join("receipt-index.signed"))?);
+    assert_eq!(r.chunks.len(), 1);
+    assert_eq!(std::path::Path::new(&r.chunks[0].path), std::path::absolute(local.join(CHUNK))?);
+    assert_eq!((r.chunks[0].sha256.as_str(), r.chunks[0].bytes), (sha(&big.chunk).as_str(), big.chunk.len() as u64));
+    // The installed form verifies again from the cache, as the validator
+    // does each time it reads it.
+    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
+    let again = crate::package_v2::verify(&staged.bundle, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held())
+        .map_err(|r| anyhow::anyhow!("{}", r.code))?;
+    assert_eq!(again.receipts_verified, receipts);
+    // Deleted from the host under the N+2 rule, the receipts are named from
+    // the cache again, never asked of the host.
+    delete_receipts(&host, &big);
+    index(&host, &[(&big, false)]);
+    host.clear_log();
+    let cached = ready(run(&host, &cache, launch_held())?);
+    assert_eq!(serde_json::from_slice::<BundleV2>(&cached.bundle)?.schema, BUNDLE_SCHEMA_V3);
+    assert_eq!(cached.info.receipts_verified, receipts);
+    assert!(host.offsets(&format!("{}{CHUNK}", dir(&big))).is_empty());
+    // A cohort that fits keeps the embedded form.
+    let (first, _, _) = rv1::cohorts();
+    let host = Host::default();
+    publish(&host, &first);
+    index(&host, &[(&first, true)]);
+    point(&host, &fx::chain(), "cohort", &first.authorization, None);
+    let small = ready(run(&host, &root.path().join("cache2"), launch_held())?);
+    assert_eq!(serde_json::from_slice::<BundleV2>(&small.bundle)?.schema, BUNDLE_SCHEMA_V2);
+    Ok(())
+}

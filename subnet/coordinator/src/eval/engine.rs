@@ -806,17 +806,7 @@ pub fn admit(cfg: &EvalConfig, bytes: &[u8]) -> R<(CohortPlan, Admission)> {
     let lanes = cost::plan_score_lanes(jobs, plan.n, plan.scorer.chunk_docs, f.score.lane_docs, cap).len() as u32;
     // reward-v1: references score the batch; every entrant also scores every
     // probe version in use and both canary audit draws.
-    let docs = match &plan.reward_v1 {
-        Some(v) if !plan.is_probe_build() => {
-            let refs = 1 + u64::from(plan.previous_reference.is_some());
-            let probe: u64 = v.probes.iter().map(|p| u64::from(p.size)).sum();
-            let per_entrant = u64::from(plan.n) + probe + u64::from(plan.audit_humans()) + u64::from(plan.audit_b_humans());
-            let _ = v;
-            refs * u64::from(plan.n) + plan.entrants.len() as u64 * per_entrant
-        }
-        _ => u64::from(jobs) * u64::from(plan.n),
-    };
-    let docs = u32::try_from(docs).map_err(|_| EvalError::Plan("documents to score"))?;
+    let docs = u32::try_from(plan.scored_docs()).map_err(|_| EvalError::Plan("documents to score"))?;
     let ub = cost::nano_to_micro_ceil(cost::scoring_upper_bound_nanousd(1, docs, lanes, &f.cost));
     if ub > f.score.scoring_budget_microusd {
         return Err(EvalError::Plan("scoring budget is below the plan's upper bound"));

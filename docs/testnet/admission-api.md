@@ -353,11 +353,9 @@ spec whose checks admission runs, by id and by the digest
 `slop_ninja_artifact_check spec` prints; a client built for another spec
 reports its check as incomplete. The scorer admits each load by the spec
 the load names by digest, and by spec v2 when it names none. A cohort's
-scoring loads name its spec's digest, frozen in its plan; the admission runs
-still load by spec v2 (the probe route names no spec for them), so a cohort
-that admits its roster names spec v2 until those runs name the cohort's spec. Spec v3 admits every artifact spec v2 admits with the same
-results, and adds the span tower class, which only a cohort naming spec v3
-admits. `max_object_len` is derived from the cohort spec's
+scoring loads and its admission runs name its spec's digest, frozen in its
+plan. Spec v3 admits every artifact spec v2 admits with the same results,
+and adds the span tower class, which only a cohort naming spec v3 admits. `max_object_len` is derived from the cohort spec's
 bounds: the 4-byte length prefix, the protocol's header bound
 (`MAX_ARTIFACT_HEADER_LEN`), the largest graph class length the spec serves
 (a class fixes its file length), the pinned tokenizer length and the spec's
@@ -823,8 +821,12 @@ authoritative for uploads; the snapshot is a published mirror and can lag it.
   operator's own hotkeys and the fresh pool are the plan's `admission` block.
   The deployment's `ROSTER_CAP` bounds `roster_cap`. Coordinator-opened
   cohorts take them from the standing template. The artifact spec is spec v2
-  until admission runs name the cohort's spec (other specs are refused at
-  the plan, `admission_spec_unsupported`).
+  or v3 (any other is refused at the plan, `admission_spec_unsupported`).
+  The standing template's roster cap is also bounded by the receipt index:
+  every receipt a cohort at the cap can record (every document at every
+  attempt) must fit one index. Native validators hold a target's receipts
+  by reference (bundle schema v3), so their 64 MiB bundle file bound limits
+  only the embedded records.
 - **Outside entrants.** An admitted entrant whose hotkey is not one of the
   plan's `operator_hotkeys`, and whose content is not an already published
   artifact's, is an outside entrant (its artifact loaded and scored the
@@ -848,5 +850,6 @@ authoritative for uploads; the snapshot is a published mirror and can lag it.
   Worker and the `hotkeys` allow-list keep unsigned and unlisted load off
   the cohort authority, the unsigned cohort read excepted). The digest-stream
   part check is not qualified, so parts record their claimed digest.
-  Admission runs use the scorer lane's probe route: it loads by spec v2,
-  with the probe's load wait rather than the cohort's allowance.
+  Admission runs use the scorer lane's probe route: it loads by the
+  cohort's spec, with the probe's load wait rather than the cohort's
+  allowance.

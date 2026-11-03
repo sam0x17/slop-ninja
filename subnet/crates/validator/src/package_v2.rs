@@ -14,6 +14,16 @@
 //! the active target and its carrying cohort. Each per-tempo commitment checks
 //! the authorization again for its epoch.
 //!
+//! Bundle schema v3 (`slop_ninja.reward_v1_bundle/v3`) carries the same
+//! records, except that the receipt indexes and receipt chunk objects of the
+//! target's cohort and of any carrier are not embedded: each is named by an
+//! absolute file path, its SHA-256 and its length ([`ObjectRef`]), and is
+//! read from that file, checked against both and verified one chunk at a
+//! time. Embedding them hex-encoded limits a cohort and its carrier to about
+//! 150,000 receipts within the 64 MiB file bound; by reference, the receipt
+//! index's own sequence bound is the limit. The fetcher keeps them in its
+//! verified cache; the operator's tool writes them to a directory it names.
+//!
 //! The row is `reward_v1::derive_row` against this validator's own finalized
 //! snapshot, including the finalized subnet owner hotkey, which receives any
 //! burned units. Nothing here reads a runtime version.
@@ -31,6 +41,27 @@ use slop_ninja_subnet::WeightWork;
 use crate::package::{Derived, PackageSummary, Refusal, protocol};
 
 pub const BUNDLE_SCHEMA_V2: &str = "slop_ninja.reward_v1_bundle/v1";
+/// Bundle schema v3: receipt indexes and chunks by reference ([`ObjectRef`]).
+pub const BUNDLE_SCHEMA_V3: &str = "slop_ninja.reward_v1_bundle/v3";
+
+/// An object a v3 bundle names instead of embedding: an absolute path, the
+/// object's SHA-256 (lowercase hex) and its exact length.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectRef {
+    pub path: String,
+    pub sha256: String,
+    pub bytes: u64,
+}
+
+/// A cohort's signed receipt index and its receipt chunk objects, by
+/// reference.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReceiptsRef {
+    pub index: ObjectRef,
+    pub chunks: Vec<ObjectRef>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -69,7 +100,9 @@ pub struct AuthorizationHex {
     pub carrier: Option<CarrierHex>,
 }
 
-/// The bundle file. Field meanings follow the coordinator's `target::BundleV2`.
+/// The bundle file, schema v2 (`slop_ninja.reward_v1_bundle/v1`) or v3. Field meanings follow the coordinator's
+/// `target::BundleV2`; a v3 bundle leaves the receipt indexes and chunk
+/// lists empty and names them in `receipts` and `carrier_receipts`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BundleV2 {
@@ -83,14 +116,62 @@ pub struct BundleV2 {
     /// The carrying cohort's receipt chunk objects (hex).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub carrier_receipt_chunks: Vec<String>,
+    /// v3: the target cohort's receipt index and chunks, by reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipts: Option<ReceiptsRef>,
+    /// v3: the carrying cohort's receipt index and chunks, by reference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carrier_receipts: Option<ReceiptsRef>,
 }
 
-/// Whether bundle bytes are the reward-v1 form.
+/// Whether bundle bytes are the reward-v1 form (bundle schema v2 or v3).
 pub fn is_v2(bytes: &[u8]) -> bool {
     serde_json::from_slice::<serde_json::Value>(bytes)
         .ok()
-        .and_then(|v| v.get("schema").and_then(|s| s.as_str()).map(|s| s == BUNDLE_SCHEMA_V2))
+        .and_then(|v| {
+            v.get("schema").and_then(|s| s.as_str()).map(|s| s == BUNDLE_SCHEMA_V2 || s == BUNDLE_SCHEMA_V3)
+        })
         .unwrap_or(false)
+}
+
+/// Opens a referenced object: an absolute path to a regular file of exactly
+/// the named length (checked before reading), whose SHA-256 is the named
+/// one. A missing file is `receipts_incomplete`; any other mismatch
+/// `receipt_object_mismatch`.
+pub fn read_object(r: &ObjectRef, what: &str) -> Result<Vec<u8>, Refusal> {
+    use sha2::{Digest as _, Sha256};
+    let path = std::path::Path::new(&r.path);
+    if !path.is_absolute() {
+        return Err(Refusal::new("bundle_malformed", format!("{what}: an object path must be absolute")));
+    }
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Refusal::new("receipts_incomplete", format!("{what}: the referenced object is missing")));
+        }
+        Err(e) => return Err(Refusal::new("receipts_incomplete", format!("{what}: {e}"))),
+    };
+    if !meta.is_file() || meta.len() != r.bytes {
+        return Err(Refusal::new("receipt_object_mismatch", format!("{what}: the referenced object's length differs")));
+    }
+    let bytes = std::fs::read(path).map_err(|e| Refusal::new("receipts_incomplete", format!("{what}: {e}")))?;
+    if bytes.len() as u64 != r.bytes || hex::encode(Sha256::digest(&bytes)) != r.sha256.to_ascii_lowercase() {
+        return Err(Refusal::new("receipt_object_mismatch", format!("{what}: the referenced object's digest differs")));
+    }
+    Ok(bytes)
+}
+
+/// Verifies referenced chunk objects one at a time.
+fn verify_chunk_refs(
+    mut v: slop_ninja_protocol::target_bundle::ReceiptChunkVerifier<'_>,
+    chunks: &[ObjectRef],
+    what: &str,
+) -> Result<u64, Refusal> {
+    for c in chunks {
+        let bytes = read_object(c, what)?;
+        v.push(&bytes).map_err(protocol("receipt_object_mismatch"))?;
+    }
+    v.finish().map_err(protocol("receipt_object_mismatch"))
 }
 
 fn unhex(field: &str, value: &str) -> Result<Vec<u8>, Refusal> {
@@ -163,9 +244,35 @@ pub fn verify(
     }
     let b: BundleV2 =
         serde_json::from_slice(bytes).map_err(|error| Refusal::new("bundle_malformed", error.to_string()))?;
-    if b.schema != BUNDLE_SCHEMA_V2 || b.shortcut != "T12" {
+    let v3 = b.schema == BUNDLE_SCHEMA_V3;
+    if !(v3 || b.schema == BUNDLE_SCHEMA_V2) || b.shortcut != "T12" {
         return Err(Refusal::new("bundle_schema", "unsupported bundle schema or shortcut label"));
     }
+    // Each schema carries receipts in its own form only.
+    let embedded = b.source.as_ref().is_some_and(|s| s.receipt_index.is_some())
+        || b.authorization.carrier.as_ref().is_some_and(|c| c.receipt_index.is_some())
+        || !b.receipt_chunks.is_empty()
+        || !b.carrier_receipt_chunks.is_empty();
+    let referenced = b.receipts.is_some() || b.carrier_receipts.is_some();
+    if (v3 && embedded) || (!v3 && referenced) {
+        return Err(Refusal::new("bundle_malformed", "receipts in another bundle schema's form"));
+    }
+    if (b.source.is_none() && b.receipts.is_some()) || (b.authorization.carrier.is_none() && b.carrier_receipts.is_some()) {
+        return Err(Refusal::new("bundle_malformed", "receipts without the records they belong to"));
+    }
+    // v3: the referenced receipt indexes, read and checked against their
+    // references before anything is verified.
+    let index_ref = |r: &Option<ReceiptsRef>, what: &str| -> Result<Option<Vec<u8>>, Refusal> {
+        r.as_ref().map(|r| read_object(&r.index, what)).transpose()
+    };
+    let (source_index, carrier_index) = if v3 {
+        (
+            b.source.as_ref().map(|_| index_ref(&b.receipts, "receipts.index")).transpose()?.flatten(),
+            b.authorization.carrier.as_ref().map(|_| index_ref(&b.carrier_receipts, "carrier_receipts.index")).transpose()?.flatten(),
+        )
+    } else {
+        (None, None)
+    };
     let chain = ChainBinding { genesis: Digest(*genesis), netuid, mechanism: 0 };
     let src = match &b.source {
         Some(s) => Some((
@@ -173,7 +280,10 @@ pub fn verify(
             unhex("package", &s.package)?,
             unhex("target", &s.target)?,
             unhex("closure", &s.closure)?,
-            s.receipt_index.as_deref().map(|r| unhex("receipt_index", r)).transpose()?,
+            match source_index {
+                Some(bytes) => Some(bytes),
+                None => s.receipt_index.as_deref().map(|r| unhex("receipt_index", r)).transpose()?,
+            },
             unhex("published_contents", &s.published_contents)?,
             unhex("fingerprint_index", &s.fingerprint_index)?,
         )),
@@ -196,13 +306,17 @@ pub fn verify(
     let renewal = b.authorization.renewal.as_deref().map(|r| unhex("renewal", r)).transpose()?;
     let carrier = match &b.authorization.carrier {
         Some(c) => {
-            let Some(receipt_index) = &c.receipt_index else {
-                return Err(Refusal::new("receipts_incomplete", "the carrier carries no receipt index"));
+            let receipt_index = match (carrier_index, &c.receipt_index) {
+                (Some(bytes), _) => bytes,
+                (None, Some(hex)) => unhex("carrier receipt_index", hex)?,
+                (None, None) => {
+                    return Err(Refusal::new("receipts_incomplete", "the carrier carries no receipt index"));
+                }
             };
             Some((
                 unhex("carrier manifest", &c.manifest)?,
                 unhex("carrier package", &c.package)?,
-                unhex("carrier receipt_index", receipt_index)?,
+                receipt_index,
                 unhex("carrier published_contents", &c.published_contents)?,
                 unhex("carrier fingerprint_index", &c.fingerprint_index)?,
             ))
@@ -227,6 +341,23 @@ pub fn verify(
     let verified = slop_ninja_protocol::target_bundle::verify(&chain, keys, held, source, authorizing)
         .map_err(protocol("bundle_unverified"))?;
     let mut receipts_verified = 0;
+    if v3 {
+        if verified.source.is_some() {
+            let r = b.receipts.as_ref().ok_or_else(|| Refusal::new("receipts_incomplete", "the bundle names no receipts"))?;
+            let v = verified.receipt_verifier().map_err(protocol("receipts_incomplete"))?;
+            receipts_verified = verify_chunk_refs(v, &r.chunks, "receipts.chunks")?;
+        }
+        if verified.carrier().is_some() {
+            let r = b
+                .carrier_receipts
+                .as_ref()
+                .ok_or_else(|| Refusal::new("receipts_incomplete", "the bundle names no carrier receipts"))?;
+            let v = verified.carrier_receipt_verifier().map_err(protocol("receipts_incomplete"))?;
+            receipts_verified += verify_chunk_refs(v, &r.chunks, "carrier_receipts.chunks")?;
+        }
+        MechId::new(verified.chain.mechanism).map_err(|error| Refusal::new("package_mechanism", error.to_string()))?;
+        return Ok(Authorized { verified, keys: keys.clone(), receipts_verified });
+    }
     if verified.source.is_some() {
         if b.receipt_chunks.is_empty() {
             return Err(Refusal::new("receipts_incomplete", "the bundle retains no receipt objects"));

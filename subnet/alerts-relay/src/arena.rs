@@ -1,5 +1,10 @@
-//! Bounded memory for the relay's Wasm build (`slop_ninja.alerts_relay.arena/v2`:
-//! every input bound derived from its fields; v1 used round allowances),
+//! Bounded memory for the relay's Wasm build (`slop_ninja.alerts_relay.arena/v4`:
+//! v4 reserves that slot for each feed step before the step allocates
+//! (`crate::feed::STEP_BYTES`), so the logged peak covers the feed's
+//! allocations; v3 added the alert feed's object, `latest.json` and delete
+//! batch, each held alone in the slot of one message, which is larger than
+//! each, so the budget's figure is unchanged; v2 derived every input bound
+//! from its fields; v1 used round allowances),
 //! the publisher's rule (`slop_ninja.publisher.arena/v2`) applied to the
 //! relay's inputs:
 //!
@@ -24,13 +29,16 @@
 //! Durable Object runs one at a time) holding one status body and its growth
 //! copy and then building one message, and two posts (the publisher posts its
 //! batches one at a time; a retry can overlap a slow earlier post), each with
-//! its body, growth copy and message.
+//! its body, growth copy and message. A feed object, `latest.json` and a
+//! delete batch are built and released one at a time where a message would
+//! be, each inside its own reservation of that slot (`crate::feed`; its
+//! tests check each fits).
 
 use std::cell::Cell;
 
 use slop_ninja_alerts_wire::{HEARTBEAT_BYTES, MIN_EVENT_BYTES, post_bound};
 
-pub const ARENA_RULE: &str = "slop_ninja.alerts_relay.arena/v2";
+pub const ARENA_RULE: &str = "slop_ninja.alerts_relay.arena/v4";
 
 /// A coordinator Worker's `/status` body: the coordinator answers it inside
 /// one `WORKER_CONTROL_BYTES` scope (1 MiB, `subnet/coordinator/src/

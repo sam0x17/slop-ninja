@@ -467,6 +467,74 @@ pub fn build(
     let subject = subject(events, network);
     let message_id = message_id(events, addrs.domain());
     let text = text(events, network, source);
+    assemble(addrs, network, subject, message_id, text, now_ms)
+}
+
+// ---------------------------------------------------------------- drills
+
+/// The drill message's fixed text, in pieces (its bound below is their
+/// length).
+const DRILL_HEAD: [&str; 3] = [
+    "This is a drill of the Slop Ninja ",
+    " alerts relay. It needs no action.\n\n\
+     It checks that the relay's email reaches this mailbox. Drill ",
+    ", sent ",
+];
+const DRILL_FOOTER: &str = ".\n\n-- \nSent once per drill id by the private alerts relay, because its \
+     deploy-time setting DRILL_ID was set. The relay does not read replies.\n";
+
+/// The drill message's text bound besides its network and drill id.
+pub const DRILL_FIXED_BYTES: usize = total(&DRILL_HEAD) + RFC3339_MAX_BYTES + DRILL_FOOTER.len();
+
+/// The drill's subject: `Slop Ninja <network> alert drill`.
+pub fn drill_subject(network: &str) -> String {
+    format!("Slop Ninja {} alert drill", header_text(network))
+}
+
+/// The drill's plain text: what it is, that it needs no action, its id
+/// and when it was sent.
+pub fn drill_text(network: &str, drill: &str, now_ms: u64) -> String {
+    let mut t = String::with_capacity(DRILL_FIXED_BYTES + network.len() + drill.len());
+    for (piece, field) in
+        DRILL_HEAD
+            .iter()
+            .zip([body_text(network), body_text(drill), rfc3339(now_ms)])
+    {
+        t.push_str(piece);
+        t.push_str(&field);
+    }
+    t.push_str(DRILL_FOOTER);
+    t
+}
+
+/// A drill's `Message-ID`, from its id alone (a drill sent again after an
+/// unknown outcome carries the same one).
+pub fn drill_message_id(drill: &str, domain: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(b"slop_ninja.alert_drill_message_id/v1");
+    h.update((drill.len() as u64).to_be_bytes());
+    h.update(drill.as_bytes());
+    let d = hex::encode(h.finalize());
+    format!("<{}.alerts@{}>", &d[..32], domain)
+}
+
+/// Builds the drill message for `drill` (a deploy-time `DRILL_ID`).
+pub fn build_drill(addrs: &Addresses, network: &str, drill: &str, now_ms: u64) -> Message {
+    let subject = drill_subject(network);
+    let message_id = drill_message_id(drill, addrs.domain());
+    let text = drill_text(network, drill, now_ms);
+    assemble(addrs, network, subject, message_id, text, now_ms)
+}
+
+/// The headers and the encoded body of one message.
+fn assemble(
+    addrs: &Addresses,
+    network: &str,
+    subject: String,
+    message_id: String,
+    text: String,
+    now_ms: u64,
+) -> Message {
     let mut raw = String::with_capacity(crate::arena::message_bound(text.len() as u64) as usize);
     for line in [
         format!(
@@ -788,6 +856,65 @@ pub(crate) mod tests {
             let m = build(&addrs(), &events, "testnet", src, 0);
             assert!(m.raw.len() as u64 <= crate::arena::message_bound(crate::arena::text_bound()));
         }
+    }
+
+    /// The drill message: the subject the operator looks for, the required
+    /// headers, a body that says it is a drill needing no action, a
+    /// Message-ID from the drill id alone, and a text within its bound
+    /// (and the budgeted message bound) for the longest id.
+    #[test]
+    fn drill_messages() {
+        let m = build_drill(&addrs(), "testnet", "20261102-a", 1_793_627_107_000);
+        assert_eq!(m.subject, "Slop Ninja testnet alert drill");
+        let (head, body) = m.raw.split_once("\r\n\r\n").unwrap();
+        let headers: Vec<&str> = head.split("\r\n").collect();
+        assert_eq!(headers.len(), HEADER_LINES);
+        for name in [
+            "From: ",
+            "To: ",
+            "Date: ",
+            "Message-ID: ",
+            "MIME-Version: 1.0",
+        ] {
+            assert_eq!(
+                headers.iter().filter(|h| h.starts_with(name)).count(),
+                1,
+                "{name}"
+            );
+        }
+        assert!(headers.contains(&"Subject: Slop Ninja testnet alert drill"));
+        assert!(headers.contains(&"Date: Mon, 02 Nov 2026 13:45:07 +0000"));
+        assert!(headers.contains(&"Auto-Submitted: auto-generated"));
+        assert!(head.len() <= HEADER_BYTES && head.is_ascii());
+        let text = qp_decode(body);
+        assert!(text.starts_with(
+            "This is a drill of the Slop Ninja testnet alerts relay. It needs no action."
+        ));
+        assert!(text.contains("Drill 20261102-a, sent 2026-11-02T13:45:07Z."));
+        assert!(!text.contains('@'), "no address in the body");
+        assert_eq!(
+            build_drill(&addrs(), "testnet", "20261102-a", 5).message_id,
+            m.message_id
+        );
+        assert_ne!(
+            build_drill(&addrs(), "testnet", "20261102-b", 5).message_id,
+            m.message_id
+        );
+        assert!(m.message_id.ends_with(".alerts@example.invalid>"));
+        let longest = "d".repeat(slop_ninja_alerts_wire::MAX_STRING_BYTES);
+        let t = drill_text(crate::config::NETWORK, &longest, u64::MAX);
+        assert_eq!(
+            t.len(),
+            DRILL_FIXED_BYTES + crate::config::NETWORK.len() + longest.len()
+        );
+        assert!(t.len() as u64 <= crate::arena::text_bound());
+        let m = build_drill(
+            &addrs(),
+            crate::config::NETWORK,
+            &longest,
+            253_402_300_799_000,
+        );
+        assert!(m.raw.len() as u64 <= crate::arena::message_bound(crate::arena::text_bound()));
     }
 
     /// The fixed text is exactly what the pieces add: an unconfirmed event

@@ -1,4 +1,4 @@
-//! Alert rules (`slop_ninja.publisher.alerts/v3`), their state across runs,
+//! Alert rules (`slop_ninja.publisher.alerts/v4`), their state across runs,
 //! and the posts to the sink: under decision D18 the private alerts relay
 //! (email, through a service binding), or an https sink.
 //!
@@ -28,9 +28,20 @@
 //! Details are content-free: codes, labels, epochs and ages, never spend
 //! figures or private data.
 //!
+//! Unknown is never a resolution ([`conditions`]): a status read that is
+//! unanswered, times out or fails, or answers without a field a rule reads,
+//! decides nothing. The open entries of the status-dependent rules it would
+//! decide are carried as they are (neither fired nor resolved), and they
+//! resolve only on a later read that answers and shows the condition clear.
+//! The unknown read itself alerts after the same hold (two cron periods): a
+//! source that does not answer is `status_unreachable`, one that answers
+//! without a field a carried entry needs is `status_incomplete`. One missed
+//! read sends nothing.
+//!
 //! | Rule | Fires when |
 //! | --- | --- |
 //! | `status_unreachable` | a status source has not answered for two runs |
+//! | `status_incomplete` | a status source answered without a field an open status rule reads, for two runs |
 //! | `durable_fault` | a Worker's journal holds a durable fault, or signing is in `fault` |
 //! | `fallback_too_long` | a Worker has been in fallback mode for a whole tempo |
 //! | `watermark_stalled` | a Worker's RPC-confirmed watermark is older than the watchdog silence plus two cron periods, or absent |
@@ -56,14 +67,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::config::SinkFormat;
-use crate::status::{Observed, WorkerView};
+use crate::status::{EvalView, Observed, WorkerView};
 
 pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v3: `config_warning`, and resolutions of attempted firings.
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v3";
+/// v4: an unknown status read (unanswered, or answered without a field an
+/// open entry needs) carries the open entries it would decide, and alerts
+/// after its hold (`status_unreachable`, `status_incomplete`) (v3:
+/// `config_warning`, and resolutions of attempted firings).
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v4";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -352,6 +366,242 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
     out
 }
 
+/// The rules whose conditions a status read decides. Their open entries are
+/// carried while that read is unknown ([`conditions`]).
+pub const STATUS_RULES: &[&str] = &[
+    "status_incomplete",
+    "durable_fault",
+    "fallback_too_long",
+    "watermark_stalled",
+    "phase_overrun",
+    "scorer_budget_fault",
+    "cohort_fault",
+    "ledger_threshold",
+    "commit_gap",
+    "coordinator_reveal_mismatch",
+];
+
+/// What a status-dependent rule's decision lacks this run: a source that
+/// did not answer, or a field an answered source's status omits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Need {
+    Unanswered(&'static str),
+    Field(&'static str, &'static str),
+}
+
+/// A field of a Worker's status: its name and whether a read holds it.
+type WorkerField = (&'static str, fn(&WorkerView) -> bool);
+
+/// The coordinator's signing view (`commit_gap`, the reveal check and a
+/// `.signing` subject's `durable_fault`).
+const SIGNING: WorkerField = ("signing", |w| w.signing.is_some());
+/// The journal block a Worker's `durable_fault` reads.
+const JOURNAL: WorkerField = ("chain_journal", |w| !w.journal_missing);
+/// The mode `fallback_too_long` reads, and its age while in fallback.
+const MODE: WorkerField = ("mode", |w| w.mode.is_some());
+const MODE_AGE: WorkerField = ("mode_age_ms", |w| {
+    w.mode.as_deref() != Some("fallback") || w.mode_age_ms.is_some()
+});
+
+fn need_worker(o: &Observed, name: &str, fields: &[WorkerField], n: &mut Vec<Need>) {
+    let (source, view) = match name {
+        "coordinator" => ("coordinator", o.coordinator.as_ref()),
+        "eval_worker" => ("eval_worker", o.eval_worker.as_ref()),
+        _ => return,
+    };
+    match view {
+        None => n.push(Need::Unanswered(source)),
+        Some(w) => n.extend(
+            fields
+                .iter()
+                .filter(|(_, present)| !present(w))
+                .map(|(field, _)| Need::Field(source, field)),
+        ),
+    }
+}
+
+/// A field of the eval status: its name and whether a read holds it.
+type EvalField = (&'static str, fn(&EvalView) -> bool);
+
+fn need_eval(o: &Observed, field: Option<EvalField>, n: &mut Vec<Need>) {
+    match (&o.eval, field) {
+        (None, _) => n.push(Need::Unanswered("eval")),
+        (Some(e), Some((name, present))) if !present(e) => n.push(Need::Field("eval", name)),
+        _ => {}
+    }
+}
+
+/// The eval status's cohort list, complete (every cohort with its number,
+/// label and phase).
+const COHORTS: EvalField = ("cohorts", |e| !e.cohorts_missing);
+
+/// What this run's reads lack to decide `rule/subject` (a status-dependent
+/// rule): `commit_gap` and the reveal check need the coordinator's signing
+/// view and the eval status's epoch; the cohort rules the eval status's
+/// complete cohort list, and `phase_overrun` also its epoch and, while its
+/// cohort is the active one in a work phase, that cohort's `opened_epoch`
+/// and `k_tempos`; `ledger_threshold` the eval status's ledger ratio; a
+/// Worker's `durable_fault` its journal block (a `.signing` subject the
+/// signing view instead), `fallback_too_long` its mode (and the mode's age
+/// in fallback), `watermark_stalled` its answer (a missing watermark fires);
+/// `status_incomplete` its source's answer.
+pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
+    let mut n = Vec::new();
+    match rule {
+        "durable_fault" => match subject.strip_suffix(".signing") {
+            Some(name) => need_worker(o, name, &[SIGNING], &mut n),
+            None => need_worker(o, subject, &[JOURNAL], &mut n),
+        },
+        "fallback_too_long" => need_worker(o, subject, &[MODE, MODE_AGE], &mut n),
+        "watermark_stalled" => need_worker(o, subject, &[], &mut n),
+        "scorer_budget_fault" | "cohort_fault" => need_eval(o, Some(COHORTS), &mut n),
+        "phase_overrun" => {
+            need_eval(o, Some(("epoch", |e| e.epoch.is_some())), &mut n);
+            if o.eval.as_ref().is_some_and(|e| e.cohorts_missing) {
+                n.push(Need::Field("eval", "cohorts"));
+            }
+            if let Some(c) = o.eval.as_ref().and_then(|e| e.active())
+                && c.label == subject
+                && WORK_PHASES.contains(&c.phase.as_str())
+            {
+                if c.opened_epoch.is_none() {
+                    n.push(Need::Field("eval", "opened_epoch"));
+                }
+                if c.k_tempos.is_none() {
+                    n.push(Need::Field("eval", "k_tempos"));
+                }
+            }
+        }
+        "ledger_threshold" => need_eval(
+            o,
+            Some(("ledger ratio", |e| e.ledger_permille.is_some())),
+            &mut n,
+        ),
+        "commit_gap" | "coordinator_reveal_mismatch" => {
+            need_worker(o, "coordinator", &[SIGNING], &mut n);
+            need_eval(o, Some(("epoch", |e| e.epoch.is_some())), &mut n);
+        }
+        "status_incomplete" => match subject {
+            "eval" => need_eval(o, None, &mut n),
+            name => need_worker(o, name, &[], &mut n),
+        },
+        _ => {}
+    }
+    n
+}
+
+/// Whether this run's reads decide `rule/subject`: the reads it depends on
+/// answered and hold the fields it reads ([`needs`]).
+pub fn decided(rule: &str, subject: &str, o: &Observed) -> bool {
+    needs(rule, subject, o).is_empty()
+}
+
+/// The conditions that hold this run, given the alert state the earlier
+/// runs left: [`evaluate`]'s, plus every open entry of a
+/// [`STATUS_RULES`] rule that this run's reads do not decide ([`decided`]),
+/// carried with its detail and hold. An unknown read therefore neither
+/// fires (no new entry comes from it) nor resolves (the open entry stays as
+/// it was); a resolution needs a read that answered and shows the condition
+/// clear. An entry already resolving (a successful read cleared it) is not
+/// revived. A source that did not answer is `status_unreachable`'s, which
+/// fires after its hold; a source that answered without a field a carried
+/// entry needs raises `status_incomplete <source>` with the same hold,
+/// naming the fields and the entries they leave undecided. A carried
+/// entry's detail is its last decided one with a note of how long its read
+/// has been unknown ([`UNKNOWN_NOTE`]), so a reminder sent meanwhile does
+/// not read as a fresh observation; the note never changes an event id.
+pub fn conditions(
+    o: &Observed,
+    p: &PublisherObs,
+    r: &Rules,
+    state: &AlertState,
+    now_ms: u64,
+) -> Vec<Condition> {
+    let mut out = evaluate(o, p, r);
+    let mut incomplete: std::collections::BTreeMap<
+        &'static str,
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
+    for e in state.entries.values().filter(|e| !e.resolved) {
+        let Some(rule) = STATUS_RULES.iter().copied().find(|x| *x == e.rule) else {
+            continue;
+        };
+        let lacks = needs(rule, &e.subject, o);
+        if lacks.is_empty() || out.iter().any(|c| c.rule == rule && c.subject == e.subject) {
+            continue;
+        }
+        out.push(Condition {
+            rule,
+            subject: e.subject.clone(),
+            detail: carried_detail(&e.detail, &lacks, state, now_ms),
+            hold_ms: e.hold_ms,
+        });
+        for need in lacks {
+            if let Need::Field(source, field) = need {
+                incomplete
+                    .entry(source)
+                    .or_default()
+                    .insert(format!("{field} ({rule} {})", e.subject));
+            }
+        }
+    }
+    for (source, what) in incomplete {
+        if out
+            .iter()
+            .any(|c| c.rule == "status_incomplete" && c.subject == source)
+        {
+            out.retain(|c| !(c.rule == "status_incomplete" && c.subject == source));
+        }
+        out.push(cond(
+            "status_incomplete",
+            source,
+            format!(
+                "status answered without {}",
+                what.into_iter().collect::<Vec<_>>().join(", ")
+            ),
+            r.unreachable_hold_ms,
+        ));
+    }
+    out
+}
+
+/// Where a carried entry's note starts: `<detail> [unknown for <age> s:
+/// <what>]`, the age counted from the first run of the unknown reads'
+/// `status_unreachable` or `status_incomplete` entry (this run when there is
+/// none yet).
+pub const UNKNOWN_NOTE: &str = " [unknown for ";
+
+/// A carried entry's detail: its last decided detail (any earlier note cut)
+/// and a note naming what is unknown and for how long.
+fn carried_detail(detail: &str, lacks: &[Need], state: &AlertState, now_ms: u64) -> String {
+    let decided = detail.find(UNKNOWN_NOTE).map_or(detail, |i| &detail[..i]);
+    let mut since = now_ms;
+    let mut what = Vec::new();
+    for need in lacks {
+        let (rule, source, text) = match need {
+            Need::Unanswered(source) => (
+                "status_unreachable",
+                *source,
+                format!("{source} status did not answer"),
+            ),
+            Need::Field(source, field) => (
+                "status_incomplete",
+                *source,
+                format!("{source} status without {field}"),
+            ),
+        };
+        if let Some(e) = state.get(rule, source).filter(|e| !e.resolved) {
+            since = since.min(e.first_seen_ms);
+        }
+        what.push(text);
+    }
+    format!(
+        "{decided}{UNKNOWN_NOTE}{} s: {}]",
+        now_ms.saturating_sub(since) / 1000,
+        what.join(", ")
+    )
+}
+
 /// Records this run's conditions under [`RULES_ID`] (the state machine is
 /// shared with the alerts relay: `slop_ninja_alerts_wire::state`).
 pub fn observe(state: &mut AlertState, conditions: &[Condition], now_ms: u64) {
@@ -527,6 +777,7 @@ pub async fn deliver(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::CRON_PERIOD_MS;
     use crate::status::tests::{eval_status, worker_status};
     use crate::status::{OpView, SigningView, parse_eval, parse_worker};
 
@@ -674,6 +925,624 @@ mod tests {
         // Every unverifiable cohort is one condition, naming the newest.
         assert_eq!(c[4].subject, "manifests");
         assert!(c[4].detail.starts_with("2 closed cohorts") && c[4].detail.contains("old-b"));
+    }
+
+    /// One run of the alert phase over `o`, as `cf.rs` runs it with the
+    /// relay (every post accepted): the due events, acknowledged.
+    fn run(st: &mut AlertState, o: &Observed, now: u64) -> Vec<Event> {
+        let r = rules();
+        let c = conditions(o, &PublisherObs::default(), &r, st, now);
+        observe(st, &c, now);
+        let ev = due(st, now, r.renotify_ms);
+        mark(st, &ev, now, true);
+        acknowledge(st, &ev, now);
+        ev
+    }
+
+    /// The coordinator has not committed for two tempos (the testnet's
+    /// standing condition while its signing is deferred).
+    fn gap() -> Observed {
+        let mut o = healthy();
+        o.eval.as_mut().unwrap().epoch = Some(23_169 + 2);
+        o
+    }
+
+    fn kinds(ev: &[Event]) -> Vec<(EventKind, &str, &str)> {
+        ev.iter()
+            .map(|e| (e.state, e.rule.as_str(), e.subject.as_str()))
+            .collect()
+    }
+
+    /// 2026-11-02 18:52Z: `commit_gap coordinator` was firing; one run's
+    /// coordinator status read timed out, the rule (evaluated only on an
+    /// answer) dropped the condition, the state machine resolved it, and the
+    /// next run fired it again: two messages for one missed read. Now the
+    /// unanswered read carries the entry: no message at all, and the missed
+    /// read clears inside `status_unreachable`'s hold.
+    #[test]
+    fn a_timed_out_status_read_is_not_a_resolution() {
+        let t = 1_793_645_520_000; // 2026-11-02T18:52:00Z
+        let mut st = AlertState::default();
+        let fired = run(&mut st, &gap(), t - 20 * 60_000);
+        assert_eq!(
+            kinds(&fired),
+            vec![(EventKind::Firing, "commit_gap", "coordinator")]
+        );
+        assert!(run(&mut st, &gap(), t - 60_000).is_empty());
+        let mut timed_out = gap();
+        timed_out.coordinator = None;
+        // The defect, reproduced with the old evaluation (no carry): a
+        // resolution, then a new firing.
+        let mut old = st.clone();
+        let mut old_posts = Vec::new();
+        for (o, now) in [(&timed_out, t), (&gap(), t + 52_000)] {
+            observe(
+                &mut old,
+                &evaluate(o, &PublisherObs::default(), &rules()),
+                now,
+            );
+            let ev = due(&old, now, rules().renotify_ms);
+            acknowledge(&mut old, &ev, now);
+            old_posts.extend(ev);
+        }
+        assert_eq!(
+            kinds(&old_posts),
+            vec![
+                (EventKind::Resolved, "commit_gap", "coordinator"),
+                (EventKind::Firing, "commit_gap", "coordinator")
+            ]
+        );
+        // The fix: the same two runs post nothing.
+        assert!(run(&mut st, &timed_out, t).is_empty());
+        let e = st.get("commit_gap", "coordinator").unwrap();
+        assert!(!e.resolved && e.notified_ms == Some(t - 20 * 60_000));
+        assert!(
+            st.get("status_unreachable", "coordinator")
+                .is_some_and(|e| e.notified_ms.is_none()),
+            "the missed read is counted"
+        );
+        assert!(run(&mut st, &gap(), t + 52_000).is_empty());
+        assert!(st.get("status_unreachable", "coordinator").is_none());
+        assert_eq!(
+            st.get("commit_gap", "coordinator").unwrap().first_seen_ms,
+            t - 20 * 60_000,
+            "the same episode"
+        );
+    }
+
+    /// A reminder sent while the read stays unknown restates the last
+    /// decided detail with a note of how long the read has been unknown and
+    /// why, never as a fresh observation; the note does not pile up, leaves
+    /// the event id alone and goes once a read decides again.
+    #[test]
+    fn a_carried_reminder_says_its_read_is_unknown() {
+        let t = 1_793_645_520_000;
+        let r = rules();
+        let mut st = AlertState::default();
+        let fired = run(&mut st, &gap(), t);
+        assert_eq!(fired[0].detail, "last commit at epoch 23169, now 23171");
+        let mut silent = gap();
+        silent.coordinator = None;
+        let runs = r.renotify_ms / CRON_PERIOD_MS;
+        let mut reminders = Vec::new();
+        for i in 1..=runs {
+            reminders.extend(
+                run(&mut st, &silent, t + i * CRON_PERIOD_MS)
+                    .into_iter()
+                    .filter(|e| e.rule == "commit_gap"),
+            );
+        }
+        assert_eq!(
+            kinds(&reminders),
+            vec![(EventKind::Reminder, "commit_gap", "coordinator")]
+        );
+        let d = &reminders[0].detail;
+        let age = (runs - 1) * CRON_PERIOD_MS / 1000;
+        assert_eq!(
+            d,
+            &format!(
+                "last commit at epoch 23169, now 23171{UNKNOWN_NOTE}{age} s: coordinator status did not answer]"
+            ),
+            "counted from the first unknown run (status_unreachable's first sight)"
+        );
+        assert_eq!(d.matches(UNKNOWN_NOTE).count(), 1);
+        assert_eq!(
+            reminders[0].id,
+            event_id(
+                RULES_ID,
+                EventKind::Reminder,
+                "commit_gap",
+                "coordinator",
+                t,
+                Some(t)
+            ),
+            "the note leaves the id alone"
+        );
+        // A field missing instead: named as such.
+        let mut partial = gap();
+        partial.coordinator.as_mut().unwrap().signing = None;
+        let c = conditions(
+            &partial,
+            &PublisherObs::default(),
+            &r,
+            &st,
+            t + (runs + 1) * CRON_PERIOD_MS,
+        );
+        let carried = c.iter().find(|c| c.rule == "commit_gap").unwrap();
+        assert!(
+            carried
+                .detail
+                .ends_with("coordinator status without signing]")
+                && carried.detail.matches(UNKNOWN_NOTE).count() == 1,
+            "{}",
+            carried.detail
+        );
+        // A decided read: the fresh detail, no note.
+        run(&mut st, &gap(), t + (runs + 2) * CRON_PERIOD_MS);
+        assert_eq!(
+            st.get("commit_gap", "coordinator").unwrap().detail,
+            "last commit at epoch 23169, now 23171"
+        );
+    }
+
+    /// One message per real transition: a firing, nothing while unknown
+    /// reads come and go, and a resolution only on an answered read that
+    /// shows the condition clear.
+    #[test]
+    fn one_message_per_real_transition() {
+        let t = 1_793_644_320_000;
+        let mut st = AlertState::default();
+        let mut unknown = gap();
+        unknown.coordinator = None;
+        let mut no_eval = gap();
+        no_eval.eval = None;
+        let mut no_signing = gap();
+        no_signing.coordinator.as_mut().unwrap().signing = None;
+        let script = [
+            gap(),
+            unknown.clone(),
+            gap(),
+            no_eval,
+            no_signing,
+            unknown.clone(),
+            gap(),
+            healthy(),
+            healthy(),
+            unknown,
+            healthy(),
+        ];
+        let mut posts = Vec::new();
+        for (i, o) in script.iter().enumerate() {
+            posts.extend(run(&mut st, o, t + i as u64 * 60_000));
+        }
+        assert_eq!(
+            kinds(&posts),
+            vec![
+                (EventKind::Firing, "commit_gap", "coordinator"),
+                (EventKind::Resolved, "commit_gap", "coordinator")
+            ]
+        );
+        assert!(st.entries.is_empty());
+    }
+
+    /// An unknown read never fires: a condition no read has shown stays
+    /// unseen, and the missed read alerts only after `status_unreachable`'s
+    /// hold, once, then resolves when the source answers.
+    #[test]
+    fn unknown_reads_never_fire_and_alert_after_the_hold() {
+        let t = 1_793_644_320_000;
+        let r = rules();
+        let mut st = AlertState::default();
+        let mut silent = healthy();
+        silent.coordinator = None;
+        let mut posts = Vec::new();
+        let runs = r.unreachable_hold_ms / CRON_PERIOD_MS + 3;
+        for i in 0..runs {
+            posts.extend(run(&mut st, &silent, t + i * CRON_PERIOD_MS));
+        }
+        assert_eq!(
+            kinds(&posts),
+            vec![(EventKind::Firing, "status_unreachable", "coordinator")]
+        );
+        assert_eq!(posts[0].since_ms, t);
+        assert!(st.get("commit_gap", "coordinator").is_none());
+        let back = run(&mut st, &gap(), t + runs * CRON_PERIOD_MS);
+        assert_eq!(
+            kinds(&back),
+            vec![
+                (EventKind::Firing, "commit_gap", "coordinator"),
+                (EventKind::Resolved, "status_unreachable", "coordinator")
+            ]
+        );
+    }
+
+    /// Every status-dependent rule is carried while the read it depends on
+    /// is unknown, and resolves on an answered read that shows it clear; an
+    /// unknown read of another source does not keep it open; a resolving
+    /// entry is not revived by an unknown read.
+    #[test]
+    fn each_status_rule_waits_for_its_own_read() {
+        let r = rules();
+        let p = PublisherObs::default();
+        type Edit = fn(&mut Observed);
+        let firing: [(&str, &str, Edit); 9] = [
+            ("durable_fault", "coordinator", |o| {
+                o.coordinator = Some(parse_worker(&worker_status("primary", true)))
+            }),
+            ("durable_fault", "eval_worker.signing", |o| {
+                o.eval_worker
+                    .as_mut()
+                    .unwrap()
+                    .signing
+                    .as_mut()
+                    .unwrap()
+                    .state = "fault".into()
+            }),
+            ("fallback_too_long", "coordinator", |o| {
+                let w = o.coordinator.as_mut().unwrap();
+                w.mode = Some("fallback".into());
+                w.mode_age_ms = Some(TEMPO);
+            }),
+            ("watermark_stalled", "eval_worker", |o| {
+                o.eval_worker.as_mut().unwrap().confirmed_age_ms = None
+            }),
+            ("phase_overrun", "testnet-c7", |o| {
+                o.coordinator.as_mut().unwrap().signing = None;
+                let e = o.eval.as_mut().unwrap();
+                e.cohorts[1].phase = "scoring".into();
+                e.epoch = Some(23_169 + 18);
+            }),
+            ("scorer_budget_fault", "testnet-c7", |o| {
+                o.eval.as_mut().unwrap().cohorts[1].fault = Some("scorer_unavailable".into())
+            }),
+            ("cohort_fault", "testnet-c7", |o| {
+                o.eval.as_mut().unwrap().cohorts[1].fault = Some("draw_shortfall".into())
+            }),
+            ("ledger_threshold", "ledger", |o| {
+                o.eval.as_mut().unwrap().ledger_permille = Some(900)
+            }),
+            ("commit_gap", "coordinator", |o| {
+                o.eval.as_mut().unwrap().epoch = Some(23_169 + 2)
+            }),
+        ];
+        for (rule, subject, edit) in firing {
+            let mut bad = healthy();
+            edit(&mut bad);
+            let mut st = AlertState::default();
+            let t = 1_000_000;
+            let c = conditions(&bad, &p, &r, &st, t);
+            observe(&mut st, &c, t);
+            let ev = due(&st, t, r.renotify_ms);
+            acknowledge(&mut st, &ev, t);
+            assert!(st.get(rule, subject).is_some(), "{rule} {subject} fires");
+            // Every way its read can be unknown keeps it open.
+            let unknown: Vec<Observed> = {
+                let mut v = Vec::new();
+                let mut o = bad.clone();
+                match rule {
+                    "durable_fault" | "fallback_too_long" | "watermark_stalled" => {
+                        let name = subject.trim_end_matches(".signing");
+                        if name == "coordinator" {
+                            o.coordinator = None;
+                        } else {
+                            o.eval_worker = None;
+                        }
+                        v.push(o);
+                        fn view<'a>(o: &'a mut Observed, name: &str) -> &'a mut WorkerView {
+                            if name == "coordinator" {
+                                o.coordinator.as_mut().unwrap()
+                            } else {
+                                o.eval_worker.as_mut().unwrap()
+                            }
+                        }
+                        if subject.ends_with(".signing") {
+                            let mut o = bad.clone();
+                            view(&mut o, name).signing = None;
+                            v.push(o);
+                        } else if rule == "durable_fault" {
+                            // A status without its journal block (the
+                            // coordinator answers `chain_journal: null` when
+                            // its journal object does not answer).
+                            let mut o = bad.clone();
+                            *view(&mut o, name) = parse_worker(&json!({"chain_journal": null}));
+                            v.push(o);
+                            let mut o = bad.clone();
+                            *view(&mut o, name) = parse_worker(&json!({}));
+                            v.push(o);
+                        } else if rule == "fallback_too_long" {
+                            let mut o = bad.clone();
+                            view(&mut o, name).mode = None;
+                            v.push(o);
+                            let mut o = bad.clone();
+                            view(&mut o, name).mode_age_ms = None;
+                            v.push(o);
+                        }
+                    }
+                    "phase_overrun" => {
+                        o.eval.as_mut().unwrap().epoch = None;
+                        v.push(o);
+                        let mut o = bad.clone();
+                        o.eval = None;
+                        v.push(o);
+                        // A partial read of its cohort decides nothing either.
+                        let mut o = bad.clone();
+                        o.eval.as_mut().unwrap().cohorts[1].opened_epoch = None;
+                        v.push(o);
+                        let mut o = bad.clone();
+                        o.eval.as_mut().unwrap().cohorts[1].k_tempos = None;
+                        v.push(o);
+                        let mut o = bad.clone();
+                        o.eval.as_mut().unwrap().cohorts_missing = true;
+                        v.push(o);
+                    }
+                    "scorer_budget_fault" | "cohort_fault" => {
+                        o.eval = None;
+                        v.push(o);
+                        // An answered status without its cohort list, or
+                        // with the cohort's phase missing (dropped).
+                        let mut o = bad.clone();
+                        let mut j = eval_status("admission");
+                        j.as_object_mut().unwrap().remove("cohorts");
+                        o.eval = Some(parse_eval(&j));
+                        v.push(o);
+                        let mut o = bad.clone();
+                        let mut j = eval_status("admission");
+                        j["cohorts"][1].as_object_mut().unwrap().remove("phase");
+                        j["cohorts"][1]["fault"] = json!("draw_shortfall");
+                        o.eval = Some(parse_eval(&j));
+                        v.push(o);
+                    }
+                    "ledger_threshold" => {
+                        o.eval.as_mut().unwrap().ledger_permille = None;
+                        v.push(o);
+                        let mut o = bad.clone();
+                        o.eval = None;
+                        v.push(o);
+                    }
+                    _ => {
+                        o.coordinator = None;
+                        v.push(o);
+                        let mut o = bad.clone();
+                        o.eval = None;
+                        v.push(o);
+                        let mut o = bad.clone();
+                        o.coordinator.as_mut().unwrap().signing = None;
+                        v.push(o);
+                    }
+                }
+                v
+            };
+            for (n, o) in unknown.iter().enumerate() {
+                assert!(!decided(rule, subject, o), "{rule} {subject} #{n}");
+                let mut s2 = st.clone();
+                let c = conditions(o, &p, &r, &s2, t + 60_000);
+                observe(&mut s2, &c, t + 60_000);
+                let e = s2.get(rule, subject).unwrap();
+                assert!(
+                    !e.resolved,
+                    "{rule} {subject} #{n}: unknown is not a resolution"
+                );
+                assert!(
+                    !due(&s2, t + 60_000, r.renotify_ms)
+                        .iter()
+                        .any(|ev| ev.rule == rule),
+                    "{rule} {subject} #{n}"
+                );
+            }
+            // An answered read that shows it clear resolves it, even while
+            // an unrelated source is unknown.
+            let mut clear = healthy();
+            let other_missing = match rule {
+                "durable_fault" | "fallback_too_long" | "watermark_stalled"
+                    if subject.starts_with("coordinator") =>
+                {
+                    clear.eval_worker = None;
+                    true
+                }
+                "durable_fault" | "fallback_too_long" | "watermark_stalled" => {
+                    clear.coordinator = None;
+                    true
+                }
+                _ => false,
+            };
+            assert!(decided(rule, subject, &clear), "{rule} {subject}");
+            let mut s3 = st.clone();
+            let c = conditions(&clear, &p, &r, &s3, t + 60_000);
+            observe(&mut s3, &c, t + 60_000);
+            let ev = due(&s3, t + 60_000, r.renotify_ms);
+            assert!(
+                ev.iter()
+                    .any(|e| e.rule == rule && e.state == EventKind::Resolved),
+                "{rule} {subject} resolves (other source missing: {other_missing})"
+            );
+            // A resolving entry stays resolving through an unknown read.
+            let mut o = unknown[0].clone();
+            if other_missing {
+                o.coordinator = None;
+                o.eval_worker = None;
+            }
+            let c = conditions(&o, &p, &r, &s3, t + 120_000);
+            observe(&mut s3, &c, t + 120_000);
+            assert!(
+                s3.get(rule, subject).is_some_and(|e| e.resolved),
+                "{rule} {subject} stays resolving"
+            );
+        }
+        // The publisher's own rules are not status reads: never carried.
+        let mut st = AlertState::default();
+        let warned = PublisherObs {
+            warnings: vec!["w".into()],
+            ..PublisherObs::default()
+        };
+        let mut silent = healthy();
+        silent.coordinator = None;
+        let c = conditions(&healthy(), &warned, &r, &st, 1);
+        observe(&mut st, &c, 1);
+        let ev = due(&st, 1, r.renotify_ms);
+        acknowledge(&mut st, &ev, 1);
+        let c = conditions(&silent, &p, &r, &st, 2);
+        observe(&mut st, &c, 2);
+        assert!(st.get("config_warning", "publisher").unwrap().resolved);
+    }
+
+    /// A source that answers without a field an open entry needs: the entry
+    /// is carried, and `status_incomplete <source>` fires after the same hold
+    /// as `status_unreachable`, once, naming the fields; both resolve when
+    /// the field is back and shows the condition clear. A missing field with
+    /// nothing open raises nothing.
+    #[test]
+    fn missing_fields_are_unknown_and_alert_after_the_hold() {
+        let t = 1_793_644_320_000;
+        let r = rules();
+        let runs = r.unreachable_hold_ms / CRON_PERIOD_MS + 3;
+        type Edit = fn(&mut Observed);
+        let cases: [(&str, &str, Edit, Edit, &str); 7] = [
+            (
+                "durable_fault",
+                "coordinator",
+                |o| o.coordinator = Some(parse_worker(&worker_status("primary", true))),
+                |o| o.coordinator = Some(parse_worker(&json!({"chain_journal": null}))),
+                "coordinator",
+            ),
+            (
+                "fallback_too_long",
+                "eval_worker",
+                |o| {
+                    let w = o.eval_worker.as_mut().unwrap();
+                    w.mode = Some("fallback".into());
+                    w.mode_age_ms = Some(TEMPO);
+                },
+                |o| o.eval_worker.as_mut().unwrap().mode = None,
+                "eval_worker",
+            ),
+            (
+                "cohort_fault",
+                "testnet-c7",
+                |o| o.eval.as_mut().unwrap().cohorts[1].fault = Some("draw_shortfall".into()),
+                |o| {
+                    let e = o.eval.as_mut().unwrap();
+                    e.cohorts.clear();
+                    e.cohorts_missing = true;
+                },
+                "eval",
+            ),
+            (
+                "commit_gap",
+                "coordinator",
+                |o| o.eval.as_mut().unwrap().epoch = Some(23_169 + 2),
+                |o| o.coordinator.as_mut().unwrap().signing = None,
+                "coordinator",
+            ),
+            (
+                "ledger_threshold",
+                "ledger",
+                |o| o.eval.as_mut().unwrap().ledger_permille = Some(900),
+                |o| o.eval.as_mut().unwrap().ledger_permille = None,
+                "eval",
+            ),
+            (
+                "phase_overrun",
+                "testnet-c7",
+                |o| {
+                    let e = o.eval.as_mut().unwrap();
+                    e.cohorts[1].phase = "scoring".into();
+                    e.epoch = Some(23_169 + 18);
+                },
+                |o| o.eval.as_mut().unwrap().cohorts[1].k_tempos = None,
+                "eval",
+            ),
+            (
+                "commit_gap",
+                "coordinator",
+                |o| o.eval.as_mut().unwrap().epoch = Some(23_169 + 2),
+                |o| o.eval.as_mut().unwrap().epoch = None,
+                "eval",
+            ),
+        ];
+        for (rule, subject, fire, strip, source) in cases {
+            let mut st = AlertState::default();
+            let mut bad = healthy();
+            fire(&mut bad);
+            let first = run(&mut st, &bad, t);
+            assert!(first.iter().any(|e| e.rule == rule), "{rule} fires");
+            let mut partial = bad.clone();
+            strip(&mut partial);
+            let mut posts = Vec::new();
+            let mut first_post = None;
+            for i in 1..=runs {
+                let ev = run(&mut st, &partial, t + i * CRON_PERIOD_MS);
+                if ev.iter().any(|e| e.rule == "status_incomplete") && first_post.is_none() {
+                    first_post = Some(i);
+                }
+                posts.extend(ev);
+            }
+            // A missing journal block also leaves the watermark absent, which
+            // `watermark_stalled` fires on by definition (absent = stalled).
+            if rule == "durable_fault" {
+                assert!(
+                    kinds(&posts).contains(&(EventKind::Firing, "watermark_stalled", subject)),
+                    "an absent watermark fires"
+                );
+                posts.retain(|e| e.rule != "watermark_stalled");
+            }
+            assert_eq!(
+                kinds(&posts),
+                vec![(EventKind::Firing, "status_incomplete", source)],
+                "{rule}: carried, and the missing field alerts once"
+            );
+            assert_eq!(
+                first_post,
+                Some(1 + r.unreachable_hold_ms / CRON_PERIOD_MS),
+                "{rule}: only after the hold"
+            );
+            assert_eq!(posts[0].since_ms, t + CRON_PERIOD_MS, "{rule}");
+            assert!(
+                posts[0].detail.contains(&format!("({rule} {subject})")),
+                "{}",
+                posts[0].detail
+            );
+            assert!(!st.get(rule, subject).unwrap().resolved);
+            // The field is back and shows the condition clear: both resolve.
+            let back = run(&mut st, &healthy(), t + (runs + 1) * CRON_PERIOD_MS);
+            // (Other rules the edit raised, such as a commit gap beside an
+            // overrun, resolve too; only these two are checked.)
+            let mut k: Vec<_> = kinds(&back)
+                .into_iter()
+                .filter(|(_, r, _)| *r == rule || *r == "status_incomplete")
+                .collect();
+            k.sort();
+            let mut want = vec![
+                (EventKind::Resolved, rule, subject),
+                (EventKind::Resolved, "status_incomplete", source),
+            ];
+            want.sort();
+            assert_eq!(k, want, "{rule}");
+        }
+        // Nothing open: a missing field raises nothing (the rule cannot fire
+        // until the field is back).
+        let mut st = AlertState::default();
+        let mut partial = healthy();
+        partial.coordinator.as_mut().unwrap().signing = None;
+        partial.eval.as_mut().unwrap().ledger_permille = None;
+        for i in 0..runs {
+            assert!(run(&mut st, &partial, t + i * CRON_PERIOD_MS).is_empty());
+        }
+        // A carried status_incomplete stays open while its source does not
+        // answer at all (status_unreachable covers that read).
+        let mut st = AlertState::default();
+        let mut bad = healthy();
+        bad.eval.as_mut().unwrap().ledger_permille = Some(900);
+        run(&mut st, &bad, t);
+        let mut partial = bad.clone();
+        partial.eval.as_mut().unwrap().ledger_permille = None;
+        for i in 1..=runs {
+            run(&mut st, &partial, t + i * CRON_PERIOD_MS);
+        }
+        let mut silent = healthy();
+        silent.eval = None;
+        run(&mut st, &silent, t + (runs + 1) * CRON_PERIOD_MS);
+        assert!(!st.get("status_incomplete", "eval").unwrap().resolved);
+        assert!(!st.get("ledger_threshold", "ledger").unwrap().resolved);
     }
 
     #[test]

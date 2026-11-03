@@ -30,6 +30,9 @@ pub struct WorkerView {
     /// The active durable journal fault's kind.
     pub fault: Option<String>,
     pub signing: Option<SigningView>,
+    /// The status had no `chain_journal.journal` block, so `fault` (and the
+    /// watermark) say nothing: the alert rules treat that read as unknown.
+    pub journal_missing: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -84,6 +87,10 @@ pub struct EvalView {
     pub confirmed_block: Option<u64>,
     pub epoch: Option<u64>,
     pub cohorts: Vec<CohortView>,
+    /// The status had no `cohorts` array, or a cohort without its number,
+    /// label or phase (dropped from `cohorts`): the cohort rules treat that
+    /// read as unknown.
+    pub cohorts_missing: bool,
     pub reward: Option<RewardView>,
     pub ledger_permille: Option<u64>,
 }
@@ -110,7 +117,7 @@ pub struct Observed {
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct ServiceJson {
-    chain_journal: ChainJournalJson,
+    chain_journal: Option<ChainJournalJson>,
 }
 
 #[derive(Deserialize, Default)]
@@ -118,7 +125,7 @@ struct ServiceJson {
 struct ChainJournalJson {
     mode: Option<String>,
     mode_age_ms: Option<u64>,
-    journal: JournalJson,
+    journal: Option<JournalJson>,
     signing: Option<SigningJson>,
 }
 
@@ -163,7 +170,7 @@ struct OpJson {
 #[serde(default)]
 struct EvalJson {
     observed: ObservedJson,
-    cohorts: Vec<CohortJson>,
+    cohorts: Option<Vec<CohortJson>>,
     reward: Option<RewardJson>,
     ledger: LedgerJson,
 }
@@ -225,16 +232,18 @@ struct StandingJson {
 }
 
 fn worker_view(j: ServiceJson) -> WorkerView {
-    let c = j.chain_journal;
+    let c = j.chain_journal.unwrap_or_default();
+    let journal_missing = c.journal.is_none();
+    let journal = c.journal.unwrap_or_default();
     WorkerView {
         mode: c.mode,
         mode_age_ms: c.mode_age_ms,
-        confirmed_block: c.journal.confirmed.and_then(|b| b.number),
-        confirmed_age_ms: c.journal.confirmed_age_ms,
-        fault: c
-            .journal
+        confirmed_block: journal.confirmed.and_then(|b| b.number),
+        confirmed_age_ms: journal.confirmed_age_ms,
+        fault: journal
             .fault
             .map(|f| f.kind.unwrap_or_else(|| "fault".into())),
+        journal_missing,
         signing: c.signing.and_then(|s| {
             Some(SigningView {
                 state: s.state?,
@@ -257,8 +266,10 @@ fn worker_view(j: ServiceJson) -> WorkerView {
 }
 
 fn eval_view(j: EvalJson) -> EvalView {
-    let cohorts = j
+    let listed = j.cohorts.as_ref().map(Vec::len);
+    let cohorts: Vec<CohortView> = j
         .cohorts
+        .unwrap_or_default()
         .into_iter()
         .filter_map(|c| {
             Some(CohortView {
@@ -274,6 +285,7 @@ fn eval_view(j: EvalJson) -> EvalView {
             })
         })
         .collect();
+    let cohorts_missing = listed != Some(cohorts.len());
     let s = j.ledger.standing;
     let ledger_permille = match (s.cap_microusd, s.spent_microusd) {
         (Some(cap), Some(spent)) if cap > 0 => {
@@ -286,6 +298,7 @@ fn eval_view(j: EvalJson) -> EvalView {
         confirmed_block: j.observed.confirmed.and_then(|b| b.number),
         epoch: j.observed.epoch.and_then(|e| e.index),
         cohorts,
+        cohorts_missing,
         reward: j.reward.map(|r| RewardView {
             active_target: r.active_target,
             launch_burn: r.launch_burn,
@@ -560,6 +573,36 @@ pub(crate) mod tests {
             netuid: 601,
             mechanism: 0,
         }
+    }
+
+    /// The views record a status that answered without the journal block or
+    /// the cohort list (or with a cohort missing its label or phase), so the
+    /// alert rules can tell "absent" from "clear".
+    #[test]
+    fn missing_blocks_are_recorded() {
+        assert!(!parse_worker(&worker_status("primary", false)).journal_missing);
+        for v in [
+            json!({}),
+            json!({"chain_journal": null}),
+            json!({"chain_journal": {"mode": "primary"}}),
+        ] {
+            let w = parse_worker(&v);
+            assert!(w.journal_missing && w.fault.is_none(), "{v}");
+        }
+        assert!(!parse_eval(&eval_status("admission")).cohorts_missing);
+        let mut j = eval_status("admission");
+        j.as_object_mut().unwrap().remove("cohorts");
+        assert!(parse_eval(&j).cohorts_missing);
+        let mut j = eval_status("admission");
+        j["cohorts"][1].as_object_mut().unwrap().remove("label");
+        let e = parse_eval(&j);
+        assert!(e.cohorts_missing && e.cohorts.len() == 3);
+        let mut j = eval_status("admission");
+        j["cohorts"] = json!([]);
+        assert!(
+            !parse_eval(&j).cohorts_missing,
+            "an empty list is a complete list"
+        );
     }
 
     #[test]

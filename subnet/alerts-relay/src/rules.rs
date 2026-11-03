@@ -243,6 +243,11 @@ fn worker_issues(w: &WorkerView, b: &Bounds) -> Vec<String> {
     out
 }
 
+/// Where a spend alert's figures start in its detail (only when
+/// `SPEND_FIGURES_IN_EMAIL` is on): the alert feed cuts the detail there, so
+/// no figure reaches it.
+pub const FIGURES_LEAD: &str = " Whole account month to date";
+
 fn spend_detail(month: &str, u: &Upload, figures: bool) -> String {
     let mut d = format!(
         "{month} is at or above the private spend alert threshold. Investigate (reports/{month}.md on \
@@ -251,7 +256,7 @@ fn spend_detail(month: &str, u: &Upload, figures: bool) -> String {
     if figures && u.month == month {
         let f = |v: Option<u64>| v.map_or_else(|| "unknown".to_owned(), tracker::usd);
         d.push_str(&format!(
-            " Whole account month to date {} (projected {}); testnet {} (projected {}); list-price \
+            "{FIGURES_LEAD} {} (projected {}); testnet {} (projected {}); list-price \
              estimates as of {}.",
             f(u.account.mtd_microusd),
             f(u.account.projected_microusd),
@@ -304,7 +309,7 @@ fn undelivered_detail(h: Option<&HeartbeatRecord>, intake: &Intake) -> Option<St
     }
     (!parts.is_empty()).then(|| {
         format!(
-            "{}. The publisher's own alerts are not being emailed. Check the relay's live log \
+            "{}. The publisher's own alerts are not being delivered. Check the relay's live log \
              (wrangler tail) and deploy both Workers from one commit.",
             parts.join("; ")
         )

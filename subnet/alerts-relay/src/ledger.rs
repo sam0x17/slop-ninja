@@ -1,5 +1,10 @@
-//! The relay's sent-event ledger: each event id is emailed once, twice at
-//! most after a send whose outcome was unknown.
+//! The relay's sent-event ledger: each event id is delivered once per sink
+//! (the alert feed's object under [`crate::feed::ledger_key`], the email
+//! under the bare id). An email is sent twice at most after an attempt whose
+//! outcome was unknown; a feed object is written until a put is
+//! acknowledged ([`settle_acknowledged`]: a reader dedups by event id, so
+//! a second copy is harmless and a lost one is not). Below, "send" is
+//! either sink's write or send.
 //!
 //! Before sending, the relay claims every id of the batch; a claimed id is
 //! sent by its claimant only, a sent id is acknowledged without sending
@@ -13,12 +18,14 @@
 //! - A refused send (nothing went out) releases its claims at once, so the
 //!   next attempt can claim them.
 //! - A send that timed out may have gone out. Its ids become
-//!   [`Mark::Uncertain`], held for one more claim period and then retried
-//!   once; the retry's outcome is final: sent, a second timeout (recorded as
-//!   sent, so an event is emailed at most twice), or refused (free again, and
-//!   still one timeout behind, so a later timeout also records it as sent).
-//!   An event whose two sends both timed out without delivering is lost; a
-//!   still-firing condition's next reminder has a new id.
+//!   [`Mark::Uncertain`], held for one more claim period and then retried.
+//!   For email ([`settle`]) the retry's outcome is final: sent, a second
+//!   timeout (recorded as sent, so an event is emailed at most twice), or
+//!   refused (free again, and still one timeout behind, so a later timeout
+//!   also records it as sent); an event whose two sends both timed out
+//!   without delivering is lost. For the feed ([`settle_acknowledged`]) a
+//!   timeout is never final: the id stays uncertain and is written again
+//!   after each claim period until a put is acknowledged.
 //! - A sender keeps posting an id until its answer is acknowledged; the id
 //!   never changes until then. A claim that finds the id sent refreshes its
 //!   row, so a sender that keeps retrying keeps its row.
@@ -38,6 +45,9 @@
 //!   swept, and the resolution is emailed ([`maybe_sent`]).
 
 use slop_ninja_alerts_wire::PUBLISHER_CRON_PERIOD_MS;
+
+use crate::feed::{FiringEntry, WriteNote};
+use crate::relay::SendError;
 
 /// How long a claim excludes other senders.
 pub const CLAIM_MS: u64 = PUBLISHER_CRON_PERIOD_MS;
@@ -103,8 +113,11 @@ pub struct Row {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StoreError(pub &'static str);
 
-/// The ledger's table: the Durable Object's SQLite table in the Worker, a
-/// map in tests. Calls are synchronous (Durable Object SQL is).
+/// The relay's durable store: the ledger's table and the alert feed's
+/// index in the Durable Object's SQLite, and the feed's objects in its
+/// private bucket (maps in tests). The SQLite calls are synchronous
+/// (Durable Object SQL is); the bucket calls are the only awaits.
+#[allow(async_fn_in_trait)]
 pub trait Table {
     fn get(&self, id: &str) -> Result<Option<Row>, StoreError>;
     fn put(&self, id: &str, row: Row) -> Result<(), StoreError>;
@@ -115,6 +128,43 @@ pub trait Table {
     /// The largest cutoff any sweep applied: rows touched before it may be
     /// gone; rows touched since are all there.
     fn cutoff(&self) -> Result<u64, StoreError>;
+
+    // The alert feed ([`crate::feed`]).
+
+    /// A feed key's time: at least `now_ms` (and the clock at the call, in
+    /// the Worker) and strictly after the last one stamped, so keys sort in
+    /// write order.
+    fn feed_stamp(&self, now_ms: u64) -> Result<u64, StoreError>;
+    /// Records a key before its object is put, so the retention sweep
+    /// deletes it even when the put's outcome was unknown.
+    fn feed_record(&self, key: &str, at_ms: u64) -> Result<(), StoreError>;
+    /// Puts one object.
+    async fn feed_put(&self, key: &str, body: Vec<u8>) -> Result<(), SendError>;
+    /// Sets (`Some`, at `at_ms`) or clears (`None`) one entry of the firing
+    /// set.
+    fn feed_firing(
+        &self,
+        key: &str,
+        entry: Option<&FiringEntry>,
+        at_ms: u64,
+    ) -> Result<(), StoreError>;
+    /// Drops firing-set rows last set before `before_ms`
+    /// ([`crate::feed::firing_ttl_ms`]).
+    fn feed_firing_sweep(&self, before_ms: u64) -> Result<(), StoreError>;
+    /// Records the last event write's outcome.
+    fn feed_note(&self, note: &WriteNote) -> Result<(), StoreError>;
+    /// Up to `max` recorded keys written before `before_ms`, oldest first.
+    fn feed_expired(&self, before_ms: u64, max: usize) -> Result<Vec<String>, StoreError>;
+    /// Deletes objects.
+    async fn feed_delete(&self, keys: &[String]) -> Result<(), SendError>;
+    /// Drops deleted keys from the record.
+    fn feed_forget(&self, keys: &[String]) -> Result<(), StoreError>;
+    /// The firing set's entries, oldest first, as many as fit one post's
+    /// events bound ([`slop_ninja_alerts_wire::POST_EVENTS_BYTES`]), and
+    /// how many it holds in all.
+    fn feed_firing_entries(&self) -> Result<(Vec<FiringEntry>, u64), StoreError>;
+    /// The last event write's outcome.
+    fn feed_last_note(&self) -> Result<Option<WriteNote>, StoreError>;
 }
 
 /// What a claim found.
@@ -208,6 +258,36 @@ pub fn settle(
     }
 }
 
+/// Records how a write of `id` to a sink that dedups by event id (the alert
+/// feed) ended: only an acknowledged write counts as delivered. A timed-out
+/// write stays [`Mark::Uncertain`] (held one claim period, then written
+/// again), however often it times out, so a write that never landed is
+/// never acknowledged to its sender; a retry may land a second copy under a
+/// new key, which a reader drops by its event id. A refused write frees
+/// the id (kept as possibly written after an earlier timeout). Returns
+/// whether the id now counts as delivered.
+pub fn settle_acknowledged(
+    t: &impl Table,
+    id: &str,
+    retry: bool,
+    outcome: Outcome,
+    now_ms: u64,
+) -> Result<bool, StoreError> {
+    match outcome {
+        Outcome::Sent => settle(t, id, retry, outcome, now_ms),
+        Outcome::TimedOut => t
+            .put(
+                id,
+                Row {
+                    mark: Mark::Uncertain,
+                    at_ms: now_ms,
+                },
+            )
+            .map(|()| false),
+        Outcome::Refused => settle(t, id, retry, outcome, now_ms),
+    }
+}
+
 /// Whether the firing `id`, of an episode first seen at `since_ms` (the
 /// sender's clock), may have been emailed: it has a row (sent, or a send of
 /// it is out or timed out), or the ledger no longer covers the episode (a
@@ -222,21 +302,70 @@ pub fn sweep(t: &impl Table, now_ms: u64, retain_ms: u64) -> Result<(), StoreErr
     t.sweep(now_ms.saturating_sub(retain_ms.max(2 * CLAIM_MS)))
 }
 
-/// An in-memory table (tests and tools).
+/// An in-memory store (tests and tools). `feed_script` answers the next
+/// puts in order (then `Ok`), so tests can make a write time out or fail.
 #[derive(Debug, Default)]
 pub struct MemTable {
     rows: std::cell::RefCell<std::collections::BTreeMap<String, Row>>,
     cutoff: std::cell::Cell<u64>,
+    stamp: std::cell::Cell<u64>,
+    records: std::cell::RefCell<std::collections::BTreeMap<String, u64>>,
+    objects: std::cell::RefCell<std::collections::BTreeMap<String, Vec<u8>>>,
+    firing: std::cell::RefCell<std::collections::BTreeMap<String, (u64, FiringEntry)>>,
+    note: std::cell::RefCell<Option<WriteNote>>,
+    pub feed_script: std::cell::RefCell<Vec<Result<(), SendError>>>,
+    /// Scripted timeouts land nothing (a put that never reached the bucket)
+    /// instead of landing their object.
+    pub feed_timeouts_lost: std::cell::Cell<bool>,
 }
 
 impl MemTable {
-    /// The number of rows held.
+    /// The number of ledger rows held.
     pub fn len(&self) -> usize {
         self.rows.borrow().len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// The feed objects' keys, in the bucket's (lexicographic) order.
+    pub fn objects(&self) -> Vec<String> {
+        self.objects.borrow().keys().cloned().collect()
+    }
+
+    /// One feed object's body.
+    pub fn object(&self, key: &str) -> Option<Vec<u8>> {
+        self.objects.borrow().get(key).cloned()
+    }
+
+    /// The feed's event objects, decoded, in key order.
+    pub fn feed(&self) -> Vec<crate::feed::Object> {
+        self.objects
+            .borrow()
+            .iter()
+            .filter(|(k, _)| k.starts_with(crate::feed::EVENTS_PREFIX))
+            .filter_map(|(_, v)| serde_json::from_slice(v).ok())
+            .collect()
+    }
+
+    /// The firing set, in key order.
+    pub fn firing_set(&self) -> Vec<FiringEntry> {
+        self.firing
+            .borrow()
+            .values()
+            .map(|(_, e)| e.clone())
+            .collect()
+    }
+
+    /// The last write's outcome.
+    pub fn last_note(&self) -> Option<WriteNote> {
+        self.note.borrow().clone()
+    }
+
+    /// Makes the next puts answer `answers` in order.
+    pub fn script_feed(&self, answers: Vec<Result<(), SendError>>) {
+        *self.feed_script.borrow_mut() = answers.into_iter().rev().collect();
     }
 }
 
@@ -260,6 +389,93 @@ impl Table for MemTable {
     }
     fn cutoff(&self) -> Result<u64, StoreError> {
         Ok(self.cutoff.get())
+    }
+    fn feed_stamp(&self, now_ms: u64) -> Result<u64, StoreError> {
+        let at = now_ms.max(self.stamp.get().saturating_add(1));
+        self.stamp.set(at);
+        Ok(at)
+    }
+    fn feed_record(&self, key: &str, at_ms: u64) -> Result<(), StoreError> {
+        self.records.borrow_mut().insert(key.to_owned(), at_ms);
+        Ok(())
+    }
+    async fn feed_put(&self, key: &str, body: Vec<u8>) -> Result<(), SendError> {
+        let answer = self.feed_script.borrow_mut().pop().unwrap_or(Ok(()));
+        // A put that timed out may still have landed: tests see it written,
+        // unless they script lost timeouts.
+        let landed = match answer {
+            Ok(()) => true,
+            Err(SendError::Timeout) => !self.feed_timeouts_lost.get(),
+            Err(SendError::Refused(_)) => false,
+        };
+        if landed {
+            // Kept at its length (the Worker hands the body to the bucket and
+            // drops it).
+            let mut body = body;
+            body.shrink_to_fit();
+            self.objects.borrow_mut().insert(key.to_owned(), body);
+        }
+        answer
+    }
+    fn feed_firing(
+        &self,
+        key: &str,
+        entry: Option<&FiringEntry>,
+        at_ms: u64,
+    ) -> Result<(), StoreError> {
+        let mut f = self.firing.borrow_mut();
+        match entry {
+            Some(e) => f.insert(key.to_owned(), (at_ms, e.clone())),
+            None => f.remove(key),
+        };
+        Ok(())
+    }
+    fn feed_firing_sweep(&self, before_ms: u64) -> Result<(), StoreError> {
+        self.firing
+            .borrow_mut()
+            .retain(|_, (at, _)| *at >= before_ms);
+        Ok(())
+    }
+    fn feed_note(&self, note: &WriteNote) -> Result<(), StoreError> {
+        *self.note.borrow_mut() = Some(note.clone());
+        Ok(())
+    }
+    fn feed_expired(&self, before_ms: u64, max: usize) -> Result<Vec<String>, StoreError> {
+        let mut old: Vec<(u64, String)> = self
+            .records
+            .borrow()
+            .iter()
+            .filter(|(_, at)| **at < before_ms)
+            .map(|(k, at)| (*at, k.clone()))
+            .collect();
+        old.sort();
+        Ok(old.into_iter().take(max).map(|(_, k)| k).collect())
+    }
+    async fn feed_delete(&self, keys: &[String]) -> Result<(), SendError> {
+        let mut o = self.objects.borrow_mut();
+        for k in keys {
+            o.remove(k);
+        }
+        Ok(())
+    }
+    fn feed_forget(&self, keys: &[String]) -> Result<(), StoreError> {
+        let mut r = self.records.borrow_mut();
+        for k in keys {
+            r.remove(k);
+        }
+        Ok(())
+    }
+    fn feed_firing_entries(&self) -> Result<(Vec<FiringEntry>, u64), StoreError> {
+        let f = self.firing.borrow();
+        let mut rows: Vec<&(u64, FiringEntry)> = f.values().collect();
+        rows.sort_by_key(|(at, _)| *at);
+        Ok((
+            rows.into_iter().map(|(_, e)| e.clone()).collect(),
+            f.len() as u64,
+        ))
+    }
+    fn feed_last_note(&self) -> Result<Option<WriteNote>, StoreError> {
+        Ok(self.note.borrow().clone())
     }
 }
 
@@ -357,5 +573,32 @@ mod tests {
             assert_eq!(Mark::from_code(m.code()), Some(m));
         }
         assert_eq!(Mark::from_code(4), None);
+    }
+
+    /// A feed write that keeps timing out is never recorded as delivered:
+    /// it is written again after every claim period until a put is
+    /// acknowledged; a refusal after a timeout keeps it as possibly written.
+    #[test]
+    fn feed_timeouts_are_never_final() {
+        let t = MemTable::default();
+        let now = 10_000_000;
+        assert_eq!(claim(&t, "f", now).unwrap(), FIRST);
+        let mut at = now;
+        for _ in 0..5 {
+            assert!(!settle_acknowledged(&t, "f", true, Outcome::TimedOut, at).unwrap());
+            assert!(maybe_sent(&t, "f", now).unwrap());
+            assert_eq!(claim(&t, "f", at + CLAIM_MS - 1).unwrap(), Claim::Busy);
+            at += CLAIM_MS;
+            assert_eq!(claim(&t, "f", at).unwrap(), RETRY);
+        }
+        assert!(!settle_acknowledged(&t, "f", true, Outcome::Refused, at).unwrap());
+        assert!(maybe_sent(&t, "f", now).unwrap());
+        assert_eq!(claim(&t, "f", at + 1).unwrap(), RETRY);
+        assert!(settle_acknowledged(&t, "f", true, Outcome::Sent, at + 2).unwrap());
+        assert_eq!(claim(&t, "f", at + 3).unwrap(), Claim::Sent);
+        // A first refusal frees the id as before.
+        assert_eq!(claim(&t, "g", now).unwrap(), FIRST);
+        assert!(!settle_acknowledged(&t, "g", false, Outcome::Refused, now).unwrap());
+        assert!(!maybe_sent(&t, "g", now).unwrap());
     }
 }

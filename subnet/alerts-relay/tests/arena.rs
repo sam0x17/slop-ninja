@@ -96,6 +96,7 @@ impl TickHooks for Hooks {
 fn cfg() -> config::Config {
     let vars = [
         ("NETWORK", "testnet"),
+        ("ALERT_EMAIL_ENABLED", "true"),
         ("ALERT_EMAIL_FROM", "alerts@example.invalid"),
         ("ALERT_EMAIL_TO", "ops@example.invalid"),
     ];

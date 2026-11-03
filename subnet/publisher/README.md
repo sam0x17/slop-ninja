@@ -36,11 +36,27 @@ spending cap. The object layout is
 
 **State:** deployed with no route and no custom domain; public access to
 the public-candidate bucket is off until the user turns it on (D5). Decision
-D18: alerts are email, sent by the private alerts relay Worker
+D18: alerts go to the private alerts relay Worker
 ([`subnet/alerts-relay`](../alerts-relay/README.md)) through the
-`ALERTS_RELAY_TESTNET` service binding (`ALERT_RELAY = "true"`). Deploy the
-relay before any publisher deploy that carries the binding: Cloudflare
+`ALERTS_RELAY_TESTNET` service binding (`ALERT_RELAY = "true"`). The relay
+writes each event to its private alert feed, which the operator reads from
+outside Cloudflare; email is an optional relay path, off by default. Deploy
+the relay before any publisher deploy that carries the binding: Cloudflare
 refuses a deploy whose service binding names a Worker that does not exist.
+
+**Alerts live (2026-11-02):** the testnet publisher posts its alerts and its
+heartbeat to the relay. The deploy drill:
+
+- `config_warning` (an ignored `ALERT_SINK_URL` deploy-time var on a test
+  deploy) fired once and resolved once after the next deploy dropped the
+  var. The publisher runs in between posted nothing.
+- The relay's `publisher_silent` fired while the earlier publisher build
+  sent no heartbeat, and resolved at the first heartbeat.
+- `commit_gap` fired for a real condition (the coordinator's signing was
+  deferred). One run whose coordinator status read did not answer in time
+  resolved it, and the next run fired it again: that build treated an
+  unanswered status as a cleared condition. Rule set v4 fixes it (an
+  unknown read is never a resolution, below); not deployed yet.
 
 ## Layout of the crate
 
@@ -218,7 +234,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v3`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v4`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -230,7 +246,8 @@ The rule set is `slop_ninja.publisher.alerts/v3`. The table is in
 - two tempos without a coordinator commit;
 - a coordinator reveal that differs from its committed row
   (`coordinator_reveal_mismatch`);
-- unreachable status;
+- unreachable status, and a status that answered without a field an open
+  rule reads (`status_incomplete`);
 - refused or stalled publications: cohorts, artifact admission records and
   copies, and the authorization;
 - unverifiable manifests (one aggregated alert);
@@ -241,7 +258,38 @@ The rule set is `slop_ninja.publisher.alerts/v3`. The table is in
 Each condition has a hold time. It fires once the hold passes, is re-posted
 every `ALERT_RENOTIFY_SECS` while it lasts, and posts a resolution when it
 clears. A failed post is retried by the next run. A duplicate run posts
-nothing new. Posts are content-free. Events are split into posts within the
+nothing new. Posts are content-free.
+
+**Unknown is never a resolution** (v4). A status read that is unanswered,
+times out or fails, or answers without a field a rule reads, decides
+nothing: the open entries of the rules that read depends on
+(`durable_fault` on its Worker's journal block, and a `.signing` subject on
+its signing view; `fallback_too_long` on its Worker's mode, and the mode's
+age while in fallback; `watermark_stalled` on its Worker's answer; the cohort
+rules on the eval status's complete cohort list (every cohort with its
+number, label and phase); `phase_overrun` also on its epoch and, while its
+cohort is the active one in a work phase, that cohort's `opened_epoch` and
+`k_tempos`; `ledger_threshold` on its ledger ratio; `commit_gap` and
+`coordinator_reveal_mismatch` on the coordinator's signing view and the
+eval epoch) are carried, neither fired nor resolved. A carried entry keeps
+its last decided detail with a note of how long its read has been unknown
+and why (`... [unknown for 3600 s: coordinator status did not answer]`), so
+a reminder sent meanwhile never reads as a fresh observation; the note does
+not change event ids. A
+condition resolves only on a read that answered and shows it clear, and an
+unknown read never raises a new one. The unknown read itself alerts after
+one hold (two cron periods): a source that does not answer is
+`status_unreachable`; a source that answers without a field a carried entry
+needs is `status_incomplete <source>`, whose detail names the fields and the
+entries they leave undecided (for example a status shape that lost the
+coordinator's signing view during a standing `commit_gap`). One missed read
+sends nothing, and a longer outage sends one alert and its resolution. An
+entry that a successful read already cleared stays resolving. Limit: a
+missing field with no open entry raises nothing; the rule that reads it
+cannot fire until the field is back.
+The tests replay the 2026-11-02 18:52Z case (one timed-out coordinator read
+during a standing `commit_gap`) and a script of mixed answered and unknown
+reads, and show one message per real transition. Events are split into posts within the
 sink's limit (2,000 characters for Discord, 40,000 for Slack and for the JSON
 body), and each delivered post is acknowledged on its own.
 
@@ -251,8 +299,8 @@ notified), and the last-notified time it is derived from. A retried post
 repeats its ids, and the next reminder has new ones. A firing is marked as
 attempted before its post. If its answer is lost and the condition clears
 before a retry is acknowledged, a resolution with no last-notified time is
-posted. The relay emails it only if the firing went out; a URL sink receives
-it as it is. A sink that does not
+posted. The relay delivers it only if the firing went out; a URL sink
+receives it as it is. A sink that does not
 answer at all is not asked again in the same run, so a hung sink costs one
 outbound bound per run.
 
@@ -266,10 +314,10 @@ and Discord formats are unchanged.
 One sink at a time:
 
 - **The alerts relay** (decision D18, `ALERT_RELAY = "true"`): the JSON body,
-  posted through the `ALERTS_RELAY_TESTNET` service binding. The relay emails
-  each event id once and answers 2xx only when every event of the post is
-  settled, so a post whose answer was lost is retried and sends nothing
-  twice. A JSON event longer than the limit has its detail shortened (rule
+  posted through the `ALERTS_RELAY_TESTNET` service binding. The relay writes
+  each event id once to its alert feed (and emails it once while its email
+  is on) and answers 2xx only when every event of the post is settled, so a
+  post whose answer was lost is retried and delivers nothing twice. A JSON event longer than the limit has its detail shortened (rule
   and subject kept), so every post fits the relay's body bound.
 - **An https URL** (`ALERT_SINK_URL`), shaped by `ALERT_SINK_FORMAT` for a
   generic JSON receiver, a Slack-style `{"text"}` webhook or a Discord-style
@@ -292,7 +340,7 @@ then starts cohort work. When alerts are due, it also saves the observed
 alert state, with the marks of the posts about to go out, before it posts
 any of them, and posts nothing when that save fails. The event ids derive
 from that state, so a run that dies after posting, or whose later save
-fails, leaves the next run the same ids, and the relay emails them once.
+fails, leaves the next run the same ids, and the relay delivers them once.
 A resolution whose post was attempted marks its entry: if the condition
 comes back before the resolution is acknowledged, it fires again as a new
 episode instead of waiting for the next reminder. Each step (a cohort verification, an artifact
@@ -315,7 +363,7 @@ once its alert phase has saved its state:
 - It carries the post schema this build sends, how many due events the run
   left undelivered and since which run, and this configuration's
   `watermark_stalled` bound, which the relay uses for the coordinator while
-  the publisher is down. The relay emails when posts keep failing while
+  the publisher is down. The relay alerts when posts keep failing while
   heartbeats arrive.
 - The relay is a separate Worker with its own cron, so a crashed publisher,
   a stopped cron or a broken binding is caught.
@@ -374,10 +422,17 @@ cargo check --manifest-path subnet/publisher/Cargo.toml --target wasm32-unknown-
 
 ## Not yet done
 
+- Deploy rule set v4 (the unknown-read rule) after review. Its first run
+  keeps every open entry and its ids change scope (the rule set names
+  them): already notified entries post nothing new, and a firing whose post
+  was never acknowledged before the deploy resolves without a message (the
+  relay looks its firing up under v4).
 - Live checks:
   - anonymous GETs;
-  - one forced drill per alert rule, through the relay;
-  - a heartbeat miss that the relay emails;
+  - drills of the remaining alert rules through the relay (done:
+    `config_warning`, and the relay's `publisher_silent` heartbeat miss);
+  - a retried post after a lost answer (one delivery; covered by the relay's
+    native tests only);
   - a stream copy of a full-size artifact (about 610 MB) between buckets.
 
   Whether R2 accepts an R2 body stream as a put body without a

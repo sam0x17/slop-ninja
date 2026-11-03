@@ -6,11 +6,13 @@
 //!   body streaming, to the `AlertsRelayState` Durable Object.
 //! - `scheduled`: the one-minute cron, which asks the object for one tick,
 //!   and pings the external dead-man URL (when enabled) only after a tick
-//!   that finished with its email path working.
+//!   that finished with its delivery path working.
 //! - `AlertsRelayState`: one SQLite-backed object holding the sent-event
-//!   ledger, the relay's alert state and the publisher's last heartbeat. It
-//!   reads every body within its bound ([`crate::arena`]), sends email
-//!   through the `send_email` binding and runs one tick at a time.
+//!   ledger, the alert feed's index, the relay's alert state and the
+//!   publisher's last heartbeat. It reads every body within its bound
+//!   ([`crate::arena`]), writes the alert feed's objects to its private
+//!   bucket, sends email through the `send_email` binding while email is on
+//!   and runs one tick at a time.
 
 use std::time::Duration;
 
@@ -20,13 +22,14 @@ use serde::{Deserialize, Serialize};
 use slop_ninja_alerts_wire as wire;
 use wasm_bindgen::JsValue;
 use worker::{
-    Context, Date, Delay, DurableObject, EmailMessage, Env, Headers, Method, Request, RequestInit,
-    Response, Result, ScheduleContext, ScheduledEvent, SqlStorage, SqlStorageValue, State,
-    console_error, console_log, durable_object, event,
+    Context, Date, Delay, DurableObject, EmailMessage, Env, Headers, HttpMetadata, Method, Request,
+    RequestInit, Response, Result, ScheduleContext, ScheduledEvent, SqlStorage, SqlStorageValue,
+    State, console_error, console_log, durable_object, event,
 };
 
 use crate::arena::{self, Budget, ReadError, Reader};
 use crate::config::{self, Config};
+use crate::feed::{FiringEntry, WriteNote};
 use crate::ledger::{Mark, Row, StoreError, Table};
 use crate::mime::Message;
 use crate::relay::{self, Failure, Mailer, SendError, TickHooks, TickReads, TickState};
@@ -41,12 +44,8 @@ const EVAL_SERVICE: &str = "EVAL_WORKER_TESTNET";
 /// Each status read, and the tracker object's read, answers within this or
 /// counts as unanswered (the publisher's own status-read bound).
 const STATUS_TIMEOUT_MS: u64 = wire::STATUS_TIMEOUT_MS;
-/// A tick's reads before it evaluates: at most two status reads (only while
-/// the publisher is down) and the tracker object, each within its bound. The
-/// tick takes its lease for that long, then renews it before each batch by
-/// the batch's send bound ([`wire::RELAY_ANSWER_MS`]), so the lease always
-/// covers the step under way, whatever the number of batches.
-const TICK_READS_MS: u64 = 3 * STATUS_TIMEOUT_MS;
+/// A tick's reads before it evaluates ([`relay::TICK_READS_MS`]).
+const TICK_READS_MS: u64 = relay::TICK_READS_MS;
 
 fn now_ms() -> u64 {
     Date::now().as_millis()
@@ -137,7 +136,27 @@ fn ensure_schema(sql: &SqlStorage) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)",
         None,
     )?;
+    // The alert feed: the keys written (for the retention sweep) and the
+    // firing set (for latest.json).
+    sql.exec(
+        "CREATE TABLE IF NOT EXISTS feed_keys (k TEXT PRIMARY KEY, at_ms INTEGER NOT NULL)",
+        None,
+    )?;
+    sql.exec(
+        "CREATE TABLE IF NOT EXISTS feed_firing (k TEXT PRIMARY KEY, v TEXT NOT NULL, at_ms INTEGER NOT NULL)",
+        None,
+    )?;
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct KeyRow {
+    k: String,
+}
+
+#[derive(Deserialize)]
+struct CountRow {
+    n: i64,
 }
 
 #[derive(Deserialize)]
@@ -151,9 +170,34 @@ struct KvRow {
     v: String,
 }
 
-/// The ledger's table: one row per event id touched within the retention
-/// (see [`crate::ledger`]); its sweep cutoff is a `kv` row.
-struct SqlTable<'a>(&'a SqlStorage);
+/// The relay's store: the ledger's table (one row per event id touched
+/// within the retention, see [`crate::ledger`]; its sweep cutoff is a `kv`
+/// row), the feed's index tables and the private bucket. A post's puts end
+/// by `answer_by` (relay clock), like its sends; a tick's are bounded by
+/// [`wire::RELAY_ANSWER_MS`] each.
+struct SqlTable<'a> {
+    sql: &'a SqlStorage,
+    env: &'a Env,
+    answer_by: Option<u64>,
+}
+
+impl<'a> SqlTable<'a> {
+    fn new(sql: &'a SqlStorage, env: &'a Env, answer_by: Option<u64>) -> Self {
+        Self {
+            sql,
+            env,
+            answer_by,
+        }
+    }
+
+    /// What is left of the answer bound, or one answer bound for a tick.
+    fn bound(&self) -> u64 {
+        match self.answer_by {
+            Some(by) => by.saturating_sub(now_ms()),
+            None => wire::RELAY_ANSWER_MS,
+        }
+    }
+}
 
 const LEDGER_CUTOFF: &str = "ledger_cutoff";
 
@@ -164,7 +208,7 @@ fn int(n: u64) -> SqlStorageValue {
 impl Table for SqlTable<'_> {
     fn get(&self, id: &str) -> std::result::Result<Option<Row>, StoreError> {
         let rows: Vec<SentRow> = self
-            .0
+            .sql
             .exec("SELECT mark, at_ms FROM sent WHERE id = ?", vec![id.into()])
             .and_then(|c| c.to_array())
             .map_err(|_| StoreError("sql get"))?;
@@ -181,7 +225,7 @@ impl Table for SqlTable<'_> {
     }
 
     fn put(&self, id: &str, row: Row) -> std::result::Result<(), StoreError> {
-        self.0
+        self.sql
             .exec(
                 "INSERT INTO sent (id, mark, at_ms) VALUES (?, ?, ?) \
                  ON CONFLICT(id) DO UPDATE SET mark = excluded.mark, at_ms = excluded.at_ms",
@@ -192,7 +236,7 @@ impl Table for SqlTable<'_> {
     }
 
     fn remove(&self, id: &str) -> std::result::Result<(), StoreError> {
-        self.0
+        self.sql
             .exec("DELETE FROM sent WHERE id = ?", vec![id.into()])
             .map(|_| ())
             .map_err(|_| StoreError("sql delete"))
@@ -200,19 +244,177 @@ impl Table for SqlTable<'_> {
 
     fn sweep(&self, before_ms: u64) -> std::result::Result<(), StoreError> {
         let cutoff = self.cutoff()?.max(before_ms);
-        self.0
+        self.sql
             .exec("DELETE FROM sent WHERE at_ms < ?", vec![int(cutoff)])
             .map_err(|_| StoreError("sql sweep"))?;
-        kv_put(self.0, LEDGER_CUTOFF, &cutoff.to_string()).map_err(|_| StoreError("sql cutoff"))
+        kv_put(self.sql, LEDGER_CUTOFF, &cutoff.to_string()).map_err(|_| StoreError("sql cutoff"))
     }
 
     fn cutoff(&self) -> std::result::Result<u64, StoreError> {
-        match kv_get(self.0, LEDGER_CUTOFF).map_err(|_| StoreError("sql cutoff"))? {
+        match kv_get(self.sql, LEDGER_CUTOFF).map_err(|_| StoreError("sql cutoff"))? {
             None => Ok(0),
             Some(v) => v.parse().map_err(|_| StoreError("sql cutoff")),
         }
     }
+
+    fn feed_stamp(&self, now: u64) -> std::result::Result<u64, StoreError> {
+        let last: u64 = match kv_get(self.sql, FEED_STAMP).map_err(|_| StoreError("sql stamp"))? {
+            None => 0,
+            Some(v) => v.parse().map_err(|_| StoreError("sql stamp"))?,
+        };
+        let at = now.max(now_ms()).max(last.saturating_add(1));
+        kv_put(self.sql, FEED_STAMP, &at.to_string()).map_err(|_| StoreError("sql stamp"))?;
+        Ok(at)
+    }
+
+    fn feed_record(&self, key: &str, at: u64) -> std::result::Result<(), StoreError> {
+        self.sql
+            .exec(
+                "INSERT INTO feed_keys (k, at_ms) VALUES (?, ?) \
+                 ON CONFLICT(k) DO UPDATE SET at_ms = excluded.at_ms",
+                vec![key.into(), int(at)],
+            )
+            .map(|_| ())
+            .map_err(|_| StoreError("sql feed record"))
+    }
+
+    async fn feed_put(&self, key: &str, body: Vec<u8>) -> std::result::Result<(), SendError> {
+        let bound = self.bound();
+        if bound == 0 {
+            return Err(SendError::Refused(Failure::new("no_time", "")));
+        }
+        let bucket = self
+            .env
+            .bucket(BUCKET)
+            .map_err(|_| SendError::Refused(Failure::new("bucket_binding", "")))?;
+        let put = bucket
+            .put(key, body)
+            .http_metadata(HttpMetadata {
+                content_type: Some("application/json".into()),
+                ..HttpMetadata::default()
+            })
+            .execute();
+        match within(bound, put).await {
+            None => Err(SendError::Timeout),
+            Some(Ok(_)) => Ok(()),
+            Some(Err(e)) => Err(SendError::Refused(Failure::new("r2_put", &e.to_string()))),
+        }
+    }
+
+    fn feed_firing(
+        &self,
+        key: &str,
+        entry: Option<&FiringEntry>,
+        at: u64,
+    ) -> std::result::Result<(), StoreError> {
+        let done = match entry {
+            Some(e) => {
+                let v = serde_json::to_string(e).map_err(|_| StoreError("firing encode"))?;
+                self.sql.exec(
+                    "INSERT INTO feed_firing (k, v, at_ms) VALUES (?, ?, ?) \
+                     ON CONFLICT(k) DO UPDATE SET v = excluded.v, at_ms = excluded.at_ms",
+                    vec![key.into(), v.into(), int(at)],
+                )
+            }
+            None => self
+                .sql
+                .exec("DELETE FROM feed_firing WHERE k = ?", vec![key.into()]),
+        };
+        done.map(|_| ()).map_err(|_| StoreError("sql firing"))
+    }
+
+    fn feed_firing_sweep(&self, before: u64) -> std::result::Result<(), StoreError> {
+        self.sql
+            .exec("DELETE FROM feed_firing WHERE at_ms < ?", vec![int(before)])
+            .map(|_| ())
+            .map_err(|_| StoreError("sql firing sweep"))
+    }
+
+    fn feed_note(&self, note: &WriteNote) -> std::result::Result<(), StoreError> {
+        let v = serde_json::to_string(note).map_err(|_| StoreError("note encode"))?;
+        kv_put(self.sql, FEED_NOTE, &v).map_err(|_| StoreError("sql note"))
+    }
+
+    fn feed_expired(
+        &self,
+        before: u64,
+        max: usize,
+    ) -> std::result::Result<Vec<String>, StoreError> {
+        let rows: Vec<KeyRow> = self
+            .sql
+            .exec(
+                "SELECT k FROM feed_keys WHERE at_ms < ? ORDER BY at_ms LIMIT ?",
+                vec![int(before), int(max as u64)],
+            )
+            .and_then(|c| c.to_array())
+            .map_err(|_| StoreError("sql feed expired"))?;
+        Ok(rows.into_iter().map(|r| r.k).collect())
+    }
+
+    async fn feed_delete(&self, keys: &[String]) -> std::result::Result<(), SendError> {
+        let bucket = self
+            .env
+            .bucket(BUCKET)
+            .map_err(|_| SendError::Refused(Failure::new("bucket_binding", "")))?;
+        let names: Vec<&str> = keys.iter().map(String::as_str).collect();
+        match within(self.bound(), bucket.delete_multiple(names)).await {
+            None => Err(SendError::Timeout),
+            Some(Ok(())) => Ok(()),
+            Some(Err(e)) => Err(SendError::Refused(Failure::new(
+                "r2_delete",
+                &e.to_string(),
+            ))),
+        }
+    }
+
+    fn feed_forget(&self, keys: &[String]) -> std::result::Result<(), StoreError> {
+        for k in keys {
+            self.sql
+                .exec("DELETE FROM feed_keys WHERE k = ?", vec![k.as_str().into()])
+                .map_err(|_| StoreError("sql feed forget"))?;
+        }
+        Ok(())
+    }
+
+    fn feed_firing_entries(&self) -> std::result::Result<(Vec<FiringEntry>, u64), StoreError> {
+        let count: Vec<CountRow> = self
+            .sql
+            .exec("SELECT COUNT(*) AS n FROM feed_firing", None)
+            .and_then(|c| c.to_array())
+            .map_err(|_| StoreError("sql firing count"))?;
+        let total = count.first().map_or(0, |r| r.n.max(0) as u64);
+        // Rows one at a time, oldest first, while they fit latest.json's
+        // bound for the firing set (one post's events bound).
+        let cursor = self
+            .sql
+            .exec("SELECT v FROM feed_firing ORDER BY at_ms", None)
+            .map_err(|_| StoreError("sql firing list"))?;
+        let mut out = Vec::new();
+        let mut room = wire::POST_EVENTS_BYTES;
+        for row in cursor.next::<KvRow>() {
+            let row = row.map_err(|_| StoreError("sql firing row"))?;
+            if row.v.len() + 1 > room {
+                break;
+            }
+            room -= row.v.len() + 1;
+            if let Ok(e) = serde_json::from_str::<FiringEntry>(&row.v) {
+                out.push(e);
+            }
+        }
+        Ok((out, total))
+    }
+
+    fn feed_last_note(&self) -> std::result::Result<Option<WriteNote>, StoreError> {
+        Ok(kv_get(self.sql, FEED_NOTE)
+            .map_err(|_| StoreError("sql note"))?
+            .and_then(|v| serde_json::from_str(&v).ok()))
+    }
 }
+
+/// The last feed stamp (keys are stamped strictly increasing) and the last
+/// write's outcome.
+const FEED_STAMP: &str = "feed_stamp";
+const FEED_NOTE: &str = "feed_last_write";
 
 fn kv_get(sql: &SqlStorage, k: &str) -> Result<Option<String>> {
     let rows: Vec<KvRow> = sql
@@ -236,7 +438,8 @@ fn kv_delete(sql: &SqlStorage, k: &str) -> Result<()> {
 
 // --------------------------------------------------------------- email
 
-/// The `send_email` binding (raw `EmailMessage` path). A post's sends end by
+/// The `send_email` binding (raw `EmailMessage` path), used only while email
+/// is on. A post's sends end by
 /// `answer_by` (relay clock), so the relay answers before the publisher stops
 /// waiting; a tick's sends are bounded by [`wire::RELAY_ANSWER_MS`] each.
 struct Binding<'a> {
@@ -465,12 +668,13 @@ impl AlertsRelayState {
                 return read_error(e);
             }
         };
+        let answer_by = Some(started.saturating_add(wire::RELAY_ANSWER_MS));
         let mailer = Binding {
             env: &self.env,
-            answer_by: Some(started.saturating_add(wire::RELAY_ANSWER_MS)),
+            answer_by,
         };
-        let answer =
-            relay::handle_post(&body, cfg, &SqlTable(sql), &mailer, budget(), now_ms()).await;
+        let table = SqlTable::new(sql, &self.env, answer_by);
+        let answer = relay::handle_post(&body, cfg, &table, &mailer, budget(), now_ms()).await;
         match (answer.status, answer.refusal) {
             (200, _) => {
                 let mut i = intake(sql);
@@ -567,17 +771,9 @@ impl AlertsRelayState {
             tracker: &tracker,
             workers: workers.as_ref(),
         };
-        let report = relay::tick(
-            &mut st,
-            cfg,
-            &reads,
-            &SqlTable(sql),
-            &mailer,
-            budget(),
-            &hooks,
-            now,
-        )
-        .await;
+        let table = SqlTable::new(sql, &self.env, None);
+        let report =
+            relay::tick(&mut st, cfg, &reads, &table, &mailer, budget(), &hooks, now).await;
         // Release the lease only while it is still this tick's.
         if hooks.held() {
             kv_delete(sql, "tick_lease")?;
@@ -588,15 +784,30 @@ impl AlertsRelayState {
                 // accounted memory (arena rule; the reserve is not measured
                 // otherwise).
                 console_log!(
-                    "relay: tick due {} sent {} undelivered {} stopped {} email_ok {} budget peak {} of {}",
+                    "relay: tick {} due {} written {} sent {} undelivered {} stopped {} delivery_ok {} email {} swept {} latest {} budget peak {} of {}",
+                    st.ticks,
                     r.due,
+                    r.written,
                     r.sent,
                     r.undelivered,
                     r.stopped,
-                    r.email_ok,
+                    r.delivery_ok,
+                    if cfg.email.is_some() { "on" } else { "off" },
+                    r.swept,
+                    r.latest.unwrap_or("skipped"),
                     budget().peak(),
                     arena::READBACK_BUDGET
                 );
+                if let Some(d) = r.drill_feed {
+                    // The deploy-time drill (DRILL_ID) in the feed: written,
+                    // timeout or refused (a refusal's code follows).
+                    console_log!("relay: drill feed {d}");
+                }
+                if let Some(d) = r.drill {
+                    // The drill's email (email on only): sent, timeout or
+                    // refused.
+                    console_log!("relay: drill {d}");
+                }
                 if let Some(f) = &r.failure {
                     log_failure("tick", f);
                 }
@@ -605,12 +816,12 @@ impl AlertsRelayState {
                 }
                 let headers = Headers::new();
                 headers.set("content-type", "application/json")?;
-                if r.email_ok {
+                if r.delivery_ok {
                     headers.set(PING_HEADER, "1")?;
                 }
                 let body = format!(
-                    r#"{{"due":{},"sent":{},"undelivered":{},"email_ok":{}}}"#,
-                    r.due, r.sent, r.undelivered, r.email_ok
+                    r#"{{"due":{},"written":{},"sent":{},"undelivered":{},"delivery_ok":{}}}"#,
+                    r.due, r.written, r.sent, r.undelivered, r.delivery_ok
                 );
                 Ok(Response::ok(body)?.with_headers(headers))
             }
@@ -676,11 +887,12 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 }
 
 /// Set on a tick's answer when the external dead-man may be pinged: the tick
-/// finished, and its sends have not been failing for the undelivered hold.
-const PING_HEADER: &str = "x-alerts-relay-email-ok";
+/// finished, and its deliveries have not been failing for the undelivered
+/// hold.
+const PING_HEADER: &str = "x-alerts-relay-delivery-ok";
 
 /// The external dead-man ping (a GET within the outbound bound), after a
-/// tick that finished with its email path working.
+/// tick that finished with its delivery path working.
 async fn ping(url: &str) {
     let mut init = RequestInit::new();
     init.with_method(Method::Get);
@@ -712,11 +924,12 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
         (Err(e), _) | (_, Err(e)) => Err(e),
     };
     // The relay's own dead-man ping, configured outside Cloudflare's
-    // account (decision pending; off unless HEARTBEAT_ENABLED). It means
-    // "the cron ran and the email path works as far as the relay knows": a
-    // busy tick (the tick under way pings), a stopped one, a store error, a
-    // refused configuration or sends failing for the undelivered hold skip
-    // it, so the external monitor pages.
+    // account (off unless HEARTBEAT_ENABLED; the alert feed's latest.json is
+    // the dead-man a reader outside Cloudflare reads). It means "the cron ran and
+    // the delivery path works as far as the relay knows": a busy tick (the
+    // tick under way pings), a stopped one, a store error, a refused
+    // configuration or deliveries failing for the undelivered hold skip it,
+    // so the external monitor pages.
     match answered {
         Ok((200, true)) => {
             if let Ok(Config {

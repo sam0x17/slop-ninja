@@ -486,7 +486,9 @@ async fn deliver_due(
     run: AlertRun<'_>,
 ) -> usize {
     let now = now_ms();
-    let conditions = alerts::evaluate(observed, publisher, rules);
+    // An unanswered status read carries the open entries it would decide:
+    // unknown is never a resolution.
+    let conditions = alerts::conditions(observed, publisher, rules, &durable.alerts, now);
     alerts::observe(&mut durable.alerts, &conditions, now);
     let events = alerts::due(&durable.alerts, now, rules.renotify_ms);
     if events.is_empty() {

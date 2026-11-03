@@ -207,6 +207,21 @@ summary. When the verdict stays `unresponsive` for more than two minutes:
    the backfill closes the gap after the resume.
 5. Record the window and the restart versions in the private inventory.
 
+### Alerts
+
+The publisher evaluates the alert rules every minute and posts what is due to
+the private alerts relay Worker, which also watches the publisher's heartbeat
+and the spend tracker. The relay writes every alert, once per event id, as a
+content-free object to the private alert feed in its bucket (`feed/v1/`), and
+rewrites `feed/v1/latest.json` every tick as its heartbeat. The operator reads
+the feed with private tooling, which raises `relay_silent` itself when the
+relay's writes stop. Email is an optional relay path, off by default. A status
+read that does not answer, or answers without a field a rule reads, is never
+read as a cleared condition, in the publisher's rules or in the operator's
+`relay_silent`: the rules it decides stay as they were until a read answers. Rules
+and bounds: `subnet/alerts-relay/README.md` and the publisher's README
+("Alerts").
+
 ## Teardown
 
 ```sh

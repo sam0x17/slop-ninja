@@ -1,12 +1,16 @@
 # Slop Ninja alerts relay: Wrangler configuration (tracked).
 #
-# Decision D18: alerts are email. This private Worker sends them through a
-# send_email binding. It has no route, no workers.dev name and no preview
-# URLs: the publisher's service binding (ALERTS_RELAY_TESTNET) is the only way
-# in, and its own cron is the dead-man check on the publisher and the spend
-# tracker. It never changes Email Routing: there is no `addresses` field (a
-# Worker's `addresses` rewrites the zone's routing rules) and no email
-# handler.
+# Decision D18: this private Worker writes every alert to a private alert
+# feed in its bucket (feed/v1/, read from outside Cloudflare), and
+# emails it through a send_email binding only while email is on (optional,
+# off by default: on only with ALERT_EMAIL_ENABLED = "true" and ALERT_EMAIL_TO
+# set). It has no route, no workers.dev name
+# and no preview URLs: the publisher's service binding (ALERTS_RELAY_TESTNET)
+# is the only way in, and its own cron is the dead-man check on the publisher
+# and the spend tracker; its feed/v1/latest.json, rewritten every tick, is
+# a reader's dead-man on the relay. It never changes Email Routing: there is
+# no `addresses` field (a Worker's `addresses` rewrites the zone's routing
+# rules) and no email handler.
 #
 # Deploy the testnet environment only, before any publisher deploy that
 # carries the ALERTS_RELAY_TESTNET binding:
@@ -18,25 +22,33 @@
 # Secrets, installed by the operator from the private files (their values
 # never appear in tracked files):
 #
-#   ALERT_EMAIL_FROM          the sender: an address on the zone that has
-#                             Email Routing enabled
-#   ALERT_EMAIL_TO            the recipient; before a sending domain is
-#                             onboarded, Cloudflare sends only to verified
-#                             destination addresses of the account
+#   ALERT_EMAIL_FROM          optional (email only): the sender, an address on
+#                             the zone that has Email Routing enabled
+#   ALERT_EMAIL_TO            optional: the recipient; email is on only while it
+#                             is set and ALERT_EMAIL_ENABLED is "true" (before a
+#                             sending domain is onboarded,
+#                             Cloudflare sends only to verified destination
+#                             addresses of the account)
 #   COORDINATOR_STATUS_TOKEN  read-only status tokens, used only while the
 #   EVAL_STATUS_TOKEN         publisher is silent (each Worker checks its own)
 #   HEARTBEAT_URL             optional external dead-man check (https, no
 #                             credentials), pinged after each tick that
-#                             finished with its email path working
+#                             finished with its delivery path working
 #
-# Deploy-time vars (not here): SPEND_FIGURES_IN_EMAIL = "true" puts month
-# totals in the body of spend alerts. Set it only when the recipient delivers
-# to the user's mailbox alone. Subjects never carry figures.
-# HEARTBEAT_ENABLED = "true" pings HEARTBEAT_URL (off by default).
+# Deploy-time vars (not here): ALERT_EMAIL_ENABLED = "true" turns email on
+# while ALERT_EMAIL_TO is set (a recipient without it is a
+# relay_config_warning and sends nothing). SPEND_FIGURES_IN_EMAIL = "true" puts month
+# totals in the email body of spend alerts while email is on. Set it only when
+# the recipient delivers to the user's mailbox alone. Subjects and the feed
+# never carry figures. HEARTBEAT_ENABLED = "true" pings HEARTBEAT_URL (off by
+# default). DRILL_ID = "<name>" (lowercase letters, digits and ._/-) writes
+# one drill object to the feed (and, while email is on, emails one drill
+# message, subject "Slop Ninja testnet alert drill"), once per id, at the next
+# tick; it is never repeated for the same id. Leave it unset otherwise.
 #
-# Only NETWORK, ALERT_EMAIL_FROM and ALERT_EMAIL_TO are required. An optional
-# setting that does not parse is ignored (its default applies) and emailed as
-# relay_config_warning.
+# Only NETWORK is required. An optional setting that does not parse is ignored
+# (its default applies) and reported as relay_config_warning; ALERT_EMAIL_TO
+# unset is email off, not a warning.
 #
 # No account ID or address belongs here. The top level is a local-only shell
 # with no bindings, triggers or route.
@@ -81,14 +93,17 @@ WATCHDOG_SILENCE_SECS = "300"
 # after two); this applies only until an upload states one.
 TRACKER_PERIOD_SECS = "86400"
 
-# Email through the zone's existing Email Routing (no rule, destination or
-# DNS record is changed). No restriction attribute: the binding sends only
-# to verified destination addresses of the account; the code sends only to
-# ALERT_EMAIL_TO.
+# Optional email through the zone's existing Email Routing (no rule,
+# destination or DNS record is changed). No restriction attribute: the
+# binding sends only to verified destination addresses of the account; the
+# code sends only to ALERT_EMAIL_TO, and only while it is set and
+# ALERT_EMAIL_ENABLED is "true".
 [[env.testnet.send_email]]
 name = "ALERT_EMAIL_TESTNET"
 
-# The spend tracker's upload (spend-tracker/latest.json). Private.
+# The spend tracker's upload (spend-tracker/latest.json) and the alert feed
+# (feed/v1/events/, feed/v1/latest.json). Private: no r2.dev URL, no custom
+# domain, no CORS.
 [[env.testnet.r2_buckets]]
 binding = "ALERTS_TESTNET"
 bucket_name = "alerts-bucket-testnet"
@@ -103,7 +118,8 @@ service = "slop-ninja-coordinator-testnet"
 binding = "EVAL_WORKER_TESTNET"
 service = "slop-ninja-eval-testnet"
 
-# The sent-event ledger, the relay's alert state and the last heartbeat.
+# The sent-event ledger, the feed's index, the relay's alert state and the
+# last heartbeat.
 [[env.testnet.durable_objects.bindings]]
 name = "ALERTS_RELAY_STATE_TESTNET"
 class_name = "AlertsRelayState"

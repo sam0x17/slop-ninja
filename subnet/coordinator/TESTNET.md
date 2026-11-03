@@ -2306,6 +2306,20 @@ are evidence of the earlier design.
 - **Operator tool.** `reward_v1_verify revoke --bundle B --issued-epoch E
   --out R` signs a revocation of `B`'s authorization; `launch` and `cohort`
   take `--generation G`. Never revoke the live target except to withdraw it.
+- **Live (2026-11-03).** The coordinator was redeployed from main `c6be699c`
+  with signing paused around it (journal schema 8 -> 9 in place); its
+  `/status` shows the r0 launch authorization (issued 77, renew-by 117, not
+  revoked), and the cron tick wrote `authorizations/current.json` with the
+  launch authorization object in the receipts bucket, read back by digest.
+  The publisher, redeployed from the same commit, copied them to
+  `v1/authorizations/` in the private public-candidate bucket. On the new
+  build the coordinator revealed epoch 92 (`weights_match`) and committed
+  epoch 93 (read back ok). validator2 was reinstalled from the same commit
+  in a settled window: it adopted its queued epoch-92 operation without a
+  duplicate, committed it at block 8364964 and its reveal compared with
+  `weights_match` true. No revocation was issued live. The lease end itself
+  (epoch 117) is checked in tests with the chain 60 epochs past the hint;
+  the live check comes when the chain passes epoch 117.
 
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 

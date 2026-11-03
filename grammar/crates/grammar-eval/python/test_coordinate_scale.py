@@ -13,6 +13,9 @@ from coordinate_scale import backward_panels, choose_lambda, panel_cross_entropy
 class CoordinateScaleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Restore torch's process-wide defaults after this class, so tests run after it keep the defaults they started with.
+        cls.addClassCleanup(torch.set_default_dtype, torch.get_default_dtype())
+        cls.addClassCleanup(torch.set_num_threads, torch.get_num_threads())
         torch.set_default_dtype(torch.float64)
         torch.set_num_threads(2)
 

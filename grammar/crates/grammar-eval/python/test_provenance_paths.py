@@ -1,7 +1,10 @@
 """Offline checks of provenance_paths.py: package JSON records no absolute local path, user name or private
-directory name. Synthetic paths only; nothing is read from disk beyond the working directory's name."""
+directory name. Synthetic paths only; nothing is read from disk beyond the working directory's name and this
+module, which one check copies to a scratch directory outside the repository layout."""
 import getpass
 import os
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -99,6 +102,23 @@ class LocalPaths(unittest.TestCase):
         self.assertTrue((pp.REPO / "grammar/crates/grammar-eval/python/provenance_paths.py").is_file())
         self.assertEqual(pp.portable(pp.REPO / "grammar" / "fixtures" / "a"), "grammar/fixtures/a")
         self.assertEqual(pp.portable(pp.REPO / "data" / "fits" / "a"), "a")
+
+    def test_a_copy_outside_the_repository_imports_and_refuses_only_a_default_root(self):
+        # A bitwise harness copies the reference tree's modules to a shallow scratch directory.
+        with tempfile.TemporaryDirectory() as d:
+            copy = Path(d) / "tree" / "provenance_paths.py"
+            copy.parent.mkdir()
+            copy.write_bytes(Path(pp.__file__).read_bytes())
+            script = ("import provenance_paths as p\n"
+                      "assert p.is_local_path('/x') and p.portable_recorded('data/fits/a') == 'a'\n"
+                      "assert p.portable('/srv/checkout/grammar/x', '/srv/checkout') == 'grammar/x'\n"
+                      "assert p.portable_at({'f': '/srv/checkout/n/r'}, ('/f',), '/srv/checkout')[0] == {'f': 'n/r'}\n"
+                      "for use in (lambda: p.REPO, lambda: p.portable('/srv/x'), lambda: p.portable_at({'f': '/x'}, ('/f',))):\n"
+                      "    try:\n        use()\n    except ValueError as e:\n"
+                      "        assert 'repository layout' in str(e), e\n"
+                      "    else:\n        raise AssertionError('a default root was guessed')\n")
+            run = subprocess.run([sys.executable, "-B", "-c", script], cwd=copy.parent, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_only_known_provenance_pointers_are_rewritten(self):
         value = {"runs": [{"run": "/srv/checkout/n/run-000", "shard": 0}, {"run": "n/run-001", "shard": 1},

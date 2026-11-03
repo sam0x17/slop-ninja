@@ -501,8 +501,11 @@ fn storage_values_read_by_name_decode_in_every_rendering() -> Result<()> {
 // Application fault boundaries with the real native journal.
 
 fn scratch() -> Result<tempfile::TempDir> {
+    // A task-owned root when SLOP_NINJA_TEST_TMPDIR is set, otherwise the
+    // system temporary directory (TMPDIR). Each TempDir removes itself.
     let root = std::env::var_os("SLOP_NINJA_TEST_TMPDIR")
-        .context("set SLOP_NINJA_TEST_TMPDIR to the recorded task temporary root")?;
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
     Ok(tempfile::Builder::new()
         .prefix("m2-app-")
         .tempdir_in(root)?)

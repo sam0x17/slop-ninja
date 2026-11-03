@@ -22,14 +22,20 @@ repository-relative, so one under a private tree (or with `..`) keeps only its f
 `is_local_path` says whether a string reads as an absolute local path; `local_paths` lists the JSON
 pointers of the strings, and the keys, that read as one, embed one (`embeds_local_path`) or name a path
 under a private tree (`names_private_tree`), for warnings. Pure Python, no third-party imports. The
-miner client warns about the same strings (`slop_ninja_miner pack` and `check`)."""
+miner client warns about the same strings (`slop_ninja_miner pack` and `check`).
+
+`REPO`, the default repository root, is resolved lazily from this file's place in the checkout
+(`grammar/crates/grammar-eval/python/`). A copy outside that layout (a reference tree a bitwise harness
+copies to a scratch directory) imports cleanly; it refuses only when a default root is actually needed,
+so pass `root` explicitly there."""
 from __future__ import annotations
 
 import getpass
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-REPO = Path(__file__).resolve().parents[4]
+# This file's directory, relative to the repository root.
+LAYOUT = ("grammar", "crates", "grammar-eval", "python")
 # Ignored trees of the repository whose directory names are private (AGENTS.md: generated corpora,
 # credentials, local databases, private fits and their experiment names live in `data/`).
 PRIVATE_TREES = ("data",)
@@ -39,6 +45,23 @@ OUTSIDE = "(outside the repository)"
 HOME_ROOTS = ("/home", "/Users", "/var/home", "/usr/home")
 # Substrings that put a local path inside a longer string (free text, a URL).
 EMBEDDED = ("file://", "/home/", "/Users/", "/root/", "/var/home/", ":\\Users\\", ":/Users/")
+
+
+def repo_root():
+    """The repository root holding this file, or a ValueError when this copy is not inside the repository
+    layout (`LAYOUT`): no default root is guessed for a copy elsewhere."""
+    here = Path(__file__).resolve()
+    if len(here.parts) <= len(LAYOUT) + 1 or here.parts[-len(LAYOUT) - 1:-1] != LAYOUT:
+        raise ValueError(f"provenance_paths.py is not inside the repository layout ({'/'.join(LAYOUT)}/); "
+                         "pass the repository root explicitly")
+    return here.parents[len(LAYOUT)]
+
+
+def __getattr__(name):
+    # `REPO` is resolved on first use (PEP 562), so importing a copy outside the repository never fails.
+    if name == "REPO":
+        return repo_root()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def is_local_path(value):
@@ -107,9 +130,9 @@ def _inside(rel):
     return rel
 
 
-def portable(path, root=REPO):
+def portable(path, root=None):
     """`path` as package JSON records it (see the module docstring), resolved against the working
-    directory; `root` is the repository root."""
+    directory; `root` is the repository root (default `repo_root()`)."""
     text = os.fspath(path)
     if text[:2] == "\\\\" or (len(text) > 2 and text[1] == ":" and text[2] in "\\/"):
         # A Windows path on a POSIX host: never inside this checkout; keep the final component.
@@ -122,7 +145,7 @@ def portable(path, root=REPO):
         head, _, rest = text.partition("/")
         return _final(PurePosixPath(rest).name, rest) if rest.strip("/") else OUTSIDE
     lexical = Path(os.path.normpath(os.path.join(os.getcwd(), os.path.expanduser(text))))
-    root = Path(root)
+    root = Path(repo_root() if root is None else root)
     for base, candidate in ((Path(os.path.normpath(root)), lexical), (root.resolve(), lexical.resolve())):
         rel = _within(candidate, base)
         if rel is not None:
@@ -140,7 +163,7 @@ def _matches(pointer, pattern):
     return len(a) == len(b) and all(q == "*" or p == q for p, q in zip(a, b))
 
 
-def portable_recorded(value, root=REPO):
+def portable_recorded(value, root=None):
     """A location string already recorded in a file, as package JSON records it. An absolute local path
     is made portable (`portable`). A relative one was written against a working directory that is no
     longer known, so it is read as repository-relative: under a private tree, or with `..`, only its
@@ -154,7 +177,7 @@ def portable_recorded(value, root=REPO):
     return "." if rel in (".", "") else _inside(rel)
 
 
-def portable_at(value, pointers, root=REPO):
+def portable_at(value, pointers, root=None):
     """(copy of `value` with the location strings at the JSON pointer patterns `pointers` made portable
     (`portable_recorded`), [(JSON pointer, new string)] for each one that changed). Strings anywhere
     else are never changed."""

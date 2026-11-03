@@ -729,13 +729,15 @@ and by the live drills in [TESTNET-M2.md](TESTNET-M2.md#7-fault-drills).
 ## Tests
 
 ```sh
-SLOP_NINJA_TEST_TMPDIR=<task tmp> cargo test --manifest-path subnet/Cargo.toml --locked -p slop_ninja_validator -- --test-threads=1
+cargo test --manifest-path subnet/Cargo.toml --locked -p slop_ninja_validator -- --test-threads=1
 cargo clippy --manifest-path subnet/Cargo.toml --locked --workspace --all-targets -- -D warnings
 ```
 
 The tests are offline. They use fake chain ports, real file journals and
 public deterministic dev seeds, and create no client, signer or RPC
-connection. They cover:
+connection. Their journals live in per-test directories under
+`SLOP_NINJA_TEST_TMPDIR` when set, otherwise under the system temporary
+directory. They cover:
 
 - package verification: every tampered envelope, receipt object, missing or
   reordered receipt, cross-cohort record, wrong role, untrusted key, wrong

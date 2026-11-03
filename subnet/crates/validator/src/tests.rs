@@ -460,8 +460,11 @@ fn injected_crash_at_each_boundary_restarts_from_open_and_recovers_first() -> Re
 // Real journal tests: the native adapter and file journal, with no client.
 
 fn scratch() -> Result<tempfile::TempDir> {
+    // A task-owned root when SLOP_NINJA_TEST_TMPDIR is set, otherwise the
+    // system temporary directory (TMPDIR). Each TempDir removes itself.
     let root = std::env::var_os("SLOP_NINJA_TEST_TMPDIR")
-        .context("set SLOP_NINJA_TEST_TMPDIR to the recorded task temporary root")?;
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
     Ok(tempfile::Builder::new()
         .prefix("validator-")
         .tempdir_in(root)?)

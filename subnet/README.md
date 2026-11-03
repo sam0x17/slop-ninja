@@ -299,9 +299,10 @@ at the pin passed (110 tests, among them the burn row's commit and reveal,
 restart mid-commit, the rejected-commitment re-prepare and a duplicate ID
 under another policy). No key was loaded and nothing was submitted.
 
-Run focused checks on the authorized compute host, not GitHub Actions. Set
-`SLOP_NINJA_TEST_TMPDIR` to an existing task-owned temporary root; the tests use
-it for disposable synthetic journals and remove their per-test directories.
+Run focused checks on the authorized compute host, not GitHub Actions. The
+tests write disposable synthetic journals under `SLOP_NINJA_TEST_TMPDIR` when it
+names an existing task-owned temporary root, otherwise under the system
+temporary directory, and remove their per-test directories.
 
 ```sh
 cargo test --manifest-path subnet/Cargo.toml --locked -- --test-threads=1

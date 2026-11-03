@@ -21,6 +21,9 @@ FAMILIES = sorted(["word", "word_bigram", "pos", "pos_tag", "pos_bigram", "pos_t
 class AuthorSelectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Restore torch's process-wide defaults after this class, so tests run after it keep the defaults they started with.
+        cls.addClassCleanup(torch.set_default_dtype, torch.get_default_dtype())
+        cls.addClassCleanup(torch.set_num_threads, torch.get_num_threads())
         torch.set_num_threads(2)
         torch.set_default_dtype(torch.float64)
         torch.manual_seed(8)

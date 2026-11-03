@@ -2553,6 +2553,35 @@ are evidence of the earlier design.
   build without the v2 schema must not be deployed after the coordinator.
   Validators built for v1 (validator2 at `c6be699c`) refuse the v2 public
   pointer and keep their held target until reinstalled.
+- **Live, review fixes (2026-11-03).** Deployed from main `fa297104` back
+  to back in that order: the publisher (rules v6; until the coordinator
+  deploy its runs refused the
+  coordinator's v1 pointer, as expected), the coordinator with signing
+  paused for under two minutes (journal schema 9 -> 10 in place; the cron
+  tick wrote the v2 pointer, schema `slop_ninja.public.authorization/v2`,
+  launch authorization issued 77, renew-by hint 117, no revocation set,
+  read back by digest; `/status` shows the writer current), then the eval
+  Worker (retention hold on the v2 pointer, no hold error; its journal
+  schema 10). The publisher's next runs copied the v2 pointer to
+  `v1/authorizations/` in the private public-candidate bucket. On the new
+  builds the coordinator revealed epoch 95 (`weights_match`, block
+  8366084) and committed epoch 96 (block 8366097, read back ok).
+  validator2 was reinstalled from the same commit in a settled window (its
+  epoch-94 reveal compared, its epoch-95 operation queued with no attempt):
+  it adopted that operation without a duplicate, committed it at block
+  8366045 and its reveal compared with `weights_match` true at 8366085.
+  The operator's alert reader runs rule set v7. Committing past the renew-by hint and
+  a signed revocation stopping a target are shown offline: the validator
+  suite (93 passed, 1 ignored, including the launch bundle queued at epoch
+  60 past a hint of 50 and derived at epoch 100,000, then stopped by a
+  journaled revocation and resumed by a later authorization, and the
+  dispatch loop's revocation path) and the coordinator's signing tests (40
+  passed, including commits 60 epochs past the hint until a signed
+  revocation stops every signature of the target for three epochs). No
+  revocation was issued live. The pointer is not public (no public host is
+  deployed), so validators other than the operator's still install bundles
+  by hand; a validator without `[fetch]` keeps committing its installed
+  bundle.
 - **Eval bucket lifecycle (2026-11-03).** The testnet eval bucket's default
   rule "abort incomplete multipart uploads after 7 days" was removed: the
   coordinator aborts its own incomplete admission uploads from durable state

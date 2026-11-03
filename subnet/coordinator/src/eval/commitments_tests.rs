@@ -393,12 +393,26 @@ fn a_commitment_whose_block_state_is_gone_stays_unresolved() {
     })
     .unwrap();
     let (ek, uk) = (events_key(&rt).unwrap(), uids_key(&rt, NETUID, &who(3)).unwrap());
-    let results = answer(
-        &round,
-        |_| serde_json::json!([{"block": Id([1; 32]).to_hex(), "changes": [[ek, null], [uk, null]]}]),
-    );
-    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, 0)).unwrap();
-    assert!(!tx(&db, |s| unresolved(s, &who(3))).unwrap());
+    let gone = |round: &Round| {
+        answer(round, |_| serde_json::json!([{"block": Id([1; 32]).to_hex(), "changes": [[ek, null], [uk, null]]}]))
+    };
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &gone(&round), 0)).unwrap();
+    // An answer without state is never final (fix round 2, finding 7): the
+    // stage is read again after a backoff (from the archive endpoint when
+    // configured), and after a longer one when that answer has none either.
+    let backoff = crate::eval::admission::backoff_ms;
+    assert!(tx(&db, |s| unresolved(s, &who(3))).unwrap());
+    assert!(tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 1)).unwrap().reads.is_empty());
+    let t1 = backoff(1);
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, t1)).unwrap();
+    assert!(round.reads[0].archive);
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &gone(&round), t1)).unwrap();
+    assert!(tx(&db, |s| unresolved(s, &who(3))).unwrap(), "still pending");
+    assert!(tx(&db, |s| terminal(s, &who(3))).unwrap().is_none());
+    let t2 = t1 + backoff(2);
+    assert!(tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, t2 - 1)).unwrap().reads.is_empty());
+    assert!(!tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, t2)).unwrap().reads.is_empty());
+    assert_eq!(tx(&db, status).unwrap()["state_absent_pending"], 1);
     assert!(
         tx(&db, |s| latest(s, &who(3))).unwrap().is_none(),
         "never substituted by later state"
@@ -586,7 +600,7 @@ fn state_a_node_no_longer_keeps_ends_the_resolution_once() {
 }
 
 #[test]
-fn a_batch_commitment_and_a_runtime_change_at_the_block_are_unresolvable() {
+fn a_batch_commitment_is_unresolvable_and_a_runtime_change_at_the_block_is_read_again() {
     let (db, rt, up) = with_runtime();
     let c_hash = Id([0xcd; 32]);
     pending_events(&db, &who(3), 5, c_hash);
@@ -630,10 +644,127 @@ fn a_batch_commitment_and_a_runtime_change_at_the_block_are_unresolvable() {
         |_| serde_json::json!([{"block": c_hash.to_hex(), "changes": [[ek, hx(&batch)], [uk6, hx(&uid)], [marker_key(), hx(&up487)]]}]),
     );
     tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, 1)).unwrap();
+    // Not terminal: the stage waits while the metadata is read at the
+    // commitment's own block (the no-hard-runtime-gates rule).
+    assert_eq!(seen(&db, &who(6)), Some(("events".into(), None)));
+    assert!(tx(&db, |s| terminal(s, &who(6))).unwrap().is_none());
+    assert_eq!(tx(&db, |s| terminal(s, &who(3))).unwrap(), Some((5, SHARED_EXTRINSIC.into())));
+    let round = tx(&db, |s| {
+        plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 2)
+    })
+    .unwrap();
     assert_eq!(
-        seen(&db, &who(6)),
-        Some(("unresolvable".into(), Some("runtime_changed".into())))
+        round.reads.iter().map(|r| r.tag.as_str()).collect::<Vec<_>>(),
+        vec!["version@6", "metadata@6", "marker@6"],
+        "the runtime is read at the commitment block"
     );
+    assert_eq!(round.reads[1].body, crate::rpc::metadata_request(12, &c_hash));
+    // With that runtime stored, the same stage is read again and resolves.
+    tx(&db, |s| store_runtime(s, 487, 1, METADATA, 6, &hex::encode(&up487))).unwrap();
+    let round = tx(&db, |s| {
+        plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 3)
+    })
+    .unwrap();
+    assert_eq!(round.reads[0].tag, format!("events@{}@6", hex::encode(who(6).0)));
+    let single = encode(&rt, "System", "Events", &Value::List(vec![event(Some(2), NETUID, &who(6))]));
+    let results = answer(
+        &round,
+        |_| serde_json::json!([{"block": c_hash.to_hex(), "changes": [[ek, hx(&single)], [uk6, hx(&uid)], [marker_key(), hx(&up487)]]}]),
+    );
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, 3)).unwrap();
+    assert_eq!(seen(&db, &who(6)).map(|x| x.0), Some("reg".into()));
+}
+
+/// A runtime change at a block whose own metadata no endpoint serves any
+/// longer: the resolution ends as `state_discarded` (never decoded with
+/// another runtime), and the reader goes back to the head's runtime instead
+/// of reading that block again forever.
+#[test]
+fn a_runtime_change_at_a_block_whose_metadata_is_gone_ends_the_resolution() {
+    let (db, rt, _) = with_runtime();
+    let c_hash = Id([0xce; 32]);
+    pending_events(&db, &who(7), 6, c_hash);
+    let at = BlockRef {
+        number: 10_000,
+        hash: Id([2; 32]),
+    };
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 0)).unwrap();
+    let (ek, uk) = (events_key(&rt).unwrap(), uids_key(&rt, NETUID, &who(7)).unwrap());
+    let up487 = marker_value(&rt, 487);
+    let results = answer(
+        &round,
+        |_| serde_json::json!([{"block": c_hash.to_hex(), "changes": [[ek, null], [uk, null], [marker_key(), hx(&up487)]]}]),
+    );
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, 0)).unwrap();
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 1)).unwrap();
+    assert_eq!(round.reads[0].tag, "version@6");
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &error_reply(&round, "State already discarded"), 1)).unwrap();
+    assert_eq!(seen(&db, &who(7)), Some(("unresolvable".into(), Some("state_discarded".into()))));
+    assert_eq!(tx(&db, |s| terminal(s, &who(7))).unwrap(), Some((6, "state_discarded".into())));
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 2)).unwrap();
+    assert!(
+        round.reads.first().is_none_or(|r| r.tag != "version@6"),
+        "the block is not read again: {:?}",
+        round.reads.iter().map(|r| r.tag.as_str()).collect::<Vec<_>>()
+    );
+}
+
+/// Fix round 1, finding 10, and fix round 2, finding 7: a resolution read
+/// that served no state for its block (no upgrade marker) is never
+/// terminal. The stage stays pending, its next read (after a backoff) is
+/// flagged for the archive endpoint, and further answers without state only
+/// lengthen the backoff.
+#[test]
+fn a_resolution_read_without_state_is_read_again_from_the_archive() {
+    let (db, rt, up) = with_runtime();
+    let c_hash = Id([0xcf; 32]);
+    pending_events(&db, &who(8), 6, c_hash);
+    let at = BlockRef {
+        number: 10_000,
+        hash: Id([2; 32]),
+    };
+    let (ek, uk) = (events_key(&rt).unwrap(), uids_key(&rt, NETUID, &who(8)).unwrap());
+    let empty = |round: &Round| {
+        answer(round, |_| {
+            serde_json::json!([{"block": c_hash.to_hex(), "changes": [[ek, null], [uk, null], [marker_key(), null]]}])
+        })
+    };
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 0)).unwrap();
+    assert_eq!(round.reads[0].tag, format!("events@{}@6", hex::encode(who(8).0)));
+    assert!(!round.reads[0].archive);
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &empty(&round), 0)).unwrap();
+    assert_eq!(seen(&db, &who(8)).map(|x| x.0), Some("events".into()), "not terminal on one empty answer");
+    assert!(tx(&db, |s| terminal(s, &who(8))).unwrap().is_none());
+    // Read again after the backoff, from the archive endpoint when
+    // configured; a state-holding answer resolves it.
+    let t1 = crate::eval::admission::backoff_ms(1);
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, t1)).unwrap();
+    assert_eq!(round.reads[0].tag, format!("events@{}@6", hex::encode(who(8).0)));
+    assert!(round.reads[0].archive);
+    let single = encode(&rt, "System", "Events", &Value::List(vec![event(Some(2), NETUID, &who(8))]));
+    let uid = encode(&rt, chain::SUBTENSOR, "Uids", &Value::Int(12));
+    let results = answer(&round, |_| {
+        serde_json::json!([{"block": c_hash.to_hex(), "changes": [[ek, hx(&single)], [uk, hx(&uid)], [marker_key(), hx(&up)]]}])
+    });
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, t1)).unwrap();
+    assert_eq!(seen(&db, &who(8)).map(|x| x.0), Some("reg".into()));
+    // The registration stage starts afresh (no backoff, a plain read); its
+    // empty answers are never final either.
+    let t2 = t1 + 1;
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, t2)).unwrap();
+    assert!(round.reads[0].tag.starts_with("reg@") && !round.reads[0].archive);
+    let rk = registration_key(&rt, NETUID, 12).unwrap();
+    let none = |round: &Round| {
+        answer(round, |_| serde_json::json!([{"block": c_hash.to_hex(), "changes": [[rk, null], [marker_key(), null]]}]))
+    };
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &none(&round), t2)).unwrap();
+    assert_eq!(seen(&db, &who(8)).map(|x| x.0), Some("reg".into()));
+    let t3 = t2 + crate::eval::admission::backoff_ms(1);
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, t3)).unwrap();
+    assert!(round.reads[0].archive);
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &none(&round), t3)).unwrap();
+    assert_eq!(seen(&db, &who(8)).map(|x| x.0), Some("reg".into()), "still pending");
+    assert!(tx(&db, |s| terminal(s, &who(8))).unwrap().is_none());
 }
 
 #[test]

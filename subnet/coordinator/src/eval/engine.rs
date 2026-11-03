@@ -305,7 +305,14 @@ pub const FRESH_STOCK_REFUSED: &str =
 /// The draw's fault code for a fresh pool without an admitted outside entrant.
 pub const FRESH_STOCK_REFUSED_CODE: &str = "fresh_stock_refused";
 
-pub const RESUMABLE_FAULTS: &[&str] = &["generation_unavailable", "scorer_unavailable", "package_refused"];
+pub const RESUMABLE_FAULTS: &[&str] = &[
+    "generation_unavailable",
+    "scorer_unavailable",
+    "package_refused",
+    crate::eval::commitments::SNAPSHOT_DISCARDED,
+    crate::eval::admission::FRAMING_UNAVAILABLE,
+    crate::eval::commitments::STATE_UNAVAILABLE,
+];
 
 /// The crash-isolation rule, as published in `components.json`.
 pub const CRASH_RULE: &str = "crash isolation: after a request kills its container (the container stops or stops \
@@ -1301,6 +1308,10 @@ pub enum Work {
     AdmissionCleanup,
     /// The calendar: queue the next cohort from the standing template.
     OpenNext { label: String, plan: Vec<u8> },
+    /// Admission: charge one run's measured instance time to the tracking
+    /// ledger under its own key; marked settled only after the ledger
+    /// answers (`admission::charge_settled`).
+    AdmissionSettle { key: String, microusd: u64 },
 }
 
 /// The next root step or sweep, if any. Phase moves that need no I/O (all
@@ -1308,7 +1319,10 @@ pub enum Work {
 /// transaction. Bulk work is never done here: it is dispatched to lanes.
 pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work>> {
     // A finished cohort's spend is charged to the ledger when no work runs, so
-    // a ledger outage never delays evaluation.
+    // a ledger outage never delays evaluation. The purge of private
+    // per-document predictions comes first, so a failing ledger (a settle
+    // that keeps returning an error) never holds private results in the
+    // bucket.
     if let Some(seq) = crate::eval::v3::closure_due(sql)? {
         return Ok(Some(Work::Close { seq }));
     }
@@ -1318,10 +1332,13 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work
         return Ok(Some(w));
     }
     let Some(c) = active(sql)? else {
+        if let Some(w) = crate::eval::lanes::purge_due(sql, now_ms)? {
+            return Ok(Some(w));
+        }
         if let Some(w) = crate::eval::lanes::settle_due(sql, cfg, now_ms)? {
             return Ok(Some(w));
         }
-        if let Some(w) = crate::eval::lanes::purge_due(sql, now_ms)? {
+        if let Some(w) = crate::eval::admission::charge_due(sql)? {
             return Ok(Some(w));
         }
         return retention_work(sql, cfg);
@@ -2636,6 +2653,12 @@ pub fn has_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
     Ok(blocking_work(sql, cfg)? || crate::eval::retention::has_work(sql)?)
 }
 
+/// [`has_work`] counting admission's backed-off steps, clean-ups and object
+/// deletes only once due at `now_ms`: what re-arms the step alarm.
+pub fn has_due_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<bool> {
+    Ok(work(sql, cfg, Some(now_ms))? || crate::eval::retention::has_work(sql)?)
+}
+
 /// The work a succession or an authority switch waits for (`work` in the
 /// status; `eval::succession::supersede`, `config::deploy_check`): an active
 /// cohort with work, a closure, a finished cohort whose spend is not yet
@@ -2646,8 +2669,12 @@ pub fn has_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
 /// notices (`eval::retention`), so waiting for them adds nothing, and a
 /// storage fault there never holds up a restart.
 pub fn blocking_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
+    work(sql, cfg, None)
+}
+
+fn work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool> {
     Ok(active(sql)?.is_some()
-        || crate::eval::admission::has_work(sql, cfg)?
+        || crate::eval::admission::has_work(sql, cfg, due_by)?
         || crate::eval::v3::closure_due(sql)?.is_some()
         || !sql
             .exec(

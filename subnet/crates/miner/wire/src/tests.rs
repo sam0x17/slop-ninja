@@ -354,6 +354,7 @@ fn contract_document_lists_every_code() {
         header::VALID_UNTIL,
         header::CONTENT_SHA256,
         header::SIGNATURE,
+        header::COMMITMENT_BLOCK,
         REQUEST_DOMAIN,
         UPLOAD_MEDIA_TYPE,
         SELECTION_EARLIEST_COMMITMENT_V1,

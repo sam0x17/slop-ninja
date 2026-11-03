@@ -147,6 +147,12 @@ pub fn check(cfg: &EvalConfig, bytes: &[u8]) -> R<Template> {
         .admission
         .as_ref()
         .ok_or(EvalError::Plan("template admission block"))?;
+    // The outside-entrant rule compares exact content digests, owning
+    // coldkeys and hotkeys; a near copy of a published artifact is caught
+    // only by the copy gate at scoring, after the draw. A standing template
+    // therefore never unlocks fresh stock: cohorts with fresh stock are
+    // operator plans until a pre-draw similarity probe exists.
+    e(a.fresh_pool.is_none(), "template admission.fresh_pool (none in a standing template)")?;
     // The testnet plan defaults (ruling of 2026-11-01): one scoring lane per
     // artifact, no pre-start, and the incentive rule the manifest binds.
     let f = t.plan.fanout.as_ref().ok_or(EvalError::Plan("template fanout"))?;
@@ -228,13 +234,14 @@ pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R
     let text = std::str::from_utf8(bytes).map_err(|_| EvalError::Plan("template utf-8"))?;
     let sha = engine::sha_hex(bytes);
     sql.exec(
-        "INSERT INTO standing_template (id, template, sha256, installed_ms, paused) VALUES (1, ?, ?, ?, 0)
+        "INSERT INTO standing_template (id, template, sha256, installed_ms, paused, first_cohort) VALUES (1, ?, ?, ?, 0, ?)
          ON CONFLICT (id) DO UPDATE SET template = excluded.template, sha256 = excluded.sha256,
-            installed_ms = excluded.installed_ms, paused = 0, last_error = NULL",
-        &[s(text), s(&sha), bind_u64(now_ms)?],
+            installed_ms = excluded.installed_ms, paused = 0, last_error = NULL, first_cohort = excluded.first_cohort",
+        &[s(text), s(&sha), bind_u64(now_ms)?, bind_u64(cfg.authority.first_cohort())?],
     )?;
     Ok(json!({"installed": true, "sha256": sha, "label_prefix": t.label_prefix,
         "roster_cap": t.plan.admission.as_ref().map(|a| a.roster_cap), "capacity": capacity(&t),
+        "admission_window": admission_window(sql)?,
         "next_references": {"source": source, "reference": next_ref.package_sha256,
             "previous_reference": next_prev.map(|p| p.package_sha256),
             "template_reference_followed": source == "template"}}))
@@ -272,9 +279,13 @@ fn as_reference(mut a: ArtifactJson) -> ArtifactJson {
 }
 
 /// The stored artifact record whose content digest is `content`: a v3
-/// cohort's reference, predecessor or entrant, newest first.
+/// cohort's reference, predecessor or entrant. Two indexed reads, whatever
+/// the number of cohorts: the cohort that published the content (a promoted
+/// entrant is published at its cohort's close), else the newest v3 cohort
+/// (every cohort names the chain's current reference and its predecessor).
 fn resolve(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
-    let rows = sql.exec("SELECT seq FROM cohorts WHERE v3 IS NOT NULL ORDER BY seq DESC", &[])?;
+    let mut rows = sql.exec("SELECT seq FROM published_contents WHERE content = ?", &[s(content)])?;
+    rows.extend(sql.exec("SELECT seq FROM cohorts WHERE v3 IS NOT NULL ORDER BY seq DESC LIMIT 1", &[])?);
     for r in &rows {
         let seq = int(r, 0)?;
         let st = crate::eval::v3::state(sql, seq)?;
@@ -354,27 +365,42 @@ pub fn due(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<(String, Vec<u8>)>> {
     due_any(sql, cfg.authority.first_cohort())
 }
 
-/// [`due`] without the authority check, numbering from `first_cohort`.
-pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>> {
+/// Whether the calendar has a cohort to open under `cfg`, as a pure read:
+/// the conditions of [`due`] without naming the references, so it writes
+/// nothing and reads no cohort records. Status and the step's reason to run
+/// use this; only the calendar's own step ([`due`]) records a reference
+/// error and pauses the template.
+pub fn ready(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
+    if cfg.authority.is_retired() {
+        return Ok(false);
+    }
+    Ok(template_ready(sql)?.is_some())
+}
+
+/// The installed template when it is not paused, nothing is queued and the
+/// latest cohort is in its transition, closed or abandoned (or there is none).
+fn template_ready(sql: &impl Sql) -> R<Option<Template>> {
     let Some((t, paused)) = stored(sql)? else {
         return Ok(None);
     };
     if paused {
         return Ok(None);
     }
-    let rows = sql.exec("SELECT phase, cohort FROM cohorts ORDER BY seq DESC LIMIT 1", &[])?;
-    let last_cohort = match rows.first() {
-        Some(r) => {
-            if !matches!(text(r, 0)?, "transition" | "closed" | "abandoned") {
-                return Ok(None);
-            }
-            Some(int(r, 1)?)
-        }
-        None => None,
+    let rows = sql.exec("SELECT phase FROM cohorts ORDER BY seq DESC LIMIT 1", &[])?;
+    if let Some(r) = rows.first()
+        && !matches!(text(r, 0)?, "transition" | "closed" | "abandoned")
+    {
+        return Ok(None);
+    }
+    Ok(Some(t))
+}
+
+/// [`due`] without the authority check, numbering from `first_cohort`.
+pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>> {
+    let Some(t) = template_ready(sql)? else {
+        return Ok(None);
     };
-    let max = sql.exec("SELECT COALESCE(MAX(cohort), 0) FROM cohorts", &[])?;
-    let next = (max.first().map_or(Ok(0), |r| int(r, 0))?.max(last_cohort.unwrap_or(0)) + 1)
-        .max(i64::try_from(first_cohort).map_err(|_| EvalError::State("first cohort"))?);
+    let next = next_number(sql, first_cohort)?;
     let (reference, previous, _) = match references(sql, &t) {
         Ok(r) => r,
         // The calendar cannot name the chain's references: it pauses with
@@ -387,7 +413,7 @@ pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>
         Err(e) => return Err(e),
     };
     let mut plan = t.plan.clone();
-    plan.cohort = u64::try_from(next).map_err(|_| EvalError::State("cohort number"))?;
+    plan.cohort = next;
     plan.label = format!("{}-{}", t.label_prefix, next);
     plan.reference = reference;
     plan.previous_reference = previous;
@@ -402,26 +428,51 @@ pub fn note_error(sql: &impl Sql, code: &str) -> R<()> {
     Ok(())
 }
 
+/// The number the calendar gives the next cohort: one past every cohort this
+/// store holds, never below the authority's first cohort (`first_cohort`).
+fn next_number(sql: &impl Sql, first_cohort: u64) -> R<u64> {
+    let max = sql.exec("SELECT COALESCE(MAX(cohort), 0) FROM cohorts", &[])?;
+    let max = u64::try_from(max.first().map_or(Ok(0), |r| int(r, 0))?).unwrap_or(0);
+    Ok(max.saturating_add(1).max(first_cohort))
+}
+
 /// The next cohort and its earliest opening epoch: a queued cohort, else the
-/// one the template opens next.
+/// one the template opens next, numbered as [`due_any`] numbers it (from the
+/// authority's first cohort, recorded with the template at its install).
+/// The earliest opening is the first boundary after the cohort before it can
+/// enter its transition (`opened + K - transition`), and never an epoch
+/// already past.
 pub fn next(sql: &impl Sql) -> R<Option<(u64, Option<u64>)>> {
-    let last = sql.exec("SELECT cohort, phase, opened_epoch, k_tempos FROM (
-            SELECT cohort, phase, opened_epoch, json_extract(plan, '$.k_tempos') AS k_tempos, seq FROM cohorts) ORDER BY seq DESC LIMIT 2", &[])?;
-    let earliest = |row: &crate::sql::Row| -> Option<u64> {
-        let opened = opt_int(row, 2)?;
-        let k = opt_int(row, 3)?;
-        u64::try_from(opened.saturating_add(k)).ok()
+    let last = sql.exec("SELECT cohort, phase, opened_epoch, k_tempos, transition_tempos FROM (
+            SELECT cohort, phase, opened_epoch, json_extract(plan, '$.k_tempos') AS k_tempos,
+                json_extract(plan, '$.transition_tempos') AS transition_tempos, seq FROM cohorts) ORDER BY seq DESC LIMIT 2", &[])?;
+    let now = engine::observed(sql)?.epoch.map(|e| e.index);
+    let earliest = |row: Option<&crate::sql::Row>| -> Option<u64> {
+        let after_now = now.map(|n| n.saturating_add(1));
+        let Some(row) = row else { return after_now };
+        let boundary = match text(row, 1).ok()? {
+            "transition" | "closed" | "abandoned" => None,
+            _ => {
+                let opened = u64::try_from(opt_int(row, 2)?).ok()?;
+                let k = u64::try_from(opt_int(row, 3)?).ok()?;
+                let t = u64::try_from(opt_int(row, 4).unwrap_or(0)).ok()?;
+                Some(opened.saturating_add(k.saturating_sub(t)).saturating_add(1))
+            }
+        };
+        match (boundary, after_now) {
+            (Some(b), Some(n)) => Some(b.max(n)),
+            (b, n) => b.or(n),
+        }
     };
     if let Some(r) = last.first()
         && text(r, 1)? == "queued"
     {
-        let after = last.get(1).and_then(earliest);
-        return Ok(Some((u64::try_from(int(r, 0)?).unwrap_or(0), after)));
+        return Ok(Some((u64::try_from(int(r, 0)?).unwrap_or(0), earliest(last.get(1)))));
     }
     if stored(sql)?.is_some_and(|(_, paused)| !paused) {
-        let next = last.first().map_or(Ok(0), |r| int(r, 0))?.saturating_add(1);
-        let after = last.first().and_then(earliest);
-        return Ok(Some((u64::try_from(next).unwrap_or(0), after)));
+        let first = sql.exec("SELECT COALESCE(first_cohort, 0) FROM standing_template WHERE id = 1", &[])?;
+        let first = u64::try_from(first.first().map_or(Ok(0), |r| int(r, 0))?).unwrap_or(0);
+        return Ok(Some((next_number(sql, first)?, earliest(last.first()))));
     }
     Ok(None)
 }
@@ -435,9 +486,24 @@ pub fn view(sql: &impl Sql) -> R<Value> {
          FROM cohorts ORDER BY seq DESC LIMIT 1",
         &[],
     )?;
+    // The coordinator admission window of the current cohort: `open` while
+    // it admits (sessions accepted), `closing` once the window has closed
+    // and the roster waits for its freeze (the phase stays `admission`), and
+    // `false`/`false` for a cohort without coordinator admission.
+    let window = |cohort: Option<i64>| -> R<(bool, bool)> {
+        let Some(c) = cohort else { return Ok((false, false)) };
+        let w = sql.exec(
+            "SELECT state FROM adm_cohorts WHERE cohort = ? ORDER BY seq DESC LIMIT 1",
+            &[i(c)],
+        )?;
+        let state = w.first().and_then(|r| engine::opt_text(r, 0));
+        Ok((state.as_deref() == Some("admitting"), state.as_deref() == Some("closing")))
+    };
+    let (window_open, window_closing) = window(rows.first().and_then(|r| opt_int(r, 0)))?;
     let current = rows.first().map(|r| {
         let opened = opt_int(r, 3);
         json!({"cohort": int(r, 0).ok(), "label": text(r, 1).ok(), "phase": text(r, 2).ok(), "opened_epoch": opened,
+            "window_open": window_open, "window_closing": window_closing,
             "planned_cutoff_epoch": opened.zip(opt_int(r, 7)).map(|(o, a)| o + a),
             "admission_closed_epoch": opt_int(r, 4), "earliest_close_epoch": opened.zip(opt_int(r, 6)).map(|(o, k)| o + k),
             "closed_epoch": opt_int(r, 5), "k_tempos": opt_int(r, 6), "admission_tempos": opt_int(r, 7),
@@ -449,5 +515,31 @@ pub fn view(sql: &impl Sql) -> R<Value> {
     )?;
     let template = template.first().map(|r| json!({"sha256": text(r, 0).ok(), "paused": int(r, 1).ok() == Some(1), "last_error": crate::eval::engine::opt_text(r, 2)}));
     let next = next(sql)?.map(|(c, e)| json!({"cohort": c, "earliest_open_epoch": e}));
-    Ok(json!({"rule": "back_to_back_on_tempo_boundaries/v1", "current": current, "next": next, "template": template}))
+    Ok(json!({"rule": "back_to_back_on_tempo_boundaries/v1", "current": current, "next": next, "template": template,
+        "admission_window": admission_window(sql)?}))
+}
+
+/// Nominal block interval, for the operator's display of a window in
+/// minutes only (nothing is scheduled or refused on it).
+const NOMINAL_BLOCK_SECS: u64 = 12;
+
+/// The admission window a miner has per cohort: the standing template's
+/// `admission_tempos`, and the last closed window as measured on chain
+/// (`cutoff_block - open_block`, in blocks and nominal minutes). Commitments
+/// before a window opens are refused, so commit, logging and the upload of
+/// the largest object must fit inside it.
+pub fn admission_window(sql: &impl Sql) -> R<Value> {
+    let tempos = stored(sql)?.map(|(t, _)| t.plan.admission_tempos);
+    let last = sql.exec(
+        "SELECT cohort, open_block, cutoff_block FROM adm_cohorts WHERE cutoff_block IS NOT NULL ORDER BY seq DESC LIMIT 1",
+        &[],
+    )?;
+    let measured = last.first().and_then(|r| {
+        let open = u64::try_from(opt_int(r, 1)?).ok()?;
+        let cutoff = u64::try_from(opt_int(r, 2)?).ok()?;
+        let blocks = cutoff.saturating_sub(open);
+        Some(json!({"cohort": opt_int(r, 0), "blocks": blocks,
+            "nominal_minutes": blocks.saturating_mul(NOMINAL_BLOCK_SECS) / 60}))
+    });
+    Ok(json!({"template_admission_tempos": tempos, "last_measured": measured}))
 }

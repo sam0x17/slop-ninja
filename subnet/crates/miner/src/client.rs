@@ -309,6 +309,11 @@ pub struct AdmissionClient {
     /// The admitting cohort's `max_parts`, which sets the response limit.
     max_parts: Option<u32>,
     transfer: Transfer,
+    /// The block of this wallet's confirmed commitment for the opening being
+    /// uploaded, sent with session creation and reopening
+    /// (`x-sn-commitment-block`) so a coordinator that has not logged it yet
+    /// waits for it rather than answering with an older commitment.
+    commitment_block: Option<u64>,
 }
 
 impl AdmissionClient {
@@ -340,6 +345,7 @@ impl AdmissionClient {
             validity: info.request_validity_blocks,
             max_parts: info.admitting.as_ref().map(|a| a.max_parts),
             transfer: Transfer::default(),
+            commitment_block: None,
         };
         Ok((client, info))
     }
@@ -347,6 +353,12 @@ impl AdmissionClient {
     pub fn with_transfer(mut self, transfer: Transfer) -> Self {
         self.transfer = transfer;
         self
+    }
+
+    /// Sets the confirmed commitment block that session creation and
+    /// reopening send (`None`: send none).
+    pub fn set_commitment_block(&mut self, block: Option<u64>) {
+        self.commitment_block = block;
     }
 
     pub fn chain(&self) -> &ChainBinding {
@@ -393,6 +405,7 @@ impl AdmissionClient {
         route: &str,
         body: Option<(Bytes, &'static str)>,
         content_sha256: Digest,
+        commitment_block: Option<u64>,
     ) -> Result<reqwest::Response, ApiError> {
         let hotkey = self.signer.hotkey();
         let valid_until = self.valid_until();
@@ -416,6 +429,9 @@ impl AdmissionClient {
             .header(header::VALID_UNTIL, valid_until.to_string())
             .header(header::CONTENT_SHA256, content_sha256.hex())
             .header(header::SIGNATURE, hex::encode(signature));
+        if let Some(block) = commitment_block {
+            request = request.header(header::COMMITMENT_BLOCK, block.to_string());
+        }
         if let Some((bytes, media_type)) = body {
             request = request
                 .timeout(self.transfer.part_timeout(bytes.len() as u64))
@@ -435,10 +451,22 @@ impl AdmissionClient {
         body: Option<(Bytes, &'static str)>,
         content_sha256: Digest,
     ) -> Result<(StatusCode, T), ApiError> {
+        self.signed_with(method, route, body, content_sha256, None).await
+    }
+
+    /// [`Self::signed`], with the confirmed commitment block when given.
+    async fn signed_with<T: serde::de::DeserializeOwned>(
+        &mut self,
+        method: Method,
+        route: &str,
+        body: Option<(Bytes, &'static str)>,
+        content_sha256: Digest,
+        commitment_block: Option<u64>,
+    ) -> Result<(StatusCode, T), ApiError> {
         let mut renewed = false;
         loop {
             let response = self
-                .send(method.clone(), route, body.clone(), content_sha256)
+                .send(method.clone(), route, body.clone(), content_sha256, commitment_block)
                 .await?;
             let status = response.status();
             match decode::<T>(response, self.limit()).await {
@@ -481,11 +509,12 @@ impl AdmissionClient {
             .map_err(|error| ApiError::Protocol(format!("envelope: {error:?}")))?;
         let digest = object_sha256(&bytes);
         let (status, session) = self
-            .signed::<Session>(
+            .signed_with::<Session>(
                 Method::POST,
                 path::SESSIONS,
                 Some((Bytes::from(bytes), UPLOAD_MEDIA_TYPE)),
                 digest,
+                self.commitment_block,
             )
             .await?;
         let session = self.checked(session)?;
@@ -556,11 +585,12 @@ impl AdmissionClient {
     /// plus one), empty.
     pub async fn reopen(&mut self, session: &str, attempt: u32) -> Result<Session, ApiError> {
         let (_, value) = self
-            .signed::<Session>(
+            .signed_with::<Session>(
                 Method::POST,
                 &path::attempt(session, attempt),
                 None,
                 empty_sha256(),
+                self.commitment_block,
             )
             .await?;
         self.checked(value)

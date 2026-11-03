@@ -150,19 +150,47 @@ reserved in the shared RPC budget first:
   `BlockAtRegistration(netuid, uid)` at `c`, and logs `who`, the block and
   hash, the payload, the extrinsic index of the last
   `Commitments.Commitment { netuid, who }` event for the hotkey in `c`, and
-  the hotkey's registration at `c`. These reads come within minutes of the
-  commitment, inside the state window ordinary nodes keep. If the node no
-  longer serves `c`'s state, the commitment stays unresolved: the
-  coordinator never substitutes a later state for an earlier block.
+  the hotkey's registration at `c`. These reads normally come within minutes
+  of the commitment. State the RPC endpoint reports discarded is read again
+  from the archive endpoint when one is configured; if every configured
+  endpoint reports `c`'s state discarded, the commitment is unresolvable
+  (`commitment_unresolvable`, `state_discarded`). An answer that serves no
+  state without saying it is discarded (a lagging or load-balanced node) is
+  never final: the read is repeated after a growing backoff. The coordinator
+  never substitutes a later state for an earlier block.
 - **Snapshot.** When admission closes, for every hotkey whose upload
-  completed in time, it reads `CommitmentOf`, `Uids` and then
-  `BlockAtRegistration` at the hash of `cutoff_block - 1`: the state the
+  completed in time, it reads `CommitmentOf`, `Uids`, `Owner` (the owning
+  coldkey) and then `BlockAtRegistration` at the hash of `cutoff_block - 1`: the state the
   last block before the cutoff left. That is exactly the hotkey's last
   commitment before the cutoff block and the registration that held then.
   The roster does not freeze before the snapshot is read.
 - Opening a session uses the hotkey's latest logged commitment; while a newer
   one the poll saw is still being resolved, opening answers
   `commitment_not_found` (retryable). The close uses the snapshot.
+- A hotkey that commits again (a returning miner, or a replaced commitment)
+  can open a session before the poll has seen the new commitment. While a
+  cohort admits, opening or reopening a session for that cohort whose logged
+  commitment is older than the window, opens another opening or another
+  registration generation, or held no UID is answered `commitment_not_found`
+  (retryable) until the reader has completed a poll at or after a block fixed
+  at the first such answer for that opening: the later of the finalized
+  cursor then and the request's `x-sn-commitment-block` (the miner's own
+  confirmed commitment block, an untrusted hint; a later request with a
+  higher one moves the block up), or without that header, the later of the
+  cursor and one past the reader's last completed poll then. The wait is tied to that fixed block, not to the cursor, which
+  advances every block while the reader polls less often; so
+  `commitment_before_open`, `commitment_mismatch`, `registration_mismatch`
+  and `not_registered` become final at the reader's next completed poll at
+  or after that block. With the hint, a coordinator whose cursor lags the
+  block holding the new commitment (a stalled heartbeat or webhook) keeps
+  answering `commitment_not_found` rather than a refusal based on the older
+  commitment. The `Retry-After` is the reader's shortest poll interval, the
+  earliest a new poll can complete, not a promise: a slower poll or a stalled
+  cursor answers the same code again. A false hint delays only that hotkey's
+  own answer, never past the window's close. `wrong_chain` never waits.
+  Verification (after the session opened against the logged commitment)
+  never waits: a commitment replaced after the open refuses the session with
+  its real code.
 - A commitment that a later one replaced before a poll saw it is never
   logged. It counts for no cohort: only the latest commitment counts while a
   cohort admits, and the last one before the cutoff block at the close, which
@@ -211,7 +239,9 @@ counts them (`CohortManifestV2::opened_epoch`, `CohortSchedule`).
 A commitment needs finality and the coordinator's logging of it (the nominal
 wait is at most 60 seconds after finality, and it can be longer) before a
 session can open. An object of about 610 MB must then be uploaded before the
-cutoff. Commit and upload early in the window.
+cutoff. Commit and upload early in the window. The window is the standing
+template's `admission_tempos`; the operator's calendar view reports it with the
+last window as measured on chain, in blocks and nominal minutes.
 
 ## 4. Signed requests
 
@@ -226,6 +256,7 @@ Headers:
 | `x-sn-valid-until` | decimal finalized block number after which the request is refused |
 | `x-sn-content-sha256` | lowercase hex SHA-256 of the request body (of the empty string when there is none); for a part, the part's digest |
 | `x-sn-signature` | lowercase hex of the 64-byte sr25519 signature |
+| `x-sn-commitment-block` | optional, session creation and reopening only, outside the signature: the decimal block of this wallet's confirmed commitment for the opening (an untrusted hint; see section 2) |
 
 The signed message is 32 bytes:
 
@@ -454,7 +485,11 @@ Uploads part `n` (1-based) as the raw request body.
 - Re-sending a recorded part replaces it; the latest one counts.
 - Errors: `part_out_of_range`, `part_length_mismatch`, `part_digest_mismatch`,
   `session_not_uploading`, `after_cutoff`.
-- Response 200: `{ "part", "len", "sha256" }` as recorded.
+- Response 200: `{ "part", "len", "sha256" }` as recorded. Until the
+  digest-stream check is qualified, `sha256` echoes the declared
+  `x-sn-content-sha256`: the coordinator has not hashed the part, so the
+  acknowledgement is no integrity check of it. A changed part surfaces only
+  at completion (`object_mismatch`, a full re-upload).
 
 ### `POST /admission/v1/sessions/{session}/complete` (signed, empty body)
 
@@ -474,10 +509,12 @@ ends the session with `object_mismatch`. It then, as its own durable work:
    to be the envelope's (`object_mismatch`) and the object to verify
    (`artifact_invalid`). A header listing more files than the spec's file
    table is refused at once (`check_failed`, `undeclared_file`). Framing
-   that is cut off (CPU or wall limits, an eviction) as many times as the
-   plan's `artifact_failures_before_model_error` refuses the session
-   (`artifact_invalid`, `detail.reason` `framing_incomplete`); a failed read
-   of the object is the coordinator's and never counts. Framing waits while
+   that is cut off (CPU or wall limits, an eviction) is the platform's: it
+   runs again after a growing backoff and never refuses the session, and a
+   failed read of the object is the coordinator's too. When the cut-offs of
+   one session reach the plan's `fanout.score.failures_before_pause`, the
+   cohort pauses (fault `framing_unavailable`, resumable; the roster does not
+   freeze while it holds) until the operator clears it. Framing waits while
    the hotkey's newest commitment is still being logged;
 2. runs the artifact spec's header-only file-table checks (contract, names,
    roles, tokenizer byte-match, declared lengths, graph class length) and
@@ -676,6 +713,7 @@ and never retry the others unchanged.
 | `not_registered` | 422 | no | the hotkey has no UID on the subnet |
 | `registration_mismatch` | 422 | no | the opening names another registration generation |
 | `commitment_not_found` | 409 | yes | no logged commitment yet (none, or not yet final) |
+| `commitment_unresolvable` | 422 | no | the hotkey's latest commitment can never be logged (`detail.reason`: `shared_extrinsic`, `undecodable`, `state_discarded`, `block_unknown`, `no_commitment_event`, `state_unavailable`); commit again with a new nonce |
 | `commitment_before_open` | 422 | no | the commitment was made before the cohort opened |
 | `commitment_mismatch` | 422 | no | the opening does not open the hotkey's current commitment (`detail.payload_cohort` when parseable), or (at the cutoff) the commitment shares its extrinsic with another hotkey's (`detail.reason` `shared_extrinsic`) |
 | `object_too_large` | 413 | no | `artifact_len` exceeds `max_object_len` or `max_parts` parts |
@@ -709,11 +747,14 @@ Session states: `uploading`, `verifying`, `verified`, `refused`, `admitted`,
 
 The admission refusals of the announce-readiness plan map onto these codes. A
 session refusal appears in the hotkey view's `sessions`; a refused session
-request appears in its `last_refusal`.
+request appears in its `last_refusal` (recorded only while the cohort
+admits, and only for a hotkey the commitment reader has seen commit on the
+subnet).
 
 | Case | Code |
 | --- | --- |
 | no commitment, or not yet finalized | `commitment_not_found` |
+| a commitment that cannot be resolved | `commitment_unresolvable` |
 | wrong cohort, chain or hotkey | `wrong_cohort`, `commitment_mismatch`, `wrong_chain`, `hotkey_mismatch`, `registration_mismatch` |
 | overwritten commitment | `commitment_mismatch` (at the session) or `commitment_overwritten` (at the cutoff) |
 | a second artifact for the same hotkey | `second_artifact` |
@@ -820,36 +861,60 @@ authoritative for uploads; the snapshot is a published mirror and can lag it.
   `roster_cap`, `selection`, the artifact spec (id and digest), the
   operator's own hotkeys and the fresh pool are the plan's `admission` block.
   The deployment's `ROSTER_CAP` bounds `roster_cap`. Coordinator-opened
-  cohorts take them from the standing template. The artifact spec is spec v2
-  or v3 (any other is refused at the plan, `admission_spec_unsupported`).
-  The standing template's roster cap is also bounded by the receipt index:
-  every receipt a cohort at the cap can record (every document at every
-  attempt) must fit one index. Native validators hold a target's receipts
-  by reference (bundle schema v3), so their 64 MiB bundle file bound limits
-  only the embedded records.
+  cohorts take them from the standing template. Every admission run names
+  the cohort's spec digest on its load, so spec v2 and spec v3 (the span
+  tower class) are both admitted; any other spec is refused at the plan
+  (`admission_spec_unsupported`). The standing template's roster cap is
+  also bounded by the receipt index: every receipt a cohort at the cap can
+  record (every document at every attempt) must fit one index. Native
+  validators hold a target's receipts by reference (bundle schema v3), so
+  their 64 MiB bundle file bound limits only the embedded records.
 - **Outside entrants.** An admitted entrant whose hotkey is not one of the
-  plan's `operator_hotkeys`, and whose content is not an already published
-  artifact's, is an outside entrant (its artifact loaded and scored the
+  plan's `operator_hotkeys`, whose hotkey no coldkey in `operator_coldkeys`
+  owned at the cutoff (`Owner`, read in the cutoff snapshot; an owner that
+  does not read counts as the operator's whenever the plan lists coldkeys),
+  and whose content is not an already published artifact's, is an outside
+  entrant (its artifact loaded and scored the
   control document). Fresh human stock is drawn only for a cohort whose
   frozen roster holds one, from the plan's fresh pool; a plan with a fresh
-  pool must list the operator's hotkeys; every other cohort draws only
-  already-exposed stock.
+  pool must list the operator's hotkeys and coldkeys; every other cohort
+  draws only already-exposed stock. The content comparison is exact, so a
+  near copy of a published artifact is caught only by the copy gate at
+  scoring, after the draw: standing templates never name a fresh pool, and
+  fresh stock comes only from an operator's plan.
 - **Commitment log.** It has its own share of the coordinator's per-minute
-  RPC budget. A commitment whose value does not decode, whose extrinsic also
-  committed for another hotkey, whose block state the node no longer keeps,
-  or that a runtime other than the stored one wrote, is never logged; a
-  session that opens it gets `commitment_not_found`, and the miner commits
-  again. A snapshot block whose state is gone pauses the cohort for the
-  operator.
+  RPC budget. A resolution read that another runtime wrote reads the
+  metadata at that block and is read again; a runtime upgrade never makes a
+  commitment unresolvable. State the RPC endpoint no longer keeps is read
+  again from the archive endpoint when the deployment configures one
+  (`ARCHIVE_RPC_URL`). A commitment whose value does not decode, whose
+  extrinsic also committed for another hotkey, or whose block state no
+  endpoint keeps is never logged; a session that opens it gets
+  `commitment_unresolvable` with the reason, and the miner commits again. A
+  snapshot block whose state no endpoint keeps pauses the cohort
+  (`snapshot_state_discarded`) until a read answers; the same cohort then
+  freezes.
 - **Retention.** Objects of refused, overflow, superseded and aborted
   sessions, and the slices and manifests only their copies created, are
   deleted after the freeze. Admitted objects stay private until the close;
   `closure-artifacts.json` beside the signed closure names them for
-  publication.
+  publication. A cohort abandoned after its freeze has no closure: its
+  admitted objects, and the slices and manifests only their copies created,
+  are deleted like a refused session's.
 - **Not yet.** `rate_limited` is not enforced (the signature check in the
   Worker and the `hotkeys` allow-list keep unsigned and unlisted load off
   the cohort authority, the unsigned cohort read excepted). The digest-stream
   part check is not qualified, so parts record their claimed digest.
-  Admission runs use the scorer lane's probe route: it loads by the
-  cohort's spec, with the probe's load wait rather than the cohort's
-  allowance.
+  Admission runs use the scorer lane's admission route: a freshly started
+  instance under the cohort's label, spec digest and lane limits (its size
+  bound, load allowance and document time limit), whose reply says whether a
+  failure was definitive. A framing attempt cut off by the platform is tried
+  again after a growing backoff and never refuses the upload; repeated
+  cut-offs (and repeated platform failures of a verdict run) pause the cohort
+  at the plan's `failures_before_pause` (`framing_unavailable`,
+  `scorer_unavailable`) rather than stalling the freeze unseen. A
+  commitment resolution whose reads serve no state for its block stays
+  pending and is read again after a growing backoff (from `ARCHIVE_RPC_URL`
+  when configured); it ends only on an explicit discarded-state answer
+  (`state_discarded`), and while the hotkey has a session verifying it pauses
+  the cohort at the same bound (`commitment_state_unavailable`).

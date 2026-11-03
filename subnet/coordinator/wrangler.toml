@@ -147,6 +147,10 @@ CHAIN_GENESIS = "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263
 SUBNET_NETUID = "601"
 RTAO_WEBHOOK_KEY_ID = "pilot-v1"
 RPC_URL = "https://test.finney.opentensor.ai"
+# ARCHIVE_RPC_URL (optional, HTTPS): the commitment reader sends a past-block
+# read that RPC_URL answers as discarded state there again before it treats
+# the state as gone. Unset: RPC_URL served the state of block 8,000,000
+# (about 50 days old) on 2026-11-03, so it already keeps past state.
 WATCHDOG_SILENCE_SECS = "300"
 WATCHDOG_BEHIND_BLOCKS = "25"
 RPC_CALLS_PER_MINUTE = "10"
@@ -181,10 +185,8 @@ GEN_PENALTY_MS = "5000"
 # measured spend per billing cycle, and nothing is refused or paused for
 # spend. BILLING_CYCLE_DAY = 1: calendar months (user decision, 2026-11-02).
 # The alert threshold is passed at deploy time from the private operator
-# configuration, never tracked here. Until the SpendLedger object (in
-# cf_lanes.rs) reads SPEND_ALERT_MICROUSD, deploys pass the threshold as
-# MONTHLY_CAP_MICROUSD, the only name it reads; without that var the ledger
-# answers monthly_cap_not_configured and records nothing.
+# configuration as SPEND_ALERT_MICROUSD, never tracked here. Without it there
+# is no alert; the ledger still records everything.
 BILLING_CYCLE_DAY = "1"
 # Human pools already exposed on testnet (pool v1 and the public-candidate
 # refill): operator-only cohorts draw only these, and may draw a row again

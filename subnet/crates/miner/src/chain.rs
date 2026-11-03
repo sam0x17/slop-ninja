@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use rtao_client::{BlockRef, Client, ClientConfig, Network, ViewExt as _};
 use rtao_primitives::NetUid;
 use rtao_runtime::models::{CommitmentInfo, CommitmentRegistration, Data};
@@ -143,7 +143,11 @@ pub async fn finalized_commitment(
 }
 
 /// Signs and submits the commitment with the hotkey, waits for finalized
-/// inclusion and reads the commitment back from finalized state.
+/// inclusion and reads the commitment back from finalized state (again each
+/// block until it shows, within `deadline`). Once inclusion is finalized the
+/// submission is returned whatever the read-back shows: when it gives up,
+/// `finalized_commitment_block` stays `None` and the caller reports that,
+/// but the inclusion record is never discarded.
 ///
 /// rtao has no typed intent for `set_commitment`, so it goes out as a raw
 /// call. rtao applies only its raw-call opt-in to raw calls: spend caps and
@@ -161,6 +165,7 @@ pub async fn submit_commitment(
     deadline: Duration,
 ) -> Result<Submitted> {
     use rtao_signer::KeyView as _;
+    let started = std::time::Instant::now();
     let account = hotkey.hotkey_address()?;
     let runtime = client.refresh_runtime().await?;
     let call = compose(&commitment_call(netuid, payload), &runtime)?;
@@ -189,12 +194,77 @@ pub async fn submit_commitment(
         extrinsic_id: result.extrinsic_id.clone(),
         finalized_commitment_block: None,
     };
-    let readback = finalized_commitment(client, netuid, &AccountId(account.0)).await?;
-    let (block, stored) = readback.context("no commitment in finalized state after inclusion")?;
-    ensure!(
-        stored == payload,
-        "finalized state holds another commitment for this hotkey"
-    );
-    submitted.finalized_commitment_block = Some(block);
-    Ok(submitted)
+    // The node answering the finalized read can lag the one that reported
+    // finalization: read again once a block until the commitment shows,
+    // within what is left of the caller's deadline.
+    loop {
+        // A failed read is not yet an answer either.
+        let read = finalized_commitment(client, netuid, &AccountId(account.0))
+            .await
+            .unwrap_or(None);
+        match readback(read, payload) {
+            Readback::Landed(block) => {
+                submitted.finalized_commitment_block = Some(block);
+                return Ok(submitted);
+            }
+            Readback::NotYet(why) => {
+                if started.elapsed() + READBACK_SPACING >= deadline {
+                    eprintln!("warning: {why} after inclusion, read back until the deadline");
+                    return Ok(submitted);
+                }
+                tokio::time::sleep(READBACK_SPACING).await;
+            }
+        }
+    }
+}
+
+/// The spacing of finalized read-backs after inclusion: Subtensor's block
+/// time, so each read can see a newer finalized block.
+pub const READBACK_SPACING: Duration = Duration::from_secs(12);
+
+/// What one finalized read-back after inclusion shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Readback {
+    /// The finalized state holds this payload, set at that block.
+    Landed(u64),
+    /// Not yet visible to the node that answered: read again.
+    NotYet(&'static str),
+}
+
+/// Judges one finalized read-back of the hotkey's commitment against the
+/// submitted payload. Nothing, or another (older) commitment, is not yet a
+/// failure: the answering node may not have reached the finalized block
+/// that included it.
+pub fn readback(read: Option<(u64, Vec<u8>)>, payload: &[u8]) -> Readback {
+    match read {
+        Some((block, stored)) if stored == payload => Readback::Landed(block),
+        Some(_) => Readback::NotYet("finalized state holds another commitment for this hotkey"),
+        None => Readback::NotYet("no commitment in finalized state"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A read-back right after inclusion that does not yet show the
+    /// commitment (or still shows an older one) is read again, never a
+    /// failure by itself (W4: a landed commitment was reported missing).
+    #[test]
+    fn a_lagging_finalized_readback_is_read_again() {
+        let payload = [7u8; SUBMISSION_PAYLOAD_LEN];
+        assert_eq!(
+            readback(None, &payload),
+            Readback::NotYet("no commitment in finalized state")
+        );
+        assert!(matches!(
+            readback(Some((10, vec![1u8; SUBMISSION_PAYLOAD_LEN])), &payload),
+            Readback::NotYet(_)
+        ));
+        assert_eq!(
+            readback(Some((11, payload.to_vec())), &payload),
+            Readback::Landed(11)
+        );
+        assert!(READBACK_SPACING >= Duration::from_secs(1));
+    }
 }

@@ -524,6 +524,12 @@ pub struct AdmissionPlan {
     /// never outside entrants, so they never unlock fresh stock.
     #[serde(default)]
     pub operator_hotkeys: Vec<String>,
+    /// The operator's own coldkeys (`0x` + 64 hex). An admitted entrant
+    /// whose hotkey a listed coldkey owned at the cutoff (`Owner`, read in
+    /// the cutoff snapshot) is never an outside entrant, whatever hotkey it
+    /// registered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub operator_coldkeys: Vec<String>,
     /// Fresh testnet human stock, drawn instead of `pool` only when the frozen
     /// roster holds an admitted outside entrant (its artifact passed the
     /// scorer's admission load). Absent: the cohort always draws `pool`.
@@ -545,12 +551,12 @@ impl AdmissionPlan {
         let bounds = crate::eval::admission::SpecBounds::of_id(&self.artifact_spec)
             .ok_or(PlanError("admission.artifact_spec (a spec the scorer admits by)"))?;
         e(bounds.spec_sha256 == self.artifact_spec_sha256, "admission.artifact_spec_sha256 (the spec's digest)")?;
-        // The admission run loads through the scorer's probe route naming the
-        // cohort's spec; a spec no admission run can load by could never reach
-        // a verdict, so it is refused here.
+        // Every admission run names the cohort's spec digest on its load
+        // (the scorer lane's admission route): a spec outside the list
+        // could never reach a verdict, so it is refused here.
         e(
             crate::eval::admission::ADMISSION_SPECS.contains(&self.artifact_spec.as_str()),
-            "admission_spec_unsupported: no admission run loads by this spec",
+            "admission_spec_unsupported: admission runs load by the specs in admission::ADMISSION_SPECS",
         )?;
         e(self.roster_cap >= 1 && usize::from(self.roster_cap) <= usize::from(slop_ninja_protocol::MAX_ROSTER), "admission.roster_cap")?;
         e(self.selection == slop_ninja_admission_wire::SELECTION_EARLIEST_COMMITMENT_V1, "admission.selection")?;
@@ -570,11 +576,19 @@ impl AdmissionPlan {
         }
         hk.sort();
         e(hk.windows(2).all(|w| w[0] != w[1]), "admission.operator_hotkeys duplicate")?;
+        let mut ck = Vec::new();
+        for c in &self.operator_coldkeys {
+            ck.push(parse32(c).ok_or(PlanError("admission.operator_coldkeys"))?);
+        }
+        ck.sort();
+        e(ck.windows(2).all(|w| w[0] != w[1]), "admission.operator_coldkeys duplicate")?;
         if let Some(p) = &self.fresh_pool {
             e(key_ok(&p.manifest_key) && parse_hex32(&p.manifest_sha256).is_some() && !p.pool_id.is_empty(), "admission.fresh_pool")?;
             // The fresh-stock gate fails closed: a plan that can unlock fresh
-            // stock names the operator's own hotkeys, which never unlock it.
+            // stock names the operator's own hotkeys and coldkeys, which
+            // never unlock it.
             e(!self.operator_hotkeys.is_empty(), "admission.fresh_pool needs admission.operator_hotkeys")?;
+            e(!self.operator_coldkeys.is_empty(), "admission.fresh_pool needs admission.operator_coldkeys")?;
         }
         Ok(())
     }
@@ -582,6 +596,11 @@ impl AdmissionPlan {
     /// Whether `hotkey` is one of the operator's own.
     pub fn is_operator(&self, hotkey: &[u8; 32]) -> bool {
         self.operator_hotkeys.iter().any(|h| parse32(h).as_ref() == Some(hotkey))
+    }
+
+    /// Whether `coldkey` is one of the operator's own.
+    pub fn is_operator_coldkey(&self, coldkey: &[u8; 32]) -> bool {
+        self.operator_coldkeys.iter().any(|c| parse32(c).as_ref() == Some(coldkey))
     }
 }
 

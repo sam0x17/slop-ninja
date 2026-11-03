@@ -48,6 +48,11 @@ pub mod header {
     pub const VALID_UNTIL: &str = "x-sn-valid-until";
     pub const CONTENT_SHA256: &str = "x-sn-content-sha256";
     pub const SIGNATURE: &str = "x-sn-signature";
+    /// Optional on session creation and reopening, outside the signature:
+    /// the block of the miner's own confirmed commitment (decimal). The
+    /// coordinator treats it as an untrusted hint (a not-yet commitment
+    /// answer waits until its reader has polled at or after this block).
+    pub const COMMITMENT_BLOCK: &str = "x-sn-commitment-block";
 }
 
 /// Route paths. Ids and addresses are path segments; no route uses a query.
@@ -402,6 +407,7 @@ codes! {
         NotRegistered = "not_registered",
         RegistrationMismatch = "registration_mismatch",
         CommitmentNotFound = "commitment_not_found",
+        CommitmentUnresolvable = "commitment_unresolvable",
         CommitmentBeforeOpen = "commitment_before_open",
         CommitmentMismatch = "commitment_mismatch",
         ObjectTooLarge = "object_too_large",
@@ -441,7 +447,7 @@ impl ErrorCode {
             ObjectTooLarge => 413,
             UnsupportedMediaType => 415,
             WrongChain | WrongCohort | HotkeyMismatch | NotRegistered | RegistrationMismatch
-            | CommitmentBeforeOpen | CommitmentMismatch | PartOutOfRange | PartLengthMismatch
+            | CommitmentUnresolvable | CommitmentBeforeOpen | CommitmentMismatch | PartOutOfRange | PartLengthMismatch
             | PartDigestMismatch => 422,
             RateLimited => 429,
             Internal => 500,

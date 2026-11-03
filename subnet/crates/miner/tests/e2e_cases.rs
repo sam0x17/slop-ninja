@@ -23,7 +23,7 @@ use slop_ninja_miner::client::{
     AdmissionClient, ApiError, RequestSigner, base_url, http_client, ss58,
 };
 use slop_ninja_miner::opening::{OsNonce, Store, make_opening, upload_envelope};
-use slop_ninja_miner::upload::{UploadOutcome, describe, upload};
+use slop_ninja_miner::upload::{UploadOptions, UploadOutcome, describe, upload};
 use slop_ninja_miner::{commit, object};
 use slop_ninja_protocol::submission::SubmissionUpload;
 use slop_ninja_protocol::{ChainBinding, Record, object_sha256};
@@ -812,4 +812,128 @@ async fn a_session_is_only_its_hotkeys() {
     ] {
         assert_eq!(error.code(), Some(ErrorCode::Forbidden));
     }
+}
+
+/// Third W3 review finding 1, fix round 1 findings 1, 3 and 9: a returning
+/// miner commits again and uploads at once, while the coordinator still
+/// holds the hotkey's previous commitment and its reader has not polled
+/// since. The coordinator answers `commitment_not_found` (retried as told)
+/// until a poll at or after its first answer; the cursor running ahead of
+/// the last poll (the heartbeat advances it every block, the reader polls
+/// once a minute) never keeps a wrong opening waiting longer than that.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_returning_miner_waits_for_its_new_commitment_to_be_logged() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(&dir.path().join("state")).unwrap();
+    let mock = Mock::start(config(), 1_950).await;
+    let (artifact_path, artifact) = packed(dir.path(), 0x51, "{}");
+    let (artifact2_path, artifact2) = packed(dir.path(), 0x52, "{\"v\":2}");
+    let signer = dev_signer("//Dave");
+    let id = identity(&signer, 15);
+    mock.register(id);
+    // The hotkey's previous commitment, made before cohort 7 opened, and a
+    // reader that polled since.
+    let old = make_opening(&chain601(), 6, id.hotkey, id.registration_block, &artifact, &mut OsNonce)
+        .unwrap();
+    mock.commit(id.hotkey, 1_899, 0, &old.chain_payload());
+    mock.poll();
+    let prepared = commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, true).unwrap();
+    let mut c = client(&mock, signer.clone()).await;
+
+    // The heartbeat moves the cursor past the last poll: the first answer is
+    // not final yet.
+    mock.advance(3);
+    let error = upload(&mut c, &store, &prepared.file, &artifact_path, &artifact, &once())
+        .await
+        .unwrap_err();
+    assert_eq!(api_code(&error), Some(ErrorCode::CommitmentNotFound));
+    // The next poll completes; the cursor runs ahead of it again with no new
+    // poll, and the definitive answer still comes back.
+    mock.poll();
+    mock.advance(5);
+    let error = upload(&mut c, &store, &prepared.file, &artifact_path, &artifact, &once())
+        .await
+        .unwrap_err();
+    assert_eq!(api_code(&error), Some(ErrorCode::CommitmentBeforeOpen));
+
+    // A new commitment, logged a moment after the upload starts: the upload
+    // retries the not-yet answer and goes through.
+    let options = UploadOptions {
+        attempts: 10,
+        backoff: Duration::from_millis(50),
+        ..once()
+    };
+    let fresh = commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, true).unwrap();
+    let logged = |payload: [u8; slop_ninja_protocol::submission::SUBMISSION_PAYLOAD_LEN], block: u64| {
+        let state = mock.state.clone();
+        let hotkey = id.hotkey;
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let mock = Mock {
+                addr: "127.0.0.1:1".parse().unwrap(),
+                state,
+            };
+            mock.commit(hotkey, block, 0, &payload);
+        })
+    };
+    let late = logged(fresh.payload, 2_005);
+    let started = Instant::now();
+    let session = finished(
+        upload(&mut c, &store, &fresh.file, &artifact_path, &artifact, &options)
+            .await
+            .unwrap(),
+    );
+    late.await.unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(250));
+    assert_eq!(session.state(), Some(SessionState::Verified));
+
+    // Fix round 1, finding 3: a commitment replaced within the window (a new
+    // opening for another artifact), uploaded before the reader logs it.
+    mock.advance(2);
+    let replaced = commit::prepare(&store, &chain601(), 7, &id, &artifact2, &mut OsNonce, true).unwrap();
+    let late = logged(replaced.payload, 2_020);
+    let session = finished(
+        upload(&mut c, &store, &replaced.file, &artifact2_path, &artifact2, &options)
+            .await
+            .unwrap(),
+    );
+    late.await.unwrap();
+    assert_eq!(session.state(), Some(SessionState::Verified));
+
+    // Fix round 2, finding 1: the coordinator's cursor lags the block of the
+    // wallet's newest commitment (a heartbeat or webhook stall) and its
+    // reader last polled at that cursor. The upload sends the confirmed
+    // block, so no poll below it makes the older commitment's answer final;
+    // once the cursor reaches the block the commitment is logged and the
+    // upload goes through.
+    mock.poll();
+    let lagging = commit::prepare(&store, &chain601(), 7, &id, &artifact, &mut OsNonce, true).unwrap();
+    let cursor = mock.with(|s| s.finalized_block);
+    // Past the cursor and past every commitment this test logged so far.
+    let confirmed_at = cursor.max(2_020) + 10;
+    let mut file = lagging.file.clone();
+    file.submitted = Some(slop_ninja_miner::opening::Submitted {
+        finalized_commitment_block: Some(confirmed_at),
+        ..Default::default()
+    });
+    let error = upload(&mut c, &store, &file, &artifact_path, &artifact, &once())
+        .await
+        .unwrap_err();
+    assert_eq!(api_code(&error), Some(ErrorCode::CommitmentNotFound));
+    assert_eq!(mock.with(|s| s.commitment_block_hints.last().copied()), Some(Some(confirmed_at)));
+    mock.advance((confirmed_at - cursor) / 2);
+    mock.poll();
+    let error = upload(&mut c, &store, &file, &artifact_path, &artifact, &once())
+        .await
+        .unwrap_err();
+    assert_eq!(api_code(&error), Some(ErrorCode::CommitmentNotFound), "a poll below the block is not final");
+    mock.advance(confirmed_at - mock.with(|s| s.finalized_block));
+    mock.commit(id.hotkey, confirmed_at, 0, &lagging.payload);
+    mock.poll();
+    let session = finished(
+        upload(&mut c, &store, &file, &artifact_path, &artifact, &once())
+            .await
+            .unwrap(),
+    );
+    assert_eq!(session.state(), Some(SessionState::Verified));
 }

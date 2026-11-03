@@ -95,6 +95,8 @@ fn signed_of(req: &Request, path: &str) -> Result<Signed> {
         signature: h.get(header::SIGNATURE)?,
         body_sha256: None,
         body: None,
+        // Untrusted; anything but a decimal block is no hint.
+        commitment_block: h.get(header::COMMITMENT_BLOCK)?.and_then(|v| v.trim().parse().ok()),
     })
 }
 
@@ -641,10 +643,16 @@ impl EvalCohort {
             (Method::Get, "/cost-model") => {
                 // The latest cohort's cost model, else the template's.
                 let r = transaction(&storage, |sql| {
-                    let last = engine::cohorts(sql)?
-                        .into_iter()
-                        .rev()
-                        .find_map(|c| c.plan.fanout.map(|f| f.cost));
+                    // One row: the newest cohort whose plan has a fanout
+                    // block, never every cohort's plan.
+                    let rows = sql.exec(
+                        "SELECT seq FROM cohorts WHERE json_extract(plan, '$.fanout') IS NOT NULL ORDER BY seq DESC LIMIT 1",
+                        &[],
+                    )?;
+                    let last = match rows.first() {
+                        Some(r) => engine::cohort(sql, crate::sql::int(r, 0)?)?.plan.fanout.map(|f| f.cost),
+                        None => None,
+                    };
                     Ok::<_, engine::EvalError>(match last {
                         Some(m) => Some(m),
                         None => calendar::template(sql)?.and_then(|p| p.fanout.map(|f| f.cost)),
@@ -847,90 +855,127 @@ impl EvalCohort {
             admission::claim_runs(sql, &e2, eval_do::PARALLEL, now)
         })
         .map_err(|_| "claim runs")?;
-        let outcomes = futures_util::future::join_all(runs.iter().map(|run| async move {
-            let name = run.lane_name(crate::config::NETWORK);
-            // The load names the cohort's spec (`LaneRun::body`); a scorer
-            // that does not list it fails the prepare as the platform's
-            // failure, never the miner's.
-            let body = run.body();
-            let t0 = now_ms();
-            let outcome = async {
-                let Ok(stub) = lane_stub(&self.env, "score", &name) else {
-                    return LaneOutcome::Platform("lane_binding".into());
-                };
-                let Ok(req) = eval_do::internal_request(Method::Post, "/run", Some(body.to_string())) else {
-                    return LaneOutcome::Platform("lane_request".into());
-                };
-                match stub.fetch_with_request(req).await {
-                    Ok(mut r) => {
-                        let status = r.status_code();
-                        let v: Value = super::cf_io::response_json(&mut r, 64 * 1024)
-                            .await
-                            .unwrap_or(Value::Null);
-                        admission::classify(Some(status), &v)
+        // Each run is recorded as soon as it finishes, with its instance time
+        // at the cohort's Container rates (one charge key per hotkey,
+        // commitment and try), so a later run cut off by the platform never
+        // drops an earlier run's outcome or charge. The settle in the tracking
+        // ledger (never refused) is best effort here: a charge it did not
+        // confirm stays recorded and the step settles it later
+        // (`Work::AdmissionSettle`).
+        let storage = &storage;
+        let results = futures_util::future::join_all(runs.into_iter().map(|run| {
+            let env = env.clone();
+            async move {
+                let name = run.lane_name(crate::config::NETWORK);
+                // The lane's admission route: a fresh instance, the cohort's
+                // label, spec digest and lane limits, and the definitive flag.
+                let body = admission::admit_body(&run);
+                let t0 = now_ms();
+                let outcome = async {
+                    let Ok(stub) = lane_stub(&self.env, "score", &name) else {
+                        return LaneOutcome::Platform("lane_binding".into());
+                    };
+                    let Ok(req) = eval_do::internal_request(Method::Post, "/admit", Some(body.to_string())) else {
+                        return LaneOutcome::Platform("lane_request".into());
+                    };
+                    match stub.fetch_with_request(req).await {
+                        Ok(mut r) => {
+                            let status = r.status_code();
+                            let v: Value = super::cf_io::response_json(&mut r, 64 * 1024)
+                                .await
+                                .unwrap_or(Value::Null);
+                            admission::classify_admit(Some(status), &v)
+                        }
+                        Err(_) => admission::classify_admit(None, &Value::Null),
                     }
-                    Err(_) => admission::classify(None, &Value::Null),
                 }
-            }
-            .await;
-            // The instance served one artifact: stop it now.
-            if let (Ok(stub), Ok(req)) = (
-                lane_stub(&self.env, "score", &name),
-                eval_do::internal_request(Method::Post, "/stop", None),
-            ) {
-                let _ = stub.fetch_with_request(req).await;
-            }
-            (outcome, now_ms().saturating_sub(t0))
-        }))
-        .await;
-        // Each run's instance time, at the cohort's Container rates, is
-        // settled in the tracking ledger under its own key (never refused).
-        for (run, (outcome, wall_ms)) in runs.into_iter().zip(outcomes) {
-            let e2 = env.clone();
-            let now = now_ms();
-            let label = run.label.clone();
-            let cost = transaction(&storage, move |sql| {
-                let bound = admission::failures_bound(sql, &run.label)?;
-                admission::record_run(sql, &e2, &run, &outcome, bound, now)?;
-                admission::run_cost_model(sql, &run.label)
-            })
-            .map_err(|_| "record run")?;
-            if let Some(model) = cost {
-                let micro = crate::eval::cost::probe_charge_microusd(&model, wall_ms);
-                if micro > 0 {
-                    let key = format!("{}:{label}:admission:{now}", engine::INSTANCE_MAIN);
-                    let _ = eval_do::ledger_call(
+                .await;
+                // The instance served one artifact: stop it now.
+                if let (Ok(stub), Ok(req)) = (
+                    lane_stub(&self.env, "score", &name),
+                    eval_do::internal_request(Method::Post, "/stop", None),
+                ) {
+                    let _ = stub.fetch_with_request(req).await;
+                }
+                let wall_ms = now_ms().saturating_sub(t0);
+                let now = now_ms();
+                let charge = transaction(storage, move |sql| {
+                    let bound = admission::failures_bound(sql, &run.label)?;
+                    admission::record_run(sql, &env, &run, &outcome, bound, now)?;
+                    admission::record_charge(sql, &run, wall_ms, now)
+                })
+                .map_err(|_| "record run")?;
+                if let Some((key, micro)) = charge
+                    && eval_do::ledger_call(
                         &self.env,
                         "/settle",
                         &j!({"key": key, "microusd": micro, "note": "admission run"}),
                     )
-                    .await;
+                    .await
+                    .is_ok()
+                {
+                    let _ = transaction(storage, move |sql| admission::charge_settled(sql, &key));
                 }
+                Ok::<(), &'static str>(())
             }
-        }
-        Ok(())
+        }))
+        .await;
+        results.into_iter().collect()
     }
 
     async fn cleanup(&self) -> std::result::Result<(), &'static str> {
         let storage = self.state.storage();
-        let due = transaction(&storage, |sql| admission::cleanup_due(sql, eval_do::PARALLEL as i64))
+        let now = now_ms();
+        let due = transaction(&storage, move |sql| admission::cleanup_due(sql, eval_do::PARALLEL as i64, now))
             .map_err(|_| "cleanup due")?;
         let bucket = self.env.bucket(EVAL_BUCKET).map_err(|_| "eval bucket")?;
+        // A delete the bucket does not confirm backs its row off and the
+        // others still run (`admission::cleanup_failed`,
+        // `object_delete_failed`): housekeeping never fails the step.
         for (id, key, upload_id) in due {
             if let Some(u) = upload_id
                 && let Ok(m) = bucket.resume_multipart_upload(key.clone(), u)
             {
                 let _ = m.abort().await;
             }
-            bucket.delete(key).await.map_err(|_| "object delete")?;
-            // The blobs and manifest only this session's copies created.
-            let sid = id.clone();
-            let extra =
-                transaction(&storage, move |sql| admission::cleanup_keys(sql, &sid)).map_err(|_| "cleanup keys")?;
-            for k in extra {
-                bucket.delete(k).await.map_err(|_| "blob delete")?;
+            let mut ok = bucket.delete(key).await.is_ok();
+            if ok {
+                // The blobs and manifest only this session's copies created.
+                let sid = id.clone();
+                let extra = transaction(&storage, move |sql| admission::cleanup_keys(sql, &sid))
+                    .map_err(|_| "cleanup keys")?;
+                for k in extra {
+                    if bucket.delete(k).await.is_err() {
+                        ok = false;
+                        break;
+                    }
+                }
             }
-            transaction(&storage, move |sql| admission::mark_cleaned(sql, &id)).map_err(|_| "cleanup commit")?;
+            let now = now_ms();
+            if ok {
+                transaction(&storage, move |sql| admission::mark_cleaned(sql, &id)).map_err(|_| "cleanup commit")?;
+            } else {
+                transaction(&storage, move |sql| admission::cleanup_failed(sql, &id, now))
+                    .map_err(|_| "cleanup commit")?;
+            }
+        }
+        // Aborted attempts' objects: the abort's own delete is best effort;
+        // each stays recorded until the bucket confirms it here.
+        let pending =
+            transaction(&storage, move |sql| admission::object_deletes_due(sql, eval_do::PARALLEL as i64, now))
+                .map_err(|_| "object deletes due")?;
+        for (key, upload_id) in pending {
+            if let Some(u) = upload_id
+                && let Ok(m) = bucket.resume_multipart_upload(key.clone(), u)
+            {
+                let _ = m.abort().await;
+            }
+            let ok = bucket.delete(key.clone()).await.is_ok();
+            let now = now_ms();
+            transaction(&storage, move |sql| {
+                if ok { admission::object_deleted(sql, &key) } else { admission::object_delete_failed(sql, &key, now) }
+            })
+            .map_err(|_| "object delete commit")?;
         }
         Ok(())
     }
@@ -967,17 +1012,28 @@ impl EvalCohort {
             return Err("template predecessors");
         }
         let key = format!("{}:{label}", engine::INSTANCE_MAIN);
-        let _ = eval_do::ledger_call(
+        // `created` is false when the key was already held (a retried open):
+        // then a refused queue leaves it alone, as the operator `/plan` does.
+        let created = match eval_do::ledger_call(
             &self.env,
             "/reserve",
             &j!({"key": key, "microusd": adm.reserve_microusd}),
         )
-        .await;
+        .await
+        {
+            Ok(v) => v.get("created").and_then(Value::as_bool) == Some(true),
+            Err(_) => false,
+        };
         let c2 = cfg.clone();
         let now = now_ms();
         match transaction(&storage, move |sql| engine::queue(sql, &c2, &plan, now)) {
             Ok(_) => Ok(()),
             Err(TxError::Operation(e)) => {
+                // A refused queue never leaves an orphan reservation that
+                // every later cycle's total would count.
+                if created {
+                    let _ = eval_do::ledger_call(&self.env, "/release", &j!({"key": key})).await;
+                }
                 let code = e.code();
                 let _ = transaction(&storage, move |sql| {
                     calendar::note_error(sql, code)?;

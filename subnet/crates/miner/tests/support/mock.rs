@@ -135,6 +135,18 @@ pub struct MockState {
     /// Lose these part records at the next completion request, as a lost
     /// record would, so completion answers `parts_missing`.
     pub drop_parts_before_complete: Vec<u32>,
+    /// The block of the commitment reader's last completed poll; `None`
+    /// stands for a reader that is always caught up. While it is set, a
+    /// session opening whose logged commitment does not open it answers
+    /// `commitment_not_found` until a poll at or after the latest of the
+    /// cursor and the request's `x-sn-commitment-block` (without one, one
+    /// past the last poll), as of the first such answer (the coordinator's
+    /// `adm_commit_waits`).
+    pub reader_polled: Option<u64>,
+    commit_waits: HashMap<AccountId, (String, u64)>,
+    /// The `x-sn-commitment-block` of each session creation or reopening,
+    /// in order (`None`: the request carried none).
+    pub commitment_block_hints: Vec<Option<u64>>,
     pub counters: Counters,
 }
 
@@ -209,6 +221,9 @@ impl Mock {
             pad_cohort_bytes: 0,
             expired_with_cursor: true,
             drop_parts_before_complete: Vec::new(),
+            reader_polled: None,
+            commit_waits: HashMap::new(),
+            commitment_block_hints: Vec::new(),
             counters: Counters::default(),
         }));
         let shared = state.clone();
@@ -232,6 +247,16 @@ impl Mock {
 
     pub fn with<R>(&self, f: impl FnOnce(&mut MockState) -> R) -> R {
         f(&mut self.state.lock().unwrap())
+    }
+
+    /// The commitment reader completes a poll at the current cursor.
+    pub fn poll(&self) {
+        self.with(|s| s.reader_polled = Some(s.finalized_block));
+    }
+
+    /// Advances the finalized cursor by `blocks` (the heartbeat), with no poll.
+    pub fn advance(&self, blocks: u64) {
+        self.with(|s| s.finalized_block += blocks);
     }
 
     pub fn register(&self, identity: NeuronIdentity) {
@@ -404,8 +429,11 @@ impl MockState {
                 ..error(ErrorCode::RateLimited, "slow down", Detail::default())
             };
         }
+        let hint = headers
+            .get(header::COMMITMENT_BLOCK)
+            .and_then(|v| v.trim().parse::<u64>().ok());
         match route {
-            Route::CreateSession => self.create(signer, body),
+            Route::CreateSession => self.create(signer, body, hint),
             Route::ReadSession { session } => self.read(signer, session),
             Route::PutPart { session, part } => {
                 if let Some(target) = &self.redirect_parts_to {
@@ -419,7 +447,7 @@ impl MockState {
             }
             Route::Complete { session } => self.complete(signer, session),
             Route::Abort { session, attempt } => self.abort(signer, session, attempt),
-            Route::Reopen { session, attempt } => self.reopen(signer, session, attempt),
+            Route::Reopen { session, attempt } => self.reopen(signer, session, attempt, hint),
             Route::ReadHotkey { cohort, hotkey } => self.hotkey_view(signer, cohort, hotkey),
             Route::ReadCohort => unreachable!(),
         }
@@ -604,6 +632,35 @@ impl MockState {
             .find(|row| cutoff.is_none_or(|c| row.block < c))
     }
 
+    /// At open or reopen, a definitive commitment answer waits for the
+    /// reader: the first such answer for an opening records the cursor, and
+    /// until a poll completed at or after it the answer is
+    /// `commitment_not_found` (retryable).
+    fn wait_for_reader(&mut self, upload: &SubmissionUpload, r: Refusal, hint: Option<u64>) -> Refusal {
+        let Some(polled) = self.reader_polled else { return r };
+        if self.cutoff_block.is_some() || r.code == ErrorCode::CommitmentNotFound.as_str() {
+            return r;
+        }
+        let commitment = upload.commitment.hex();
+        let first = self
+            .finalized_block
+            .max(hint.unwrap_or(polled.saturating_add(1)));
+        let entry = self.commit_waits.entry(upload.opening.hotkey).or_insert((commitment.clone(), first));
+        if entry.0 != commitment {
+            *entry = (commitment, first);
+        } else if let Some(h) = hint {
+            entry.1 = entry.1.max(h);
+        }
+        if polled < entry.1 {
+            return refusal(
+                ErrorCode::CommitmentNotFound,
+                "the hotkey's newest commitment may not be logged yet",
+                Detail::default(),
+            );
+        }
+        r
+    }
+
     /// The finalized commitment check of the contract: window, registration
     /// and opening. Returns the admission position.
     fn check_commitment(
@@ -706,6 +763,7 @@ impl MockState {
         &mut self,
         signer: AccountId,
         upload: &SubmissionUpload,
+        hint: Option<u64>,
     ) -> Result<(), Reply> {
         let opening = &upload.opening;
         if opening.chain != self.config.chain {
@@ -772,6 +830,7 @@ impl MockState {
             ));
         }
         if let Err(r) = self.check_commitment(upload, None) {
+            let r = self.wait_for_reader(upload, r, hint);
             return Err(self.refused_with(signer, upload, r));
         }
         Ok(())
@@ -819,7 +878,8 @@ impl MockState {
         Ok(())
     }
 
-    fn create(&mut self, signer: AccountId, body: &[u8]) -> Reply {
+    fn create(&mut self, signer: AccountId, body: &[u8], hint: Option<u64>) -> Reply {
+        self.commitment_block_hints.push(hint);
         let Ok(upload) = SubmissionUpload::from_bytes(body) else {
             return self.refused(
                 signer,
@@ -829,7 +889,7 @@ impl MockState {
                 Detail::default(),
             );
         };
-        if let Err(reply) = self.admission_checks(signer, &upload) {
+        if let Err(reply) = self.admission_checks(signer, &upload, hint) {
             return reply;
         }
         let id = upload.digest().unwrap().hex();
@@ -936,7 +996,8 @@ impl MockState {
         ok(200, &self.session_json(&self.sessions[id]))
     }
 
-    fn reopen(&mut self, signer: AccountId, id: &str, attempt: u32) -> Reply {
+    fn reopen(&mut self, signer: AccountId, id: &str, attempt: u32, hint: Option<u64>) -> Reply {
+        self.commitment_block_hints.push(hint);
         let (current, state, upload) = match self.owned(signer, id) {
             Ok(s) => (s.attempt, s.state, s.upload.clone()),
             Err(reply) => return reply,
@@ -948,7 +1009,7 @@ impl MockState {
         if attempt != current.saturating_add(1) || state != SessionState::Aborted {
             return Self::stale(id, current);
         }
-        if let Err(reply) = self.admission_checks(signer, &upload) {
+        if let Err(reply) = self.admission_checks(signer, &upload, hint) {
             return reply;
         }
         if let Err(reply) = self.one_artifact(signer, id, &upload) {

@@ -83,8 +83,8 @@ pub struct RewardView {
     pub current_content: Option<String>,
 }
 
-/// `/eval/status`. The ledger enters only as a per-mille ratio for the alert
-/// rule, never as an amount.
+/// `/eval/status`. The ledger enters only as its `over_threshold` flag for
+/// the alert rule, never as an amount.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EvalView {
     pub confirmed_block: Option<u64>,
@@ -95,7 +95,10 @@ pub struct EvalView {
     /// read as unknown.
     pub cohorts_missing: bool,
     pub reward: Option<RewardView>,
-    pub ledger_permille: Option<u64>,
+    /// The spend ledger's billing month is past the deployment's private
+    /// alert threshold (`false` without a threshold); `None` when the status
+    /// carried no ledger standing.
+    pub ledger_over_threshold: Option<bool>,
     /// `receipt_retention.stalled`, each entry as a content-free line: a due
     /// cohort whose detailed receipts remain after a further completion, or
     /// a predecessor not yet finished after one (absent from coordinators
@@ -103,6 +106,25 @@ pub struct EvalView {
     pub retention_stalled: Option<Vec<String>>,
     /// `receipt_retention.last_error`: the last failed deletion step's code.
     pub retention_error: Option<String>,
+    /// Whether the ledger standing names an alert threshold
+    /// (`alert_microusd` non-null); `None` when the status carried no
+    /// ledger standing. `Some(false)` means `ledger_threshold` can never
+    /// fire, which `ledger_threshold_unset` reports.
+    pub ledger_threshold_set: Option<bool>,
+    /// The coordinator's cohort calendar (`calendar`), when it serves one.
+    pub calendar: Option<CalendarView>,
+}
+
+/// The coordinator's calendar view (`/eval/status` `calendar`): the current
+/// cohort's admission window state and the next cohort the calendar opens
+/// (queued, or the standing template's next number).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CalendarView {
+    /// `(cohort, window_open, window_closing)` of the current cohort; the
+    /// window flags are `None` from coordinators that do not report them.
+    pub current: Option<(u64, Option<bool>, Option<bool>)>,
+    /// `(cohort, earliest_open_epoch)`.
+    pub next: Option<(u64, Option<u64>)>,
 }
 
 impl EvalView {
@@ -195,8 +217,11 @@ struct EvalJson {
     observed: ObservedJson,
     cohorts: Option<Vec<CohortJson>>,
     reward: Option<RewardJson>,
-    ledger: LedgerJson,
+    /// `null` when the coordinator's ledger call failed: that read is
+    /// unknown, and the rest of the status still parses.
+    ledger: Option<LedgerJson>,
     receipt_retention: RetentionJson,
+    calendar: Option<CalendarJson>,
 }
 
 #[derive(Deserialize, Default)]
@@ -204,6 +229,13 @@ struct EvalJson {
 struct RetentionJson {
     stalled: Option<Vec<StalledJson>>,
     last_error: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct CalendarJson {
+    current: Option<CalendarCurrentJson>,
+    next: Option<CalendarNextJson>,
 }
 
 #[derive(Deserialize, Default)]
@@ -235,6 +267,21 @@ impl StalledJson {
             ),
         }
     }
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct CalendarCurrentJson {
+    cohort: Option<u64>,
+    window_open: Option<bool>,
+    window_closing: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct CalendarNextJson {
+    cohort: Option<u64>,
+    earliest_open_epoch: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -282,15 +329,33 @@ struct ReferencesJson {
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct LedgerJson {
-    standing: StandingJson,
+    standing: Option<StandingJson>,
+    over_threshold: Option<bool>,
 }
 
+/// The coordinator's `ledger::Standing`: the tracking ledger's
+/// `alert_microusd` and `over_threshold`.
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct StandingJson {
-    cap_microusd: Option<u64>,
+    alert_microusd: Option<u64>,
+    over_threshold: Option<bool>,
     spent_microusd: Option<u64>,
     reserved_microusd: Option<u64>,
+}
+
+impl StandingJson {
+    /// The flag when the status carries it, else derived from the
+    /// threshold the same way the ledger derives it: settled plus reserved
+    /// past it. No threshold: never over.
+    fn over_threshold(&self, outer: Option<bool>) -> Option<bool> {
+        if let Some(f) = self.over_threshold.or(outer) {
+            return Some(f);
+        }
+        let spent = self.spent_microusd?;
+        let total = spent.saturating_add(self.reserved_microusd.unwrap_or(0));
+        Some(self.alert_microusd.is_some_and(|a| total > a))
+    }
 }
 
 fn worker_view(j: ServiceJson) -> WorkerView {
@@ -352,14 +417,16 @@ fn eval_view(j: EvalJson) -> EvalView {
         })
         .collect();
     let cohorts_missing = listed != Some(cohorts.len());
-    let s = j.ledger.standing;
-    let ledger_permille = match (s.cap_microusd, s.spent_microusd) {
-        (Some(cap), Some(spent)) if cap > 0 => {
-            let reserved = s.reserved_microusd.unwrap_or(0);
-            Some((u128::from(spent) + u128::from(reserved)).saturating_mul(1000) as u64 / cap)
-        }
-        _ => None,
-    };
+    let ledger_over_threshold = j.ledger.as_ref().and_then(|l| {
+        l.standing
+            .as_ref()
+            .and_then(|s| s.over_threshold(l.over_threshold))
+    });
+    let ledger_threshold_set = j
+        .ledger
+        .as_ref()
+        .and_then(|l| l.standing.as_ref())
+        .map(|s| s.alert_microusd.is_some());
     EvalView {
         confirmed_block: j.observed.confirmed.and_then(|b| b.number),
         epoch: j.observed.epoch.and_then(|e| e.index),
@@ -371,12 +438,19 @@ fn eval_view(j: EvalJson) -> EvalView {
             reference_index: r.references.k,
             current_content: r.references.current_content,
         }),
-        ledger_permille,
+        ledger_over_threshold,
         retention_stalled: j
             .receipt_retention
             .stalled
             .map(|v| v.iter().map(StalledJson::line).collect()),
         retention_error: j.receipt_retention.last_error,
+        ledger_threshold_set,
+        calendar: j.calendar.map(|c| CalendarView {
+            current: c
+                .current
+                .and_then(|x| Some((x.cohort?, x.window_open, x.window_closing))),
+            next: c.next.and_then(|n| Some((n.cohort?, n.earliest_open_epoch))),
+        }),
     }
 }
 
@@ -501,7 +575,21 @@ pub fn snapshot(i: &SnapshotInputs<'_>) -> PublicStatus {
         || active.is_some_and(|c| c.fault.is_some())
         || o.eval.is_none()
         || o.coordinator.is_none();
-    let admitting = active.filter(|c| c.phase == "admission").and_then(|c| {
+    // The calendar's window state for the active cohort, when reported: a
+    // closed window (closing, waiting for the freeze) or a cohort without
+    // coordinator admission admits nothing, although its phase is still
+    // `admission`.
+    let calendar = eval.and_then(|e| e.calendar.as_ref());
+    let window_open = |cohort: u64| {
+        calendar
+            .and_then(|k| k.current)
+            .filter(|(c, _, _)| *c == cohort)
+            .and_then(|(_, open, _)| open)
+            .unwrap_or(true)
+    };
+    let admitting = active
+        .filter(|c| c.phase == "admission" && window_open(c.cohort))
+        .and_then(|c| {
         let opened = c.opened_epoch?;
         Some(Admitting {
             cohort: c.cohort,
@@ -510,7 +598,14 @@ pub fn snapshot(i: &SnapshotInputs<'_>) -> PublicStatus {
             planned_cutoff_epoch: opened + c.admission_tempos?,
         })
     });
-    let next = eval.and_then(|e| {
+    // The calendar's next cohort when it serves one (a queued cohort, or the
+    // standing template's next number with its earliest opening epoch);
+    // otherwise only a queued cohort.
+    let from_calendar = calendar.and_then(|k| k.next).map(|(cohort, earliest)| NextCohort {
+        cohort,
+        earliest_open_epoch: earliest,
+    });
+    let next = from_calendar.or_else(|| eval.and_then(|e| {
         let queued = e
             .cohorts
             .iter()
@@ -524,7 +619,7 @@ pub fn snapshot(i: &SnapshotInputs<'_>) -> PublicStatus {
             cohort: queued.cohort,
             earliest_open_epoch: earliest,
         })
-    });
+    }));
     let reward = eval.and_then(|e| e.reward.as_ref());
     let launch_burn = reward.and_then(|r| r.launch_burn);
     let mut notice = vec![];
@@ -610,7 +705,11 @@ pub(crate) mod tests {
             "reward": {"rule": "reward-v1", "active_target": "11".repeat(32), "launch_burn": true,
                        "references": {"k": 0, "current_content": "22".repeat(32), "predecessor_content": null},
                        "note": "PRIVATE-DOCUMENT-TEXT"},
-            "ledger": {"standing": {"cycle": "2026-11-01", "cap_microusd": 1000, "spent_microusd": 700, "reserved_microusd": 150}},
+            "ledger": {"standing": {"cycle": "2026-11-01", "alert_microusd": 1000, "spent_microusd": 900, "reserved_microusd": 150,
+                                    "over_threshold": true},
+                       "cycle_total_microusd": 1050, "over_threshold": true,
+                       "reservations": [{"key": "main:testnet-c8", "cycle": "2026-11-01", "microusd": 150, "at_ms": 1}],
+                       "recent_charges": []},
             "receipt_retention": {"rule": "receipts_after_two_later_completions_v2", "stalled": [], "last_error": null},
         })
     }
@@ -646,6 +745,49 @@ pub(crate) mod tests {
             netuid: 601,
             mechanism: 0,
         }
+    }
+
+    /// The coordinator's ledger `/status` (the shared golden fixture, which
+    /// the coordinator's ledger test checks byte for byte against what it
+    /// serializes), embedded as `ledger` in `/eval/status`, sets the flag
+    /// the `ledger_threshold` rule keys on; a deployment without a threshold
+    /// never does, and a `cap_microusd` field is not a threshold.
+    #[test]
+    fn parses_the_coordinator_ledger_status() {
+        let ledger: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/eval-ledger-status.json")).unwrap();
+        let mut j = eval_status("admission");
+        j["ledger"] = ledger.clone();
+        assert_eq!(parse_eval(&j).ledger_over_threshold, Some(true));
+        let mut under = ledger.clone();
+        under["standing"]["over_threshold"] = json!(false);
+        under["over_threshold"] = json!(false);
+        j["ledger"] = under;
+        assert_eq!(parse_eval(&j).ledger_over_threshold, Some(false));
+        // No threshold: the coordinator serializes `alert_microusd: null`
+        // and `over_threshold: false`.
+        let mut none = ledger.clone();
+        none["standing"]["alert_microusd"] = Value::Null;
+        none["standing"]["over_threshold"] = json!(false);
+        none["over_threshold"] = json!(false);
+        j["ledger"] = none;
+        assert_eq!(parse_eval(&j).ledger_over_threshold, Some(false));
+        // ... which is reported separately (`ledger_threshold_unset`).
+        assert_eq!(parse_eval(&j).ledger_threshold_set, Some(false));
+        // No flag: derived from the threshold; a cap field is not one.
+        j["ledger"] = json!({"standing": {"cycle": "2026-11-01", "alert_microusd": 1000, "spent_microusd": 900, "reserved_microusd": 150}});
+        assert_eq!(parse_eval(&j).ledger_over_threshold, Some(true));
+        j["ledger"] = json!({"standing": {"cycle": "2026-11-01", "alert_microusd": 1000, "spent_microusd": 700, "reserved_microusd": 150}});
+        assert_eq!(parse_eval(&j).ledger_over_threshold, Some(false));
+        j["ledger"] = json!({"standing": {"cycle": "2026-11-01", "cap_microusd": 1000, "spent_microusd": 900, "reserved_microusd": 150}});
+        assert_eq!(parse_eval(&j).ledger_over_threshold, Some(false));
+        assert_eq!(parse_eval(&j).ledger_threshold_set, Some(false));
+        // A ledger that did not answer (`ledger: null`): unknown.
+        j["ledger"] = Value::Null;
+        let e = parse_eval(&j);
+        assert_eq!(e.ledger_over_threshold, None);
+        assert_eq!(e.ledger_threshold_set, None);
+        assert!(!e.cohorts.is_empty() && e.epoch.is_some(), "the rest still parses");
     }
 
     /// The views record a status that answered without the journal block or
@@ -742,6 +884,50 @@ pub(crate) mod tests {
         assert_eq!(chain.netuid, 601);
     }
 
+    /// Third W3 review, finding 3: the public `next` comes from the
+    /// coordinator's calendar for the whole cohort (not only once the next
+    /// cohort is queued), and `admitting` ends when the window closes even
+    /// though the phase stays `admission` until the freeze.
+    #[test]
+    fn calendar_drives_next_and_a_closed_window_admits_nothing() {
+        let snap_of = |v: &Value| {
+            let o = Observed {
+                eval: Some(parse_eval(v)),
+                ..observed("admission")
+            };
+            snapshot(&SnapshotInputs {
+                chain: &chain(),
+                observed: &o,
+                admission_origin: None,
+                operator_notice: None,
+                last_published_cohort: None,
+                now_ms: 0,
+            })
+        };
+        let mut v = eval_status("admission");
+        // No cohort queued yet: the calendar still names the next one.
+        v["cohorts"].as_array_mut().unwrap().retain(|c| c["phase"] != "queued");
+        assert_eq!(snap_of(&v).next, None, "an older coordinator: only a queued cohort");
+        v["calendar"] = json!({"rule": "back_to_back_on_tempo_boundaries/v1",
+            "current": {"cohort": 7, "phase": "admission", "window_open": true, "window_closing": false},
+            "next": {"cohort": 8, "earliest_open_epoch": 23_187},
+            "template": {"sha256": "PRIVATE-TEMPLATE", "paused": false, "last_error": null}});
+        let snap = snap_of(&v);
+        assert_eq!(snap.next, Some(NextCohort { cohort: 8, earliest_open_epoch: Some(23_187) }));
+        assert_eq!(snap.admitting.as_ref().map(|a| a.cohort), Some(7));
+        // The window closed, waiting for the freeze: nothing admits.
+        v["calendar"]["current"]["window_open"] = json!(false);
+        v["calendar"]["current"]["window_closing"] = json!(true);
+        let snap = snap_of(&v);
+        assert_eq!(snap.phase.as_deref(), Some("admission"));
+        assert_eq!(snap.admitting, None);
+        assert_eq!(snap.next.as_ref().map(|n| n.cohort), Some(8));
+        assert!(!serde_json::to_string(&snap).unwrap().contains("PRIVATE"));
+        // A calendar about another cohort says nothing about this window.
+        v["calendar"]["current"]["cohort"] = json!(6);
+        assert_eq!(snap_of(&v).admitting.map(|a| a.cohort), Some(7));
+    }
+
     /// The snapshot carries none of the private fields in the status it was
     /// built from: no spend, generation, document, ledger or fault detail.
     #[test]
@@ -760,11 +946,11 @@ pub(crate) mod tests {
             assert!(!text.contains(marker), "{marker} leaked: {text}");
         }
         assert!(
-            !text.contains("850") && !text.contains("1000\""),
+            !text.contains("1050") && !text.contains("1000\""),
             "no ledger figure"
         );
         crate::redact::scan_json(text.as_bytes()).unwrap();
-        assert_eq!(o.eval.as_ref().unwrap().ledger_permille, Some(850));
+        assert_eq!(o.eval.as_ref().unwrap().ledger_over_threshold, Some(true));
     }
 
     /// A reference or target in the status that is not a 64-hex digest never

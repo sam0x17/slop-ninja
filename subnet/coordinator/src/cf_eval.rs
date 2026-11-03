@@ -714,7 +714,7 @@ impl DurableObject for EvalCohort {
                 let moved = match transaction(&storage, move |sql| {
                     let moved = engine::observe(sql, &kick, now)?;
                     let scoring = engine::active(sql)?.is_some_and(|c| c.phase == "scoring");
-                    Ok::<_, engine::EvalError>((moved, engine::has_work(sql, &c2)?, scoring))
+                    Ok::<_, engine::EvalError>((moved, engine::has_due_work(sql, &c2, now)?, scoring))
                 }) {
                     Ok(v) => v,
                     Err(_) => return error("store_unavailable", 503),
@@ -1027,7 +1027,7 @@ impl EvalCohort {
         };
         let again = transaction(&storage, move |sql| {
             let o = engine::observed(sql)?;
-            Ok::<_, engine::EvalError>((engine::has_work(sql, &cfg)?, o.kick_ms))
+            Ok::<_, engine::EvalError>((engine::has_due_work(sql, &cfg, now)?, o.kick_ms))
         });
         if let Ok((work, kick_ms)) = again
             && work
@@ -1341,6 +1341,13 @@ impl EvalCohort {
                         return Ok(progress);
                     }
                     transaction(&storage, move |sql| lanes::mark_settled(sql, seq, microusd)).map_err(|_| "settle commit")?;
+                }
+                Work::AdmissionSettle { key, microusd } => {
+                    // As for a cohort's spend: a ledger outage only delays it.
+                    if ledger_call(&self.env, "/settle", &j!({"key": key, "microusd": microusd, "note": "admission run"})).await.is_err() {
+                        return Ok(progress);
+                    }
+                    transaction(&storage, move |sql| crate::eval::admission::charge_settled(sql, &key)).map_err(|_| "charge commit")?;
                 }
                 Work::Purge { seq, prefixes } => {
                     // Private per-document predictions leave the eval bucket at close.

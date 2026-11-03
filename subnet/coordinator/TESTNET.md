@@ -249,7 +249,7 @@ wrangler r2 bucket delete eval-bucket-testnet
 
 These figures come from the Worker built from commit `b9fd0ac3`, deployed
 04:02:54 UTC. Measurements came from `/status` polled every 3 s, `wrangler tail`
-and a small number of read-only RPC calls from `build-host`.
+and a small number of read-only RPC calls from the build host.
 
 ### Primary mode (04:05 to 04:20 UTC, 15 min)
 
@@ -261,7 +261,7 @@ retries and no duplicate deliveries.
 **Cursor.** The cursor advanced monotonically from 8332569 to 8332644. Its lag
 behind the notified head was at most 1 block. It ran 0 or 1 block behind the RPC
 finalized head at each of 10 watchdog ticks, and all 10 head audits passed. A
-separate RPC `chain_getFinalizedHead` call from `build-host` returned exactly the
+separate RPC `chain_getFinalizedHead` call from the build host returned exactly the
 cursor hash, at block 8332599, when the cursor was 7 s old.
 
 **Receipt timing.** The median gap between receipts was 12.3 s, ranging from 6.2
@@ -363,7 +363,7 @@ the coordinator keeps committing the T12 target once per epoch.
 
 The journal did not log reveal checks then; it does now (`reveal_check`,
 `reveal_probe`). The sequence above follows from the watermark history in the
-status poll log and a chain read from `build-host` (4 calls): the
+status poll log and a chain read from the build host (4 calls): the
 coordinator's entry is in `TimelockedWeightCommits(601, 8)` at 8334763 (683
 bytes, two entries) and absent at 8334764 (342 bytes, one entry). An earlier
 version of this runbook said the check at 8334761 found the entry gone, which
@@ -373,7 +373,7 @@ The first live run used an eight-block event scan for the reveal; it was
 replaced by the queue search (5314c31e) before the reveal, because a late pulse
 can exceed any fixed scan.
 
-**Independent read-back.** From `build-host`, through the other public endpoint
+**Independent read-back.** From the build host, through the other public endpoint
 `test.chain.opentensor.ai` (8 calls in all):
 
 - block 8334607 is `0x9b97c903…da4f80c3`; its extrinsic 6 has hash
@@ -473,7 +473,7 @@ with nonce 5, and its first was marked but, by the drill, never sent. The
 other epochs were each included on their first send; only epoch 13
 exercised the era-expiry path. Every observed reveal came five blocks after the predicted
 block, when the drand pulse for the round (targeted three blocks past the
-reveal block) reached the chain. In the morning `build-host` made 14 public
+reveal block) reached the chain. In the morning the build host made 14 public
 RPC calls for the independent checks; the afternoon checks are counted with
 each drill.
 
@@ -751,15 +751,18 @@ ledger's standing.
    refused; each sweep checks measured spend, a bound for lanes presumed dead
    and the remaining work's bound, and faults the cohort (`scoring_budget`,
    terminal) before it can be exceeded.
-3. The `SpendLedger` keeps the month: a plan's generation and scoring budgets
-   are reserved against `MONTHLY_CAP_MICROUSD` (a deployment value passed at
-   deploy time, not tracked; a testnet deployment without it refuses every
-   reservation, mainnet has none) before it queues
-   (refused with `monthly_cap` otherwise), and a finished cohort settles its
-   measured spend, once. Spend is keyed by the billing cycle starting on
-   `BILLING_CYCLE_DAY`; set it to the account's real cycle day. Every open
-   reservation holds headroom in every cycle, and a label already queued never
-   touches the ledger again (a retried `/plan` answers `already`).
+3. The `SpendLedger` tracks the month and never refuses or pauses anything
+   for spend: a plan's generation and scoring budgets are recorded as a
+   reservation before it queues, and a finished cohort settles its measured
+   spend, once. Spend is keyed by the billing cycle starting on
+   `BILLING_CYCLE_DAY`, which stays 1 (calendar months). The alert threshold
+   is `SPEND_ALERT_MICROUSD`, a deployment value passed at deploy time from
+   the private operator configuration and never tracked; without it there is
+   no alert. Every open reservation counts toward the cycle's total, the
+   ledger status sets `over_threshold` once the total passes the threshold,
+   and the publisher's `ledger_threshold` alert keys on that flag. A label
+   already queued never touches the ledger again (a retried `/plan` answers
+   `already`).
 4. Lanes stop their containers when their job is done and when the cohort
    pauses; the inactivity timeout and the 120 s idle alarm are backstops.
 5. Budget alerts are a dashboard action (they only email); their thresholds
@@ -1810,7 +1813,7 @@ Branch `subnet-testnet/admission`, on main as `959bf738` (fixes) over
 | 37 W = 1, no pre-start, incentive | fixed in the template check; the D12b canary rule is open |
 | 39 confidentiality and gates | no change needed; the trust file pins no admission origin until the public-access decision |
 
-Checks (build-host, one Cargo job, `-j 4`, offline, `--locked`): coordinator
+Checks (the build host, one Cargo job, `-j 4`, offline, `--locked`): coordinator
 lib 229/229, clippy native and wasm32 `-D warnings` clean, protocol 94,
 miner and wire 42, `no_runtime_gates` 2/2, publisher 50, subnet workspace
 clippy `-D warnings` clean, `cargo metadata --locked`.
@@ -1878,6 +1881,140 @@ Invalid and went through on its own retry.
   predecessor's transition is covered by tests).
 - **Routes after the drill.** Redeployed with `ADMISSION_ROUTES` off once
   both instances were idle.
+
+### Coordinator admission follow-ups and second review (2026-11-03)
+
+Branch `subnet-testnet/admission-items`. The W3 open items and the second
+review's findings, by outcome:
+
+| Findings | Outcome |
+| --- | --- |
+| 1 the spend alert never fires | fixed: the publisher reads `over_threshold` (and `alert_microusd`; the `cap_microusd` fallback this entry first had was removed in the next round, below) and keys `ledger_threshold` on the flag; the `SpendLedger` reads `SPEND_ALERT_MICROUSD` through `ledger::alert_threshold` and never answers 503 for a missing threshold; the purge of private predictions runs before the ledger settle; a golden fixture shared by the coordinator and publisher tests pins the contract |
+| 2 resolution gated on the runtime | fixed: a different marker reads the metadata at that block and the stage is read again; an absent marker is unavailable state; terminal cases answer `commitment_unresolvable` with the reason, so the miner commits again |
+| 3 state window vs the outage rule | fixed: discarded reads go again to `ARCHIVE_RPC_URL` when set; a snapshot whose state no endpoint serves pauses the cohort (`snapshot_state_discarded`, now resumable) and resumes it by itself at the first read that answers; a runtime read at a gone block ends that block's resolutions. The configured RPC endpoint served the state of block 8,000,000 (about 50 days old) on 2026-11-03. The AR-7 outage drill is still to run |
+| 4 spec v3 entrants | fixed in code: admission runs go through the scorer lane's admission route (`AScorer` `POST /admit`: a fresh instance, the cohort's label, spec digest and lane limits, the definitive flag) and `ADMISSION_SPECS` holds v2 and v3; the r0 v3 template is the standing-r0 lane's |
+| 5 cron-driven reader | owned by the receipts-watchdog lane (per-block delivery path) |
+| 6 refusal rows grow without bound | fixed: stored only for the admitting cohort and a hotkey the commitment reader knows; per-hotkey and per-IP limits stay open (D6) |
+| 7 near copies and operator coldkeys | fixed in part: the cutoff snapshot reads `Owner`, and a plan's `operator_coldkeys` keep operator-owned hotkeys from unlocking fresh stock (an owner that does not read counts as the operator's); standing templates refuse a fresh pool; a pre-draw similarity probe is open |
+| 8 a refused calendar queue leaks a reservation | fixed: released when the reserve created it |
+| 9 abandoned post-freeze cohorts keep admitted objects | fixed: such cohorts' admitted objects (and what only their copies created) are cleaned like refused sessions'; cohort 13's two objects were deleted by hand (private inventory) |
+| 10 framing cut-offs charged to the miner | fixed: each attempt arms a growing backoff, a cut-off attempt runs again and never refuses; framing CPU and memory at the largest v3 object are still unmeasured |
+| 11 superseded cap text | fixed (step 3 above, publisher rule text and README) |
+| 12 `calendar::next` numbering | fixed: numbered as `due_any` (the authority's first cohort is recorded with the template), the earliest open from the previous cohort's transition boundary and never in the past |
+| 13 part acknowledgement | documented: the ack echoes the declared digest, unverified |
+| 14 unbounded reads | fixed: `resolve` reads the publishing cohort and the newest cohort only; `/cost-model` reads one row |
+| 15 host name in this runbook | fixed |
+| 16 no cross-crate contract test | fixed (the golden fixture of finding 1) |
+| W3 open: a definitive reference refusal costs about 80 minutes | fixed: a reference refused definitively pauses the cohort at its first refusal (`scorer_unavailable`, resumable) |
+| W3 open: miner CLI read-back right after inclusion | fixed: read again each block until the commitment shows, within the deadline |
+
+Open, needing user decisions: header decoding in the key-holding eval Worker
+(finding 24 of the first review), per-hotkey and per-IP rate limits (D6), the
+D12b canary rule.
+
+Checks (the build host, one Cargo job, `-j 4`, offline, `--locked`):
+coordinator lib 257/257, clippy native (all targets) and wasm32 `-D warnings`
+clean; publisher 38 + 1 + 34, clippy native and wasm32 clean; miner 22 unit,
+cli 3, e2e 8 + 3, golden 2, admission wire 11, clippy clean;
+`no_runtime_gates` 2/2. Nothing deployed: the eval Worker store migrates to
+v13 in place on its first request after the next deploy, and deploys pass the
+alert threshold as `SPEND_ALERT_MICROUSD` from then on.
+
+### Coordinator admission, third review (2026-11-03)
+
+Branch `subnet-testnet/admission-items-land` (the follow-ups above, on current
+main, plus these). Findings of the third W3 review, by outcome:
+
+| Findings | Outcome |
+| --- | --- |
+| 1 returning miners get a final refusal before their new commitment is logged | fixed: while a cohort admits, opening a session answers the retryable `commitment_not_found` until the commitment reader has caught up (the current rule is fix round 1's, below) |
+| 2 the second review's fixes are not on main | this branch carries them on current main; landing is a separate step (the receipts-watchdog and standing-r0 branches also add eval store v13 and touch `ADMISSION_SPECS` and the engine's idle branch: whichever lands second renumbers its migration) |
+| 3 the public calendar | fixed: the calendar view reports the current cohort's `window_open` and `window_closing`; the publisher takes `next` from the calendar (the template's next cohort and earliest opening, not only a queued cohort) and sets `admitting` only while the window is open |
+| 4 a one-tempo admission window | reported: the calendar view and the template install reply give the template's `admission_tempos` and the last window measured on chain (blocks, nominal minutes); the miner guide budgets the upload inside it. The standing r0 template's `admission_tempos` is chosen in the standing-r0 lane from measured upload and logging time |
+| 5 admission spend can be lost | fixed: each run's charge is recorded in the run's transaction (`adm_charges`, key `main:<label>:admission:<hotkey>:<commitment>:<try>`), settled at once when the ledger answers, otherwise by the step (`AdmissionSettle`, idle branch) until it does |
+| 6 an aborted attempt's object can be orphaned | fixed: an abort records the attempt's object (and upload) in `adm_object_deletes`; the clean-up step deletes it and drops the row only after the bucket answers |
+| 7 status reads change state | fixed: `has_work` (and so `/eval/status`) uses `calendar::ready`, a pure read without the reference resolution; only the calendar's own step records a reference error and pauses |
+
+Store: eval store v13 also adds `commit_reader.polled_block`, `adm_charges`
+and `adm_object_deletes`.
+
+Checks (the build host, one Cargo job, `-j 4`, offline, `--locked`):
+coordinator lib 260/260, clippy native (all targets) and wasm32 `-D warnings`
+clean; publisher 39 + 1 + 34, clippy native and wasm32 clean; miner 22 unit,
+cli 3, e2e 9 + 3, golden 2, admission wire 11, clippy clean;
+`no_runtime_gates` 2/2. Nothing deployed.
+
+### Coordinator admission, fix round 1 of the third review (2026-11-03)
+
+Branch `subnet-testnet/admission-items-land2`: the two commits above rebased
+on main after the spec v3 standing-template landing, plus these. One
+admission-run route remains, the scorer lane's `POST /admit` (it names the
+cohort's spec digest and lane limits); `LaneRun::body` (the probe route) is
+gone and `ADMISSION_SPECS` keeps main's single v2 + v3 entry.
+
+| Findings | Outcome |
+| --- | --- |
+| 1, 9 the returning-miner wait follows the moving cursor | fixed: the first not-yet answer for an opening records the cursor then (`adm_commit_waits`, one row per hotkey in the admitting cohort, earlier cohorts' rows dropped); the answer is final once a poll completed at or after that block, within about one poll. `wrong_chain` never waits. Tests drive the production cadence (a heartbeat moving the cursor between polls) |
+| 2 the branch no longer merges into main | rebased on a new branch (no force push); one admission-run route (`/admit`) and one `ADMISSION_SPECS` entry. Eval store v13 is still free on main; whichever of this branch and receipts-watchdog lands second renumbers |
+| 3 `upload` after `commit --replace` picks the superseded opening | fixed: without `--opening`, the newest opening confirmed on chain at a later block than the observed commitment is picked when it is for `--artifact`, and a superseded opening's artifact is refused locally; the fallback considers only openings for `--artifact` |
+| 4 verify turns a not-yet answer into a refusal | fixed: only opening and reopening can wait; the verify stage answers the logged commitment's real code |
+| 5 a failing object delete holds up the active cohort | fixed: failed deletes back off (`adm_object_deletes.tries/not_before_ms`; session clean-ups use their step backoff) and the clean-up step never fails on them, so the engine reaches the calendar and the active cohort |
+| 6 admission charges can be lost | fixed: each run records its outcome and charge as it finishes (not after the whole batch), and the immediate settle is best effort; settled rows are deleted (the ledger holds the record). A run cut off by the platform mid-flight still has no measured time (residual; the next try records its own) |
+| 7 a read-back timeout discards the inclusion record | fixed: `submit_commitment` returns the inclusion once finalized; a read-back that gives up leaves `finalized_commitment_block` empty with a warning, and the opening records the submission |
+| 8 cadence test, clippy | added (finding 1); clippy native and wasm32 re-run |
+| 10 one empty resolution answer is terminal | fixed: a stage that served no state is marked and read again, from `ARCHIVE_RPC_URL` when configured; only a second answer without state is `state_unavailable` |
+| 11 compatibility shims | removed: `MONTHLY_CAP_MICROUSD` (the threshold is `SPEND_ALERT_MICROUSD` only; deploys must pass that name), the publisher's `cap_microusd` fallback, the miner's older-coordinator retry and its guide text, and the serde default on `LaneRun.limits` |
+| 12 `/admit` substitutes constants for zero limits | fixed: any zero limit answers `bad_internal_request` (platform outcome) before anything loads; the plan's lane limits are the only source |
+| 13 growth in Wasm memory and the store | fixed: the outside-entrant check looks each admitted candidate up in `published_contents` by key; settled `adm_charges` rows are deleted |
+| 14 an unclaimable verdict starves later work | fixed: a verdict whose cohort or lane limits cannot be read records a platform failure (`admission_limits_unavailable`) with a backoff, so it leaves the claimable set and shows in the status |
+
+Store: eval store v13 also adds `adm_commit_waits` and the delete backoff
+columns; `adm_charges` has no `settled_ms`.
+
+Checks (the build host, one Cargo job, `-j 4`, offline, `--locked`):
+coordinator lib 265/265, clippy native (all targets) and wasm32 `-D warnings`
+clean; publisher 39 + 1 + 34, clippy native and wasm32 clean; miner 22 unit,
+1 binary unit, cli 3, e2e 9 + 3, golden 2, admission wire 11, clippy clean;
+`no_runtime_gates` 2/2. Nothing deployed. The next eval deploy passes the
+alert threshold as `SPEND_ALERT_MICROUSD` (the earlier name is no longer
+read).
+
+Fix round 2 on the same branch:
+
+| Findings | Outcome |
+| --- | --- |
+| 1 a first answer at the polled cursor, or under a lagging cursor, is final at once | fixed: the waited-for block is the later of the cursor and the request's `x-sn-commitment-block` (the miner's confirmed commitment block, an untrusted hint that only delays that hotkey's own answer and never past the close; a higher hint later moves the block up), and without the header the later of the cursor and one past the reader's last completed poll. `upload` sends it from the opening's submission record. Tests cover a create right after a poll with no heartbeat, a cursor 20 blocks behind the commitment, a lower hint, a hint the last poll already holds (final at once), and a false hint. The CLI keeps the plain retry: with the hint the coordinator itself answers the retryable code until its reader reaches the block |
+| 2, 4 a deploy without the new variable silently drops the spend alert | fixed: the publisher raises `ledger_threshold_unset` when the eval status's ledger standing names no threshold (never read as "not over"); the current deploy scripts pass `SPEND_ALERT_MICROUSD` (main reads it too) and the probe checks the threshold is present after the deploy |
+| 3 this file contradicts itself on the `cap_microusd` fallback | fixed: the earlier entry now says the fallback was removed |
+| 5 repeated framing cut-offs stall the freeze unseen | fixed: at the plan's `failures_before_pause` cut-offs (and every multiple) the cohort faults `framing_unavailable` (resumable); verdict platform failures fault `scorer_unavailable` at the same bound; the publisher reports a fault on any cohort not yet closed, not only the first active one; `steps_retrying` counts only sessions whose step failed |
+| 6 the public docs promise the cron cadence | fixed: the docs describe the wait as lasting until the reader's next completed poll at or after the fixed block; `Retry-After` is the reader's shortest poll interval (`POLL_EVERY_MS`), described as the earliest a poll can complete, not a promise. Moving the reader to per-block delivery stays with receipts-watchdog, which updates both documents |
+| 7 two empty answers make a commitment unresolvable | fixed: an answer without state is never final; the stage is read again after a growing backoff (`commit_seen.absent_tries/retry_ms`, every read still within the reader's per-minute share), from `ARCHIVE_RPC_URL` when configured; only an explicit discarded-state answer from every configured endpoint is terminal (`state_discarded`). While the hotkey has a session verifying, the cohort faults `commitment_state_unavailable` (resumable) at the pause bound. The status counts `state_absent_pending` |
+| 8 deferred housekeeping re-arms the step alarm | fixed: the alarm re-arms on due work only (`engine::has_due_work`: backed-off steps, clean-ups and object deletes count once their backoff passed); the deploy check and retirement still wait for all unfinished work (`has_work`) |
+
+Store: v13 also adds `commit_seen.absent_tries` and `retry_ms`. Faults
+`framing_unavailable` and `commitment_state_unavailable` are resumable.
+Checks (the build host, one Cargo job, `-j 4`, offline, `--locked`):
+coordinator lib 268/268, clippy native (all targets) and wasm32 `-D warnings`
+clean; publisher 39 + 1 + 34, clippy native and wasm32 clean; miner 22 unit,
+1 binary unit, cli 3, e2e 9 + 3, golden 2, admission wire 11, clippy clean;
+`no_runtime_gates` 2/2. Nothing deployed.
+
+Landing (rebased on main after the receipt-retention landing): eval store
+v13 (receipt retention) and v14 (the reader's round claim) are main's, so
+this branch's admission columns and tables above form v15, applied after
+them. Each block's delivery now drives the commitment reader, but the
+reader still polls at most once per `POLL_EVERY_MS`, so the fixed-block
+commitment wait and its `Retry-After` are unchanged. The deploy check and
+succession wait on `engine::blocking_work` (receipt deletion excluded, as
+main has it); the step alarm re-arms on `engine::has_due_work` plus a due
+receipt deletion. The publisher keeps `retention_stalled` beside
+`ledger_threshold_unset`.
+Checks after the rebase (the build host, one Cargo job, `-j 4`, offline,
+`--locked`): coordinator lib 284/284 (including the store migration from v3
+through v15), clippy native (all targets) and wasm32 `-D warnings` clean;
+parity 4/4; publisher 39 + 1 + 36, clippy native and wasm32 clean; miner 22
+unit, 1 binary unit, cli 3, e2e 9 + 3, golden 2, admission wire 13, clippy
+clean; `no_runtime_gates` 2/2. Nothing deployed.
 
 ### Chain-record restart
 

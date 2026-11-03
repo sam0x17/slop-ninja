@@ -1981,6 +1981,11 @@ async fn pointer_drive(env: &Env, d: &Deployment) {
 async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
     let configured = env.var("READER_RPC_CALLS_PER_MINUTE").ok().and_then(|v| v.to_string().trim().parse::<u64>().ok());
     let share = crate::eval::commitments::reader_share(d.settings.rpc_calls_per_minute, configured);
+    // Past-block state a pruning endpoint no longer keeps is read again from
+    // the archive endpoint, when one is configured, before the reader treats
+    // it as gone (a coordinator outage longer than the node's state window
+    // must not cost the cohort).
+    let archive = var(env, "ARCHIVE_RPC_URL").and_then(|v| config::rpc_url(Some(&v)).ok()).filter(|u| *u != d.rpc_url);
     // A round is two journal-sized calls plus its RPC calls.
     for n in 0..d.settings.tick_rounds {
         if !budget.allows(2 * eval_do::KICK_TIMEOUT_MS + rpc::METADATA_TIMEOUT_MS) {
@@ -2029,16 +2034,38 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
                 refused = true;
                 break;
             }
-            let reply = if read.large {
-                rpc_post_capped(&d.rpc_url, read.body.clone(), rpc::MAX_LARGE_RESPONSE_BYTES, rpc::METADATA_TIMEOUT_MS).await
-            } else {
-                rpc_post(&d.rpc_url, read.body.clone()).await
+            let post = |url: &str| {
+                let (url, body) = (url.to_owned(), read.body.clone());
+                async move {
+                    let reply = if read.large {
+                        rpc_post_capped(&url, body, rpc::MAX_LARGE_RESPONSE_BYTES, rpc::METADATA_TIMEOUT_MS).await
+                    } else {
+                        rpc_post(&url, body).await
+                    };
+                    reply.ok().and_then(|b| String::from_utf8(b).ok())
+                }
             };
-            results.push(crate::eval::commitments::ReadResult {
-                tag: read.tag,
-                id: read.id,
-                reply: reply.ok().and_then(|b| String::from_utf8(b).ok()),
-            });
+            // A resolution read whose earlier answer served no state goes to
+            // the archive endpoint first when one is configured.
+            let first = match &archive {
+                Some(url) if read.archive => url.as_str(),
+                _ => d.rpc_url.as_str(),
+            };
+            let mut result = crate::eval::commitments::ReadResult { tag: read.tag.clone(), id: read.id, reply: post(first).await };
+            if let Some(url) = &archive
+                && first != url.as_str()
+                && crate::eval::commitments::discarded(&result)
+                && budget.allows(JOURNAL_CALL_MS + call_ms + eval_do::KICK_TIMEOUT_MS)
+                && match journal_call(env, d, Method::Post, "/rpc-reserve", None).await {
+                    Ok(mut r) => cf_io::response_json::<bool>(&mut r, ROUND_REPLY_BYTES).await.unwrap_or(false),
+                    Err(_) => false,
+                }
+            {
+                // Only the archive's answer is ingested; its own refusal is
+                // then the state being gone.
+                result.reply = post(url).await;
+            }
+            results.push(result);
         }
         {
             // Sent even when no read went out (a refused reservation), so the

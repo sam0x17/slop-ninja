@@ -222,6 +222,17 @@ pub async fn upload(
         admitting.max_object_len
     );
 
+    // The confirmed block of this opening's commitment, when this wallet
+    // read it back: a coordinator that has not logged that commitment yet
+    // answers the retryable `commitment_not_found` until its reader has
+    // polled at or after that block, instead of a definitive refusal based
+    // on an older logged commitment.
+    client.set_commitment_block(
+        opening_file
+            .submitted
+            .as_ref()
+            .and_then(|s| s.finalized_commitment_block),
+    );
     let (mut session, _) = retry(options, async || client.create_session(&upload).await).await?;
     check_session_matches(&session, &upload)?;
     if options.restart && session.state() == Some(SessionState::Refused) {

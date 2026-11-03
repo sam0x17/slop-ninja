@@ -17,12 +17,13 @@
 //!   `System.Events` and `Uids(netuid, who)` at `c`, then
 //!   `BlockAtRegistration(netuid, uid)` at `c`. The position is the index
 //!   of the last extrinsic that emitted `Commitments.Commitment { netuid,
-//!   who }` for the hotkey in `c`. These reads happen within minutes of the
-//!   commitment, inside the state window ordinary nodes keep; a commitment
-//!   whose state is gone stays unresolved (session opening answers
-//!   `commitment_not_found`, retryable), never substituted by later state.
+//!   who }` for the hotkey in `c`. These reads normally happen within
+//!   minutes of the commitment; state the endpoints no longer keep makes the
+//!   commitment unresolvable (session opening answers
+//!   `commitment_unresolvable`, and the miner commits again), never
+//!   substituted by later state.
 //! - **Snapshot.** At the cutoff, for every hotkey with a verified session:
-//!   `CommitmentOf`, `Uids` and then `BlockAtRegistration` at the hash of
+//!   `CommitmentOf`, `Uids`, `Owner` and then `BlockAtRegistration` at the hash of
 //!   `cutoff_block - 1`, the state the last block before the cutoff left.
 //!   That is exactly "the last commitment before the cutoff block" and the
 //!   registration that held then; the freeze reads nothing else.
@@ -32,13 +33,17 @@
 //! `CommitmentInfo` opens no submission) and never aborts the round. State a
 //! node no longer keeps (its "state discarded" error) ends a resolution as
 //! unresolvable and restarts a pinned key listing at the current block; at
-//! the snapshot it faults the closing cohort for the operator
-//! ([`SNAPSHOT_DISCARDED`]). A commitment whose extrinsic also committed for
+//! the snapshot it pauses the closing cohort ([`SNAPSHOT_DISCARDED`]) until
+//! a read answers. The Worker reads such state again from `ARCHIVE_RPC_URL`
+//! when one is configured before either applies. A commitment whose extrinsic also committed for
 //! another hotkey on the subnet (a batch) has no position the protocol
 //! orders and is unresolvable ([`SHARED_EXTRINSIC`]). Every read at a past
-//! block also reads `LastRuntimeUpgrade` there: a resolution under another
-//! runtime than the stored one is unresolvable (`runtime_changed`), and the
-//! snapshot is decoded with the metadata read at its own block.
+//! block also reads `LastRuntimeUpgrade` there: a resolution stage or a
+//! snapshot read under another runtime than the stored one reads the
+//! metadata at that block and is read again, decoded by name with it; a
+//! runtime upgrade never makes a commitment unresolvable. A commitment that
+//! is terminally unresolvable answers the miner `commitment_unresolvable`
+//! with the reason ([`terminal`]), so it commits again.
 //!
 //! The reader has its own share of the per-minute RPC budget
 //! (`READER_RPC_CALLS_PER_MINUTE`, by default the budget less the
@@ -186,6 +191,17 @@ pub fn at_block(sql: &impl Sql, hotkey: &AccountId, block: u64) -> R<Option<LogE
     rows.first().map(entry_of).transpose()
 }
 
+/// The hotkey's latest seen commitment, when it is terminally unresolvable:
+/// `(block, reason)`. Its opening can never be checked; the miner commits
+/// again.
+pub fn terminal(sql: &impl Sql, hotkey: &AccountId) -> R<Option<(u64, String)>> {
+    let rows = sql.exec(
+        "SELECT block, COALESCE(note, 'unresolvable') FROM commit_seen WHERE hotkey = ? AND stage = 'unresolvable'",
+        &[hk(hotkey)],
+    )?;
+    rows.first().map(|r| Ok((uint(r, 0)?, text(r, 1)?.to_owned()))).transpose()
+}
+
 /// Whether the latest value a poll saw for the hotkey is not logged yet
 /// (its position or registration is still being read).
 pub fn unresolved(sql: &impl Sql, hotkey: &AccountId) -> R<bool> {
@@ -195,6 +211,17 @@ pub fn unresolved(sql: &impl Sql, hotkey: &AccountId) -> R<bool> {
             &[hk(hotkey)],
         )?
         .is_empty())
+}
+
+/// The block of the last completed poll: every commitment finalized at or
+/// before it is either logged or seen (`unresolved`/`terminal`). `None`
+/// until a poll completes.
+pub fn polled_block(sql: &impl Sql) -> R<Option<u64>> {
+    Ok(sql
+        .exec("SELECT polled_block FROM commit_reader WHERE id = 1", &[])?
+        .first()
+        .and_then(|r| opt_int(r, 0))
+        .and_then(|b| u64::try_from(b).ok()))
 }
 
 /// Logs one commitment (idempotent on `(hotkey, block)`).
@@ -321,6 +348,18 @@ pub fn uids_key(rt: &ChainRuntime, netuid: u16, who: &AccountId) -> R<String> {
     rt.storage_key(chain::SUBTENSOR, "Uids", &[netuid_value(netuid), account_value(who)])
         .map(key_hex)
         .map_err(chain_err)
+}
+
+/// `SubtensorModule.Owner(hotkey)`: the coldkey that owns the hotkey.
+pub fn owner_key(rt: &ChainRuntime, who: &AccountId) -> R<String> {
+    rt.storage_key(chain::SUBTENSOR, "Owner", &[account_value(who)])
+        .map(key_hex)
+        .map_err(chain_err)
+}
+
+fn decode_owner(rt: &ChainRuntime, raw: Option<&[u8]>) -> Option<AccountId> {
+    let v = rt.decode_storage(chain::SUBTENSOR, "Owner", raw).ok()?;
+    as_account(&v).map(AccountId).filter(|a| a.0 != [0u8; 32])
 }
 
 pub fn registration_key(rt: &ChainRuntime, netuid: u16, uid: u16) -> R<String> {
@@ -467,6 +506,10 @@ pub struct Read {
     pub id: u64,
     pub body: String,
     pub large: bool,
+    /// Read from the archive endpoint when the deployment configures one
+    /// (`ARCHIVE_RPC_URL`): an earlier answer for this resolution stage
+    /// served no state for its block.
+    pub archive: bool,
 }
 
 /// A read's reply as the Worker received it (`None`: transport failure,
@@ -557,7 +600,7 @@ fn reader_row(sql: &impl Sql) -> R<crate::sql::Row> {
 /// registration block is read.
 type SnapshotRow = (AccountId, Option<u16>, bool);
 /// A commitment being resolved: hotkey, block, stage, block hash, UID.
-type Pending = (AccountId, u64, String, Option<String>, Option<u16>);
+type Pending = (AccountId, u64, String, Option<String>, Option<u16>, bool);
 
 fn snapshot_stage(sql: &impl Sql, cutoff: u64) -> R<(Option<String>, Vec<SnapshotRow>)> {
     let hash = sql
@@ -616,11 +659,22 @@ pub fn plan(
     let mut round = Round::default();
     let Some(at) = confirmed else { return Ok(round) };
     let pending: Vec<Pending> = sql
-        .exec("SELECT hotkey, block, stage, block_hash, uid FROM commit_seen WHERE stage IN ('hash','events','reg') ORDER BY block, hotkey", &[])?
+        .exec(
+            "SELECT hotkey, block, stage, block_hash, uid, absent_tries FROM commit_seen
+             WHERE stage IN ('hash','events','reg') AND retry_ms <= ? ORDER BY block, hotkey",
+            &[bind_u64(now_ms)?],
+        )?
         .iter()
         .map(|r| {
             let h = crate::eval::plan::parse_hex32(text(r, 0)?).ok_or(EvalError::State("seen hotkey"))?;
-            Ok((AccountId(h), uint(r, 1)?, text(r, 2)?.to_owned(), opt_text(r, 3), opt_int(r, 4).and_then(|u| u16::try_from(u).ok())))
+            Ok((
+                AccountId(h),
+                uint(r, 1)?,
+                text(r, 2)?.to_owned(),
+                opt_text(r, 3),
+                opt_int(r, 4).and_then(|u| u16::try_from(u).ok()),
+                int(r, 5)? > 0,
+            ))
         })
         .collect::<R<_>>()?;
     if !needs.poll && needs.snapshot.is_none() && pending.is_empty() {
@@ -655,18 +709,21 @@ pub fn plan(
             id: 11,
             body: rpc::runtime_version_request(11, &hash),
             large: false,
+            archive: false,
         });
         round.reads.push(Read {
             tag: format!("metadata@{number}"),
             id: 12,
             body: rpc::metadata_request(12, &hash),
             large: true,
+            archive: false,
         });
         round.reads.push(Read {
             tag: format!("marker@{number}"),
             id: 13,
             body: rpc::query_storage_request(13, &[marker_key()], &hash),
             large: false,
+            archive: false,
         });
         charge(sql, start, used, round.reads.len())?;
         return Ok(round);
@@ -687,6 +744,7 @@ pub fn plan(
             id,
             body: body_of(id),
             large,
+            archive: false,
         });
         true
     };
@@ -712,6 +770,7 @@ pub fn plan(
                     for who in &missing {
                         keys.push(commitment_key(rt, netuid, who)?);
                         keys.push(uids_key(rt, netuid, who)?);
+                        keys.push(owner_key(rt, who)?);
                     }
                     keys.push(marker_key());
                     push(
@@ -740,8 +799,9 @@ pub fn plan(
         }
     }
     // Resolution of new commitments, oldest first.
-    for (who, block, stage, hash, uid) in &pending {
+    for (who, block, stage, hash, uid, absent) in &pending {
         let who_hex = hex::encode(who.0);
+        let before = round.reads.len();
         match (stage.as_str(), hash) {
             ("hash", _) => {
                 push(
@@ -773,6 +833,9 @@ pub fn plan(
                 );
             }
             _ => {}
+        }
+        if *absent && round.reads.len() > before && let Some(r) = round.reads.last_mut() {
+            r.archive = true;
         }
     }
     // The poll.
@@ -969,11 +1032,30 @@ pub fn ingest(
             }
             _ => {
                 if [v, m, k].iter().any(|r| discarded(r)) {
-                    // The block a past read named is gone: read the head's.
+                    // The block a past read named is gone (from the archive
+                    // endpoint too, when one is configured): read the head's.
+                    // Its pending resolutions can never be decoded with
+                    // their own runtime, so they end as `state_discarded`
+                    // (never decoded with another); a snapshot at that block
+                    // pauses its cohort until a read answers.
+                    let refresh = sql.exec("SELECT refresh_block FROM commit_reader WHERE id = 1", &[])?;
+                    let refresh = refresh.first().and_then(|r| opt_int(r, 0)).and_then(|b| u64::try_from(b).ok());
                     sql.exec(
                         "UPDATE commit_reader SET refresh_hash = NULL, refresh_block = NULL WHERE id = 1",
                         &[],
                     )?;
+                    if let Some(b) = refresh {
+                        let gone = sql.exec(
+                            "SELECT hotkey FROM commit_seen WHERE block = ? AND stage IN ('events','reg')",
+                            &[bind_u64(b)?],
+                        )?;
+                        for r in &gone {
+                            if let Some(h) = crate::eval::plan::parse_hex32(text(r, 0)?) {
+                                unresolvable(sql, &AccountId(h), b, "state_discarded")?;
+                            }
+                        }
+                        snapshot_discarded(sql, b.saturating_add(1), now_ms)?;
+                    }
                 }
                 note_error(sql, "runtime_read")?;
                 out.failed += 3;
@@ -1114,14 +1196,14 @@ fn ingest_values(sql: &impl Sql, rt: &ChainRuntime, r: &ReadResult, now_ms: u64)
             "INSERT INTO commit_seen (hotkey, block, payload, seen_block, stage, note) VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT (hotkey) DO UPDATE SET block = excluded.block, payload = excluded.payload,
                 seen_block = excluded.seen_block, stage = excluded.stage, block_hash = NULL, extrinsic = NULL, uid = NULL,
-                note = excluded.note",
+                note = excluded.note, absent_tries = 0, retry_ms = 0",
             &[hk(&who), bind_u64(c.block)?, s(hex::encode(&c.payload)), i(block), s(stage), note.map_or(SqlValue::Null, s)],
         )?;
     }
     sql.exec(
-        "UPDATE commit_reader SET polled_ms = ?, polls = polls + 1, keys_block = NULL, keys_hash = NULL, keys = '[]',
-            keys_next = NULL, keys_done = 0, last_error = NULL WHERE id = 1",
-        &[bind_u64(now_ms)?],
+        "UPDATE commit_reader SET polled_ms = ?, polled_block = ?, polls = polls + 1, keys_block = NULL, keys_hash = NULL,
+            keys = '[]', keys_next = NULL, keys_done = 0, last_error = NULL WHERE id = 1",
+        &[bind_u64(now_ms)?, i(block)],
     )?;
     Ok(true)
 }
@@ -1131,7 +1213,43 @@ fn seen_target(rest: &str) -> Option<(AccountId, u64)> {
     Some((AccountId(crate::eval::plan::parse_hex32(h)?), b.parse().ok()?))
 }
 
-/// Ends a resolution: the commitment stays unlogged, for the reason `note`.
+/// The resumable cohort fault of an admitting or closing cohort whose
+/// verifying session waits on a commitment whose block's state no endpoint
+/// has served yet ([`state_absent`]).
+pub const STATE_UNAVAILABLE: &str = "commitment_state_unavailable";
+
+/// A resolution read (events or registration) whose answer served no state
+/// for its block (no `LastRuntimeUpgrade` marker): a lagging or
+/// load-balanced node's empty answer is never final, as the snapshot's
+/// absent state pauses only until a read answers. The stage stays pending
+/// and is read again after a backoff that grows with these answers
+/// (`absent_tries`, `retry_ms`; every read is still charged to the reader's
+/// per-minute share), from the archive endpoint when the deployment
+/// configures one ([`Read::archive`]). Only an explicit discarded-state
+/// error (from the archive endpoint too, when configured) ends it, as
+/// `state_discarded`.
+///
+/// When the hotkey has a session verifying in the admitting or closing
+/// cohort (its framing waits for the resolution, so the freeze does), the
+/// cohort faults at every multiple of the plan's pause bound
+/// ([`STATE_UNAVAILABLE`], resumable): a visible pause of the same cohort,
+/// which the operator clears once an endpoint serves the state (for example
+/// an archive endpoint configured) or after refusing the session.
+fn state_absent(sql: &impl Sql, who: &AccountId, block: u64, now_ms: u64) -> R<()> {
+    let rows = sql.exec(
+        "UPDATE commit_seen SET absent_tries = absent_tries + 1 WHERE hotkey = ? AND block = ? AND stage IN ('events','reg')
+         RETURNING absent_tries",
+        &[hk(who), bind_u64(block)?],
+    )?;
+    let Some(r) = rows.first() else { return Ok(()) };
+    let tries = u32::try_from(int(r, 0)?).unwrap_or(u32::MAX);
+    sql.exec(
+        "UPDATE commit_seen SET retry_ms = ? WHERE hotkey = ? AND block = ?",
+        &[bind_u64(now_ms.saturating_add(crate::eval::admission::backoff_ms(tries)))?, hk(who), bind_u64(block)?],
+    )?;
+    crate::eval::admission::waiting_on_state(sql, who, tries, now_ms)
+}
+
 fn unresolvable(sql: &impl Sql, who: &AccountId, block: u64, note: &str) -> R<()> {
     sql.exec(
         "UPDATE commit_seen SET stage = 'unresolvable', note = ? WHERE hotkey = ? AND block = ? AND stage IN ('hash','events','reg')",
@@ -1145,12 +1263,26 @@ fn unresolvable(sql: &impl Sql, who: &AccountId, block: u64, note: &str) -> R<()
     Ok(())
 }
 
-/// Whether a past read's `LastRuntimeUpgrade` differs from the stored
-/// runtime's (its state was written by another runtime).
-fn other_runtime(sql: &impl Sql, pairs: &[(String, Option<Vec<u8>>)]) -> R<Option<String>> {
+/// What a past read's `LastRuntimeUpgrade` says about the runtime that
+/// wrote its state.
+#[derive(Debug, PartialEq, Eq)]
+enum Writer {
+    /// The stored runtime's marker.
+    Stored,
+    /// Another runtime's marker: read that block's metadata first.
+    Other(String),
+    /// No marker at all: the node served no state for the block (a live
+    /// chain always holds the value), never a runtime change.
+    Absent,
+}
+
+fn other_runtime(sql: &impl Sql, pairs: &[(String, Option<Vec<u8>>)]) -> R<Writer> {
     let mk = marker_key();
+    if value_of(pairs, &mk).is_none() {
+        return Ok(Writer::Absent);
+    }
     let seen = marker_of(pairs, &mk);
-    Ok((stored_marker(sql)?.as_deref() != Some(seen.as_str())).then_some(seen))
+    Ok(if stored_marker(sql)?.as_deref() == Some(seen.as_str()) { Writer::Stored } else { Writer::Other(seen) })
 }
 
 fn ingest_hash(sql: &impl Sql, r: &ReadResult, rest: &str) -> R<bool> {
@@ -1200,9 +1332,18 @@ fn ingest_events(sql: &impl Sql, rt: &ChainRuntime, netuid: u16, r: &ReadResult,
     let Some(pairs) = query_values(r, &keys, &at) else {
         return Ok(false);
     };
-    if other_runtime(sql, &pairs)?.is_some() {
-        unresolvable(sql, &who, block, "runtime_changed")?;
-        return Ok(true);
+    match other_runtime(sql, &pairs)? {
+        Writer::Stored => {}
+        // Another runtime wrote this block's state: read the metadata at
+        // this block, then the stage is read again (never terminal).
+        Writer::Other(marker) => {
+            refresh_at(sql, &at, block, &marker)?;
+            return Ok(true);
+        }
+        Writer::Absent => {
+            state_absent(sql, &who, block, now_ms)?;
+            return Ok(true);
+        }
     }
     let Some(events) = value_of(&pairs, &ek) else {
         unresolvable(sql, &who, block, "state_unavailable")?;
@@ -1249,7 +1390,8 @@ fn ingest_events(sql: &impl Sql, rt: &ChainRuntime, netuid: u16, r: &ReadResult,
         return Ok(true);
     }
     sql.exec(
-        "UPDATE commit_seen SET stage = 'reg', extrinsic = ?, uid = ? WHERE hotkey = ? AND block = ?",
+        "UPDATE commit_seen SET stage = 'reg', extrinsic = ?, uid = ?, note = NULL, absent_tries = 0, retry_ms = 0
+         WHERE hotkey = ? AND block = ?",
         &[
             i(i64::from(extrinsic)),
             uid.map_or(SqlValue::Null, |u| i(i64::from(u))),
@@ -1282,9 +1424,16 @@ fn ingest_reg(sql: &impl Sql, rt: &ChainRuntime, netuid: u16, r: &ReadResult, re
     let Some(pairs) = query_values(r, &[key.clone(), marker_key()], &at) else {
         return Ok(false);
     };
-    if other_runtime(sql, &pairs)?.is_some() {
-        unresolvable(sql, &who, block, "runtime_changed")?;
-        return Ok(true);
+    match other_runtime(sql, &pairs)? {
+        Writer::Stored => {}
+        Writer::Other(marker) => {
+            refresh_at(sql, &at, block, &marker)?;
+            return Ok(true);
+        }
+        Writer::Absent => {
+            state_absent(sql, &who, block, now_ms)?;
+            return Ok(true);
+        }
     }
     let Ok(registration) = decode_registration(rt, value_of(&pairs, &key)) else {
         unresolvable(sql, &who, block, "undecodable")?;
@@ -1337,9 +1486,11 @@ fn snapshot_hash(sql: &impl Sql, cutoff: u64) -> R<Option<Id>> {
         .and_then(|h| Id::parse(&h).ok()))
 }
 
-/// The snapshot block's state is gone: the closing cohort faults, so the
-/// operator decides (an archive read, or abandoning it); nothing is
-/// substituted.
+/// The snapshot block's state is gone from every endpoint read (the RPC
+/// endpoint and, when configured, the archive endpoint): the closing cohort
+/// pauses (`snapshot_state_discarded`, resumable) and the snapshot keeps
+/// being read; the first read that answers resumes the same cohort
+/// ([`snapshot_answered`]). Nothing is substituted or expired.
 fn snapshot_discarded(sql: &impl Sql, cutoff: u64, now_ms: u64) -> R<()> {
     sql.exec("UPDATE commit_reader SET discarded = discarded + 1 WHERE id = 1", &[])?;
     let rows = sql.exec(
@@ -1352,8 +1503,25 @@ fn snapshot_discarded(sql: &impl Sql, cutoff: u64, now_ms: u64) -> R<()> {
     Ok(())
 }
 
-/// A snapshot read written by another runtime than the stored one: the
-/// metadata is read at the snapshot block before anything is decoded.
+/// A snapshot read answered with the state (after an earlier read found it
+/// discarded, for example once an archive endpoint is configured): the
+/// closing cohort's `snapshot_state_discarded` pause ends by itself, and the
+/// same cohort freezes. Nothing is skipped or substituted.
+fn snapshot_answered(sql: &impl Sql, cutoff: u64, now_ms: u64) -> R<()> {
+    let rows = sql.exec(
+        "SELECT c.label FROM adm_cohorts a JOIN cohorts c ON c.seq = a.seq
+         WHERE a.cutoff_block = ? AND a.state = 'closing' AND c.fault = ?",
+        &[bind_u64(cutoff)?, s(SNAPSHOT_DISCARDED)],
+    )?;
+    if let Some(r) = rows.first() {
+        crate::eval::engine::clear_fault(sql, text(r, 0)?, now_ms)?;
+    }
+    Ok(())
+}
+
+/// A past read (a resolution stage or the snapshot) written by another
+/// runtime than the stored one: the metadata is read at that block before
+/// anything is decoded, and the read is planned again.
 fn refresh_at(sql: &impl Sql, at: &Id, block: u64, marker: &str) -> R<()> {
     sql.exec(
         "UPDATE commit_reader SET refresh_hash = ?, refresh_block = ?, observed_upgrade = ? WHERE id = 1",
@@ -1402,10 +1570,20 @@ fn ingest_snap_values(
     let Some(pairs) = query_values(r, &keys, &at) else {
         return Ok(false);
     };
-    if let Some(marker) = other_runtime(sql, &pairs)? {
-        refresh_at(sql, &at, cutoff.saturating_sub(1), &marker)?;
-        return Ok(true);
+    match other_runtime(sql, &pairs)? {
+        Writer::Stored => {}
+        Writer::Other(marker) => {
+            refresh_at(sql, &at, cutoff.saturating_sub(1), &marker)?;
+            return Ok(true);
+        }
+        // No state served for the snapshot block: pause, never decode
+        // nothing as "no commitment".
+        Writer::Absent => {
+            snapshot_discarded(sql, cutoff, now_ms)?;
+            return Ok(true);
+        }
     }
+    snapshot_answered(sql, cutoff, now_ms)?;
     let wanted: Vec<AccountId> = sql
         .exec(
             "SELECT hotkey FROM adm_snapshot_wanted WHERE cutoff_block = ?",
@@ -1425,9 +1603,12 @@ fn ingest_snap_values(
         // as overwritten, or as unregistered), never a stalled freeze.
         let committed = value_of(&pairs, &ck).and_then(|raw| decode_commitment(rt, raw).ok());
         let uid = decode_uid(rt, value_of(&pairs, &uk)).unwrap_or(None);
+        // The owning coldkey at the cutoff (unknown when it does not decode:
+        // the freeze then counts no outside entrant for it).
+        let coldkey = owner_key(rt, who).ok().and_then(|k| decode_owner(rt, value_of(&pairs, &k)));
         sql.exec(
-            "INSERT OR REPLACE INTO adm_snapshot (cutoff_block, hotkey, block, payload, uid, registration_block, done)
-             VALUES (?, ?, ?, ?, ?, NULL, ?)",
+            "INSERT OR REPLACE INTO adm_snapshot (cutoff_block, hotkey, block, payload, uid, registration_block, done, coldkey)
+             VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
             &[
                 bind_u64(cutoff)?,
                 hk(who),
@@ -1437,6 +1618,7 @@ fn ingest_snap_values(
                     .map_or(SqlValue::Null, |c| s(hex::encode(&c.payload))),
                 uid.map_or(SqlValue::Null, |u| i(i64::from(u))),
                 i(i64::from(uid.is_none())),
+                coldkey.map_or(SqlValue::Null, |c| s(hex::encode(c.0))),
             ],
         )?;
     }
@@ -1477,10 +1659,20 @@ fn ingest_snap_regs(
     let Some(pairs) = query_values(r, &keys, &at) else {
         return Ok(false);
     };
-    if let Some(marker) = other_runtime(sql, &pairs)? {
-        refresh_at(sql, &at, cutoff.saturating_sub(1), &marker)?;
-        return Ok(true);
+    match other_runtime(sql, &pairs)? {
+        Writer::Stored => {}
+        Writer::Other(marker) => {
+            refresh_at(sql, &at, cutoff.saturating_sub(1), &marker)?;
+            return Ok(true);
+        }
+        // No state served for the snapshot block: pause, never decode
+        // nothing as "no commitment".
+        Writer::Absent => {
+            snapshot_discarded(sql, cutoff, now_ms)?;
+            return Ok(true);
+        }
     }
+    snapshot_answered(sql, cutoff, now_ms)?;
     for (who, k) in by_key {
         // An undecodable registration block leaves it unknown: the freeze
         // refuses the session as a registration change.
@@ -1523,11 +1715,24 @@ pub fn status(sql: &impl Sql) -> R<Json> {
         &[],
     )?;
     Ok(json!({
-        "polled_ms": uint(&r, 5)?, "polls": int(x, 0)?, "reads": int(x, 1)?, "last_error": opt_text(x, 2),
+        "polled_ms": uint(&r, 5)?, "polled_block": polled_block(sql)?, "polls": int(x, 0)?, "reads": int(x, 1)?, "last_error": opt_text(x, 2),
         "runtime_changed": opt_text(&r, 6).is_some_and(|o| spec.first().and_then(|r| opt_text(r, 2)).as_deref() != Some(o.as_str())),
         "runtime_spec": spec.first().and_then(|r| opt_int(r, 0)),
         "logged": logged, "seen": stages, "state_discarded": int(x, 3)?, "undecodable": int(x, 4)?,
         "round_until_ms": int(x, 5)?, "rounds_overlapped": int(x, 6)?, "rounds_starved": int(x, 7)?,
+        // Pending resolutions whose reads have served no state yet (read
+        // again after a backoff, never ended for it).
+        "state_absent_pending": int(
+            &sql.exec(
+                "SELECT COUNT(*) FROM commit_seen WHERE stage IN ('events','reg') AND absent_tries > 0",
+                &[],
+            )?
+            .first()
+            .cloned()
+            .unwrap_or_default(),
+            0,
+        )
+        .unwrap_or(0),
     }))
 }
 

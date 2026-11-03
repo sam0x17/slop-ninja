@@ -1,0 +1,17 @@
+{
+  "standing": {
+    "cycle": "2026-11-01",
+    "alert_microusd": 1000,
+    "spent_microusd": 900,
+    "reserved_microusd": 150,
+    "over_threshold": true
+  },
+  "cycle_total_microusd": 1050,
+  "over_threshold": true,
+  "reservations": [
+    {"key": "main:testnet-c8", "cycle": "2026-11-01", "microusd": 150, "at_ms": 2}
+  ],
+  "recent_charges": [
+    {"key": "main:testnet-c7", "cycle": "2026-11-01", "microusd": 900, "at_ms": 3, "note": "cohort spend"}
+  ]
+}

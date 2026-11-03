@@ -87,11 +87,10 @@ impl Standing {
     }
 }
 
-/// The alert threshold from the deployment's values: `SPEND_ALERT_MICROUSD`,
-/// else the earlier name `MONTHLY_CAP_MICROUSD` (which now only alerts).
+/// The alert threshold from the deployment's values: `SPEND_ALERT_MICROUSD`.
 /// Missing means no alert, never a refusal.
 pub fn alert_threshold(var: impl Fn(&str) -> Option<u64>) -> Option<u64> {
-    var("SPEND_ALERT_MICROUSD").or_else(|| var("MONTHLY_CAP_MICROUSD"))
+    var("SPEND_ALERT_MICROUSD")
 }
 
 /// The threshold the `SpendLedger` object passes in its cap position: a
@@ -253,9 +252,30 @@ mod tests {
             (none.standing.alert_microusd, none.standing.over_threshold, none.standing.headroom()),
             (None, false, u64::MAX)
         );
-        assert_eq!(alert_threshold(|n| (n == "MONTHLY_CAP_MICROUSD").then_some(5)), Some(5));
+        assert_eq!(alert_threshold(|n| (n == "MONTHLY_CAP_MICROUSD").then_some(5)), None, "no earlier name is read");
         assert_eq!(alert_threshold(|n| (n == "SPEND_ALERT_MICROUSD").then_some(7)), Some(7));
         assert_eq!(alert_threshold(|_| None), None);
+    }
+
+    /// The ledger's `/status` body is the contract the publisher's
+    /// `ledger_threshold` alert parses (embedded as `ledger` in
+    /// `/eval/status`): the shared fixture is byte-for-byte what `status`
+    /// serializes, and the publisher's test parses the same file.
+    #[test]
+    fn status_matches_the_publisher_golden_fixture() {
+        let db = Sqlite::open();
+        tx(&db, |s| crate::sql::migrate(s, &LEDGER_SCHEMA)).unwrap();
+        let c = "2026-11-01";
+        tx(&db, |s| reserve(s, "main:testnet-c7", 600, c, 1000, 1)).unwrap().unwrap();
+        tx(&db, |s| reserve(s, "main:testnet-c8", 150, c, 1000, 2)).unwrap().unwrap();
+        tx(&db, |s| settle(s, "main:testnet-c7", 900, c, "cohort spend", 3)).unwrap();
+        let got = tx(&db, |s| status(s, c, 1000)).unwrap();
+        let want: serde_json::Value =
+            serde_json::from_str(include_str!("../../../publisher/tests/fixtures/eval-ledger-status.json")).unwrap();
+        assert_eq!(got, want);
+        // Without a threshold the flag is present and false.
+        let none = tx(&db, |s| status(s, c, u64::MAX)).unwrap();
+        assert_eq!((none["over_threshold"].as_bool(), none["standing"]["alert_microusd"].is_null()), (Some(false), true));
     }
 
     /// Review 2026-10-31 (a): a repeated `/plan` for a queued label must not

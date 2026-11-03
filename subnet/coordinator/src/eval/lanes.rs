@@ -1495,7 +1495,8 @@ pub fn iso_yield(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, 
 /// an entrant it counts toward
 /// `artifact_failures_before_model_error`, after which the job's unresolved
 /// documents are model errors; a reference artifact is never attributed, and
-/// its failure counts as a scorer failure instead. Returns whether the job's
+/// its failure counts as a scorer failure instead (a definitive refusal of a
+/// reference pauses the cohort at once). Returns whether the job's
 /// artifact is now recorded as failed.
 pub fn artifact_failure(sql: &impl Sql, r: &LaneRef, job: i64, code: &str, definitive: bool, now: u64) -> R<bool> {
     if fence(sql, r)?.is_none() {
@@ -1510,7 +1511,29 @@ pub fn artifact_failure(sql: &impl Sql, r: &LaneRef, job: i64, code: &str, defin
         return Ok(true);
     }
     event(sql, r.seq, &r.kind, r.lane, "artifact_failure", 0, now)?;
-    if text(row, 0)? != "entrant" || matches!(text(row, 2)?, "done" | "faulted") {
+    let role = text(row, 0)?.to_owned();
+    if role != "entrant" && definitive {
+        // A reference the scorer refuses definitively (a deterministic check)
+        // is refused again on every fresh instance: pause the cohort now
+        // (`scorer_unavailable`, resumable once a scorer that admits it is
+        // deployed) rather than after `failures_before_pause` cold starts.
+        let code = textgen_safe(code);
+        let o = engine::observed(sql)?;
+        sql.exec(
+            "INSERT INTO phase_log (seq, phase, at_ms, confirmed_number, epoch_index, note)
+             SELECT seq, phase, ?, ?, ?, ? FROM cohorts WHERE seq = ? AND fault IS NULL",
+            &[
+                bind_u64(now)?,
+                o.confirmed.map_or(SqlValue::Null, |c| i(c.number as i64)),
+                o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)),
+                s(format!("job {job} ({role}) refused definitively: {code}; the scorer must admit it")),
+                i(r.seq),
+            ],
+        )?;
+        engine::fault(sql, r.seq, "scorer_unavailable", now)?;
+        return Ok(false);
+    }
+    if role != "entrant" || matches!(text(row, 2)?, "done" | "faulted") {
         if c.phase == "scoring" {
             engine::note_scorer_failure(sql, r.seq, now)?;
         }

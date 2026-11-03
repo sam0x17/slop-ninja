@@ -183,6 +183,18 @@ struct RunRequest {
     spans: bool,
 }
 
+/// An admission run (`POST /admit`): the cohort's label, spec digest and
+/// lane limits, on a freshly started instance.
+#[derive(Deserialize)]
+struct AdmitRequest {
+    package_sha256: String,
+    manifest_key: String,
+    label: String,
+    spec_sha256: String,
+    limits: crate::eval::admission::AdmitLimits,
+    docs: Vec<RunDoc>,
+}
+
 #[derive(Deserialize)]
 struct ArtifactParts {
     files: Vec<ArtifactFileParts>,
@@ -261,6 +273,47 @@ impl DurableObject for AScorer {
                         "start_ms": cold.start_ms, "load_ms": cold.load_ms, "cpu_ms": cold.cpu_ms, "limits": cold.limits},
                         "total_ms": now_ms() - t0})),
                     Err(e) => json(&j!({"error": format!("{e:?}")})),
+                }
+            }
+            (Method::Post, "/admit") => {
+                // An admission run (never a cohort lane): the verdict comes
+                // from a freshly started instance, under the cohort's label,
+                // spec and limits; the reply says whether a failure was
+                // definitive (`admission::classify_admit`).
+                let Ok(run) = req.json::<AdmitRequest>().await else {
+                    return error("bad_internal_request", 400);
+                };
+                if self.state.container().is_some_and(|c| c.running()) {
+                    self.destroy().await;
+                }
+                // The cohort's validated lane limits are the only source of
+                // these numbers: a zero is a malformed request, refused as
+                // the platform's failure before anything loads.
+                let l = run.limits;
+                if !l.complete() {
+                    return json(&j!({"outcome": "platform", "code": "bad_internal_request"}));
+                }
+                let art = ArtifactRef { id: String::new(), package_sha256: run.package_sha256, manifest_key: run.manifest_key };
+                let lim = PrepLimits {
+                    inactivity_ms: l.inactivity_ms,
+                    load_wait_ms: l.load_wait_ms,
+                    artifact_max_bytes: l.artifact_max_bytes,
+                    load_fail: false,
+                };
+                let label = run.label.as_str();
+                let cold = match self.prepare(None, &art, lim, Some(label), Some(run.spec_sha256.as_str())).await {
+                    Ok(c) => c,
+                    Err(Prep::Artifact(code, definitive)) => {
+                        return json(&j!({"outcome": "artifact", "code": code, "definitive": definitive, "fresh": true}));
+                    }
+                    Err(Prep::Infra(code)) => return json(&j!({"outcome": "platform", "code": code})),
+                };
+                let _ = self.state.storage().set_alarm(IDLE_MS).await;
+                let docs: Vec<(u32, String, String)> =
+                    run.docs.iter().enumerate().map(|(n, d)| (d.id.parse().unwrap_or(n as u32), d.text.clone(), sha_hex(d.text.as_bytes()))).collect();
+                match self.score_docs(&art, &docs, l.doc_timeout_ms, Some(label), Some(run.spec_sha256.as_str()), false).await {
+                    Ok((results, _)) => json(&j!({"outcome": "loaded", "results": results, "fresh": cold.started})),
+                    Err(e) => json(&j!({"outcome": "loaded", "error": format!("{e:?}"), "fresh": cold.started})),
                 }
             }
             (Method::Get, "/state") => {
@@ -1540,7 +1593,7 @@ impl DurableObject for GenLimiter {
 
 // ---------------------------------------------------------------- SpendLedger
 
-/// The deployment's monthly spend ledger, shared by both cohort instances.
+/// The deployment's spend tracking ledger, shared by both cohort instances.
 #[durable_object(fetch)]
 pub struct SpendLedger {
     state: State,
@@ -1559,14 +1612,10 @@ impl DurableObject for SpendLedger {
             return error(code, 503);
         }
         let v = |name: &str| self.env.var(name).ok().and_then(|x| x.to_string().trim().parse::<u64>().ok());
-        // The cap is a deployment value (kept out of the tracked config). A
-        // testnet deployment must set one; mainnet has no spend cap.
-        let testnet = self.env.var("NETWORK").map(|n| n.to_string() == "testnet").unwrap_or(true);
-        let cap = match (v("MONTHLY_CAP_MICROUSD"), testnet) {
-            (Some(cap), _) => cap,
-            (None, true) => return error("monthly_cap_not_configured", 503),
-            (None, false) => u64::MAX,
-        };
+        // The alert threshold is a deployment value (kept out of the tracked
+        // config). The ledger only tracks: without a threshold there is no
+        // alert, and nothing is refused or left unrecorded.
+        let alert = crate::eval::ledger::alert_threshold(v).unwrap_or(u64::MAX);
         let now = now_ms();
         let cycle = crate::eval::ledger::cycle_key(now, v("BILLING_CYCLE_DAY").unwrap_or(1) as u32);
         let storage = self.state.storage();
@@ -1576,7 +1625,7 @@ impl DurableObject for SpendLedger {
         let note = body["note"].as_str().unwrap_or("").to_owned();
         let r = match req.path().as_str() {
             "/reserve" if !key.is_empty() => transaction(&storage, move |sql| {
-                crate::eval::ledger::reserve(sql, &key, micro, &cycle, cap, now).map(|x| match x {
+                crate::eval::ledger::reserve(sql, &key, micro, &cycle, alert, now).map(|x| match x {
                     Ok(r) => j!({"reserved": true, "created": r.created, "standing": r.standing}),
                     Err(st) => j!({"reserved": false, "standing": st, "headroom_microusd": st.headroom()}),
                 })
@@ -1587,7 +1636,7 @@ impl DurableObject for SpendLedger {
             "/settle" if !key.is_empty() => transaction(&storage, move |sql| {
                 crate::eval::ledger::settle(sql, &key, micro, &cycle, &note, now).map(|_| j!({"settled": true}))
             }),
-            "/status" => transaction(&storage, move |sql| crate::eval::ledger::status(sql, &cycle, cap)),
+            "/status" => transaction(&storage, move |sql| crate::eval::ledger::status(sql, &cycle, alert)),
             _ => return error("not_found", 404),
         };
         match r {

@@ -1356,12 +1356,12 @@ instance time at the cohort's Container rates (`<instance>:<label>:admission:
 <ms>`). Every open reservation counts toward the cycle's total, whatever
 cycle it was made in. The ledger status reports the cycle's settled and
 reserved totals and `over_threshold` once they pass the deploy-time alert
-threshold; an operator alert keys on that flag. The `SpendLedger` object
-(`src/cf_lanes.rs`) still reads that threshold under its earlier name,
-`MONTHLY_CAP_MICROUSD`, and answers `monthly_cap_not_configured` (recording
-nothing) on testnet without it: until it reads `SPEND_ALERT_MICROUSD`
-through `ledger::alert_threshold` (a lane-client change), deploys pass the
-threshold as `MONTHLY_CAP_MICROUSD`. A label already queued never touches the
+threshold; the publisher's `ledger_threshold` alert keys on that flag. The
+`SpendLedger` object (`src/cf_lanes.rs`) reads the threshold from
+`SPEND_ALERT_MICROUSD` through `ledger::alert_threshold`; without it the
+ledger standing reports `alert_microusd: null`, the publisher raises
+`ledger_threshold_unset` (so a deploy that dropped the variable is visible),
+and the ledger still records every reservation and settle. A label already queued never touches the
 ledger again, a refused queue releases only a reservation its own request
 made, and a ledger outage only leaves a record missing; it never delays
 evaluation. Rates and bounds are the plan's `fanout.cost`; none is a
@@ -1399,16 +1399,28 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
   `MAX_ARTIFACT_HEADER_LEN`; object and file digests and lengths), the
   spec's header-only file-table checks, the scorer's content-addressed
   slices and parts manifest, and `SubmissionUpload::admit` against the
-  logged commitment. Framing attempts that end without an outcome are
-  counted; an upload whose framing is cut off
-  `artifact_failures_before_model_error` times is refused
-  (`artifact_invalid`, `framing_incomplete`). No parser of graph or
+  logged commitment. A framing attempt that ends without an outcome (cut
+  off by CPU or an eviction) is the platform's: each attempt arms a growing
+  backoff before it runs, so it runs again after it and never refuses the
+  upload. When one session's cut-offs reach the plan's
+  `fanout.score.failures_before_pause` (and at every multiple), the cohort
+  faults with the resumable `framing_unavailable`: the roster freeze waits on
+  the same cohort, the publisher's `cohort_fault` alert fires, and the
+  operator clears it after a framing that succeeded meanwhile or after
+  refusing the session. A verdict run's platform failures pause the cohort
+  the same way (`scorer_unavailable`), and so does a commitment resolution
+  whose reads keep serving no state while the hotkey has a session verifying
+  (`commitment_state_unavailable`). No parser of graph or
   role-file bytes runs here; the header record is decoded in this Worker,
   which holds the package and receipt keys (see "Not yet implemented").
-- The verdict comes from an admission run on the scorer Container: a fresh
-  single-use instance per try loads the parts (the scorer's own admission,
-  graph pre-parse included) and scores the control document. One run per
-  hotkey and commitment. A verdict records the `SCORER_BINARY_SHA256` and
+- The verdict comes from an admission run on the scorer Container, through
+  the scoring lane's admission route (`AScorer` `POST /admit`): a fresh
+  single-use instance per try loads the parts under the cohort's label, its
+  spec digest (spec v2 or v3) and its lane limits (size bound, load
+  allowance, inactivity and document time limit), runs the scorer's own
+  admission (graph pre-parse included) and scores the control document; the
+  reply carries the prepare's `definitive` flag. One run per hotkey and
+  commitment. A verdict records the `SCORER_BINARY_SHA256` and
   spec it was reached on (rule (b)); when either differs from the
   deployment's, it runs again, refusals included, and its session waits on
   it. Only a definitive `refused <code>` refuses. A host fault the scorer
@@ -1445,7 +1457,9 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
   without admission lose their objects, the blobs their own copies created
   and the parts manifest they wrote, unless another session still uses
   them; `closure-artifacts.json` beside the closure names the admitted
-  objects for publication after the close.
+  objects for publication after the close. A cohort abandoned after its
+  freeze has no closure, so its admitted objects (and what only their
+  copies created) are deleted the same way.
 - **The commitment log** (`eval::commitments`) runs from the cron tick on
   the RPC-confirmed watermark, within its own share of the per-minute RPC
   budget (`READER_RPC_CALLS_PER_MINUTE`; by default the budget less the
@@ -1460,22 +1474,33 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
   `BlockAtRegistration`; at the cutoff, the snapshot. Storage decodes by
   name from the runtime's own V15 metadata, kept beside the log and re-read
   when `LastRuntimeUpgrade` reports another spec. Every read at a past
-  block also reads `LastRuntimeUpgrade` there: a resolution under another
-  runtime ends as unresolvable (`runtime_changed`), and the snapshot is
-  decoded with the metadata read at its own block. Failures stay local: a
-  value or event list that does not decode, an extrinsic that committed for
-  several hotkeys (`shared_extrinsic`) and state the node no longer keeps
-  (`state_discarded`) end that commitment's resolution as unresolvable and
-  never abort the round; a key listing whose block is gone restarts at the
-  head; a snapshot whose block is gone faults the closing cohort
-  (`snapshot_state_discarded`) for the operator. Later state is never
-  substituted.
+  block also reads `LastRuntimeUpgrade` there: a resolution stage or a
+  snapshot read under another runtime reads the metadata at its own block
+  and is read again, so a runtime upgrade never makes a commitment
+  unresolvable. A read the RPC endpoint answers as discarded state is sent
+  again to `ARCHIVE_RPC_URL` when the deployment sets one (each call
+  reserved in the budget), and only the archive's answer is ingested.
+  Failures stay local: a value or event list that does not decode, an
+  extrinsic that committed for several hotkeys (`shared_extrinsic`) and
+  state no endpoint keeps (`state_discarded`) end that commitment's
+  resolution as unresolvable and never abort the round, and a session that
+  opens it gets `commitment_unresolvable` with the reason, so the miner
+  commits again; a key listing whose block is gone restarts at the head; a
+  snapshot whose block is gone pauses the closing cohort
+  (`snapshot_state_discarded`, resumable) and is read again each round, and
+  the first read that answers resumes the same cohort. Later state is never
+  substituted. The cutoff snapshot also reads each hotkey's `Owner` (its
+  coldkey at the cutoff).
 - **Fresh stock** is drawn only when the frozen roster holds an admitted
-  outside entrant (a hotkey not in the plan's `operator_hotkeys`, whose
-  content is not already published, whose artifact loaded and scored the
-  control document) and the plan's `admission.fresh_pool` names the pool;
-  a plan with a fresh pool must list the operator's hotkeys. Every other
-  cohort draws only `EXPOSED_POOLS`.
+  outside entrant (a hotkey not in the plan's `operator_hotkeys`, not owned
+  at the cutoff by a coldkey in `operator_coldkeys` (an owner that does not
+  read counts as the operator's), whose content is not already published,
+  whose artifact loaded and scored the control document) and the plan's
+  `admission.fresh_pool` names the pool; a plan with a fresh pool must list
+  the operator's hotkeys and coldkeys, and a standing template never names
+  one (the content check is exact, and the copy gate that catches a near
+  copy runs only at scoring). Every other cohort draws only
+  `EXPOSED_POOLS`.
 
 **Standing template and calendar.** `POST /eval/template` installs one
 template (`slop_ninja_eval_cohort_template_v1`: a `label_prefix` and a v3
@@ -1505,9 +1530,13 @@ R_{k-1}), else the chain `reference_state` holds, else (no chain yet) the
 template's own. A reinstalled template never resets the chain; the install
 reply names the next references and their source. The engine opens the
 queued cohort at the boundary where the previous one closes, so cohorts run
-back to back on tempo boundaries (`GET /eval/calendar`). A template plan the
+back to back on tempo boundaries (`GET /eval/calendar`, also `calendar` in
+`/eval/status`, which the publisher reads): the current cohort with its
+admission window's `window_open` and `window_closing`, the next cohort and
+its earliest opening epoch, and `admission_window` (the template's
+`admission_tempos` and the last window measured on chain). A template plan the
 engine refuses, or a chain the store cannot name, pauses the template with
-the reason. A seal whose plan names other references than the chain faults
+the reason; only the calendar's own step does that, never a status read. A seal whose plan names other references than the chain faults
 the cohort (`reference_chain_mismatch`) rather than retrying.
 
 **Load instance.** `eval-cohort/testnet/<genesis>/<netuid>/load` accepts only
@@ -1840,16 +1869,7 @@ milestone M7.
 - **Score publication to validators (M5/M6).** Packages, targets and receipts
   are stored and signed, but no validator fetches them from R2 yet; the T12
   bundle is the bridge.
-- **Admission, open items.** Verdict runs use the scorer lane's operator
-  probe route (`AScorer /run`): it loads with no named spec (so spec v2), no
-  cohort label, the probe's 180 s load wait rather than the cohort's
-  spec-derived allowance, and replies with a code but not the lane client's
-  definitive flag. A dedicated admission route on the scorer lane, running
-  `prepare(.., Some(label))` under the cohort's `LaneLimits` and naming the
-  spec, is a lane-client change; until it lands, admission plans are spec
-  v2 only and an artifact that loads in more than the cohort's allowance
-  but within 180 s is admitted and then times out in its scoring lanes.
-  The header record is decoded in the eval Worker, which holds the package
+- **Admission, open items.** The header record is decoded in the eval Worker, which holds the package
   and receipt keys; moving that decode and the parts-manifest derivation
   into the scorer Container (or the upload routes into a key-free Worker)
   needs the lane-client change or a new resource, and the routes stay off
@@ -1860,11 +1880,16 @@ milestone M7.
   Framing is one non-resumable step that hashes the object four times; its
   CPU and peak memory at the spec's largest object are not measured on the
   load instance (`ADMISSION_STEP_BYTES` and `COMMITMENTS_CONTROL_BYTES` are
-  estimates). A full 40-entrant template fits the coordinator's memory model
-  and one receipt index; a native validator holds its target's receipts
-  only through bundle schema v3 (by reference), so a validator whose build
-  predates it refuses such a target's bundle (`bundle_too_large`) and keeps
-  its old target. The span outputs are not served.
+  estimates); a cut-off attempt backs off and runs again, so an object
+  whose framing never fits the platform's limits pauses its cohort
+  (`framing_unavailable`) for the operator.
+  The outside-entrant rule compares exact content digests; a pre-draw
+  similarity probe is still to come. A full 40-entrant template fits the
+  coordinator's memory model and one receipt index; a native validator
+  holds its target's receipts only through bundle schema v3 (by reference),
+  so a validator whose build predates it refuses such a target's bundle
+  (`bundle_too_large`) and keeps its old target. The span outputs are not
+  served.
 - **Fresh stock.** No cohort has had an admitted outside entrant, so every
   draw so far is from `EXPOSED_POOLS` (testnet pool v1 and the
   public-candidate refill), where a row may be drawn again (never-drawn rows

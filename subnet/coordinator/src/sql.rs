@@ -690,5 +690,36 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 14,
             statements: crate::eval::commitments::SCHEMA_V14,
         },
+        // v15: the owning coldkey of each snapshot hotkey at the cutoff (the
+        // outside-entrant rule), and the authority's first cohort recorded
+        // with the standing template (the calendar's numbering in views), and
+        // the block of the commitment reader's last completed poll, and each
+        // admission run's measured charge until the tracking ledger has it,
+        // aborted attempts' objects until a delete is confirmed (with a backoff
+        // after a failed delete), and the block a commitment answer at open
+        // waits for the reader to reach, and each pending commitment
+        // resolution's answers without state and the backoff after them.
+        Migration {
+            version: 15,
+            statements: &[
+                "ALTER TABLE adm_snapshot ADD COLUMN coldkey TEXT",
+                "ALTER TABLE standing_template ADD COLUMN first_cohort INTEGER",
+                "ALTER TABLE commit_reader ADD COLUMN polled_block INTEGER",
+                "ALTER TABLE commit_seen ADD COLUMN absent_tries INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE commit_seen ADD COLUMN retry_ms INTEGER NOT NULL DEFAULT 0",
+                "CREATE TABLE adm_charges (
+                    key TEXT PRIMARY KEY, label TEXT NOT NULL, microusd INTEGER NOT NULL,
+                    created_ms INTEGER NOT NULL
+                ) STRICT",
+                "CREATE TABLE adm_object_deletes (
+                    key TEXT PRIMARY KEY, upload_id TEXT, created_ms INTEGER NOT NULL,
+                    tries INTEGER NOT NULL DEFAULT 0, not_before_ms INTEGER NOT NULL DEFAULT 0
+                ) STRICT",
+                "CREATE TABLE adm_commit_waits (
+                    cohort INTEGER NOT NULL, hotkey TEXT NOT NULL, commitment TEXT NOT NULL, at_block INTEGER NOT NULL,
+                    PRIMARY KEY (cohort, hotkey)
+                ) STRICT",
+            ],
+        },
     ],
 };

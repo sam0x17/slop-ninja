@@ -433,6 +433,9 @@ impl<'a> Sim<'a> {
                 Work::RetentionNotice { .. } => break,
                 // Admission I/O is driven by the admission tests themselves.
                 Work::AdmissionVerify { .. } | Work::AdmissionLanes | Work::AdmissionCleanup => break,
+                Work::AdmissionSettle { key, .. } => {
+                    tx(self.db, |s| crate::eval::admission::charge_settled(s, &key)).unwrap();
+                }
                 Work::OpenNext { plan, .. } => {
                     tx(self.db, |s| engine::queue(s, &c, &plan, now)).unwrap();
                 }
@@ -1776,7 +1779,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 14));
+    assert_eq!((report.from, report.to), (3, 15));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -1901,6 +1904,32 @@ fn an_artifact_that_never_loads_is_model_errors_and_a_reference_that_never_loads
     for task in 0..20 {
         assert_eq!(numbers(&db, seq, 0, task), [(1, 1)]);
     }
+    // A reference refused definitively pauses the cohort at its first
+    // refusal, not after `failures_before_pause` cold starts.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    let refused = std::rc::Rc::new(std::cell::Cell::new(0u32));
+    let r2 = refused.clone();
+    sim.start = Box::new(move |job, _| {
+        if job == 0 {
+            r2.set(r2.get() + 1);
+            Err(RestartFailure::Artifact { code: "refused graph_not_allowed", definitive: true })
+        } else {
+            Ok(())
+        }
+    });
+    sim.run(seq, 800);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"));
+    assert_eq!(refused.get(), 1, "one refused load, then paused");
+    let st = status(&db, sim.now);
+    assert!(st["cohorts"][0]["jobs"][0]["artifact_failed"].is_null(), "a reference is never attributed");
+    let note: String = db
+        .conn
+        .query_row("SELECT note FROM phase_log WHERE seq = ? AND note LIKE '%refused definitively%'", [seq], |r| r.get(0))
+        .unwrap();
+    assert!(note.contains("graph_not_allowed"), "{note}");
 }
 
 #[test]
@@ -3261,6 +3290,7 @@ fn a_plan_naming_a_spec_binds_and_publishes_the_v2_limits_record() {
         max_parts: 100,
         request_validity_blocks: 360,
         operator_hotkeys: Vec::new(),
+        operator_coldkeys: Vec::new(),
         fresh_pool: None,
     });
     assert_eq!(stored.load_spec_sha256(), Some(v3_sha.as_str()));

@@ -23,8 +23,10 @@
 //!   by `MAX_ARTIFACT_HEADER_LEN`; object and file digests and lengths), the
 //!   spec's header-only file-table checks, the content-addressed slices and
 //!   parts manifest the scorer loads, and `SubmissionUpload::admit` against
-//!   the logged commitment. Framing attempts are counted, and an upload whose
-//!   framing keeps being cut off is refused. No graph or role-file parser of
+//!   the logged commitment. A cut-off framing attempt is the platform's, never
+//!   the upload's: it runs again after a backoff, and once the cut-offs reach
+//!   the plan's `failures_before_pause` the cohort pauses
+//!   (`framing_unavailable`, resumable) until the operator clears it. No graph or role-file parser of
 //!   untrusted bytes runs here; the header record is the one decoded
 //!   structure (see the README's open item on the key-holding Worker).
 //! - **Verdicts** come from an admission run on the scorer Container: one
@@ -33,7 +35,8 @@
 //!   definitive only on a `refused <code>`; attributable load failures and a
 //!   failed control document on fresh instances count toward the plan's
 //!   `artifact_failures_before_model_error`; platform failures retry with a
-//!   growing backoff and show in the status.
+//!   growing backoff, show in the status, and at every
+//!   `failures_before_pause` of them pause the cohort (`scorer_unavailable`).
 //! - **Cutoff.** At the boundary where the admission minimum is reached the
 //!   window closes (no new sessions, parts or completions). The roster
 //!   freezes at that boundary, or at the boundary after its work is in: every
@@ -143,9 +146,9 @@ pub fn files_bytes(v: Version) -> Option<u64> {
     graph_bytes(v)?.checked_add(spec::TOKENIZER_BYTES)?.checked_add(v.max_json_bytes()?)
 }
 
-/// The specs an admission run can load by: every run names its cohort's spec
-/// to the scorer's probe route ([`LaneRun::body`]), as the cohort's scoring
-/// loads do, so a spec v3 cohort admits the span tower class by spec v3.
+/// The specs an admission run can load by: every admission run names the
+/// cohort's spec digest on its load (`AScorer` `/admit`), so a scorer that
+/// lists the spec admits by it (spec v3 admits the span tower class).
 pub const ADMISSION_SPECS: &[&str] = &[spec::SPEC_ID_V2, spec::SPEC_ID_V3];
 
 /// Specs the scorer admits a load by: those that bound the JSON role files.
@@ -338,6 +341,12 @@ pub struct Window {
     pub bounds: SpecBounds,
     pub k_tempos: u64,
     pub failures_before_refusal: u32,
+    /// The plan's `fanout.score.failures_before_pause`: consecutive platform
+    /// failures of one admission step (a framing attempt cut off, a verdict
+    /// run that met a platform failure) after which the cohort pauses
+    /// visibly ([`FRAMING_UNAVAILABLE`], `scorer_unavailable`), as lane
+    /// start failures pause it while scoring.
+    pub failures_before_pause: u32,
 }
 
 impl Window {
@@ -384,6 +393,11 @@ fn window_of(sql: &impl Sql, c: &Cohort) -> R<Option<Window>> {
         bounds,
         k_tempos: c.plan.k_tempos,
         failures_before_refusal: failures.max(1),
+        failures_before_pause: c
+            .plan
+            .fanout()
+            .map_or(engine::SCORER_FAILURES_MAX, |f| i64::from(f.score.failures_before_pause))
+            .clamp(1, i64::from(u32::MAX)) as u32,
     }))
 }
 
@@ -451,6 +465,14 @@ pub struct Signed {
     /// A small body, hex (session creation only).
     #[serde(default)]
     pub body: Option<String>,
+    /// The block of the miner's own confirmed commitment, from
+    /// `x-sn-commitment-block` at session creation or reopening. Unsigned
+    /// and untrusted: it only makes a not-yet commitment answer for this
+    /// hotkey wait until the reader has polled at or after that block
+    /// ([`commitment_wait`]); a false one delays only this hotkey's own
+    /// answer, never past the window's close.
+    #[serde(default)]
+    pub commitment_block: Option<u64>,
 }
 
 /// The finalized cursor: the RPC-confirmed watermark.
@@ -684,6 +706,13 @@ fn set_state(sql: &impl Sql, id: &str, state: SessionState, refusal: Option<&Api
     Ok(())
 }
 
+/// Records the hotkey's last refusal for `status`, keyed (admitting cohort,
+/// hotkey). Only for the cohort that is admitting, and only for a hotkey the
+/// commitment reader has seen commit on the subnet (`commit_seen` or the
+/// log, bounded by the chain's own commitments): signatures cost nothing, so
+/// any other refusal is answered but never stored, and the table stays
+/// bounded by the chain's own commitments, whatever cohort or key a request
+/// names.
 fn record_refusal(
     sql: &impl Sql,
     cursor: u64,
@@ -693,13 +722,19 @@ fn record_refusal(
     e: &ApiError,
 ) -> R<()> {
     let opening_cohort = upload.map(|u| u.opening.cohort);
-    let cohort = match window {
-        Some(w) if w.admitting() => w.cohort,
-        _ => match opening_cohort {
-            Some(c) => c,
-            None => return Ok(()),
-        },
+    let Some(cohort) = window.filter(|w| w.admitting()).map(|w| w.cohort) else {
+        return Ok(());
     };
+    let who = s(hex::encode(signer.0));
+    if sql
+        .exec(
+            "SELECT 1 FROM commit_seen WHERE hotkey = ? UNION ALL SELECT 1 FROM commit_log WHERE hotkey = ? LIMIT 1",
+            &[who.clone(), who],
+        )?
+        .is_empty()
+    {
+        return Ok(());
+    }
     let last = LastRefusal {
         code: e.code.as_str().into(),
         message: e.message.clone(),
@@ -731,15 +766,112 @@ fn counted(sql: &impl Sql, w: &Window, hotkey: &AccountId) -> R<Option<LogEntry>
     }
 }
 
-/// The finalized-commitment check shared by opening, reopening and
-/// completion: window, registration and opening. Returns the position.
+/// Whether a definitive commitment answer to this opening must still wait
+/// for the commitment reader: the hotkey may have committed again after the
+/// reader's last completed poll (a returning miner, or a replaced
+/// commitment). The wait is tied to a fixed block, never to the moving
+/// finalized cursor (the heartbeat advances it every block, the reader polls
+/// less often). The first such answer for an opening records that block
+/// (`adm_commit_waits`, one row per hotkey in the admitting cohort), and the
+/// answer becomes definitive once a poll has completed at or after it. The
+/// block is the latest of:
+///
+/// - the finalized cursor (a commitment the miner saw finalized before it
+///   asked is at or below it, unless the coordinator lags the chain);
+/// - the miner's own confirmed commitment block (`hint`, untrusted), which
+///   covers a coordinator whose cursor lags the block holding the new
+///   commitment (a heartbeat or webhook stall); a hint at or below the last
+///   poll means the poll already holds that commitment, so the answer is
+///   final at once. A later request with a higher hint for the same opening
+///   moves the block up, never down;
+/// - without a hint, one past the reader's last completed poll: a poll
+///   planned after the answer, so a poll already at the cursor never makes
+///   the first answer final (the miner may have committed past it).
+///
+/// The window's close ends every wait (only open or reopen waits).
+fn commitment_wait(sql: &impl Sql, w: &Window, upload: &SubmissionUpload, hint: Option<u64>) -> R<bool> {
+    let who = s(hex::encode(upload.opening.hotkey.0));
+    let commitment = upload.commitment.hex();
+    let polled = commitments::polled_block(sql)?;
+    let rows = sql.exec(
+        "SELECT commitment, at_block FROM adm_commit_waits WHERE cohort = ? AND hotkey = ?",
+        &[bind_u64(w.cohort)?, who.clone()],
+    )?;
+    let at = match rows.first() {
+        Some(r) if text(r, 0)? == commitment => {
+            let at = uint(r, 1)?;
+            match hint.filter(|h| *h > at) {
+                Some(h) => {
+                    sql.exec(
+                        "UPDATE adm_commit_waits SET at_block = ? WHERE cohort = ? AND hotkey = ?",
+                        &[bind_u64(h)?, bind_u64(w.cohort)?, who],
+                    )?;
+                    h
+                }
+                None => at,
+            }
+        }
+        _ => {
+            let at = cursor(sql)?.unwrap_or(0).max(match hint {
+                Some(h) => h,
+                None => polled.map_or(0, |p| p.saturating_add(1)),
+            });
+            // Rows of earlier cohorts are never read again.
+            sql.exec("DELETE FROM adm_commit_waits WHERE cohort < ?", &[bind_u64(w.cohort)?])?;
+            sql.exec(
+                "INSERT INTO adm_commit_waits (cohort, hotkey, commitment, at_block) VALUES (?, ?, ?, ?)
+                 ON CONFLICT (cohort, hotkey) DO UPDATE SET commitment = excluded.commitment, at_block = excluded.at_block",
+                &[bind_u64(w.cohort)?, who, s(&commitment), bind_u64(at)?],
+            )?;
+            at
+        }
+    };
+    Ok(polled.is_none_or(|b| b < at))
+}
+
+/// The `Retry-After` of a commitment answer that waits for the reader: its
+/// shortest poll interval, the earliest a new poll can complete (a slower
+/// poll, a stalled heartbeat or a lagging cursor answers the same code again).
+fn commitment_retry_secs() -> u64 {
+    commitments::POLL_EVERY_MS.div_ceil(1000)
+}
+
+/// Who asks for a commitment check: opening or reopening a session, where a
+/// newer commitment the reader has not logged yet may still make the opening
+/// valid (`hint`: the miner's confirmed commitment block, untrusted), or the
+/// verify stage of a session already opened against the logged commitment,
+/// where the logged answer is final.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CheckAt {
+    Open { hint: Option<u64> },
+    Verify,
+}
+
+/// The finalized-commitment check shared by opening, reopening and the
+/// verify stage: window, registration and opening. Returns the position.
 fn check_commitment(
     sql: &impl Sql,
     chain: &ChainBinding,
     w: &Window,
     upload: &SubmissionUpload,
+    at: CheckAt,
 ) -> A<(Position, LogEntry)> {
     let opening = &upload.opening;
+    // The hotkey's newest commitment can never be logged (a shared
+    // extrinsic, an undecodable value, state no node keeps): the miner is
+    // told to commit again, rather than to retry or that an older logged
+    // commitment mismatches. Only while admitting: once closed, the
+    // snapshot's last commitment before the cutoff counts.
+    if w.cutoff_block.is_none()
+        && let Some((block, reason)) = commitments::terminal(sql, &opening.hotkey)?
+        && commitments::latest(sql, &opening.hotkey)?.is_none_or(|e| e.block < block)
+    {
+        return Err(ApiError::new(
+            ErrorCode::CommitmentUnresolvable,
+            "the hotkey's latest commitment cannot be resolved; commit again with a new nonce",
+        )
+        .with(Detail { reason: Some(reason), ..Default::default() }));
+    }
     let Some(entry) = counted(sql, w, &opening.hotkey)? else {
         let msg = if commitments::unresolved(sql, &opening.hotkey)? {
             "the hotkey's latest commitment is not logged yet"
@@ -747,7 +879,7 @@ fn check_commitment(
             "no finalized commitment of this hotkey is logged"
         };
         let mut e = ApiError::new(ErrorCode::CommitmentNotFound, msg);
-        e.retry_after = Some(60);
+        e.retry_after = Some(commitment_retry_secs());
         return Err(e);
     };
     if commitments::unresolved(sql, &opening.hotkey)? && w.cutoff_block.is_none() {
@@ -757,9 +889,44 @@ fn check_commitment(
             ErrorCode::CommitmentNotFound,
             "the hotkey's latest commitment is not logged yet",
         );
-        e.retry_after = Some(60);
+        e.retry_after = Some(commitment_retry_secs());
         return Err(e);
     }
+    let definitive = match definitive_check(chain, &entry, w, upload) {
+        Ok(v) => return Ok(v),
+        Err(e) => e,
+    };
+    // The logged commitment does not open this opening, but at open or
+    // reopen the hotkey may have committed again since the reader's last
+    // completed poll (a returning miner, or a replaced commitment): the
+    // answer waits for a poll at or after the first such answer
+    // ([`commitment_wait`]). A wrong chain is the opening's own fault and
+    // never waits.
+    if let CheckAt::Open { hint } = at
+        && w.cutoff_block.is_none()
+        && opening.cohort == w.cohort
+        && definitive.code != ErrorCode::WrongChain
+        && commitment_wait(sql, w, upload, hint)?
+    {
+        let mut e = ApiError::new(
+            ErrorCode::CommitmentNotFound,
+            "the hotkey's newest commitment may not be logged yet",
+        );
+        e.retry_after = Some(commitment_retry_secs());
+        return Err(e);
+    }
+    Err(definitive)
+}
+
+/// The logged commitment's answer to the opening: its position, or the
+/// definitive refusal code.
+fn definitive_check(
+    chain: &ChainBinding,
+    entry: &LogEntry,
+    w: &Window,
+    upload: &SubmissionUpload,
+) -> A<(Position, LogEntry)> {
+    let opening = &upload.opening;
     if entry.block < w.open_block {
         return Err(ApiError::new(
             ErrorCode::CommitmentBeforeOpen,
@@ -790,7 +957,7 @@ fn check_commitment(
                 block: r.commitment_block,
                 extrinsic: r.extrinsic_index,
             },
-            entry,
+            entry.clone(),
         )),
         Err(ProtocolError::Mismatch("commitment chain")) => {
             Err(ApiError::new(ErrorCode::WrongChain, "the opening names another chain"))
@@ -819,6 +986,7 @@ fn admission_checks(
     w: Option<&Window>,
     signer: &AccountId,
     upload: &SubmissionUpload,
+    hint: Option<u64>,
 ) -> A<Window> {
     let opening = &upload.opening;
     if opening.chain != *chain {
@@ -863,7 +1031,7 @@ fn admission_checks(
             "artifact_len exceeds max_object_len or max_parts parts",
         ));
     }
-    check_commitment(sql, chain, w, upload)?;
+    check_commitment(sql, chain, w, upload, CheckAt::Open { hint })?;
     Ok(w.clone())
 }
 
@@ -993,7 +1161,7 @@ fn create_inner(sql: &impl Sql, chain: &ChainBinding, req: &Signed, now_ms: u64)
         record_refusal(sql, cursor, &signer, w.as_ref(), Some(&upload), &e)?;
         Err(e)
     };
-    let w = match admission_checks(sql, chain, w.as_ref(), &signer, &upload) {
+    let w = match admission_checks(sql, chain, w.as_ref(), &signer, &upload, req.commitment_block) {
         Ok(w) => w,
         Err(e) => return fail(e),
     };
@@ -1450,6 +1618,15 @@ pub fn abort(
             SessionState::Uploading | SessionState::Verified | SessionState::Refused => {
                 set_state(sql, id, SessionState::Aborted, None, now_ms)?;
                 sql.exec("DELETE FROM adm_parts WHERE session = ?", &[s(id)])?;
+                // The attempt's object (or upload) is deleted at once, best
+                // effort, and recorded until a clean-up step confirms the
+                // delete: a reopen moves the session to another object key,
+                // so the session's own clean-up would never name this one.
+                sql.exec(
+                    "INSERT INTO adm_object_deletes (key, upload_id, created_ms) VALUES (?, ?, ?)
+                     ON CONFLICT (key) DO UPDATE SET upload_id = COALESCE(excluded.upload_id, upload_id)",
+                    &[s(&r.object_key), r.upload_id.clone().map_or(SqlValue::Null, s), bind_u64(now_ms)?],
+                )?;
                 fx.abort.push((r.object_key.clone(), r.upload_id.clone()));
             }
             _ => {
@@ -1501,7 +1678,7 @@ pub fn reopen(
             record_refusal(sql, cursor, &signer, w.as_ref(), Some(&r.upload), &e)?;
             Err(e)
         };
-        let w = match admission_checks(sql, chain, w.as_ref(), &signer, &r.upload) {
+        let w = match admission_checks(sql, chain, w.as_ref(), &signer, &r.upload, req.commitment_block) {
             Ok(w) => w,
             Err(e) => return fail(e),
         };
@@ -1872,12 +2049,54 @@ pub fn verify_due(sql: &impl Sql, now_ms: u64) -> R<Option<(String, String)>> {
     Ok(Some((text(r, 0)?.to_owned(), text(r, 1)?.to_owned())))
 }
 
+/// The resumable cohort fault of a session whose framing attempts keep
+/// being cut off.
+pub const FRAMING_UNAVAILABLE: &str = "framing_unavailable";
+
+/// Whether `failures` consecutive platform failures of one step reach the
+/// pause bound: at the bound and at every multiple of it, so after an
+/// operator clears the fault the step gets a full bound of attempts again.
+fn pause_due(failures: u32, bound: u32) -> bool {
+    failures > 0 && failures.is_multiple_of(bound.max(1))
+}
+
+/// A commitment resolution of `hotkey` met its `tries`-th answer without
+/// state ([`commitments`]'s `state_absent`): when the hotkey has a session
+/// verifying in the admitting or closing cohort (framing waits for the
+/// resolution, and the freeze for framing), the cohort faults at every
+/// multiple of the plan's pause bound
+/// ([`commitments::STATE_UNAVAILABLE`], resumable).
+pub fn waiting_on_state(sql: &impl Sql, hotkey: &AccountId, tries: u32, now_ms: u64) -> R<()> {
+    let Some(w) = window(sql)? else { return Ok(()) };
+    if !pause_due(tries, w.failures_before_pause) {
+        return Ok(());
+    }
+    let waiting = count(
+        sql,
+        "SELECT COUNT(*) FROM adm_sessions WHERE seq = ? AND hotkey = ? AND state = 'verifying'",
+        &[i(w.seq), s(hex::encode(hotkey.0))],
+    )?;
+    if waiting > 0 {
+        engine::fault(sql, w.seq, commitments::STATE_UNAVAILABLE, now_ms)?;
+    }
+    Ok(())
+}
+
 /// Starts a framing step: counts the attempt and returns the session's
-/// object key, length and the cohort's spec. An attempt that ends without an
-/// outcome (the step was cut off: CPU, eviction) stays counted, and a
-/// session whose attempts reach the cohort's attributable-failure bound
-/// (`artifact_failures_before_model_error`) is refused instead, so no upload
-/// holds the cohort's alarm.
+/// object key, length and the cohort's spec. Framing reads only the object,
+/// whose length the envelope bounds, so an attempt that ends without an
+/// outcome (the step was cut off: CPU, eviction) is the platform's, never
+/// the upload's: each attempt arms its own backoff before it runs
+/// (`step_after_ms`, growing with the attempts, as [`step_retry`]), so a
+/// cut-off attempt is tried again after it and never refuses the session.
+/// `step_tries` before this attempt counts the earlier attempts that ended
+/// without an outcome (an outcome moves the stage on; a failed read is
+/// uncounted). When that count reaches the plan's pause bound
+/// ([`Window::failures_before_pause`]) the session's cohort faults
+/// ([`FRAMING_UNAVAILABLE`], resumable): the freeze waits on the same
+/// cohort, the fault alerts, and the attempts go on with their backoff. The
+/// operator clears the fault (after a framing that succeeded meanwhile, or
+/// after refusing the session) and the cohort resumes.
 pub fn frame_begin(sql: &impl Sql, id: &str, now_ms: u64) -> R<Option<(String, u64, Version)>> {
     let Some(r) = session_row(sql, id)? else {
         return Ok(None);
@@ -1889,19 +2108,14 @@ pub fn frame_begin(sql: &impl Sql, id: &str, now_ms: u64) -> R<Option<(String, u
         return Ok(None);
     };
     let rows = sql.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s(id)])?;
-    let tries = rows.first().map_or(Ok(0), |x| int(x, 0))?;
-    if tries >= i64::from(w.failures_before_refusal) {
-        let e = ApiError::new(ErrorCode::ArtifactInvalid, "framing the object did not complete").with(Detail {
-            reason: Some(format!("framing_incomplete after {tries} attempts")),
-            ..Default::default()
-        });
-        set_state(sql, id, SessionState::Refused, Some(&e), now_ms)?;
-        sql.exec("UPDATE adm_sessions SET stage = NULL WHERE session = ?", &[s(id)])?;
-        return Ok(None);
+    let tries = u32::try_from(rows.first().map_or(Ok(0), |x| int(x, 0))?).unwrap_or(u32::MAX);
+    if pause_due(tries, w.failures_before_pause) {
+        engine::fault(sql, w.seq, FRAMING_UNAVAILABLE, now_ms)?;
     }
+    let next = tries.saturating_add(1);
     sql.exec(
-        "UPDATE adm_sessions SET step_tries = step_tries + 1, updated_ms = ? WHERE session = ?",
-        &[bind_u64(now_ms)?, s(id)],
+        "UPDATE adm_sessions SET step_tries = ?, step_after_ms = ?, updated_ms = ? WHERE session = ?",
+        &[i(i64::from(next)), bind_u64(now_ms.saturating_add(backoff_ms(next)))?, bind_u64(now_ms)?, s(id)],
     )?;
     let v = Version::from_id(w.bounds.spec_id).ok_or(EvalError::State("spec"))?;
     Ok(Some((r.object_key, r.upload.artifact_len, v)))
@@ -1971,7 +2185,7 @@ pub fn apply_frame(
             "the header's contract is not the cohort's output contract",
         ));
     }
-    let (_, entry) = match check_commitment(sql, chain, &w, &r.upload) {
+    let (_, entry) = match check_commitment(sql, chain, &w, &r.upload, CheckAt::Verify) {
         Ok(v) => v,
         // The hotkey's latest commitment is still being logged: retryable,
         // never a refusal; framing runs again once it is logged
@@ -2163,19 +2377,51 @@ pub struct LaneRun {
     /// The try number: each try runs on its own fresh instance.
     pub try_no: u32,
     pub claim_until_ms: u64,
+    /// The cohort's lane limits the run loads under (its spec's size bound
+    /// and load allowance, its inactivity and document time limits).
+    pub limits: AdmitLimits,
+}
+
+/// What an admission run takes from its cohort's plan: the same limits a
+/// scoring lane of that cohort loads under (`ScoreLanes::limits`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdmitLimits {
+    pub artifact_max_bytes: u64,
+    /// The stream allowance and the model-load allowance, each.
+    pub load_wait_ms: u64,
+    pub inactivity_ms: u64,
+    /// The control document's time limit.
+    pub doc_timeout_ms: u64,
+}
+
+impl AdmitLimits {
+    /// Whether every limit is set: the plan's validated lane limits are the
+    /// only source of these numbers, so a zero means a malformed request and
+    /// the scorer lane refuses it rather than substituting a figure.
+    pub fn complete(&self) -> bool {
+        self.artifact_max_bytes > 0 && self.load_wait_ms > 0 && self.inactivity_ms > 0 && self.doc_timeout_ms > 0
+    }
+
+    pub fn of(plan: &CohortPlan) -> Option<Self> {
+        let f = plan.fanout.as_ref()?;
+        let l = f.score.limits();
+        Some(Self {
+            artifact_max_bytes: l.artifact_max_bytes,
+            load_wait_ms: l.load_wait_ms,
+            inactivity_ms: f.score.inactivity_ms,
+            doc_timeout_ms: l.doc_timeout_ms,
+        })
+    }
+}
+
+/// The scorer lane's admission route body (`AScorer` `POST /admit`).
+pub fn admit_body(run: &LaneRun) -> Value {
+    json!({"package_sha256": run.package_sha256, "manifest_key": run.manifest_key, "label": run.label,
+        "spec_sha256": run.spec_sha256, "limits": run.limits,
+        "docs": [{"id": "0", "text": crate::eval::lane_logic::CONTROL_TEXT}]})
 }
 
 impl LaneRun {
-    /// The probe-route request of this run: the package, the control
-    /// document, and the cohort's spec digest (the load names it, so the
-    /// scorer admits the package by the cohort's spec, not its unnamed-load
-    /// spec).
-    pub fn body(&self) -> Value {
-        json!({"package_sha256": self.package_sha256, "manifest_key": self.manifest_key,
-            "spec_sha256": self.spec_sha256,
-            "docs": [{"id": "0", "text": crate::eval::lane_logic::CONTROL_TEXT}]})
-    }
-
     /// The scorer lane's object name: unique per try, so every try starts a
     /// fresh, single-use instance.
     pub fn lane_name(&self, network: &str) -> String {
@@ -2282,7 +2528,7 @@ pub fn claim_runs(sql: &impl Sql, cfg: &AdmissionEnv, limit: usize, now_ms: u64)
         return Ok(Vec::new());
     }
     let rows = sql.exec(
-        "SELECT hotkey, commitment, package_sha256, manifest_key, label, spec_sha256, tries FROM adm_verdicts
+        "SELECT hotkey, commitment, package_sha256, manifest_key, label, spec_sha256, tries, platform_tries FROM adm_verdicts
          WHERE state = 'pending' AND claim_until_ms <= ? AND not_before_ms <= ?
            AND EXISTS (SELECT 1 FROM adm_sessions s WHERE s.hotkey = adm_verdicts.hotkey AND s.commitment = adm_verdicts.commitment
                        AND s.state = 'verifying' AND s.stage = 'verdict')
@@ -2291,6 +2537,21 @@ pub fn claim_runs(sql: &impl Sql, cfg: &AdmissionEnv, limit: usize, now_ms: u64)
     )?;
     let mut out = Vec::new();
     for r in &rows {
+        let label = text(r, 4)?;
+        let seq = sql.exec("SELECT seq FROM cohorts WHERE label = ?", &[s(label)])?;
+        let limits = match seq.first().map(|r| int(r, 0)).transpose()? {
+            Some(seq) => AdmitLimits::of(&engine::cohort(sql, seq)?.plan),
+            None => None,
+        };
+        // A verdict whose cohort or lane limits cannot be read (never with
+        // validated plans) leaves the claimable set as a platform failure
+        // with a backoff, so the step never keeps choosing runs it cannot
+        // claim and the status shows it.
+        let Some(limits) = limits else {
+            let n = u32::try_from(int(r, 7)?).unwrap_or(u32::MAX);
+            platform_wait(sql, text(r, 0)?, text(r, 1)?, "admission_limits_unavailable", n, now_ms)?;
+            continue;
+        };
         let tries = u32::try_from(int(r, 6)?).unwrap_or(u32::MAX).saturating_add(1);
         let until = now_ms + LANE_LEASE_MS;
         sql.exec(
@@ -2307,6 +2568,7 @@ pub fn claim_runs(sql: &impl Sql, cfg: &AdmissionEnv, limit: usize, now_ms: u64)
             scorer_binary: cfg.scorer_binary.clone(),
             try_no: tries,
             claim_until_ms: until,
+            limits,
         });
     }
     Ok(out)
@@ -2392,22 +2654,48 @@ pub fn record_run(
             }
         }
         LaneOutcome::Platform(code) => {
-            let n = u32::try_from(int(r, 3)?).unwrap_or(u32::MAX).saturating_add(1);
-            sql.exec(
-                "UPDATE adm_verdicts SET code = ?, platform_tries = ?, claim_until_ms = 0, not_before_ms = ?, updated_ms = ?
-                 WHERE hotkey = ? AND commitment = ?",
-                &[
-                    s(code),
-                    i(i64::from(n)),
-                    bind_u64(now_ms.saturating_add(backoff_ms(n)))?,
-                    bind_u64(now_ms)?,
-                    key[0].clone(),
-                    key[1].clone(),
-                ],
-            )?;
+            let n = u32::try_from(int(r, 3)?).unwrap_or(u32::MAX);
+            platform_wait(sql, &run.hotkey, &run.commitment, code, n, now_ms)?;
         }
     }
     apply_verdicts(sql, cfg, now_ms)
+}
+
+/// A platform failure on a pending verdict (`platform_tries` before it was
+/// `tries_before`): recorded with its code, never counted against the
+/// artifact, and the verdict waits out a backoff that grows with the
+/// platform tries (raised in the status after repeated tries). At every
+/// multiple of the plan's pause bound ([`Window::failures_before_pause`])
+/// the session's cohort faults (`scorer_unavailable`, resumable), so a
+/// verdict that keeps meeting platform failures is a visible pause of the
+/// same cohort, never a silent wait of its freeze.
+fn platform_wait(sql: &impl Sql, hotkey: &str, commitment: &str, code: &str, tries_before: u32, now_ms: u64) -> R<()> {
+    let n = tries_before.saturating_add(1);
+    let seq = sql.exec(
+        "SELECT seq FROM adm_sessions WHERE hotkey = ? AND commitment = ? ORDER BY seq DESC LIMIT 1",
+        &[s(hotkey), s(commitment)],
+    )?;
+    if let Some(r) = seq.first() {
+        let seq = int(r, 0)?;
+        if let Some(w) = window_of(sql, &engine::cohort(sql, seq)?)?
+            && pause_due(n, w.failures_before_pause)
+        {
+            engine::fault(sql, seq, "scorer_unavailable", now_ms)?;
+        }
+    }
+    sql.exec(
+        "UPDATE adm_verdicts SET code = ?, platform_tries = ?, claim_until_ms = 0, not_before_ms = ?, updated_ms = ?
+         WHERE hotkey = ? AND commitment = ?",
+        &[
+            s(code),
+            i(i64::from(n)),
+            bind_u64(now_ms.saturating_add(backoff_ms(n)))?,
+            bind_u64(now_ms)?,
+            s(hotkey),
+            s(commitment),
+        ],
+    )?;
+    Ok(())
 }
 
 /// Load failures attributable to the artifact on a fresh instance (the
@@ -2470,6 +2758,40 @@ pub fn classify(status: Option<u16>, body: &Value) -> LaneOutcome {
     }
 }
 
+/// Classifies the scorer lane's admission route reply (`AScorer` `POST
+/// /admit`, always on a freshly started instance) by rule (c): `outcome`
+/// `loaded` carries the control document's results (as `/run` does);
+/// `artifact` the prepare's code with its `definitive` flag; `platform` the
+/// platform's code. A definitive scorer refusal (`refused <code>`) refuses;
+/// another definitive code is the coordinator's own manifest or bound (the
+/// platform's); a non-definitive artifact failure counts only when the
+/// instance was fresh. Anything else is the platform's.
+pub fn classify_admit(status: Option<u16>, body: &Value) -> LaneOutcome {
+    use crate::eval::scorer_client::{REFUSALS, REFUSED};
+    match status {
+        Some(200) => {}
+        Some(other) => return LaneOutcome::Platform(format!("lane_status_{other}")),
+        None => return LaneOutcome::Platform("lane_unreachable".into()),
+    }
+    let code = body["code"].as_str().unwrap_or("").to_owned();
+    match body["outcome"].as_str() {
+        Some("loaded") => classify(Some(200), body),
+        Some("artifact") => {
+            let definitive = body["definitive"].as_bool() == Some(true);
+            let fresh = body["fresh"].as_bool() == Some(true);
+            let scorer_refusal = code == REFUSED || REFUSALS.iter().any(|(_, recorded)| *recorded == code);
+            match (definitive, scorer_refusal) {
+                (true, true) => LaneOutcome::Refused(code.trim_start_matches("refused ").to_owned()),
+                (true, false) => LaneOutcome::Platform(code),
+                (false, _) if fresh => LaneOutcome::ArtifactFailure(code),
+                (false, _) => LaneOutcome::Platform("artifact load failed on a reused instance".into()),
+            }
+        }
+        Some("platform") => LaneOutcome::Platform(if code.is_empty() { "lane_error".into() } else { code }),
+        _ => LaneOutcome::Platform("admit_reply".into()),
+    }
+}
+
 fn sha_hex_of(b: &[u8]) -> String {
     hex::encode(Sha256::digest(b))
 }
@@ -2508,6 +2830,58 @@ pub fn run_cost_model(sql: &impl Sql, label: &str) -> R<Option<crate::eval::plan
     let rows = sql.exec("SELECT seq FROM cohorts WHERE label = ?", &[s(label)])?;
     let Some(r) = rows.first() else { return Ok(None) };
     Ok(engine::cohort(sql, int(r, 0)?)?.plan.fanout.map(|f| f.cost))
+}
+
+/// The ledger key of one admission run: the hotkey, commitment and try
+/// tell runs apart, and a retried settle of the same run is the same key.
+pub fn charge_key(run: &LaneRun) -> String {
+    format!(
+        "{}:{}:admission:{}:{}:{}",
+        engine::INSTANCE_MAIN,
+        run.label,
+        run.hotkey,
+        run.commitment,
+        run.try_no
+    )
+}
+
+/// Records a run's measured charge (instance time at the cohort's Container
+/// rates) in the transaction that records the run, so a ledger outage or a
+/// cut-off invocation never loses it. Idempotent on the run's key. Returns
+/// the key and amount to settle, `None` when there is nothing to charge.
+pub fn record_charge(sql: &impl Sql, run: &LaneRun, wall_ms: u64, now_ms: u64) -> R<Option<(String, u64)>> {
+    let Some(model) = run_cost_model(sql, &run.label)? else { return Ok(None) };
+    let micro = crate::eval::cost::probe_charge_microusd(&model, wall_ms);
+    if micro == 0 {
+        return Ok(None);
+    }
+    let key = charge_key(run);
+    sql.exec(
+        "INSERT INTO adm_charges (key, label, microusd, created_ms) VALUES (?, ?, ?, ?) ON CONFLICT (key) DO NOTHING",
+        &[s(&key), s(&run.label), bind_u64(micro)?, bind_u64(now_ms)?],
+    )?;
+    Ok(Some((key, micro)))
+}
+
+/// The oldest admission charge the ledger has not confirmed.
+pub fn charge_due(sql: &impl Sql) -> R<Option<engine::Work>> {
+    let rows = sql.exec(
+        "SELECT key, microusd FROM adm_charges ORDER BY created_ms, key LIMIT 1",
+        &[],
+    )?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    Ok(Some(engine::Work::AdmissionSettle {
+        key: text(r, 0)?.to_owned(),
+        microusd: uint(r, 1)?,
+    }))
+}
+
+/// Drops a charge once the ledger answered for its key: the ledger's own
+/// charges table holds the record from then on, so settled rows never
+/// accumulate here.
+pub fn charge_settled(sql: &impl Sql, key: &str) -> R<()> {
+    sql.exec("DELETE FROM adm_charges WHERE key = ?", &[s(key)])?;
+    Ok(())
 }
 
 /// The failures-before-refusal bound of the run's cohort.
@@ -2628,20 +3002,32 @@ fn fault_freeze(sql: &impl Sql, seq: i64, why: &'static str, now_ms: u64) -> R<O
 }
 
 /// Whether admission has work for the cohort object's step, or the calendar
-/// has a cohort to open under `cfg` (`calendar::due`: never for a retired
-/// authority).
-pub fn has_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
+/// has a cohort to open under `cfg` (`calendar::ready`: never for a retired
+/// authority). A pure read: status calls it, so it never records an error
+/// or pauses the calendar (the step's `calendar::due` does).
+///
+/// `due_by`: `None` counts every unfinished item (the deploy check and the
+/// successor's retirement wait for all of them); `Some(now)` counts a
+/// completion, framing or blob step, a session clean-up or an object delete
+/// only once its backoff has passed, so the step alarm is not re-armed for
+/// work that is not due (the next heartbeat kick finds it when it is).
+pub fn has_work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool> {
+    let now = bind_u64(due_by.unwrap_or(crate::wire::MAX_SAFE_INTEGER))?;
     Ok(!sql
         .exec(
-            "SELECT 1 FROM adm_sessions WHERE state = 'verifying' AND stage IN ('complete','frame','blobs','verdict')
+            "SELECT 1 FROM adm_sessions WHERE state = 'verifying'
+               AND (stage = 'verdict' OR (stage IN ('complete','frame','blobs') AND step_after_ms <= ?))
              UNION ALL SELECT 1 FROM adm_cohorts WHERE state = 'closing'
+             UNION ALL SELECT 1 FROM adm_charges
+             UNION ALL SELECT 1 FROM adm_object_deletes WHERE not_before_ms <= ?
              UNION ALL SELECT 1 FROM adm_sessions s JOIN adm_cohorts c ON c.seq = s.seq
-               WHERE c.state IN ('frozen','abandoned') AND s.cleaned = 0 AND s.state IN ('refused','overflow','superseded','aborted')
+               WHERE c.state IN ('frozen','abandoned') AND s.cleaned = 0 AND s.step_after_ms <= ?
+                 AND (s.state IN ('refused','overflow','superseded','aborted') OR (s.state = 'admitted' AND c.state = 'abandoned'))
              LIMIT 1",
-            &[],
+            &[now.clone(), now.clone(), now],
         )?
         .is_empty()
-        || crate::eval::calendar::due(sql, cfg)?.is_some())
+        || crate::eval::calendar::ready(sql, cfg)?)
 }
 
 /// The next admission step: the freeze when it can run, completions,
@@ -2665,7 +3051,7 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<engi
     if !runs.is_empty() {
         return Ok(Some(engine::Work::AdmissionLanes));
     }
-    if !cleanup_due(sql, 1)?.is_empty() {
+    if !cleanup_due(sql, 1, now_ms)?.is_empty() || !object_deletes_due(sql, 1, now_ms)?.is_empty() {
         return Ok(Some(engine::Work::AdmissionCleanup));
     }
     if let Some((label, plan)) = crate::eval::calendar::due(sql, cfg)? {
@@ -2737,6 +3123,9 @@ struct Candidate {
     package_sha256: String,
     manifest_key: String,
     model_sha256: String,
+    /// The coldkey that owned the hotkey at the cutoff (the snapshot's
+    /// `Owner`); `None` when unknown.
+    coldkey: Option<[u8; 32]>,
 }
 
 /// What the freeze decided, before anything is written.
@@ -2782,7 +3171,7 @@ fn ready(sql: &impl Sql, cfg: &EvalConfig, w: &Window, now_ms: u64) -> R<Result<
     let mut ranked = Vec::new();
     for r in verified {
         let snap = sql.exec(
-            "SELECT block, payload, uid, registration_block FROM adm_snapshot WHERE cutoff_block = ? AND hotkey = ?",
+            "SELECT block, payload, uid, registration_block, coldkey FROM adm_snapshot WHERE cutoff_block = ? AND hotkey = ?",
             &[bind_u64(cutoff)?, s(hex::encode(r.hotkey.0))],
         )?;
         let overwritten = || {
@@ -2850,6 +3239,7 @@ fn ready(sql: &impl Sql, cfg: &EvalConfig, w: &Window, now_ms: u64) -> R<Result<
             package_sha256: text(pk, 0)?.to_owned(),
             manifest_key: text(pk, 1)?.to_owned(),
             model_sha256: text(pk, 2)?.to_owned(),
+            coldkey: opt_text(sn, 4).and_then(|c| crate::eval::plan::parse_hex32(&c)),
             entry,
             row: r,
         });
@@ -2886,16 +3276,36 @@ fn ready(sql: &impl Sql, cfg: &EvalConfig, w: &Window, now_ms: u64) -> R<Result<
         }
     }
     // An outside entrant unlocks fresh stock only with a working artifact of
-    // its own: not one of the operator's hotkeys, and not a copy of an
+    // its own: not one of the operator's hotkeys, not a hotkey an operator
+    // coldkey owned at the cutoff (an owner that is unknown counts as the
+    // operator's whenever the plan lists coldkeys), and not a copy of an
     // artifact already published (whose copy the seal leaves unexecuted).
-    let published: std::collections::BTreeSet<String> = sql
-        .exec("SELECT content FROM published_contents", &[])?
-        .iter()
-        .filter_map(|r| text(r, 0).ok().map(str::to_ascii_lowercase))
-        .collect();
-    let outside = admitted
-        .iter()
-        .any(|a| !w.plan.is_operator(&a.row.hotkey.0) && !published.contains(&a.row.upload.opening.content.hex()));
+    // Exact digests only: a near copy is caught by the copy gate at scoring,
+    // which runs after the draw, so standing templates carry no fresh pool
+    // (`calendar`).
+    // The published index grows with every cohort, so each admitted
+    // candidate (at most `roster_cap`) is looked up by its key rather than
+    // loading the index (both sides are `Digest::hex`).
+    let operator_owned = |a: &Candidate| match a.coldkey {
+        Some(c) => w.plan.is_operator_coldkey(&c),
+        None => !w.plan.operator_coldkeys.is_empty(),
+    };
+    let mut outside = false;
+    for a in &admitted {
+        if w.plan.is_operator(&a.row.hotkey.0) || operator_owned(a) {
+            continue;
+        }
+        let published = !sql
+            .exec(
+                "SELECT 1 FROM published_contents WHERE content = ?",
+                &[s(a.row.upload.opening.content.hex())],
+            )?
+            .is_empty();
+        if !published {
+            outside = true;
+            break;
+        }
+    }
     let mut plan = c.plan.clone();
     let image = plan.reference.image_digest.clone();
     plan.entrants = admitted
@@ -2989,7 +3399,7 @@ fn apply_freeze(sql: &impl Sql, c: &Cohort, w: &Window, d: Decision, epoch: u64,
 /// and its uploads are cleaned up like any that ended without admission.
 pub fn abandoned(sql: &impl Sql, seq: i64, reason: &str, now_ms: u64) -> R<()> {
     let changed = sql.exec(
-        "UPDATE adm_cohorts SET state = 'abandoned' WHERE seq = ? AND state IN ('admitting','closing') RETURNING seq",
+        "UPDATE adm_cohorts SET state = 'abandoned' WHERE seq = ? AND state IN ('admitting','closing','frozen') RETURNING seq",
         &[i(seq)],
     )?;
     if changed.is_empty() {
@@ -3028,17 +3438,67 @@ pub fn has_outside_entrant(sql: &impl Sql, seq: i64) -> R<bool> {
 }
 
 /// Objects of sessions that ended without admission (refused, overflow,
-/// superseded, aborted) once their cohort froze or was abandoned, still to
-/// delete.
-pub fn cleanup_due(sql: &impl Sql, limit: i64) -> R<Vec<(String, String, Option<String>)>> {
+/// superseded, aborted) once their cohort froze or was abandoned, and the
+/// admitted objects of a cohort abandoned after its freeze (never scored to
+/// a closure, so never published), still to delete. A session whose last
+/// clean-up met a failed delete waits out its backoff ([`cleanup_failed`]).
+pub fn cleanup_due(sql: &impl Sql, limit: i64, now_ms: u64) -> R<Vec<(String, String, Option<String>)>> {
     sql.exec(
         "SELECT s.session, s.object_key, s.upload_id FROM adm_sessions s JOIN adm_cohorts c ON c.seq = s.seq
-         WHERE c.state IN ('frozen','abandoned') AND s.cleaned = 0 AND s.state IN ('refused','overflow','superseded','aborted') LIMIT ?",
-        &[i(limit)],
+         WHERE c.state IN ('frozen','abandoned') AND s.cleaned = 0 AND s.step_after_ms <= ?
+           AND (s.state IN ('refused','overflow','superseded','aborted') OR (s.state = 'admitted' AND c.state = 'abandoned')) LIMIT ?",
+        &[bind_u64(now_ms)?, i(limit)],
     )?
     .iter()
     .map(|r| Ok((text(r, 0)?.to_owned(), text(r, 1)?.to_owned(), opt_text(r, 2))))
     .collect()
+}
+
+/// A session clean-up whose bucket delete failed: it runs again after a
+/// backoff that grows with its failures, so bucket housekeeping never holds
+/// up the step's other work (verification, verdicts, the calendar, and the
+/// active cohort the engine reaches after admission's work).
+pub fn cleanup_failed(sql: &impl Sql, id: &str, now_ms: u64) -> R<()> {
+    let rows = sql.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s(id)])?;
+    let Some(r) = rows.first() else { return Ok(()) };
+    let tries = u32::try_from(int(r, 0)?).unwrap_or(u32::MAX).saturating_add(1);
+    sql.exec(
+        "UPDATE adm_sessions SET step_tries = ?, step_after_ms = ? WHERE session = ?",
+        &[i(i64::from(tries)), bind_u64(now_ms.saturating_add(backoff_ms(tries)))?, s(id)],
+    )?;
+    Ok(())
+}
+
+/// Aborted attempts' objects whose delete is not confirmed yet and whose
+/// backoff after a failed delete has passed: `(key, upload_id)`, oldest
+/// first.
+pub fn object_deletes_due(sql: &impl Sql, limit: i64, now_ms: u64) -> R<Vec<(String, Option<String>)>> {
+    sql.exec(
+        "SELECT key, upload_id FROM adm_object_deletes WHERE not_before_ms <= ? ORDER BY created_ms, key LIMIT ?",
+        &[bind_u64(now_ms)?, i(limit)],
+    )?
+    .iter()
+    .map(|r| Ok((text(r, 0)?.to_owned(), opt_text(r, 1))))
+    .collect()
+}
+
+/// Records that the bucket confirmed an aborted attempt's delete.
+pub fn object_deleted(sql: &impl Sql, key: &str) -> R<()> {
+    sql.exec("DELETE FROM adm_object_deletes WHERE key = ?", &[s(key)])?;
+    Ok(())
+}
+
+/// An aborted attempt's delete that the bucket did not confirm: it stays
+/// recorded and is tried again after a growing backoff.
+pub fn object_delete_failed(sql: &impl Sql, key: &str, now_ms: u64) -> R<()> {
+    let rows = sql.exec("SELECT tries FROM adm_object_deletes WHERE key = ?", &[s(key)])?;
+    let Some(r) = rows.first() else { return Ok(()) };
+    let tries = u32::try_from(int(r, 0)?).unwrap_or(u32::MAX).saturating_add(1);
+    sql.exec(
+        "UPDATE adm_object_deletes SET tries = ?, not_before_ms = ? WHERE key = ?",
+        &[i(i64::from(tries)), bind_u64(now_ms.saturating_add(backoff_ms(tries)))?, s(key)],
+    )?;
+    Ok(())
 }
 
 /// The blob-store keys a session's clean-up deletes besides its object: the
@@ -3049,7 +3509,9 @@ pub fn cleanup_keys(sql: &impl Sql, id: &str) -> R<Vec<String>> {
         .exec(
             "SELECT b.sha256 FROM adm_blobs b WHERE b.session = ? AND b.created = 1
                AND NOT EXISTS (SELECT 1 FROM adm_blobs o JOIN adm_sessions x ON x.session = o.session
-                   WHERE o.sha256 = b.sha256 AND o.session != b.session AND (x.cleaned = 0 OR x.state = 'admitted'))",
+                   JOIN adm_cohorts xc ON xc.seq = x.seq
+                   WHERE o.sha256 = b.sha256 AND o.session != b.session
+                     AND (x.cleaned = 0 OR (x.state = 'admitted' AND xc.state != 'abandoned')))",
             &[s(id)],
         )?
         .iter()
@@ -3057,8 +3519,9 @@ pub fn cleanup_keys(sql: &impl Sql, id: &str) -> R<Vec<String>> {
         .collect::<R<_>>()?;
     let m = sql.exec(
         "SELECT s.manifest_key FROM adm_sessions s WHERE s.session = ? AND s.manifest_created = 1 AND s.manifest_key IS NOT NULL
-           AND NOT EXISTS (SELECT 1 FROM adm_sessions o WHERE o.package_sha256 = s.package_sha256 AND o.session != s.session
-               AND (o.cleaned = 0 OR o.state = 'admitted'))",
+           AND NOT EXISTS (SELECT 1 FROM adm_sessions o JOIN adm_cohorts oc ON oc.seq = o.seq
+               WHERE o.package_sha256 = s.package_sha256 AND o.session != s.session
+               AND (o.cleaned = 0 OR (o.state = 'admitted' AND oc.state != 'abandoned')))",
         &[s(id)],
     )?;
     if let Some(r) = m.first() {
@@ -3127,7 +3590,16 @@ pub fn status(sql: &impl Sql) -> R<Value> {
         "verdicts": platform.first().map_or(Ok(0), |r| int(r, 0))?,
         "max_platform_tries": platform.first().map_or(Ok(0), |r| int(r, 1))?,
         "latest_code": worst.first().and_then(|r| opt_text(r, 0)),
-        "steps_retrying": count(sql, "SELECT COUNT(*) FROM adm_sessions WHERE state = 'verifying' AND step_after_ms > 0", &[])?,
+        // Sessions whose step actually failed: a framing attempt that ended
+        // without an outcome (each attempt arms its own backoff, so only a
+        // second attempt shows one), or a completion or blob copy that met
+        // a failure (only a failure arms their backoff).
+        "steps_retrying": count(
+            sql,
+            "SELECT COUNT(*) FROM adm_sessions WHERE state = 'verifying'
+               AND ((stage = 'frame' AND step_tries > 1) OR (stage IN ('complete','blobs') AND step_after_ms > 0))",
+            &[],
+        )?,
     });
     Ok(
         json!({"contract": CONTRACT, "cohorts": cohorts, "verdicts": verdicts, "platform_retries": stalled,

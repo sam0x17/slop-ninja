@@ -437,7 +437,29 @@ never earlier, and the cohort is never skipped.
 Have the artifact packed and checked before the window opens. The commitment
 needs finality and the coordinator's observation of it (nominally up to
 60 seconds after finality, sometimes longer) before an upload can start, and
-the upload must complete before the cutoff.
+the upload must complete before the cutoff. With a one-tempo window that
+leaves roughly an hour for the commitment, its logging and the upload of an
+object of up to about 700 MB, so budget your uplink for the whole object in
+well under that time and start at the opening. The public snapshot's
+`admitting` field is set only while the window is open; once it closes the
+cohort's phase stays `admission` until the roster freezes, but nothing more is
+admitted.
+
+From your second cohort on, the coordinator still holds your previous
+commitment until its commitment reader logs the new one. Right after
+`commit`, `upload` may hear `commitment_not_found` with `Retry-After`; it
+retries as told (`--attempts`). `upload` sends the block at which `commit`
+confirmed your commitment, so the coordinator keeps answering
+`commitment_not_found` until its reader has polled at or past that block,
+even when the coordinator is behind the chain. A definitive answer
+(`commitment_before_open`, `commitment_mismatch`, `not_registered`,
+`registration_mismatch`) comes at the reader's next completed poll after
+that, when the opening really is wrong. If the retries run out first,
+`upload` stops with `commitment_not_found`; run it again later. Without `--opening`, `upload` picks the newest opening this
+wallet confirmed on chain when it is newer than the commitment the
+coordinator observed, and refuses locally when that opening is for another
+artifact than `--artifact` (after `commit --replace`, upload the new
+artifact).
 
 ## 9. Commit
 

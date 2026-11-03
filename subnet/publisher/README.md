@@ -115,7 +115,10 @@ store.
 - **Typed snapshot.** The status snapshot is built from named fields only.
   Spend, the ledger, generation, models, lanes, jobs, documents and fault
   details never reach it; faults are one boolean. The ledger enters the alert
-  rules only as a per-mille ratio.
+  rules only as its `over_threshold` flag. `next` comes from the coordinator's
+  calendar (the template's next cohort and its earliest opening epoch; a
+  queued cohort for coordinators without one), and `admitting` is set only
+  while the calendar reports the cohort's admission window open.
 - **Artifacts are default-deny.** An entrant's artifact is published only
   when the admission route stored its upload envelope (the protocol's
   `SubmissionUpload`, at `ADMISSION_RECORD_KEY`) and that envelope is this
@@ -262,7 +265,8 @@ The rule set is `slop_ninja.publisher.alerts/v5`. The table is in
 - a stalled confirmed watermark;
 - a work phase past its package deadline;
 - scorer, budget and other cohort faults;
-- the ledger at 80%;
+- the spend ledger's billing month past the deployment's private alert
+  threshold (the ledger's `over_threshold` flag; tracking only);
 - receipt deletion falling behind the N+2 rule (`retention_stalled`: the
   eval status's `receipt_retention.stalled` lists a due cohort whose
   detailed receipts remain after a further completion, or a predecessor
@@ -296,7 +300,8 @@ state; `watermark_stalled` on its Worker's answer; the cohort
 rules on the eval status's complete cohort list (every cohort with its
 number, label and phase); `phase_overrun` also on its epoch and, while its
 cohort is the active one in a work phase, that cohort's `opened_epoch` and
-`k_tempos`; `ledger_threshold` on its ledger ratio; `retention_stalled` on
+`k_tempos`; `ledger_threshold` on its ledger flag,
+`ledger_threshold_unset` on its ledger standing and `retention_stalled` on
 its `receipt_retention.stalled` list; `commit_gap` and
 `coordinator_reveal_mismatch` on the coordinator's signing view and the
 eval epoch) are carried, neither fired nor resolved. A carried entry keeps
@@ -474,7 +479,7 @@ cargo check --manifest-path subnet/publisher/Cargo.toml --target wasm32-unknown-
     `ADMISSION_RECORD_KEY` names (W3); until then no artifact is published;
   - refuse plans whose receipt count exceeds the publisher's bound above;
   - a compact status route for the publisher (the active and next cohort,
-    the regime, the ledger ratio and a journal summary). `/eval/status` lists
+    the regime, the ledger flag and a journal summary). `/eval/status` lists
     every cohort ever held, so its size grows with the record; today it is
     about 6 KB a cohort, read within the arena budget;
 - AR-13 gaps:

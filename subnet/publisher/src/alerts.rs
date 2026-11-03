@@ -47,10 +47,11 @@
 //! | `webhook_paused` | a Worker reports its webhook subscription presumed paused: no delivery for longer than the provider can retry one, while blocks are owed (paused, or a provider-side stall: an operator checks the subscription's state and resumes it only when paused) |
 //! | `watermark_stalled` | a Worker's RPC-confirmed watermark is older than the watchdog silence plus two cron periods, or absent |
 //! | `phase_overrun` | the active cohort is still in a work phase at its package deadline (`K - transition` tempos after it opened) |
-//! | `scorer_budget_fault` | the active cohort is paused by a scorer or budget fault |
-//! | `cohort_fault` | the active cohort is paused by any other fault |
-//! | `ledger_threshold` | the monthly ledger's spend plus reservations reach 80% of its cap |
+//! | `scorer_budget_fault` | a cohort not yet closed (admitting, closing or evaluating) is paused by a scorer or budget fault |
+//! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step) |
+//! | `ledger_threshold` | the spend ledger's billing month (settled spend plus open reservations) is past the deployment's private alert threshold; tracking only, nothing is refused |
 //! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error) |
+//! | `ledger_threshold_unset` | the eval status's ledger standing names no alert threshold (the deploy did not pass `SPEND_ALERT_MICROUSD`), so `ledger_threshold` cannot fire |
 //! | `commit_gap` | the coordinator has not committed weights for two or more tempos |
 //! | `coordinator_reveal_mismatch` | a reveal of the coordinator's weights did not match its committed row |
 //! | `publication_refused` | a closed cohort, an artifact's admission record or copy, or the authorization failed verification or the memory budget |
@@ -108,8 +109,6 @@ pub struct Rules {
     pub watermark_stall_ms: u64,
     /// AR-13: two or more tempos without a commit.
     pub commit_gap_tempos: u64,
-    /// AR-13: the ledger passing 80%.
-    pub ledger_permille: u64,
     /// Two cron periods.
     pub unreachable_hold_ms: u64,
     /// One tempo.
@@ -126,7 +125,6 @@ impl Rules {
             fallback_ms: tempo_ms,
             watermark_stall_ms: slop_ninja_alerts_wire::watermark_stall_ms(silence_ms),
             commit_gap_tempos: 2,
-            ledger_permille: 800,
             unreachable_hold_ms: slop_ninja_alerts_wire::PUBLISHER_UNREACHABLE_HOLD_MS,
             publication_hold_ms: tempo_ms,
             renotify_ms,
@@ -245,7 +243,9 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
     }
     let epoch = o.eval.as_ref().and_then(|e| e.epoch);
     if let Some(e) = &o.eval {
-        if let Some(c) = e.active() {
+        // Every cohort not yet closed: an admitting cohort can be paused
+        // while an earlier one is still evaluating.
+        for c in e.cohorts.iter().filter(|c| c.active()) {
             if let Some(code) = &c.fault {
                 let rule = if SCORER_BUDGET_FAULTS.contains(&code.as_str()) {
                     "scorer_budget_fault"
@@ -259,25 +259,27 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                     0,
                 ));
             }
-            if let (true, Some(now), Some(opened), Some(k)) = (
+        }
+        if let Some(c) = e.active()
+            && let (true, Some(now), Some(opened), Some(k)) = (
                 WORK_PHASES.contains(&c.phase.as_str()),
                 epoch,
                 c.opened_epoch,
                 c.k_tempos,
-            ) {
-                let deadline = k.saturating_sub(c.transition_tempos.unwrap_or(0));
-                let elapsed = now.saturating_sub(opened);
-                if elapsed >= deadline {
-                    out.push(cond(
-                        "phase_overrun",
-                        &c.label,
-                        format!(
-                            "{} after {elapsed} tempos; package deadline {deadline}",
-                            c.phase
-                        ),
-                        0,
-                    ));
-                }
+            )
+        {
+            let deadline = k.saturating_sub(c.transition_tempos.unwrap_or(0));
+            let elapsed = now.saturating_sub(opened);
+            if elapsed >= deadline {
+                out.push(cond(
+                    "phase_overrun",
+                    &c.label,
+                    format!(
+                        "{} after {elapsed} tempos; package deadline {deadline}",
+                        c.phase
+                    ),
+                    0,
+                ));
             }
         }
         if let Some(stalled) = e.retention_stalled.as_ref().filter(|v| !v.is_empty()) {
@@ -292,14 +294,21 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                 0,
             ));
         }
-        if e.ledger_permille.is_some_and(|p| p >= r.ledger_permille) {
+        if e.ledger_over_threshold == Some(true) {
             out.push(cond(
                 "ledger_threshold",
                 "ledger",
-                format!(
-                    "spend and reservations at or above {}% of the monthly cap",
-                    r.ledger_permille / 10
-                ),
+                "the billing month's settled spend and open reservations are past the private alert threshold (tracking only)"
+                    .to_string(),
+                0,
+            ));
+        }
+        if e.ledger_threshold_set == Some(false) {
+            out.push(cond(
+                "ledger_threshold_unset",
+                "ledger",
+                "the ledger reports no alert threshold (SPEND_ALERT_MICROUSD was not passed at deploy): ledger_threshold cannot fire"
+                    .to_string(),
                 0,
             ));
         }
@@ -404,6 +413,7 @@ pub const STATUS_RULES: &[&str] = &[
     "cohort_fault",
     "ledger_threshold",
     "retention_stalled",
+    "ledger_threshold_unset",
     "commit_gap",
     "coordinator_reveal_mismatch",
 ];
@@ -469,8 +479,9 @@ const COHORTS: EvalField = ("cohorts", |e| !e.cohorts_missing);
 /// view and the eval status's epoch; the cohort rules the eval status's
 /// complete cohort list, and `phase_overrun` also its epoch and, while its
 /// cohort is the active one in a work phase, that cohort's `opened_epoch`
-/// and `k_tempos`; `ledger_threshold` the eval status's ledger ratio,
-/// `retention_stalled` its `receipt_retention.stalled` list; a
+/// and `k_tempos`; `ledger_threshold` the eval status's ledger flag,
+/// `ledger_threshold_unset` its ledger standing, `retention_stalled` its
+/// `receipt_retention.stalled` list; a
 /// Worker's `durable_fault` its journal block (a `.signing` subject the
 /// signing view instead), `fallback_too_long` its mode (and the mode's age
 /// in fallback), `webhook_paused` its subscription state, `watermark_stalled` its answer (a missing watermark fires);
@@ -505,7 +516,7 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
         }
         "ledger_threshold" => need_eval(
             o,
-            Some(("ledger ratio", |e| e.ledger_permille.is_some())),
+            Some(("ledger flag", |e| e.ledger_over_threshold.is_some())),
             &mut n,
         ),
         "retention_stalled" => need_eval(
@@ -513,6 +524,11 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
             Some(("receipt_retention.stalled", |e| {
                 e.retention_stalled.is_some()
             })),
+            &mut n,
+        ),
+        "ledger_threshold_unset" => need_eval(
+            o,
+            Some(("ledger standing", |e| e.ledger_threshold_set.is_some())),
             &mut n,
         ),
         "commit_gap" | "coordinator_reveal_mismatch" => {
@@ -825,10 +841,10 @@ mod tests {
         Rules::derive(TEMPO, 300_000, 6 * 3600 * 1000)
     }
 
-    /// A healthy status, the ledger below its alert ratio.
+    /// A healthy status, the ledger below its alert threshold.
     fn healthy() -> Observed {
         let mut eval = parse_eval(&eval_status("admission"));
-        eval.ledger_permille = Some(500);
+        eval.ledger_over_threshold = Some(false);
         Observed {
             coordinator: Some(parse_worker(&worker_status("primary", false))),
             eval_worker: Some(parse_worker(&worker_status("primary", false))),
@@ -915,7 +931,7 @@ mod tests {
         ]);
         j["receipt_retention"]["last_error"] = json!("authorization_pointer");
         let mut e = parse_eval(&j);
-        e.ledger_permille = Some(500);
+        e.ledger_over_threshold = Some(false);
         o.eval = Some(e);
         let c = evaluate(&o, &p, &r);
         assert_eq!(rules_of(&c), vec!["retention_stalled"]);
@@ -924,14 +940,35 @@ mod tests {
             "cohort 3 (testnet-c3) due after cohort 5, 1 completion(s) since; predecessor main not \
              finished after cohort 14, 2 completion(s) since; last error: authorization_pointer"
         );
-        // Ledger at 80%: the fixture's status reads 850 per mille.
+        // Fix round 2, finding 5: the next cohort paused in admission
+        // (`framing_unavailable`) while the earlier one still evaluates.
         let mut o = healthy();
-        o.eval.as_mut().unwrap().ledger_permille =
-            parse_eval(&eval_status("admission")).ledger_permille;
+        let e = o.eval.as_mut().unwrap();
+        e.cohorts[1].phase = "scoring".into();
+        e.cohorts[2].phase = "admission".into();
+        e.cohorts[2].fault = Some("framing_unavailable".into());
+        let c = evaluate(&o, &p, &r);
+        assert_eq!(rules_of(&c), vec!["cohort_fault"]);
+        assert_eq!(c[0].subject, "testnet-c8");
+        // Fix round 2, findings 2 and 4: a ledger standing without a
+        // threshold is reported, never read as "not over".
+        let mut j = eval_status("admission");
+        j["ledger"]["standing"]["alert_microusd"] = serde_json::Value::Null;
+        j["ledger"]["standing"]["over_threshold"] = json!(false);
+        j["ledger"]["over_threshold"] = json!(false);
+        let mut o = healthy();
+        o.eval = Some(parse_eval(&j));
+        let c = evaluate(&o, &p, &r);
+        assert_eq!(rules_of(&c), vec!["ledger_threshold_unset"]);
+        assert!(!c[0].detail.contains("1050") && !c[0].detail.contains("900"), "no figures");
+        // Past the alert threshold: the fixture's status carries the flag.
+        let mut o = healthy();
+        o.eval.as_mut().unwrap().ledger_over_threshold =
+            parse_eval(&eval_status("admission")).ledger_over_threshold;
         let c = evaluate(&o, &p, &r);
         assert_eq!(rules_of(&c), vec!["ledger_threshold"]);
         assert!(
-            !c[0].detail.contains("850") && !c[0].detail.contains("700"),
+            !c[0].detail.contains("1050") && !c[0].detail.contains("150"),
             "no figures"
         );
         // Commit gap and divergence.
@@ -1222,7 +1259,7 @@ mod tests {
         let r = rules();
         let p = PublisherObs::default();
         type Edit = fn(&mut Observed);
-        let firing: [(&str, &str, Edit); 11] = [
+        let firing: [(&str, &str, Edit); 12] = [
             ("durable_fault", "coordinator", |o| {
                 o.coordinator = Some(parse_worker(&worker_status("primary", true)))
             }),
@@ -1259,7 +1296,10 @@ mod tests {
                 o.eval.as_mut().unwrap().cohorts[1].fault = Some("draw_shortfall".into())
             }),
             ("ledger_threshold", "ledger", |o| {
-                o.eval.as_mut().unwrap().ledger_permille = Some(900)
+                o.eval.as_mut().unwrap().ledger_over_threshold = Some(true)
+            }),
+            ("ledger_threshold_unset", "ledger", |o| {
+                o.eval.as_mut().unwrap().ledger_threshold_set = Some(false)
             }),
             ("commit_gap", "coordinator", |o| {
                 o.eval.as_mut().unwrap().epoch = Some(23_169 + 2)
@@ -1361,7 +1401,7 @@ mod tests {
                         v.push(o);
                     }
                     "ledger_threshold" => {
-                        o.eval.as_mut().unwrap().ledger_permille = None;
+                        o.eval.as_mut().unwrap().ledger_over_threshold = None;
                         v.push(o);
                         let mut o = bad.clone();
                         o.eval = None;
@@ -1371,6 +1411,13 @@ mod tests {
                         // A coordinator built before the rule answers
                         // without the list.
                         o.eval.as_mut().unwrap().retention_stalled = None;
+                        v.push(o);
+                        let mut o = bad.clone();
+                        o.eval = None;
+                        v.push(o);
+                    }
+                    "ledger_threshold_unset" => {
+                        o.eval.as_mut().unwrap().ledger_threshold_set = None;
                         v.push(o);
                         let mut o = bad.clone();
                         o.eval = None;
@@ -1513,8 +1560,8 @@ mod tests {
             (
                 "ledger_threshold",
                 "ledger",
-                |o| o.eval.as_mut().unwrap().ledger_permille = Some(900),
-                |o| o.eval.as_mut().unwrap().ledger_permille = None,
+                |o| o.eval.as_mut().unwrap().ledger_over_threshold = Some(true),
+                |o| o.eval.as_mut().unwrap().ledger_over_threshold = None,
                 "eval",
             ),
             (
@@ -1607,7 +1654,7 @@ mod tests {
         let mut st = AlertState::default();
         let mut partial = healthy();
         partial.coordinator.as_mut().unwrap().signing = None;
-        partial.eval.as_mut().unwrap().ledger_permille = None;
+        partial.eval.as_mut().unwrap().ledger_over_threshold = None;
         for i in 0..runs {
             assert!(run(&mut st, &partial, t + i * CRON_PERIOD_MS).is_empty());
         }
@@ -1615,10 +1662,10 @@ mod tests {
         // answer at all (status_unreachable covers that read).
         let mut st = AlertState::default();
         let mut bad = healthy();
-        bad.eval.as_mut().unwrap().ledger_permille = Some(900);
+        bad.eval.as_mut().unwrap().ledger_over_threshold = Some(true);
         run(&mut st, &bad, t);
         let mut partial = bad.clone();
-        partial.eval.as_mut().unwrap().ledger_permille = None;
+        partial.eval.as_mut().unwrap().ledger_over_threshold = None;
         for i in 1..=runs {
             run(&mut st, &partial, t + i * CRON_PERIOD_MS);
         }

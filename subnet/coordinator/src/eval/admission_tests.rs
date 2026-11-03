@@ -63,12 +63,21 @@ fn admission_block(cap: u16) -> AdmissionPlan {
         max_parts: 64,
         request_validity_blocks: 360,
         operator_hotkeys: vec![format!("0x{}", hex::encode(key(9).public()))],
+        operator_coldkeys: vec![format!("0x{}", hex::encode([0xc0u8; 32]))],
         fresh_pool: Some(PoolRef {
             pool_id: "fresh".into(),
             manifest_key: "pools/fresh/manifest.json".into(),
             manifest_sha256: hex::encode([5; 32]),
         }),
     }
+}
+
+/// A standing template's plan: admission without a fresh pool (standing
+/// templates never unlock fresh stock).
+fn template_plan(cohort: u64, cap: u16) -> plan::CohortPlan {
+    let mut p = admission_plan(cohort, cap);
+    p.admission.as_mut().unwrap().fresh_pool = None;
+    p
 }
 
 /// A reward-v1 plan with coordinator admission.
@@ -163,6 +172,24 @@ fn epoch(db: &Sqlite, index: u64, last_epoch_block: u64, now: u64) {
         }),
     };
     tx(db, |s| engine::observe(s, &kick, now)).unwrap();
+    // The commitment reader keeps up with the cursor (one poll per block).
+    polled(db, block.number);
+}
+
+/// The per-block heartbeat: advances the finalized cursor by `blocks`, with
+/// no commitment poll (production polls on the minute cron tick).
+fn heartbeat(db: &Sqlite, blocks: u64) {
+    let number = tx(db, cursor).unwrap().unwrap_or(0) + blocks;
+    let kick = Kick {
+        confirmed: Some(BlockRef { number, hash: Id([0xbe; 32]) }),
+        epoch: None,
+    };
+    tx(db, |s| engine::observe(s, &kick, NOW)).unwrap();
+}
+
+/// Records the commitment reader's last completed poll at `block`.
+fn polled(db: &Sqlite, block: u64) {
+    tx(db, |s| s.exec("UPDATE commit_reader SET polled_block = ? WHERE id = 1", &[bind_u64(block)?])).unwrap();
 }
 
 /// A small artifact object (not spec-valid: framing's header checks are
@@ -233,9 +260,15 @@ impl Miner {
     }
 
     fn create(&self, db: &Sqlite) -> (Reply, Effects) {
+        self.create_hinted(db, None)
+    }
+
+    /// Session creation carrying `x-sn-commitment-block` (`hint`).
+    fn create_hinted(&self, db: &Sqlite, hint: Option<u64>) -> (Reply, Effects) {
         let body = self.upload.to_bytes().unwrap();
         let mut r = self.signed(db, "POST", "/admission/v1/sessions", &body);
         r.body = Some(hex::encode(&body));
+        r.commitment_block = hint;
         tx(db, |s| Ok::<_, EvalError>(create(s, &chain(), &r, NOW))).unwrap()
     }
 }
@@ -259,6 +292,7 @@ fn signed_by(n: u8, valid_until: u64, method: &str, path: &str, body: &[u8]) -> 
         signature: Some(hex::encode(key(n).sign(&message).unwrap())),
         body_sha256: Some(digest.hex()),
         body: None,
+        commitment_block: None,
     }
 }
 
@@ -309,6 +343,12 @@ fn upload_all(db: &Sqlite, m: &Miner) -> Reply {
 /// Framing as the Worker does it, with the object's own reader result (the
 /// spec's header checks are skipped: the test object is not spec-valid).
 fn frame_ok(db: &Sqlite, m: &Miner) {
+    frame_only(db, m);
+    tx(db, |s| blobs_written(s, &env(), &m.session(), NOW)).unwrap();
+}
+
+/// The framing stage's outcome for a well-formed object (no blob step).
+fn frame_only(db: &Sqlite, m: &Miner) {
     let id = m.session();
     let artifact = VerifiedArtifact::from_bytes(&m.obj).unwrap();
     let manifest = format!("manifest-of-{id}").into_bytes();
@@ -333,7 +373,6 @@ fn frame_ok(db: &Sqlite, m: &Miner) {
         )
     })
     .unwrap();
-    tx(db, |s| blobs_written(s, &env(), &id, NOW)).unwrap();
 }
 
 fn admit_all(db: &Sqlite) {
@@ -360,7 +399,8 @@ fn snapshot(
 ) {
     tx(db, |s| {
         s.exec(
-            "INSERT OR REPLACE INTO adm_snapshot (cutoff_block, hotkey, block, payload, uid, registration_block, done) VALUES (?, ?, ?, ?, ?, ?, 1)",
+            "INSERT OR REPLACE INTO adm_snapshot (cutoff_block, hotkey, block, payload, uid, registration_block, done, coldkey)
+             VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
             &[
                 bind_u64(cutoff)?,
                 SqlValue::Text(hex::encode(account(m.n).0)),
@@ -368,6 +408,8 @@ fn snapshot(
                 SqlValue::Text(hex::encode(payload)),
                 uid.map_or(SqlValue::Null, |u| SqlValue::Integer(i64::from(u))),
                 reg.map_or(SqlValue::Null, |b| SqlValue::Integer(b as i64)),
+                // Each miner's own coldkey (never the operator's 0xc0..).
+                SqlValue::Text(hex::encode([m.n; 32])),
             ],
         )?;
         Ok::<_, EvalError>(())
@@ -497,9 +539,10 @@ fn opening_a_session_runs_every_check_in_contract_order() {
         (r.status, code(&r).as_str(), r.retry_after),
         (409, "commitment_not_found", Some(60))
     );
-    // A commitment before the cohort opened.
+    // A commitment before the cohort opened (the CLI names its confirmed
+    // block, which the reader's last poll already holds: final at once).
     m.commit(&db, OPEN_BLOCK - 1, 0);
-    assert_eq!(code(&m.create(&db).0), "commitment_before_open");
+    assert_eq!(code(&m.create_hinted(&db, Some(OPEN_BLOCK - 1)).0), "commitment_before_open");
     // Inside the window: created (201), then the same envelope is returned (200).
     m.commit(&db, OPEN_BLOCK + 5, 2);
     let (r, fx) = m.create(&db);
@@ -531,9 +574,13 @@ fn opening_a_session_runs_every_check_in_contract_order() {
     req.body = Some(hex::encode(&body));
     let (r, _) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &req, NOW))).unwrap();
     assert_eq!(code(&r), "hotkey_mismatch");
+    // From here the reader has polled past every commitment this test logs,
+    // and each request names the block its CLI confirmed (a block that poll
+    // holds), so each code is final at once.
+    polled(&db, OPEN_BLOCK + 100);
     // The opening does not open the hotkey's current commitment.
     let stale = miner(1, 3, 1, 0x21);
-    let (r, _) = stale.create(&db);
+    let (r, _) = stale.create_hinted(&db, Some(OPEN_BLOCK + 5));
     assert_eq!(
         (code(&r).as_str(), r.body["error"]["detail"]["payload_cohort"].as_u64()),
         ("commitment_mismatch", Some(1))
@@ -543,7 +590,7 @@ fn opening_a_session_runs_every_check_in_contract_order() {
     regen.upload.opening.registration_block = 1;
     regen.upload = SubmissionUpload::new(regen.upload.opening.clone(), &regen.obj);
     regen.commit(&db, OPEN_BLOCK + 7, 0);
-    assert_eq!(code(&regen.create(&db).0), "registration_mismatch");
+    assert_eq!(code(&regen.create_hinted(&db, Some(OPEN_BLOCK + 7)).0), "registration_mismatch");
     // Not registered at its commitment.
     let unreg = miner(4, 6, 1, 0x14);
     let e = LogEntry {
@@ -552,7 +599,7 @@ fn opening_a_session_runs_every_check_in_contract_order() {
         ..log(&unreg, OPEN_BLOCK + 8, 0)
     };
     tx(&db, |s| commitments::record(s, &e, NOW)).unwrap();
-    assert_eq!(code(&unreg.create(&db).0), "not_registered");
+    assert_eq!(code(&unreg.create_hinted(&db, Some(OPEN_BLOCK + 8)).0), "not_registered");
     // An envelope larger than the spec's object bound.
     let mut big = miner(5, 7, 1, 0x15);
     big.upload.artifact_len = spec_v2().object_bytes + 1;
@@ -635,6 +682,31 @@ fn one_artifact_per_hotkey_attempts_and_supersession() {
         fx.create.unwrap().0.ends_with("/a2.object"),
         "a new attempt has its own object"
     );
+    // Third W3 review, finding 6: the aborted attempt's object stays
+    // recorded until a clean-up step confirms its delete (the session's own
+    // clean-up names only a2 from now on).
+    let due = tx(&db, |s| object_deletes_due(s, 8, NOW)).unwrap();
+    assert_eq!(due.len(), 1);
+    assert!(due[0].0.ends_with(&format!("/{id}/a1.object")));
+    assert!(matches!(
+        tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap(),
+        Some(engine::Work::AdmissionCleanup)
+    ));
+    // Fix round 1, finding 5: a delete the bucket did not confirm backs off,
+    // so the step reaches its other work (the calendar, the active cohort)
+    // instead of choosing the clean-up again; it is due after the backoff.
+    tx(&db, |s| object_delete_failed(s, &due[0].0, NOW)).unwrap();
+    assert!(tx(&db, |s| object_deletes_due(s, 8, NOW)).unwrap().is_empty());
+    assert!(!matches!(
+        tx(&db, |s| next_work(s, &cfg(), NOW)).unwrap(),
+        Some(engine::Work::AdmissionCleanup)
+    ));
+    let later = NOW + backoff_ms(1);
+    assert_eq!(tx(&db, |s| object_deletes_due(s, 8, later)).unwrap().len(), 1);
+    tx(&db, |s| object_delete_failed(s, &due[0].0, later)).unwrap();
+    assert!(tx(&db, |s| object_deletes_due(s, 8, later + backoff_ms(1))).unwrap().is_empty(), "the backoff grows");
+    tx(&db, |s| object_deleted(s, &due[0].0)).unwrap();
+    assert!(tx(&db, |s| object_deletes_due(s, 8, crate::wire::MAX_SAFE_INTEGER)).unwrap().is_empty());
     // A newer commitment supersedes the live session.
     let c = miner(1, 3, 1, 0x31);
     c.commit(&db, OPEN_BLOCK + 2, 0);
@@ -1225,7 +1297,7 @@ fn the_cutoff_ranks_caps_queues_overflow_and_refuses_changed_commitments() {
     plan::CohortPlan::parse(&serde_json::to_vec(&c.plan).unwrap(), cfg().ceilings).unwrap();
     assert_eq!(c.plan_sha256, engine::sha_hex(&serde_json::to_vec(&c.plan).unwrap()));
     // Objects of the sessions that ended without admission are cleaned up.
-    let due = tx(&db, |s| cleanup_due(s, 10)).unwrap();
+    let due = tx(&db, |s| cleanup_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap();
     assert_eq!(due.len(), 4, "overflow, overwritten, registration and incomplete");
     // The closure names the admitted objects for publication.
     let v = closure_artifacts(&c.plan);
@@ -1276,6 +1348,315 @@ fn operator_entrants_never_unlock_fresh_stock_and_pending_verdicts_hold_the_free
     assert!(!tx(&db, |s| crate::eval::v3::fresh_allowed(s, &c)).unwrap());
 }
 
+/// Third W3 review finding 1, fix round 1 findings 1 and 9: a returning
+/// miner commits again and opens a session before the reader has logged the
+/// new commitment. The older logged commitment (from before the window, or
+/// replaced within it) answers the retryable `commitment_not_found` at
+/// first, but only until a poll completes at or after the cursor of that
+/// first answer: production polls once a minute while the heartbeat moves
+/// the cursor every block, so a wait tied to the moving cursor would almost
+/// never end. Every definitive code comes back after one poll, even with the
+/// cursor already ahead of it again.
+#[test]
+fn a_returning_miner_waits_one_poll_for_a_definitive_answer() {
+    let db = db_with_open_cohort(2);
+    let poll_now = |db: &Sqlite| polled(db, tx(db, cursor).unwrap().unwrap());
+    // The hotkey's earlier cohort commitment is logged; the new one is not.
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK - 50, 0);
+    poll_now(&db);
+    heartbeat(&db, 2);
+    let (r, _) = m.create(&db);
+    assert_eq!(
+        (r.status, code(&r).as_str(), r.retry_after),
+        (409, "commitment_not_found", Some(60))
+    );
+    // The cursor keeps moving; no poll yet: the same answer.
+    heartbeat(&db, 3);
+    assert_eq!(code(&m.create(&db).0), "commitment_not_found");
+    // One poll completes (at the cursor as of its plan, after the first
+    // answer), then the heartbeat runs ahead of it again: final.
+    poll_now(&db);
+    heartbeat(&db, 4);
+    assert_eq!(code(&m.create(&db).0), "commitment_before_open");
+    assert_eq!(code(&m.create(&db).0), "commitment_before_open", "and stays final");
+    // A poll that completed before the first answer (planned at an older
+    // cursor) does not end the wait: no poll completed at all, likewise.
+    m.commit(&db, OPEN_BLOCK + 3, 1);
+    let replaced = miner(1, 3, 1, 0x22);
+    heartbeat(&db, 1);
+    let first = tx(&db, cursor).unwrap().unwrap();
+    assert_eq!(code(&replaced.create(&db).0), "commitment_not_found");
+    polled(&db, first - 1);
+    heartbeat(&db, 6);
+    assert_eq!(code(&replaced.create(&db).0), "commitment_not_found");
+    polled(&db, first);
+    heartbeat(&db, 6);
+    assert_eq!(code(&replaced.create(&db).0), "commitment_mismatch");
+    // The new commitment logged: the session opens.
+    replaced.commit(&db, OPEN_BLOCK + 4, 0);
+    assert_eq!(replaced.create(&db).0.status, 201);
+    // Another hotkey with no registration at its commitment: retryable at
+    // first, then `not_registered`.
+    let unreg = miner(3, 5, 1, 0x33);
+    let e = LogEntry {
+        hotkey: account(3),
+        block: OPEN_BLOCK + 5,
+        block_hash: format!("0x{}", hex::encode([7u8; 32])),
+        extrinsic: 0,
+        payload: unreg.upload.opening.chain_payload().to_vec(),
+        uid: None,
+        registration_block: None,
+    };
+    tx(&db, |s| commitments::record(s, &e, NOW)).unwrap();
+    heartbeat(&db, 1);
+    assert_eq!(code(&unreg.create(&db).0), "commitment_not_found");
+    tx(&db, |s| s.exec("UPDATE commit_reader SET polled_block = NULL WHERE id = 1", &[])).unwrap();
+    assert_eq!(code(&unreg.create(&db).0), "commitment_not_found", "no poll at all: not final");
+    poll_now(&db);
+    heartbeat(&db, 2);
+    assert_eq!(code(&unreg.create(&db).0), "not_registered");
+    // An opening for another cohort is never held as retryable.
+    let elsewhere = miner(2, 4, 2, 0x12);
+    elsewhere.commit(&db, OPEN_BLOCK - 50, 0);
+    heartbeat(&db, 1);
+    assert_eq!(code(&elsewhere.create(&db).0), "wrong_cohort");
+}
+
+/// Fix round 2, finding 1: a first answer right after a poll at the current
+/// cursor (no heartbeat since: the normal state during a heartbeat or webhook
+/// stall) is not final, since a commitment made after that poll's block
+/// cannot be in it; and a coordinator whose cursor lags the block holding
+/// the miner's new commitment waits for that block when the request names it
+/// (`x-sn-commitment-block`), never answering from the older commitment.
+#[test]
+fn a_first_answer_waits_past_the_polled_cursor_and_the_miners_commitment_block() {
+    let db = db_with_open_cohort(2);
+    let poll_now = |db: &Sqlite| polled(db, tx(db, cursor).unwrap().unwrap());
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK - 50, 0);
+    poll_now(&db);
+    let (r, _) = m.create(&db);
+    assert_eq!(
+        (r.status, code(&r).as_str(), r.retry_after),
+        (409, "commitment_not_found", Some(60)),
+        "a poll at the cursor does not make the first answer final"
+    );
+    // A poll planned after the first answer does.
+    heartbeat(&db, 1);
+    poll_now(&db);
+    assert_eq!(code(&m.create(&db).0), "commitment_before_open");
+
+    // The cursor lags the miner's new commitment by 20 blocks.
+    let old = miner(2, 4, 1, 0x21);
+    old.commit(&db, OPEN_BLOCK - 40, 0);
+    poll_now(&db);
+    let fresh = miner(2, 4, 1, 0x22);
+    let at = tx(&db, cursor).unwrap().unwrap() + 20;
+    assert_eq!(code(&fresh.create_hinted(&db, Some(at)).0), "commitment_not_found");
+    // Polls below that block are not final, with or without the hint again.
+    heartbeat(&db, 5);
+    poll_now(&db);
+    assert_eq!(code(&fresh.create_hinted(&db, Some(at)).0), "commitment_not_found");
+    heartbeat(&db, 5);
+    poll_now(&db);
+    assert_eq!(code(&fresh.create(&db).0), "commitment_not_found", "the recorded block stays");
+    // A lower hint never moves the block down.
+    assert_eq!(code(&fresh.create_hinted(&db, Some(at - 15)).0), "commitment_not_found");
+    // The cursor reaches the block and the reader logs the commitment.
+    heartbeat(&db, 10);
+    fresh.commit(&db, at, 0);
+    poll_now(&db);
+    assert_eq!(fresh.create(&db).0.status, 201);
+
+    // A hint at or below the last poll: that poll holds the commitment, so
+    // the answer is final at once.
+    let held = miner(4, 6, 1, 0x41);
+    miner(4, 6, 1, 0x42).commit(&db, OPEN_BLOCK + 20, 0);
+    poll_now(&db);
+    assert_eq!(code(&held.create_hinted(&db, Some(OPEN_BLOCK + 20)).0), "commitment_mismatch");
+
+    // A hint can be false (a block nothing was committed at): only this
+    // hotkey's own answer waits, until a poll reaches it.
+    let liar = miner(3, 5, 1, 0x31);
+    let other = miner(3, 5, 1, 0x32);
+    other.commit(&db, OPEN_BLOCK + 30, 0);
+    poll_now(&db);
+    let far = tx(&db, cursor).unwrap().unwrap() + 3;
+    assert_eq!(code(&liar.create_hinted(&db, Some(far)).0), "commitment_not_found");
+    heartbeat(&db, 3);
+    poll_now(&db);
+    assert_eq!(code(&liar.create(&db).0), "commitment_mismatch");
+}
+
+/// Fix round 1, finding 4: at the verify stage the logged commitment's
+/// answer is final. A commitment replaced after the session opened refuses
+/// the session with `commitment_mismatch`, never the retryable
+/// `commitment_not_found` the open path can answer.
+#[test]
+fn a_commitment_replaced_after_open_refuses_at_verify_with_its_real_code() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x41);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    let (r, _) = m.create(&db);
+    assert_eq!(r.status, 201);
+    upload_all(&db, &m);
+    // Replaced (and logged) after the open, with the reader behind the cursor.
+    let other = miner(1, 3, 1, 0x42);
+    other.commit(&db, OPEN_BLOCK + 2, 0);
+    polled(&db, OPEN_BLOCK);
+    heartbeat(&db, 5);
+    frame_only(&db, &m);
+    assert_eq!(
+        state_of(&db, &m.session()),
+        ("refused".to_owned(), Some("commitment_mismatch".to_owned()))
+    );
+}
+
+/// Third W3 review, finding 7: a status read (`has_work`) never changes
+/// state. A reference chain naming a record no stored cohort holds leaves
+/// the calendar untouched until its own step (`calendar::due`) records the
+/// error and pauses the template.
+#[test]
+fn reading_status_never_pauses_the_calendar() {
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let t = crate::eval::calendar::Template {
+        schema: crate::eval::calendar::TEMPLATE_SCHEMA.into(),
+        label_prefix: "testnet-cohort".into(),
+        plan: template_plan(0, 40),
+    };
+    let bytes = serde_json::to_vec(&t).unwrap();
+    tx(&db, |s| crate::eval::calendar::install(s, &cfg(), &bytes, NOW)).unwrap();
+    tx(&db, |s| {
+        s.exec(
+            "INSERT INTO reference_state (id, k, current, predecessor) VALUES (1, 1, ?, NULL)",
+            &[crate::eval::engine::s("ab".repeat(32))],
+        )
+    })
+    .unwrap();
+    let template = |db: &Sqlite| {
+        tx(db, |s| {
+            let r = s.exec("SELECT paused, last_error FROM standing_template WHERE id = 1", &[])?;
+            Ok::<_, EvalError>((int(&r[0], 0)?, crate::eval::engine::opt_text(&r[0], 1)))
+        })
+        .unwrap()
+    };
+    for _ in 0..3 {
+        assert!(tx(&db, |s| engine::has_work(s, &cfg())).unwrap());
+        let _ = tx(&db, |s| engine::status(s, NOW)).unwrap();
+        let _ = tx(&db, crate::eval::calendar::view).unwrap();
+    }
+    assert_eq!(template(&db), (0, None), "status reads wrote nothing");
+    // The calendar's own step records the reason and pauses.
+    assert!(tx(&db, |s| crate::eval::calendar::due(s, &cfg())).unwrap().is_none());
+    let (paused, err) = template(&db);
+    assert_eq!(paused, 1);
+    assert!(err.unwrap().starts_with("template_reference_unresolved"));
+    assert!(!tx(&db, |s| engine::has_work(s, &cfg())).unwrap());
+}
+
+/// Third W3 review, finding 5: an admission run's charge is recorded with
+/// the run under a key naming the hotkey, commitment and try, and stays due
+/// (a reason to step) until the ledger has confirmed it.
+#[test]
+fn admission_charges_are_durable_and_keyed_per_run() {
+    let db = db_with_open_cohort(2);
+    let run = |hotkey: &str, try_no: u32| LaneRun {
+        hotkey: hotkey.into(),
+        commitment: "cc".repeat(32),
+        package_sha256: "dd".repeat(32),
+        manifest_key: "artifacts/packages/x.json".into(),
+        label: "testnet-c1".into(),
+        spec_sha256: spec_v2().spec_sha256,
+        scorer_binary: "aa".repeat(32),
+        try_no,
+        claim_until_ms: 0,
+        limits: AdmitLimits { artifact_max_bytes: 1 << 30, load_wait_ms: 600_000, inactivity_ms: 60_000, doc_timeout_ms: 120_000 },
+    };
+    let a1 = run(&"01".repeat(32), 1);
+    let (key, micro) = tx(&db, |s| record_charge(s, &a1, 600_000, NOW)).unwrap().expect("a charge");
+    assert!(micro > 0);
+    assert_eq!(key, format!("main:testnet-c1:admission:{}:{}:1", "01".repeat(32), "cc".repeat(32)));
+    // The same run recorded again (a retried transaction) is one charge;
+    // another try and another hotkey are their own.
+    tx(&db, |s| record_charge(s, &a1, 600_000, NOW + 1)).unwrap();
+    tx(&db, |s| record_charge(s, &run(&"01".repeat(32), 2), 1_000, NOW)).unwrap();
+    tx(&db, |s| record_charge(s, &run(&"02".repeat(32), 1), 1_000, NOW)).unwrap();
+    let count = |db: &Sqlite| {
+        tx(db, |s| {
+            Ok::<_, EvalError>(int(&s.exec("SELECT COUNT(*) FROM adm_charges", &[])?[0], 0)?)
+        })
+        .unwrap()
+    };
+    assert_eq!(count(&db), 3);
+    assert!(tx(&db, |s| has_work(s, &cfg(), None)).unwrap());
+    // Settled one by one, oldest first, only when the ledger answered.
+    let mut settled = Vec::new();
+    while let Some(engine::Work::AdmissionSettle { key, microusd }) = tx(&db, charge_due).unwrap() {
+        assert!(microusd > 0);
+        tx(&db, |s| charge_settled(s, &key)).unwrap();
+        settled.push(key);
+    }
+    assert_eq!(settled.len(), 3);
+    assert_eq!(settled[0], key);
+    assert_eq!(count(&db), 0);
+}
+
+/// Finding 6 of the second W3 review: free signatures cannot grow the cohort
+/// object's refusal table. A refusal is stored only for the admitting cohort
+/// and a hotkey the commitment reader knows; any other is answered only.
+#[test]
+fn refusals_of_unknown_hotkeys_are_answered_but_never_stored() {
+    let db = db_with_open_cohort(2);
+    let rows = |db: &Sqlite| {
+        tx(db, |s| Ok::<_, EvalError>(int(&s.exec("SELECT COUNT(*) FROM adm_refusals", &[])?[0], 0)?)).unwrap()
+    };
+    for n in 20..30u8 {
+        let stranger = miner(n, 40, 1, n);
+        assert_eq!(code(&stranger.create(&db).0), "commitment_not_found");
+        // An opening naming a cohort that does not exist.
+        let elsewhere = miner(n, 40, 9_000 + u64::from(n), n);
+        assert_ne!(code(&elsewhere.create(&db).0), "");
+    }
+    assert_eq!(rows(&db), 0, "nothing stored for hotkeys with no commitment");
+    let known = miner(31, 41, 1, 0x31);
+    known.commit(&db, OPEN_BLOCK - 1, 0);
+    assert_eq!(code(&known.create_hinted(&db, Some(OPEN_BLOCK - 1)).0), "commitment_before_open");
+    assert_eq!(rows(&db), 1, "a known hotkey's refusal is its last refusal");
+}
+
+/// Finding 7 of the second W3 review: an entrant under a new hotkey that an
+/// operator coldkey owned at the cutoff is no outside entrant, nor is one
+/// whose owner the snapshot could not read; another owner is.
+#[test]
+fn entrants_owned_by_an_operator_coldkey_never_unlock_fresh_stock() {
+    for (owner, outside) in [(Some([0xc0u8; 32]), false), (None, false), (Some([0x77u8; 32]), true)] {
+        let db = db_with_open_cohort(2);
+        let m = miner(4, 2, 1, 0x14);
+        m.commit(&db, OPEN_BLOCK + 1, 0);
+        m.create(&db);
+        upload_all(&db, &m);
+        frame_ok(&db, &m);
+        let cutoff = OPEN_BLOCK + 360;
+        close_at(&db, cutoff);
+        snapshot(&db, cutoff, &m, Some(OPEN_BLOCK + 1), &m.upload.opening.chain_payload(), Some(m.uid), Some(m.registration_block));
+        tx(&db, |s| {
+            s.exec(
+                "UPDATE adm_snapshot SET coldkey = ?",
+                &[owner.map_or(SqlValue::Null, |c| SqlValue::Text(hex::encode(c)))],
+            )?;
+            Ok::<_, EvalError>(())
+        })
+        .unwrap();
+        admit_all(&db);
+        let b = tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap().unwrap();
+        assert_eq!(b, Boundary::Frozen { admitted: 1, overflow: 0, outside }, "{owner:?}");
+        let c = tx(&db, |s| engine::cohort(s, 1)).unwrap();
+        assert_eq!(c.plan.pool.pool_id == "fresh", outside);
+    }
+}
+
 #[test]
 fn the_cohort_response_names_the_window_and_its_limits() {
     let db = db_with_open_cohort(2);
@@ -1300,7 +1681,7 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
     let t = crate::eval::calendar::Template {
         schema: crate::eval::calendar::TEMPLATE_SCHEMA.into(),
         label_prefix: "testnet-cohort".into(),
-        plan: admission_plan(0, 40),
+        plan: template_plan(0, 40),
     };
     let bytes = serde_json::to_vec(&t).unwrap();
     tx(&db, |s| crate::eval::calendar::install(s, &cfg(), &bytes, NOW)).unwrap();
@@ -1344,6 +1725,12 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
         crate::eval::calendar::check(&cfg(), &serde_json::to_vec(&poor).unwrap()).is_err(),
         "the budget covers a full roster"
     );
+    let mut unlocks = t.clone();
+    unlocks.plan.admission = admission_plan(0, 40).admission;
+    assert!(
+        crate::eval::calendar::check(&cfg(), &serde_json::to_vec(&unlocks).unwrap()).is_err(),
+        "a standing template never names a fresh pool"
+    );
     let mut fresh = t;
     fresh.plan.pool.pool_id = "fresh".into();
     assert!(
@@ -1372,6 +1759,8 @@ fn daily_template(prefix: &str, cap: u16) -> crate::eval::calendar::Template {
     a.artifact_spec = b3.spec_id.into();
     a.artifact_spec_sha256 = b3.spec_sha256.clone();
     a.max_parts = u32::try_from(b3.object_bytes.div_ceil(a.part_size)).unwrap();
+    // Standing templates never name a fresh pool (`calendar::check`).
+    a.fresh_pool = None;
     crate::eval::calendar::Template {
         schema: crate::eval::calendar::TEMPLATE_SCHEMA.into(),
         label_prefix: prefix.into(),
@@ -1699,26 +2088,123 @@ fn operator_refuse_reason_is_checked(db: &Sqlite, id: &str) -> bool {
     tx(db, |s| operator_refuse(s, id, "Not A Code", NOW)).is_err()
 }
 
+/// Finding 10 of the second W3 review: a framing attempt cut off by the
+/// platform (CPU, eviction) is never charged to the upload. Each attempt
+/// arms a growing backoff before it runs, so a cut-off attempt runs again
+/// after it, and the session is never refused for it.
 #[test]
-fn framing_attempts_that_never_finish_refuse_the_upload() {
+fn framing_attempts_that_never_finish_back_off_and_never_refuse_the_upload() {
     let db = db_with_open_cohort(2);
     let m = miner(1, 3, 1, 0x11);
     m.commit(&db, OPEN_BLOCK + 1, 0);
     m.create(&db);
     upload_all(&db, &m);
     let id = m.session();
-    // Each begun attempt counts until an outcome is recorded; the plan's
-    // attributable-failure bound (3 here) then refuses the upload.
-    for _ in 0..3 {
-        assert!(tx(&db, |s| frame_begin(s, &id, NOW)).unwrap().is_some());
+    let mut t = NOW;
+    for n in 1..=6u32 {
+        assert_eq!(tx(&db, |s| verify_due(s, t)).unwrap().map(|x| x.1), Some("frame".into()), "attempt {n}");
+        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+        // Cut off: no outcome. Not due again before the backoff.
+        assert!(tx(&db, |s| verify_due(s, t + backoff_ms(n) - 1)).unwrap().is_none());
+        t += backoff_ms(n);
     }
-    // A failed read is the platform's: not counted.
-    tx(&db, |s| step_retry(s, &id, true, NOW)).unwrap();
-    assert!(tx(&db, |s| frame_begin(s, &id, NOW + LANE_LEASE_MS)).unwrap().is_some());
-    assert!(tx(&db, |s| frame_begin(s, &id, NOW + LANE_LEASE_MS)).unwrap().is_none());
     let row = tx(&db, |s| session_row(s, &id)).unwrap().unwrap();
-    assert_eq!(row.state, SessionState::Refused);
-    assert_eq!(row.refusal.unwrap().code, "artifact_invalid");
+    assert_eq!(row.state, SessionState::Verifying, "never refused for the platform's cut-offs");
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    assert_eq!(fault(&db), None, "below the plan's pause bound");
+    let retrying = |db: &Sqlite| tx(db, status).unwrap()["platform_retries"]["steps_retrying"].as_i64();
+    assert_eq!(retrying(&db), Some(1));
+    // Fix round 2, finding 5: at the plan's pause bound
+    // (`failures_before_pause`, 6 here) the next attempt faults the cohort
+    // (resumable `framing_unavailable`): the freeze waits on the same cohort,
+    // visibly, and the attempt still runs.
+    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    assert_eq!(bound, 6);
+    assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
+    assert!(engine::RESUMABLE_FAULTS.contains(&FRAMING_UNAVAILABLE));
+    close_at(&db, OPEN_BLOCK + 360);
+    assert_eq!(tx(&db, |s| try_freeze(s, &cfg(), t)).unwrap(), None, "a faulted cohort never freezes");
+    // The operator clears it; the next bound of cut-offs faults again, not
+    // the first attempt after the clear.
+    let label = tx(&db, |s| engine::cohort(s, 1)).unwrap().label;
+    assert!(tx(&db, |s| engine::clear_fault(s, &label, t)).unwrap().cleared);
+    t += backoff_ms(7);
+    for n in 8..=12u32 {
+        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+        assert_eq!(fault(&db), None, "attempt {n}");
+        t += backoff_ms(n);
+    }
+    assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
+    // A failed read is the platform's too: not counted, and backed off.
+    tx(&db, |s| step_retry(s, &id, true, t)).unwrap();
+    assert!(tx(&db, |s| verify_due(s, t)).unwrap().is_none());
+    assert!(backoff_ms(40) <= LANE_LEASE_MS, "the backoff is bounded by the lane lease");
+}
+
+/// Fix round 2, findings 5 and 7: a commitment resolution whose reads keep
+/// serving no state pauses the admitting cohort visibly (resumable
+/// `commitment_state_unavailable`) at the plan's pause bound, but only when
+/// the hotkey has a session verifying there (framing, and so the freeze,
+/// waits for the resolution). A verdict run that keeps meeting platform
+/// failures pauses it likewise (`scorer_unavailable`).
+#[test]
+fn stalled_resolutions_and_verdict_platform_failures_pause_the_cohort_visibly() {
+    let db = db_with_open_cohort(2);
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    // No session yet: nothing in this cohort waits on it.
+    tx(&db, |s| waiting_on_state(s, &account(1), 6, NOW)).unwrap();
+    assert_eq!(fault(&db), None);
+    m.create(&db);
+    upload_all(&db, &m);
+    tx(&db, |s| waiting_on_state(s, &account(1), 5, NOW)).unwrap();
+    assert_eq!(fault(&db), None, "below the bound");
+    tx(&db, |s| waiting_on_state(s, &account(1), 6, NOW)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some(commitments::STATE_UNAVAILABLE));
+    assert!(engine::RESUMABLE_FAULTS.contains(&commitments::STATE_UNAVAILABLE));
+    let label = tx(&db, |s| engine::cohort(s, 1)).unwrap().label;
+    assert!(tx(&db, |s| engine::clear_fault(s, &label, NOW)).unwrap().cleared);
+    // Verdict platform failures: the sixth pauses it.
+    let hotkey = hex::encode(account(1).0);
+    let commitment = m.upload.commitment.hex();
+    for n in 0..5u32 {
+        tx(&db, |s| platform_wait(s, &hotkey, &commitment, "lane_unavailable", n, NOW)).unwrap();
+        assert_eq!(fault(&db), None, "platform failure {}", n + 1);
+    }
+    tx(&db, |s| platform_wait(s, &hotkey, &commitment, "lane_unavailable", 5, NOW)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some("scorer_unavailable"));
+}
+
+/// Fix round 2, finding 8: the step alarm re-arms only for admission work
+/// that is due. A clean-up or object delete waiting out its backoff is
+/// still unfinished work (the deploy check and retirement wait for it), but
+/// no reason to wake the cohort object before the backoff ends.
+#[test]
+fn backed_off_housekeeping_is_work_but_not_due_work() {
+    let db = db_with_open_cohort(2);
+    let a = miner(1, 3, 1, 0x11);
+    a.commit(&db, OPEN_BLOCK + 1, 0);
+    a.create(&db);
+    let id = a.session();
+    let req = a.signed(&db, "DELETE", &format!("/admission/v1/sessions/{id}/attempts/1"), &[]);
+    let (r, _) = tx(&db, |s| Ok::<_, EvalError>(abort(s, &chain(), &req, &id, 1, NOW))).unwrap();
+    assert_eq!(r.body["state"].as_str(), Some("aborted"), "{:?}", r.body);
+    let req = a.signed(&db, "POST", &format!("/admission/v1/sessions/{id}/attempts/2"), &[]);
+    tx(&db, |s| Ok::<_, EvalError>(reopen(s, &chain(), &req, &id, 2, NOW))).unwrap();
+    let due = tx(&db, |s| object_deletes_due(s, 8, NOW)).unwrap();
+    assert_eq!(due.len(), 1);
+    // Only the uploading session and the recorded delete are pending.
+    let only = |db: &Sqlite, now: Option<u64>| tx(db, |s| has_work(s, &cfg(), now)).unwrap();
+    assert!(only(&db, None) && only(&db, Some(NOW)));
+    tx(&db, |s| object_delete_failed(s, &due[0].0, NOW)).unwrap();
+    assert!(only(&db, None), "still unfinished");
+    assert!(!only(&db, Some(NOW)), "not due during the backoff");
+    assert!(!tx(&db, |s| engine::has_due_work(s, &cfg(), NOW)).unwrap());
+    assert!(tx(&db, |s| engine::has_work(s, &cfg())).unwrap());
+    assert!(only(&db, Some(NOW + backoff_ms(1))), "due once the backoff passed");
 }
 
 #[test]
@@ -1844,7 +2330,7 @@ fn commitments_at_one_position_are_refused_and_a_refused_plan_faults_the_cohort(
     assert!(tx(&db, |s| engine::abandon(s, &co.label, "freeze-drill", NOW)).unwrap());
     assert_eq!(tx(&db, |s| engine::cohort(s, 1)).unwrap().phase, "abandoned");
     assert_eq!(state_of(&db, &d.session()).0, "refused");
-    assert_eq!(tx(&db, |s| cleanup_due(s, 10)).unwrap().len(), 1);
+    assert_eq!(tx(&db, |s| cleanup_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap().len(), 1);
 }
 
 #[test]
@@ -1936,8 +2422,8 @@ fn copies_of_published_artifacts_and_plans_without_operator_hotkeys_never_unlock
     assert!(plan::CohortPlan::parse(&serde_json::to_vec(&p).unwrap(), cfg().ceilings).is_err());
     p.admission.as_mut().unwrap().fresh_pool = None;
     plan::CohortPlan::parse(&serde_json::to_vec(&p).unwrap(), cfg().ceilings).unwrap();
-    // Spec v3 admits: admission runs name the cohort's spec. The object
-    // bound and part plan follow the v3 spec (the tower class is longer).
+    // Admission runs name the cohort's spec on their loads, so a spec v3
+    // (span tower class) admission plan is accepted.
     let mut v3p = admission_plan(1, 2);
     let b3 = SpecBounds::of(Version::V3).unwrap();
     let a = v3p.admission.as_mut().unwrap();
@@ -1946,6 +2432,7 @@ fn copies_of_published_artifacts_and_plans_without_operator_hotkeys_never_unlock
     v3p.fanout.as_mut().unwrap().score.artifact_spec = Some(b3.spec_id.into());
     let parsed = plan::CohortPlan::parse(&serde_json::to_vec(&v3p).unwrap(), cfg().ceilings).unwrap();
     assert_eq!(parsed.load_spec_sha256(), Some(b3.spec_sha256.as_str()));
+    assert_eq!(ADMISSION_SPECS, &[spec::SPEC_ID_V2, spec::SPEC_ID_V3]);
     let mut few = v3p.clone();
     few.admission.as_mut().unwrap().max_parts = u32::try_from(b3.object_bytes.div_ceil(64 << 20)).unwrap() - 1;
     assert!(
@@ -1956,10 +2443,15 @@ fn copies_of_published_artifacts_and_plans_without_operator_hotkeys_never_unlock
     let mut v4 = v3p;
     v4.admission.as_mut().unwrap().artifact_spec = "slop_ninja_a_artifact_spec_v4".into();
     assert!(plan::CohortPlan::parse(&serde_json::to_vec(&v4).unwrap(), cfg().ceilings).is_err());
+    // A plan with a fresh pool must name the operator's coldkeys too.
+    let mut p = admission_plan(1, 2);
+    p.admission.as_mut().unwrap().operator_coldkeys.clear();
+    assert!(plan::CohortPlan::parse(&serde_json::to_vec(&p).unwrap(), cfg().ceilings).is_err());
 }
 
 #[test]
 fn an_admission_run_names_its_cohorts_spec_to_the_scorer() {
+    let limits = AdmitLimits { artifact_max_bytes: 1 << 30, load_wait_ms: 600_000, inactivity_ms: 60_000, doc_timeout_ms: 120_000 };
     for v in [Version::V2, Version::V3] {
         let run = LaneRun {
             hotkey: "0x01".into(),
@@ -1971,14 +2463,16 @@ fn an_admission_run_names_its_cohorts_spec_to_the_scorer() {
             scorer_binary: "bb".repeat(32),
             try_no: 1,
             claim_until_ms: 0,
+            limits,
         };
-        let b = run.body();
+        let b = admit_body(&run);
         assert_eq!(b["spec_sha256"], v.spec_sha256(), "the load names the cohort's spec");
         assert_eq!(b["package_sha256"], run.package_sha256);
+        assert_eq!(b["label"], run.label);
+        assert_eq!(b["limits"]["artifact_max_bytes"], limits.artifact_max_bytes);
         assert_eq!(b["docs"][0]["text"], crate::eval::lane_logic::CONTROL_TEXT);
-        assert_eq!(b.as_object().unwrap().len(), 4);
+        assert_eq!(b.as_object().unwrap().len(), 6);
     }
-    assert!(ADMISSION_SPECS.contains(&Version::V3.id()) && ADMISSION_SPECS.contains(&Version::V2.id()));
 }
 
 #[test]
@@ -2128,7 +2622,7 @@ fn the_calendar_follows_a_pending_promotion_and_the_chain_not_the_template() {
     let t = crate::eval::calendar::Template {
         schema: crate::eval::calendar::TEMPLATE_SCHEMA.into(),
         label_prefix: "testnet-cohort".into(),
-        plan: admission_plan(0, 40),
+        plan: template_plan(0, 40),
     };
     tx(&db, |s| {
         crate::eval::calendar::install(s, &cfg(), &serde_json::to_vec(&t).unwrap(), NOW)
@@ -2219,7 +2713,7 @@ fn the_template_runs_the_testnet_plan_defaults() {
     let t = crate::eval::calendar::Template {
         schema: crate::eval::calendar::TEMPLATE_SCHEMA.into(),
         label_prefix: "testnet-cohort".into(),
-        plan: admission_plan(0, 4),
+        plan: template_plan(0, 4),
     };
     crate::eval::calendar::check(&cfg(), &serde_json::to_vec(&t).unwrap()).unwrap();
     let mut wide = t.clone();

@@ -19,7 +19,7 @@ use slop_ninja_miner::client::{
 use slop_ninja_miner::opening::{OpeningFile, OsNonce, Store, default_state_dir, load_opening};
 use slop_ninja_miner::trust::{Source, Trust};
 use slop_ninja_miner::upload::{UploadOptions, UploadOutcome, describe};
-use slop_ninja_miner::wire::json::CohortInfo;
+use slop_ninja_miner::wire::json::{CohortInfo, CommitmentView};
 use slop_ninja_miner::wire::{SessionState, is_session_id};
 use slop_ninja_miner::{chain, commit, object, provenance, public};
 use slop_ninja_protocol::{AccountId, NeuronIdentity};
@@ -654,6 +654,12 @@ async fn commit_cmd(args: CommitArgs) -> Result<ExitCode> {
             .finalized_commitment_block
             .map_or_else(|| "?".to_owned(), |b| b.to_string())
     );
+    if submitted.finalized_commitment_block.is_none() {
+        println!(
+            "note: the extrinsic was finalized, but finalized state did not show the commitment \
+             before the deadline; the opening records the inclusion. Check `status` before uploading."
+        );
+    }
     println!(
         "next: slop_ninja_miner upload --artifact {}",
         args.artifact.display()
@@ -676,15 +682,12 @@ fn modified(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
-/// The opening to upload for `cohort`: the local one whose payload is the
-/// commitment the coordinator observed for this hotkey; failing that, the
-/// newest one confirmed on chain. An opening that was never committed (a dry
-/// run before this client stopped storing them, or a failed submission) is
-/// chosen only by `--opening`.
+/// The opening to upload for `cohort` and `artifact` (see [`pick_opening`]).
 async fn choose_opening(
     store: &Store,
     client: &mut AdmissionClient,
     cohort: u64,
+    artifact: &slop_ninja_protocol::VerifiedArtifact,
 ) -> Result<PathBuf> {
     let openings = store.openings_for(client.chain().netuid, cohort, &ss58(&client.hotkey()))?;
     ensure!(
@@ -692,33 +695,84 @@ async fn choose_opening(
         "no opening for cohort {cohort}; run commit first"
     );
     let view = client.hotkey_view(cohort).await?;
-    if let Some(observed) = &view.commitment
-        && let Some((path, _)) = openings
-            .iter()
-            .find(|(_, f)| f.chain_payload == observed.payload)
-    {
-        return Ok(path.clone());
+    let mut dated: Vec<_> = openings
+        .into_iter()
+        .map(|(path, file)| {
+            let m = modified(&path);
+            (path, file, m)
+        })
+        .collect();
+    dated.sort_by_key(|(path, _, m)| (*m, path.clone()));
+    let (path, note) = pick_opening(&dated, view.commitment.as_ref(), &artifact.sha256.hex(), artifact.len)?;
+    if let Some(note) = note {
+        println!("note: {note}");
     }
-    let confirmed = openings
+    Ok(path)
+}
+
+/// Picks the opening to upload from the local openings for one cohort
+/// (oldest first) and the commitment the coordinator observed:
+///
+/// - The newest opening this wallet confirmed on chain at a later block than
+///   the observed commitment (a commitment just replaced, or a returning
+///   miner's new one, that the coordinator has not logged yet), when it is
+///   for `artifact`; when it is for another artifact, the observed
+///   commitment is already superseded, so nothing is picked.
+/// - Otherwise the opening whose payload is the observed commitment, when it
+///   is for `artifact`.
+/// - Otherwise the newest opening for `artifact` with a submission record.
+///
+/// An opening that was never committed is chosen only by `--opening`.
+fn pick_opening(
+    openings: &[(PathBuf, OpeningFile, Option<std::time::SystemTime>)],
+    observed: Option<&CommitmentView>,
+    artifact_sha256: &str,
+    artifact_len: u64,
+) -> Result<(PathBuf, Option<&'static str>)> {
+    let fits = |f: &OpeningFile| f.artifact_sha256 == artifact_sha256 && f.artifact_len == artifact_len;
+    let confirmed_at = |f: &OpeningFile| f.submitted.as_ref().and_then(|s| s.finalized_commitment_block);
+    let newest_confirmed = openings
         .iter()
-        .filter(|(_, f)| f.submitted.is_some())
-        .max_by_key(|(path, _)| modified(path));
-    if let Some((path, _)) = confirmed {
-        println!(
-            "note: the coordinator has observed no commitment matching a local opening yet; \
-             using the newest opening confirmed on chain"
+        .filter_map(|(path, f, m)| confirmed_at(f).map(|b| (b, *m, path, f)))
+        .max_by_key(|(b, m, path, _)| (*b, *m, (*path).clone()));
+    if let Some((block, _, path, f)) = newest_confirmed
+        && observed.is_none_or(|o| block > o.block)
+    {
+        ensure!(
+            fits(f),
+            "the newest commitment this wallet confirmed on chain (block {block}, opening {}) is for \
+             another artifact than {artifact_sha256}; upload that artifact, or pass --opening FILE",
+            path.display()
         );
-        return Ok(path.clone());
+        let note = observed.map(|_| {
+            "the coordinator has not logged this wallet's newest commitment yet; the upload sends \
+             its confirmed block, and the coordinator answers commitment_not_found until its \
+             reader has polled at or after that block"
+        });
+        return Ok((path.clone(), note));
+    }
+    if let Some(o) = observed
+        && let Some((path, f, _)) = openings.iter().find(|(_, f, _)| f.chain_payload == o.payload)
+    {
+        ensure!(
+            fits(f),
+            "the commitment the coordinator observed (opening {}) is for another artifact than \
+             {artifact_sha256}; upload that artifact, or commit again for this one",
+            path.display()
+        );
+        return Ok((path.clone(), None));
+    }
+    if let Some((path, _, _)) = openings.iter().rev().find(|(_, f, _)| f.submitted.is_some() && fits(f)) {
+        return Ok((
+            path.clone(),
+            Some("the coordinator has observed no commitment matching a local opening yet; using the newest opening for this artifact submitted on chain"),
+        ));
     }
     bail!(
-        "none of the {} local openings for cohort {cohort} matches the commitment the coordinator \
-         observed{}, and none was confirmed on chain; pass --opening FILE",
+        "none of the {} local openings for this cohort is for artifact {artifact_sha256} and matches \
+         the commitment the coordinator observed{} or was submitted on chain; pass --opening FILE",
         openings.len(),
-        if view.commitment.is_some() {
-            ""
-        } else {
-            " (it has observed none yet)"
-        }
+        if observed.is_some() { "" } else { " (it has observed none yet)" }
     )
 }
 
@@ -738,7 +792,7 @@ async fn upload_cmd(args: UploadArgs) -> Result<ExitCode> {
                 .as_ref()
                 .map(|a| a.cohort)
                 .context("no cohort is admitting")?;
-            choose_opening(&store, &mut client, cohort).await?
+            choose_opening(&store, &mut client, cohort, &artifact).await?
         }
     };
     let opening: OpeningFile = load_opening(&opening_path)?;
@@ -994,4 +1048,78 @@ async fn next_cohort(args: PublicArgs) -> Result<ExitCode> {
         .context("pass --public (or set SLOP_NINJA_PUBLIC)")?;
     println!("{}", public::next_cohort_report(&status));
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slop_ninja_miner::opening::Submitted;
+
+    fn opening(payload: &str, artifact: &str, confirmed: Option<Option<u64>>) -> OpeningFile {
+        OpeningFile {
+            schema: String::new(),
+            opening: String::new(),
+            commitment: String::new(),
+            chain_payload: payload.into(),
+            cohort: 7,
+            netuid: 601,
+            hotkey: String::new(),
+            registration_block: 1,
+            content: String::new(),
+            artifact_sha256: artifact.into(),
+            artifact_len: 10,
+            submitted: confirmed.map(|b| Submitted { finalized_commitment_block: b, ..Default::default() }),
+        }
+    }
+
+    fn observed(payload: &str, block: u64) -> CommitmentView {
+        CommitmentView {
+            block,
+            block_hash: None,
+            extrinsic: 0,
+            payload: payload.into(),
+            payload_cohort: Some(7),
+            in_window: true,
+        }
+    }
+
+    /// Fix round 1, finding 3: after `commit --replace` the coordinator still
+    /// observes the older commitment until its reader logs the new one. The
+    /// new opening (confirmed at a later block) is picked for its artifact;
+    /// the old artifact is refused locally rather than uploaded for a
+    /// commitment the chain no longer holds.
+    #[test]
+    fn a_replaced_commitment_picks_the_newer_confirmed_opening() {
+        let list = vec![
+            (PathBuf::from("c1.json"), opening("p1", "a1", Some(Some(100))), None),
+            (PathBuf::from("c2.json"), opening("p2", "a2", Some(Some(120))), None),
+        ];
+        let seen = observed("p1", 100);
+        let (path, note) = pick_opening(&list, Some(&seen), "a2", 10).unwrap();
+        assert_eq!(path, PathBuf::from("c2.json"));
+        assert!(note.is_some());
+        let err = pick_opening(&list, Some(&seen), "a1", 10).unwrap_err().to_string();
+        assert!(err.contains("another artifact"), "{err}");
+        // Once the coordinator logs the new commitment, it is matched directly.
+        let (path, note) = pick_opening(&list, Some(&observed("p2", 120)), "a2", 10).unwrap();
+        assert_eq!((path, note), (PathBuf::from("c2.json"), None));
+        // A commitment the coordinator logged at a later block than any local
+        // confirmation (made elsewhere) is matched by payload, or refused.
+        let (path, _) = pick_opening(&list, Some(&observed("p1", 130)), "a1", 10).unwrap();
+        assert_eq!(path, PathBuf::from("c1.json"));
+        // Nothing observed yet: the newest confirmed opening for the artifact.
+        let (path, _) = pick_opening(&list, None, "a2", 10).unwrap();
+        assert_eq!(path, PathBuf::from("c2.json"));
+        // An inclusion whose read-back gave up (no finalized block) is used
+        // only as the fallback for its artifact; a never-submitted opening
+        // never.
+        let list = vec![
+            (PathBuf::from("d1.json"), opening("q1", "b1", Some(None)), None),
+            (PathBuf::from("d2.json"), opening("q2", "b2", None), None),
+        ];
+        let (path, note) = pick_opening(&list, None, "b1", 10).unwrap();
+        assert_eq!(path, PathBuf::from("d1.json"));
+        assert!(note.is_some());
+        assert!(pick_opening(&list, None, "b2", 10).is_err());
+    }
 }

@@ -2016,6 +2016,32 @@ parity 4/4; publisher 39 + 1 + 36, clippy native and wasm32 clean; miner 22
 unit, 1 binary unit, cli 3, e2e 9 + 3, golden 2, admission wire 13, clippy
 clean; `no_runtime_gates` 2/2. Nothing deployed.
 
+Live (2026-11-03), from main `4717b5c8`, one change per deploy:
+
+- **eval-testnet, 17:42Z.** Deployed while cohort 18 sat packaged in
+  transition with cohort 19 queued and nothing else running. The store
+  migrated from 14 to 15 on both instances. The only variable passed at
+  deploy is `SPEND_ALERT_MICROUSD`, the name this tree's `SpendLedger` reads.
+  The probe read authority `r0`, no fault, and a ledger answering with its
+  alert threshold set.
+  The previous build (`1335172d`) had been deployed with
+  `SPEND_ALERT_MICROUSD`, but its `SpendLedger` read only
+  `MONTHLY_CAP_MICROUSD`. Every ledger call was therefore refused, and
+  `/eval/status` carried `ledger: null`, which the publisher then running
+  could not parse. That build's publisher reported `status_unreachable eval`
+  from 16:46Z, and cohort 18's settlement retried against the refusing
+  ledger. Both cleared within a minute of this deploy.
+- **Publisher, 18:55Z.** A null ledger is now read as unknown, and
+  `ledger_threshold_unset` is live. The probe saw a cron run ok and a relay
+  heartbeat answered, and nothing fired afterwards.
+- **Coordinator: no deploy.** This change's Worker code (`cf_admission.rs`,
+  `cf_eval.rs`, `cf_lanes.rs`, and `commitments_drive` in `cf.rs`) runs only
+  under `EVAL_ROLE = "eval"`.
+
+Still open: `ADMISSION_ROUTES` stays `off` (D6), so `/admit` on a v3 cohort
+and the CLI's finalized read-back have not run live. The immediate pause on
+a definitive reference refusal is covered by tests only.
+
 ### Chain-record restart
 
 A restart gives the main instance a fresh reference chain (R_0, no

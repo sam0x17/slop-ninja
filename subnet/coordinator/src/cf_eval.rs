@@ -51,6 +51,13 @@ pub const RECEIPTS_BUCKET: &str = "RECEIPTS_TESTNET";
 pub const INTERNAL: &str = "https://eval.internal";
 /// The header naming the cohort instance a request is for (`main` or `load`).
 pub const INSTANCE_HEADER: &str = "x-eval-instance";
+/// The header naming the main authority a request is for (`config::Authority`;
+/// `main`, the original, when absent). Every cohort object records the one
+/// its first request named and refuses any other.
+pub const AUTHORITY_HEADER: &str = "x-eval-authority";
+/// Marks a read-only audit request (`/eval/authority/<name>/status`): an
+/// object that stores no identity answers 404 and writes nothing.
+pub const AUDIT_HEADER: &str = "x-eval-audit";
 /// Wall-clock budget of one cohort alarm step.
 const STEP_BUDGET_MS: u64 = 60_000;
 /// The sweep cadence while lanes live.
@@ -84,7 +91,51 @@ pub fn private_seed(env: &Env) -> Option<[u8; 32]> {
     secret32(env, "EVAL_PRIVATE_SEED")
 }
 
+/// The main instance's authority the deployment names (`EVAL_MAIN_AUTHORITY`,
+/// `EVAL_MAIN_FIRST_COHORT` and `EVAL_MAIN_PREVIOUS`, tracked in
+/// `wrangler.toml`; `config::Authority::parse_with`).
+pub fn main_authority(env: &Env) -> std::result::Result<crate::config::Authority, &'static str> {
+    let v = |name: &str| env.var(name).ok().map(|v| v.to_string());
+    crate::config::Authority::parse_with(
+        v("EVAL_MAIN_AUTHORITY").as_deref(),
+        v("EVAL_MAIN_FIRST_COHORT").as_deref(),
+        v("EVAL_MAIN_PREVIOUS").as_deref(),
+    )
+    .map_err(|_| "EVAL_MAIN_AUTHORITY")
+}
+
+/// An instance's configuration, with the authority the deployment names for
+/// the main instance (the load instance is always the original authority's).
+/// A cohort object replaces the authority with its own ([`EvalCohort`]).
 pub fn eval_config(env: &Env, instance: &str) -> std::result::Result<EvalConfig, &'static str> {
+    let authority =
+        if instance == engine::INSTANCE_LOAD { crate::config::Authority::default() } else { main_authority(env)? };
+    eval_config_with(env, instance, authority)
+}
+
+/// A cohort object's configuration under its own authority `own` (recorded
+/// from its first request) and the successor it recorded, if any
+/// (`config::own_authority`): the deployment's when it names `own` and no
+/// successor superseded it, else `own` retired, which keeps its lane names,
+/// probe keys and kicks for the work it still holds and admits no plan.
+pub fn own_config(
+    env: &Env,
+    instance: &str,
+    own: &str,
+    superseded_by: Option<&str>,
+) -> std::result::Result<EvalConfig, &'static str> {
+    if instance == engine::INSTANCE_LOAD {
+        return eval_config(env, instance);
+    }
+    let deployed = main_authority(env).ok();
+    eval_config_with(env, instance, crate::config::own_authority(deployed.as_ref(), own, superseded_by))
+}
+
+fn eval_config_with(
+    env: &Env,
+    instance: &str,
+    authority: crate::config::Authority,
+) -> std::result::Result<EvalConfig, &'static str> {
     let netuid = var_u64(env, "SUBNET_NETUID").and_then(|v| u16::try_from(v).ok()).ok_or("netuid")?;
     let load = instance == engine::INSTANCE_LOAD;
     let cap = var_u64(env, if load { "LOAD_ROSTER_CAP" } else { "ROSTER_CAP" }).map(|v| v as usize);
@@ -99,6 +150,7 @@ pub fn eval_config(env: &Env, instance: &str) -> std::result::Result<EvalConfig,
             .map(|v| v.to_string().split(',').map(str::trim).filter(|p| !p.is_empty()).map(str::to_owned).collect())
             .unwrap_or_default(),
         scorer_binary: env.var("SCORER_BINARY_SHA256").map(|v| v.to_string()).unwrap_or_default(),
+        authority,
     })
 }
 
@@ -219,13 +271,39 @@ pub fn internal_request(method: Method, path: &str, body: Option<String>) -> Res
     Request::new_with_init(&format!("{INTERNAL}{path}"), &init)
 }
 
-/// The cohort authority's Durable Object name for an instance.
-pub fn cohort_name(env: &Env, instance: &str) -> Option<String> {
+fn chain_of(env: &Env) -> Option<crate::config::ChainConfig> {
     let genesis = env.var("CHAIN_GENESIS").ok()?.to_string();
     let netuid = env.var("SUBNET_NETUID").ok().map(|v| v.to_string());
-    let chain = crate::config::chain_config(&genesis, netuid.as_deref()).ok()?;
-    let main = crate::config::eval_cohort_name(&chain)?;
-    Some(if instance == engine::INSTANCE_LOAD { format!("{main}/load") } else { main })
+    crate::config::chain_config(&genesis, netuid.as_deref()).ok()
+}
+
+/// The authority an instance's requests go to: the one the deployment names
+/// for the main instance, the original for the load instance. `None` when the
+/// authority vars are malformed, so a misconfigured deployment reaches none.
+fn configured_authority(env: &Env, instance: &str) -> Option<String> {
+    if instance == engine::INSTANCE_LOAD {
+        Some(crate::config::ORIGINAL_AUTHORITY.into())
+    } else {
+        main_authority(env).ok().map(|a| a.name().to_owned())
+    }
+}
+
+/// The cohort object's Durable Object name for an instance under `authority`:
+/// the load instance's `<base>/load`, a main authority's
+/// `config::authority_cohort_name`.
+fn object_name(env: &Env, instance: &str, authority: &str) -> Option<String> {
+    let chain = chain_of(env)?;
+    if instance == engine::INSTANCE_LOAD {
+        Some(format!("{}/load", crate::config::eval_cohort_name(&chain)?))
+    } else {
+        crate::config::authority_cohort_name(&chain, authority)
+    }
+}
+
+/// The cohort authority's Durable Object name for an instance, under the
+/// authority the deployment names.
+pub fn cohort_name(env: &Env, instance: &str) -> Option<String> {
+    object_name(env, instance, &configured_authority(env, instance)?)
 }
 
 /// A request to an instance's cohort authority.
@@ -236,12 +314,82 @@ pub async fn cohort_fetch(env: &Env, instance: &str, method: Method, path: &str,
 /// [`cohort_fetch`] with an `AbortSignal.timeout(timeout_ms)` the platform
 /// enforces on the call and its reply (`cf_io::internal_request`).
 pub async fn cohort_fetch_within(env: &Env, instance: &str, method: Method, path: &str, body: Option<String>, timeout_ms: Option<u64>) -> Result<Response> {
-    let name = cohort_name(env, instance).ok_or_else(|| worker::Error::RustError("not configured".into()))?;
+    let authority =
+        configured_authority(env, instance).ok_or_else(|| worker::Error::RustError("not configured".into()))?;
+    authority_fetch(env, instance, &authority, method, path, body, timeout_ms).await
+}
+
+/// A request to main authority `authority` (or the load instance), whatever
+/// the deployment names: lanes call back the authority that kicked them, a
+/// successor asks a predecessor to record it, and the operator reaches an
+/// earlier authority's faults.
+pub async fn authority_fetch(
+    env: &Env,
+    instance: &str,
+    authority: &str,
+    method: Method,
+    path: &str,
+    body: Option<String>,
+    timeout_ms: Option<u64>,
+) -> Result<Response> {
+    authority_fetch_as(env, instance, authority, method, path, body, timeout_ms, false).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn authority_fetch_as(
+    env: &Env,
+    instance: &str,
+    authority: &str,
+    method: Method,
+    path: &str,
+    body: Option<String>,
+    timeout_ms: Option<u64>,
+    audit: bool,
+) -> Result<Response> {
+    let name =
+        object_name(env, instance, authority).ok_or_else(|| worker::Error::RustError("not configured".into()))?;
     let binding = crate::config::binding("EVAL_COHORT", crate::config::NETWORK);
     let stub = env.durable_object(&binding)?.get_by_name_with_location_hint(&name, "enam")?;
     let req = super::cf_io::internal_request(&format!("{INTERNAL}{path}"), method, body.as_deref(), timeout_ms)?;
     req.headers().set(INSTANCE_HEADER, instance)?;
+    req.headers().set(AUTHORITY_HEADER, authority)?;
+    if audit {
+        req.headers().set(AUDIT_HEADER, "1")?;
+    }
     stub.fetch_with_request(req).await
+}
+
+/// `GET /eval/authority/<name>/status`: main authority `name`'s status, read
+/// only. An object that stores no identity answers 404 and writes nothing.
+pub async fn audit_status(env: &Env, authority: &str) -> Result<Response> {
+    authority_fetch_as(env, engine::INSTANCE_MAIN, authority, Method::Get, "/status", None, None, true).await
+}
+
+/// A tick's kick to main authority `authority` by name (an earlier one that
+/// may still hold work; `config::kicked_authorities`).
+pub async fn kick_authority(
+    env: &Env,
+    authority: &str,
+    confirmed: Option<crate::wire::BlockRef>,
+    epoch: Option<EpochObservation>,
+) -> Option<Value> {
+    let body = serde_json::to_string(&Kick { confirmed, epoch }).ok()?;
+    let mut r = authority_fetch(
+        env,
+        engine::INSTANCE_MAIN,
+        authority,
+        Method::Post,
+        "/kick",
+        Some(body),
+        Some(KICK_TIMEOUT_MS),
+    )
+    .await
+    .ok()?;
+    if r.status_code() != 200 {
+        super::cf_io::discard(&mut r);
+        return None;
+    }
+    super::cf_io::response_json::<Value>(&mut r, DO_REPLY_BYTES).await.ok()
 }
 
 /// A heartbeat's kick to a cohort object (one transaction), bounded like a
@@ -255,13 +403,32 @@ pub const KICK_TIMEOUT_MS: u64 = crate::liveness::TIMEOUT_MS;
 /// refused (`body_too_large`) instead of overdrawing the scope.
 const DO_REPLY_BYTES: usize = crate::arena_routes::ALARM_CONTROL_BYTES;
 
-/// A lane's JSON call to its cohort authority, retried with backoff on
-/// overload or transport errors (holding no claim while it waits).
-pub async fn cohort_call<T: serde::de::DeserializeOwned>(env: &Env, instance: &str, path: &str, body: &impl Serialize) -> std::result::Result<T, &'static str> {
+/// A named authority's record of its predecessors' successions: `(name,
+/// first cohort checked)` pairs (`config::succession_recorded`), one per
+/// predecessor, so it is bounded by `EVAL_MAIN_PREVIOUS`.
+const SUCCEEDED_KEY: &str = "succession_recorded";
+
+/// The successions this object recorded (none when unreadable: then every
+/// predecessor is asked again, which changes nothing it recorded).
+async fn succeeded(storage: &worker::Storage) -> Vec<(String, u64)> {
+    storage.get::<Vec<(String, u64)>>(SUCCEEDED_KEY).await.ok().flatten().unwrap_or_default()
+}
+
+/// A lane's JSON call to the cohort authority that kicked it (`k.authority`,
+/// the original when absent), retried with backoff on overload or transport
+/// errors (holding no claim while it waits). An earlier authority's lane
+/// never reports to a later one.
+pub async fn cohort_call<T: serde::de::DeserializeOwned>(
+    env: &Env,
+    k: &LaneKick,
+    path: &str,
+    body: &impl Serialize,
+) -> std::result::Result<T, &'static str> {
     let body = serde_json::to_string(body).map_err(|_| "request json")?;
+    let authority = k.authority.as_deref().unwrap_or(crate::config::ORIGINAL_AUTHORITY);
     let mut delay = 250u64;
     for attempt in 0..6 {
-        match cohort_fetch(env, instance, Method::Post, path, Some(body.clone())).await {
+        match authority_fetch(env, &k.instance, authority, Method::Post, path, Some(body.clone()), None).await {
             Ok(mut r) if r.status_code() == 200 => return super::cf_io::response_json::<T>(&mut r, LANE_BODY_BYTES).await.map_err(|_| "reply json"),
             Ok(mut r) => {
                 // An unread body keeps the invocation open (`cf_io::discard`).
@@ -422,21 +589,55 @@ impl DurableObject for EvalCohort {
             Err(code) => return error(code, 503),
         };
         let storage = self.state.storage();
-        // This object's instance, fixed by its first request.
+        let path = req.path();
+        // A read-only request (the audit route, a successor's supersede call)
+        // never creates an object's identity (`config::object_identity`).
+        let may_create = !(path.starts_with("/succession/") || req.headers().get(AUDIT_HEADER)?.is_some());
+        let stored_instance = storage.get::<String>("instance").await.ok().flatten();
+        // An object created before authorities were named is the original's.
+        let stored_authority = storage
+            .get::<String>("authority")
+            .await
+            .ok()
+            .flatten()
+            .or_else(|| stored_instance.as_ref().map(|_| crate::config::ORIGINAL_AUTHORITY.to_owned()));
+        // This object's instance and authority, fixed by its first request: a
+        // main authority's object is only ever addressed under its own name
+        // (`authority_fetch`).
         let asked = req.headers().get(INSTANCE_HEADER)?.unwrap_or_else(|| engine::INSTANCE_MAIN.into());
-        let instance = match storage.get::<String>("instance").await.ok().flatten() {
-            Some(i) if i != asked => return error("instance_mismatch", 409),
-            Some(i) => i,
-            None => {
-                storage.put("instance", &asked).await?;
-                asked
+        let (instance, write_instance) =
+            match crate::config::object_identity(stored_instance.as_deref(), &asked, may_create) {
+                Ok(v) => v,
+                Err("unknown_authority") => return error("unknown_authority", 404),
+                Err(_) => return error("instance_mismatch", 409),
+            };
+        let asked = req.headers().get(AUTHORITY_HEADER)?.unwrap_or_else(|| crate::config::ORIGINAL_AUTHORITY.into());
+        let (authority, write_authority) =
+            match crate::config::object_identity(stored_authority.as_deref(), &asked, may_create) {
+                Ok(v) => v,
+                Err("unknown_authority") => return error("unknown_authority", 404),
+                Err(code) => return error(code, 409),
+            };
+        if write_instance {
+            storage.put("instance", &instance).await?;
+        }
+        if write_authority {
+            storage.put("authority", &authority).await?;
+        }
+        // The successor it recorded, if any (`eval::succession`); read in a
+        // transaction, and an unreadable store refuses rather than admits.
+        let superseded = if instance == engine::INSTANCE_MAIN {
+            match transaction(&storage, crate::eval::succession::superseded_by) {
+                Ok(v) => v,
+                Err(_) => return error("store_unavailable", 503),
             }
+        } else {
+            None
         };
-        let Ok(cfg) = eval_config(&self.env, &instance) else {
+        let Ok(cfg) = own_config(&self.env, &instance, &authority, superseded.as_deref()) else {
             return error("not_configured", 503);
         };
         let now = now_ms();
-        let path = req.path();
         if path.starts_with("/lane/") || path.starts_with("/gen/") || path.starts_with("/job/") {
             return self.lane_route(&mut req, &path, cfg, now).await;
         }
@@ -453,15 +654,35 @@ impl DurableObject for EvalCohort {
             return if main { self.template_route(&mut req, &path, cfg).await } else { error("main_instance_only", 404) };
         }
         match (req.method(), path.as_str()) {
+            (Method::Post, "/succession/supersede") if instance == engine::INSTANCE_MAIN => {
+                let r =
+                    match super::cf_io::request_json::<crate::config::Supersede>(&mut req, OPERATOR_BODY_BYTES).await {
+                        Ok(r) => r,
+                        Err(e) => return error(e.code(), e.status()),
+                    };
+                // Under this authority's own configuration (retired: the
+                // deployment names its successor), so its calendar counts no work.
+                let c2 = cfg.clone();
+                match transaction(&storage, move |sql| crate::eval::succession::supersede(sql, &c2, &r, now)) {
+                    Ok(Ok(v)) => json(&v),
+                    Ok(Err(code)) => {
+                        let mut resp = Response::from_json(&j!({"refused": code}))?.with_status(409);
+                        resp.headers_mut().set("Cache-Control", "no-store")?;
+                        Ok(resp)
+                    }
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
             (Method::Post, "/kick") => {
                 let kick = match super::cf_io::request_json::<Kick>(&mut req, OPERATOR_BODY_BYTES).await {
                     Ok(k) => k,
                     Err(e) => return error(e.code(), e.status()),
                 };
+                let c2 = cfg.clone();
                 let moved = match transaction(&storage, move |sql| {
                     let moved = engine::observe(sql, &kick, now)?;
                     let scoring = engine::active(sql)?.is_some_and(|c| c.phase == "scoring");
-                    Ok::<_, engine::EvalError>((moved, engine::has_work(sql)?, scoring))
+                    Ok::<_, engine::EvalError>((moved, engine::has_work(sql, &c2)?, scoring))
                 }) {
                     Ok(v) => v,
                     Err(_) => return error("store_unavailable", 503),
@@ -472,22 +693,54 @@ impl DurableObject for EvalCohort {
                 if moved.1 && running < now as i64 && storage.get_alarm().await?.is_none() {
                     storage.set_alarm(500i64).await?;
                 }
-                json(&j!({"moved": moved.0, "work": moved.1, "scoring": moved.2}))
+                // Once every predecessor recorded this authority as successor,
+                // none holds or takes work again: the Worker stops kicking them
+                // (`config::kicked_authorities`).
+                let complete = crate::config::succession_complete(&cfg.authority, &succeeded(&storage).await);
+                json(&j!({"moved": moved.0, "work": moved.1, "scoring": moved.2, "succession_complete": complete}))
             }
             (Method::Get, "/status") => {
                 let alarm = storage.get_alarm().await.ok().flatten();
-                let chain = eval_config(&self.env, &instance).map(|c| c.chain).ok();
+                let chain = Some(cfg.chain.clone());
+                let c2 = cfg.clone();
                 match transaction(&storage, move |sql| {
                     let mut v = engine::status(sql, now)?;
                     if let Some(chain) = &chain {
                         v["reward"] = v3::regime(sql, chain)?;
                     }
+                    // Whether it still has work (the deploy check's switch
+                    // waits for none: `config::deploy_check`).
+                    v["work"] = j!(engine::has_work(sql, &c2)?);
                     Ok::<_, engine::EvalError>(v)
                 }) {
                     Ok(mut v) => {
                         v["schema_version"] = j!(version);
                         v["instance"] = j!(instance);
                         v["authority"] = j!(self.state.id().to_string());
+                        v["authority_name"] = j!(cfg.authority.name());
+                        v["authority_retired"] = j!(cfg.authority.is_retired());
+                        v["first_cohort"] = j!(cfg.authority.first_cohort());
+                        v["label_prefix"] = j!(cfg.authority.label_prefix());
+                        v["superseded_by"] = j!(cfg.authority.superseded_by());
+                        v["predecessors"] = j!(cfg.authority.predecessors());
+                        // The predecessors' successions this store recorded
+                        // (each of them is superseded), for the deploy check;
+                        // null when unreadable, which that check refuses.
+                        match storage.get::<Vec<(String, u64)>>(SUCCEEDED_KEY).await {
+                            Ok(done) => {
+                                let done = done.unwrap_or_default();
+                                v["succession_recorded"] = j!(done
+                                    .iter()
+                                    .map(|(p, f)| j!({"predecessor": p, "first_cohort": f}))
+                                    .collect::<Vec<_>>());
+                                v["succession_complete"] =
+                                    j!(crate::config::succession_complete(&cfg.authority, &done));
+                            }
+                            Err(_) => {
+                                v["succession_recorded"] = Value::Null;
+                                v["succession_complete"] = Value::Null;
+                            }
+                        }
                         v["last_step_error"] = storage.get::<Value>("last_step_error").await.ok().flatten().unwrap_or(Value::Null);
                         v["step_errors"] = j!(storage.get::<i64>("step_errors").await.ok().flatten().unwrap_or(0));
                         v["last_dispatch"] = storage.get::<Value>("last_dispatch").await.ok().flatten().unwrap_or(Value::Null);
@@ -529,6 +782,11 @@ impl DurableObject for EvalCohort {
                     }
                     Err(e) => return tx_reply::<()>(Err(TxError::Operation(e))),
                 };
+                // A named authority takes a plan only once every earlier
+                // authority recorded it as its successor (`succeed`).
+                if let Err(code) = self.succeed(&cfg).await {
+                    return error(code, 409);
+                }
                 // A label already queued never touches the ledger again: the same bytes
                 // (a retry after a lost reply) answer with the queued cohort, others
                 // are refused, and the live cohort's reservation stays as it is.
@@ -723,9 +981,16 @@ impl EvalCohort {
             }
         }
         let now = now_ms();
+        // The calendar's work counts only under this object's own
+        // configuration: a retired authority opens nothing, so its step finds
+        // nothing to do and never re-arms for it. Without a configuration the
+        // next kick re-arms instead.
+        let Ok(cfg) = self.config(&self.instance().await).await else {
+            return Response::ok("step");
+        };
         let again = transaction(&storage, move |sql| {
             let o = engine::observed(sql)?;
-            Ok::<_, engine::EvalError>((engine::has_work(sql)?, o.kick_ms))
+            Ok::<_, engine::EvalError>((engine::has_work(sql, &cfg)?, o.kick_ms))
         });
         if let Ok((work, kick_ms)) = again
             && work
@@ -745,6 +1010,93 @@ impl EvalCohort {
 impl EvalCohort {
     async fn instance(&self) -> String {
         self.state.storage().get::<String>("instance").await.ok().flatten().unwrap_or_else(|| engine::INSTANCE_MAIN.into())
+    }
+
+    /// This object's configuration under its own recorded authority and
+    /// successor ([`own_config`]).
+    async fn config(&self, instance: &str) -> std::result::Result<EvalConfig, &'static str> {
+        let storage = self.state.storage();
+        let own = storage
+            .get::<String>("authority")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| crate::config::ORIGINAL_AUTHORITY.into());
+        let superseded = if instance == engine::INSTANCE_MAIN {
+            transaction(&storage, crate::eval::succession::superseded_by).map_err(|_| "succession read")?
+        } else {
+            None
+        };
+        own_config(&self.env, instance, &own, superseded.as_deref())
+    }
+
+    /// Before a named authority's plan or template: every predecessor
+    /// (`config::Authority::predecessors`) records this authority as its
+    /// successor (`eval::succession::supersede`), each only while it holds no
+    /// cohort that is not closed or abandoned, no label or number within
+    /// this authority's rule, and no work left (`predecessor_work`: the kicks
+    /// that continue until succession completes finish it, and the plan or
+    /// template is retried). A predecessor that a successor already
+    /// superseded answers with that one, which must be this authority or one
+    /// it lists after that predecessor (`config::succession_reply`), so a
+    /// deployment that leaves an earlier authority out of
+    /// `EVAL_MAIN_PREVIOUS` is refused. Each predecessor's record is kept in
+    /// this store with the first cohort it was checked for
+    /// (`config::succession_recorded`): a superseded authority's cohorts
+    /// never change again, but a lower first cohort asks again. The original
+    /// authority, and a retired one, need nothing.
+    pub(super) async fn succeed(&self, cfg: &EvalConfig) -> std::result::Result<(), &'static str> {
+        let Some(req) = crate::config::Supersede::of(&cfg.authority) else { return Ok(()) };
+        if cfg.authority.is_retired() {
+            return Ok(());
+        }
+        let storage = self.state.storage();
+        let mut done = succeeded(&storage).await;
+        let first = cfg.authority.first_cohort();
+        let body = serde_json::to_string(&req).map_err(|_| "succession json")?;
+        for p in cfg.authority.predecessors() {
+            if crate::config::succession_recorded(&done, p, first) {
+                continue;
+            }
+            let mut r = authority_fetch(
+                &self.env,
+                engine::INSTANCE_MAIN,
+                p,
+                Method::Post,
+                "/succession/supersede",
+                Some(body.clone()),
+                Some(KICK_TIMEOUT_MS),
+            )
+            .await
+            .map_err(|_| "predecessor_unreachable")?;
+            match r.status_code() {
+                200 => {
+                    let v = super::cf_io::response_json::<Value>(&mut r, DO_REPLY_BYTES).await.unwrap_or_default();
+                    crate::config::succession_reply(&cfg.authority, p, v["superseded_by"].as_str())?;
+                }
+                404 => {
+                    super::cf_io::discard(&mut r);
+                    return Err("predecessor_unknown");
+                }
+                409 => {
+                    let v = super::cf_io::response_json::<Value>(&mut r, DO_REPLY_BYTES).await.unwrap_or_default();
+                    return Err(match v["refused"].as_str() {
+                        Some("predecessor_busy") => "predecessor_busy",
+                        Some("predecessor_numbers") => "predecessor_numbers",
+                        Some("predecessor_work") => "predecessor_work",
+                        _ => "predecessor_refused",
+                    });
+                }
+                _ => {
+                    super::cf_io::discard(&mut r);
+                    return Err("predecessor_unreadable");
+                }
+            }
+            done.retain(|(d, _)| d != p);
+            done.push((p.to_owned(), first));
+            storage.put(SUCCEEDED_KEY, &done).await.map_err(|_| "succession store")?;
+        }
+        Ok(())
     }
 
     /// Lane routes: one transaction each, through stubs only.
@@ -883,7 +1235,7 @@ impl EvalCohort {
     /// One bounded step: root steps, then one sweep. `Ok(true)` when a root step ran.
     async fn step(&self, started: u64, scope: &ScopeRef) -> std::result::Result<bool, &'static str> {
         let instance = self.instance().await;
-        let cfg = eval_config(&self.env, &instance)?;
+        let cfg = self.config(&instance).await?;
         let storage = self.state.storage();
         let mut progress = false;
         while now_ms().saturating_sub(started) < STEP_BUDGET_MS {
@@ -1318,13 +1670,28 @@ pub async fn probe_connections(env: &Env, kind: &str, n: usize, model: &str, ms:
 // ------------------------------------------------------------------ scoring probe
 
 /// Operator pre-flight of the scorer path on synthetic documents, through the
-/// probe lane `a-scorer/testnet/probe` (never a cohort lane).
-pub async fn scorer_probe(env: &Env, package_sha256: &str, manifest_key: &str) -> Value {
+/// probe lane `a-scorer/testnet/probe` (never a cohort lane). `spec_sha256`
+/// is the digest of the artifact spec the probe's load names, as a cohort
+/// naming that spec loads (`None`: the scorer's unnamed-load spec, v2);
+/// `spans` asks the scorer for each document's sentences and spans.
+pub async fn scorer_probe(
+    env: &Env,
+    package_sha256: &str,
+    manifest_key: &str,
+    spec_sha256: Option<&str>,
+    spans: bool,
+) -> Value {
     let name = format!("a-scorer/{}/probe", crate::config::NETWORK);
-    let body = j!({"package_sha256": package_sha256, "manifest_key": manifest_key, "docs": [
+    let mut body = j!({"package_sha256": package_sha256, "manifest_key": manifest_key, "docs": [
         {"id": "0", "text": crate::eval::lane_logic::CONTROL_TEXT},
         {"id": "1", "text": "Rainfall in the valley was lower than usual this spring, so farmers planted later and chose shorter-season varieties."},
     ]});
+    if let Some(spec) = spec_sha256 {
+        body["spec_sha256"] = j!(spec);
+    }
+    if spans {
+        body["spans"] = j!(true);
+    }
     let r = async {
         let stub = lane_stub(env, "score", &name).ok()?;
         let mut resp = stub.fetch_with_request(internal_request(Method::Post, "/run", Some(body.to_string())).ok()?).await.ok()?;
@@ -1355,6 +1722,19 @@ pub async fn kick(env: &Env, instance: &str, confirmed: Option<crate::wire::Bloc
 /// Forwards an operator or status request to an instance's cohort authority.
 pub async fn forward(env: &Env, instance: &str, method: Method, path: &str, body: Option<String>) -> Result<Response> {
     cohort_fetch(env, instance, method, path, body).await
+}
+
+/// The main authority's status for the Worker's `/status` (the authority the
+/// deployment names), bounded like a journal call.
+pub async fn main_status(env: &Env) -> Option<Value> {
+    let mut r = cohort_fetch_within(env, engine::INSTANCE_MAIN, Method::Get, "/status", None, Some(KICK_TIMEOUT_MS))
+        .await
+        .ok()?;
+    if r.status_code() != 200 {
+        super::cf_io::discard(&mut r);
+        return None;
+    }
+    super::cf_io::response_json::<Value>(&mut r, crate::arena_routes::WORKER_CONTROL_BYTES).await.ok()
 }
 
 // ------------------------------------------------------- reward-v1 (plan v3)
@@ -1664,11 +2044,16 @@ impl EvalCohort {
         let label = plan.label.clone();
         if plan.is_probe_build() {
             let version = plan.reward_v1.as_ref().and_then(|v| v.probe_version).ok_or("probe version")?;
-            let record = self.read(seq, EVAL_BUCKET, &format!("probes/v{version}/record.json"), STEP_OBJECT_BYTES, "probe record read").await?.ok_or("probe record missing")?;
+            let record_key = format!("{}/record.json", v3::probe_prefix(cfg, version));
+            let record = self
+                .read(seq, EVAL_BUCKET, &record_key, STEP_OBJECT_BYTES, "probe record read")
+                .await?
+                .ok_or("probe record missing")?;
             let s2 = summaries.clone();
+            let c2p = cfg.clone();
             let f = match transaction(&storage, move |sql| {
                 let c = engine::cohort(sql, seq)?;
-                v3::prepare_probe_finish(sql, &c, &s2, &record)
+                v3::prepare_probe_finish(sql, &c2p, &c, &s2, &record)
             }) {
                 Ok(f) => f,
                 Err(TxError::Operation(e)) if e.code() == "reference_failure" => {
@@ -1681,7 +2066,7 @@ impl EvalCohort {
             for (key, bytes) in &f.vectors {
                 put(&self.env, EVAL_BUCKET, key, bytes.clone()).await.map_err(|_| "fingerprint put")?;
             }
-            let prefix = format!("probes/v{}", f.version);
+            let prefix = v3::probe_prefix(cfg, f.version);
             put(&self.env, RECEIPTS_BUCKET, &format!("{prefix}/receipt-index.signed"),
                 package::signed_bytes(index.clone(), &receipt_key).map_err(|e| e.0)?)
                 .await

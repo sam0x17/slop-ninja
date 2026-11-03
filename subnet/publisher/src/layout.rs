@@ -23,6 +23,13 @@ pub const PRIVATE_AUTHORIZATION_POINTER: &str = "authorizations/current.json";
 pub const SITE_INDEX: &str = "index.html";
 pub const SITE_STYLE: &str = "style.css";
 
+/// Where a previous public record's index, leaderboard and reference
+/// pointers are moved when a new record starts (a chain-record restart):
+/// under its first listed cohort's label, unique across authorities.
+pub fn record_archive(first_label: &str, rel: &str) -> String {
+    format!("v1/records/{first_label}/{rel}")
+}
+
 /// The coordinator's private directory of one cohort (no trailing slash).
 pub fn private_cohort_dir(label: &str) -> String {
     format!("cohorts/{label}")

@@ -139,6 +139,9 @@ pub struct Report {
     pub publication_disabled: bool,
     pub index_written: bool,
     pub authorization_written: bool,
+    /// A new public record started this run; the previous one was moved
+    /// under `v1/records/<its first label>/`.
+    pub record_restarted: Option<String>,
 }
 
 /// Why an artifact is or is not published.
@@ -584,7 +587,8 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     );
                 }
                 None => {
-                    let i = CohortIndex::empty(chain);
+                    let mut i = CohortIndex::empty(chain);
+                    i.record_prefix = self.cfg.record_label_prefix.clone();
                     put_json(b.public, layout::COHORT_INDEX, &i, Cache::Index)
                         .await
                         .map_err(|e| e.to_string())?;
@@ -592,6 +596,20 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     i
                 }
             };
+        match index::record_change(&idx, self.cfg.record_label_prefix.as_deref()) {
+            index::RecordChange::Same(None) => {}
+            index::RecordChange::Same(Some(prefix)) => {
+                idx.record_prefix = Some(prefix);
+                put_json(b.public, layout::COHORT_INDEX, &idx, Cache::Index)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                report.index_written = true;
+            }
+            index::RecordChange::Restart => {
+                idx = self.start_record(&idx, report).await?;
+            }
+            index::RecordChange::Refused(why) => return Err(why),
+        }
         // What this build remembers; a new build or boundary reconsiders.
         let build = build_id();
         memo.refused.retain(|_, r| r.build == build);
@@ -618,6 +636,115 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         }
         self.authorizations(&idx, report).await;
         self.retention(&mut idx, report).await?;
+        Ok(idx)
+    }
+
+    /// Starts a new public record (a chain-record restart): the listed
+    /// record's index is copied under `v1/records/<its first label>/` and the
+    /// live leaderboard and reference pointers are removed, then an empty
+    /// index for the configured record is written and the site page
+    /// rewritten without a leaderboard. Only the index is archived: it is
+    /// built from typed fields and carries no prose, while the leaderboard
+    /// and pointers carry wording of the build that wrote them, which a
+    /// write-once archive would keep public for good; each cohort's own
+    /// directory holds its signed records. The archive is also scanned for
+    /// wording public text never carries ([`crate::redact::scan_wording`])
+    /// before it is written. The earlier cohorts' own directories stay where
+    /// they are (their labels never recur under another authority), listed
+    /// only by the archived index. The new index records the earlier record
+    /// (`previous_records`: its prefix, never adopted again, its initial
+    /// references, still withheld as entrant artifacts, and its cohorts whose
+    /// detailed receipts are still published, which `retention` deletes under
+    /// the N+2 rule against the new record). An archive object is written
+    /// once: an existing one with the same bytes is an interrupted run
+    /// repeating the step, and one with other bytes is refused, so no earlier
+    /// archive is ever replaced.
+    async fn start_record(
+        &self,
+        old: &CohortIndex,
+        report: &mut Report,
+    ) -> Result<CohortIndex, String> {
+        let p = self.buckets.public;
+        let first = old
+            .cohorts
+            .first()
+            .map(|c| c.label.clone())
+            .unwrap_or_default();
+        {
+            let key = layout::COHORT_INDEX;
+            let Some(bytes) = p
+                .get(key, self.budget.remaining())
+                .await
+                .map_err(|e| e.to_string())?
+            else {
+                return Err("the public index vanished during a record restart".into());
+            };
+            let _hold = self
+                .budget
+                .reserve(bytes.len() as u64)
+                .map_err(|_| "budget".to_owned())?;
+            crate::redact::scan_wording(&bytes)
+                .map_err(|why| format!("the index to archive carries {why}; nothing archived"))?;
+            let rel = key.trim_start_matches("v1/");
+            let archive = layout::record_archive(&first, rel);
+            let held = p
+                .get(&archive, self.budget.remaining())
+                .await
+                .map_err(|e| e.to_string())?;
+            match held {
+                Some(held) if held == bytes => {}
+                Some(_) => {
+                    return Err(format!(
+                        "{archive} exists with other bytes; an earlier record is never replaced"
+                    ));
+                }
+                None => {
+                    let digest = slop_ninja_protocol::object_sha256(&bytes);
+                    p.put(
+                        &archive,
+                        bytes,
+                        &Put {
+                            content_type: layout::content_type(key),
+                            cache: Cache::Immutable,
+                            sha256: Some(&digest),
+                        },
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        for key in [
+            layout::LEADERBOARD,
+            layout::REFERENCE_CURRENT,
+            layout::REFERENCE_PREVIOUS,
+        ] {
+            p.delete(key).await.map_err(|e| e.to_string())?;
+        }
+        let mut idx = CohortIndex::empty(&self.cfg.chain);
+        idx.record_prefix = self.cfg.record_label_prefix.clone();
+        idx.previous_records = old.previous_records.clone();
+        idx.previous_records.push(index::ArchivedRecord {
+            prefix: old.record_prefix.clone(),
+            first_label: first.clone(),
+            initial_references: old.initial_references.clone(),
+            receipts_pending: old
+                .cohorts
+                .iter()
+                .filter(|c| c.receipts_retained)
+                .map(|c| index::PendingReceipts {
+                    label: c.label.clone(),
+                    cohort: c.cohort,
+                    target: c.target.clone(),
+                })
+                .collect(),
+        });
+        put_json(p, layout::COHORT_INDEX, &idx, Cache::Index)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.write_site(None).await.map_err(|e| e.to_string())?;
+        report.index_written = true;
+        report.record_restarted = Some(first);
         Ok(idx)
     }
 
@@ -789,75 +916,120 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     /// later cohorts are published (N+1 and N+2 completed) and N's target,
     /// if it produced one, is superseded by a later cohort's; records it.
     /// While N's target is the active target its receipts stay, since new
-    /// commitments to it need them.
+    /// commitments to it need them. An earlier record's cohorts that still
+    /// had their receipts when it was moved aside (`previous_records`) are
+    /// held to the two-later-cohorts part of the rule against the live
+    /// record's cohorts: the restart superseded their targets (the
+    /// coordinator's `restart_target` and the validators' `reset-target` set
+    /// the held target aside, so no new commitment to an earlier record's
+    /// target is made), so a record restart leaves no detailed receipt
+    /// published indefinitely, even while the new record produces no target.
     pub async fn retention(
         &self,
         idx: &mut CohortIndex,
         report: &mut Report,
     ) -> Result<(), String> {
-        let b = &self.buckets;
-        let due: Vec<(String, u64)> = idx
+        // Cohort N's detailed receipts once N+1 and N+2 are published and a
+        // later target supersedes N's (none: nothing to supersede): the live
+        // record's own cohorts, and an earlier record's that were still
+        // published when it was moved aside (cohort numbers continue across
+        // authorities, so the live record's cohorts are their N+1 and N+2).
+        let due_after = |cohort: u64, target: &Option<String>| {
+            let later: Vec<&index::CohortEntry> =
+                idx.cohorts.iter().filter(|o| o.cohort > cohort).collect();
+            let superseded = target.is_none() || later.iter().any(|o| o.target.is_some());
+            let mut numbers: Vec<u64> = later.iter().map(|o| o.cohort).collect();
+            numbers.sort_unstable();
+            numbers.get(1).filter(|_| superseded).copied()
+        };
+        let live: Vec<(String, u64)> = idx
             .cohorts
             .iter()
             .filter(|c| c.receipts_retained)
-            .filter_map(|c| {
-                let later: Vec<&index::CohortEntry> =
-                    idx.cohorts.iter().filter(|o| o.cohort > c.cohort).collect();
-                let superseded = c.target.is_none() || later.iter().any(|o| o.target.is_some());
-                let mut numbers: Vec<u64> = later.iter().map(|o| o.cohort).collect();
-                numbers.sort_unstable();
-                numbers
-                    .get(1)
-                    .filter(|_| superseded)
-                    .map(|&second| (c.label.clone(), second))
-            })
+            .filter_map(|c| due_after(c.cohort, &c.target).map(|n| (c.label.clone(), n)))
             .collect();
-        for (label, after) in due {
-            let Some(mut publication) =
-                get_json::<S, Publication>(b.public, &layout::publication(&label), self.budget)
-                    .await?
-            else {
-                report.refused.push((
-                    label,
-                    "publication record missing; receipts not deleted".into(),
-                ));
+        let earlier: Vec<(String, u64)> = idx
+            .previous_records
+            .iter()
+            .flat_map(|r| r.receipts_pending.iter())
+            .filter_map(|c| due_after(c.cohort, &None).map(|n| (c.label.clone(), n)))
+            .collect();
+        for (label, after) in live {
+            if !self.delete_receipts(&label, after, report).await? {
                 continue;
-            };
-            let dir = layout::cohort_dir(&label);
-            for o in publication
-                .objects
-                .iter()
-                .filter(|o| is_detailed_receipt(&o.rel))
-            {
-                b.public
-                    .delete(&layout::join(&dir, &o.rel))
-                    .await
-                    .map_err(|e| e.to_string())?;
             }
-            publication.receipts_deleted_after = Some(after);
-            put_json(
-                b.public,
-                &layout::publication(&label),
-                &publication,
-                Cache::Index,
-            )
-            .await
-            .map_err(|e| e.to_string())?;
             if let Some(entry) = idx.cohorts.iter_mut().find(|c| c.label == label) {
                 entry.receipts_retained = false;
             }
-            put_json(b.public, layout::COHORT_INDEX, idx, Cache::Index)
-                .await
-                .map_err(|e| e.to_string())?;
-            report.index_written = true;
-            report.receipts_deleted += 1;
+            self.receipts_deleted(idx, report).await?;
+        }
+        for (label, after) in earlier {
+            if !self.delete_receipts(&label, after, report).await? {
+                continue;
+            }
+            for r in &mut idx.previous_records {
+                r.receipts_pending.retain(|c| c.label != label);
+            }
+            self.receipts_deleted(idx, report).await?;
         }
         Ok(())
     }
 
+    /// Deletes cohort `label`'s detailed receipts from the public host and
+    /// records `after` in its publication record. `false` (reported) when
+    /// that record is missing: nothing is deleted.
+    async fn delete_receipts(
+        &self,
+        label: &str,
+        after: u64,
+        report: &mut Report,
+    ) -> Result<bool, String> {
+        let b = &self.buckets;
+        let Some(mut publication) =
+            get_json::<S, Publication>(b.public, &layout::publication(label), self.budget).await?
+        else {
+            report.refused.push((
+                label.to_owned(),
+                "publication record missing; receipts not deleted".into(),
+            ));
+            return Ok(false);
+        };
+        let dir = layout::cohort_dir(label);
+        for o in publication
+            .objects
+            .iter()
+            .filter(|o| is_detailed_receipt(&o.rel))
+        {
+            b.public
+                .delete(&layout::join(&dir, &o.rel))
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        publication.receipts_deleted_after = Some(after);
+        put_json(
+            b.public,
+            &layout::publication(label),
+            &publication,
+            Cache::Index,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    async fn receipts_deleted(&self, idx: &CohortIndex, report: &mut Report) -> Result<(), String> {
+        put_json(self.buckets.public, layout::COHORT_INDEX, idx, Cache::Index)
+            .await
+            .map_err(|e| e.to_string())?;
+        report.index_written = true;
+        report.receipts_deleted += 1;
+        Ok(())
+    }
+
     /// The initial references to withhold: every one any opened manifest
-    /// named (the memo), every one a listed cohort named (the index), and
-    /// this cohort's own.
+    /// named (the memo), every one a listed cohort named (the index), every
+    /// one an earlier record's cohorts named (`previous_records`), and this
+    /// cohort's own.
     fn withheld_references(
         &self,
         memo: &Memo,
@@ -865,7 +1037,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         v: Option<&VerifiedCohort>,
     ) -> BTreeSet<ReferenceDigests> {
         let mut out = memo.references.clone();
-        out.extend(idx.initial_references.iter().map(|r| ReferenceDigests {
+        out.extend(idx.withheld_initial_references().map(|r| ReferenceDigests {
             content: r.content.clone(),
             artifact: r.artifact.clone(),
         }));

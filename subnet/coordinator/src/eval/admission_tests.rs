@@ -37,6 +37,7 @@ fn cfg() -> EvalConfig {
         },
         exposed_pools: vec!["p".into()],
         scorer_binary: "aa".repeat(32),
+        authority: crate::config::Authority::default(),
     }
 }
 
@@ -1303,11 +1304,17 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
     };
     let bytes = serde_json::to_vec(&t).unwrap();
     tx(&db, |s| crate::eval::calendar::install(s, &cfg(), &bytes, NOW)).unwrap();
-    let (label, plan) = tx(&db, crate::eval::calendar::due).unwrap().unwrap();
+    let (label, plan) = tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().unwrap();
     assert_eq!(label, "testnet-cohort-1");
+    // The step's reason to run counts the calendar only for an authority that
+    // can open a cohort: a retired one (superseded, or not the one the
+    // deployment names) has no work here, so its alarm never re-arms for it.
+    assert!(tx(&db, |s| engine::has_work(s, &cfg())).unwrap());
+    let retired = engine::EvalConfig { authority: crate::config::Authority::retired("main"), ..cfg() };
+    assert!(!tx(&db, |s| engine::has_work(s, &retired)).unwrap());
     tx(&db, |s| engine::queue(s, &cfg(), &plan, NOW)).unwrap();
     assert!(
-        tx(&db, crate::eval::calendar::due).unwrap().is_none(),
+        tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().is_none(),
         "one queued at a time"
     );
     assert_eq!(tx(&db, crate::eval::calendar::next).unwrap().map(|x| x.0), Some(1));
@@ -1316,11 +1323,11 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
         s.exec("UPDATE cohorts SET phase = 'transition'", &[]).map(|_| ())
     })
     .unwrap();
-    let (label, _) = tx(&db, crate::eval::calendar::due).unwrap().unwrap();
+    let (label, _) = tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().unwrap();
     assert_eq!(label, "testnet-cohort-2");
     // Paused: nothing is due.
     tx(&db, |s| crate::eval::calendar::set_paused(s, true)).unwrap();
-    assert!(tx(&db, crate::eval::calendar::due).unwrap().is_none());
+    assert!(tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().is_none());
     // Templates are checked at their roster cap.
     let mut wide = t.clone();
     wide.plan.admission.as_mut().unwrap().roster_cap = 41;
@@ -2002,7 +2009,7 @@ fn the_calendar_follows_a_pending_promotion_and_the_chain_not_the_template() {
         crate::eval::calendar::install(s, &cfg(), &serde_json::to_vec(&t).unwrap(), NOW)
     })
     .unwrap();
-    let (_, plan1) = tx(&db, crate::eval::calendar::due).unwrap().unwrap();
+    let (_, plan1) = tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().unwrap();
     tx(&db, |s| engine::queue(s, &cfg(), &plan1, NOW)).unwrap();
     // Cohort 1 promoted its one entrant at packaging and is in transition.
     let entrant = plan::tests::artifact(plan::tests::identity(3, 3), 3);
@@ -2029,7 +2036,7 @@ fn the_calendar_follows_a_pending_promotion_and_the_chain_not_the_template() {
         .map(|_| ())
     })
     .unwrap();
-    let (_, next) = tx(&db, crate::eval::calendar::due).unwrap().unwrap();
+    let (_, next) = tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().unwrap();
     let next: plan::CohortPlan = serde_json::from_slice(&next).unwrap();
     assert_eq!(
         next.reference.package_sha256, entrant.package_sha256,
@@ -2058,7 +2065,7 @@ fn the_calendar_follows_a_pending_promotion_and_the_chain_not_the_template() {
     })
     .unwrap();
     assert_eq!(v["next_references"]["source"], "chain");
-    let (_, after) = tx(&db, crate::eval::calendar::due).unwrap().unwrap();
+    let (_, after) = tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().unwrap();
     let after: plan::CohortPlan = serde_json::from_slice(&after).unwrap();
     assert_eq!(after.reference.package_sha256, entrant.package_sha256);
     assert!(after.reference.opening_nonce.is_none() && after.reference.object_key.is_none());
@@ -2071,7 +2078,7 @@ fn the_calendar_follows_a_pending_promotion_and_the_chain_not_the_template() {
         .map(|_| ())
     })
     .unwrap();
-    assert!(tx(&db, crate::eval::calendar::due).unwrap().is_none());
+    assert!(tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().is_none());
     let view = tx(&db, crate::eval::calendar::view).unwrap();
     assert_eq!(view["template"]["paused"], true);
     assert!(

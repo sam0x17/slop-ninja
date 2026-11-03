@@ -69,6 +69,7 @@ fn cfg() -> EvalConfig {
         ceilings: Ceilings { roster_cap: None, accept_reward_v0: true },
         exposed_pools: vec!["p".into()],
         scorer_binary: String::new(),
+        authority: crate::config::Authority::default(),
     }
 }
 
@@ -286,6 +287,45 @@ fn arena_witness_cohort_routes_fit_their_footprints() {
     // The plans home holds the cache's copies (not the request's scope).
     let home = arena_routes::home::stats(arena_routes::home::Home::Plans).expect("the plan cache opened the plans home");
     assert!(home.live > 0, "the cached plan lives in the plans home");
+}
+
+/// A plan naming spec v3 with its frozen digest: `/plan` validation
+/// rebuilds the spec record once to compare the digest and fits the route's
+/// footprint; what a scoring lane's report reads per call (the plan's frozen
+/// digest and the spec-derived size bound) never rebuilds it, so it stays far
+/// below the spec record's size.
+#[test]
+fn arena_witness_a_plan_naming_spec_v3_fits_and_lane_reports_never_rebuild_the_spec() {
+    set_mode(Mode::Enforce);
+    let v3 = slop_ninja_artifact_check::spec::Version::V3;
+    let (mut plan, _) = plan_with(1);
+    let s = &mut plan.fanout.as_mut().expect("fanout").score;
+    s.artifact_max_mib = None;
+    s.artifact_spec = Some(v3.id().into());
+    s.load_ms_per_mib = Some(50);
+    s.artifact_spec_sha256 = Some(v3.spec_sha256());
+    let json = serde_json::to_vec(&plan).expect("plan json");
+    let db = Sqlite::open();
+    tx(&db, |s| sql::migrate(s, &EVAL_COHORT_SCHEMA)).expect("migrate");
+    let main = cfg();
+    witness(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
+        assert_eq!(admit_current_block(json.len(), 1), Ok(true));
+        let mut body = Vec::with_capacity(json.len());
+        body.extend_from_slice(&json);
+        let _ = engine::admit(&main, &body).expect("admitted");
+        tx(&db, |s| engine::queue(s, &main, &body, 1_000)).expect("queued")
+    });
+    let (_, rebuild_live) = measure(|| {
+        let _ = crate::eval::plan::load_spec_sha256_of(v3.id());
+    });
+    let (_, report_live) = measure(|| {
+        let limits = plan.fanout().expect("fanout").score.limits();
+        assert!(limits.artifact_max_bytes < u64::MAX);
+        assert_eq!(plan.load_spec_sha256().map(str::len), Some(64));
+    });
+    eprintln!("arena witness: spec v3 digest rebuild peak live {rebuild_live} B, lane report reads {report_live} B");
+    assert!(rebuild_live > 0);
+    assert!(report_live * 16 < rebuild_live, "a lane report rebuilds the spec record");
 }
 
 #[test]

@@ -47,6 +47,7 @@ fn cfg() -> EvalConfig {
         ceilings: Ceilings { roster_cap: Some(40), accept_reward_v0: true },
         exposed_pools: vec!["p".into()],
         scorer_binary: String::new(),
+        authority: crate::config::Authority::default(),
     }
 }
 
@@ -526,8 +527,8 @@ impl<'a> Sim<'a> {
         let cohort = tx(self.db, |s| engine::cohort(s, seq)).unwrap();
         if cohort.plan.is_probe_build() {
             let v = cohort.plan.reward_v1.as_ref().unwrap().probe_version.unwrap();
-            let record = self.eval[&format!("probes/v{v}/record.json")].clone();
-            let f = tx(self.db, |s| v3::prepare_probe_finish(s, &cohort, &summaries, &record)).unwrap();
+            let record = self.eval[&format!("{}/record.json", v3::probe_prefix(&c, v))].clone();
+            let f = tx(self.db, |s| v3::prepare_probe_finish(s, &c, &cohort, &summaries, &record)).unwrap();
             for (k, b) in &f.vectors {
                 self.eval.insert(k.clone(), b.clone());
             }
@@ -1731,7 +1732,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 11));
+    assert_eq!((report.from, report.to), (3, 12));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -2708,4 +2709,575 @@ fn the_summary_bound_holds_the_widest_summary() {
     let per_task = crate::arena_routes::SUMMARY_TASK_BYTES * tasks as usize;
     assert!(bytes <= crate::arena_routes::summary_bytes(u64::from(tasks)), "summary {bytes} B over its bound");
     assert!(bytes - per_task.min(bytes) <= engine::SUMMARY_FIXED_BYTES / 2, "fixed part {} B leaves less than half the bound as margin", bytes - per_task.min(bytes));
+}
+
+// ------------------------------------------------- chain-record restart
+
+/// Every row of every table of a cohort store, for before/after comparisons.
+fn dump(db: &Sqlite) -> Vec<(String, Vec<String>)> {
+    let tables: Vec<String> = db
+        .conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    tables
+        .into_iter()
+        .map(|t| {
+            let mut stmt = db.conn.prepare(&format!("SELECT * FROM \"{t}\"")).unwrap();
+            let n = stmt.column_count();
+            let mut rows: Vec<String> = stmt
+                .query_map([], |r| {
+                    Ok((0..n).map(|i| format!("{:?}", r.get_ref(i).unwrap())).collect::<Vec<_>>().join("|"))
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            rows.sort();
+            (t, rows)
+        })
+        .collect()
+}
+
+fn open_with(db: &Sqlite, c: &EvalConfig, p: &CohortPlan, first_epoch: u64, now: u64) -> i64 {
+    let bytes = serde_json::to_vec(p).unwrap();
+    let seq = tx(db, |s| engine::queue(s, c, &bytes, now)).unwrap();
+    kick_at(db, first_epoch, now);
+    kick_at(db, first_epoch + 1, now);
+    kick_at(db, first_epoch + 2, now);
+    seq
+}
+
+fn refused_queue(db: &Sqlite, c: &EvalConfig, p: &CohortPlan) -> String {
+    let bytes = serde_json::to_vec(p).unwrap();
+    tx(db, |s| engine::queue(s, c, &bytes, 0)).unwrap_err().code().to_owned()
+}
+
+/// The chain-record restart (w2-golive PLAN 6.2): a named main authority is a
+/// fresh store, so its reference chain starts at R_0 with no predecessor, and
+/// its published index, fingerprints, probe versions and reuse ledger start
+/// empty. It shares the buckets and the lane object namespace with the
+/// original authority, and writes nothing the original wrote: its probe
+/// objects sit under its own prefix, its labels under its own prefix, its
+/// cohort numbers above the original's, and its lane objects are new, so no
+/// lane holding the original's later `(seq, gen)` refuses its kicks. The
+/// original authority's store and objects are byte for byte as they were.
+#[test]
+fn a_named_authority_restarts_the_chain_record_and_leaves_the_original_untouched() {
+    let id = super::plan::tests::identity;
+    // The original authority: a probe build and one cohort on the rehearsal reference.
+    let old_db = Sqlite::open();
+    let (mut old_sim, weak, probe_ref) = probe_built(&old_db);
+    let mut a = plan_v3(2, "testnet-rv1-a", 20, weak.clone());
+    a.reward_v1.as_mut().unwrap().probes = vec![probe_ref.clone()];
+    let seq_a = open_cohort(&old_db, &a, 20, old_sim.now);
+    run_to_close(&mut old_sim, &old_db, seq_a, 22);
+    let old_status = status(&old_db, old_sim.now);
+    let old_rows = dump(&old_db);
+    let old_eval = old_sim.eval.clone();
+    let old_rcpt = old_sim.rcpt.clone();
+    let old_lanes: BTreeSet<String> = old_sim.lanes.keys().cloned().collect();
+    assert!(old_lanes.iter().all(|n| n.contains("/testnet/main/") && !n.contains("/authority/")), "{old_lanes:?}");
+    assert!(old_eval.keys().any(|k| k == "probes/v1/record.json"));
+
+    // The new authority follows the original: no original label has its
+    // prefix and every original cohort number is below its first cohort.
+    let earlier: Vec<(String, u64)> = old_status["cohorts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["label"].as_str().unwrap().to_owned(), c["cohort"].as_u64().unwrap()))
+        .collect();
+    let follows = |a: &crate::config::Authority| a.follows(earlier.iter().map(|(l, c)| (l.as_str(), *c)));
+    let authority = crate::config::Authority::named("r0b", 3).unwrap();
+    assert_eq!(follows(&authority), Ok(()));
+    assert!(follows(&crate::config::Authority::named("r0b", 2).unwrap()).is_err());
+    assert!(follows(&crate::config::Authority::named("rv1", 3).unwrap()).is_err());
+
+    // A fresh store (a new Durable Object) sharing the buckets and the lane
+    // objects; heartbeats now reach only it.
+    let new_db = Sqlite::open();
+    sql::migrate(&new_db, &EVAL_COHORT_SCHEMA).unwrap();
+    let ncfg = EvalConfig { authority: authority.clone(), ..cfg() };
+    assert_eq!(ncfg.lane_scope(), "main/authority/r0b");
+    assert_eq!(ncfg.kick_authority().as_deref(), Some("r0b"));
+    let mut sim = Sim::new(&new_db, ncfg.clone(), old_sim.now + 60_000);
+    sim.pool = old_sim.pool.clone();
+    sim.texts = old_sim.texts.clone();
+    sim.eval = std::mem::take(&mut old_sim.eval);
+    sim.rcpt = std::mem::take(&mut old_sim.rcpt);
+    sim.lanes = std::mem::take(&mut old_sim.lanes);
+    // The original's lane objects call back only the original authority,
+    // which this simulation does not run on: none of them runs here.
+    for l in sim.lanes.values_mut() {
+        l.armed = false;
+    }
+    // Every kick reaches its lane twice.
+    sim.duplicate = true;
+    let r0 = v3_artifact(&mut sim, id(0, 0xb0), [1, 2, 3, 8, 5]);
+    let r0_content = sim.artifact_digests(&r0).content.0;
+    assert_ne!(r0_content, sim.artifact_digests(&weak).content.0);
+    // Nothing reaches the new authority under the original's labels or numbers.
+    let mut probe = plan_v3(3, "testnet-rv1-probe-v1", 20, r0.clone());
+    probe.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    probe.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    probe.reward_v1.as_mut().unwrap().canary.draw_humans = 0;
+    assert!(refused_queue(&new_db, &ncfg, &probe).starts_with("label"), "the original's label prefix");
+    probe.label = "testnet-r0b-probe-v1".into();
+    probe.cohort = 2;
+    assert!(refused_queue(&new_db, &ncfg, &probe).starts_with("cohort number"), "below the first cohort");
+    // A retired authority takes no plan at all.
+    let retired = EvalConfig { authority: crate::config::Authority::retired("main"), ..cfg() };
+    let mut later = a.clone();
+    later.cohort = 9;
+    later.label = "testnet-rv1-z".into();
+    assert!(refused_queue(&old_db, &retired, &later).contains("retired"));
+
+    // The restart's probe build: R_0 with no predecessor, published and
+    // fingerprinted under the authority's own probe keys.
+    probe.cohort = 3;
+    sim.predict = Some(Box::new(|_, kind, task| {
+        let c = model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
+        (c, c * 0.4)
+    }));
+    let pseq = open_with(&new_db, &ncfg, &probe, 40, sim.now);
+    assert_eq!(pseq, 1, "the new authority's first sequence number");
+    assert_eq!(sim.run(pseq, 3_000), "closed", "fault {:?}", fault_of(&new_db, pseq));
+    let regime = tx(&new_db, |s| v3::regime(s, &ncfg.chain)).unwrap();
+    assert_eq!(regime["references"]["k"], 0);
+    assert_eq!(regime["references"]["current_content"], r0_content.to_string());
+    assert_eq!(regime["references"]["predecessor_content"], Value::Null);
+    assert_eq!(regime["launch_burn"], true, "nothing has activated on the restarted chain");
+    let (index, vkeys) = tx(&new_db, v3::published_index).unwrap();
+    assert_eq!(index.contents.contents, vec![r0_content]);
+    assert_eq!(index.fingerprints.entries.len(), 1);
+    assert!(vkeys.values().all(|k| k.starts_with("probes/authority/r0b/v1/fp/")), "{vkeys:?}");
+    let record_key = "probes/authority/r0b/v1/record.json";
+    let record = sim.eval[record_key].clone();
+    // Every object the original authority wrote is still there, unchanged.
+    for (k, v) in &old_eval {
+        assert_eq!(sim.eval.get(k), Some(v), "eval object {k}");
+    }
+    for (k, v) in &old_rcpt {
+        assert_eq!(sim.rcpt.get(k), Some(v), "receipts object {k}");
+    }
+    // Only new lane objects ran the new authority's work.
+    let new_lanes: BTreeSet<String> = sim.lanes.keys().filter(|n| !old_lanes.contains(*n)).cloned().collect();
+    assert!(!new_lanes.is_empty());
+    assert!(new_lanes.iter().all(|n| n.contains("/testnet/main/authority/r0b/")), "{new_lanes:?}");
+    let stored: Vec<String> = new_db
+        .conn
+        .prepare("SELECT DISTINCT name FROM lanes")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert!(stored.iter().all(|n| new_lanes.contains(n)), "{stored:?}");
+
+    // A cohort on the restarted chain: R_0 alone, the authority's probe
+    // version, its own label and number.
+    let probe_new =
+        super::plan::ProbeRef { version: 1, size: 20, key: record_key.into(), sha256: lane_logic::sha_hex(&record) };
+    let mut b = plan_v3(4, "testnet-r0b-a", 20, r0.clone());
+    b.reward_v1.as_mut().unwrap().probes = vec![probe_new];
+    let seq_b = open_with(&new_db, &ncfg, &b, 50, sim.now);
+    run_to_close(&mut sim, &new_db, seq_b, 52);
+    let pb = sim.packages_v3.pop().unwrap();
+    assert_eq!((pb.manifest.cohort, pb.manifest.cohort_label.as_str()), (4, "testnet-r0b-a"));
+    assert_eq!(pb.manifest.references.index, 0);
+    assert_eq!(pb.manifest.references.current.content, r0_content);
+    assert_eq!(pb.manifest.references.predecessor, None);
+    assert_eq!(pb.package.mode, slop_ninja_protocol::CutoffMode::NoTarget);
+    // The restarted chain's objects never land under the original's labels.
+    assert!(
+        sim.rcpt
+            .keys()
+            .filter(|k| !old_rcpt.contains_key(*k))
+            .all(|k| k.starts_with("cohorts/testnet-r0b-") || k.starts_with("probes/authority/r0b/")),
+        "{:?}",
+        sim.rcpt.keys().collect::<Vec<_>>()
+    );
+    for (k, v) in &old_eval {
+        assert_eq!(sim.eval.get(k), Some(v), "eval object {k}");
+    }
+    for (k, v) in &old_rcpt {
+        assert_eq!(sim.rcpt.get(k), Some(v), "receipts object {k}");
+    }
+
+    // The new authority holds only its own probe version: a plan naming the
+    // original's record would fail the seal's check (`probe record digest`).
+    let versions: Vec<(i64, String, String)> = new_db
+        .conn
+        .prepare("SELECT version, record_key, record_sha256 FROM probe_versions")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(versions, vec![(1, record_key.to_owned(), lane_logic::sha_hex(&record))]);
+    assert_ne!(lane_logic::sha_hex(&record), probe_ref.sha256);
+
+    // The original authority's store is exactly as it was.
+    assert_eq!(dump(&old_db), old_rows);
+}
+
+/// The deployment's main-authority stores, addressed the way the Worker and
+/// the cohort objects route (`config`'s pure routing): a heartbeat goes to
+/// each authority `kicked_authorities` names, and the object takes it only
+/// under its own recorded identity (`object_identity`).
+struct Objects {
+    stores: BTreeMap<String, (Sqlite, Option<String>)>,
+}
+
+impl Objects {
+    fn new(names: &[&str]) -> Self {
+        let stores = names
+            .iter()
+            .map(|n| {
+                let db = Sqlite::open();
+                sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+                ((*n).to_owned(), (db, None))
+            })
+            .collect();
+        Self { stores }
+    }
+
+    /// One heartbeat under `deployed`: a delivery (`tick` false) or a tick.
+    /// Returns the authorities whose objects took it.
+    fn heartbeat(&mut self, deployed: &crate::config::Authority, tick: bool, index: u64, now: u64) -> Vec<String> {
+        let mut took = Vec::new();
+        for name in crate::config::kicked_authorities(deployed, tick, false) {
+            let (db, stored) = self.stores.get_mut(&name).expect("a known authority's object");
+            let (id, write) = crate::config::object_identity(stored.as_deref(), &name, true).unwrap();
+            if write {
+                *stored = Some(id);
+            }
+            kick_at(db, index, now);
+            took.push(name);
+        }
+        took
+    }
+
+    fn db(&self, name: &str) -> &Sqlite {
+        &self.stores[name].0
+    }
+}
+
+/// Every table of a store but its observation row.
+fn dump_but_observation(db: &Sqlite) -> Vec<(String, Vec<String>)> {
+    dump(db).into_iter().filter(|(t, _)| t != "eval_obs").collect()
+}
+
+/// Heartbeats across the switch, routed as the Worker routes them: before
+/// it only the original takes them; after it every delivery reaches only
+/// the named authority, ticks reach the original too (so work it still held
+/// would finish), duplicate deliveries and ticks for the same block credit
+/// one tempo once, and the original's cohorts and every other table are
+/// unchanged. An old-version kick (no authority header) or a lane callback
+/// without an authority reaches only the original; the named object refuses
+/// another authority's request.
+#[test]
+fn wakeups_and_callbacks_across_the_switch_reach_only_their_own_authority() {
+    use crate::config::{Authority, callback_authority, object_identity, own_authority};
+    let mut objects = Objects::new(&["main", "r0b"]);
+    let original = Authority::default();
+    assert_eq!(objects.heartbeat(&original, false, 30, 1_000_000), vec!["main"]);
+    assert_eq!(objects.heartbeat(&original, true, 31, 1_001_000), vec!["main"]);
+    let before = dump_but_observation(objects.db("main"));
+    let named = Authority::named("r0b", 13).unwrap();
+    for now in [1_002_000, 1_002_000] {
+        assert_eq!(objects.heartbeat(&named, false, 32, now), vec!["r0b"]);
+    }
+    for now in [1_002_500, 1_002_500] {
+        assert_eq!(objects.heartbeat(&named, true, 32, now), vec!["r0b", "main"]);
+        heartbeat(objects.db("r0b"), now);
+    }
+    let o = tx(objects.db("r0b"), engine::observed).unwrap();
+    assert_eq!((o.active_tempos, o.uncredited_tempos, o.epoch.unwrap().index), (0, 0, 32));
+    for now in [1_003_000, 1_003_000] {
+        objects.heartbeat(&named, false, 33, now);
+    }
+    objects.heartbeat(&named, true, 33, 1_003_100);
+    let o = tx(objects.db("r0b"), engine::observed).unwrap();
+    assert_eq!((o.active_tempos, o.uncredited_tempos, o.epoch.unwrap().index), (1, 0, 33));
+    assert_eq!(o.kicks, 9);
+    assert_eq!(dump_but_observation(objects.db("main")), before, "the original holds the same cohorts");
+    // A kick from a Worker version before named authorities carries no
+    // authority: it names the original, which the named object refuses.
+    assert_eq!(object_identity(Some("r0b"), callback_authority(None), true), Err("authority_mismatch"));
+    assert_eq!(object_identity(Some("main"), callback_authority(None), true), Ok(("main".into(), false)));
+    // Lanes report to the authority that kicked them.
+    let kick_cfg = EvalConfig { authority: named.clone(), ..cfg() };
+    assert_eq!(callback_authority(kick_cfg.kick_authority().as_deref()), "r0b");
+    assert_eq!(callback_authority(cfg().kick_authority().as_deref()), "main");
+    // An audit read or a supersede call creates nothing.
+    assert_eq!(object_identity(None, "r0c", false), Err("unknown_authority"));
+    // A deploy that reverts the vars: the named object keeps its lane names
+    // and admits nothing; the original, superseded, admits nothing either.
+    let r0b_after = own_authority(Some(&original), "r0b", None);
+    assert!(r0b_after.is_retired());
+    assert_eq!(r0b_after.lane_scope("main"), named.lane_scope("main"));
+    assert!(r0b_after.admits("testnet-r0b-20", 20).is_err());
+    let main_after = own_authority(Some(&original), "main", Some("r0b"));
+    assert!(main_after.is_retired() && main_after.superseded_by() == Some("r0b"));
+    assert!(main_after.admits("testnet-rv1-g", 13).is_err());
+    // Not superseded, the original is current again under a revert.
+    assert!(!own_authority(Some(&original), "main", None).is_retired());
+}
+
+/// The original authority's configuration once the deployment names a
+/// successor: retired, as the supersede route reads it.
+fn predecessor_cfg() -> EvalConfig {
+    let r0b = crate::config::Authority::named("r0b", 13).unwrap();
+    EvalConfig { authority: crate::config::own_authority(Some(&r0b), "main", None), ..cfg() }
+}
+
+/// Succession is durable and needs an idle predecessor: a predecessor
+/// holding an open cohort refuses (nothing written), one whose labels or
+/// numbers the successor's rule would share refuses, and an idle one records
+/// its first successor once. A superseded authority admits no plan, even
+/// when a reverted deployment names it again, and its calendar is paused.
+#[test]
+fn succession_needs_an_idle_predecessor_and_survives_a_reverted_deploy() {
+    use crate::config::{Authority, Supersede, own_authority};
+    let retired = predecessor_cfg();
+    let busy = Sqlite::open();
+    sql::migrate(&busy, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = plan(10);
+    p.label = "testnet-rv1-x".into();
+    open_cohort(&busy, &p, 10, 1_000_000);
+    let rows = dump(&busy);
+    let req = Supersede::of(&Authority::named("r0b", 13).unwrap()).unwrap();
+    let r = tx(&busy, |s| super::succession::supersede(s, &retired, &req, 1_000_000)).unwrap();
+    assert_eq!(r, Err("predecessor_busy"));
+    assert_eq!(dump(&busy), rows, "a refusal writes nothing");
+    assert_eq!(tx(&busy, super::succession::superseded_by).unwrap(), None);
+
+    let db = Sqlite::open();
+    let (sim, _, _) = probe_built(&db);
+    let highest = status(&db, sim.now)["cohorts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["cohort"].as_u64().unwrap())
+        .max()
+        .unwrap();
+    // A first cohort at or below the predecessor's numbers, or a prefix one
+    // of its labels has, is refused.
+    for bad in [Authority::named("r0b", highest).unwrap(), Authority::named("probe", highest + 1).unwrap()] {
+        let req = Supersede::of(&bad).unwrap();
+        assert_eq!(
+            tx(&db, |s| super::succession::supersede(s, &retired, &req, sim.now)).unwrap(),
+            Err("predecessor_numbers")
+        );
+    }
+    let req = Supersede::of(&Authority::named("r0b", highest + 1).unwrap()).unwrap();
+    let v = tx(&db, |s| super::succession::supersede(s, &retired, &req, sim.now)).unwrap().unwrap();
+    assert_eq!(v["superseded_by"], "r0b");
+    // Idempotent; a later successor leaves the first recorded.
+    tx(&db, |s| super::succession::supersede(s, &retired, &req, sim.now)).unwrap().unwrap();
+    let later = Supersede::of(&Authority::named_after("r0c", highest + 5, &["r0b"]).unwrap()).unwrap();
+    let v = tx(&db, |s| super::succession::supersede(s, &retired, &later, sim.now)).unwrap().unwrap();
+    assert_eq!(v["superseded_by"], "r0b");
+    assert_eq!(tx(&db, super::succession::superseded_by).unwrap().as_deref(), Some("r0b"));
+    // A reverted deployment names the original again: superseded, it admits
+    // nothing, and its calendar opens nothing.
+    let superseded = tx(&db, super::succession::superseded_by).unwrap();
+    let reverted =
+        EvalConfig { authority: own_authority(Some(&Authority::default()), "main", superseded.as_deref()), ..cfg() };
+    let mut q = plan(10);
+    q.cohort = highest + 1;
+    q.label = "testnet-r0b-collide".into();
+    let bytes = serde_json::to_vec(&q).unwrap();
+    assert!(matches!(engine::admit(&reverted, &bytes), Err(engine::EvalError::Plan(m)) if m.contains("superseded")));
+    assert!(tx(&db, |s| super::calendar::due(s, &reverted)).unwrap().is_none());
+}
+
+/// A predecessor records no successor while it still has work: the Worker
+/// kicks it only until succession completes, so a closure, a spend
+/// settlement or a purge of private results left then would never run.
+/// Each refuses `predecessor_work` (writing nothing) until it is done; the
+/// predecessor then records its successor and has no work.
+#[test]
+fn a_predecessor_with_closure_settle_or_purge_work_records_no_successor() {
+    use crate::config::{Authority, Supersede};
+    let retired = predecessor_cfg();
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = plan(10);
+    p.label = "testnet-rv1-x".into();
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let req = Supersede::of(&Authority::named("r0b", p.cohort + 1).unwrap()).unwrap();
+    let set = |columns: &str| {
+        db.conn.execute(&format!("UPDATE cohorts SET {columns} WHERE seq = ?1"), rusqlite::params![seq]).unwrap();
+    };
+    let done = "reserved_microusd = 1, settled_microusd = 1, purged_ms = 1, v3 = NULL, closure_digest = NULL";
+    for (work, columns) in [
+        ("settle", "settled_microusd = NULL"),
+        ("purge", "purged_ms = NULL"),
+        ("closure", "v3 = '{}', package_digest = 'aa', closure_digest = NULL"),
+    ] {
+        set(&format!("phase = 'closed', {done}"));
+        set(columns);
+        assert!(tx(&db, |s| engine::has_work(s, &retired)).unwrap(), "{work}");
+        let rows = dump(&db);
+        let r = tx(&db, |s| super::succession::supersede(s, &retired, &req, 1_000_000)).unwrap();
+        assert_eq!(r, Err("predecessor_work"), "{work}");
+        assert_eq!(dump(&db), rows, "{work}: a refusal writes nothing");
+    }
+    set(&format!("phase = 'closed', {done}"));
+    assert!(!tx(&db, |s| engine::has_work(s, &retired)).unwrap());
+    let v = tx(&db, |s| super::succession::supersede(s, &retired, &req, 1_000_000)).unwrap().unwrap();
+    assert_eq!(v["superseded_by"], "r0b");
+    assert!(!tx(&db, |s| engine::has_work(s, &retired)).unwrap(), "nothing left for kicks that stop");
+}
+
+/// A superseded authority queues nothing, even with the configuration it
+/// read before a successor's supersede committed (an operator plan awaits the
+/// ledger, and a calendar open its predecessors, between its admit and its
+/// queue): the queueing transaction reads the succession itself.
+#[test]
+fn a_plan_admitted_before_a_supersede_never_queues_after_it() {
+    use crate::config::{Authority, Supersede};
+    let retired = predecessor_cfg();
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let c = cfg();
+    let p = plan(10);
+    let bytes = serde_json::to_vec(&p).unwrap();
+    engine::admit(&c, &bytes).unwrap();
+    // The successor's first cohort is this plan's number.
+    let req = Supersede::of(&Authority::named("r0b", p.cohort.max(1)).unwrap()).unwrap();
+    tx(&db, |s| super::succession::supersede(s, &retired, &req, 1_000_000)).unwrap().unwrap();
+    let r = tx(&db, |s| engine::queue(s, &c, &bytes, 1_000_000));
+    assert!(matches!(r, Err(engine::EvalError::Plan(m)) if m.contains("superseded")), "{r:?}");
+    assert!(tx(&db, engine::cohorts).unwrap().is_empty());
+}
+
+/// The named authority's own configuration routes its probe objects, lanes
+/// and calendar numbers; the audit and operator routes accept only known
+/// authorities, and every predecessor is known.
+#[test]
+fn the_authority_routes_parse_and_know_only_the_deployments_authorities() {
+    use crate::config::{Authority, authority_route};
+    assert_eq!(authority_route("/eval/authority/main/status"), Some(("main", "status")));
+    assert_eq!(authority_route("/eval/authority/r0b/abandon"), Some(("r0b", "abandon")));
+    assert_eq!(authority_route("/eval/authority/r0b/clear"), Some(("r0b", "clear")));
+    for bad in
+        ["/eval/authority/load/status", "/eval/authority/R0B/status", "/eval/authority/r0b/plan", "/eval/authority/r0b"]
+    {
+        assert_eq!(authority_route(bad), None, "{bad}");
+    }
+    let a = Authority::named_after("r0c", 20, &["r0b"]).unwrap();
+    assert_eq!(a.predecessors(), vec!["main", "r0b"]);
+    assert!(a.known("main") && a.known("r0b") && a.known("r0c") && !a.known("r0x"));
+    assert_eq!(crate::config::kicked_authorities(&a, false, false), vec!["r0c"]);
+    assert_eq!(crate::config::kicked_authorities(&a, true, false), vec!["r0c", "main", "r0b"]);
+    assert_eq!(crate::config::kicked_authorities(&a, true, true), vec!["r0c"]);
+    let original = Authority::default();
+    assert!(original.known("main") && !original.known("r0b"));
+    assert!(original.predecessors().is_empty());
+}
+
+/// A plan that names an artifact spec binds the v2 limits record (its id and
+/// frozen digest) and publishes it in `components.json`; a plan that names
+/// none keeps the v1 record, unpublished, so earlier digests are unchanged.
+#[test]
+fn a_plan_naming_a_spec_binds_and_publishes_the_v2_limits_record() {
+    let v3_sha = slop_ninja_artifact_check::spec::Version::V3.spec_sha256();
+    let mut p = plan(10);
+    let (j, domain) = v3::limits_record(&p).unwrap();
+    assert_eq!((j["schema"].as_str(), domain), (Some("slop_ninja_eval_limits_v1"), v3::LIMITS_DOMAIN_V1));
+    assert!(j.get("artifact_spec").is_none() && j.get("step_budget_ms").is_some());
+    assert_eq!(v3::published_limits(&p).unwrap(), None);
+    let s = &mut p.fanout.as_mut().unwrap().score;
+    s.artifact_max_mib = None;
+    s.artifact_spec = Some("slop_ninja_a_artifact_spec_v3".into());
+    s.load_ms_per_mib = Some(50);
+    s.artifact_spec_sha256 = Some(v3_sha.clone());
+    let (j, domain) = v3::limits_record(&p).unwrap();
+    assert_eq!((j["schema"].as_str(), domain), (Some("slop_ninja_eval_limits_v2"), v3::LIMITS_DOMAIN_V2));
+    assert_eq!(j["artifact_spec"], json!({"id": "slop_ninja_a_artifact_spec_v3", "sha256": v3_sha}));
+    assert!(j.get("step_budget_ms").is_none() && j["step_wall_ms"].is_u64());
+    assert_eq!(v3::published_limits(&p).unwrap(), Some(j));
+    // A plan that names its spec only in the admission block (stored before
+    // `fanout.score.artifact_spec_sha256` existed) keeps the v1 record it
+    // bound at seal under the earlier build, though its loads name the spec.
+    let mut stored = p.clone();
+    stored.fanout.as_mut().unwrap().score.artifact_spec_sha256 = None;
+    stored.admission = Some(crate::eval::plan::AdmissionPlan {
+        artifact_spec: "slop_ninja_a_artifact_spec_v3".into(),
+        artifact_spec_sha256: v3_sha.clone(),
+        roster_cap: 2,
+        selection: "earliest_commitment/v1".into(),
+        part_size: 5 << 20,
+        max_parts: 100,
+        request_validity_blocks: 360,
+        operator_hotkeys: Vec::new(),
+        fresh_pool: None,
+    });
+    assert_eq!(stored.load_spec_sha256(), Some(v3_sha.as_str()));
+    let (j, domain) = v3::limits_record(&stored).unwrap();
+    assert_eq!((j["schema"].as_str(), domain), (Some("slop_ninja_eval_limits_v1"), v3::LIMITS_DOMAIN_V1));
+    assert_eq!(v3::published_limits(&stored).unwrap(), None);
+}
+
+/// The cohort's artifact spec reaches every scoring lane's assignment as the
+/// digest its loads name; a plan that names none sends none.
+#[test]
+fn a_cohort_naming_an_artifact_spec_hands_its_digest_to_every_scoring_lane() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = plan(10);
+    p.label = "spec-v3".into();
+    let v3_sha = slop_ninja_artifact_check::spec::Version::V3.spec_sha256();
+    p.fanout.as_mut().unwrap().score.artifact_max_mib = None;
+    p.fanout.as_mut().unwrap().score.artifact_spec = Some("slop_ninja_a_artifact_spec_v3".into());
+    p.fanout.as_mut().unwrap().score.load_ms_per_mib = Some(50);
+    p.fanout.as_mut().unwrap().score.artifact_spec_sha256 = Some(v3_sha.clone());
+    let mut sim = Sim::new(&db, cfg(), 1_000_000);
+    let seq = open_cohort(&db, &p, 10, sim.now);
+    sim.frozen = vec!["score"];
+    for _ in 0..400 {
+        sim.tick();
+        if phase(&db, seq) == "scoring" {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, seq), "scoring");
+    sim.tick();
+    let scoring: Vec<String> = sim.lanes.iter().filter(|(_, l)| l.kind == "score").map(|(n, _)| n.clone()).collect();
+    assert!(!scoring.is_empty());
+    for name in &scoring {
+        let a = sim.report(&sim.lane_ref(name), "starting", None);
+        assert_eq!(a.spec_sha256.as_deref(), Some(v3_sha.as_str()), "{name}");
+    }
+    // Unnamed: nothing is sent.
+    let db2 = Sqlite::open();
+    sql::migrate(&db2, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut q = plan(10);
+    q.label = "spec-none".into();
+    let mut sim2 = Sim::new(&db2, cfg(), 1_000_000);
+    let seq2 = open_cohort(&db2, &q, 10, sim2.now);
+    sim2.frozen = vec!["score"];
+    for _ in 0..400 {
+        sim2.tick();
+        if phase(&db2, seq2) == "scoring" {
+            break;
+        }
+    }
+    sim2.tick();
+    let name = sim2.lanes.iter().find(|(_, l)| l.kind == "score").map(|(n, _)| n.clone()).unwrap();
+    assert_eq!(sim2.report(&sim2.lane_ref(&name), "starting", None).spec_sha256, None);
+    // A spec the scorer does not admit loads by is refused at queue time.
+    let mut bad = plan(10);
+    bad.label = "spec-v1".into();
+    bad.fanout.as_mut().unwrap().score.artifact_max_mib = None;
+    bad.fanout.as_mut().unwrap().score.artifact_spec = Some("slop_ninja_a_artifact_spec_v1".into());
+    assert!(refused_plan(&bad, Ceilings { roster_cap: Some(40), accept_reward_v0: true }).contains("artifact_spec"));
+    bad.fanout.as_mut().unwrap().score.artifact_spec = Some("slop_ninja_a_artifact_spec_v9".into());
+    assert!(refused_plan(&bad, Ceilings { roster_cap: Some(40), accept_reward_v0: true }).contains("artifact_spec"));
 }

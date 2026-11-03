@@ -542,6 +542,30 @@ pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
                     updated_at_ms INTEGER NOT NULL
                 ) STRICT"],
         },
+        // v8: the held-target restarts (a chain record restarted under the
+        // same trust roots): the record each set aside, never deleted, and
+        // the restarted record's first epoch, below which no bundle installs;
+        // and the highest epoch any installed reward-v1 bundle was issued
+        // (launch) or opened (cohort) at, which a restart's first epoch must
+        // exceed.
+        Migration {
+            version: 8,
+            statements: &[
+                "CREATE TABLE sign_held_target_resets (
+                    seq INTEGER PRIMARY KEY,
+                    held_target TEXT,
+                    held_activated_epoch INTEGER,
+                    from_epoch INTEGER NOT NULL,
+                    launch_issued_epoch INTEGER NOT NULL,
+                    at_ms INTEGER NOT NULL
+                ) STRICT",
+                "CREATE TABLE sign_record_epoch (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    epoch INTEGER NOT NULL,
+                    updated_at_ms INTEGER NOT NULL
+                ) STRICT",
+            ],
+        },
     ],
 };
 
@@ -620,6 +644,12 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
         Migration {
             version: 11,
             statements: crate::eval::commitments::SCHEMA,
+        },
+        // v12: the successor that superseded this main authority (a
+        // chain-record restart), recorded once.
+        Migration {
+            version: 12,
+            statements: crate::eval::succession::SCHEMA_V12,
         },
     ],
 };

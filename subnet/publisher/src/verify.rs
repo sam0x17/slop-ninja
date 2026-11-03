@@ -813,6 +813,10 @@ struct ComponentsV2 {
     entrants: Vec<EntrantComponents>,
     crash_rule: String,
     artifact_rule: String,
+    /// The limits record the manifest binds by digest (`limits`), in
+    /// components written after it was added; checked against the manifest.
+    #[serde(default)]
+    limits: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Eq)]
@@ -839,6 +843,12 @@ struct EntrantComponents {
 /// The domain the coordinator hashes the gate policy document under; the
 /// manifest binds the digest.
 pub const GATE_POLICY_DOMAIN: &str = "slop_ninja.eval/gate-policy/v2";
+
+/// The domain the coordinator hashes the v2 limits record under (a cohort
+/// whose plan names an artifact spec: the spec its scorer loads name, by id
+/// and frozen digest); the manifest binds the digest. The v1 record (no spec)
+/// is not published.
+pub const LIMITS_DOMAIN_V2: &str = "slop_ninja.eval/limits/v2";
 
 /// A short version identifier: `[a-z0-9_.-]`, at most 64 bytes.
 fn identifier(s: &str) -> bool {
@@ -901,6 +911,17 @@ fn components_disagreement(
             serde_json::to_value(&c.gate_policy).is_ok_and(|g| policy.get("gates") == Some(&g));
         if !gates_agree {
             return Some("the gate thresholds differ from the bound policy");
+        }
+    }
+    if let Some(limits) = &c.limits {
+        // Only the v2 record (a cohort that names an artifact spec) is published.
+        if limits.get("schema").and_then(serde_json::Value::as_str)
+            != Some("slop_ninja_eval_limits_v2")
+        {
+            return Some("the limits record has an unknown schema");
+        }
+        if domain_hash(LIMITS_DOMAIN_V2, limits.to_string().as_bytes()) != manifest.limits {
+            return Some("the limits record is not the one the manifest binds");
         }
     }
     let n = package.entrants.len();

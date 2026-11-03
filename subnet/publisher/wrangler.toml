@@ -91,12 +91,21 @@ HEARTBEAT_ENABLED = "false"
 # Wall time after which a run starts no new step (a cohort verification or an
 # artifact copy): one cron period. Each step renews the run's two-minute lease.
 RUN_WALL_BUDGET_MS = "60000"
+# The public record (tracked here, never passed with --var, so a deploy from
+# any tree carries the record that tree names; a chain-record restart changes
+# both in one commit, from the restart record's "publisher" values):
+#   PUBLISH_FROM_EPOCH    first chain epoch of the public record: the cohorts
+#                         whose manifest opened at or after it; empty publishes
+#                         no cohort
+#   RECORD_LABEL_PREFIX   labels without it are outside the record and never
+#                         read (rehearsal, load and rotated-root cohorts)
+# The index records the pair it was built under; when the tracked prefix
+# changes, the publisher archives the previous record's index under
+# v1/records/<its first label>/, removes the live leaderboard and reference
+# pointers, and starts a fresh record (publish.rs, `start_record`).
+PUBLISH_FROM_EPOCH = "52"
+RECORD_LABEL_PREFIX = "testnet-rv1-"
 # Set at deploy, not here:
-#   PUBLISH_FROM_EPOCH    first chain epoch of the restarted public record: the
-#                         cohorts whose manifest opened at or after it; unset
-#                         publishes no cohort
-#   RECORD_LABEL_PREFIX   optional; labels without it are outside the record and
-#                         never read (rehearsal, load and rotated-root cohorts)
 #   PRIVATE_DIGESTS       comma-separated content digests and artifact SHA-256s
 #                         of the references (the initial reference and its
 #                         replacement); never published as entrant artifacts

@@ -695,6 +695,41 @@ also stops reconciliation and needs `clear_fault` before `resume`; clearing it
 also lets a settled attempt be retried. A chain-journal fault stops signing
 too.
 
+`POST /signing/restart?from_epoch=F`, with the launch bundle as the request
+body (operator token; signing paused only, refused `signing_active`
+otherwise), is the coordinator's counterpart of the native validator's
+`reset-target`, for a chain record restarted under the same trust roots (a
+new main authority on the eval Worker, R_0 with no predecessor). It runs the
+journal action `restart_target`, which `/signing/control` refuses (its body
+holds only small JSON actions). Without `from_epoch` the route answers 400
+`from_epoch`. In one transaction the action checks that `F` (the restart
+record's first epoch) is after the epoch the held target activated
+(`restart_before_held_record`; so a low or mistyped `F` cannot let the
+earlier record back in), not before an earlier restart's and after every
+epoch an installed reward-v1 bundle was issued (launch) or opened (cohort)
+at (`restart_regressed`; the high-water mark is `sign_record_epoch`, schema
+v8, reported as `record_epoch` in `/status`, so a second restart while the
+launch burn row is held, with no activation to bound it, never reuses an
+earlier restart's floor and readmits that record's bundles), and that the bundle is a launch bundle that verifies
+against the launch burn row and whose authorization was issued at or after
+`F`; then it moves the held record to `sign_held_target_resets` (journal
+schema v8; never deleted) and installs the bundle as the only active target.
+Any refusal changes nothing, so the action is never a probe of the deployed
+version (that is `/status`'s journal schema version). After a restart, a
+bundle installs only when it is the restarted record's
+(`signing::restart_floor_ok`: a launch authorization issued, or a cohort
+opened, at or after `F`), so the earlier record's bundles, signed by the same
+keys, never install again, and no T12 bundle installs at all
+(`v1_after_restart`: it carries no epoch to hold to the floor); `/status`
+reports the floor (`restarted_from_epoch`). Each restart is logged
+(`held_target_reset`, the record set aside and the floor) and counted
+(`held_target_resets`).
+Operations, attempts and reveals are left alone: a live attempt keeps
+reconciling from finalized state and is never sent again, committed
+operations keep their read-back and reveal checks, and an epoch already
+holding an operation never takes a second one (`commit_ops.epoch` is unique),
+so the restarted target's first commit takes a later epoch.
+
 Testnet drills are armed per step (`arm_drill`, at most 3):
 
 | Drill | Effect |
@@ -764,7 +799,14 @@ and a newer stored schema, and a failed upgrade rolls back.
 
 **EvalCohort** is the cohort authority at `eval-cohort/testnet/<genesis>/<netuid>`
 (see [Hidden evaluation](#hidden-evaluation-m4)), and the separate load-rehearsal
-instance at the same name plus `/load`. Schema v2 migrated the v1 stub in place:
+instance at the same name plus `/load`. A named main authority
+(`EVAL_MAIN_AUTHORITY`, the chain-record restart) is the same name plus
+`/authority/<name>`. Each object records the instance and the authority its
+first request named and refuses any other (`instance_mismatch`,
+`authority_mismatch`); a read-only request (the audit route, a successor's
+supersede call) to an object that records nothing answers 404 and writes
+nothing. Schema v12 adds `authority_succession`, the successor a superseded
+main authority recorded. Schema v2 migrated the v1 stub in place:
 it dropped `cohort_state` and added `eval_obs`, `cohorts`, `phase_log`,
 `pool_used`, `pool_groups_used`, `docs`, `gen_usage`, `jobs`, `chunks`, `preds`,
 `receipts`, `receipt_objects` and `eval_targets`. Schema v3 added the
@@ -778,7 +820,8 @@ Without `EVAL_ROLE = "eval"` it is never kicked and stays empty.
 The lane objects (eval deployment only): **AScorer** is a scoring lane at
 `a-scorer/testnet/{main,load}/lane-<k>` that owns one `a-scorer-testnet`
 Container instance; **EvalLane** runs generation, summary and bundle lanes at
-`eval-lane/testnet/{main,load}/<kind>-<k>`; **GenLimiter** holds the shared
+`eval-lane/testnet/{main,load}/<kind>-<k>` (a named main authority's lanes at
+`.../main/authority/<name>/...`); **GenLimiter** holds the shared
 Workers AI token buckets in memory; **SpendLedger** holds the monthly spend
 ledger (SQLite). Lanes keep only their assignment `(seq, gen)`, metering and
 container bookkeeping; no text.
@@ -1292,6 +1335,117 @@ that kills it once in isolation, jobs whose artifact load fails, a window of
 batch-shard read failures after scoring starts (an R2 read outage), and a
 lease shorter than a chunk call. `POST /eval/load/hold` makes every claim
 answer `Paused`, as silence does, without stopping the heartbeat.
+
+**Main authority (chain-record restart).** `EVAL_MAIN_AUTHORITY`,
+`EVAL_MAIN_FIRST_COHORT` and `EVAL_MAIN_PREVIOUS` name the main instance's
+authority. They are tracked in `wrangler.toml` and never passed with `--var`,
+so every deploy carries the authority its tree names, and
+`slop_ninja_eval_ops authority-check` (`config::deploy_check`) refuses an
+eval deploy whose tree names another authority than the deployed one. It
+fails closed: a status it cannot read (an error reply, no eval status, a
+missing authority, succession or work field) refuses. It reads succession
+from what the stores recorded (`superseded_by`, `succession_recorded`), never
+from the cohorts listed, since succession is recorded before a plan queues
+or a template's first cohort opens. A routine deploy over a superseded
+authority is refused (`--freeze` alone redeploys it frozen). `--switch`
+passes only the switch commit over an idle authority with no work left, its
+template paused, its labels and numbers outside the new authority's and no
+other successor recorded, or a rollback before any succession was recorded
+on either side (it needs `--target-status`, the earlier authority's own
+status; `--freeze` for a deliberate rollback after succession);
+`--first-deploy` passes only the one deploy of this support over a build
+that reports no authority. `main` (the
+default) is the original, whose object, lane names
+and probe keys are as they were. Another name (lowercase letters and digits,
+never `load`) is a fresh cohort object, so it starts its own reference chain
+(the probe build that names R_0 with no predecessor records
+`reference_state`), published index, fingerprints, probe versions and reuse
+ledger. Nothing it writes can be an earlier authority's: its labels start
+with `testnet-<name>-` and its cohort numbers at `EVAL_MAIN_FIRST_COHORT`
+(both checked at queue time, `config::Authority`), so its batches, receipts,
+manifests, packages, closures and openings never share a label or a cohort
+number; its probe objects sit under `probes/authority/<name>/v<version>/` in
+both buckets; and its lane objects are new, so no lane holding an earlier
+authority's later `(seq, gen)` refuses its kicks. Kicks name the authority
+(`LaneKick.authority`), and a lane's calls go back to the object that kicked
+it whatever the deployment names now. The pool's durable used ledger is keyed
+by the object's id, so the new authority still sees every earlier draw.
+
+Succession is durable (`eval::succession`). Every earlier authority (the
+original, then each name `EVAL_MAIN_PREVIOUS` lists, oldest first) is a
+predecessor. Before a named authority takes its first plan or installs a
+template, and before its calendar opens a cohort, each predecessor records it
+as its successor (`/succession/supersede`, inside the predecessor's own
+transaction), which a predecessor does only while all its cohorts are closed
+or abandoned, it has no work left (`engine::has_work`: a closure, a spend
+settlement, a purge of private results and summaries, or an admission
+clean-up; refused `predecessor_work`, since the ticks stop kicking it once
+succession is complete and work left then would never run), and none of its
+labels has the new prefix or reaches the new first cohort. A predecessor already superseded answers with the successor it
+recorded first, after the same checks against the asking one; the named
+authority accepts that answer only when it names itself or an authority it
+lists after that predecessor, which it then asks in turn
+(`config::succession_reply`), so a deployment that leaves an earlier
+authority out of `EVAL_MAIN_PREVIOUS` never completes succession. Each
+answer is kept with the first cohort it was checked for, and a lower first
+cohort asks again; `/eval/status` reports them (`succession_recorded`,
+`succession_complete`) with `work` and `superseded_by`. Otherwise the named
+authority refuses (409 `predecessor_busy`, `predecessor_work`,
+`predecessor_numbers`, `predecessor_superseded_elsewhere`,
+`predecessor_unknown`, `predecessor_unreadable`) and its calendar pauses with
+that reason. A superseded authority admits no plan and opens no cohort again,
+whatever a later deployment names (its calendar is paused at supersession,
+and the queueing transaction itself reads the succession, so a plan admitted
+just before a successor recorded it is refused too), so a deploy that
+reverts the vars refuses plans instead of re-admitting the restarted chain's
+numbers or labels. An authority the deployment no longer names is retired:
+it admits no plan and its calendar opens nothing (so it is no reason for its
+alarm to run), keeps its own names for any work it still holds, is kicked on
+cron ticks while the deployment lists it as a predecessor and the named
+authority's succession is incomplete (its kick reply reports
+`succession_complete`; before that a cohort the predecessor still held at the
+switch finishes and is never skipped, after it every predecessor holds
+nothing), and is reachable at `/eval/authority/<name>/status` (status token,
+read only) and `/eval/authority/<name>/{clear,abandon}` (operator token),
+for known names only (`config::Authority::known`), so no request creates an
+object for any other name. The eval Worker's ChainJournal and the
+coordinator's signing journal are untouched by the switch; the coordinator's
+held target is restarted separately (`POST /signing/restart`, above), and a native
+validator holding the earlier chain's target runs `reset-target` (validator
+README). Runbook: TESTNET.md, "Chain-record restart". A restart installs a
+fresh R_0 with no predecessor, so it belongs before the announcement: after
+it, a change of reference is decision U2's single, pre-announced replacement
+(the round-2 reference as `k = 1`, a successor of R_0 on the same record),
+and any restart needs a new recorded decision from the user
+(`slop_ninja_eval_ops restart --decision` names it).
+
+**Scorer loads and the artifact spec.** A plan may name the artifact spec of
+its cohort (`fanout.score.artifact_spec`, a spec id the scorer admits loads
+by: spec v2 or v3, refused otherwise at queue time), with its digest frozen
+in the plan (`fanout.score.artifact_spec_sha256`, or the admission block's
+`artifact_spec_sha256`), which must be this build's digest of that spec.
+The spec's bounds size the artifact (W3's spec-derived bound; a plan names
+exactly one of `artifact_spec` and `artifact_max_mib`), and every scoring
+lane's load names the frozen digest (`spec=<digest>` on `/v1/load`), read
+from the plan, never rebuilt per lane report, so the scorer admits the
+cohort's artifacts by it; spec v3 admits the span tower class. A plan that
+names none sends none and is admitted by the scorer's unnamed-load spec
+(spec v2), as before. The client sends the digest only when the scorer's
+`/healthz` lists it; a scorer that does not fails the prepare as the
+platform's (`scorer does not admit by the cohort's artifact spec`), never the
+artifact's, and an instance bound under another spec is never reused. A plan
+that carries `fanout.score.artifact_spec_sha256` binds the v2 limits record
+(`slop_ninja_eval_limits_v2`, domain `slop_ninja.eval/limits/v2`: v1's fields
+plus the spec's id and digest), published in `components.json` (`limits`),
+and the publisher checks its digest against the manifest's. Every other plan
+keeps the v1 record and its digest, unpublished, so a stored plan's record
+never changes with the build (one that names its spec only in the admission
+block bound v1 before that field existed). The operator probe (`POST
+/eval/scorer-probe`) takes an optional `artifact_spec` (id) and loads by it
+the same way, and an optional `"spans": true` that asks the scorer for each
+probe document's sentences and spans (a package with a token head; cohort
+lanes never ask). Admission runs (the admission lane's `/run`) still load by
+spec v2 only (`admission::ADMISSION_SPECS`).
 
 **Reward-v1 cohorts (plan v3).** `eval::v3` runs a `reward-v1` cohort through
 the same phases, lanes and receipts, with every rule value a plan parameter

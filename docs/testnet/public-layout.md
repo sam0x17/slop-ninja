@@ -295,7 +295,17 @@ starts with it. Chain epochs only increase, so a restarted coordinator that
 numbers its cohorts from 1 again cannot bring rehearsal cohorts into the
 record. The record starts at a cohort whose reference is `R_0` with no
 predecessor, and cohort numbers order like opening epochs. Rehearsal and load
-cohorts are never listed.
+cohorts are never listed. When the label prefix changes (a chain-record
+restart), the earlier record's index is archived at
+`v1/records/<its first label>/cohorts/index.json` (the index only: the live
+leaderboard and reference pointers are removed, not archived), and a fresh
+index starts that records the earlier record, its initial references (still
+withheld as entrant artifacts) and its cohorts whose detailed receipts are
+still published (deleted once two cohorts of the new record are listed).
+Components of
+a cohort whose plan names an artifact spec carry `limits`, the limits record
+(`slop_ninja_eval_limits_v2`) the signed manifest binds by digest under
+`slop_ninja.eval/limits/v2`.
 
 ### Retention
 

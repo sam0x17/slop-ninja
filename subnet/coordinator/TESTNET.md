@@ -1850,6 +1850,269 @@ Invalid and went through on its own retry.
 - **Routes after the drill.** Redeployed with `ADMISSION_ROUTES` off once
   both instances were idle.
 
+### Chain-record restart
+
+A restart gives the main instance a fresh reference chain (R_0, no
+predecessor) without resetting or deleting anything: the eval Worker names a
+new main authority (README "Main authority"). The earlier authority's store,
+objects, packages and receipts stay where they are, readable at `GET
+/eval/authority/<name>/status`; once the new authority records succession it
+admits no plan again.
+
+Deploy rules for every step that deploys, in addition to the adopted ones
+(one deploy window under `data/locks/cf-deploy.lock`, a clean pushed commit
+that contains the deployed one and the scorer pin, the scorer build context
+staged by the tracked pin, one change per deploy):
+
+- The authority vars (`EVAL_MAIN_AUTHORITY`, `EVAL_MAIN_FIRST_COHORT`,
+  `EVAL_MAIN_PREVIOUS`) and the publisher's record vars
+  (`RECORD_LABEL_PREFIX`, `PUBLISH_FROM_EPOCH`) live only in the tracked
+  `wrangler.toml` files. Never pass them with `--var`: a deploy from any tree
+  then carries the authority and record that tree names. Refuse a deploy
+  whose command line names any of them (`--var EVAL_MAIN_...`, `--var
+  RECORD_LABEL_PREFIX:...`, `--var PUBLISH_FROM_EPOCH:...`, or a `--vars`
+  file holding them); a deploy script written before these vars were tracked
+  (one that passes the record vars of an earlier deploy) is never reused.
+  The pre-deploy checks below read only the tree, so they cannot see a
+  `--var` override; a publisher deployed with a stale prefix publishes
+  nothing and raises `publication_refused` until it is redeployed.
+- Before every eval deploy, inside the deploy window, read `GET /eval/status`
+  and run `slop_ninja_eval_ops authority-check --wrangler
+  subnet/coordinator/wrangler.toml --status <it>`; refuse the deploy unless it
+  passes (exit 0). The check fails closed: an error reply, a Worker status
+  whose `eval_cohort` is null, or a status without `authority_name`,
+  `first_cohort`, `predecessors`, `cohorts`, `superseded_by`,
+  `succession_recorded` or `work` refuses. It reads succession from what the
+  stores recorded, never from the cohorts listed: a routine deploy over an
+  authority a successor superseded is refused (it admits nothing; `--freeze`
+  alone redeploys it frozen, deliberately). Only step 1's deploy uses
+  `--first-deploy`, and only the switch (and a rollback) commit's deploy
+  uses `--switch`; a rollback also passes `--target-status` (below).
+- Before every publisher deploy, read the live index (`v1/cohorts/index.json`
+  in the public-candidate bucket) and run `slop_ninja_publisher_ops
+  record-check --wrangler subnet/publisher/wrangler.toml --index <it>`
+  (publisher crate example); refuse the deploy unless it passes. It refuses a
+  tree whose `RECORD_LABEL_PREFIX` is not the live record's, an earlier
+  record's prefix above all. Only step 8's commit uses `--restart`.
+- Tell every lane that deploys eval-testnet or the publisher when the switch
+  commit lands on main: their trees must contain it.
+
+1. **The code, unchanged behaviour.** Deploy the eval Worker from a commit
+   with authority support (the tracked `EVAL_MAIN_AUTHORITY = "main"`, empty
+   first cohort and predecessors), after `authority-check --first-deploy`
+   passes: the deployed build reports no authority, and the tree tracks the
+   original. From then on `/eval/status` reports `authority_name: "main"`,
+   `authority_retired: false`, `superseded_by: null` and the same cohorts as
+   before, and every later deploy runs the check without that flag. Deploy
+   the coordinator Worker the same way: `pause` signing, deploy, wait until
+   `/status` reports journal schema version 8 (read only), then `resume`.
+   Never call the restart route to probe the version: it is an admin action
+   (a refusal changes nothing, but a valid bundle restarts the held target).
+2. **Quiesce the original.** Pause its calendar if a standing template is
+   installed (`POST /eval/template/pause`), then wait until every cohort on
+   both instances is closed or abandoned and none is queued (the go-live idle
+   check), and until `/eval/status` reports `work: false` (the last cohort's
+   closure, settlement and purge done). The switch check (step 4) refuses an
+   authority that is not idle, has work left or whose template is not
+   paused, and the original records a successor only while idle with no work
+   left (step 5).
+3. **Restart record.** Save the main status (`GET /eval/status`), then:
+
+   ```text
+   slop_ninja_eval_ops restart --authority <name> --status main-status.json \
+       --wrangler subnet/coordinator/wrangler.toml --reference r0-artifact.json \
+       --expect-package <R_0 package digest> --probe-template <a probe plan> --out <dir> \
+       --decision <the recorded decision>
+   ```
+
+   `<name>` is lowercase letters and digits. The tool refuses a status whose
+   authority (name, first cohort, predecessors) is not the one the tree
+   tracks, an authority that is not idle, has work left or is already
+   superseded, a missing `--decision` (the recorded user decision the
+   restart runs under, kept in `restart.json`), a name already used, a name whose
+   label prefix `testnet-<name>-` an earlier label has, a reference record
+   whose `package_sha256` is not `--expect-package` (the R_0 package the
+   restart was decided on, so a stale record never starts the chain), and a
+   plan the coordinator would refuse (at the tracked `ROSTER_CAP`).
+   `r0-artifact.json` is R_0's artifact record as plans name it (owner,
+   contract, package and model digests, the scorer image digest, commitment
+   block, manifest key). `<dir>/restart.json` holds the three authority vars
+   to commit (`EVAL_MAIN_FIRST_COHORT` is one past the replaced authority's
+   highest cohort number; `EVAL_MAIN_PREVIOUS` lists the earlier named
+   authorities), the publisher's `RECORD_LABEL_PREFIX` and
+   `PUBLISH_FROM_EPOCH`, `record_from_epoch` (the same epoch), R_0 and the
+   probe record's key; `<dir>/probe-plan.json` is the probe build.
+4. **Switch.** Commit exactly the three vars from `restart.json` in
+   `[env.eval-testnet.vars]` (a one-line-per-var commit, nothing else), push
+   it to main, and deploy eval-testnet from it after `authority-check
+   --switch` passes. It passes only when the tree's predecessors are the
+   deployed authority's and then the deployed one, the deployed authority
+   holds no cohort that is not closed or abandoned and reports `work: false`
+   (no closure, spend settlement, purge of private results and summaries, or
+   admission clean-up left), its standing template is paused (or none is
+   installed), none of its labels or numbers falls within the new
+   authority's (every number below `EVAL_MAIN_FIRST_COHORT`), and it
+   recorded no other successor.
+   Then wait for the rollout before step 5: at least 5 minutes after the
+   deploy completes (Durable Objects may run the previous code for up to
+   300 s, and a lane object on old code ignores `LaneKick.authority` and
+   reports to the original, which costs liveness, not safety), and until
+   `/eval/status` reports `authority_name: "<name>"`, `predecessors: ["main",
+   ...]`, no cohorts, `first_cohort`, `label_prefix` and `reward.references`
+   null. `/eval/authority/main/status` reports the original's cohorts
+   unchanged and `authority_retired: true`.
+5. **Chain record.** `POST /eval/plan` with `probe-plan.json`. The named
+   authority first has every predecessor record it as successor, in order. A
+   409 names why not: `predecessor_busy` (a predecessor still holds an open
+   cohort; it is kicked on ticks and finishes, so post again once it is
+   closed or abandoned), `predecessor_work` (its cohorts are closed, but a
+   closure, spend settlement, purge or admission clean-up is left: the ticks
+   keep kicking it until succession completes, so post again once its
+   status reports `work: false`; work left after succession would never
+   run), `predecessor_numbers` (a first cohort or prefix that
+   collides), `predecessor_superseded_elsewhere` (a predecessor recorded a
+   successor that is neither this authority nor one listed after it in
+   `EVAL_MAIN_PREVIOUS`: the deployment left an authority out, so fix the
+   list and redeploy), `predecessor_unknown` or `predecessor_unreadable`. A
+   superseded authority queues nothing, also for a plan admitted before its
+   successor recorded it. Afterwards `/eval/authority/main/status` reports
+   `superseded_by: "<name>"`, the original admits nothing even under a
+   reverted deploy, and ticks stop kicking the predecessors (they hold
+   nothing, have no work left and take nothing). `/eval/status` reports
+   `succession_recorded` (each predecessor with the first cohort it was
+   checked for) and `succession_complete: true`. Succession is recorded
+   before the plan queues, so a refused or failed queue leaves it recorded
+   while the named authority still lists no cohort. The probe build draws, generates and scores
+   R_0 on its probe documents and closes with `reward.references` `{k: 0,
+   current_content: <R_0 content>, predecessor_content: null}`, R_0
+   published and fingerprinted, the probe record at
+   `probes/authority/<name>/v1/record.json` in the eval bucket, and
+   `launch_burn: true`. Read that record back privately, then build each
+   rehearsal cohort with
+
+   ```text
+   slop_ninja_eval_ops restart-cohort --restart <dir>/restart.json --record record.json \
+       --template <a v3 plan> --cohort <n> --label-suffix <s> --wrangler subnet/coordinator/wrangler.toml
+   ```
+
+   (R_0, no predecessor, the authority's probe version, label
+   `testnet-<name>-<s>`, a named artifact spec's digest frozen with the plan
+   in `fanout.score.artifact_spec_sha256`). A standing template's
+   `label_prefix` is `testnet-<name>`; its install needs the same succession,
+   and its calendar numbers from the first cohort.
+6. **Launch bundle and the coordinator.** With `F` the restart record's
+   `record_from_epoch` and `E` the current epoch (`E >= F`):
+
+   ```text
+   reward_v1_verify launch --trust testnet-trust.json --authorization-seed <seed file> \
+       --issued-epoch E --out launch-<name>-eE.json
+   ```
+
+   On the coordinator, with the operator token: `{"action": "pause"}` on
+   `POST /signing/control`, then `POST /signing/restart?from_epoch=F` with
+   the bundle file `launch-<name>-eE.json` as the request body, then
+   `{"action": "resume"}` on `/signing/control`. The control route takes
+   only small JSON actions and refuses `restart_target` there. The restart
+   route answers 200 with `{"restarted": ...}` (the record set aside, the
+   target it replaced, the launch target now installed, `F`) or
+   `{"refused": {"code": ...}}` with nothing changed: `signing_active` (not
+   paused), `restart_regressed` (`F` before an earlier restart's, or not
+   after the latest epoch an installed bundle was issued or opened at,
+   `record_epoch` in `/status`, the earlier restarts' own launch bundles
+   included),
+   `restart_before_held_record` (`F` at or before the epoch the held target
+   activated), the bundle's own refusals (`bundle_malformed` and the other
+   verification codes), `not_a_launch_bundle`, `authorization_refused`, and
+   `bundle_before_restarted_record` (an authorization issued before `F`).
+   Before the journal, it answers 400 `from_epoch` (the parameter is missing
+   or not a number), 400 `bad_request` (a body that is not UTF-8), 413
+   `body_too_large` (a body over the bundle bound) and 401 without the
+   token. The next commit is the launch burn row; earlier commits keep their
+   read-back and reveal checks, no epoch takes a second operation, and no
+   bundle issued or opened before `F` installs again (`restarted_from_epoch`
+   in `/status`), nor any T12 bundle (`v1_after_restart`).
+7. **validator2 and the authorization.** No component writes the private
+   authorization pointer yet (`authorizations/current.json` in the receipts
+   bucket; publisher README, "Not yet done"), so outside validators see no
+   restarted authorization until that follow-up lands. validator2 holds the
+   earlier chain's target under the same trust roots, so install by hand
+   (validator README, "Trust roots and restarted chain records"): stop the
+   dispatch unit, run `reset-target`, install the launch bundle file from
+   step 6, start the unit. Rotated roots would instead set the record aside
+   on their own (`held_target_authority_changed`).
+8. **Publisher.** Commit `RECORD_LABEL_PREFIX` and `PUBLISH_FROM_EPOCH` from
+   `restart.json` in the publisher's `[env.testnet.vars]` and deploy it from
+   that commit after `record-check --restart` passes. Its next run sees the
+   listed cohorts outside the new prefix, archives the previous record's
+   index at `v1/records/<its first label>/cohorts/index.json` (still in the
+   private public-candidate bucket; written once and never replaced, and
+   refused if it carries wording public text never carries), removes the
+   live leaderboard and reference pointers (so the earlier wording they
+   carried is gone, never archived), and starts a fresh index that records
+   the earlier record (`previous_records`, with its initial references, which
+   stay withheld as entrant artifacts). The record starts at the first
+   restarted cohort whose reference is R_0 with no predecessor; the earlier
+   record's cohorts are never appended to it, and a later deploy that names
+   the earlier prefix again is refused by the publisher itself (the run
+   publishes nothing and raises `publication_refused`). The earlier record's
+   cohorts whose detailed receipts were still published lose them once two
+   cohorts of the new record are published, whether or not those produce a
+   target (the restart superseded the earlier target; their publication
+   records say when). Read back `v1/records/<first label>/` after the run:
+   it holds only `cohorts/index.json`.
+
+Rollback. Only before any succession was recorded: the earlier authority
+recorded no successor (its `GET /eval/authority/<name>/status` reports
+`superseded_by: null`), the named authority recorded none
+(`succession_recorded: []`) and lists no cohort, and its standing template is
+paused or absent, so no succession starts between the check and the deploy.
+Listing no cohort is not enough: succession is recorded before a plan queues
+and before a template's first cohort opens. Commit the three vars back, save
+both statuses, and deploy with `authority-check --switch --status <named
+authority's /eval/status> --target-status <the earlier authority's
+/eval/authority/<name>/status>`; then the original is current again, exactly
+as it was. Once succession was recorded on either side, `--switch` refuses
+the rollback: the earlier authority is superseded and admits nothing, and a
+deploy that names it again only leaves the named authority retired, its
+cohorts paused until the switch commit is deployed again (never skipped), so
+nothing admits anywhere. Only a deliberate freeze passes, with `--switch
+--freeze`, and later deploys of that frozen tree need `--freeze` too. To
+abandon a restart before the announcement, restart again under a new name.
+The coordinator's restart is not rolled back either: the earlier record's
+bundles never install after it; a further restart installs a newer launch
+bundle at a later `F`.
+
+Second restart (before the announcement only): repeat the steps with the
+current authority's status. The tool adds the replaced named authority to
+`EVAL_MAIN_PREVIOUS`; the new authority has every predecessor (the original
+and each named one) record succession, and the predecessors are kicked on
+ticks until it has.
+
+After the announcement. A restart installs a fresh R_0 with no predecessor,
+which outside miners would see as a reset of the reference chain they
+entered. Decision U2 allows exactly one change of reference after the
+announcement: R0 replaced once, by the round-2 reference, after it passes
+every gate, announced in advance on the status page, as a `k = 1` successor
+of R_0 on the same chain record (a plan with a predecessor), never as a
+restart. So no restart runs after the announcement without a new recorded
+decision from the user, and `restart` requires `--decision <reference>`
+naming the decision record it runs under; the restart record keeps it.
+
+Artifact specs: a plan that names `fanout.score.artifact_spec` names its
+digest too (`fanout.score.artifact_spec_sha256`, or the admission block's),
+equal to this build's; every scoring load names that frozen digest, and the
+operator probe takes the same field (`POST /eval/scorer-probe` with
+`"artifact_spec": "slop_ninja_a_artifact_spec_v3"`), so a tower-class package
+is admitted by spec v3. The probe also takes `"spans": true`, which asks the
+scorer for each probe document's sentences and spans (a package with a token
+head). The spec's bounds size the artifact. A plan that names none is
+admitted by spec v2, as before. A plan that carries
+`fanout.score.artifact_spec_sha256` binds limits record v2 (the spec by id
+and digest, published in `components.json`); every other plan, one that
+names its spec only in the admission block included, binds limits record
+v1, so a stored plan's record never changes with the build. Admission runs
+(the admission lane's `/run`) still load by spec v2 only.
+
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 
 The projection's inputs come from the load rehearsals of 2026-10-31 (3 to 129

@@ -402,11 +402,26 @@ pub struct EvalConfig {
     /// The scorer build admission verdicts are bound to
     /// (`SCORER_BINARY_SHA256`); empty when the deployment pins none.
     pub scorer_binary: String,
+    /// The main instance's authority (`EVAL_MAIN_AUTHORITY`): its lane names,
+    /// probe keys, labels and first cohort number. The load instance is
+    /// always the original authority's.
+    pub authority: crate::config::Authority,
 }
 
 impl EvalConfig {
     pub fn is_load(&self) -> bool {
         self.instance == INSTANCE_LOAD
+    }
+
+    /// The scope of this instance's lane object names.
+    pub fn lane_scope(&self) -> String {
+        self.authority.lane_scope(&self.instance)
+    }
+
+    /// The authority a lane's calls go back to: `None` for the original
+    /// authority (and the load instance), so kicks from it are the same bytes.
+    pub fn kick_authority(&self) -> Option<String> {
+        (!self.authority.is_original()).then(|| self.authority.name().to_owned())
     }
 }
 
@@ -772,6 +787,10 @@ pub fn admit(cfg: &EvalConfig, bytes: &[u8]) -> R<(CohortPlan, Admission)> {
     } else {
         CohortPlan::parse(bytes, cfg.ceilings).map_err(|e| EvalError::Plan(e.0))?
     };
+    // A named main authority (a restarted chain record) takes only its own
+    // labels and cohort numbers, so nothing it writes shares a label or a
+    // number with an earlier authority's (`config::Authority`).
+    cfg.authority.admits(&plan.label, plan.cohort).map_err(EvalError::Plan)?;
     if cfg.max_score_lanes == 0 {
         return Err(EvalError::Plan("MAX_SCORE_LANES is not configured"));
     }
@@ -815,6 +834,13 @@ pub fn admit(cfg: &EvalConfig, bytes: &[u8]) -> R<(CohortPlan, Admission)> {
 /// goes straight to `sealing`: it never waits on a boundary and never opens a
 /// target.
 pub fn queue(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R<i64> {
+    // `cfg` was read when the request started; a successor's supersede may
+    // have committed since (an operator plan awaits the ledger, a calendar
+    // open its predecessors, between the two). Read here, in the queueing
+    // transaction, a superseded authority queues nothing.
+    if crate::eval::succession::superseded_by(sql)?.is_some() {
+        return Err(EvalError::Plan("authority superseded (a later main authority restarted the chain record)"));
+    }
     let (plan, adm) = admit(cfg, bytes)?;
     let existing = cohorts(sql)?;
     if let Some(c) = existing.iter().find(|c| c.label == plan.label) {
@@ -2563,10 +2589,12 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
 }
 
 /// Ensures there is a reason to keep stepping: an active cohort with work, or
-/// a finished cohort whose spend is not yet charged to the ledger.
-pub fn has_work(sql: &impl Sql) -> R<bool> {
+/// a finished cohort whose spend is not yet charged to the ledger, or
+/// admission or calendar work under `cfg` (a retired authority's calendar
+/// opens nothing, so it is no reason to step).
+pub fn has_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
     Ok(active(sql)?.is_some()
-        || crate::eval::admission::has_work(sql)?
+        || crate::eval::admission::has_work(sql, cfg)?
         || crate::eval::v3::closure_due(sql)?.is_some()
         || !sql
             .exec(

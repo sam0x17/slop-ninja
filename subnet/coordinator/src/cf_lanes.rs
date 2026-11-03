@@ -1,6 +1,7 @@
 //! Fan-out lane objects (wasm32 only).
 //!
-//! - `AScorer`: a scoring lane, `a-scorer/testnet/{instance}/lane-{k:04}`. It
+//! - `AScorer`: a scoring lane, `a-scorer/testnet/{scope}/lane-{k:04}` (the
+//!   instance, plus `/authority/<name>` for a named main authority). It
 //!   owns one `a-scorer-testnet` Container instance. Its alarm runs the lane
 //!   loop: report at entry, start the container with Internet off (a running
 //!   one bound to another artifact or cohort is destroyed first) and stream
@@ -172,6 +173,14 @@ struct RunRequest {
     package_sha256: String,
     manifest_key: String,
     docs: Vec<RunDoc>,
+    /// The digest of the artifact spec the load names (`spec=`), as a cohort
+    /// naming that spec loads; absent: the scorer's unnamed-load spec.
+    #[serde(default)]
+    spec_sha256: Option<String>,
+    /// Ask the scorer for each document's sentences and spans (a package
+    /// with a token head); the probe's two documents bound the reply.
+    #[serde(default)]
+    spans: bool,
 }
 
 #[derive(Deserialize)]
@@ -234,10 +243,11 @@ impl DurableObject for AScorer {
                 let art = ArtifactRef { id: String::new(), package_sha256: run.package_sha256, manifest_key: run.manifest_key };
                 let t0 = now_ms();
                 let lim = PrepLimits { inactivity_ms: 60_000, load_wait_ms: PROBE_LOAD_WAIT_MS, artifact_max_bytes: u64::MAX, load_fail: false };
-                let mut prep = self.prepare(None, &art, lim, None).await;
+                let spec = run.spec_sha256.as_deref();
+                let mut prep = self.prepare(None, &art, lim, None, spec).await;
                 if let Err(Prep::Infra(sc::REUSED | sc::INSTANCE_BOUND)) = prep {
                     // The instance still held another artifact and is destroyed now.
-                    prep = self.prepare(None, &art, lim, None).await;
+                    prep = self.prepare(None, &art, lim, None, spec).await;
                 }
                 let cold = match prep {
                     Ok(c) => c,
@@ -246,7 +256,7 @@ impl DurableObject for AScorer {
                 let _ = self.state.storage().set_alarm(IDLE_MS).await;
                 let docs: Vec<(u32, String, String)> =
                     run.docs.iter().enumerate().map(|(n, d)| (d.id.parse().unwrap_or(n as u32), d.text.clone(), sha_hex(d.text.as_bytes()))).collect();
-                match self.score_docs(&art, &docs, 120_000, None).await {
+                match self.score_docs(&art, &docs, 120_000, None, spec, run.spans).await {
                     Ok((results, t)) => json(&j!({"results": results, "timing": t, "cold": {"started": cold.started,
                         "start_ms": cold.start_ms, "load_ms": cold.load_ms, "cpu_ms": cold.cpu_ms, "limits": cold.limits},
                         "total_ms": now_ms() - t0})),
@@ -326,7 +336,7 @@ fn start_wait_ms(env: &Env) -> u64 {
 /// buckets, the cohort object, this lane's container and its invocation clock.
 struct WorkerIo<'a> {
     lane: &'a AScorer,
-    inst: &'a str,
+    inst: &'a LaneKick,
     r: &'a LaneRef,
     k: &'a LaneKick,
     a: &'a Assignment,
@@ -371,13 +381,19 @@ impl LaneIo for WorkerIo<'_> {
             self.lane.destroy().await;
             return Err(ScoreFailure::Died);
         }
-        self.lane.score_docs(self.art, docs, timeout_ms, Some(self.a.label.as_str())).await
+        self.lane
+            .score_docs(self.art, docs, timeout_ms, Some(self.a.label.as_str()), self.a.spec_sha256.as_deref(), false)
+            .await
     }
 
     async fn restart(&mut self) -> std::result::Result<(), RestartFailure> {
         self.lane.destroy().await;
         let cohort = Some(self.a.label.as_str());
-        self.lane.prepare(Some((self.inst, self.r)), self.art, PrepLimits::of(self.a), cohort).await.map(|_| ()).map_err(Prep::restart)
+        self.lane
+            .prepare(Some((self.inst, self.r)), self.art, PrepLimits::of(self.a), cohort, self.a.spec_sha256.as_deref())
+            .await
+            .map(|_| ())
+            .map_err(Prep::restart)
     }
 
     fn restart_bound_ms(&self) -> u64 {
@@ -440,7 +456,14 @@ impl AScorer {
         }
     }
 
-    async fn report(&self, instance: &str, r: &LaneRef, state: &str, cold: Option<Cold>, code: Option<&str>) -> std::result::Result<Assignment, &'static str> {
+    async fn report(
+        &self,
+        k: &LaneKick,
+        r: &LaneRef,
+        state: &str,
+        cold: Option<Cold>,
+        code: Option<&str>,
+    ) -> std::result::Result<Assignment, &'static str> {
         let m = self.meter().await;
         let rep = LaneReport {
             state: state.into(),
@@ -454,7 +477,7 @@ impl AScorer {
             container_up: self.state.container().is_some_and(|c| c.running()),
             code: code.map(str::to_owned),
         };
-        cohort_call(&self.env, instance, "/lane/report", &j!({"lane": r, "report": rep})).await
+        cohort_call(&self.env, k, "/lane/report", &j!({"lane": r, "report": rep})).await
     }
 
     async fn set_inactivity(&self, ms: u64) -> bool {
@@ -469,15 +492,25 @@ impl AScorer {
     }
 
     /// Starts the container if needed (Internet off) and loads the artifact for
-    /// `cohort` (`None` for the operator probe). A running instance bound to
-    /// another artifact or cohort, or whose load of this one failed, is
-    /// destroyed first and a fresh one started, counting nothing; one that
-    /// refused this artifact definitively returns the refusal. `ctx`
-    /// (instance, lane) receives a `starting` report at least every 20 s. A
+    /// `cohort` (`None` for the operator probe) by the artifact spec `spec`
+    /// names (a digest; `None`: the scorer's unnamed-load spec). A running
+    /// instance bound to another artifact, cohort or spec, or whose load of
+    /// this one failed, is destroyed first and a fresh one started, counting
+    /// nothing; one that refused this artifact definitively returns the
+    /// refusal. A scorer that does not list `spec` fails the prepare as the
+    /// platform's (`scorer_client::SPEC_NOT_SERVED`). `ctx` (the lane's kick,
+    /// lane) receives a `starting` report at least every 20 s. A
     /// non-definitive artifact failure counts only on a freshly started
     /// instance: on a reused one the instance is destroyed and the failure is
     /// the platform's, so the next try starts fresh.
-    async fn prepare(&self, ctx: Option<(&str, &LaneRef)>, art: &ArtifactRef, lim: PrepLimits, cohort: Option<&str>) -> std::result::Result<Cold, Prep> {
+    async fn prepare(
+        &self,
+        ctx: Option<(&LaneKick, &LaneRef)>,
+        art: &ArtifactRef,
+        lim: PrepLimits,
+        cohort: Option<&str>,
+        spec: Option<&str>,
+    ) -> std::result::Result<Cold, Prep> {
         let st = self.state.storage();
         let c = self.state.container().ok_or(Prep::Infra("no container binding"))?;
         let t0 = now_ms();
@@ -488,7 +521,7 @@ impl AScorer {
                 Ok(port) => healthz(&port).await,
                 Err(_) => None,
             };
-            match sc::entry(h.as_ref(), &art.package_sha256, cohort) {
+            match sc::entry(h.as_ref(), &art.package_sha256, cohort, spec) {
                 Entry::Keep => {}
                 Entry::Fresh => self.destroy().await,
                 Entry::Refused(code) => {
@@ -542,6 +575,16 @@ impl AScorer {
         cold.limits = h["build"]["limits"].clone();
         self.single_use.set(sc::names_cohort(&h));
         let cohort = sc::sent(&h, cohort);
+        // The spec digest is sent only when the scorer lists it, so the spec
+        // sent is the cohort's whenever the prepare goes on.
+        let spec = match sc::spec_sent(&h, spec) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = c.destroy(Some("artifact spec")).await;
+                self.close_session().await;
+                return Err(e);
+            }
+        };
         // Build identity (S-1): the binary and runtime library the pinned digests name.
         for (field, var) in [("binary_sha256", "SCORER_BINARY_SHA256"), ("ort_sha256", "SCORER_ORT_SHA256")] {
             if let Ok(want) = self.env.var(var).map(|v| v.to_string())
@@ -554,8 +597,8 @@ impl AScorer {
             }
         }
         let t1 = now_ms();
-        if sc::slot(&h, &art.package_sha256, cohort) != Slot::Ours(Ours::Ready) {
-            if let Err(e) = self.load(&port, art, cohort, ctx, &mut last, lim).await {
+        if sc::slot(&h, &art.package_sha256, cohort, spec) != Slot::Ours(Ours::Ready) {
+            if let Err(e) = self.load(&port, art, cohort, spec, ctx, &mut last, lim).await {
                 self.destroy().await;
                 return Err(match e {
                     Prep::Artifact(_, false) if !cold.started => Prep::Infra(sc::REUSED),
@@ -584,17 +627,20 @@ impl AScorer {
 
     /// Streams every missing part from the eval bucket into the container (up to
     /// 3 at a time), then loads the artifact for `cohort` (the cohort sent, if
-    /// any) and waits for it to be ready. The stream and the load each get the
+    /// any) by the spec `spec` names (the digest sent, if any) and waits for it
+    /// to be ready. The stream and the load each get the
     /// plan's load allowance; only the load's outcome (and the manifest and
     /// parts, which are the artifact's) can be the artifact's failure, and an
     /// admission refusal is definitive unless it can be a host fault
     /// (`scorer_client::load_failed`).
+    #[allow(clippy::too_many_arguments)]
     async fn load(
         &self,
         port: &Fetcher,
         art: &ArtifactRef,
         cohort: Option<&str>,
-        ctx: Option<(&str, &LaneRef)>,
+        spec: Option<&str>,
+        ctx: Option<(&LaneKick, &LaneRef)>,
         last: &mut u64,
         lim: PrepLimits,
     ) -> std::result::Result<u64, Prep> {
@@ -666,7 +712,7 @@ impl AScorer {
         let mut r = match port_fetch(
             port,
             Method::Post,
-            &sc::load_path(&art.package_sha256, cohort),
+            &sc::load_path(&art.package_sha256, cohort, spec),
             Some(js_sys::Uint8Array::from(manifest.as_slice()).into()),
             Some(manifest.len() as u64),
         )
@@ -684,7 +730,7 @@ impl AScorer {
         let load_until = now_ms() + lim.load_wait_ms;
         while now_ms() < load_until {
             match healthz(port).await {
-                Some(h) => match sc::slot(&h, &art.package_sha256, cohort) {
+                Some(h) => match sc::slot(&h, &art.package_sha256, cohort, spec) {
                     Slot::Ours(Ours::Ready) => return Ok(uploaded),
                     Slot::Ours(Ours::Failed) => return Err(sc::load_failed(h["error"].as_str().unwrap_or(""))),
                     _ if h["state"] == "failed" => return Err(Prep::Artifact("artifact load failed", false)),
@@ -705,14 +751,14 @@ impl AScorer {
     }
 
     /// After a dispatched request failed: `Failed` if the container is still up
-    /// and ready with this artifact and cohort, else it is destroyed and the
-    /// request `Died`.
-    async fn after_failure(&self, art: &ArtifactRef, cohort: Option<&str>) -> ScoreFailure {
+    /// and ready with this artifact, cohort and spec, else it is destroyed and
+    /// the request `Died`.
+    async fn after_failure(&self, art: &ArtifactRef, cohort: Option<&str>, spec: Option<&str>) -> ScoreFailure {
         if let Some(c) = self.state.container()
             && c.running()
             && let Ok(port) = c.get_tcp_port(PORT)
             && let Some(h) = healthz(&port).await
-            && sc::slot(&h, &art.package_sha256, cohort) == Slot::Ours(Ours::Ready)
+            && sc::slot(&h, &art.package_sha256, cohort, spec) == Slot::Ours(Ours::Ready)
         {
             return ScoreFailure::Failed;
         }
@@ -731,13 +777,15 @@ impl AScorer {
         docs: &[(u32, String, String)],
         timeout_ms: u64,
         cohort: Option<&str>,
+        spec: Option<&str>,
+        spans: bool,
     ) -> std::result::Result<(Vec<Value>, CallTiming), ScoreFailure> {
         let c = self.state.container().ok_or(ScoreFailure::NotDispatched)?;
         if !c.running() {
             return Err(ScoreFailure::NotDispatched);
         }
         let port = c.get_tcp_port(PORT).map_err(|_| ScoreFailure::NotDispatched)?;
-        let body = sc::score_body(&art.package_sha256, cohort.filter(|_| self.single_use.get()), docs);
+        let body = sc::score_body(&art.package_sha256, cohort.filter(|_| self.single_use.get()), docs, spans);
         let st = self.state.storage();
         let _ = st.put("last_use_ms", now_ms() as i64).await;
         let t0 = now_ms();
@@ -745,7 +793,7 @@ impl AScorer {
         // From here the documents may reach the model.
         let mut r = match select(Box::pin(call), Box::pin(Delay::from(Duration::from_millis(timeout_ms.max(1_000))))).await {
             Either::Left((Ok(r), _)) => r,
-            Either::Left((Err(_), _)) => return Err(self.after_failure(art, cohort).await),
+            Either::Left((Err(_), _)) => return Err(self.after_failure(art, cohort, spec).await),
             Either::Right(_) => {
                 // Outlasted its bound: a hung instance is destroyed.
                 self.destroy().await;
@@ -758,7 +806,7 @@ impl AScorer {
             409 | 503 => return Err(ScoreFailure::NotDispatched),
             // The scorer answered and rejected the request itself.
             400 | 404 | 413 | 422 => return Err(ScoreFailure::Failed),
-            _ => return Err(self.after_failure(art, cohort).await),
+            _ => return Err(self.after_failure(art, cohort, spec).await),
         }
         let v: Value = r.json().await.map_err(|_| ScoreFailure::Failed)?;
         let results = v["results"].as_array().cloned().ok_or(ScoreFailure::Failed)?;
@@ -864,7 +912,8 @@ impl AScorer {
     async fn lane_loop(&self, k: &LaneKick, t0: u64) -> LaneEnd {
         let st = self.state.storage();
         let r = lane_ref(k);
-        let inst = k.instance.as_str();
+        // Every call of this lane goes back to the authority that kicked it.
+        let inst = k;
         let mut a = match self.report(inst, &r, "starting", None, None).await {
             Ok(a) => a,
             Err(_) => return LaneEnd::Rearm(5_000),
@@ -901,7 +950,7 @@ impl AScorer {
                     self.stop().await;
                 }
             } else if !loaded {
-                match self.prepare(Some((inst, &r)), &art, PrepLimits::of(&a), Some(a.label.as_str())).await {
+                match self.prepare(Some((inst, &r)), &art, PrepLimits::of(&a), Some(a.label.as_str()), a.spec_sha256.as_deref()).await {
                     Ok(cold) => {
                         let _ = st.put("start_streak", 0i64).await;
                         loaded_at = Some(now_ms());
@@ -1131,7 +1180,7 @@ impl EvalLane {
     async fn report(&self, k: &LaneKick, state: &str, code: Option<&str>) -> std::result::Result<Assignment, &'static str> {
         let do_ms = get_kv::<i64>(&self.state.storage(), "m_do").await.unwrap_or(0) as u64;
         let rep = LaneReport { state: state.into(), do_ms, code: code.map(str::to_owned), ..Default::default() };
-        cohort_call(&self.env, &k.instance, "/lane/report", &j!({"lane": lane_ref(k), "report": rep})).await
+        cohort_call(&self.env, k, "/lane/report", &j!({"lane": lane_ref(k), "report": rep})).await
     }
 
     async fn entry(&self, k: &LaneKick) -> std::result::Result<Assignment, LaneEnd> {
@@ -1189,7 +1238,7 @@ impl EvalLane {
                 // A long wait holds no invocation.
                 return LaneEnd::Rearm(wait as i64);
             }
-            let reply: GenClaimReply = match cohort_call(env, &k.instance, "/gen/claim", &j!({"lane": r, "name": k.name, "grants": g.grants})).await {
+            let reply: GenClaimReply = match cohort_call(env, k, "/gen/claim", &j!({"lane": r, "name": k.name, "grants": g.grants})).await {
                 Ok(v) => v,
                 Err(_) => {
                     refund(g.grants).await;
@@ -1224,7 +1273,7 @@ impl EvalLane {
                         .collect();
                     let _ = limiter_post::<Value>(env, "/feedback", &j!(feedback)).await;
                     let results: Vec<_> = done.into_iter().map(|(o, _)| o).collect();
-                    let _ = cohort_call::<Value>(env, &k.instance, "/gen/commit", &j!({"lane": r, "results": results})).await;
+                    let _ = cohort_call::<Value>(env, k, "/gen/commit", &j!({"lane": r, "results": results})).await;
                     wants = Some(w);
                     last_report = now_ms();
                 }
@@ -1269,7 +1318,7 @@ impl EvalLane {
         let mut after = -1i64;
         loop {
             let page: Vec<engine::PredRow> =
-                match cohort_call(&self.env, &k.instance, "/job/preds", &j!({"lane": r, "job": job, "after": after, "limit": 1000})).await {
+                match cohort_call(&self.env, k, "/job/preds", &j!({"lane": r, "job": job, "after": after, "limit": 1000})).await {
                     Ok(p) => p,
                     Err(_) => return LaneEnd::Rearm(10_000),
                 };
@@ -1288,7 +1337,7 @@ impl EvalLane {
             return LaneEnd::Rearm(10_000);
         }
         let rep = SummaryReport { job, key, sha256: sha_hex(&bytes), count: sm.count, rows_sha256: sm.rows_sha256 };
-        match cohort_call::<bool>(&self.env, &k.instance, "/lane/summary", &j!({"lane": r, "report": rep})).await {
+        match cohort_call::<bool>(&self.env, k, "/lane/summary", &j!({"lane": r, "report": rep})).await {
             Ok(_) => LaneEnd::Finished,
             Err(_) => LaneEnd::Rearm(10_000),
         }
@@ -1302,7 +1351,7 @@ impl EvalLane {
         let Some(job) = a.job else { return LaneEnd::Finished };
         let r = lane_ref(k);
         let env = &self.env;
-        let objects: Vec<(String, String, i64, i64)> = match cohort_call(env, &k.instance, "/job/objects", &j!({"lane": r, "job": job})).await {
+        let objects: Vec<(String, String, i64, i64)> = match cohort_call(env, k, "/job/objects", &j!({"lane": r, "job": job})).await {
             Ok(o) => o,
             Err(_) => return LaneEnd::Rearm(10_000),
         };
@@ -1322,7 +1371,7 @@ impl EvalLane {
         let mut after = 0i64;
         loop {
             let page: Vec<(i64, String, String, i64)> =
-                match cohort_call(env, &k.instance, "/job/receipts", &j!({"lane": r, "job": job, "after": after, "limit": 5000})).await {
+                match cohort_call(env, k, "/job/receipts", &j!({"lane": r, "job": job, "after": after, "limit": 5000})).await {
                     Ok(p) => p,
                     Err(_) => return LaneEnd::Rearm(10_000),
                 };
@@ -1343,7 +1392,7 @@ impl EvalLane {
             return LaneEnd::Rearm(10_000);
         }
         let rep = BundleReport { job, key, sha256: sha_hex(&bundle), bytes: bundle.len() as u64, receipts: n };
-        match cohort_call::<bool>(env, &k.instance, "/lane/bundle", &j!({"lane": r, "report": rep})).await {
+        match cohort_call::<bool>(env, k, "/lane/bundle", &j!({"lane": r, "report": rep})).await {
             Ok(_) => LaneEnd::Finished,
             Err(_) => LaneEnd::Rearm(10_000),
         }

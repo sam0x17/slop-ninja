@@ -182,7 +182,8 @@ core dumps are off.
   under new package and content digests, while the main instance's reference
   chain names the earlier rehearsal reference. With this scorer deployed, the
   main instance runs no reward-v1 cohort until its chain record is restarted
-  (the announce-time restart makes the released R0, `2f88b0d2…678559`, R_0).
+  (the chain-record restart makes the released R0, as its path-stripped
+  package `143ca2d9…c57f0c`, R_0).
 - **The live memory limit.** Record `memory_limit` from a live `/healthz` of
   the deployed instance (the operator scorer probe's reply carries it as
   `cold.limits`); the 507 guard relies on it.

@@ -1741,7 +1741,7 @@ fn v4_storage_upgrades_with_its_signing_journal_intact() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (4, 7));
+    assert_eq!((report.from, report.to), (4, 8));
     let s = tx(&db, signer).unwrap();
     assert_eq!(
         (s.state.as_str(), s.nonce_floor, s.runtime, s.runtime_block),
@@ -1859,6 +1859,386 @@ fn a_reward_v1_launch_bundle_is_refused_once_a_cohort_target_has_activated() {
     let held = tx(&h.db, |sql| held_target(sql, &h.cfg)).unwrap();
     assert_eq!(held, activated);
     assert_eq!(tx(&h.db, |sql| record_held(sql, &held, &launch, T0)).unwrap().unwrap_err().code, "held_target_regressed");
+}
+
+fn chain_601() -> slop_ninja_protocol::ChainBinding {
+    slop_ninja_protocol::ChainBinding {
+        genesis: slop_ninja_protocol::TESTNET_GENESIS,
+        netuid: NETUID,
+        mechanism: 0,
+    }
+}
+
+fn logged(h: &H, event: &str) -> Vec<Option<String>> {
+    h.db.conn
+        .prepare("SELECT detail FROM sign_log WHERE event = ?1 ORDER BY seq")
+        .unwrap()
+        .query_map([event], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// A chain record restarted under the same trust roots (a named eval
+/// authority, R_0 with no predecessor): the held cohort target refuses the
+/// restarted launch bundle until the operator restarts it, with signing
+/// paused, in one transaction that installs that bundle. A refused restart
+/// changes nothing. Every obligation of the earlier target survives: its
+/// committed operation is read back and revealed, nothing is sent twice, no
+/// epoch takes a second operation, and no bundle of the earlier record
+/// installs again.
+#[test]
+fn a_held_target_restart_installs_the_restarted_launch_bundle_and_keeps_every_obligation() {
+    let mut h = H::new();
+    tx(&h.db, |sql| {
+        install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)
+    })
+    .unwrap()
+    .unwrap();
+    h.resume();
+    h.until(80, committed);
+    let first = h.ops()[0].clone();
+    assert_eq!(first.state, "committed");
+    // The earlier chain's cohort target activated (the record a checked
+    // closure leaves), the epoch before the restarted record's first: the
+    // restarted chain's launch bundle is refused.
+    let held_at = first.epoch - 1;
+    let activated = slop_ninja_protocol::ActiveTarget::restore(
+        &chain_601(),
+        slop_ninja_protocol::Digest([0x5a; 32]),
+        Some(held_at),
+    )
+    .unwrap();
+    let launch = tx(&h.db, |sql| held_target(sql, &h.cfg)).unwrap();
+    tx(&h.db, |sql| record_held(sql, &launch, &activated, T0))
+        .unwrap()
+        .unwrap();
+    let from = first.epoch;
+    let restarted = launch_bundle_json(from);
+    let refused = tx(&h.db, |sql| {
+        install_target(sql, &h.cfg, &h.trusted, &restarted, T0)
+    })
+    .unwrap()
+    .unwrap_err();
+    assert!(
+        refused
+            .detail
+            .contains("launch authorization after activation"),
+        "{}",
+        refused.detail
+    );
+    let before = |h: &H| {
+        (
+            tx(&h.db, |sql| held_target(sql, &h.cfg)).unwrap(),
+            tx(&h.db, |sql| {
+                Ok::<_, StoreError>(
+                    sql.exec(
+                        "SELECT target, active FROM sign_targets ORDER BY target",
+                        &[],
+                    )?
+                    .iter()
+                    .map(|r| (text(r, 0).unwrap().to_owned(), opt_u(r, 1)))
+                    .collect::<Vec<_>>(),
+                )
+            })
+            .unwrap(),
+            h.counter("held_target_resets"),
+        )
+    };
+    let unchanged = before(&h);
+    // Refused while signing is active, and it changes nothing: never a probe.
+    let r = tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, &restarted, from, T0)
+    })
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(r.code, "signing_active");
+    assert_eq!(before(&h), unchanged);
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    // A launch bundle issued before the restarted record's first epoch, or
+    // anything but a launch bundle, is refused, and nothing changes.
+    let r = tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, &restarted, from + 1, T0)
+    })
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(r.code, "bundle_before_restarted_record");
+    let r = tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, "{}", from, T0)
+    })
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(r.code, "bundle_malformed");
+    // A floor at or below the held target's activation (a low or mistyped
+    // from_epoch) would let the earlier record's bundles back in: refused,
+    // even with a launch bundle issued at it.
+    for (low, bundle) in [(0, "{}".to_owned()), (held_at, launch_bundle_json(held_at))] {
+        let r = tx(&h.db, |sql| {
+            restart_target(sql, &h.cfg, &h.trusted, &bundle, low, T0)
+        })
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(r.code, "restart_before_held_record", "{low}");
+    }
+    assert_eq!(before(&h), unchanged);
+    // Paused, with the restarted record's launch bundle: one transaction.
+    let r = tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, &restarted, from, T0)
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        r.previous,
+        Some((
+            slop_ninja_protocol::Digest([0x5a; 32]).to_string(),
+            Some(held_at)
+        ))
+    );
+    assert_eq!(r.from_epoch, from);
+    assert!(r.replaced.is_some());
+    assert!(
+        tx(&h.db, |sql| held_target(sql, &h.cfg))
+            .unwrap()
+            .is_launch_burn()
+    );
+    let active = tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(active.digest, r.installed);
+    // The record set aside is kept in the history, never deleted.
+    let history = tx(&h.db, |sql| {
+        Ok::<_, StoreError>(
+            sql.exec(
+                "SELECT held_target, held_activated_epoch, from_epoch, launch_issued_epoch FROM sign_held_target_resets",
+                &[],
+            )?
+            .iter()
+            .map(|r| (opt_t(r, 0), opt_u(r, 1), opt_u(r, 2), opt_u(r, 3)))
+            .collect::<Vec<_>>(),
+        )
+    })
+    .unwrap();
+    assert_eq!(
+        history,
+        vec![(
+            Some(slop_ninja_protocol::Digest([0x5a; 32]).to_string()),
+            Some(held_at),
+            Some(from),
+            Some(from)
+        )]
+    );
+    assert_eq!(
+        logged(&h, "held_target_reset"),
+        vec![Some(format!(
+            "{}@{held_at} from {from}",
+            slop_ninja_protocol::Digest([0x5a; 32])
+        ))]
+    );
+    assert_eq!(h.counter("held_target_resets"), 1);
+    // The earlier record's launch bundle, signed by the same keys, never
+    // installs again after the restart.
+    let old = tx(&h.db, |sql| {
+        install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)
+    })
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(old.code, "bundle_before_restarted_record");
+    // A T12 (v1) bundle carries no epoch to hold to the floor: none installs
+    // after a restart.
+    let v1 = tx(&h.db, |sql| {
+        install_target(sql, &h.cfg, &h.trusted, &bundle_json(), T0)
+    })
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(v1.code, "v1_after_restart");
+    // The earlier commit is still revealed while paused.
+    h.until(400, |h| h.ops()[0].state == "revealed");
+    assert_eq!(h.ops().len(), 1, "nothing new is prepared while paused");
+    h.resume();
+    h.until(400, |h| h.ops().len() == 2 && committed(h));
+    let ops = h.ops();
+    assert!(
+        ops[1].epoch > ops[0].epoch,
+        "the restarted target's first commit takes a later epoch"
+    );
+    let epochs: std::collections::BTreeSet<u64> = ops.iter().map(|o| o.epoch).collect();
+    assert_eq!(epochs.len(), ops.len(), "one operation per epoch");
+    let attempts: usize = ops.iter().map(|o| o.attempts.len()).sum();
+    assert_eq!(
+        (attempts, h.chain.accepted.len()),
+        (2, 2),
+        "nothing is sent twice"
+    );
+    // A later restart cannot start before this one's record; one at or after
+    // it, with nothing activated, sets aside no held record.
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    let r = tx(&h.db, |sql| {
+        restart_target(
+            sql,
+            &h.cfg,
+            &h.trusted,
+            &launch_bundle_json(from - 1),
+            from - 1,
+            T0,
+        )
+    })
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(r.code, "restart_regressed");
+    let r = tx(&h.db, |sql| {
+        restart_target(
+            sql,
+            &h.cfg,
+            &h.trusted,
+            &launch_bundle_json(from + 2),
+            from + 2,
+            T0,
+        )
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(r.previous, None);
+}
+
+/// The floor a restart sets: launch bundles issued, and cohort bundles
+/// opened, at or after the restarted record's first epoch.
+#[test]
+fn only_the_restarted_records_bundles_follow_a_restart() {
+    assert_eq!(restart_floor_ok(67, Some(67), None), Ok(()));
+    assert_eq!(restart_floor_ok(67, Some(70), None), Ok(()));
+    assert!(restart_floor_ok(67, Some(66), None).is_err());
+    assert_eq!(restart_floor_ok(67, None, Some(67)), Ok(()));
+    assert!(
+        restart_floor_ok(67, None, Some(63)).is_err(),
+        "the earlier record's cohort 12"
+    );
+    assert!(restart_floor_ok(67, None, None).is_err());
+    assert!(restart_floor_ok(67, Some(70), Some(70)).is_err());
+}
+
+/// With the launch burn row held (no cohort target activated, so no
+/// activation bounds the floor), a second restart may not reuse the first
+/// one's floor: every restart's first epoch must exceed every epoch an
+/// installed bundle was issued or opened at, the first restart's own launch
+/// bundle included. So that record's bundles never install again after the
+/// second restart, nor the original record's.
+#[test]
+fn a_second_restart_never_reuses_an_earlier_restarts_floor() {
+    let h = H::new();
+    tx(&h.db, |sql| {
+        install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(tx(&h.db, record_epoch).unwrap(), Some(1));
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    let first = launch_bundle_json(10);
+    tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, &first, 10, T0)
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(tx(&h.db, record_epoch).unwrap(), Some(10));
+    // The first restart's floor again (or below it), even with a launch
+    // bundle issued later: refused, nothing changes.
+    for floor in [10, 9] {
+        let r = tx(&h.db, |sql| {
+            restart_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(12), floor, T0)
+        })
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(r.code, "restart_regressed", "{floor}");
+    }
+    assert_eq!(h.counter("held_target_resets"), 1);
+    let second = launch_bundle_json(12);
+    tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, &second, 11, T0)
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(tx(&h.db, restart_floor).unwrap(), Some(11));
+    assert_eq!(tx(&h.db, record_epoch).unwrap(), Some(12));
+    for (issued, record) in [
+        (10, "the first restarted record"),
+        (1, "the original record"),
+    ] {
+        let r = tx(&h.db, |sql| {
+            install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(issued), T0)
+        })
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(r.code, "bundle_before_restarted_record", "{record}");
+    }
+    // A third restart must exceed the second's own launch bundle (issued 12),
+    // not only its floor (11).
+    let r = tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(12), 12, T0)
+    })
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(r.code, "restart_regressed");
+    tx(&h.db, |sql| {
+        restart_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(13), 13, T0)
+    })
+    .unwrap()
+    .unwrap();
+}
+
+/// A restart while an attempt is uncertain leaves it to finalized state: it
+/// is never sent again before its era expires, and the restarted target
+/// signs only an epoch the earlier one never took.
+#[test]
+fn a_held_target_restart_with_an_uncertain_attempt_never_resends_it() {
+    let mut h = H::new();
+    tx(&h.db, |sql| {
+        install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)
+    })
+    .unwrap()
+    .unwrap();
+    h.resume();
+    h.send.set(Send::Lose);
+    h.until(40, |h| {
+        h.ops()
+            .first()
+            .is_some_and(|o| o.attempts.first().is_some_and(|a| a.state == "uncertain"))
+    });
+    let op = h.ops()[0].clone();
+    h.send.set(Send::Accept);
+    tx(&h.db, |sql| pause(sql, "operator_hold", T0)).unwrap();
+    tx(&h.db, |sql| {
+        restart_target(
+            sql,
+            &h.cfg,
+            &h.trusted,
+            &launch_bundle_json(op.epoch),
+            op.epoch,
+            T0,
+        )
+    })
+    .unwrap()
+    .unwrap();
+    h.resume();
+    let expiry = op.attempts[0].expiry;
+    while h.chain.head + 1 < expiry {
+        h.block();
+        assert_eq!(
+            h.ops()[0].attempts.len(),
+            1,
+            "re-signed before expiry at {}",
+            h.chain.head
+        );
+    }
+    h.until(400, committed);
+    let ops = h.ops();
+    let epochs: std::collections::BTreeSet<u64> = ops.iter().map(|o| o.epoch).collect();
+    assert_eq!(epochs.len(), ops.len(), "one operation per epoch");
+    assert_eq!(ops[0].attempts[0].state, "expired");
+    assert_eq!(
+        h.chain.accepted.len(),
+        1,
+        "only one submission ever reached the pool"
+    );
 }
 
 #[test]

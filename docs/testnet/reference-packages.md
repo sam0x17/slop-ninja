@@ -21,17 +21,23 @@ The [public layout](public-layout.md) gives their paths.
 | Model | R0, the released *A* document model | R0's encoder and document heads, unchanged, with the S2c span tower and token head |
 | Graph class | `a-plain-f32band-v1` | `a-tower-f32band-v1` |
 | Spec | v1, v2 and v3 | v3 only |
-| `profile_id` | `a-baseline-rc-s17-f32band-v1` (the served profile) | `slop_ninja_a_artifact_spec_v3/a-tower-f32band-v1` |
-| Package digest | `2f88b0d2f7a7e20d31ecd436e7d89e7937921297ba2abb86365c2009d9678559` | `7013dfab760c2774b7c5b18d6048c471312b5bb6e9db7798a56559c2489cdf9c` |
-| Inference-content digest | `63a0e608ca7d5146404339beca6d4d85c0acb082b38974c98081648e0ac2a0a6` | `57496af5cd5d33e26b3b82a47b0ecd247694b3ccf407f89df8a15082c060aee4` |
+| `profile_id` | `slop_ninja_a_artifact_spec_v2/a-plain-f32band-v1` | `slop_ninja_a_artifact_spec_v3/a-tower-f32band-v1` |
+| Package digest | `143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c` | `daff49c2232e176bb7d3ca793b9e3f8d36273845af77495450edcfc8a2486aef` |
+| Inference-content digest | `d7232991612ae9693477a152d73e2b6ca5ac83b2d9cf5cd78e1eac4ecf96a36f` | `1681956c422fc6514cebd24870bb22071f11d55fd9ea4fa93ceb0bafb66a573c` |
 | Graph SHA-256 | `08848d95…ca4cb7` (601,028,257 bytes) | `cecccf46…5478c3` (681,508,964 bytes) |
 | Parameters | 150,302,832 | 170,592,385 |
 | Parts | 14 | 16 |
 | Synthetic reference cases | 3 | 215 |
 
-**`R_0`** is the deployed reference byte for byte: the package the
-coordinator names by content digest and parts-manifest SHA-256. Its export
-manifest binds three synthetic reference cases and their FP64 predictions.
+**`R_0`** is R0, the released *A* document model, with its provenance
+paths stripped: the package the coordinator names by content digest and
+parts-manifest SHA-256 from the chain-record restart on. Its graph,
+tokenizer, weights and calibration values and knots are R0's byte for byte;
+only the location strings the tools recorded (the normalization's run
+directories in `contract.json`) now keep their final component, and the
+digests that bind the rewritten files are rebound
+([provenance rewrite](#provenance-rewrite)). Its export manifest binds three
+synthetic reference cases and their FP64 predictions.
 
 **The S2c span package** is the span localization result chosen by the
 frozen S2 record: arm `S2c-lr3e-5`, seed 17, a four-layer tower (copies of
@@ -51,7 +57,11 @@ spans S2 branch, whose `full_a_bundle.py` is the bundle reader the fit binds,
 `de9c49ea…`) with the `--synthetic-cases` option of commit `5589ba4b`
 applied; its export manifest binds that exporter (`exporter_sha256`
 `c35865c0…`). The exporter on main reads bundles by block, so its reader
-digest differs from the bound one and it refuses this fit.
+digest differs from the bound one and it refuses this fit. The published
+package is that export with its provenance paths stripped the same way as
+`R_0`'s (the contract's run directories, the init fit's directory in the
+manifest and three calibration provenance files), its document, sentence and
+span outputs unchanged.
 
 ## Layout
 
@@ -67,6 +77,7 @@ v1/reference/packages/<package digest>/
   reference/reference-predictions.json and their FP64 predictions (and the FP32 diagnostic for S2c)
   training/companion.json              R_0 only: the training companion (below)
   training/parts/<sha256>              and the parts it lists
+  provenance-rewrite.json              what the provenance rewrite changed (below); not a package file
 ```
 
 To rebuild a file, concatenate its parts in the parts manifest's order and
@@ -75,19 +86,38 @@ directory:
 
 ```sh
 slop_ninja_artifact_check --spec v3 check-dir DIR     # the graph class, parameters and inference-content digest above
-slop_ninja_a_served_profile pack --spec v3 --model-dir DIR --out PARTS   # the package digest above
+slop_ninja_a_served_profile pack --spec v3 --model-dir DIR --out PARTS   # S2c's package digest above
+slop_ninja_a_served_profile pack --spec v2 --model-dir DIR --out PARTS   # R_0's package digest above
 slop_ninja_a_local_score --model-dir DIR --docs reference/reference-requests.jsonl \
   --reference reference/reference-predictions.json --spans --out results.jsonl --ort-lib LIB
 ```
 
-`check-dir` also prints a package digest, under the checker's own
-`profile_id`. For the S2c package it is the one above. For `R_0` it is not:
-`R_0`'s parts manifest carries the served profile's id, which only `pack`
-writes.
+`check-dir` also prints a package digest, under the spec's own
+`profile_id`: S2c's above under spec v3, and `R_0`'s above under spec v2
+(`slop_ninja_artifact_check --spec v2 check-dir DIR`; spec v1 and v3 give
+other package digests for the same inference-content digest). A cohort that
+names spec v3 loads `R_0`'s spec v2 package by that spec too.
 
-For `R_0`, `slop_ninja_artifact_check --spec v2 check-dir DIR` gives the same
-inference-content digest, and the R0 tests of the artifact checker run with
-`A_R0_MODEL_DIR=DIR`.
+## Provenance rewrite
+
+The tools that wrote both models recorded some local locations as absolute
+paths (the normalization's run directories, an init fit's directory and
+calibration source files), which name a home directory and private
+directories. The published files keep only each location's final component.
+Because the artifact spec requires the export manifest's
+`fit_binding.contract_sha256` to equal the contract file's digest, that field
+names the rewritten contract, not the contract the fit was bound to. Each
+directory's `provenance-rewrite.json` records every rewritten pointer and
+rebound digest, the files' digests before and after, the contract digest the
+fit was bound to, and, for S2c, that its published `fit_binding` is not the
+bytes `fit_hashes.binding_json_sha256` names and that its calibration-source
+digest names the original R0 calibration file. It holds pointers and digests
+only, and names the tool that made the rewrite and its rule by their source
+digests: `grammar/crates/grammar-a-baseline/examples/rewrite_package_provenance.rs`,
+which applies `grammar_a_baseline::provenance::portable_at_in` at the known
+provenance pointers, rebinds the digests at exactly the pointers that held
+them, checks that nothing else changed and copies every other file byte for
+byte.
 
 ## Licence
 

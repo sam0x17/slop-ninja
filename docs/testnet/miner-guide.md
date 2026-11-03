@@ -615,7 +615,7 @@ Testnet's reference is `R_0`, Slop Ninja's released *A* document model,
 scored in every cohort. Its score on each batch is in the signed package, and
 it is the bar that ends the launch burn. Its
 [reference package](reference-packages.md) (the six files as the scorer
-loads them, package `2f88b0d2…678559`) is published under CC BY-SA 4.0 when
+loads them, package `143ca2d9…c57f0c`) is published under CC BY-SA 4.0 when
 public access opens, so you can score it locally with the same engine as your
 own artifact. Slop Ninja's S2c span package is published the same way; it is
 a span-serving package, not a reference.

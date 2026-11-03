@@ -134,6 +134,145 @@ pub struct CohortIndex {
     /// Every initial reference a listed cohort named.
     #[serde(default)]
     pub initial_references: Vec<InitialReference>,
+    /// The record's label prefix (`RECORD_LABEL_PREFIX`) as this index
+    /// adopted it; `None` before one was configured. A configured prefix
+    /// that a listed cohort's label lacks starts a new record
+    /// ([`record_change`]).
+    #[serde(default)]
+    pub record_prefix: Option<String>,
+    /// The earlier public records moved aside when a new one started, oldest
+    /// first: their prefixes are never adopted again, and their cohorts whose
+    /// detailed receipts were still published wait here for the N+2 rule.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_records: Vec<ArchivedRecord>,
+}
+
+/// An earlier public record, moved under `v1/records/<first_label>/` when a
+/// new record started (a chain-record restart). The archive is the record as
+/// it stood then and is never rewritten; each cohort's publication record
+/// (`receipts_deleted_after`) says when its detailed receipts were deleted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchivedRecord {
+    /// The prefix it was built under (`None`: before one was configured).
+    pub prefix: Option<String>,
+    /// Its first listed cohort's label, the archive's directory. A
+    /// configured prefix this label starts with names this record too, even
+    /// when it had none recorded ([`ArchivedRecord::named_by`]).
+    pub first_label: String,
+    /// Its cohorts whose detailed receipts were still published when it was
+    /// moved aside. Cohort numbers continue across authorities, so each is
+    /// deleted once two later cohorts of the live record are published, then
+    /// dropped from this list. The restart superseded its target: no new
+    /// commitment is made to an earlier record's target once the
+    /// coordinator's and validators' held targets are restarted.
+    #[serde(default)]
+    pub receipts_pending: Vec<PendingReceipts>,
+    /// Its initial references (its index's `initial_references`): their
+    /// artifacts stay withheld as entrant artifacts in every later record,
+    /// whose manifests never name them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub initial_references: Vec<InitialReference>,
+}
+
+impl ArchivedRecord {
+    /// Whether the record prefix `p` names this earlier record: its own
+    /// recorded prefix, or a prefix its first label has (a record moved aside
+    /// before its index recorded one).
+    pub fn named_by(&self, p: &str) -> bool {
+        self.prefix.as_deref() == Some(p) || self.first_label.starts_with(p)
+    }
+}
+
+/// A cohort of an earlier record whose detailed receipts are still published.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingReceipts {
+    pub label: String,
+    pub cohort: u64,
+    pub target: Option<String>,
+}
+
+/// What the configured record prefix means for the stored index.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecordChange {
+    /// The index is this record's; `Some` names a prefix it should adopt.
+    Same(Option<String>),
+    /// The index lists cohorts outside the configured record (a chain-record
+    /// restart under a new authority): it is moved aside and a fresh record
+    /// starts.
+    Restart,
+    /// The configured prefix is an earlier record's, already moved aside: a
+    /// deploy from a tree that still tracks it. Nothing is moved or adopted;
+    /// the run publishes nothing and reports why.
+    Refused(String),
+}
+
+/// Whether the index `idx` belongs to the record whose labels start with
+/// `prefix`. No prefix configured never restarts a record (the epoch bound
+/// alone may move to reconsider skipped cohorts); a prefix that names an
+/// earlier record ([`ArchivedRecord::named_by`]) is refused; a prefix every
+/// listed label has, or an empty index, is adopted; a listed label without it
+/// restarts.
+pub fn record_change(idx: &CohortIndex, prefix: Option<&str>) -> RecordChange {
+    let Some(p) = prefix else {
+        return RecordChange::Same(None);
+    };
+    if idx.previous_records.iter().any(|r| r.named_by(p)) {
+        return RecordChange::Refused(format!(
+            "RECORD_LABEL_PREFIX {p} names an earlier public record, already moved aside; \
+             deploy the publisher from a tree that tracks the current record"
+        ));
+    }
+    if idx.cohorts.iter().all(|c| c.label.starts_with(p)) {
+        let adopt = (idx.record_prefix.as_deref() != Some(p)).then(|| p.to_owned());
+        RecordChange::Same(adopt)
+    } else {
+        RecordChange::Restart
+    }
+}
+
+/// The publisher's pre-deploy check (`slop_ninja_publisher_ops
+/// record-check`): `Ok` with the line to print, or why a tree tracking
+/// `RECORD_LABEL_PREFIX` `tracked` must not be deployed over the live index
+/// `idx`. Without `restart`, the live record must be the tracked one: its
+/// adopted prefix equals it, or (an index written before prefixes were
+/// recorded) every listed label has it. With `restart` (the publisher commit
+/// of a chain-record restart only), the tracked prefix must be new: neither
+/// the live record's nor an earlier one's.
+pub fn record_check(idx: &CohortIndex, tracked: &str, restart: bool) -> Result<String, String> {
+    if idx.schema != INDEX_SCHEMA {
+        return Err("not a public cohort index".into());
+    }
+    if tracked.is_empty() {
+        return Err("the tree tracks no RECORD_LABEL_PREFIX".into());
+    }
+    let earlier = idx.previous_records.iter().any(|r| r.named_by(tracked));
+    let live = idx.record_prefix.as_deref();
+    if restart {
+        if earlier || live == Some(tracked) {
+            return Err(format!(
+                "{tracked} is the live or an earlier record's prefix, not a new one"
+            ));
+        }
+        return Ok(format!(
+            "record restart: {} -> {tracked}",
+            live.unwrap_or("(no prefix recorded)")
+        ));
+    }
+    if earlier {
+        return Err(format!(
+            "{tracked} names an earlier record, already moved aside"
+        ));
+    }
+    match live {
+        Some(p) if p == tracked => Ok(format!("same record: {tracked}")),
+        Some(p) => Err(format!("the live record is {p}; the tree tracks {tracked}")),
+        None if idx.cohorts.iter().all(|c| c.label.starts_with(tracked)) => Ok(format!(
+            "the live index records no prefix and every listed label has {tracked}: it is adopted"
+        )),
+        None => Err(format!(
+            "the live index records no prefix and lists labels without {tracked}"
+        )),
+    }
 }
 
 pub fn mode_name(mode: CutoffMode) -> &'static str {
@@ -161,6 +300,8 @@ impl CohortIndex {
             },
             cohorts: Vec::new(),
             initial_references: Vec::new(),
+            record_prefix: None,
+            previous_records: Vec::new(),
         };
         index.refresh(chain);
         index
@@ -185,6 +326,18 @@ impl CohortIndex {
             }),
         }
         self.initial_references.sort();
+    }
+
+    /// Every initial reference whose artifacts stay withheld as entrant
+    /// artifacts: the ones this record's cohorts named and every earlier
+    /// record's ([`ArchivedRecord::initial_references`]), so a record restart
+    /// keeps them withheld whatever the publisher's memo holds.
+    pub fn withheld_initial_references(&self) -> impl Iterator<Item = &InitialReference> {
+        self.initial_references.iter().chain(
+            self.previous_records
+                .iter()
+                .flat_map(|r| r.initial_references.iter()),
+        )
     }
 
     pub fn contains(&self, label: &str) -> bool {

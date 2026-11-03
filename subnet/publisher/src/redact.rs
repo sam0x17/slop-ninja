@@ -142,6 +142,29 @@ pub fn scan_json(bytes: &[u8]) -> Result<(), String> {
     scan_value(&value)
 }
 
+/// Phrases public text never carries (matched against the lowercased text):
+/// retired wording. The publisher's sources are checked
+/// against them in its tests, and an object written once for good (a record
+/// archive) is checked before it is written ([`scan_wording`]).
+pub const REFUSED_WORDING: &[&str] = &[
+    "rights question",
+    "counsel",
+    "stays private",
+    "stay private until",
+    "weights not published",
+    "private reference",
+];
+
+/// Refuses bytes that carry a [`REFUSED_WORDING`] phrase; the error names the
+/// phrase (never the text around it).
+pub fn scan_wording(bytes: &[u8]) -> Result<(), String> {
+    let lower = String::from_utf8_lossy(bytes).to_lowercase();
+    match REFUSED_WORDING.iter().find(|p| lower.contains(*p)) {
+        Some(p) => Err(format!("refused wording {p:?}")),
+        None => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +188,13 @@ mod tests {
         ] {
             assert!(scan_value(&bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn refuses_retired_wording() {
+        let held = format!("{{\"withheld\": \"x {} y\"}}", REFUSED_WORDING[0]);
+        assert!(scan_wording(held.as_bytes()).is_err());
+        assert!(scan_wording(br#"{"withheld": "reference package not yet staged"}"#).is_ok());
     }
 
     #[test]

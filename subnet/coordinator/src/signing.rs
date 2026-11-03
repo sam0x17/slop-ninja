@@ -1094,6 +1094,16 @@ pub fn install_target(
     if target::is_v2(bundle_json.as_bytes()) {
         return install_target_v2(sql, cfg, keys, bundle_json, now_ms);
     }
+    // After a restart only the restarted record's bundles install
+    // ([`restart_floor_ok`]); a T12 bundle carries no issued or opened epoch
+    // to hold to the floor, so the earlier record's, signed by the same keys,
+    // would follow it. None installs after any restart.
+    if restart_floor(sql)?.is_some() {
+        return Ok(Err(target::Refusal {
+            code: "v1_after_restart",
+            detail: "a T12 bundle cannot be held to the restarted record's first epoch".into(),
+        }));
+    }
     let bundle = match target::parse(bundle_json.as_bytes()) {
         Ok(b) => b,
         Err(r) => return Ok(Err(r)),
@@ -1191,6 +1201,228 @@ fn record_held(
     Ok(Ok(()))
 }
 
+/// The first epoch of the chain record the latest restart installed
+/// ([`restart_target`]), if any: every bundle installed after it must come
+/// from that record ([`restart_floor_ok`]).
+fn restart_floor(sql: &impl Sql) -> Result<Option<u64>, StoreError> {
+    let rows = sql.exec(
+        "SELECT from_epoch FROM sign_held_target_resets ORDER BY seq DESC LIMIT 1",
+        &[],
+    )?;
+    Ok(rows.first().and_then(|r| opt_u(r, 0)))
+}
+
+/// The highest epoch any reward-v1 bundle installed here was issued (a
+/// launch bundle's authorization) or opened (a cohort bundle's cohort) at,
+/// whatever record it came from; `None` before the first such install under
+/// schema v8. A restart's first epoch must exceed it ([`restart_target`]).
+fn record_epoch(sql: &impl Sql) -> Result<Option<u64>, StoreError> {
+    let rows = sql.exec("SELECT epoch FROM sign_record_epoch WHERE id = 1", &[])?;
+    Ok(rows.first().and_then(|r| opt_u(r, 0)))
+}
+
+/// Raises [`record_epoch`] to `epoch` (never lowers it).
+fn note_record_epoch(sql: &impl Sql, epoch: u64, now_ms: u64) -> Result<(), StoreError> {
+    sql.exec(
+        "INSERT INTO sign_record_epoch (id, epoch, updated_at_ms) VALUES (1, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET epoch = MAX(epoch, excluded.epoch), updated_at_ms = excluded.updated_at_ms",
+        &[bind_u64(epoch)?, bind_u64(now_ms)?],
+    )?;
+    Ok(())
+}
+
+/// Whether a bundle may follow a restart whose record starts at `floor`: a
+/// launch bundle's authorization was issued at or after it, and a cohort
+/// bundle's cohort opened at or after it. The earlier record's bundles,
+/// signed by the same keys, were issued or opened before it, so none of them
+/// can be installed again after the restart.
+pub fn restart_floor_ok(
+    floor: u64,
+    launch_issued: Option<u64>,
+    cohort_opened: Option<u64>,
+) -> Result<(), &'static str> {
+    match (launch_issued, cohort_opened) {
+        (Some(issued), None) if issued >= floor => Ok(()),
+        (None, Some(opened)) if opened >= floor => Ok(()),
+        _ => Err("bundle_before_restarted_record"),
+    }
+}
+
+/// What an operator restart of the held target did ([`restart_target`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Restarted {
+    /// The held record set aside (its target digest and activation epoch);
+    /// `None` when the launch burn row was held.
+    pub previous: Option<(String, Option<u64>)>,
+    /// The installed target it replaced, if any.
+    pub replaced: Option<String>,
+    /// The restarted chain's launch target, now installed and active.
+    pub installed: String,
+    /// The restarted record's first epoch.
+    pub from_epoch: u64,
+}
+
+/// Operator restart of the held target for a chain record restarted under
+/// the same trust roots (the eval Worker's new main authority, R_0 with no
+/// predecessor): the coordinator's own counterpart of the native validator's
+/// `reset-target`. One transaction, refused unless signing is paused: the
+/// restarted record's first epoch `from_epoch` (the restart record's
+/// `PUBLISH_FROM_EPOCH`) must be after the epoch the held target activated
+/// and not before an earlier restart's, and the supplied bundle must be a
+/// launch bundle that verifies against the launch burn row and was issued at
+/// or after `from_epoch`; then the held
+/// record is moved to the reset history (never deleted), the bundle is
+/// installed as the only active target, and `from_epoch` becomes the floor
+/// every later bundle must meet ([`restart_floor_ok`]). A refusal changes
+/// nothing, so this action is never a probe.
+///
+/// `from_epoch` must also exceed every epoch an installed bundle was issued
+/// or opened at ([`record_epoch`], `restart_regressed`), the earlier
+/// restarts' own launch bundles included. So a second restart can never
+/// reuse the first one's floor while the launch burn row is held (no
+/// activation to bound it): every bundle of a record set aside was issued or
+/// opened before its restart's floor, or installed since, and so below the
+/// next one.
+///
+/// Operations, attempts and reveals are left alone: a live attempt keeps
+/// reconciling from finalized state and is never sent again, committed
+/// operations keep their read-back and reveal checks, and an operation that
+/// never reached the chain is never signed under another target (an epoch
+/// holds one operation, `commit_ops.epoch` being unique, so the restarted
+/// target's first commit takes the next free epoch).
+pub fn restart_target(
+    sql: &impl Sql,
+    cfg: &SignConfig,
+    keys: &slop_ninja_protocol::TrustedKeys,
+    bundle_json: &str,
+    from_epoch: u64,
+    now_ms: u64,
+) -> Result<Result<Restarted, target::Refusal>, StoreError> {
+    let refuse = |code: &'static str, detail: &str| {
+        Ok(Err(target::Refusal {
+            code,
+            detail: detail.to_owned(),
+        }))
+    };
+    if signer(sql)?.state != "paused" {
+        return refuse("signing_active", "pause signing first");
+    }
+    if restart_floor(sql)?.is_some_and(|f| from_epoch < f) {
+        return refuse(
+            "restart_regressed",
+            "from_epoch is before the latest restart's",
+        );
+    }
+    // The record set aside activated its held target at that epoch, after
+    // every cohort it installed opened (a cohort's target activates at its
+    // closure), and its launch bundle was issued before any of them: a floor
+    // above it leaves none of that record's bundles a way back in, so a low
+    // or mistyped `from_epoch` is refused instead of reopening them.
+    if let Some(activated) = held_target(sql, cfg)?.activated_epoch()
+        && from_epoch <= activated
+    {
+        return refuse(
+            "restart_before_held_record",
+            &format!("from_epoch must be after epoch {activated}, when the held target activated"),
+        );
+    }
+    // Every bundle installed so far, from any record (the earlier restarts'
+    // own launch bundles included), was issued or opened at or below the
+    // high-water mark: a floor above it lets none of them back in, also while
+    // the launch burn row is held and no activation bounds the floor.
+    if let Some(high) = record_epoch(sql)?
+        && from_epoch <= high
+    {
+        return refuse(
+            "restart_regressed",
+            &format!(
+                "from_epoch must be after epoch {high}, the latest an installed bundle was issued or opened at"
+            ),
+        );
+    }
+    let chain = slop_ninja_protocol::ChainBinding {
+        genesis: slop_ninja_protocol::Digest(cfg.genesis.0),
+        netuid: cfg.netuid,
+        mechanism: 0,
+    };
+    let launch = slop_ninja_protocol::ActiveTarget::launch(&chain)
+        .map_err(|_| StoreError("launch target"))?;
+    let verified = match target::parse_v2(bundle_json.as_bytes())
+        .and_then(|b| target::verify_v2(&b, keys, &cfg.genesis.0, cfg.netuid, &launch))
+    {
+        Ok(v) => v,
+        Err(r) => return Ok(Err(r)),
+    };
+    if verified.source.is_some() {
+        return refuse(
+            "not_a_launch_bundle",
+            "a restart installs the restarted record's launch bundle",
+        );
+    }
+    let issued = match verified.checked_lease(keys) {
+        Ok((issued, _)) => issued,
+        Err(e) => return refuse("authorization_refused", &e.to_string()),
+    };
+    if let Err(code) = restart_floor_ok(from_epoch, Some(issued), None) {
+        return refuse(
+            code,
+            "the launch authorization was issued before from_epoch",
+        );
+    }
+    let held = held_target(sql, cfg)?;
+    let previous =
+        (!held.is_launch_burn()).then(|| (held.digest().to_string(), held.activated_epoch()));
+    let replaced = sql
+        .exec("SELECT target FROM sign_targets WHERE active = 1", &[])?
+        .first()
+        .map(|r| text(r, 0).map(str::to_owned))
+        .transpose()?;
+    sql.exec(
+        "INSERT INTO sign_held_target_resets (held_target, held_activated_epoch, from_epoch, launch_issued_epoch, at_ms)
+         VALUES (?, ?, ?, ?, ?)",
+        &[
+            previous.as_ref().map_or(SqlValue::Null, |(d, _)| d.as_str().into()),
+            previous
+                .as_ref()
+                .and_then(|(_, e)| *e)
+                .map_or(SqlValue::Null, |e| SqlValue::Integer(e as i64)),
+            bind_u64(from_epoch)?,
+            bind_u64(issued)?,
+            bind_u64(now_ms)?,
+        ],
+    )?;
+    sql.exec("DELETE FROM sign_held_target WHERE id = 1", &[])?;
+    // Verified above against the same launch row and floor: a refusal here
+    // rolls the whole restart back.
+    let installed = match install_target_v2(sql, cfg, keys, bundle_json, now_ms)? {
+        Ok(d) => d,
+        Err(_) => return Err(StoreError("restart install")),
+    };
+    let detail = match &previous {
+        Some((digest, epoch)) => format!(
+            "{digest}@{} from {from_epoch}",
+            epoch.map_or("none".into(), |e| e.to_string())
+        ),
+        None => format!("launch from {from_epoch}"),
+    };
+    journal::bump(sql, "held_target_resets")?;
+    log(
+        sql,
+        now_ms,
+        None,
+        None,
+        None,
+        "held_target_reset",
+        Some(&detail),
+    )?;
+    Ok(Ok(Restarted {
+        previous,
+        replaced,
+        installed,
+        from_epoch,
+    }))
+}
+
 /// Installs a reward-v1 bundle (verified, outcome recomputed) as the single
 /// active target. The bundle is checked against the target this coordinator
 /// holds active, never one rebuilt from the bundle: only the held target or
@@ -1210,6 +1442,21 @@ fn install_target_v2(
         Ok(v) => v,
         Err(r) => return Ok(Err(r)),
     };
+    // The epoch the bundle was issued (launch) or opened (cohort) at.
+    let launch_issued = match &verified.source {
+        None => verified.checked_lease(keys).ok().map(|(issued, _)| issued),
+        Some(_) => None,
+    };
+    let opened = verified.source.as_ref().map(|s| s.manifest.opened_epoch);
+    // After a restart, only the restarted record's bundles follow it.
+    if let Some(floor) = restart_floor(sql)?
+        && let Err(code) = restart_floor_ok(floor, launch_issued, opened)
+    {
+        return Ok(Err(target::Refusal {
+            code,
+            detail: format!("the restarted record starts at epoch {floor}"),
+        }));
+    }
     if let Err(r) = record_held(sql, &held, &verified.active, now_ms)? {
         return Ok(Err(r));
     }
@@ -1243,6 +1490,9 @@ fn install_target_v2(
             bind_u64(now_ms)?,
         ],
     )?;
+    if let Some(epoch) = launch_issued.or(opened) {
+        note_record_epoch(sql, epoch, now_ms)?;
+    }
     log(sql, now_ms, None, None, None, "target_installed", Some(&digest))?;
     Ok(Ok(digest))
 }
@@ -4169,6 +4419,12 @@ pub struct SigningStatus {
     pub failures: Vec<FailureStatus>,
     pub sign_rpc_this_minute: u64,
     pub target: Option<String>,
+    /// The first epoch of the chain record the latest restart installed
+    /// ([`restart_target`]): no bundle from before it installs.
+    pub restarted_from_epoch: Option<u64>,
+    /// The highest epoch an installed bundle was issued or opened at: a
+    /// restart's `from_epoch` must exceed it.
+    pub record_epoch: Option<u64>,
     pub schedule_block: Option<u64>,
     pub claim: Option<claims::ClaimStatus>,
     pub ops: Vec<OpStatus>,
@@ -4346,6 +4602,8 @@ pub fn status(
             .first()
             .map(|r| text(r, 0).map(str::to_owned))
             .transpose()?,
+        restarted_from_epoch: restart_floor(sql)?,
+        record_epoch: record_epoch(sql)?,
         schedule_block: sql
             .exec("SELECT block_number FROM chain_schedule WHERE id = 1", &[])?
             .first()

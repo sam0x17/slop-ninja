@@ -123,8 +123,36 @@ store.
   which a label prefix clears. The record starts at a cohort whose
   reference is `R_0` with no predecessor; until one is listed, later cohorts
   wait. Cohort numbers must order like their opening epochs, or the cohort is
-  refused. A refused cohort is not read again by the same build (version and
-  trust roots); a new build retries it.
+  refused. The index records the prefix it was built under
+  (`record_prefix`). When the configured prefix is one a listed cohort's
+  label lacks (a chain-record restart under a new main authority), the run
+  copies the previous record's index to
+  `v1/records/<its first label>/cohorts/index.json`, removes the live
+  leaderboard and reference pointers, and starts a fresh index, so a
+  restarted record never appends to the earlier one; the earlier cohorts'
+  directories stay where they are. Only the index is archived: it is built
+  from typed fields, while the leaderboard and pointers carry the wording of
+  the build that wrote them, which an archive would keep public for good. The
+  archive is scanned for wording public text never carries before it is
+  written (`redact::scan_wording`; a hit refuses the run). An archive object
+  is written once: one that already holds other bytes refuses the run, so an
+  earlier archive is never replaced. The fresh index records each earlier
+  record (`previous_records`: its prefix and first label, oldest first, and
+  its initial references, whose artifacts stay withheld as entrant artifacts
+  in every later record, whatever the publisher's memo holds). A configured
+  prefix that names an earlier record (its recorded
+  prefix, or one its first label has; a deploy from a tree that still tracks
+  it) is refused: the run moves, adopts and publishes nothing and reports
+  why. The earlier record's cohorts whose detailed
+  receipts were still published when it was moved aside are listed there too
+  (`receipts_pending`) and deleted once two cohorts of the live record are
+  published (cohort numbers continue across authorities), whether or not
+  those produce a target: the restart superseded the earlier record's target
+  (the coordinator's and validators' held targets are restarted, so no new
+  commitment to it is made). The archived index is the record as it stood,
+  and each cohort's publication record says when its receipts were
+  deleted. A refused cohort is not read again by the same
+  build (version and trust roots); a new build retries it.
 - **Read-only on the private side.** R2 bindings cannot be made read-only,
   so the code writes and deletes only in the public-candidate bucket. The
   tests check that the private buckets see no write or delete.
@@ -301,8 +329,15 @@ phases.
 
 ## Configuration
 
-See `wrangler.toml`. The vars set at deploy are `PUBLISH_FROM_EPOCH`,
-`RECORD_LABEL_PREFIX`, `PRIVATE_DIGESTS`, `OPERATOR_HOTKEYS`,
+See `wrangler.toml`. `PUBLISH_FROM_EPOCH` and `RECORD_LABEL_PREFIX` are
+tracked there (never passed with `--var`, so every deploy carries the record
+its tree names; a restart changes both in one commit). Before every deploy,
+`cargo run --example slop_ninja_publisher_ops -- record-check --wrangler
+wrangler.toml --index <the live v1/cohorts/index.json>` refuses (exit 1) a
+tree whose `RECORD_LABEL_PREFIX` is not the live record's, an earlier
+record's above all (`index::record_check`); `--restart` passes only a new
+prefix, for a restart's commit. The vars set at deploy
+are `PRIVATE_DIGESTS`, `OPERATOR_HOTKEYS`,
 `ARTIFACT_SOURCE_KEY`, `ADMISSION_RECORD_KEY`, `ADMISSION_ORIGIN` and
 `NOTICE`. `ALERT_RELAY` is tracked (`"true"`, decision D18). The secrets are
 `COORDINATOR_STATUS_TOKEN` (the coordinator Worker's status token),

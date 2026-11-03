@@ -111,9 +111,8 @@ impl SpecBounds {
         if !engine_admits(v) {
             return None;
         }
-        let json = v.max_json_bytes()?;
-        let graph = v.classes().iter().filter(|c| v.serves(c)).map(|c| c.bytes).max()?;
-        let files = graph.checked_add(spec::TOKENIZER_BYTES)?.checked_add(json)?;
+        let graph = graph_bytes(v)?;
+        let files = files_bytes(v)?;
         let object = files.checked_add(4 + u64::from(MAX_ARTIFACT_HEADER_LEN))?;
         Some(Self {
             spec_id: v.id(),
@@ -127,6 +126,21 @@ impl SpecBounds {
     pub fn of_id(id: &str) -> Option<Self> {
         Version::from_id(id).and_then(Self::of)
     }
+}
+
+/// Largest graph class length spec `v` serves.
+fn graph_bytes(v: Version) -> Option<u64> {
+    v.classes().iter().filter(|c| v.serves(c)).map(|c| c.bytes).max()
+}
+
+/// The six files' largest total under spec `v` (graph, tokenizer and the JSON
+/// budget), from its class and JSON bounds alone: unlike the spec digest it
+/// never rebuilds the spec record, so a lane's limits read it per report.
+pub fn files_bytes(v: Version) -> Option<u64> {
+    if !engine_admits(v) {
+        return None;
+    }
+    graph_bytes(v)?.checked_add(spec::TOKENIZER_BYTES)?.checked_add(v.max_json_bytes()?)
 }
 
 /// The specs an admission run can load by today: the scorer's probe route
@@ -2603,8 +2617,10 @@ fn fault_freeze(sql: &impl Sql, seq: i64, why: &'static str, now_ms: u64) -> R<O
     Ok(Some(Boundary::Waiting("roster freeze refused: the cohort is faulted")))
 }
 
-/// Whether admission has work for the cohort object's step.
-pub fn has_work(sql: &impl Sql) -> R<bool> {
+/// Whether admission has work for the cohort object's step, or the calendar
+/// has a cohort to open under `cfg` (`calendar::due`: never for a retired
+/// authority).
+pub fn has_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
     Ok(!sql
         .exec(
             "SELECT 1 FROM adm_sessions WHERE state = 'verifying' AND stage IN ('complete','frame','blobs','verdict')
@@ -2615,7 +2631,7 @@ pub fn has_work(sql: &impl Sql) -> R<bool> {
             &[],
         )?
         .is_empty()
-        || crate::eval::calendar::due(sql)?.is_some())
+        || crate::eval::calendar::due(sql, cfg)?.is_some())
 }
 
 /// The next admission step: the freeze when it can run, completions,
@@ -2642,7 +2658,7 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<engi
     if !cleanup_due(sql, 1)?.is_empty() {
         return Ok(Some(engine::Work::AdmissionCleanup));
     }
-    if let Some((label, plan)) = crate::eval::calendar::due(sql)? {
+    if let Some((label, plan)) = crate::eval::calendar::due(sql, cfg)? {
         return Ok(Some(engine::Work::OpenNext { label, plan }));
     }
     Ok(None)

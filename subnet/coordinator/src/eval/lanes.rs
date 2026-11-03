@@ -80,6 +80,12 @@ pub struct LaneKick {
     #[serde(rename = "gen")]
     pub generation: i64,
     pub name: String,
+    /// The named main authority that issued the kick (`config::Authority`):
+    /// the lane's calls go back to that authority's object whatever the
+    /// deployment names now. Absent for the original authority and the load
+    /// instance, so their kicks are the bytes they were.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority: Option<String>,
 }
 
 /// Who a lane request comes from.
@@ -93,14 +99,17 @@ pub struct LaneRef {
 }
 
 /// The lane's Durable Object name. Names are stable across cohorts, so the
-/// namespace stays bounded by the lane cap per instance; a lane orders its
-/// assignments by `(seq, gen)`.
-pub fn lane_name(instance: &str, kind: &str, lane: i64) -> String {
+/// namespace stays bounded by the lane cap per instance and authority; a lane
+/// orders its assignments by `(seq, gen)`. `scope` is the instance, with a
+/// named authority's suffix (`EvalConfig::lane_scope`): a restarted
+/// authority numbers its cohorts from its own first sequence, so it never
+/// kicks a lane object that holds a later `(seq, gen)` of an earlier one.
+pub fn lane_name(scope: &str, kind: &str, lane: i64) -> String {
     let net = crate::config::NETWORK;
     match kind {
-        "score" => format!("a-scorer/{net}/{instance}/lane-{lane:04}"),
-        "gen" => format!("eval-lane/{net}/{instance}/gen-{lane:03}"),
-        other => format!("eval-lane/{net}/{instance}/{other}-{lane:04}"),
+        "score" => format!("a-scorer/{net}/{scope}/lane-{lane:04}"),
+        "gen" => format!("eval-lane/{net}/{scope}/gen-{lane:03}"),
+        other => format!("eval-lane/{net}/{scope}/{other}-{lane:04}"),
     }
 }
 
@@ -222,7 +231,7 @@ fn insert_lane(sql: &impl Sql, cfg: &EvalConfig, seq: i64, kind: &str, lane: i64
             i(seq),
             s(kind),
             i(lane),
-            s(lane_name(&cfg.instance, kind, lane)),
+            s(lane_name(&cfg.lane_scope(), kind, lane)),
             job.map_or(SqlValue::Null, i),
             i(index),
             i(lo),
@@ -347,6 +356,7 @@ fn kick(sql: &impl Sql, cfg: &EvalConfig, seq: i64, kind: &str, l: &LaneRow, now
         lane: l.lane,
         generation,
         name: l.name.clone(),
+        authority: cfg.kick_authority(),
     });
     Ok(())
 }
@@ -655,6 +665,12 @@ pub struct Assignment {
     /// documents are model errors and need no container.
     #[serde(default)]
     pub artifact_failed: bool,
+    /// Scoring lanes: the digest of the artifact spec the cohort names
+    /// (`fanout.score.artifact_spec`), which every load names
+    /// (`spec=<digest>`); absent for a cohort that names none, whose loads
+    /// are admitted by the scorer's unnamed-load spec (spec v2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec_sha256: Option<String>,
 }
 
 fn assignment_for(sql: &impl Sql, c: &Cohort, kind: &str, l: &LaneRow, now: u64) -> R<Assignment> {
@@ -688,6 +704,11 @@ fn assignment_for(sql: &impl Sql, c: &Cohort, kind: &str, l: &LaneRow, now: u64)
         failures_before_pause: f.score.failures_before_pause,
         ..Default::default()
     };
+    if kind == "score" {
+        // Only scoring lanes load an artifact.
+        // The digest the plan froze, never one rebuilt per report.
+        a.spec_sha256 = c.plan.load_spec_sha256().map(str::to_owned);
+    }
     if kind == "score"
         && let Some(job) = l.job
     {

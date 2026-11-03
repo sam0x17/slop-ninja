@@ -49,6 +49,8 @@ slop-ninja-admission-wire = { path = "../crates/miner/wire" }
 # the header-only file-table checks and parts mapping of an uploaded object.
 # The full check (graph pre-parse, role schemas) runs in the scorer
 # Container's admission load, never in a Worker that holds signing keys.
+# Its spec records also name the spec a cohort's scorer loads name (`spec=`
+# digest), checked at plan time against the specs the scorer admits loads by.
 slop-ninja-artifact-check = { path = "../crates/artifact-check", default-features = false }
 hmac = "0.12"
 serde = { version = "1", features = ["derive"] }

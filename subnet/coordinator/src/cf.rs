@@ -7,9 +7,11 @@
 //!   round in `waitUntil`.
 //! - `GET /status`: content-free JSON; requires `COORDINATOR_STATUS_TOKEN`.
 //! - `POST /fault/clear`: operator action; requires `COORDINATOR_OPERATOR_TOKEN`.
-//! - `POST /signing/target`, `POST /signing/control`, `POST /signing/kick`:
-//!   operator actions for the signing journal (install the T12 target,
-//!   resume/pause/clear/arm a testnet drill, run one signing round now).
+//! - `POST /signing/target`, `POST /signing/control`, `POST /signing/kick`,
+//!   `POST /signing/restart?from_epoch=F`: operator actions for the signing
+//!   journal (install the T12 target, resume/pause/clear/arm a testnet drill,
+//!   run one signing round now, restart the held target with the restarted
+//!   chain record's launch bundle).
 //! - cron (`* * * * *`): the watchdog, the only timer.
 //!
 //! Memory: every export is hand-written in `cf_arena.rs` and runs its handler
@@ -53,7 +55,6 @@ use worker::{
 use zeroize::Zeroizing;
 
 const CHAIN_JOURNAL: &str = "CHAIN_JOURNAL";
-const EVAL_COHORT: &str = "EVAL_COHORT";
 const INTERNAL_ORIGIN: &str = "https://coordinator.internal";
 const MAX_OPERATOR_BODY: usize = 1024;
 
@@ -294,6 +295,9 @@ struct AdminRequest {
     drill: Option<String>,
     #[serde(default)]
     count: Option<u64>,
+    /// `restart_target`: the restarted record's first epoch.
+    #[serde(default)]
+    from_epoch: Option<u64>,
 }
 
 /// Authoritative chain observation state for one chain: delivery dedup, the
@@ -630,6 +634,20 @@ fn admin(
             json!({"paused": true})
         }
         "clear_fault" => json!({"cleared": signing::clear_fault(sql, now)?}),
+        // A chain record restarted under the same trust roots: the
+        // restarted record's launch bundle replaces the held target in one
+        // transaction (`signing::restart_target`); a refusal changes nothing.
+        "restart_target" => match signing::restart_target(
+            sql,
+            cfg,
+            trusted,
+            r.bundle.as_deref().unwrap_or_default(),
+            r.from_epoch.unwrap_or(u64::MAX),
+            now,
+        )? {
+            Ok(done) => json!({"restarted": done}),
+            Err(refusal) => json!({"refused": refusal}),
+        },
         "arm_drill" => json!({
             "armed": signing::arm_drill(sql, r.drill.as_deref().unwrap_or_default(), r.count.unwrap_or(1).min(3), now)?
         }),
@@ -1407,8 +1425,9 @@ async fn status(req: Request, env: Env) -> Result<Response> {
                 &config::chain_journal_name(&d.chain),
             )
             .await;
+            // The main authority the deployment names (`EVAL_MAIN_AUTHORITY`).
             let cohort = match config::eval_cohort_name(&d.chain) {
-                Some(name) => do_json(&env, d, EVAL_COHORT, &name).await,
+                Some(_) => eval_do::main_status(&env).await,
                 None => None,
             };
             (journal, cohort, read_liveness(&env, d).await)
@@ -1490,7 +1509,7 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
     };
     // A target body is either bundle form; each parser applies its own bound
     // (a reward-v1 bundle: one stored Durable Object value).
-    let limit = if which == "target" {
+    let limit = if which == "target" || which == "restart" {
         crate::target::MAX_BUNDLE_BYTES.max(crate::target::MAX_BUNDLE_V2_BYTES)
     } else {
         MAX_OPERATOR_BODY
@@ -1509,6 +1528,26 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
                 bundle: Some(bundle),
                 drill: None,
                 count: None,
+                from_epoch: None,
+            })?
+        }
+        "restart" => {
+            // The body is the launch bundle; the restarted record's first
+            // epoch is the `from_epoch` query parameter.
+            let Ok(bundle) = String::from_utf8(raw) else {
+                return error("bad_request", 400);
+            };
+            let from_epoch =
+                req.url()?.query_pairs().find(|(k, _)| k == "from_epoch").and_then(|(_, v)| v.parse::<u64>().ok());
+            let Some(from_epoch) = from_epoch else {
+                return error("from_epoch", 400);
+            };
+            serde_json::to_string(&AdminRequest {
+                action: "restart_target".into(),
+                bundle: Some(bundle),
+                drill: None,
+                count: None,
+                from_epoch: Some(from_epoch),
             })?
         }
         "kick" => {
@@ -1520,7 +1559,7 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
             let Ok(r) = serde_json::from_slice::<AdminRequest>(&raw) else {
                 return error("bad_request", 400);
             };
-            if r.action == "install_target" {
+            if r.action == "install_target" || r.action == "restart_target" {
                 return error("bad_request", 400);
             }
             serde_json::to_string(&r)?
@@ -1541,9 +1580,15 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
 }
 
 /// Operator and status routes of the cohort authority (`EVAL_ROLE = "eval"` only).
-/// `GET /eval/status` and `GET /eval/load/status` need the status token;
-/// everything else the operator token. `/eval/load/...` reaches the separate
-/// load-rehearsal instance.
+/// `GET /eval/status`, `GET /eval/load/status` and `GET
+/// /eval/authority/<name>/status` need the status token; everything else the
+/// operator token. `/eval/load/...` reaches the separate load-rehearsal
+/// instance. `/eval/authority/<name>/...` reaches main authority `<name>`
+/// whatever the deployment names, only when the deployment knows it (the
+/// original, the named one and each `EVAL_MAIN_PREVIOUS` entry,
+/// `config::Authority::known`): `GET .../status` for audit (it never creates
+/// an object), and `POST .../clear` and `.../abandon` for a fault in work an
+/// earlier authority still holds.
 #[cfg_attr(
     not(test),
     allow(
@@ -1558,14 +1603,17 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         return error("not_found", 404);
     }
     let path = req.path();
-    let read_only = req.method() == Method::Get && (path == "/eval/status" || path == "/eval/load/status");
+    let audit = config::authority_route(&path);
+    let read_only = req.method() == Method::Get
+        && (path == "/eval/status" || path == "/eval/load/status" || matches!(audit, Some((_, "status"))));
     let secret = if read_only { "COORDINATOR_STATUS_TOKEN" } else { "COORDINATOR_OPERATOR_TOKEN" };
     match bearer_ok(&req, &env, secret) {
         Err(()) => return error("token_not_configured", 503),
         Ok(false) => return unauthorized(),
         Ok(true) => {}
     }
-    if deployment(&env).ok().and_then(|d| config::eval_cohort_name(&d.chain)).is_none() {
+    // The chain, the netuid and the main authority vars must all name an object.
+    if eval_do::cohort_name(&env, "main").is_none() {
         return error("not_configured", 503);
     }
     let raw = if req.method() == Method::Post {
@@ -1595,6 +1643,24 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
             v["limiter"] = eval_do::limiter_status(&env).await.unwrap_or_default();
             v["ledger"] = eval_do::ledger_call(&env, "/status", &serde_json::json!({})).await.unwrap_or_default();
             json(&v)
+        }
+        // Main authority `<name>`, only when the deployment knows it, so no
+        // request creates an object for any other name. A named authority's
+        // own succession check runs in its object (`EvalCohort::succeed`), so
+        // the operator's plans and the calendar's are covered alike.
+        (_, r) if r.starts_with("/authority/") => {
+            let known = eval_do::main_authority(&env).ok();
+            match audit {
+                Some((name, action)) if known.as_ref().is_some_and(|a| a.known(name)) => match (req.method(), action) {
+                    (Method::Get, "status") => eval_do::audit_status(&env, name).await,
+                    (Method::Post, "clear" | "abandon") => {
+                        eval_do::authority_fetch(&env, "main", name, Method::Post, &format!("/{action}"), raw, None)
+                            .await
+                    }
+                    _ => error("not_found", 404),
+                },
+                _ => error("not_found", 404),
+            }
         }
         (Method::Post, "/plan" | "/clear" | "/abandon" | "/hold") => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         // The standing template and the calendar (main instance).
@@ -1651,7 +1717,23 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
             let (Some(p), Some(k)) = (body["package_sha256"].as_str(), body["manifest_key"].as_str()) else {
                 return error("bad_request", 400);
             };
-            let v = eval_do::scorer_probe(&env, p, k).await;
+            // An optional artifact spec (id) the probe's load names by digest,
+            // as a cohort naming it loads.
+            let spec = match body.get("artifact_spec") {
+                None | Some(serde_json::Value::Null) => None,
+                Some(id) => match id.as_str().and_then(crate::eval::plan::load_spec_sha256_of) {
+                    Some(sha) => Some(sha),
+                    None => return error("artifact_spec", 400),
+                },
+            };
+            // Optional `"spans": true`: each prediction carries its sentences
+            // and spans (a package with a token head, such as S2c's).
+            let spans = match body.get("spans") {
+                None | Some(serde_json::Value::Null) => false,
+                Some(serde_json::Value::Bool(b)) => *b,
+                Some(_) => return error("spans", 400),
+            };
+            let v = eval_do::scorer_probe(&env, p, k, spec.as_deref(), spans).await;
             // The probe instance's wall time at the latest plan's Container
             // rates (the cost model plans are checked with).
             let wall_ms = v["total_ms"].as_u64().unwrap_or(0) + v["cold"]["start_ms"].as_u64().unwrap_or(0);
@@ -1695,12 +1777,13 @@ async fn fetch(req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Result
         (Method::Post, "/signing/target") => signing_admin(req, env, "target").await,
         (Method::Post, "/signing/control") => signing_admin(req, env, "control").await,
         (Method::Post, "/signing/kick") => signing_admin(req, env, "kick").await,
+        (Method::Post, "/signing/restart") => signing_admin(req, env, "restart").await,
         (_, p) if p.starts_with("/eval/") => eval_route(req, env).await,
         (_, p) if p.starts_with("/admission/") => admission_do::route(req, env).await,
         (
             _,
             "/hook" | "/status" | "/fault/clear" | "/signing/target" | "/signing/control"
-            | "/signing/kick",
+            | "/signing/kick" | "/signing/restart",
         ) => error("method_not_allowed", 405),
         _ => error("not_found", 404),
     }
@@ -1748,9 +1831,27 @@ async fn scheduled(env: Env) {
     if eval_do::enabled(&env) && config::eval_cohort_name(&d.chain).is_some() {
         let epoch = epoch_read(&env, &d).await;
         let confirmed = epoch.map(|e| e.block);
+        let mut main_reply = None;
         for instance in ["main", "load"] {
             if budget.allows(eval_do::KICK_TIMEOUT_MS) {
-                let _ = eval_do::kick(&env, instance, confirmed, epoch).await;
+                let reply = eval_do::kick(&env, instance, confirmed, epoch).await;
+                if instance == "main" {
+                    main_reply = reply;
+                }
+            }
+        }
+        // Earlier main authorities on ticks only, until the named authority
+        // reports its succession complete (a reply without the field, or no
+        // reply, kicks them): before it one may still hold work (a switch
+        // while it ran) and advances its boundary phases until its cohorts
+        // close; after it every one is superseded and idle for good
+        // (`config::kicked_authorities`).
+        if let Ok(a) = eval_do::main_authority(&env) {
+            let complete = main_reply.as_ref().is_some_and(|v| v["succession_complete"] == true);
+            for name in config::kicked_authorities(&a, true, complete).iter().skip(1) {
+                if budget.allows(eval_do::KICK_TIMEOUT_MS) {
+                    let _ = eval_do::kick_authority(&env, name, confirmed, epoch).await;
+                }
             }
         }
         commitments_drive(&env, &d, budget).await;

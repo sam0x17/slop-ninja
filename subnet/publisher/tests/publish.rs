@@ -301,14 +301,7 @@ fn public_text_carries_no_rights_hold_wording() {
     ];
     for text in sources {
         let lower = text.to_lowercase();
-        for phrase in [
-            "rights question",
-            "counsel",
-            "stays private",
-            "stay private until",
-            "weights not published",
-            "private reference",
-        ] {
+        for phrase in slop_ninja_publisher::redact::REFUSED_WORDING {
             assert!(!lower.contains(phrase), "{phrase:?} remains");
         }
     }
@@ -978,6 +971,19 @@ fn components_are_withheld_unless_they_pass_redaction_and_agree() {
     let mut c = components(&b);
     c["policy"] = serde_json::json!({"schema": "slop_ninja_eval_gate_policy_v2"});
     probes.push(c);
+    // A limits record the manifest does not bind, or of an unknown schema.
+    let mut c = components(&b);
+    c["limits"] = serde_json::json!({"schema": "slop_ninja_eval_limits_v2", "max_attempts": 3});
+    probes.push(c);
+    let mut c = components(&b);
+    c["limits"] = serde_json::json!({"schema": "slop_ninja_eval_limits_v9"});
+    probes.push(c);
+    // The coordinator's v2 limits record passes the redaction scan.
+    let v2 = serde_json::json!({"schema": "slop_ninja_eval_limits_v2", "max_attempts": 3, "chunk_docs": 25,
+        "step_wall_ms": 600000, "doc_timeout_ms": 60000, "artifact_max_bytes": 700000000u64, "load_wait_ms": 100000,
+        "artifact_failures_before_model_error": 3, "crash_rule": "a crash rule", "artifact_rule": "an artifact rule",
+        "artifact_spec": {"id": "slop_ninja_a_artifact_spec_v3", "sha256": "0b".repeat(32)}});
+    slop_ninja_publisher::redact::scan_json(&serde_json::to_vec(&v2).unwrap()).unwrap();
     let mut c = components(&b);
     c["fpr_rule"] = serde_json::json!("PRIVATE DOCUMENT TEXT");
     probes.push(c);
@@ -1143,6 +1149,76 @@ fn detailed_receipts_are_deleted_after_n_plus_2() {
     assert_eq!(report.receipts_deleted, 0);
 }
 
+/// A record restart leaves no detailed receipt published indefinitely: the
+/// earlier record's cohorts that still had them wait in the new index and
+/// are deleted once two cohorts of the new record are published and a later
+/// target supersedes theirs (cohort numbers continue across authorities).
+#[test]
+fn an_earlier_records_receipts_are_deleted_after_two_cohorts_of_the_new_record() {
+    let b = build(0);
+    let x = buckets(&b);
+    let mut cfg = config(Some(0), false);
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    let dir = format!("v1/cohorts/{}", b.label);
+    assert!(
+        x.public
+            .bytes(&format!("{dir}/receipt-index.signed"))
+            .is_some()
+    );
+    cfg.record_label_prefix = Some("testnet-r0b-".into());
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.record_restarted.as_deref(), Some(SEED_LABEL));
+    assert_eq!(report.receipts_deleted, 0);
+    let idx = idx.unwrap();
+    let pending = &idx.previous_records[0].receipts_pending;
+    assert_eq!(pending.len(), 1, "the fixture cohort; the seed had none");
+    assert_eq!(pending[0].label, b.label);
+    // The earlier record had no prefix recorded; a prefix its first label has
+    // still names it, so a tree that tracks one is refused.
+    assert_eq!(idx.previous_records[0].prefix, None);
+    let mut stale = cfg.clone();
+    stale.record_label_prefix = Some("testnet-seed-".into());
+    let e = run(&stale, &x, &mut Memo::default()).1.unwrap_err();
+    assert!(e.contains("earlier public record"), "{e}");
+    assert!(slop_ninja_publisher::index::record_check(&idx, "testnet-seed-", false).is_err());
+    let archived: slop_ninja_publisher::index::CohortIndex = public_json(
+        &x,
+        &layout::record_archive(SEED_LABEL, "cohorts/index.json"),
+    );
+    let n = entry_of(&archived, &b.label).clone();
+    let mut live = idx.clone();
+    for k in 1..=2u64 {
+        let mut later = n.clone();
+        later.cohort += k;
+        later.opened_epoch += 20 * k;
+        later.label = format!("testnet-r0b-{k}");
+        later.path = format!("v1/cohorts/{}/", later.label);
+        later.receipts_retained = false;
+        live.cohorts.push(later);
+        x.public
+            .insert(layout::COHORT_INDEX, serde_json::to_vec(&live).unwrap());
+        let (report, _) = run(&cfg, &x, &mut Memo::default());
+        if k == 1 {
+            assert_eq!(report.receipts_deleted, 0, "one later cohort is not enough");
+        } else {
+            assert_eq!(report.receipts_deleted, 1, "{report:?}");
+        }
+    }
+    let after: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    assert!(after.previous_records[0].receipts_pending.is_empty());
+    let publication: Publication = public_json(&x, &layout::publication(&b.label));
+    assert_eq!(publication.receipts_deleted_after, Some(n.cohort + 2));
+    for o in &publication.objects {
+        let present = x.public.bytes(&format!("{dir}/{}", o.rel)).is_some();
+        assert_eq!(present, !publish::is_detailed_receipt(&o.rel), "{}", o.rel);
+    }
+    assert!(x.public.bytes(&format!("{dir}/package.signed")).is_some());
+    // Idempotent; the private buckets are never written.
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.receipts_deleted, 0);
+    assert_eq!((x.receipts.puts.get(), x.receipts.deletes.get()), (0, 0));
+}
+
 /// Stores a signed authorization object in the receipts bucket at its
 /// content-addressed key and returns its pointer entry.
 fn store_authorization(x: &Buckets3, bytes: Vec<u8>) -> publish::ObjectRef {
@@ -1292,5 +1368,289 @@ fn authorizations_are_published_once_their_cohort_is_listed() {
     assert!(
         report.refused.iter().any(|(s, _)| s == "authorizations"),
         "{report:?}"
+    );
+}
+
+/// A chain-record restart (a new `RECORD_LABEL_PREFIX`) over a non-empty
+/// index starts a fresh record: the previous index, leaderboard and
+/// reference pointers move under `v1/records/<first label>/`, and the
+/// restarted record starts again at `R_0`; it never appends to the earlier
+/// one. A prefix every listed label already has is adopted instead.
+#[test]
+fn a_new_record_prefix_moves_the_previous_record_aside() {
+    let b = build(0);
+    let x = buckets(&b);
+    // The live pointer and leaderboard as an earlier build wrote them, with
+    // the retired wording public text no longer carries.
+    let held_wording = format!(
+        "{{\"withheld\": \"x {} y\"}}",
+        slop_ninja_publisher::redact::REFUSED_WORDING[0]
+    );
+    x.public
+        .insert(layout::LEADERBOARD, held_wording.clone().into_bytes());
+    x.public
+        .insert(layout::REFERENCE_CURRENT, held_wording.into_bytes());
+    let mut cfg = config(Some(0), false);
+    cfg.record_label_prefix = Some("testnet-seed-".into());
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.record_restarted, None);
+    let idx = idx.unwrap();
+    assert_eq!(idx.record_prefix.as_deref(), Some("testnet-seed-"));
+    assert_eq!(idx.cohorts.len(), 1);
+    // The restarted chain's prefix: the listed record moves aside.
+    cfg.record_label_prefix = Some(b.label.clone());
+    let mut memo = Memo::default();
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.record_restarted.as_deref(), Some(SEED_LABEL));
+    let idx = idx.unwrap();
+    assert!(idx.cohorts.is_empty() && idx.initial_references.is_empty());
+    assert_eq!(idx.record_prefix.as_deref(), Some(b.label.as_str()));
+    let archived: slop_ninja_publisher::index::CohortIndex = public_json(
+        &x,
+        &layout::record_archive(SEED_LABEL, "cohorts/index.json"),
+    );
+    assert_eq!(archived.cohorts[0].label, SEED_LABEL);
+    // Only the index is archived: the leaderboard and pointers, with the
+    // wording of the build that wrote them, are removed, never archived, and
+    // no object under the archive carries refused wording.
+    for rel in [
+        "leaderboard.json",
+        "reference/current.json",
+        "reference/previous.json",
+    ] {
+        assert!(
+            x.public
+                .bytes(&layout::record_archive(SEED_LABEL, rel))
+                .is_none(),
+            "{rel} archived"
+        );
+    }
+    let archive_dir = layout::record_archive(SEED_LABEL, "");
+    let archived_keys: Vec<String> = x
+        .public
+        .keys()
+        .into_iter()
+        .filter(|k| k.starts_with(&archive_dir))
+        .collect();
+    assert_eq!(
+        archived_keys,
+        [layout::record_archive(SEED_LABEL, "cohorts/index.json")]
+    );
+    for k in x.public.keys() {
+        let bytes = x.public.bytes(&k).unwrap();
+        assert!(
+            slop_ninja_publisher::redact::scan_wording(&bytes).is_ok(),
+            "{k} carries refused wording"
+        );
+    }
+    assert!(x.public.bytes(layout::LEADERBOARD).is_none());
+    assert!(x.public.bytes(layout::REFERENCE_CURRENT).is_none());
+    // The earlier record's initial references stay withheld in the new
+    // record, whatever the memo holds.
+    let first: slop_ninja_publisher::index::CohortIndex = archived.clone();
+    assert_eq!(
+        idx.previous_records[0].initial_references,
+        first.initial_references
+    );
+    // The fixture cohort (R_1) waits for the restarted record's R_0.
+    assert!(report.published.is_empty());
+    assert!(
+        report
+            .pending
+            .iter()
+            .any(|(l, why)| *l == b.label && why.contains("first cohort")),
+        "{report:?}"
+    );
+    // Later runs keep the fresh record, which records the earlier one.
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.record_restarted, None);
+    let idx = idx.unwrap();
+    assert!(idx.cohorts.is_empty());
+    assert_eq!(idx.previous_records.len(), 1);
+    assert_eq!(
+        idx.previous_records[0].prefix.as_deref(),
+        Some("testnet-seed-")
+    );
+    assert_eq!(idx.previous_records[0].first_label, SEED_LABEL);
+    // A deploy from a tree that still tracks the earlier record's prefix is
+    // refused: nothing is moved, adopted or written, and the run reports it.
+    let puts = x.public.puts.get();
+    let mut stale = cfg.clone();
+    stale.record_label_prefix = Some("testnet-seed-".into());
+    let (report, idx) = run(&stale, &x, &mut memo);
+    let e = idx.unwrap_err();
+    assert!(e.contains("earlier public record"), "{e}");
+    assert_eq!(report.record_restarted, None);
+    assert_eq!(x.public.puts.get(), puts, "nothing written");
+    let live: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    assert_eq!(live.record_prefix.as_deref(), Some(b.label.as_str()));
+    // The pre-deploy check refuses the same tree, and a restart only to a new
+    // prefix.
+    use slop_ninja_publisher::index::record_check;
+    assert!(record_check(&live, "testnet-seed-", false).is_err());
+    assert!(record_check(&live, "testnet-seed-", true).is_err());
+    assert!(record_check(&live, &b.label, true).is_err());
+    assert_eq!(
+        record_check(&live, &b.label, false),
+        Ok(format!("same record: {}", b.label))
+    );
+    assert!(record_check(&live, "testnet-r0c-", false).is_err());
+    assert!(record_check(&live, "testnet-r0c-", true).is_ok());
+}
+
+/// An archive object is written once: a record restart that would replace
+/// an existing archive with other bytes is refused, and the live record is
+/// left as it was.
+#[test]
+fn a_record_restart_never_replaces_an_earlier_archive() {
+    let b = build(0);
+    let x = buckets(&b);
+    x.public
+        .insert(layout::LEADERBOARD, b"{\"old\":true}".to_vec());
+    let mut cfg = config(Some(0), false);
+    cfg.record_label_prefix = Some("testnet-seed-".into());
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    let held = layout::record_archive(SEED_LABEL, "cohorts/index.json");
+    x.public.insert(&held, b"{\"other\":true}".to_vec());
+    cfg.record_label_prefix = Some("testnet-r0b-".into());
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    let e = idx.unwrap_err();
+    assert!(e.contains("never replaced"), "{e}");
+    assert_eq!(report.record_restarted, None);
+    assert_eq!(x.public.bytes(&held).unwrap(), b"{\"other\":true}".to_vec());
+    assert_eq!(
+        x.public.bytes(layout::LEADERBOARD).unwrap(),
+        b"{\"old\":true}".to_vec()
+    );
+    let live: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    assert_eq!(live.record_prefix.as_deref(), Some("testnet-seed-"));
+    // The same bytes are an interrupted run repeating the step.
+    let live_bytes = x.public.bytes(layout::COHORT_INDEX).unwrap();
+    x.public.insert(&held, live_bytes);
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.record_restarted.as_deref(), Some(SEED_LABEL));
+    assert_eq!(idx.unwrap().record_prefix.as_deref(), Some("testnet-r0b-"));
+}
+
+/// A record archive is written once for good, so it is scanned for wording
+/// public text never carries before it is written: an index carrying it
+/// refuses the restart, nothing is archived, and the live record is left as
+/// it was.
+#[test]
+fn a_record_archive_never_carries_refused_wording() {
+    let b = build(0);
+    let x = buckets(&b);
+    let mut cfg = config(Some(0), false);
+    cfg.record_label_prefix = Some("testnet-seed-".into());
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    let mut raw: serde_json::Value = public_json(&x, layout::COHORT_INDEX);
+    raw["note"] = serde_json::json!(format!(
+        "x {} y",
+        slop_ninja_publisher::redact::REFUSED_WORDING[0]
+    ));
+    let tainted = serde_json::to_vec(&raw).unwrap();
+    x.public.insert(layout::COHORT_INDEX, tainted.clone());
+    cfg.record_label_prefix = Some("testnet-r0b-".into());
+    let puts = x.public.puts.get();
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    let e = idx.unwrap_err();
+    assert!(e.contains("refused wording"), "{e}");
+    assert_eq!(report.record_restarted, None);
+    assert_eq!(x.public.puts.get(), puts, "nothing written");
+    assert!(
+        x.public
+            .bytes(&layout::record_archive(SEED_LABEL, "cohorts/index.json"))
+            .is_none()
+    );
+    assert_eq!(x.public.bytes(layout::COHORT_INDEX).unwrap(), tainted);
+}
+
+/// An earlier record's cohort that held a target when the record moved
+/// aside keeps its detailed receipts only until two cohorts of the new
+/// record are published, even when none of them produces a target (R_0
+/// unbeaten): the restart superseded the earlier target.
+#[test]
+fn an_earlier_target_cohorts_receipts_are_deleted_after_two_no_target_cohorts() {
+    let b = build(0);
+    let x = buckets(&b);
+    let mut cfg = config(Some(0), false);
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    let dir = format!("v1/cohorts/{}", b.label);
+    cfg.record_label_prefix = Some("testnet-r0b-".into());
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.record_restarted.as_deref(), Some(SEED_LABEL));
+    let mut live = idx.unwrap();
+    // The earlier record's last cohort with a target (retained, since no
+    // later cohort of that record superseded it).
+    live.previous_records[0].receipts_pending[0].target = Some("ab".repeat(32));
+    let archived: slop_ninja_publisher::index::CohortIndex = public_json(
+        &x,
+        &layout::record_archive(SEED_LABEL, "cohorts/index.json"),
+    );
+    let n = entry_of(&archived, &b.label).clone();
+    for k in 1..=2u64 {
+        let mut later = n.clone();
+        later.cohort += k;
+        later.opened_epoch += 20 * k;
+        later.label = format!("testnet-r0b-{k}");
+        later.path = format!("v1/cohorts/{}/", later.label);
+        later.receipts_retained = false;
+        later.target = None;
+        later.promoted = None;
+        later.mode = "no_target".into();
+        live.cohorts.push(later);
+        x.public
+            .insert(layout::COHORT_INDEX, serde_json::to_vec(&live).unwrap());
+        let (report, _) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.receipts_deleted, u32::from(k == 2), "after {k}");
+        live = public_json(&x, layout::COHORT_INDEX);
+    }
+    assert!(live.previous_records[0].receipts_pending.is_empty());
+    assert!(
+        x.public
+            .bytes(&format!("{dir}/receipt-index.signed"))
+            .is_none()
+    );
+    let publication: Publication = public_json(&x, &layout::publication(&b.label));
+    assert_eq!(publication.receipts_deleted_after, Some(n.cohort + 2));
+}
+
+/// A record restart keeps the earlier record's initial references withheld:
+/// the new index records them with the earlier record, so they stay
+/// withheld after the manifest chain stops naming them, with a fresh memo,
+/// and across a second restart.
+#[test]
+fn a_record_restart_keeps_the_earlier_initial_references_withheld() {
+    let b = build(0);
+    let x = buckets(&b);
+    let mut cfg = config(Some(0), false);
+    let before = run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    assert!(!before.initial_references.is_empty());
+    cfg.record_label_prefix = Some("testnet-r0b-".into());
+    let after = run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    assert!(after.initial_references.is_empty(), "the new record's own");
+    let withheld: Vec<_> = after.withheld_initial_references().cloned().collect();
+    assert_eq!(withheld, before.initial_references);
+    let again = run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    assert_eq!(
+        again
+            .withheld_initial_references()
+            .cloned()
+            .collect::<Vec<_>>(),
+        before.initial_references
+    );
+    cfg.record_label_prefix = Some("testnet-r0c-".into());
+    let third = run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    assert_eq!(
+        third.previous_records.len(),
+        1,
+        "an empty record moves nothing aside"
+    );
+    assert_eq!(
+        third
+            .withheld_initial_references()
+            .cloned()
+            .collect::<Vec<_>>(),
+        before.initial_references
     );
 }

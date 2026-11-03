@@ -18,6 +18,16 @@
 //! - **Platform replies.** A part or load meeting another binding (409
 //!   `instance_bound`), parts missing at load (409 `missing_parts`) and too
 //!   little memory (507 `insufficient_memory`) are the platform's.
+//! - **Artifact spec.** A cohort that names an artifact spec
+//!   (`fanout.score.artifact_spec`) names its digest on every load
+//!   (`spec=<digest>`, [`load_path`]), so the scorer admits the cohort's
+//!   artifacts by that spec; one that names none sends none and is admitted
+//!   by the scorer's unnamed-load spec (spec v2). The client sends a digest
+//!   only when the scorer lists it (`/healthz` `build.limits.specs`); a scorer
+//!   that does not is the platform's failure ([`SPEC_NOT_SERVED`]), never the
+//!   artifact's. The instance's binding includes the spec it loaded by
+//!   (`/healthz` `spec`), so an instance bound under another spec is never
+//!   used ([`slot`]).
 
 use crate::eval::lane_logic::RestartFailure;
 use serde_json::{Value, json};
@@ -99,6 +109,38 @@ refusal_codes!(
 /// definitive.
 pub const HOST_FAULT_CODES: &[&str] = &["refused object"];
 
+/// The scorer does not list the cohort's artifact spec among the specs it
+/// admits loads by: a scorer build that cannot serve the cohort.
+pub const SPEC_NOT_SERVED: &str = "scorer does not admit by the cohort's artifact spec";
+
+/// The id of the spec a scorer whose `/healthz` is `h` lists with digest
+/// `sha256` (`build.limits.specs`).
+fn listed_id<'h>(h: &'h Value, sha256: &str) -> Option<&'h str> {
+    h["build"]["limits"]["specs"].as_array()?.iter().find(|s| s["sha256"].as_str() == Some(sha256))?["id"].as_str()
+}
+
+/// The spec, by id, a load for a cohort naming `spec` (a digest; `None`: no
+/// spec) binds an instance to: the listed spec with that digest, or the
+/// scorer's unnamed-load spec (`build.limits.unnamed_load_spec`). `None` when
+/// the scorer lists neither.
+pub fn bound_spec<'h>(h: &'h Value, spec: Option<&str>) -> Option<&'h str> {
+    match spec {
+        Some(d) => listed_id(h, d),
+        None => h["build"]["limits"]["unnamed_load_spec"].as_str(),
+    }
+}
+
+/// The spec digest a load names (`spec=`): the cohort's, when the scorer
+/// lists it among the specs it admits loads by. A cohort that names none
+/// sends none.
+pub fn spec_sent<'a>(h: &Value, spec: Option<&'a str>) -> Result<Option<&'a str>, Prep> {
+    match spec {
+        None => Ok(None),
+        Some(d) if listed_id(h, d).is_some() => Ok(Some(d)),
+        Some(_) => Err(Prep::Infra(SPEC_NOT_SERVED)),
+    }
+}
+
 /// Whether the scorer binds each instance to one package and cohort.
 pub fn names_cohort(h: &Value) -> bool {
     h["single_use"] == Value::Bool(true)
@@ -129,15 +171,22 @@ pub enum Ours {
     Failed,
 }
 
-/// The slot `h` (a `/healthz` reply) shows for `package` and the lane's
-/// `cohort`. The cohort is compared only on a single-use scorer, where an
-/// absent cohort is a binding too (`null` in `/healthz`).
-pub fn slot(h: &Value, package: &str, cohort: Option<&str>) -> Slot {
+/// The slot `h` (a `/healthz` reply) shows for `package`, the lane's
+/// `cohort` and the cohort's artifact `spec` (a digest). The cohort is
+/// compared only on a single-use scorer, where an absent cohort is a binding
+/// too (`null` in `/healthz`); the spec only on a scorer that reports the
+/// spec a binding loaded by, against the spec this load binds to
+/// ([`bound_spec`]).
+pub fn slot(h: &Value, package: &str, cohort: Option<&str>, spec: Option<&str>) -> Slot {
     let state = h["state"].as_str();
     if state == Some("empty") {
         return Slot::Empty;
     }
-    let ours = h["package"].as_str() == Some(package) && h["cohort"].as_str() == sent(h, cohort);
+    let spec_ours = match h.get("spec") {
+        None => true,
+        Some(bound) => bound.as_str().is_some() && bound.as_str() == bound_spec(h, spec),
+    };
+    let ours = h["package"].as_str() == Some(package) && h["cohort"].as_str() == sent(h, cohort) && spec_ours;
     match (state, ours) {
         (Some("loading"), true) => Slot::Ours(Ours::Loading),
         (Some("ready"), true) => Slot::Ours(Ours::Ready),
@@ -160,9 +209,9 @@ pub enum Entry {
     Refused(&'static str),
 }
 
-pub fn entry(h: Option<&Value>, package: &str, cohort: Option<&str>) -> Entry {
+pub fn entry(h: Option<&Value>, package: &str, cohort: Option<&str>, spec: Option<&str>) -> Entry {
     let Some(h) = h else { return Entry::Keep };
-    match slot(h, package, cohort) {
+    match slot(h, package, cohort, spec) {
         Slot::Empty | Slot::Ours(Ours::Loading | Ours::Ready) => Entry::Keep,
         Slot::Ours(Ours::Failed) => match load_failed(h["error"].as_str().unwrap_or("")) {
             Prep::Artifact(code, true) => Entry::Refused(code),
@@ -219,20 +268,33 @@ pub fn load_reply(status: u16, body: &Value) -> Option<Prep> {
     }
 }
 
-/// The load route, naming the cohort when the client sends one.
-pub fn load_path(package: &str, cohort: Option<&str>) -> String {
-    match cohort {
-        Some(c) => format!("/v1/load?package={package}&cohort={c}"),
-        None => format!("/v1/load?package={package}"),
+/// The load route, naming the cohort and the artifact spec's digest when the
+/// client sends them ([`sent`], [`spec_sent`]).
+pub fn load_path(package: &str, cohort: Option<&str>, spec: Option<&str>) -> String {
+    let mut path = format!("/v1/load?package={package}");
+    if let Some(c) = cohort {
+        path.push_str("&cohort=");
+        path.push_str(c);
     }
+    if let Some(d) = spec {
+        path.push_str("&spec=");
+        path.push_str(d);
+    }
+    path
 }
 
-/// A score request body; `cohort` is omitted, not `null`, when none is sent.
-pub fn score_body(package: &str, cohort: Option<&str>, docs: &[(u32, String, String)]) -> String {
+/// A score request body; `cohort` is omitted, not `null`, when none is sent,
+/// and `spans` is sent only when asked (the operator probe of a package with a
+/// token head: each prediction then carries its sentences and spans; cohort
+/// lanes never ask, and the scorer's document outputs are the same either way).
+pub fn score_body(package: &str, cohort: Option<&str>, docs: &[(u32, String, String)], spans: bool) -> String {
     let docs: Vec<Value> = docs.iter().map(|(t, text, _)| json!({"id": t.to_string(), "text": text})).collect();
     let mut v = json!({"package": package, "docs": docs});
     if let Some(c) = cohort {
         v["cohort"] = json!(c);
+    }
+    if spans {
+        v["spans"] = json!(true);
     }
     v.to_string()
 }
@@ -256,20 +318,20 @@ mod tests {
     #[test]
     fn a_single_use_scorer_is_compared_by_package_and_cohort() {
         let c = Some("testnet-rv1-a");
-        assert_eq!(slot(&json!({"state": "empty", "single_use": true}), P, c), Slot::Empty);
-        assert_eq!(slot(&new_scorer("loading", P, c), P, c), Slot::Ours(Ours::Loading));
-        assert_eq!(slot(&new_scorer("ready", P, c), P, c), Slot::Ours(Ours::Ready));
-        assert_eq!(slot(&new_scorer("failed", P, c), P, c), Slot::Ours(Ours::Failed));
+        assert_eq!(slot(&json!({"state": "empty", "single_use": true}), P, c, None), Slot::Empty);
+        assert_eq!(slot(&new_scorer("loading", P, c), P, c, None), Slot::Ours(Ours::Loading));
+        assert_eq!(slot(&new_scorer("ready", P, c), P, c, None), Slot::Ours(Ours::Ready));
+        assert_eq!(slot(&new_scorer("failed", P, c), P, c, None), Slot::Ours(Ours::Failed));
         // Another package, another cohort, or the absent cohort (a probe's load).
-        assert_eq!(slot(&new_scorer("ready", "bb", c), P, c), Slot::Elsewhere);
-        assert_eq!(slot(&new_scorer("ready", P, Some("testnet-rv1-b")), P, c), Slot::Elsewhere);
-        assert_eq!(slot(&new_scorer("ready", P, None), P, c), Slot::Elsewhere);
-        assert_eq!(slot(&new_scorer("ready", P, c), P, None), Slot::Elsewhere);
+        assert_eq!(slot(&new_scorer("ready", "bb", c), P, c, None), Slot::Elsewhere);
+        assert_eq!(slot(&new_scorer("ready", P, Some("testnet-rv1-b")), P, c, None), Slot::Elsewhere);
+        assert_eq!(slot(&new_scorer("ready", P, None), P, c, None), Slot::Elsewhere);
+        assert_eq!(slot(&new_scorer("ready", P, c), P, None, None), Slot::Elsewhere);
         // The probe names no cohort and matches the absent one.
-        assert_eq!(slot(&new_scorer("ready", P, None), P, None), Slot::Ours(Ours::Ready));
+        assert_eq!(slot(&new_scorer("ready", P, None), P, None, None), Slot::Ours(Ours::Ready));
         // A state this client does not know is never used.
-        assert_eq!(slot(&new_scorer("draining", P, c), P, c), Slot::Elsewhere);
-        assert_eq!(slot(&json!({}), P, c), Slot::Elsewhere);
+        assert_eq!(slot(&new_scorer("draining", P, c), P, c, None), Slot::Elsewhere);
+        assert_eq!(slot(&json!({}), P, c, None), Slot::Elsewhere);
     }
 
     #[test]
@@ -279,41 +341,96 @@ mod tests {
         assert!(!names_cohort(&json!({"single_use": "true"})));
         assert_eq!(sent(&old_scorer("ready", P), c), None);
         assert_eq!(sent(&new_scorer("ready", P, c), c), c);
-        assert_eq!(slot(&json!({"state": "empty"}), P, c), Slot::Empty);
-        assert_eq!(slot(&old_scorer("ready", P), P, c), Slot::Ours(Ours::Ready));
-        assert_eq!(slot(&old_scorer("loading", P), P, c), Slot::Ours(Ours::Loading));
-        assert_eq!(slot(&old_scorer("failed", P), P, None), Slot::Ours(Ours::Failed));
-        assert_eq!(slot(&old_scorer("ready", "bb"), P, c), Slot::Elsewhere);
+        assert_eq!(slot(&json!({"state": "empty"}), P, c, None), Slot::Empty);
+        assert_eq!(slot(&old_scorer("ready", P), P, c, None), Slot::Ours(Ours::Ready));
+        assert_eq!(slot(&old_scorer("loading", P), P, c, None), Slot::Ours(Ours::Loading));
+        assert_eq!(slot(&old_scorer("failed", P), P, None, None), Slot::Ours(Ours::Failed));
+        assert_eq!(slot(&old_scorer("ready", "bb"), P, c, None), Slot::Elsewhere);
     }
 
     #[test]
     fn a_running_instance_is_kept_only_for_this_binding() {
         let c = Some("testnet-rv1-a");
-        assert_eq!(entry(None, P, c), Entry::Keep);
-        assert_eq!(entry(Some(&json!({"state": "empty", "single_use": true})), P, c), Entry::Keep);
-        assert_eq!(entry(Some(&new_scorer("loading", P, c)), P, c), Entry::Keep);
-        assert_eq!(entry(Some(&new_scorer("ready", P, c)), P, c), Entry::Keep);
-        assert_eq!(entry(Some(&new_scorer("ready", "bb", c)), P, c), Entry::Fresh);
-        assert_eq!(entry(Some(&new_scorer("ready", P, Some("testnet-rv1-b"))), P, c), Entry::Fresh);
-        assert_eq!(entry(Some(&old_scorer("ready", "bb")), P, c), Entry::Fresh);
+        assert_eq!(entry(None, P, c, None), Entry::Keep);
+        assert_eq!(entry(Some(&json!({"state": "empty", "single_use": true})), P, c, None), Entry::Keep);
+        assert_eq!(entry(Some(&new_scorer("loading", P, c)), P, c, None), Entry::Keep);
+        assert_eq!(entry(Some(&new_scorer("ready", P, c)), P, c, None), Entry::Keep);
+        assert_eq!(entry(Some(&new_scorer("ready", "bb", c)), P, c, None), Entry::Fresh);
+        assert_eq!(entry(Some(&new_scorer("ready", P, Some("testnet-rv1-b"))), P, c, None), Entry::Fresh);
+        assert_eq!(entry(Some(&old_scorer("ready", "bb")), P, c, None), Entry::Fresh);
         // A failed binding: a refusal is final, anything else is retried fresh.
         let mut failed = new_scorer("failed", P, c);
         failed["error"] = json!("refused json_layout: heads.json: not the canonical JSON layout: key order");
-        assert_eq!(entry(Some(&failed), P, c), Entry::Refused("refused json_layout"));
+        assert_eq!(entry(Some(&failed), P, c, None), Entry::Refused("refused json_layout"));
         failed["error"] = json!("invalid h");
-        assert_eq!(entry(Some(&failed), P, c), Entry::Fresh);
+        assert_eq!(entry(Some(&failed), P, c, None), Entry::Fresh);
         // A host fault reading the assembled files is retried fresh too.
         failed["error"] = json!(
             "refused object: artifact object: /tmp/a-scorer/files/aa/heads.json: Input/output error (os error 5)"
         );
-        assert_eq!(entry(Some(&failed), P, c), Entry::Fresh);
+        assert_eq!(entry(Some(&failed), P, c, None), Entry::Fresh);
         let mut old = old_scorer("failed", P);
         old["error"] = json!("profile check: heads.json digest differs");
-        assert_eq!(entry(Some(&old), P, None), Entry::Fresh);
+        assert_eq!(entry(Some(&old), P, None, None), Entry::Fresh);
         // Another binding's refusal is not this artifact's.
         let mut other = new_scorer("failed", "bb", c);
         other["error"] = json!("refused json_layout: heads.json");
-        assert_eq!(entry(Some(&other), P, c), Entry::Fresh);
+        assert_eq!(entry(Some(&other), P, c, None), Entry::Fresh);
+    }
+
+    const V2: &str = "0f25e636ba52b45269c0a4d0520c2f01550b51325bb6399d4ddae418c8384b50";
+    const V3: &str = "0bb326a93b1f4669018dadac3186f08bcc0ac527983eed0c75ce1e889e970d25";
+
+    /// The deployed scorer's `/healthz`: its binding with the spec it loaded
+    /// by, and the specs it admits loads by.
+    fn spec_scorer(state: &str, package: &str, cohort: Option<&str>, spec: &str) -> Value {
+        json!({"state": state, "package": package, "cohort": cohort, "spec": spec, "single_use": true,
+            "build": {"limits": {"specs": [{"id": "slop_ninja_a_artifact_spec_v2", "sha256": V2},
+                {"id": "slop_ninja_a_artifact_spec_v3", "sha256": V3}],
+                "unnamed_load_spec": "slop_ninja_a_artifact_spec_v2"}}})
+    }
+
+    #[test]
+    fn a_load_names_the_cohort_spec_and_an_instance_bound_under_another_spec_is_never_used() {
+        let c = Some("testnet-r0b-14");
+        let empty = json!({"state": "empty", "single_use": true, "build": spec_scorer("empty", P, None, "")["build"]});
+        // The digest is sent only when the scorer lists it; a cohort that names
+        // no spec sends none, whatever the scorer.
+        assert_eq!(spec_sent(&empty, None), Ok(None));
+        assert_eq!(spec_sent(&empty, Some(V3)), Ok(Some(V3)));
+        assert_eq!(spec_sent(&empty, Some(V2)), Ok(Some(V2)));
+        assert_eq!(spec_sent(&empty, Some(&"ab".repeat(32))), Err(Prep::Infra(SPEC_NOT_SERVED)));
+        assert_eq!(spec_sent(&old_scorer("empty", P), Some(V3)), Err(Prep::Infra(SPEC_NOT_SERVED)));
+        assert_eq!(spec_sent(&old_scorer("empty", P), None), Ok(None));
+        assert_eq!(SPEC_NOT_SERVED, Prep::Infra(SPEC_NOT_SERVED).code(), "the platform's, never the artifact's");
+        assert_eq!(load_path(P, c, Some(V3)), format!("/v1/load?package=aa&cohort=testnet-r0b-14&spec={V3}"));
+        assert_eq!(load_path(P, None, Some(V3)), format!("/v1/load?package=aa&spec={V3}"));
+        // What the load binds to: the named spec, or the unnamed-load spec.
+        assert_eq!(bound_spec(&empty, Some(V3)), Some("slop_ninja_a_artifact_spec_v3"));
+        assert_eq!(bound_spec(&empty, None), Some("slop_ninja_a_artifact_spec_v2"));
+        assert_eq!(bound_spec(&old_scorer("empty", P), None), None);
+        // An instance is this lane's only under the spec this load binds to.
+        let v3 = spec_scorer("ready", P, c, "slop_ninja_a_artifact_spec_v3");
+        let v2 = spec_scorer("ready", P, c, "slop_ninja_a_artifact_spec_v2");
+        assert_eq!(slot(&v3, P, c, Some(V3)), Slot::Ours(Ours::Ready));
+        assert_eq!(slot(&v2, P, c, Some(V3)), Slot::Elsewhere);
+        assert_eq!(slot(&v3, P, c, None), Slot::Elsewhere);
+        assert_eq!(slot(&v2, P, c, None), Slot::Ours(Ours::Ready));
+        // Naming spec v2 binds what an unnamed load binds.
+        assert_eq!(slot(&v2, P, c, Some(V2)), Slot::Ours(Ours::Ready));
+        assert_eq!(slot(&v3, P, c, Some(&"ab".repeat(32))), Slot::Elsewhere);
+        let mut bad = v3.clone();
+        bad["spec"] = Value::Null;
+        assert_eq!(slot(&bad, P, c, Some(V3)), Slot::Elsewhere);
+        // A probe of the same package under another spec starts fresh; a
+        // failed load under another spec is not this load's refusal.
+        let probe_v2 = spec_scorer("ready", P, None, "slop_ninja_a_artifact_spec_v2");
+        assert_eq!(entry(Some(&probe_v2), P, None, Some(V3)), Entry::Fresh);
+        assert_eq!(entry(Some(&probe_v2), P, None, None), Entry::Keep);
+        let mut refused_v2 = spec_scorer("failed", P, None, "slop_ninja_a_artifact_spec_v2");
+        refused_v2["error"] = json!("refused graph_size: the graph is not a class spec v2 serves");
+        assert_eq!(entry(Some(&refused_v2), P, None, None), Entry::Refused("refused graph_size"));
+        assert_eq!(entry(Some(&refused_v2), P, None, Some(V3)), Entry::Fresh);
     }
 
     #[test]
@@ -392,14 +509,17 @@ mod tests {
 
     #[test]
     fn the_cohort_is_named_only_when_sent() {
-        assert_eq!(load_path(P, None), "/v1/load?package=aa");
-        assert_eq!(load_path(P, Some("load-s2a")), "/v1/load?package=aa&cohort=load-s2a");
+        assert_eq!(load_path(P, None, None), "/v1/load?package=aa");
+        assert_eq!(load_path(P, Some("load-s2a"), None), "/v1/load?package=aa&cohort=load-s2a");
         let docs = vec![(7u32, "x".to_string(), String::new())];
-        let without: Value = serde_json::from_str(&score_body(P, None, &docs)).unwrap();
+        let without: Value = serde_json::from_str(&score_body(P, None, &docs, false)).unwrap();
         // The older scorer refuses unknown fields, `"cohort": null` included.
         assert_eq!(without, json!({"package": P, "docs": [{"id": "7", "text": "x"}]}));
-        let with: Value = serde_json::from_str(&score_body(P, Some("load-s2a"), &docs)).unwrap();
+        let with: Value = serde_json::from_str(&score_body(P, Some("load-s2a"), &docs, false)).unwrap();
         assert_eq!(with, json!({"package": P, "cohort": "load-s2a", "docs": [{"id": "7", "text": "x"}]}));
+        // Spans only when the probe asks.
+        let spans: Value = serde_json::from_str(&score_body(P, None, &docs, true)).unwrap();
+        assert_eq!(spans, json!({"package": P, "spans": true, "docs": [{"id": "7", "text": "x"}]}));
     }
 
     /// The recorded codes survive the cohort's code sanitizer (`textgen_safe`:

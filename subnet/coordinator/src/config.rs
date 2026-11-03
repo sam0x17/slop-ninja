@@ -235,11 +235,851 @@ pub fn chain_journal_name(chain: &ChainConfig) -> String {
     format!("chain-journal/{NETWORK}/{}", chain.genesis.to_hex())
 }
 
-/// Durable Object instance name for a subnet's cohort authority.
+/// Durable Object instance name for a subnet's cohort authority: the original
+/// main authority's, and the base of the load instance's and every named
+/// authority's ([`authority_cohort_name`]).
 pub fn eval_cohort_name(chain: &ChainConfig) -> Option<String> {
     chain
         .netuid
         .map(|netuid| format!("eval-cohort/{NETWORK}/{}/{netuid}", chain.genesis.to_hex()))
+}
+
+/// The original main authority's name. Its Durable Object, lane names and
+/// probe keys keep the form they had before authorities were named.
+pub const ORIGINAL_AUTHORITY: &str = "main";
+
+/// The cohort label rule's length bound: plan validation (`eval::plan`)
+/// takes 1 to 96 bytes of `[A-Za-z0-9-]`, and so does the scorer's cohort id.
+pub const LABEL_MAX_BYTES: usize = 96;
+
+/// The longest authority name: its label prefix `<network>-<name>-` leaves
+/// at least one byte of a label.
+pub const AUTHORITY_NAME_MAX_BYTES: usize = LABEL_MAX_BYTES - NETWORK.len() - 3;
+
+/// Whether `name` can name an authority other than the original: lowercase
+/// ASCII letters and digits, starting with a letter, never `main` or `load`.
+/// No hyphen, so no authority's label prefix is a prefix of another's.
+pub fn authority_name_ok(name: &str) -> bool {
+    let b = name.as_bytes();
+    (1..=AUTHORITY_NAME_MAX_BYTES).contains(&b.len())
+        && b.first().is_some_and(u8::is_ascii_lowercase)
+        && b.iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && name != ORIGINAL_AUTHORITY
+        && name != "load"
+}
+
+/// Durable Object instance name of the main authority `name`: the original's
+/// ([`ORIGINAL_AUTHORITY`]) is [`eval_cohort_name`]; a named authority's adds
+/// `/authority/<name>`, so it never equals the load instance's (`/load`).
+/// `None` for a name no authority can have, or before the netuid is set.
+pub fn authority_cohort_name(chain: &ChainConfig, name: &str) -> Option<String> {
+    let base = eval_cohort_name(chain)?;
+    if name == ORIGINAL_AUTHORITY {
+        Some(base)
+    } else if authority_name_ok(name) {
+        Some(format!("{base}/authority/{name}"))
+    } else {
+        None
+    }
+}
+
+/// The main instance's cohort authority (`EVAL_MAIN_AUTHORITY`, with
+/// `EVAL_MAIN_FIRST_COHORT` and `EVAL_MAIN_PREVIOUS`, all tracked in
+/// `wrangler.toml`): a chain-record restart without deleting anything. The
+/// original authority keeps every name and key it had. A named authority is a
+/// fresh Durable Object, so it starts its own reference chain, published
+/// index, fingerprints, probe versions and reuse ledger, while the earlier
+/// authorities' state stays where it was, readable. Its lane objects and
+/// probe objects sit under its own names, its labels start with
+/// `<network>-<name>-` and its cohort numbers start at the configured first
+/// cohort, so its batches, receipts, packages, closures and openings never
+/// share a label or a cohort number with an earlier authority's.
+///
+/// Succession is durable: a named authority takes its first plan (or
+/// template) only after every earlier authority (the original, then each one
+/// `EVAL_MAIN_PREVIOUS` lists) recorded in its own store that it is
+/// superseded, which each does only while it holds no cohort that is not
+/// closed or abandoned and no label or number the successor's rule would
+/// share. A superseded authority admits no plan again, whatever a later
+/// deployment names, so a deploy that reverts the vars cannot re-admit
+/// numbers or labels of the restarted chain.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Authority {
+    named: Option<NamedAuthority>,
+    /// The deployment names another authority, or a successor superseded
+    /// this one: it keeps its lane names, probe keys and kicks for work it
+    /// still holds, and admits no plan ([`Authority::retired`]).
+    retired: bool,
+    /// The successor that superseded this authority, when one did.
+    superseded_by: Option<String>,
+    /// Earlier named authorities (`EVAL_MAIN_PREVIOUS`), oldest first.
+    previous: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NamedAuthority {
+    name: String,
+    first_cohort: u64,
+}
+
+impl Authority {
+    /// Reads `EVAL_MAIN_AUTHORITY` and `EVAL_MAIN_FIRST_COHORT`. Unset, empty
+    /// or `main` is the original authority, which takes no first cohort. A
+    /// named authority needs one (at least 1). Anything else is refused, so a
+    /// misconfigured deployment reaches no authority at all.
+    pub fn parse(name: Option<&str>, first_cohort: Option<&str>) -> Result<Self, ConfigError> {
+        Self::parse_with(name, first_cohort, None)
+    }
+
+    /// [`Authority::parse`] with `EVAL_MAIN_PREVIOUS`: the earlier named
+    /// authorities, comma separated, oldest first. Each is a valid name,
+    /// listed once, never this authority's own; the original authority has
+    /// none (it has no predecessor).
+    pub fn parse_with(
+        name: Option<&str>,
+        first_cohort: Option<&str>,
+        previous: Option<&str>,
+    ) -> Result<Self, ConfigError> {
+        let name = name.map(str::trim).filter(|n| !n.is_empty());
+        let first = first_cohort.map(str::trim).filter(|v| !v.is_empty());
+        let mut listed: Vec<String> = Vec::new();
+        for p in previous
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
+            if !authority_name_ok(p) || listed.iter().any(|l| l == p) {
+                return Err(ConfigError::Authority);
+            }
+            listed.push(p.to_owned());
+        }
+        match name {
+            None | Some(ORIGINAL_AUTHORITY) => match (first, listed.is_empty()) {
+                (None, true) => Ok(Self::default()),
+                _ => Err(ConfigError::Authority),
+            },
+            Some(n) if authority_name_ok(n) && !listed.iter().any(|l| l == n) => {
+                let first_cohort = first
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .filter(|c| *c >= 1)
+                    .ok_or(ConfigError::Authority)?;
+                Ok(Self {
+                    named: Some(NamedAuthority {
+                        name: n.to_owned(),
+                        first_cohort,
+                    }),
+                    retired: false,
+                    superseded_by: None,
+                    previous: listed,
+                })
+            }
+            Some(_) => Err(ConfigError::Authority),
+        }
+    }
+
+    /// A named authority (for tests and tools; the Worker reads [`Authority::parse_with`]).
+    pub fn named(name: &str, first_cohort: u64) -> Result<Self, ConfigError> {
+        Self::parse(Some(name), Some(&first_cohort.to_string()))
+    }
+
+    /// A named authority after earlier named ones (`previous`, oldest first).
+    pub fn named_after(
+        name: &str,
+        first_cohort: u64,
+        previous: &[&str],
+    ) -> Result<Self, ConfigError> {
+        Self::parse_with(
+            Some(name),
+            Some(&first_cohort.to_string()),
+            Some(&previous.join(",")),
+        )
+    }
+
+    /// Authority `name` when the deployment names another: a cohort object
+    /// keeps its own names for the work it holds and is never queued again.
+    pub fn retired(name: &str) -> Self {
+        let named = authority_name_ok(name).then(|| NamedAuthority {
+            name: name.to_owned(),
+            first_cohort: u64::MAX,
+        });
+        Self {
+            named,
+            retired: true,
+            superseded_by: None,
+            previous: Vec::new(),
+        }
+    }
+
+    pub fn is_original(&self) -> bool {
+        self.named.is_none()
+    }
+
+    pub fn is_retired(&self) -> bool {
+        self.retired
+    }
+
+    /// The successor that superseded this authority ([`own_authority`]).
+    pub fn superseded_by(&self) -> Option<&str> {
+        self.superseded_by.as_deref()
+    }
+
+    pub fn name(&self) -> &str {
+        self.named
+            .as_ref()
+            .map_or(ORIGINAL_AUTHORITY, |n| n.name.as_str())
+    }
+
+    /// The first cohort number a named authority takes (0: the original
+    /// authority's numbers are bounded only by its own history).
+    pub fn first_cohort(&self) -> u64 {
+        self.named.as_ref().map_or(0, |n| n.first_cohort)
+    }
+
+    /// Every label of a named authority starts with this.
+    pub fn label_prefix(&self) -> Option<String> {
+        self.named
+            .as_ref()
+            .map(|n| format!("{NETWORK}-{}-", n.name))
+    }
+
+    /// Every authority before this one, oldest first: the original and each
+    /// earlier named one (`EVAL_MAIN_PREVIOUS`) for a named authority, none
+    /// for the original.
+    pub fn predecessors(&self) -> Vec<&str> {
+        if self.named.is_none() {
+            return Vec::new();
+        }
+        std::iter::once(ORIGINAL_AUTHORITY)
+            .chain(self.previous.iter().map(String::as_str))
+            .collect()
+    }
+
+    /// The authorities the deployment knows: this one and its predecessors.
+    /// Only these are read on the audit route and kicked by the Worker, so no
+    /// request creates an object for any other name.
+    pub fn known(&self, name: &str) -> bool {
+        name == self.name() || self.predecessors().contains(&name)
+    }
+
+    /// The main authority's Durable Object name ([`authority_cohort_name`]).
+    pub fn cohort_name(&self, chain: &ChainConfig) -> Option<String> {
+        authority_cohort_name(chain, self.name())
+    }
+
+    /// The scope lane object names carry for `instance` (`eval::lanes::lane_name`):
+    /// the instance alone for the original authority, so its lane objects are
+    /// the ones they were; `<instance>/authority/<name>` for a named one,
+    /// whose lanes order their own assignments from its first sequence number.
+    pub fn lane_scope(&self, instance: &str) -> String {
+        match &self.named {
+            None => instance.to_owned(),
+            Some(n) => format!("{instance}/authority/{}", n.name),
+        }
+    }
+
+    /// Where probe version `version`'s objects live in both buckets: the
+    /// original authority's `probes/v<version>`, a named authority's
+    /// `probes/authority/<name>/v<version>`.
+    pub fn probe_prefix(&self, version: u32) -> String {
+        match &self.named {
+            None => format!("probes/v{version}"),
+            Some(n) => format!("probes/authority/{}/v{version}", n.name),
+        }
+    }
+
+    /// Whether this authority takes a plan's label and cohort number.
+    pub fn admits(&self, label: &str, cohort: u64) -> Result<(), &'static str> {
+        if self.superseded_by.is_some() {
+            return Err("authority superseded (a later main authority restarted the chain record)");
+        }
+        if self.retired {
+            return Err("authority retired (the deployment names another, EVAL_MAIN_AUTHORITY)");
+        }
+        let Some(n) = &self.named else { return Ok(()) };
+        let prefix = format!("{NETWORK}-{}-", n.name);
+        if !label.starts_with(&prefix) || label.len() == prefix.len() {
+            return Err("label (a named authority's labels start with <network>-<authority>-)");
+        }
+        if cohort < n.first_cohort {
+            return Err(
+                "cohort number (below the authority's first cohort, EVAL_MAIN_FIRST_COHORT)",
+            );
+        }
+        Ok(())
+    }
+
+    /// Checks a named authority against the cohorts `(label, cohort number)`
+    /// an earlier authority holds: none of its labels may start with this
+    /// authority's prefix, and every number must be below its first cohort.
+    pub fn follows<'a>(
+        &self,
+        earlier: impl IntoIterator<Item = (&'a str, u64)>,
+    ) -> Result<(), &'static str> {
+        let Some(n) = &self.named else { return Ok(()) };
+        let prefix = format!("{NETWORK}-{}-", n.name);
+        for (label, cohort) in earlier {
+            if label.starts_with(&prefix) {
+                return Err("an earlier authority's label has this authority's prefix");
+            }
+            if cohort >= n.first_cohort {
+                return Err(
+                    "an earlier authority's cohort number is not below EVAL_MAIN_FIRST_COHORT",
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+/// `(name, action)` of `/eval/authority/<name>/<action>`: a name a main
+/// authority can have (the original's or a valid one) and one of `status`,
+/// `clear` or `abandon`. Whether the deployment knows the name is the
+/// caller's check ([`Authority::known`]).
+pub fn authority_route(path: &str) -> Option<(&str, &str)> {
+    let (name, action) = path.strip_prefix("/eval/authority/")?.split_once('/')?;
+    ((name == ORIGINAL_AUTHORITY || authority_name_ok(name))
+        && matches!(action, "status" | "clear" | "abandon"))
+    .then_some((name, action))
+}
+
+/// What a successor asks an earlier authority to record (`/succession/supersede`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Supersede {
+    /// The successor's name.
+    pub by: String,
+    /// Its first cohort number.
+    pub first_cohort: u64,
+}
+
+impl Supersede {
+    /// The request a named authority sends each predecessor.
+    pub fn of(successor: &Authority) -> Option<Self> {
+        let n = successor.named.as_ref()?;
+        Some(Self {
+            by: n.name.clone(),
+            first_cohort: n.first_cohort,
+        })
+    }
+
+    /// Whether the earlier authority holding `cohorts` (label, number, phase)
+    /// may record this successor: every cohort closed or abandoned (none
+    /// queued, admitting, working or in transition), and none of its labels
+    /// or numbers within the successor's ([`Authority::follows`]).
+    pub fn check<'a>(
+        &self,
+        cohorts: impl IntoIterator<Item = (&'a str, u64, &'a str)> + Clone,
+    ) -> Result<(), &'static str> {
+        let successor =
+            Authority::named(&self.by, self.first_cohort).map_err(|_| "successor_name")?;
+        if cohorts
+            .clone()
+            .into_iter()
+            .any(|(_, _, phase)| !matches!(phase, "closed" | "abandoned"))
+        {
+            return Err("predecessor_busy");
+        }
+        successor
+            .follows(cohorts.into_iter().map(|(l, n, _)| (l, n)))
+            .map_err(|_| "predecessor_numbers")
+    }
+}
+
+/// The authority a main authority's object runs under: the deployment's when
+/// it names this object's authority and no successor superseded it, else this
+/// authority retired. `deployed` is `None` when the deployment's authority vars
+/// are malformed.
+pub fn own_authority(
+    deployed: Option<&Authority>,
+    own: &str,
+    superseded_by: Option<&str>,
+) -> Authority {
+    let mut a = match deployed {
+        Some(d) if d.name() == own && superseded_by.is_none() => d.clone(),
+        _ => Authority::retired(own),
+    };
+    if let Some(by) = superseded_by {
+        a.retired = true;
+        a.superseded_by = Some(by.to_owned());
+    }
+    a
+}
+
+/// A cohort object's identity for one request: the authority (or instance)
+/// it already stores, or the one the request names when it stores none and
+/// the request may create it. Returns the identity and whether it must be
+/// written. A read-only request (the audit route, a successor's supersede
+/// call) to an object that stores nothing writes nothing (`unknown_authority`).
+pub fn object_identity(
+    stored: Option<&str>,
+    asked: &str,
+    may_create: bool,
+) -> Result<(String, bool), &'static str> {
+    match stored {
+        Some(s) if s != asked => Err("authority_mismatch"),
+        Some(s) => Ok((s.to_owned(), false)),
+        None if may_create => Ok((asked.to_owned(), true)),
+        None => Err("unknown_authority"),
+    }
+}
+
+/// The authority a lane reports to: the one its kick named, the original when
+/// the kick names none (the original authority, the load instance, or a kick
+/// written before authorities were named).
+pub fn callback_authority(kick: Option<&str>) -> &str {
+    kick.unwrap_or(ORIGINAL_AUTHORITY)
+}
+
+/// The main authorities a heartbeat kicks: the deployment's own on every
+/// delivery and tick, and on ticks its predecessors until its succession is
+/// complete (`succession_complete`, which the deployed authority's kick reply
+/// reports). Before that an earlier authority may still hold work (it records
+/// succession only once idle), and these kicks advance its boundary phases
+/// until it finishes; afterwards every predecessor is superseded, holds
+/// nothing and takes nothing, so it is never kicked again.
+pub fn kicked_authorities(
+    deployed: &Authority,
+    tick: bool,
+    succession_complete: bool,
+) -> Vec<String> {
+    let mut v = vec![deployed.name().to_owned()];
+    if tick && !succession_complete {
+        v.extend(deployed.predecessors().into_iter().map(str::to_owned));
+    }
+    v
+}
+
+/// Whether a successor's store records `predecessor`'s succession for the
+/// first cohort `first_cohort`: a record made for a first cohort at or below
+/// it covers it (the predecessor's numbers were all below that one), and a
+/// lower first cohort asks the predecessor again. `done` holds `(predecessor,
+/// first cohort)` pairs as the successor stored them.
+pub fn succession_recorded(done: &[(String, u64)], predecessor: &str, first_cohort: u64) -> bool {
+    done.iter()
+        .any(|(p, f)| p == predecessor && *f <= first_cohort)
+}
+
+/// Whether every predecessor of `authority` recorded it as successor for the
+/// first cohort it has now ([`succession_recorded`]); the original authority,
+/// which has none, is always complete.
+pub fn succession_complete(authority: &Authority, done: &[(String, u64)]) -> bool {
+    authority
+        .predecessors()
+        .iter()
+        .all(|p| succession_recorded(done, p, authority.first_cohort()))
+}
+
+/// What a predecessor's `/succession/supersede` reply means for `successor`,
+/// which asks its predecessors in order ([`Authority::predecessors`]). The
+/// predecessor `predecessor` answers with the successor it recorded
+/// (`superseded_by`), the first one ever to ask; the step is done only when
+/// that is `successor` itself or an authority after `predecessor` in
+/// `successor`'s own list, which is asked in turn (so the last one must have
+/// recorded `successor`). Any other successor is an authority the deployment
+/// leaves out of `EVAL_MAIN_PREVIOUS`, which may hold cohorts, labels and
+/// numbers this successor never checked: `predecessor_superseded_elsewhere`.
+/// So along the chain of recorded successors from the original, every
+/// authority that ever admitted a plan is one the successor asked.
+pub fn succession_reply(
+    successor: &Authority,
+    predecessor: &str,
+    superseded_by: Option<&str>,
+) -> Result<(), &'static str> {
+    let listed = successor.predecessors();
+    let Some(i) = listed.iter().position(|p| *p == predecessor) else {
+        return Err("predecessor_unknown");
+    };
+    let later = listed.get(i + 1..).unwrap_or_default();
+    match superseded_by {
+        Some(by) if by == successor.name() || later.contains(&by) => Ok(()),
+        Some(_) => Err("predecessor_superseded_elsewhere"),
+        None => Err("predecessor_unreadable"),
+    }
+}
+
+/// A deployed main authority as an eval status reports it (`GET
+/// /eval/status`, or the Worker's `/status` that carries it as `eval_cohort`;
+/// an earlier authority's at `GET /eval/authority/<name>/status`), for the
+/// pre-deploy check ([`deploy_check`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeployedAuthority {
+    pub name: String,
+    pub first_cohort: u64,
+    pub predecessors: Vec<String>,
+    /// `(label, cohort number, phase)` of every cohort it holds.
+    pub cohorts: Vec<(String, u64, String)>,
+    /// Whether its calendar can open a cohort (a standing template installed
+    /// and not paused); `None` when the status reports no calendar.
+    pub calendar_open: Option<bool>,
+    /// The successor its store recorded (`superseded_by`): it admits nothing
+    /// again, whatever a deployment names.
+    pub superseded_by: Option<String>,
+    /// The predecessors whose succession its store recorded
+    /// (`succession_recorded`): each of them is superseded.
+    pub succession_recorded: Vec<String>,
+    /// Whether it still has work (`work`, `engine::has_work`): a closure, a
+    /// spend settlement, a purge or an admission clean-up.
+    pub work: bool,
+}
+
+/// The eval status in `status`: itself, or the Worker `/status`'s
+/// `eval_cohort` object. An error reply, `eval_cohort: null` or anything else
+/// without a `schema_version` is no status.
+fn eval_status(status: &serde_json::Value) -> Result<&serde_json::Value, String> {
+    let st = match status.get("eval_cohort") {
+        None => status,
+        Some(v) if v.is_object() => v,
+        Some(_) => {
+            return Err(
+                "the Worker's status carries no eval status (eval_cohort is not an object)".into(),
+            );
+        }
+    };
+    if !st
+        .get("schema_version")
+        .is_some_and(serde_json::Value::is_u64)
+    {
+        return Err("not an eval status (no schema_version): an error reply or no status".into());
+    }
+    Ok(st)
+}
+
+/// `(label, number, phase)` of every cohort an eval status lists.
+fn status_cohorts(st: &serde_json::Value) -> Result<Vec<(String, u64, String)>, String> {
+    let cohorts = st
+        .get("cohorts")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("the status has no cohorts array")?;
+    let field = |c: &serde_json::Value, k: &str| c.get(k).cloned().unwrap_or_default();
+    cohorts
+        .iter()
+        .map(|c| {
+            let label = field(c, "label").as_str().map(str::to_owned);
+            let number = field(c, "cohort").as_u64();
+            let phase = field(c, "phase").as_str().map(str::to_owned);
+            match (label, number, phase) {
+                (Some(l), Some(n), Some(p)) => Ok((l, n, p)),
+                _ => Err("a cohort without a label, number or phase".to_owned()),
+            }
+        })
+        .collect()
+}
+
+impl DeployedAuthority {
+    /// Reads every field or refuses: a status without `authority_name`,
+    /// `first_cohort`, `predecessors`, `cohorts`, `superseded_by` (a name or
+    /// null), `succession_recorded` or `work` (an error reply, no eval
+    /// status, a build before named authorities or before they reported
+    /// their succession) is never taken for any authority, the original
+    /// included.
+    pub fn from_status(status: &serde_json::Value) -> Result<Self, String> {
+        let st = eval_status(status)?;
+        let name = st
+            .get("authority_name")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("the status reports no authority_name")?;
+        let first_cohort = st
+            .get("first_cohort")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or("the status reports no first_cohort")?;
+        let predecessors = st
+            .get("predecessors")
+            .and_then(serde_json::Value::as_array)
+            .ok_or("the status reports no predecessors array")?
+            .iter()
+            .map(|p| {
+                p.as_str()
+                    .map(str::to_owned)
+                    .ok_or("a predecessor that is not a name")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let calendar_open =
+            st.get("calendar")
+                .filter(|c| c.is_object())
+                .map(|c| match c.get("template") {
+                    Some(t) if t.is_object() => {
+                        t.get("paused") != Some(&serde_json::Value::Bool(true))
+                    }
+                    _ => false,
+                });
+        let superseded_by = match st.get("superseded_by") {
+            Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            _ => return Err("the status reports no superseded_by (a name or null)".into()),
+        };
+        let succession_recorded = st
+            .get("succession_recorded")
+            .and_then(serde_json::Value::as_array)
+            .ok_or("the status reports no succession_recorded array")?
+            .iter()
+            .map(|r| {
+                r.get("predecessor")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+                    .ok_or("a recorded succession without a predecessor")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let work = st
+            .get("work")
+            .and_then(serde_json::Value::as_bool)
+            .ok_or("the status reports no work flag")?;
+        Ok(Self {
+            name: name.to_owned(),
+            first_cohort,
+            predecessors,
+            cohorts: status_cohorts(st)?,
+            calendar_open,
+            superseded_by,
+            succession_recorded,
+            work,
+        })
+    }
+}
+
+/// What an eval deploy is ([`deploy_check`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeployMode {
+    /// Every eval deploy: the tree tracks the deployed authority, which no
+    /// successor superseded.
+    Same,
+    /// A redeploy of the deployed authority after a successor superseded it
+    /// (a rollback with `freeze` left it so): it stays frozen, admitting
+    /// nothing, until a tree names that successor.
+    Frozen,
+    /// The one deploy of authority support over a build that reports no
+    /// authority (it runs the original): the tree tracks the original.
+    FirstDeploy,
+    /// The switch commit (the tree names the deployed authority's successor)
+    /// or a rollback commit. `freeze` lets a rollback retire an authority that
+    /// already holds cohorts (its succession happened, so it only freezes).
+    Switch { freeze: bool },
+}
+
+/// The pre-deploy check of an eval deploy (`slop_ninja_eval_ops
+/// authority-check`): `Ok` with the line to print, or why a tree tracking
+/// `tracked` must not be deployed over the authority `status` reports. It
+/// fails closed: a status it cannot read refuses. Succession is read from
+/// what the stores recorded (`superseded_by`, `succession_recorded`), never
+/// inferred from the cohorts listed, since it is recorded before the first
+/// plan queues or the first templated cohort opens.
+///
+/// - `Same`: the deployed name, first cohort and predecessors equal the
+///   tree's, and no successor superseded it (it would admit nothing).
+/// - `Frozen`: the same, over a deployed authority a successor superseded:
+///   it stays frozen.
+/// - `FirstDeploy`: the status is an eval status without `authority_name`
+///   (a build before named authorities) and the tree tracks the original.
+/// - `Switch` forward: the tree's predecessors are the deployed one's and then
+///   the deployed one; the deployed authority holds no cohort that is not
+///   closed or abandoned and has no work left, its calendar is reported and
+///   cannot open one, none of its labels or numbers falls within the tree's
+///   authority ([`Authority::follows`]), and if a successor already
+///   superseded it, that successor is the tree's.
+/// - `Switch` back (a rollback): the tree's authority is one of the deployed
+///   one's predecessors, with the predecessors it had, and `target` is its
+///   own status (`GET /eval/authority/<name>/status`). Refused once
+///   succession happened (the tree's authority recorded a successor, or the
+///   deployed one recorded a succession or lists a cohort), since the
+///   rollback then only freezes it, unless `freeze`; without `freeze` the
+///   deployed authority's calendar must also be unable to open a cohort, so
+///   no succession starts between the check and the deploy.
+pub fn deploy_check(
+    tracked: &Authority,
+    status: &serde_json::Value,
+    target: Option<&serde_json::Value>,
+    mode: DeployMode,
+) -> Result<String, String> {
+    let tracked_preds: Vec<String> = tracked
+        .predecessors()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    if mode == DeployMode::FirstDeploy {
+        let st = eval_status(status)?;
+        if st.get("authority_name").is_some() {
+            return Err(
+                "the deployed build reports its authority: deploy without --first-deploy".into(),
+            );
+        }
+        status_cohorts(st)?;
+        if !tracked.is_original() {
+            return Err(format!(
+                "the first deploy of authority support tracks the original authority, not {}",
+                tracked.name()
+            ));
+        }
+        return Ok(
+            "first deploy of authority support: the deployed build reports no authority \
+                   (it runs the original); the tree tracks main"
+                .into(),
+        );
+    }
+    let d = DeployedAuthority::from_status(status)?;
+    let same = d.name == tracked.name()
+        && d.first_cohort == tracked.first_cohort()
+        && d.predecessors == tracked_preds;
+    let DeployMode::Switch { freeze } = mode else {
+        if !same {
+            return Err(format!(
+                "deployed authority {} (first cohort {}, predecessors {:?}) differs from the tracked {} \
+                 (first cohort {}, predecessors {:?})",
+                d.name,
+                d.first_cohort,
+                d.predecessors,
+                tracked.name(),
+                tracked.first_cohort(),
+                tracked_preds
+            ));
+        }
+        return match (&d.superseded_by, mode == DeployMode::Frozen) {
+            (None, false) => Ok(format!("same authority: {}", d.name)),
+            (Some(by), true) => Ok(format!(
+                "same authority: {} (frozen: superseded by {by}, it admits nothing)",
+                d.name
+            )),
+            (Some(by), false) => Err(format!(
+                "the deployed authority {} is superseded by {by} and admits nothing: deploy the tree \
+                 that names {by} (--switch), or pass --freeze to redeploy it frozen",
+                d.name
+            )),
+            (None, true) => Err(format!(
+                "--freeze without --switch: the deployed authority {} is not superseded",
+                d.name
+            )),
+        };
+    };
+    if same {
+        return Err("--switch: the tree tracks the deployed authority".into());
+    }
+    let open: Vec<String> = d
+        .cohorts
+        .iter()
+        .filter(|(_, _, p)| !matches!(p.as_str(), "closed" | "abandoned"))
+        .map(|(l, _, p)| format!("{l} is {p}"))
+        .collect();
+    let mut chain = d.predecessors.clone();
+    chain.push(d.name.clone());
+    if tracked_preds == chain {
+        if let Some(by) = d
+            .superseded_by
+            .as_deref()
+            .filter(|by| *by != tracked.name())
+        {
+            return Err(format!(
+                "the deployed authority {} is superseded by {by}: {} would wait on \
+                 predecessor_superseded_elsewhere for good (deploy {by}, or a tree listing it)",
+                d.name,
+                tracked.name()
+            ));
+        }
+        if !open.is_empty() {
+            return Err(format!(
+                "the deployed authority {} is not idle: {}",
+                d.name,
+                open.join("; ")
+            ));
+        }
+        if d.work {
+            return Err(format!(
+                "the deployed authority {} still has work (a closure, a spend settlement, a purge or an \
+                 admission clean-up): wait until its status reports work false",
+                d.name
+            ));
+        }
+        match d.calendar_open {
+            Some(false) => {}
+            Some(true) => {
+                return Err(format!(
+                    "the deployed authority {}'s standing template is not paused (POST /eval/template/pause)",
+                    d.name
+                ));
+            }
+            None => return Err("the status reports no calendar".into()),
+        }
+        tracked
+            .follows(d.cohorts.iter().map(|(l, n, _)| (l.as_str(), *n)))
+            .map_err(|e| format!("{e} ({})", tracked.first_cohort()))?;
+        return Ok(format!(
+            "switch: {} -> {} (first cohort {})",
+            d.name,
+            tracked.name(),
+            tracked.first_cohort()
+        ));
+    }
+    let back = d
+        .predecessors
+        .iter()
+        .position(|p| p == tracked.name())
+        .and_then(|i| d.predecessors.get(..i))
+        .is_some_and(|before| before == tracked_preds.as_slice());
+    if back {
+        let t = DeployedAuthority::from_status(target.ok_or_else(|| {
+            format!(
+                "a rollback needs the status of {} itself (--target-status: GET /eval/authority/{}/status)",
+                tracked.name(),
+                tracked.name()
+            )
+        })?)
+        .map_err(|e| format!("--target-status: {e}"))?;
+        if t.name != tracked.name() {
+            return Err(format!(
+                "--target-status reports {}, not the tree's {}",
+                t.name,
+                tracked.name()
+            ));
+        }
+        let mut happened = Vec::new();
+        if let Some(by) = &t.superseded_by {
+            happened.push(format!("{} recorded {by} as its successor", t.name));
+        }
+        if !d.succession_recorded.is_empty() {
+            happened.push(format!(
+                "{} recorded the succession of {}",
+                d.name,
+                d.succession_recorded.join(", ")
+            ));
+        }
+        if !d.cohorts.is_empty() {
+            happened.push(format!("{} holds {} cohorts", d.name, d.cohorts.len()));
+        }
+        if happened.is_empty() {
+            if d.calendar_open != Some(false) {
+                return Err(format!(
+                    "the deployed authority {}'s standing template is not paused (POST /eval/template/pause), \
+                     so a succession could start before the deploy",
+                    d.name
+                ));
+            }
+            return Ok(format!("rollback: {} -> {}", d.name, tracked.name()));
+        }
+        if !freeze {
+            return Err(format!(
+                "succession happened ({}), so a rollback to {} only freezes the record: neither admits a plan \
+                 again (--freeze for a deliberate freeze)",
+                happened.join("; "),
+                tracked.name()
+            ));
+        }
+        return Ok(format!(
+            "rollback: {} -> {} (frozen, nothing admits: {}; {} holds {} cohorts, {} open)",
+            d.name,
+            tracked.name(),
+            happened.join("; "),
+            d.name,
+            d.cohorts.len(),
+            open.len()
+        ));
+    }
+    Err(format!(
+        "--switch needs the tree's authority {} to follow the deployed {} (predecessors {:?} then {}), \
+         or to be one of its predecessors",
+        tracked.name(),
+        d.name,
+        d.predecessors,
+        d.name
+    ))
 }
 
 #[cfg(test)]
@@ -355,6 +1195,556 @@ mod tests {
                 .unwrap()
                 .starts_with("eval-cohort/testnet/")
         );
+    }
+
+    #[test]
+    fn the_original_authority_keeps_every_name_and_a_named_one_gets_its_own() {
+        let c = chain_config(TESTNET_GENESIS, Some("601")).unwrap();
+        let base = eval_cohort_name(&c).unwrap();
+        // Unset, empty and `main` are the original authority, with no floor.
+        for (name, first) in [(None, None), (Some(""), None), (Some(" main "), Some(""))] {
+            let a = Authority::parse(name, first).unwrap();
+            assert!(a.is_original());
+            assert_eq!(a.name(), "main");
+            assert_eq!(a.cohort_name(&c).unwrap(), base);
+            assert_eq!(a.lane_scope("main"), "main");
+            assert_eq!(a.probe_prefix(1), "probes/v1");
+            assert_eq!(a.label_prefix(), None);
+            assert_eq!(a.first_cohort(), 0);
+            assert_eq!(a.admits("testnet-rv1-a", 1), Ok(()));
+        }
+        let a = Authority::parse(Some("r0b"), Some("13")).unwrap();
+        assert_eq!(a, Authority::named("r0b", 13).unwrap());
+        assert_eq!(a.name(), "r0b");
+        let named = a.cohort_name(&c).unwrap();
+        assert_eq!(named, format!("{base}/authority/r0b"));
+        // Never the load instance's object, nor the original's.
+        assert_ne!(named, format!("{base}/load"));
+        assert_ne!(named, base);
+        assert_eq!(a.lane_scope("main"), "main/authority/r0b");
+        assert_eq!(a.probe_prefix(1), "probes/authority/r0b/v1");
+        assert_eq!(a.label_prefix().as_deref(), Some("testnet-r0b-"));
+        assert_eq!(a.first_cohort(), 13);
+        // Labels and cohort numbers of the authority only.
+        assert_eq!(a.admits("testnet-r0b-probe-v1", 13), Ok(()));
+        assert_eq!(a.admits("testnet-r0b-14", 14), Ok(()));
+        assert!(a.admits("testnet-rv1-g", 13).is_err());
+        assert!(a.admits("testnet-r0b-", 13).is_err());
+        assert!(a.admits("testnet-r0bx-1", 13).is_err());
+        assert!(a.admits("testnet-r0b-probe-v1", 12).is_err());
+        // The audit names: the original and any valid name; nothing else.
+        assert_eq!(authority_cohort_name(&c, "main").unwrap(), base);
+        assert_eq!(authority_cohort_name(&c, "r0b").unwrap(), named);
+        for bad in [
+            "load",
+            "R0B",
+            "r0-b",
+            "0rb",
+            "",
+            "r0b/x",
+            &"a".repeat(AUTHORITY_NAME_MAX_BYTES + 1),
+        ] {
+            assert_eq!(authority_cohort_name(&c, bad), None, "{bad}");
+        }
+        let unset = chain_config(TESTNET_GENESIS, None).unwrap();
+        assert_eq!(a.cohort_name(&unset), None);
+    }
+
+    #[test]
+    fn a_misconfigured_authority_is_refused() {
+        for (name, first) in [
+            (Some("r0b"), None),
+            (Some("r0b"), Some("0")),
+            (Some("r0b"), Some("-1")),
+            (Some("r0b"), Some("x")),
+            (Some("main"), Some("13")),
+            (None, Some("13")),
+            (Some("load"), Some("13")),
+            (Some("r0-b"), Some("13")),
+            (Some("R0b"), Some("13")),
+            (Some("9r"), Some("13")),
+        ] {
+            assert_eq!(
+                Authority::parse(name, first),
+                Err(ConfigError::Authority),
+                "{name:?} {first:?}"
+            );
+        }
+        // The longest name leaves one byte of a label under the label bound.
+        let long = "a".repeat(AUTHORITY_NAME_MAX_BYTES);
+        let a = Authority::named(&long, 1).unwrap();
+        let label = format!("{}x", a.label_prefix().unwrap());
+        assert_eq!(label.len(), LABEL_MAX_BYTES);
+        assert_eq!(a.admits(&label, 1), Ok(()));
+    }
+
+    #[test]
+    fn a_retired_authority_keeps_its_names_and_admits_no_plan() {
+        let c = chain_config(TESTNET_GENESIS, Some("601")).unwrap();
+        let old = Authority::retired("main");
+        assert!(old.is_retired() && old.is_original());
+        assert_eq!(
+            (old.lane_scope("main"), old.probe_prefix(1)),
+            ("main".into(), "probes/v1".into())
+        );
+        assert_eq!(old.cohort_name(&c), eval_cohort_name(&c));
+        assert!(old.admits("testnet-rv1-g", 13).is_err());
+        let r0b = Authority::retired("r0b");
+        assert_eq!(
+            r0b.lane_scope("main"),
+            Authority::named("r0b", 13).unwrap().lane_scope("main")
+        );
+        assert_eq!(r0b.probe_prefix(2), "probes/authority/r0b/v2");
+        assert!(r0b.admits("testnet-r0b-20", 20).is_err());
+        assert!(!Authority::named("r0b", 13).unwrap().is_retired());
+    }
+
+    #[test]
+    fn a_named_authority_follows_its_predecessor_only_with_fresh_labels_and_numbers() {
+        let earlier = [
+            ("testnet-rv1-a", 7),
+            ("testnet-rv1-f", 12),
+            ("testnet-m4-rehearsal-1-k4-n200", 1),
+        ];
+        assert_eq!(
+            Authority::named("r0b", 13).unwrap().follows(earlier),
+            Ok(())
+        );
+        // A name whose prefix an earlier label has, or a floor at or below an
+        // earlier number, is refused.
+        assert!(
+            Authority::named("rv1", 13)
+                .unwrap()
+                .follows(earlier)
+                .is_err()
+        );
+        assert!(
+            Authority::named("m4", 13)
+                .unwrap()
+                .follows(earlier)
+                .is_err()
+        );
+        assert!(
+            Authority::named("r0b", 12)
+                .unwrap()
+                .follows(earlier)
+                .is_err()
+        );
+        assert_eq!(Authority::default().follows(earlier), Ok(()));
+        // Two names never share a label: no name is another's prefix plus a hyphen.
+        let (a, b) = (
+            Authority::named("r0", 1).unwrap(),
+            Authority::named("r0b", 1).unwrap(),
+        );
+        assert!(a.admits("testnet-r0b-1", 1).is_err());
+        assert!(b.admits("testnet-r0-b1", 1).is_err());
+    }
+
+    #[test]
+    fn earlier_authorities_parse_and_a_misconfiguration_is_refused() {
+        let a = Authority::parse_with(Some("r0c"), Some("20"), Some(" r0b , ")).unwrap();
+        assert_eq!(a, Authority::named_after("r0c", 20, &["r0b"]).unwrap());
+        assert_eq!(a.predecessors(), vec!["main", "r0b"]);
+        assert_eq!(
+            Authority::named("r0b", 13).unwrap().predecessors(),
+            vec!["main"]
+        );
+        for (name, first, previous) in [
+            (Some("main"), None, Some("r0b")),
+            (None, None, Some("r0b")),
+            (Some("r0b"), Some("13"), Some("r0b")),
+            (Some("r0c"), Some("20"), Some("r0b,r0b")),
+            (Some("r0c"), Some("20"), Some("main")),
+            (Some("r0c"), Some("20"), Some("load")),
+            (Some("r0c"), Some("20"), Some("R0B")),
+        ] {
+            assert_eq!(
+                Authority::parse_with(name, first, previous),
+                Err(ConfigError::Authority),
+                "{name:?} {previous:?}"
+            );
+        }
+        // The tracked form of the original: empty first cohort and predecessors.
+        assert_eq!(
+            Authority::parse_with(Some("main"), Some(""), Some("")),
+            Ok(Authority::default())
+        );
+    }
+
+    #[test]
+    fn a_predecessor_records_a_successor_only_while_idle_and_disjoint() {
+        let req = Supersede::of(&Authority::named("r0b", 13).unwrap()).unwrap();
+        assert_eq!(Supersede::of(&Authority::default()), None);
+        let closed = [
+            ("testnet-rv1-a", 7, "closed"),
+            ("testnet-rv1-f", 12, "abandoned"),
+        ];
+        assert_eq!(req.check(closed.iter().copied()), Ok(()));
+        assert_eq!(req.check(std::iter::empty()), Ok(()));
+        for phase in [
+            "queued",
+            "admission",
+            "generating",
+            "scoring",
+            "packaging",
+            "transition",
+        ] {
+            let open = [("testnet-rv1-a", 7, "closed"), ("testnet-rv1-g", 12, phase)];
+            assert_eq!(
+                req.check(open.iter().copied()),
+                Err("predecessor_busy"),
+                "{phase}"
+            );
+        }
+        let numbered = [("testnet-rv1-a", 13, "closed")];
+        assert_eq!(
+            req.check(numbered.iter().copied()),
+            Err("predecessor_numbers")
+        );
+        let labelled = [("testnet-r0b-x", 1, "closed")];
+        assert_eq!(
+            req.check(labelled.iter().copied()),
+            Err("predecessor_numbers")
+        );
+        let bad = Supersede {
+            by: "R0B".into(),
+            first_cohort: 13,
+        };
+        assert_eq!(bad.check(std::iter::empty()), Err("successor_name"));
+    }
+
+    /// A predecessor answers with the first successor it recorded; the
+    /// successor accepts only itself or an authority it lists after that
+    /// predecessor (asked in turn), so a deploy that leaves an earlier
+    /// authority out of `EVAL_MAIN_PREVIOUS` never completes succession.
+    #[test]
+    fn a_predecessor_superseded_by_an_unlisted_authority_refuses_the_successor() {
+        let r0b = Authority::named("r0b", 13).unwrap();
+        assert_eq!(succession_reply(&r0b, "main", Some("r0b")), Ok(()));
+        // main is superseded by r0b; r0x leaves r0b out of its list.
+        let r0x = Authority::named("r0x", 14).unwrap();
+        assert_eq!(
+            succession_reply(&r0x, "main", Some("r0b")),
+            Err("predecessor_superseded_elsewhere")
+        );
+        // r0c lists r0b after main: main's answer is accepted, and r0b, asked
+        // next, must have recorded r0c.
+        let r0c = Authority::named_after("r0c", 15, &["r0b"]).unwrap();
+        assert_eq!(succession_reply(&r0c, "main", Some("r0b")), Ok(()));
+        assert_eq!(succession_reply(&r0c, "r0b", Some("r0c")), Ok(()));
+        assert_eq!(
+            succession_reply(&r0c, "r0b", Some("r0x")),
+            Err("predecessor_superseded_elsewhere")
+        );
+        // Never an authority listed before the predecessor, nor an unknown one.
+        assert_eq!(
+            succession_reply(&r0c, "r0b", Some("main")),
+            Err("predecessor_superseded_elsewhere")
+        );
+        assert_eq!(
+            succession_reply(&r0c, "r0z", Some("r0c")),
+            Err("predecessor_unknown")
+        );
+        assert_eq!(
+            succession_reply(&r0c, "main", None),
+            Err("predecessor_unreadable")
+        );
+        // A predecessor the deployment skipped over that never recorded anyone
+        // (r0b deployed, never used) leaves main recording r0c directly.
+        assert_eq!(succession_reply(&r0c, "main", Some("r0c")), Ok(()));
+    }
+
+    /// A recorded succession covers its first cohort and any later one; a
+    /// lower first cohort asks the predecessor again.
+    #[test]
+    fn a_recorded_succession_covers_only_its_first_cohort_and_later() {
+        let done = vec![("main".to_owned(), 14)];
+        assert!(succession_recorded(&done, "main", 14));
+        assert!(succession_recorded(&done, "main", 20));
+        assert!(!succession_recorded(&done, "main", 13));
+        assert!(!succession_recorded(&done, "r0b", 14));
+        let r0b = Authority::named("r0b", 14).unwrap();
+        assert!(succession_complete(&r0b, &done));
+        assert!(!succession_complete(
+            &Authority::named("r0b", 13).unwrap(),
+            &done
+        ));
+        let r0c = Authority::named_after("r0c", 20, &["r0b"]).unwrap();
+        assert!(!succession_complete(&r0c, &done));
+        let both = vec![("main".to_owned(), 20), ("r0b".to_owned(), 20)];
+        assert!(succession_complete(&r0c, &both));
+        assert!(succession_complete(&Authority::default(), &[]));
+        // Ticks kick the predecessors only until succession is complete.
+        assert_eq!(
+            kicked_authorities(&r0c, true, false),
+            ["r0c", "main", "r0b"]
+        );
+        assert_eq!(kicked_authorities(&r0c, true, true), ["r0c"]);
+        assert_eq!(kicked_authorities(&r0c, false, false), ["r0c"]);
+    }
+
+    fn status_of(
+        name: Option<&str>,
+        first: u64,
+        preds: &[&str],
+        cohorts: serde_json::Value,
+    ) -> serde_json::Value {
+        let mut st = serde_json::json!({"schema_version": 12, "cohorts": cohorts,
+            "calendar": {"template": {"paused": true}}});
+        if let Some(n) = name {
+            st["authority_name"] = serde_json::json!(n);
+            st["first_cohort"] = serde_json::json!(first);
+            st["predecessors"] = serde_json::json!(preds);
+            st["superseded_by"] = serde_json::Value::Null;
+            st["succession_recorded"] = serde_json::json!([]);
+            st["work"] = serde_json::json!(false);
+        }
+        st
+    }
+
+    /// The pre-deploy check fails closed: an error reply, a Worker status
+    /// with no eval status, and a build that reports no authority are never
+    /// taken for the original authority.
+    #[test]
+    fn the_deploy_check_refuses_a_status_it_cannot_read() {
+        let main = Authority::default();
+        let closed =
+            serde_json::json!([{"label": "testnet-rv1-a", "cohort": 12, "phase": "closed"}]);
+        for bad in [
+            serde_json::json!({"error": "store_unavailable"}),
+            serde_json::json!({"ok": true, "eval_cohort": null}),
+            serde_json::json!({"ok": true, "eval_cohort": {"error": "store_unavailable"}}),
+            serde_json::json!({"authority_name": "main", "first_cohort": 0, "predecessors": [], "cohorts": []}),
+            status_of(None, 0, &[], closed.clone()),
+        ] {
+            for mode in [DeployMode::Same, DeployMode::Switch { freeze: false }] {
+                assert!(
+                    deploy_check(&main, &bad, None, mode).is_err(),
+                    "{bad} {mode:?}"
+                );
+            }
+        }
+        let mut no_preds = status_of(Some("main"), 0, &[], closed.clone());
+        no_preds.as_object_mut().unwrap().remove("predecessors");
+        assert!(deploy_check(&main, &no_preds, None, DeployMode::Same).is_err());
+        let ok = status_of(Some("main"), 0, &[], closed.clone());
+        assert_eq!(
+            deploy_check(&main, &ok, None, DeployMode::Same),
+            Ok("same authority: main".into())
+        );
+        // The Worker's /status carries the same status as eval_cohort.
+        let wrapped = serde_json::json!({"ok": true, "eval_cohort": ok});
+        assert!(deploy_check(&main, &wrapped, None, DeployMode::Same).is_ok());
+        // The first deploy of authority support: only over a build that
+        // reports no authority, only for a tree that tracks the original.
+        let old = status_of(None, 0, &[], closed);
+        assert!(deploy_check(&main, &old, None, DeployMode::FirstDeploy).is_ok());
+        assert!(deploy_check(&main, &wrapped, None, DeployMode::FirstDeploy).is_err());
+        assert!(
+            deploy_check(
+                &Authority::named("r0b", 13).unwrap(),
+                &old,
+                None,
+                DeployMode::FirstDeploy
+            )
+            .is_err()
+        );
+        assert!(
+            deploy_check(
+                &main,
+                &serde_json::json!({"error": "x"}),
+                None,
+                DeployMode::FirstDeploy
+            )
+            .is_err()
+        );
+        // A status without the recorded succession state or the work flag
+        // (or an unreadable succession record, null) refuses.
+        for (key, bad) in [
+            ("superseded_by", None),
+            ("superseded_by", Some(serde_json::json!(7))),
+            ("succession_recorded", None),
+            ("succession_recorded", Some(serde_json::Value::Null)),
+            (
+                "succession_recorded",
+                Some(serde_json::json!([{"first_cohort": 13}])),
+            ),
+            ("work", None),
+            ("work", Some(serde_json::Value::Null)),
+        ] {
+            let mut st = status_of(Some("main"), 0, &[], serde_json::json!([]));
+            match bad {
+                None => {
+                    st.as_object_mut().unwrap().remove(key);
+                }
+                Some(v) => st[key] = v,
+            }
+            for mode in [
+                DeployMode::Same,
+                DeployMode::Frozen,
+                DeployMode::Switch { freeze: false },
+            ] {
+                assert!(
+                    deploy_check(&main, &st, None, mode).is_err(),
+                    "{key} {mode:?}"
+                );
+            }
+        }
+    }
+
+    /// A switch needs an idle deployed authority with no work left, a paused
+    /// calendar, numbers below the new first cohort and no other successor
+    /// recorded; a rollback needs the tree authority's own status and, once
+    /// succession happened (recorded on either side, or a cohort listed), an
+    /// explicit freeze.
+    #[test]
+    fn the_deploy_check_passes_a_switch_only_from_an_idle_authority_and_a_rollback_only_before_succession()
+     {
+        let sw = DeployMode::Switch { freeze: false };
+        let fr = DeployMode::Switch { freeze: true };
+        let r0b = Authority::named("r0b", 13).unwrap();
+        let idle = serde_json::json!([{"label": "testnet-rv1-f", "cohort": 12, "phase": "closed"}]);
+        let st = status_of(Some("main"), 0, &[], idle.clone());
+        assert_eq!(
+            deploy_check(&r0b, &st, None, sw),
+            Ok("switch: main -> r0b (first cohort 13)".into())
+        );
+        assert!(deploy_check(&r0b, &st, None, DeployMode::Same).is_err());
+        let open = serde_json::json!([{"label": "testnet-rv1-f", "cohort": 12, "phase": "closed"},
+            {"label": "testnet-rv1-g", "cohort": 13, "phase": "admission"}]);
+        let e = deploy_check(&r0b, &status_of(Some("main"), 0, &[], open), None, sw).unwrap_err();
+        assert!(e.contains("not idle"), "{e}");
+        // Closed, but a closure, settlement, purge or clean-up is left.
+        let mut busy = st.clone();
+        busy["work"] = serde_json::json!(true);
+        assert!(
+            deploy_check(&r0b, &busy, None, sw)
+                .unwrap_err()
+                .contains("still has work")
+        );
+        let mut unpaused = st.clone();
+        unpaused["calendar"]["template"]["paused"] = serde_json::json!(false);
+        assert!(
+            deploy_check(&r0b, &unpaused, None, sw)
+                .unwrap_err()
+                .contains("not paused")
+        );
+        let mut no_template = st.clone();
+        no_template["calendar"]["template"] = serde_json::Value::Null;
+        assert!(deploy_check(&r0b, &no_template, None, sw).is_ok());
+        let mut no_calendar = st.clone();
+        no_calendar.as_object_mut().unwrap().remove("calendar");
+        assert!(deploy_check(&r0b, &no_calendar, None, sw).is_err());
+        let high = serde_json::json!([{"label": "testnet-rv1-g", "cohort": 13, "phase": "closed"}]);
+        assert!(deploy_check(&r0b, &status_of(Some("main"), 0, &[], high), None, sw).is_err());
+        // A tree that leaves the deployed authority out of its predecessors.
+        let r0c = Authority::named("r0c", 20).unwrap();
+        let r0b_st = status_of(Some("r0b"), 13, &["main"], serde_json::json!([]));
+        assert!(deploy_check(&r0c, &r0b_st, None, sw).is_err());
+        let r0c = Authority::named_after("r0c", 20, &["r0b"]).unwrap();
+        assert!(deploy_check(&r0c, &r0b_st, None, sw).is_ok());
+
+        // A deployed authority a successor superseded (a frozen rollback, or
+        // succession recorded while it was deployed): a routine deploy of it
+        // is refused (it admits nothing), --freeze alone redeploys it frozen,
+        // a switch to another successor is refused (it would wait on
+        // predecessor_superseded_elsewhere), and a switch to the recorded
+        // successor passes.
+        let main = Authority::default();
+        let mut sup = status_of(
+            Some("main"),
+            0,
+            &[],
+            serde_json::json!([{"label": "testnet-adm-13", "cohort": 13, "phase": "abandoned"}]),
+        );
+        sup["superseded_by"] = serde_json::json!("r0b");
+        let e = deploy_check(&main, &sup, None, DeployMode::Same).unwrap_err();
+        assert!(e.contains("superseded by r0b"), "{e}");
+        assert_eq!(
+            deploy_check(&main, &sup, None, DeployMode::Frozen),
+            Ok("same authority: main (frozen: superseded by r0b, it admits nothing)".into())
+        );
+        assert!(deploy_check(&main, &st, None, DeployMode::Frozen).is_err());
+        let r0c_after_main = Authority::named("r0c", 20).unwrap();
+        let e = deploy_check(&r0c_after_main, &sup, None, sw).unwrap_err();
+        assert!(e.contains("predecessor_superseded_elsewhere"), "{e}");
+        assert!(deploy_check(&Authority::named("r0b", 14).unwrap(), &sup, None, sw).is_ok());
+
+        // Rollback: it needs the tree authority's own status.
+        let main_clean = status_of(Some("main"), 0, &[], idle.clone());
+        let e = deploy_check(&main, &r0b_st, None, sw).unwrap_err();
+        assert!(e.contains("--target-status"), "{e}");
+        let e = deploy_check(&main, &r0b_st, Some(&r0b_st), sw).unwrap_err();
+        assert!(e.contains("not the tree's main"), "{e}");
+        // Before succession (nothing recorded on either side, no cohort, a
+        // paused template) it passes.
+        assert_eq!(
+            deploy_check(&main, &r0b_st, Some(&main_clean), sw),
+            Ok("rollback: r0b -> main".into())
+        );
+        let mut r0b_unpaused = r0b_st.clone();
+        r0b_unpaused["calendar"]["template"]["paused"] = serde_json::json!(false);
+        assert!(
+            deploy_check(&main, &r0b_unpaused, Some(&main_clean), sw)
+                .unwrap_err()
+                .contains("not paused")
+        );
+        // Succession recorded before any cohort exists (a template installed
+        // that opened nothing yet, or a plan whose queue failed): the named
+        // authority lists no cohort, but the original recorded it, or it
+        // recorded the original's succession. Only --freeze passes.
+        for (deployed, target) in [
+            (r0b_st.clone(), sup.clone()),
+            (
+                {
+                    let mut d = r0b_st.clone();
+                    d["succession_recorded"] =
+                        serde_json::json!([{"predecessor": "main", "first_cohort": 13}]);
+                    d
+                },
+                main_clean.clone(),
+            ),
+            (
+                status_of(
+                    Some("r0b"),
+                    13,
+                    &["main"],
+                    serde_json::json!([{"label": "testnet-r0b-a", "cohort": 14, "phase": "scoring"}]),
+                ),
+                main_clean.clone(),
+            ),
+        ] {
+            let e = deploy_check(&main, &deployed, Some(&target), sw).unwrap_err();
+            assert!(e.contains("--freeze"), "{e}");
+            let ok = deploy_check(&main, &deployed, Some(&target), fr).unwrap();
+            assert!(
+                ok.starts_with("rollback: r0b -> main (frozen, nothing admits"),
+                "{ok}"
+            );
+        }
+        // A rollback to a named predecessor keeps its own predecessors.
+        let r0c_st = status_of(Some("r0c"), 20, &["main", "r0b"], serde_json::json!([]));
+        let r0b_clean = status_of(Some("r0b"), 13, &["main"], serde_json::json!([]));
+        assert!(
+            deploy_check(
+                &Authority::named("r0b", 13).unwrap(),
+                &r0c_st,
+                Some(&r0b_clean),
+                sw
+            )
+            .is_ok()
+        );
+        assert!(
+            deploy_check(
+                &Authority::named_after("r0b", 13, &["r0x"]).unwrap(),
+                &r0c_st,
+                Some(&r0b_clean),
+                sw
+            )
+            .is_err()
+        );
+        // The same authority is never a switch.
+        assert!(deploy_check(&main, &st, None, sw).is_err());
     }
 
     #[test]

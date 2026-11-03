@@ -352,10 +352,10 @@ also made while no cohort is admitting.
 spec whose checks admission runs, by id and by the digest
 `slop_ninja_artifact_check spec` prints; a client built for another spec
 reports its check as incomplete. The scorer admits each load by the spec
-the load names by digest, and by spec v2 when it names none. The
-coordinator's loads name no spec yet, so they are admitted by spec v2, the
-spec every testnet cohort names; a cohort that names spec v3 needs its loads
-to name it. Spec v3 admits every artifact spec v2 admits with the same
+the load names by digest, and by spec v2 when it names none. A cohort's
+scoring loads name its spec's digest, frozen in its plan; the admission runs
+still load by spec v2 (the probe route names no spec for them), so a cohort
+that admits its roster names spec v2 until those runs name the cohort's spec. Spec v3 admits every artifact spec v2 admits with the same
 results, and adds the span tower class, which only a cohort naming spec v3
 admits. `max_object_len` is derived from the cohort spec's
 bounds: the 4-byte length prefix, the protocol's header bound

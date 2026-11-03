@@ -206,6 +206,28 @@ SCORER_BINARY_SHA256 = "d1224770ea6b4427699845159c941fba4c9df0fa68d59742f40e267a
 # updated (an image or max_instances change) stayed unplaced until destroyed
 # on 2026-10-31; normal starts answered in seconds.
 SCORER_START_WAIT_MS = "60000"
+# The main instance's cohort authority (chain-record restart). These three
+# lines are tracked here and only here: never pass them with --var, so every
+# deploy from a tree carries the authority that tree names, and a switch or
+# any later change is a one-line commit like the scorer pin. Before an eval
+# deploy, `slop_ninja_eval_ops authority-check` compares the deployed
+# authority (GET /eval/status) with these lines and refuses a difference
+# (with --switch, only for the deliberate switch commit).
+# "main" is the original authority: its Durable Object, lane names and probe
+# keys are as before, with no first cohort and no predecessors. Another name
+# (lowercase letters and digits, never "load") is a fresh authority with its
+# own reference chain, published index, fingerprints, probe versions and reuse
+# ledger; its labels start with testnet-<name>- and its cohort numbers at
+# EVAL_MAIN_FIRST_COHORT. EVAL_MAIN_PREVIOUS lists the earlier named
+# authorities, oldest first (the original is always earlier). A named
+# authority takes its first plan or template only after each earlier one has
+# recorded it as its successor, which an earlier one does only while idle; a
+# superseded authority admits no plan again, even if a later deploy names it.
+# Earlier authorities are kicked on ticks while they hold work, and are
+# readable at GET /eval/authority/<name>/status.
+EVAL_MAIN_AUTHORITY = "main"
+EVAL_MAIN_FIRST_COHORT = ""
+EVAL_MAIN_PREVIOUS = ""
 
 [env.eval-testnet.ai]
 binding = "AI"

@@ -345,10 +345,14 @@ change spec v2's value budget, so it waits for a later spec version.
 
 - **Loads that name spec v3.** The coordinator's loads (the lane client's
   `load_path` in `subnet/coordinator/src/eval/scorer_client.rs`, which the
-  operator probe also uses) name no spec, so every one of them is admitted by
-  spec v2. A cohort template that names spec v3, and a Container probe of the
-  S2c span package, need those loads to carry `spec=<the spec v3 digest>`;
-  until then the scorer refuses tower-class artifacts `graph_size`.
+  operator probe also uses) name the digest of the spec the cohort's plan
+  names (`fanout.score.artifact_spec`), and the operator probe the one its
+  request names (`artifact_spec`); a plan or probe that names none is
+  admitted by spec v2. The client names a digest only when `/healthz` lists
+  it, and compares the binding's `spec` before reusing an instance. A
+  tower-class artifact is admitted only by a load naming spec v3, whose
+  bounds (the plan's `artifact_spec`, with its digest frozen in the plan)
+  also size the artifact.
 - **Rehearsal artifacts and the reference chain.** A load that names no spec
   is admitted by spec v2. The reward-v1 rehearsal
   artifacts were built with non-canonical JSON layouts, R0's export manifest
@@ -363,8 +367,9 @@ change spec v2's value budget, so it waits for a later spec version.
   and content digests are new, and the main instance's reference chain names
   the earlier rehearsal reference: with this scorer deployed, the main
   instance can run no reward-v1 cohort until that chain record is restarted
-  (the announce-time restart makes the released R0, package
-  `2f88b0d2…678559`, R_0); the load instance can run the re-encoded set.
+  (the chain-record restart makes the released R0, as its path-stripped
+  package `143ca2d9…c57f0c`, R_0); the load instance can run the re-encoded
+  set.
 - **The memory limit.** Read `memory_limit` from a live `/healthz` of the
   deployed instance before relying on the 507 guard; the operator scorer
   probe's reply carries it (`cold.limits`).

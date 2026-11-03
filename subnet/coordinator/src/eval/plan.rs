@@ -207,12 +207,23 @@ pub struct ScoreLanes {
     /// artifact failure that needs no instance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_max_mib: Option<u32>,
-    /// The artifact spec (id) whose bounds size the artifact: the largest file
-    /// total any artifact it admits can have
-    /// (`admission::SpecBounds::files_bytes`). Replaces `artifact_max_mib`; a
-    /// plan names exactly one of the two.
+    /// The artifact spec (id, as `slop_ninja_artifact_check spec` prints it)
+    /// of the cohort. Its bounds size the artifact: the largest file total
+    /// any artifact it admits can have (`admission::SpecBounds::files_bytes`).
+    /// Replaces `artifact_max_mib`; a plan names exactly one of the two. Every
+    /// scorer load names it by digest (`spec=<digest>` on `/v1/load`,
+    /// [`CohortPlan::load_spec_sha256`]), so the scorer admits each artifact
+    /// by it; spec v3 admits the span tower class. Absent: loads name no spec
+    /// and are admitted by the scorer's unnamed-load spec (spec v2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_spec: Option<String>,
+    /// The digest of `artifact_spec`, frozen with the plan: the digest every
+    /// scoring load names. A plan that names `artifact_spec` names its digest
+    /// here or in its admission block (`admission.artifact_spec_sha256`);
+    /// each one named must be this build's digest of that spec, so a cohort
+    /// never loads by a spec record other than the one it was queued with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_spec_sha256: Option<String>,
     /// The load allowance per MiB of that bound: the artifact stream and the
     /// model load each get `bound in MiB (rounded up) x load_ms_per_mib`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -261,14 +272,26 @@ impl ScoreLanes {
     }
 
     /// The bound on an artifact's total file size: derived from the named
-    /// artifact spec, or the declared MiB of plans written before it.
+    /// artifact spec, or the declared MiB of plans written before it. The
+    /// bound comes from the spec's class and JSON bounds alone, so a lane
+    /// report never rebuilds the spec record (`admission::files_bytes`).
     pub fn artifact_max_bytes(&self) -> Option<u64> {
         match (&self.artifact_spec, self.artifact_max_mib) {
-            (Some(id), _) => crate::eval::admission::SpecBounds::of_id(id).map(|b| b.files_bytes),
+            (Some(id), _) => {
+                slop_ninja_artifact_check::spec::Version::from_id(id).and_then(crate::eval::admission::files_bytes)
+            }
             (None, Some(m)) => Some(u64::from(m) << 20),
             (None, None) => None,
         }
     }
+}
+
+/// This build's digest of artifact spec `id`, when the scorer admits loads
+/// by it (`admission::SpecBounds`: spec v2 and v3, the scorer's
+/// `engine::admits_by`). It rebuilds the spec record, so it runs at plan
+/// validation and for the operator probe only, never per lane report.
+pub fn load_spec_sha256_of(id: &str) -> Option<String> {
+    crate::eval::admission::SpecBounds::of_id(id).map(|b| b.spec_sha256)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -868,6 +891,15 @@ impl CohortPlan {
         Ok(plan)
     }
 
+    /// The artifact spec digest every scoring load names, as the plan froze
+    /// it (`fanout.score.artifact_spec_sha256`, else the admission block's);
+    /// `None` when the plan names no spec (loads admitted by spec v2).
+    pub fn load_spec_sha256(&self) -> Option<&str> {
+        let s = &self.fanout.as_ref()?.score;
+        s.artifact_spec.as_ref()?;
+        s.artifact_spec_sha256.as_deref().or_else(|| self.admission.as_ref().map(|a| a.artifact_spec_sha256.as_str()))
+    }
+
     /// The fan-out block (present in every v2 and load plan).
     pub fn fanout(&self) -> Result<&Fanout, PlanError> {
         self.fanout.as_ref().ok_or(PlanError("plan has no fan-out block (v1)"))
@@ -1071,6 +1103,29 @@ impl CohortPlan {
         // 128 is the scorer's per-request document limit (a-scorer MAX_DOCS).
         e((1..=128).contains(&self.scorer.chunk_docs) && self.scorer.parallel_jobs.is_none(), "scorer")?;
         self.fanout()?.validate(self.scorer.chunk_docs, load)?;
+        // A named artifact spec is frozen with its digest (`load_spec_sha256`):
+        // lanes read it from the plan, and it is this build's digest of the spec.
+        if let Some(id) = &self.fanout()?.score.artifact_spec {
+            let have = load_spec_sha256_of(id)
+                .ok_or(PlanError("fanout.score.artifact_spec (a spec the scorer admits loads by)"))?;
+            let named = [
+                self.fanout()?.score.artifact_spec_sha256.as_deref(),
+                self.admission.as_ref().map(|a| a.artifact_spec_sha256.as_str()),
+            ];
+            e(
+                named.iter().any(Option::is_some),
+                "fanout.score.artifact_spec_sha256 (the named spec's digest, or the admission block's)",
+            )?;
+            e(
+                named.iter().flatten().all(|d| *d == have),
+                "fanout.score.artifact_spec_sha256 (this build's digest of the named spec)",
+            )?;
+        } else {
+            e(
+                self.fanout()?.score.artifact_spec_sha256.is_none(),
+                "fanout.score.artifact_spec_sha256 (needs artifact_spec)",
+            )?;
+        }
         e(
             !self.label.is_empty()
                 && self.label.len() <= 96
@@ -1224,6 +1279,7 @@ pub(crate) mod tests {
                 doc_timeout_ms: Some(60_000),
                 artifact_max_mib: Some(640),
                 artifact_spec: None,
+                artifact_spec_sha256: None,
                 load_ms_per_mib: Some(150),
                 artifact_failures_before_model_error: Some(3),
             },
@@ -1247,6 +1303,59 @@ pub(crate) mod tests {
     }
 
     const NONE: Ceilings = Ceilings { roster_cap: None, accept_reward_v0: true };
+
+    /// The specs a plan may name for its loads are the specs the scorer
+    /// admits loads by (its `engine::admits_by`), with the digests the
+    /// deployed scorer lists.
+    #[test]
+    fn a_plan_names_only_a_spec_the_scorer_admits_loads_by() {
+        use slop_ninja_artifact_check::spec::Version;
+        let scorer = include_str!("../../../../inference/a-container-serve/src/engine.rs");
+        let rule = scorer
+            .split_once("pub fn admits_by(v: Version) -> bool {")
+            .and_then(|(_, rest)| rest.split_once('}'))
+            .expect("the scorer's admits_by")
+            .0
+            .trim();
+        assert_eq!(rule, "v.max_json_bytes().is_some() && v.max_json_value_bytes().is_some()");
+        assert!(load_spec_sha256_of(Version::V1.id()).is_none());
+        assert_eq!(load_spec_sha256_of(Version::V2.id()), Some(Version::V2.spec_sha256()));
+        assert_eq!(load_spec_sha256_of(Version::V3.id()), Some(Version::V3.spec_sha256()));
+        assert!(load_spec_sha256_of("slop_ninja_a_artifact_spec_v4").is_none() && load_spec_sha256_of("v3").is_none());
+        // The digests the live scorer lists in /healthz (scorer go-live, 2026-11-02).
+        assert_eq!(Version::V2.spec_sha256(), "0f25e636ba52b45269c0a4d0520c2f01550b51325bb6399d4ddae418c8384b50");
+        assert_eq!(Version::V3.spec_sha256(), "0bb326a93b1f4669018dadac3186f08bcc0ac527983eed0c75ce1e889e970d25");
+        // The size bound comes from the class and JSON bounds without the
+        // spec record, and equals the admission bounds'.
+        for v in [Version::V2, Version::V3] {
+            assert_eq!(
+                crate::eval::admission::files_bytes(v),
+                crate::eval::admission::SpecBounds::of(v).map(|b| b.files_bytes)
+            );
+        }
+        let mut p = plan(10);
+        assert_eq!(p.load_spec_sha256(), None);
+        let lanes = &mut p.fanout.as_mut().unwrap().score;
+        lanes.artifact_max_mib = None;
+        lanes.artifact_spec = Some(Version::V3.id().into());
+        // Spec v3's bound (the tower class) needs a faster load rate to fit
+        // one isolation proof in the plan's step budget.
+        lanes.load_ms_per_mib = Some(50);
+        // The digest is frozen with the plan: naming the spec without it is refused.
+        assert!(p.validate(NONE).unwrap_err().0.contains("artifact_spec_sha256"));
+        p.fanout.as_mut().unwrap().score.artifact_spec_sha256 = Some(Version::V3.spec_sha256());
+        p.validate(NONE).unwrap();
+        assert_eq!(p.load_spec_sha256(), Some(Version::V3.spec_sha256().as_str()));
+        // Another spec's digest, or a digest without a spec, is refused.
+        p.fanout.as_mut().unwrap().score.artifact_spec_sha256 = Some(Version::V2.spec_sha256());
+        assert!(p.validate(NONE).unwrap_err().0.contains("this build's digest"));
+        let mut q = plan(10);
+        q.fanout.as_mut().unwrap().score.artifact_spec_sha256 = Some(Version::V2.spec_sha256());
+        assert!(q.validate(NONE).unwrap_err().0.contains("needs artifact_spec"));
+        p.fanout.as_mut().unwrap().score.artifact_spec = Some(Version::V1.id().into());
+        p.fanout.as_mut().unwrap().score.artifact_spec_sha256 = Some(Version::V1.spec_sha256());
+        assert!(p.validate(NONE).unwrap_err().0.contains("artifact_spec"));
+    }
 
     #[test]
     fn plan_validation_and_counts() {

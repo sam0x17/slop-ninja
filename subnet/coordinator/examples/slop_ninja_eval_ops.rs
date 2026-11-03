@@ -18,6 +18,13 @@
 //! slop_ninja_eval_ops copy-ties COMPONENTS.json [--require-ties]
 //! slop_ninja_eval_ops chunk-keys CHUNK_MAP.json       (each object's key below cohorts/<label>/)
 //! slop_ninja_eval_ops report-summary VERIFY_REPORT.json
+//! slop_ninja_eval_ops restart --authority NAME --status STATUS.json --wrangler WRANGLER.toml
+//!     --reference ARTIFACT.json --expect-package SHA256 --probe-template PLAN.json --out DIR
+//!     --decision REFERENCE [--probe-version V]
+//! slop_ninja_eval_ops restart-cohort --restart DIR/restart.json --record RECORD.json --template PLAN.json
+//!     --cohort N --label-suffix S --wrangler WRANGLER.toml
+//! slop_ninja_eval_ops authority-check --wrangler WRANGLER.toml --status STATUS.json
+//!     [--switch [--freeze] [--target-status TARGET.json] | --freeze | --first-deploy]
 //! ```
 //!
 //! - `load-plan` writes a `slop_ninja_eval_load_plan_v1` plan: R_0 (the
@@ -34,9 +41,65 @@
 //! - `copy-ties` compares every job whose package is the reference's with the
 //!   reference job: utilities equal, above or below, and the largest
 //!   difference. With `--require-ties` any difference exits 1.
+//! - `restart` prepares a chain-record restart under main authority NAME
+//!   (`config::Authority`) from the status of the authority it replaces
+//!   (`GET /eval/status` before the switch, or the Worker's `/status`) and
+//!   the tree's tracked `wrangler.toml`. It refuses unless the status names
+//!   the authority the tree tracks (every authority field present), every
+//!   cohort there is closed or abandoned, it has no work left and no
+//!   successor recorded, NAME is a valid authority name other than an
+//!   earlier one's, no earlier label has NAME's prefix, ARTIFACT.json's
+//!   `package_sha256` is SHA256 (the R_0 package the restart was decided on,
+//!   so a stale reference record never starts the chain), and REFERENCE (a
+//!   non-empty line) names the recorded user decision the restart runs under,
+//!   since a restart resets the reference chain and after the announcement
+//!   needs a new decision (TESTNET.md, "Chain-record restart"). It
+//!   writes
+//!   `DIR/restart.json`: the authority's vars to commit in
+//!   `[env.eval-testnet.vars]` (`EVAL_MAIN_AUTHORITY`,
+//!   `EVAL_MAIN_FIRST_COHORT`: one past the replaced authority's highest
+//!   cohort number, and `EVAL_MAIN_PREVIOUS`: the earlier named
+//!   authorities), the publisher's `RECORD_LABEL_PREFIX` and
+//!   `PUBLISH_FROM_EPOCH` (no earlier cohort opened at or after it; also the
+//!   coordinator's `restart_target` `from_epoch` and the launch bundle's
+//!   issued epoch), the reference, and the probe record's key; and `DIR/probe-plan.json`, the
+//!   probe build that creates the restarted chain record: ARTIFACT.json as
+//!   R_0 with no predecessor, no entrants, probe version V (default 1), the
+//!   authority's first cohort number and label `<prefix>probe-v<V>`, every
+//!   other value from PLAN.json. The plan is checked with the coordinator's
+//!   own parser and the authority's label and number rule.
+//! - `restart-cohort` prints a reward-v1 cohort plan on the restarted chain:
+//!   PLAN.json (a v3 plan) with R_0 from `restart.json`, no predecessor, the
+//!   probe version in RECORD.json (the probe build's private record, read
+//!   back from the eval bucket) at its key and digest, cohort N and label
+//!   `<prefix><S>`, and the digest of a named artifact spec frozen with it
+//!   (`fanout.score.artifact_spec_sha256`); checked the same way.
+//! - `authority-check` is the pre-deploy refusal for the eval Worker
+//!   (`config::deploy_check`): the deployed authority (`authority_name`,
+//!   `first_cohort`, `predecessors`, `cohorts`, `superseded_by`,
+//!   `succession_recorded` and `work` in STATUS.json, which must be an eval
+//!   status) must equal the one the tree to deploy tracks
+//!   (`EVAL_MAIN_AUTHORITY`, `EVAL_MAIN_FIRST_COHORT`, `EVAL_MAIN_PREVIOUS`)
+//!   and must not be superseded, or exit 1; `--freeze` alone redeploys a
+//!   superseded one frozen. It fails closed: an error reply, a Worker status
+//!   without an eval status, or a status without any of those fields
+//!   refuses. With `--switch` (the switch or rollback commit only) the tree's
+//!   authority must instead follow the deployed one (its predecessors are
+//!   the deployed one's, then the deployed one), which must be idle with no
+//!   work left, with its standing template paused, every label and number
+//!   outside the tree's authority, and no other successor recorded; or be
+//!   one of the deployed one's predecessors (a rollback), which needs
+//!   TARGET.json, that authority's own status (`GET
+//!   /eval/authority/<name>/status`), and is refused once succession
+//!   happened (it recorded a successor, or the deployed one recorded a
+//!   succession or lists a cohort) unless `--freeze`. With `--first-deploy`
+//!   (the one deploy of authority support only) the status must be an eval
+//!   status of a build that reports no authority, and the tree must track
+//!   the original. The vars are never passed with `--var`.
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
-use slop_ninja_coordinator::eval::plan::{Ceilings, LoadPlan};
+use slop_ninja_coordinator::config::{Authority, DeployMode, DeployedAuthority, deploy_check};
+use slop_ninja_coordinator::eval::plan::{Ceilings, CohortPlan, LoadPlan, PLAN_SCHEMA_V3, PROBE_PLAN_SCHEMA};
 use std::collections::BTreeMap;
 use std::process::exit;
 
@@ -60,8 +123,8 @@ fn parse(args: &[String]) -> (BTreeMap<String, String>, Vec<String>) {
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.strip_prefix("--") {
-            Some("require-ties") => {
-                flags.insert("require-ties".into(), String::new());
+            Some(k @ ("require-ties" | "switch" | "freeze" | "first-deploy")) => {
+                flags.insert(k.into(), String::new());
             }
             Some(k) => {
                 let v = it.next().unwrap_or_else(|| fail(&format!("--{k} needs a value")));
@@ -350,9 +413,247 @@ fn report_summary(pos: &[String]) {
     }
 }
 
+/// The `[env.eval-testnet.vars]` table of a tracked `wrangler.toml`: each
+/// `KEY = "VALUE"` line of that section (the form the file uses).
+fn eval_vars(path: &str) -> BTreeMap<String, String> {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| fail(&format!("read {path}: {e}")));
+    let mut vars = BTreeMap::new();
+    let mut inside = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            inside = line == "[env.eval-testnet.vars]";
+            continue;
+        }
+        if !inside || line.starts_with('#') {
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            let v = v.trim();
+            let v = v.strip_prefix('"').and_then(|v| v.strip_suffix('"')).unwrap_or(v);
+            vars.insert(k.trim().to_owned(), v.to_owned());
+        }
+    }
+    if vars.is_empty() {
+        fail(&format!("{path}: no [env.eval-testnet.vars] section"));
+    }
+    vars
+}
+
+/// The authority a tracked `wrangler.toml` names for the main instance.
+fn tracked_authority(vars: &BTreeMap<String, String>) -> Authority {
+    let v = |k: &str| vars.get(k).map(String::as_str);
+    Authority::parse_with(v("EVAL_MAIN_AUTHORITY"), v("EVAL_MAIN_FIRST_COHORT"), v("EVAL_MAIN_PREVIOUS"))
+        .unwrap_or_else(|_| fail("wrangler.toml: the EVAL_MAIN_* vars name no authority"))
+}
+
+/// The main instance's plan ceilings as the tracked `wrangler.toml` sets them
+/// (`ROSTER_CAP`, reward-v1 only), so the plan check matches the deployment.
+fn main_ceilings(vars: &BTreeMap<String, String>) -> Ceilings {
+    let roster_cap =
+        vars.get("ROSTER_CAP").map(|v| v.parse::<usize>().unwrap_or_else(|_| fail("wrangler.toml: ROSTER_CAP")));
+    Ceilings { roster_cap, accept_reward_v0: false }
+}
+
+fn authority_check(flags: &BTreeMap<String, String>) {
+    let tracked = tracked_authority(&eval_vars(&flag::<String>(flags, "wrangler")));
+    let status = read_json(&flag::<String>(flags, "status"));
+    let target = flags.get("target-status").map(String::as_str).map(read_json);
+    let mode = match (flags.contains_key("switch"), flags.contains_key("freeze"), flags.contains_key("first-deploy")) {
+        (false, false, false) => DeployMode::Same,
+        (false, true, false) => DeployMode::Frozen,
+        (true, freeze, false) => DeployMode::Switch { freeze },
+        (false, false, true) => DeployMode::FirstDeploy,
+        _ => fail("--first-deploy takes neither --switch nor --freeze"),
+    };
+    match deploy_check(&tracked, &status, target.as_ref(), mode) {
+        Ok(line) => println!("{line}"),
+        Err(why) => {
+            println!("refused: {why}");
+            exit(1);
+        }
+    }
+}
+
+/// A plan the restarted authority takes: the coordinator's own parser, and
+/// the authority's label and cohort number rule.
+fn checked_plan(plan: &Value, authority: &Authority, ceilings: Ceilings) -> Vec<u8> {
+    let bytes = serde_json::to_vec_pretty(plan).expect("plan json");
+    let parsed = CohortPlan::parse(&bytes, ceilings)
+        .unwrap_or_else(|e| fail(&format!("the coordinator refuses this plan: {}", e.0)));
+    authority
+        .admits(&parsed.label, parsed.cohort)
+        .unwrap_or_else(|e| fail(&format!("the authority refuses this plan: {e}")));
+    bytes
+}
+
+fn restart(flags: &BTreeMap<String, String>) {
+    let name: String = flag(flags, "authority");
+    let vars = eval_vars(&flag::<String>(flags, "wrangler"));
+    let ceilings = main_ceilings(&vars);
+    let tracked = tracked_authority(&vars);
+    let st = read_json(&flag::<String>(flags, "status"));
+    // Every authority field or a refusal: a status this cannot read is never
+    // taken for the original's.
+    let deployed = DeployedAuthority::from_status(&st).unwrap_or_else(|e| fail(&format!("status: {e}")));
+    let replaced = deployed.name.clone();
+    // `GET /eval/status`, or the Worker's `/status` that carries it.
+    let st = if st["eval_cohort"].is_object() { st["eval_cohort"].clone() } else { st };
+    let cohorts = st["cohorts"].as_array().unwrap_or_else(|| fail("status: no cohorts"));
+    if replaced != tracked.name() {
+        fail(&format!("the status names {replaced}, the tree tracks {}", tracked.name()));
+    }
+    if let Some(by) = &deployed.superseded_by {
+        fail(&format!("{replaced} is already superseded by {by}"));
+    }
+    if deployed.work {
+        fail(&format!("{replaced} still has work (a closure, a spend settlement, a purge or an admission clean-up)"));
+    }
+    // The recorded decision the restart runs under (kept in restart.json).
+    let decision: String = flag(flags, "decision");
+    if decision.trim().is_empty() || decision.contains(['\n', '\r']) {
+        fail("--decision names the recorded decision on one non-empty line");
+    }
+    let tracked_preds: Vec<String> = tracked.predecessors().into_iter().map(str::to_owned).collect();
+    if deployed.first_cohort != tracked.first_cohort() || deployed.predecessors != tracked_preds {
+        fail("the status's first cohort or predecessors differ from the tree's");
+    }
+    // The R_0 package the restart was decided on: a stale reference record
+    // (another package of the same weights, or the earlier R_0) is refused.
+    let reference = read_json(&flag::<String>(flags, "reference"));
+    let expect: String = flag(flags, "expect-package");
+    if reference["package_sha256"].as_str() != Some(expect.as_str()) {
+        fail("the reference record's package_sha256 is not --expect-package");
+    }
+    // The new authority's predecessors: the replaced one's, then the
+    // replaced one itself when it is named (the original is always first).
+    let mut previous: Vec<String> =
+        tracked.predecessors().into_iter().filter(|p| *p != "main").map(str::to_owned).collect();
+    if !tracked.is_original() {
+        previous.push(replaced.clone());
+    }
+    if name == replaced || previous.contains(&name) || name == "main" {
+        fail(&format!("{name} is the authority being replaced or an earlier one"));
+    }
+    let mut earlier = Vec::new();
+    let mut busy = Vec::new();
+    let mut opened_max = 0u64;
+    for c in cohorts {
+        let label = c["label"].as_str().unwrap_or_else(|| fail("status: a cohort without a label"));
+        let number = c["cohort"].as_u64().unwrap_or_else(|| fail("status: a cohort without a number"));
+        let phase = c["phase"].as_str().unwrap_or("");
+        if !matches!(phase, "closed" | "abandoned") {
+            busy.push(format!("{label} is {phase}"));
+        }
+        opened_max = opened_max.max(c["opened_epoch"].as_u64().unwrap_or(0));
+        earlier.push((label.to_owned(), number));
+    }
+    if !busy.is_empty() {
+        fail(&format!("the authority being replaced is not idle: {}", busy.join("; ")));
+    }
+    // Every number of every earlier authority is below the replaced one's
+    // first cohort, so one past the replaced one's highest is past them all.
+    let first = earlier.iter().map(|(_, n)| *n).max().unwrap_or(0).max(tracked.first_cohort().saturating_sub(1)) + 1;
+    let previous_refs: Vec<&str> = previous.iter().map(String::as_str).collect();
+    let authority = Authority::named_after(&name, first, &previous_refs)
+        .unwrap_or_else(|_| fail(&format!("{name} cannot name an authority")));
+    authority.follows(earlier.iter().map(|(l, n)| (l.as_str(), *n))).unwrap_or_else(|e| fail(e));
+    let prefix = authority.label_prefix().expect("a named authority's prefix");
+    // No earlier cohort opened at or after it, and no restarted cohort opens
+    // before it (each opens at a boundary after the switch).
+    let observed = st["observed"]["epoch"]["index"].as_u64().unwrap_or_else(|| fail("status: no observed epoch"));
+    let from_epoch = observed.max(opened_max + 1);
+    let version: u32 = opt(flags, "probe-version").unwrap_or(1);
+    let mut plan = read_json(&flag::<String>(flags, "probe-template"));
+    plan["schema"] = json!(PROBE_PLAN_SCHEMA);
+    plan["cohort"] = json!(first);
+    plan["label"] = json!(format!("{prefix}probe-v{version}"));
+    plan["reference"] = reference.clone();
+    plan["previous_reference"] = Value::Null;
+    plan["entrants"] = json!([]);
+    plan["allow_list"] = json!([]);
+    let v = plan["reward_v1"].as_object_mut().unwrap_or_else(|| fail("probe template: no reward_v1 block"));
+    v.insert("probe_version".into(), json!(version));
+    v.insert("probes".into(), json!([]));
+    v["canary"]["drill"] = json!([]);
+    let bytes = checked_plan(&plan, &authority, ceilings);
+    let dir = std::path::PathBuf::from(flag::<String>(flags, "out"));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| fail(&format!("{}: {e}", dir.display())));
+    std::fs::write(dir.join("probe-plan.json"), &bytes).unwrap_or_else(|e| fail(&format!("probe plan: {e}")));
+    let record_key = format!("{}/record.json", authority.probe_prefix(version));
+    let out = json!({
+        "schema": "slop_ninja_eval_restart_v1",
+        "decision": decision.trim(),
+        "authority": name,
+        "replaces": replaced,
+        "first_cohort": first,
+        "label_prefix": prefix,
+        // Commit these in [env.eval-testnet.vars] (never --var).
+        "vars": {"EVAL_MAIN_AUTHORITY": name, "EVAL_MAIN_FIRST_COHORT": first.to_string(),
+            "EVAL_MAIN_PREVIOUS": previous.join(",")},
+        // Commit these in the publisher's [env.testnet.vars].
+        "publisher": {"RECORD_LABEL_PREFIX": prefix, "PUBLISH_FROM_EPOCH": from_epoch.to_string()},
+        // The coordinator's restart_target from_epoch and the launch bundle's issued epoch.
+        "record_from_epoch": from_epoch,
+        "reference": reference,
+        "probe_version": version,
+        "probe_record_key": record_key,
+        "probe_plan_sha256": sha_hex(&bytes),
+        "replaced_authority": {"cohorts": earlier.len(), "highest_cohort": first - 1, "observed_epoch": observed,
+            "reference": st["reward"]["references"].clone()},
+    });
+    let text = serde_json::to_string_pretty(&out).expect("restart json");
+    std::fs::write(dir.join("restart.json"), &text).unwrap_or_else(|e| fail(&format!("restart.json: {e}")));
+    println!("{text}");
+}
+
+fn restart_cohort(flags: &BTreeMap<String, String>) {
+    let r = read_json(&flag::<String>(flags, "restart"));
+    let name = r["authority"].as_str().unwrap_or_else(|| fail("restart.json: authority"));
+    let first = r["first_cohort"].as_u64().unwrap_or_else(|| fail("restart.json: first_cohort"));
+    let authority = Authority::named(name, first).unwrap_or_else(|_| fail("restart.json: authority"));
+    let ceilings = main_ceilings(&eval_vars(&flag::<String>(flags, "wrangler")));
+    let record_bytes = std::fs::read(flag::<String>(flags, "record")).unwrap_or_else(|e| fail(&format!("record: {e}")));
+    let record: Value = serde_json::from_slice(&record_bytes).unwrap_or_else(|e| fail(&format!("record: {e}")));
+    let version = record["version"].as_u64().unwrap_or_else(|| fail("record: version"));
+    if Some(version) != r["probe_version"].as_u64() {
+        fail("the record is not the restart's probe version");
+    }
+    let mut plan = read_json(&flag::<String>(flags, "template"));
+    if plan["schema"] != PLAN_SCHEMA_V3 {
+        fail("template: not a reward-v1 cohort plan");
+    }
+    let suffix: String = flag(flags, "label-suffix");
+    plan["cohort"] = json!(flag::<u64>(flags, "cohort"));
+    plan["label"] = json!(format!("{}{suffix}", authority.label_prefix().expect("prefix")));
+    plan["reference"] = r["reference"].clone();
+    plan["previous_reference"] = Value::Null;
+    let v = plan["reward_v1"].as_object_mut().unwrap_or_else(|| fail("template: no reward_v1 block"));
+    v.insert(
+        "probes".into(),
+        json!([{"version": version, "size": record["size"], "key": r["probe_record_key"], "sha256": sha_hex(&record_bytes)}]),
+    );
+    v.remove("probe_version");
+    // A named artifact spec is frozen with this build's digest of it in
+    // `fanout.score.artifact_spec_sha256` (beside an admission block's, which
+    // must equal it), so the cohort binds the v2 limits record that names it.
+    if let Some(id) = plan["fanout"]["score"]["artifact_spec"].as_str().map(str::to_owned)
+        && plan["fanout"]["score"]["artifact_spec_sha256"].is_null()
+    {
+        let sha = slop_ninja_coordinator::eval::plan::load_spec_sha256_of(&id)
+            .unwrap_or_else(|| fail(&format!("template: {id} is not a spec the scorer admits loads by")));
+        plan["fanout"]["score"]["artifact_spec_sha256"] = json!(sha);
+    }
+    let bytes = checked_plan(&plan, &authority, ceilings);
+    println!("{}", String::from_utf8(bytes).expect("utf-8"));
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let Some(cmd) = args.first() else { fail("a subcommand: load-plan, gate, summary, watch-line, tail-stats, snapshot-args, keys-check, copy-ties, chunk-keys, report-summary") };
+    let Some(cmd) = args.first() else {
+        fail(
+            "a subcommand: load-plan, gate, summary, watch-line, tail-stats, snapshot-args, keys-check, copy-ties, chunk-keys, report-summary, restart, restart-cohort, authority-check",
+        )
+    };
     let (flags, pos) = parse(&args[1..]);
     match cmd.as_str() {
         "load-plan" => load_plan(&flags),
@@ -365,6 +666,9 @@ fn main() {
         "copy-ties" => copy_ties(&flags, &pos),
         "chunk-keys" => chunk_keys(&pos),
         "report-summary" => report_summary(&pos),
+        "restart" => restart(&flags),
+        "restart-cohort" => restart_cohort(&flags),
+        "authority-check" => authority_check(&flags),
         other => fail(&format!("unknown subcommand {other}")),
     }
 }

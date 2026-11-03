@@ -25,6 +25,7 @@
 //!   `slop_ninja.admission/v1`): sessions, framing, verdicts and the cutoff.
 //! - [`commitments`]: the finalized commitment log admission reads.
 //! - [`calendar`]: the standing plan template and the cohort calendar.
+//! - [`succession`]: durable succession between main authorities.
 
 pub mod admission;
 pub mod calendar;
@@ -43,6 +44,7 @@ pub mod pool;
 pub mod receipts;
 pub mod score;
 pub mod scorer_client;
+pub mod succession;
 pub mod v3;
 
 #[cfg(test)]

@@ -113,6 +113,9 @@ pub enum ConfigError {
     Hotkey,
     /// The T12 application public keys are missing, malformed or not distinct.
     TrustedKeys,
+    /// `EVAL_MAIN_AUTHORITY` or `EVAL_MAIN_FIRST_COHORT` is malformed
+    /// (see [`crate::config::Authority::parse`]).
+    Authority,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]

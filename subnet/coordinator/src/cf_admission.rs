@@ -580,6 +580,17 @@ impl EvalCohort {
                     Ok(b) => b,
                     Err(e) => return error(e.code(), e.status()),
                 };
+                // A named main authority installs a template only once every
+                // earlier authority recorded it as its successor; a template
+                // it would refuse supersedes nothing.
+                if let Err(e) = calendar::check(&cfg, &bytes) {
+                    let mut resp = Response::from_json(&j!({"error": e.code()}))?.with_status(422);
+                    resp.headers_mut().set("Cache-Control", "no-store")?;
+                    return Ok(resp);
+                }
+                if let Err(code) = self.succeed(&cfg).await {
+                    return error(code, 409);
+                }
                 match transaction(&storage, move |sql| calendar::install(sql, &cfg, &bytes, now)) {
                     Ok(v) => {
                         storage.set_alarm(500i64).await?;
@@ -943,6 +954,16 @@ impl EvalCohort {
                 return Err("template plan refused");
             }
         };
+        // The calendar of a named authority opens nothing until every
+        // earlier authority recorded it as its successor (`succeed`, done
+        // once at the template's install or the first plan).
+        if let Err(code) = self.succeed(cfg).await {
+            let _ = transaction(&storage, move |sql| {
+                calendar::note_error(sql, code)?;
+                calendar::set_paused(sql, true).map(|_| ())
+            });
+            return Err("template predecessors");
+        }
         let key = format!("{}:{label}", engine::INSTANCE_MAIN);
         let _ = eval_do::ledger_call(
             &self.env,

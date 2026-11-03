@@ -1018,10 +1018,17 @@ pub struct SealBuild {
     pub probe_record: Option<(String, Vec<u8>)>,
 }
 
-pub fn shard_prefix(c: &Cohort) -> R<String> {
+/// Where a probe version's objects live: under the authority's probe prefix
+/// (`config::Authority::probe_prefix`), so a restarted authority's probe
+/// version 1 never overwrites an earlier authority's.
+pub fn probe_prefix(cfg: &EvalConfig, version: u32) -> String {
+    cfg.authority.probe_prefix(version)
+}
+
+pub fn shard_prefix(cfg: &EvalConfig, c: &Cohort) -> R<String> {
     if c.plan.is_probe_build() {
         let v = v1(&c.plan)?.probe_version.ok_or(EvalError::Plan("probe_version"))?;
-        Ok(format!("probes/v{v}"))
+        Ok(probe_prefix(cfg, v))
     } else {
         Ok(engine::batch_prefix(&c.label))
     }
@@ -1144,15 +1151,59 @@ pub fn fresh_allowed(sql: &impl Sql, c: &Cohort) -> R<bool> {
     Ok(a.fresh_pool.as_ref() == Some(&c.plan.pool) && crate::eval::admission::has_outside_entrant(sql, c.seq)?)
 }
 
-fn limits_digest(plan: &CohortPlan) -> R<Digest> {
+/// The domain the v1 limits record (a plan that names no artifact spec) is
+/// hashed under; the manifest binds the digest.
+pub const LIMITS_DOMAIN_V1: &str = "slop_ninja.eval/limits/v1";
+/// The v2 limits record's domain: v1's fields plus the artifact spec every
+/// scoring load names, by id and by the digest the plan froze.
+pub const LIMITS_DOMAIN_V2: &str = "slop_ninja.eval/limits/v2";
+
+/// The limits record the manifest binds by digest, with its domain. The v2
+/// record belongs to plans that carry `fanout.score.artifact_spec_sha256`
+/// (the field this record version came with): the same limits (the step's
+/// wall budget as `step_wall_ms`, so the public copy carries no spend-like
+/// key) and the spec every scoring load names, by id and the digest the plan
+/// froze. Every other plan keeps the v1 record, so a stored plan's record
+/// and digest never change with the build: a plan that names its spec only
+/// in the admission block (written before that field) bound v1 at seal and
+/// still binds v1 at package time. The v2 record is published in
+/// `components.json` (`limits`), so the bound digest can be checked against
+/// public material ([`published_limits`]).
+pub fn limits_record(plan: &CohortPlan) -> R<(Value, &'static str)> {
     let f = plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
     let l = f.score.limits();
-    let j = json!({"schema": "slop_ninja_eval_limits_v1", "max_attempts": plan.max_attempts,
-        "chunk_docs": plan.scorer.chunk_docs, "step_budget_ms": l.step_budget_ms, "doc_timeout_ms": l.doc_timeout_ms,
-        "artifact_max_bytes": l.artifact_max_bytes, "load_wait_ms": l.load_wait_ms,
-        "artifact_failures_before_model_error": l.artifact_failures_before_model_error,
-        "crash_rule": engine::CRASH_RULE, "artifact_rule": engine::ARTIFACT_RULE});
-    Ok(domain_hash("slop_ninja.eval/limits/v1", j.to_string().as_bytes()))
+    match (&f.score.artifact_spec, f.score.artifact_spec_sha256.as_deref()) {
+        (Some(id), Some(sha)) => Ok((
+            json!({"schema": "slop_ninja_eval_limits_v2", "max_attempts": plan.max_attempts,
+                "chunk_docs": plan.scorer.chunk_docs, "step_wall_ms": l.step_budget_ms, "doc_timeout_ms": l.doc_timeout_ms,
+                "artifact_max_bytes": l.artifact_max_bytes, "load_wait_ms": l.load_wait_ms,
+                "artifact_failures_before_model_error": l.artifact_failures_before_model_error,
+                "crash_rule": engine::CRASH_RULE, "artifact_rule": engine::ARTIFACT_RULE,
+                "artifact_spec": {"id": id, "sha256": sha}}),
+            LIMITS_DOMAIN_V2,
+        )),
+        _ => Ok((
+            json!({"schema": "slop_ninja_eval_limits_v1", "max_attempts": plan.max_attempts,
+                "chunk_docs": plan.scorer.chunk_docs, "step_budget_ms": l.step_budget_ms, "doc_timeout_ms": l.doc_timeout_ms,
+                "artifact_max_bytes": l.artifact_max_bytes, "load_wait_ms": l.load_wait_ms,
+                "artifact_failures_before_model_error": l.artifact_failures_before_model_error,
+                "crash_rule": engine::CRASH_RULE, "artifact_rule": engine::ARTIFACT_RULE}),
+            LIMITS_DOMAIN_V1,
+        )),
+    }
+}
+
+/// The limits record `components.json` publishes: the v2 record (a plan that
+/// names an artifact spec); `None` for a v1 record, whose components are as
+/// they were.
+pub fn published_limits(plan: &CohortPlan) -> R<Option<Value>> {
+    let (j, domain) = limits_record(plan)?;
+    Ok((domain == LIMITS_DOMAIN_V2).then_some(j))
+}
+
+fn limits_digest(plan: &CohortPlan) -> R<Digest> {
+    let (j, domain) = limits_record(plan)?;
+    Ok(domain_hash(domain, j.to_string().as_bytes()))
 }
 
 fn origin_of(kind: &str) -> R<Origin> {
@@ -1249,7 +1300,7 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
         lines.push(line.to_string());
         entries.push(meta);
     }
-    let prefix = shard_prefix(&c)?;
+    let prefix = shard_prefix(cfg, &c)?;
     let mut shards = Vec::new();
     let mut shard_index = Vec::new();
     for (k, chunk) in lines.chunks(engine::BATCH_SHARD_DOCS).enumerate() {
@@ -1988,7 +2039,8 @@ pub fn prepare_package(
         }
         for (version, range) in &probe_ranges {
             let pv = slice(&jv.involvement, *range)?;
-            let key = format!("probes/v{version}/fp/{}/{}.bin", c.label, hex::encode(e.identity.hotkey.0));
+            let key =
+                format!("{}/fp/{}/{}.bin", probe_prefix(cfg, *version), c.label, hex::encode(e.identity.hotkey.0));
             closure_fps.push(EntrantFingerprint {
                 hotkey: e.identity.hotkey,
                 version: *version,
@@ -2041,6 +2093,11 @@ pub fn prepare_package(
         })).collect::<Vec<_>>(),
         "crash_rule": engine::CRASH_RULE, "artifact_rule": engine::ARTIFACT_RULE,
     });
+    let mut components = components;
+    // The v2 limits record the manifest binds (`published_limits`).
+    if let (Some(l), Some(o)) = (published_limits(plan)?, components.as_object_mut()) {
+        o.insert("limits".into(), l);
+    }
     Ok(PackageV3 { manifest, package, target, components, vectors: vectors_out, state: st })
 }
 
@@ -2143,6 +2200,7 @@ pub struct ProbeFinish {
 
 pub fn prepare_probe_finish(
     sql: &impl Sql,
+    cfg: &EvalConfig,
     c: &Cohort,
     summaries: &[engine::JobSummary],
     record: &[u8],
@@ -2179,7 +2237,7 @@ pub fn prepare_probe_finish(
             // A reference must answer every probe document.
             return Err(EvalError::State("reference_failure"));
         }
-        let key = format!("probes/v{version}/fp/{}.bin", dg.content.0);
+        let key = format!("{}/fp/{}.bin", probe_prefix(cfg, version), dg.content.0);
         fps.push((Fingerprint { content: dg.content.0, version, fingerprint: vector_digest(&pv) }, key.clone()));
         vectors.push((key, vector_bytes(&pv)));
         contents.push(dg.content.0);
@@ -2189,7 +2247,7 @@ pub fn prepare_probe_finish(
         vectors,
         fingerprints: fps,
         contents,
-        record_key: format!("probes/v{version}/record.json"),
+        record_key: format!("{}/record.json", probe_prefix(cfg, version)),
         record_sha256: sha_hex(record),
         record_digest: ProbeRecord::digest(record),
         size: rec.size,

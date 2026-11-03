@@ -161,6 +161,9 @@ pub fn check(cfg: &EvalConfig, bytes: &[u8]) -> R<Template> {
     // covers that roster, and its package step fits the memory model.
     let mut full = t.plan.clone();
     full.label = format!("{}-{}", t.label_prefix, u64::MAX);
+    // The calendar numbers a named authority's cohorts from its first one
+    // (`due`), so the template is checked at a number it can open.
+    full.cohort = full.cohort.max(cfg.authority.first_cohort());
     full.entrants = full_roster(&t.plan, a.roster_cap);
     if full.previous_reference.is_none() {
         let mut p = t.plan.reference.clone();
@@ -306,8 +309,20 @@ fn references(sql: &impl Sql, t: &Template) -> R<(ArtifactJson, Option<ArtifactJ
 
 /// The next cohort's plan bytes when the calendar says one is due: a
 /// template is installed and not paused, nothing is queued, and the latest
-/// cohort is in its transition, closed or abandoned (or there is none).
-pub fn due(sql: &impl Sql) -> R<Option<(String, Vec<u8>)>> {
+/// cohort is in its transition, closed or abandoned (or there is none). A
+/// retired main authority (superseded, or not the one the deployment names)
+/// opens nothing. A named authority numbers from its first cohort
+/// (`config::Authority`), and its template's labels carry its prefix (the
+/// template check refuses any other).
+pub fn due(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<(String, Vec<u8>)>> {
+    if cfg.authority.is_retired() {
+        return Ok(None);
+    }
+    due_any(sql, cfg.authority.first_cohort())
+}
+
+/// [`due`] without the authority check, numbering from `first_cohort`.
+pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>> {
     let Some((t, paused)) = stored(sql)? else {
         return Ok(None);
     };
@@ -325,7 +340,8 @@ pub fn due(sql: &impl Sql) -> R<Option<(String, Vec<u8>)>> {
         None => None,
     };
     let max = sql.exec("SELECT COALESCE(MAX(cohort), 0) FROM cohorts", &[])?;
-    let next = max.first().map_or(Ok(0), |r| int(r, 0))?.max(last_cohort.unwrap_or(0)) + 1;
+    let next = (max.first().map_or(Ok(0), |r| int(r, 0))?.max(last_cohort.unwrap_or(0)) + 1)
+        .max(i64::try_from(first_cohort).map_err(|_| EvalError::State("first cohort"))?);
     let (reference, previous, _) = match references(sql, &t) {
         Ok(r) => r,
         // The calendar cannot name the chain's references: it pauses with

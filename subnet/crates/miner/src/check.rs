@@ -15,6 +15,11 @@
 //!
 //! When the cohort names another artifact spec than the one compiled in, the
 //! result is [`Outcome::Incomplete`]: this build cannot speak for that spec.
+//!
+//! [`ProvenanceCheck`] warns about JSON strings and keys that read as or
+//! carry a local path ([`crate::provenance`]): the JSON files are published
+//! after the cohort closes. Its warnings never refuse and never leave a check
+//! incomplete, and a scan that cannot run is a note.
 
 use std::path::Path;
 
@@ -25,6 +30,7 @@ use slop_ninja_artifact_check::Version;
 use slop_ninja_protocol::VerifiedArtifact;
 
 use crate::object::role_name;
+use crate::provenance::Scan;
 
 /// What a check reads.
 #[derive(Clone, Copy, Debug)]
@@ -63,6 +69,10 @@ pub struct Finding {
     pub message: String,
     /// Whether this finding refuses the artifact.
     pub refuses: bool,
+    /// A warning: something to fix before the artifact is published, which
+    /// never refuses it. Serialized only when set.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub warning: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -85,6 +95,15 @@ fn note(code: &str, message: String) -> Finding {
         file: None,
         message,
         refuses: false,
+        warning: false,
+    }
+}
+
+fn warning(code: &str, file: &str, message: String) -> Finding {
+    Finding {
+        file: Some(file.into()),
+        warning: true,
+        ..note(code, message)
     }
 }
 
@@ -226,6 +245,64 @@ impl ArtifactCheck for SpecCheck {
     }
 }
 
+/// JSON strings and keys that read as or carry a local path (absolute, a
+/// home directory or file URL in text, or a path under a private tree):
+/// warnings only.
+pub struct ProvenanceCheck;
+
+pub const PROVENANCE_ID: &str = "slop_ninja_miner.provenance/v1";
+
+impl ArtifactCheck for ProvenanceCheck {
+    fn id(&self) -> &str {
+        PROVENANCE_ID
+    }
+
+    fn check(&self, cx: &CheckContext<'_>) -> Result<CheckReport> {
+        let mut findings = Vec::new();
+        let not_scanned = |name: &str, why: String| Finding {
+            file: Some(name.into()),
+            ..note(
+                "not_scanned",
+                format!("{name}: not scanned for local paths: {why}"),
+            )
+        };
+        // A scan that cannot run is a note: this checker never refuses and
+        // never makes a check incomplete.
+        let scans = match crate::provenance::scan_object(cx.object, cx.verified) {
+            Ok(scans) => scans,
+            Err(error) => {
+                findings.push(note(
+                    "not_scanned",
+                    format!("not scanned for local paths: {error:#}"),
+                ));
+                Vec::new()
+            }
+        };
+        for scan in scans {
+            match scan.scan {
+                Scan::Paths(hits) if hits.is_empty() => {}
+                Scan::Paths(hits) => findings.push(warning(
+                    "absolute_path",
+                    &scan.name,
+                    crate::provenance::advice(&scan.name, &hits),
+                )),
+                Scan::NotJson(error) | Scan::Unreadable(error) => {
+                    findings.push(not_scanned(&scan.name, error))
+                }
+                Scan::OverBudget(len) => findings.push(not_scanned(
+                    &scan.name,
+                    format!("{len} bytes, over its role's runtime bound"),
+                )),
+            }
+        }
+        Ok(CheckReport {
+            checker: PROVENANCE_ID.into(),
+            outcome: Outcome::Pass,
+            findings,
+        })
+    }
+}
+
 /// Runs every checker. The combined outcome is `Refused` if any refused,
 /// `Incomplete` if any was incomplete, and `Pass` only when all passed.
 pub fn run_all(
@@ -344,6 +421,73 @@ mod tests {
                 .iter()
                 .any(|f| f.code == "artifact_spec_mismatch" && !f.refuses)
         );
+    }
+
+    #[test]
+    fn absolute_paths_warn_without_refusing() {
+        let dir = tempfile::tempdir().unwrap();
+        let contract =
+            br#"{"runs":[{"run":"/opt/elsewhere/run-000"},{"run":"/opt/elsewhere/run-001"}]}"#;
+        let object = artifact_object(
+            spec::CONTRACT_ID,
+            &[
+                ("a-fp32band.onnx", FileRole::Graph, b"g"),
+                ("contract.json", FileRole::OutputSchema, contract),
+                (
+                    "manifest.json",
+                    FileRole::OwnerMetadata,
+                    br#"{"fit_dir":"fits/one"}"#,
+                ),
+            ],
+        )
+        .unwrap();
+        let path = dir.path().join("o");
+        std::fs::write(&path, &object).unwrap();
+        let v = VerifiedArtifact::from_bytes(&object).unwrap();
+        let cx = CheckContext {
+            object: &path,
+            verified: &v,
+            expected_contract: None,
+            max_object_len: None,
+            artifact_spec: None,
+            cohort_unknown: None,
+        };
+        let report = ProvenanceCheck.check(&cx).unwrap();
+        assert_eq!(report.outcome, Outcome::Pass);
+        assert_eq!(report.findings.len(), 1);
+        let f = &report.findings[0];
+        assert!(f.warning && !f.refuses && f.code == "absolute_path");
+        assert_eq!(f.file.as_deref(), Some("contract.json"));
+        assert!(
+            f.message
+                .contains("2 strings or keys read as or carry a local path (/runs/*/run)"),
+            "{}",
+            f.message
+        );
+        assert!(
+            !f.message.contains("/opt/elsewhere"),
+            "the report names pointers, not paths"
+        );
+        // Only a warning is serialized with its flag.
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["findings"][0]["warning"], true);
+        assert!(
+            serde_json::to_value(note("x", String::new()))
+                .unwrap()
+                .get("warning")
+                .is_none()
+        );
+        // With the spec check, the combined outcome is the spec check's.
+        let (outcome, reports) = run_all(&[&SpecCheck, &ProvenanceCheck], &cx).unwrap();
+        assert_eq!(outcome, Outcome::Refused);
+        assert_eq!(reports[1].outcome, Outcome::Pass);
+        // An object that cannot be scanned is a note, never an error or a
+        // refusal: the check still passes.
+        std::fs::write(&path, &object[..object.len() - 1]).unwrap();
+        let report = ProvenanceCheck.check(&cx).unwrap();
+        assert_eq!(report.outcome, Outcome::Pass);
+        assert_eq!(report.findings.len(), 1);
+        assert!(report.findings[0].code == "not_scanned" && !report.findings[0].refuses);
     }
 
     #[test]

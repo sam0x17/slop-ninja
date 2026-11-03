@@ -310,6 +310,22 @@ pass.
 spec the build defines (spec v3). A note `artifact_spec_mismatch` means the
 cohort checks a spec your build does not define: update the client.
 
+The JSON files are published with the artifact after its cohort closes. If one
+holds a string or key that reads as an absolute local path (one that starts
+with `/`, `~/` or a Windows drive), carries one (a home directory or a file
+URL in text) or names a path under a `data/` tree, it would publish your
+directory layout, user name included. `pack` warns about it on stderr and
+`check` reports `[WARNING] absolute_path` with the JSON pointers of those
+strings (never their values). A warning never refuses the artifact and does
+not change the exit status. The check can miss a path written another way, so
+read your JSON files before you publish them. The repository's tools record
+portable paths (resolved against the working directory: repository-relative
+inside the repository, the final component elsewhere): run them as the
+[training guide](training-guide.md#steps) does, then export and pack again.
+A contract built from a normalization with absolute run paths keeps them,
+because the fit binds the contract's digest: rebuild the normalization and the
+contract before training.
+
 ### Score it locally (optional)
 
 `slop_ninja_a_local_score` runs your artifact through the hidden scorer's own

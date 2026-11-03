@@ -249,9 +249,20 @@ any change to it changes their digests.
 ## Steps
 
 All commands run from a new working directory outside the repository, with
-relative paths. The artifact's `contract.json` records the normalization run
-directories as you pass them, and the artifact is published after the cohort
-closes, so relative paths keep your directory layout out of it.
+relative paths. The artifact's JSON files are published after the cohort
+closes, so the tools record each local location they write as a portable
+path: resolved against the working directory, repository-relative inside the
+repository, and only its final component under the ignored `data/` tree or
+outside the repository (a user or home directory name is replaced), so from a
+working directory outside the repository they record final components. The normalization fit records its run
+directories this way, the trainer its init fit and allow-list, and the
+release exporter its calibration provenance. The contract keeps the
+normalization's run paths, and the fit binds the contract's digest, so they
+cannot change after training. `slop_ninja_miner pack` and `check` warn about
+any string or key left in a JSON file that reads as or carries a local path,
+or names a path under a `data/` tree;
+the check reads the start of each string and a few embedded forms, so it is a
+check, not a guarantee.
 
 ### 1. Build the tools
 
@@ -562,9 +573,13 @@ role files record the digests of the scripts that wrote them, including
 `public_a.py`, so the role files, the object and the package match only for
 the same revision of those scripts; the first run built its parent with an
 earlier revision of `public_a.py`, so its role files differ from those below
-in their recorded digests alone. For the revision whose `public_a.py` has
-SHA-256 `56cb6469b5df35b1e29e7d206de5aeb6663c889d7e0135f9cba9f4156e4a91c0`,
-the smoke gives:
+in their recorded digests alone. The table below is for the revision whose
+`public_a.py` has SHA-256
+`56cb6469b5df35b1e29e7d206de5aeb6663c889d7e0135f9cba9f4156e4a91c0`, before the
+normalization fit and the release exporter recorded portable paths. Their own
+digests are recorded too, so at later revisions the contract and the files
+that bind it are expected to differ in recorded digests alone; the smoke has
+not been rerun since. The smoke gave:
 
 | Output | SHA-256 |
 |---|---|

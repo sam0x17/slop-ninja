@@ -14,6 +14,7 @@ pub mod model;
 pub mod pangram_map;
 pub mod pangram_store;
 pub mod pangram_subsample;
+pub mod provenance;
 pub mod r2_eval;
 pub mod shared;
 pub mod tierc;

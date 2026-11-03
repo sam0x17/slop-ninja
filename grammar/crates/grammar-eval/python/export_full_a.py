@@ -15,6 +15,23 @@ export: full encoder safetensors + numeric heads JSON (v2: optional spans-v1
         encoder and document heads of a tower fit are the init fit's, checked
         bit for bit.
 
+Package JSON records no absolute local path (`provenance_paths`). The trainer
+records portable locations in the fit's own binding, so the manifest's
+`fit_binding` is that binding unchanged (the bytes `fit_hashes`
+`binding_json_sha256` names); a tower export finds the init fit by its fit.json
+digest (`--init-fit`, the fit's private `init-fit-location.json`, or the
+recorded location). A fit written before that, whose binding records absolute
+paths, is refused unless `--rewrite-provenance`: then the known provenance
+pointers of the published copy are made portable and `provenance-rewrite.json`
+(beside the package files, never one of them) records each rewritten pointer
+and the digests of the files before the rewrite, since the published
+`fit_binding` is then not the bytes `binding_json_sha256` names. A calibration
+whose provenance pointers hold absolute paths is copied with them made portable,
+recorded the same way. The fit binds the contract's digest, so the contract is
+copied unchanged; the export warns when it, or anything else published, still
+carries a local path (build the normalization and contract with portable ones
+before training).
+
 No corpus discovery, calibration fitting, selection or Test access here. The
 Test route needs a separate sealed implementation and is refused.
 """
@@ -27,6 +44,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sys
 
 os.environ.setdefault("MKL_CBWR", "COMPATIBLE")
 os.environ.setdefault("ATEN_CPU_CAPABILITY", "default")
@@ -41,6 +59,7 @@ import full_a_bundle as bundle
 import full_a_s2 as s2
 import full_a_spans as spans_rule
 import last_block_a as base
+import provenance_paths
 import shared_a as shared
 import train_full_a as trainer
 import v6_embeddings as bridge
@@ -211,7 +230,31 @@ def tower_tensors(model):
     return out
 
 
-def tower_fit_binding(fit, report, binding):
+# The provenance pointers the trainer and the calibration tools write locations at.
+BINDING_POINTERS = ("/init_fit/fit_dir", "/train_allowlist/file")
+CALIBRATION_POINTERS = ("/document_calibration_source/file", "/spans_provenance/cal_fit",
+                        "/spans_provenance/decoder_grid")
+REWRITE_SCHEMA = "slop_ninja_provenance_rewrite_v1"
+
+
+def find_init_fit(fit, init, explicit=None):
+    """The init fit directory of a tower fit: the first of `explicit` (`--init-fit`), the fit's private
+    `init-fit-location.json`, the recorded location (absolute, or repository-relative), whose fit.json has
+    the recorded digest."""
+    candidates = [explicit] if explicit else []
+    location = fit / trainer.INIT_FIT_LOCATION
+    if location.is_file():
+        candidates.append(read(location)["fit_dir"])
+    recorded = Path(init["fit_dir"])
+    candidates.append(recorded if recorded.is_absolute() else provenance_paths.REPO / recorded)
+    for c in candidates:
+        d = Path(c)
+        if (d / "fit.json").is_file() and bridge.sha256(d / "fit.json") == init["fit_sha256"]:
+            return d
+    raise SystemExit("init fit not found by its fit.json digest; pass --init-fit DIR")
+
+
+def tower_fit_binding(fit, report, binding, init_fit=None):
     """Hashes binding a span-tower fit, and the bitwise checks that its encoder and document heads are the init
     fit's (for seed 17, R0's): the encoder file is the init fit's file, and every document tensor of the fit's
     heads.safetensors equals the init fit's. Returns the record written into the v4 manifest."""
@@ -224,7 +267,7 @@ def tower_fit_binding(fit, report, binding):
                   "tower fit without its frozen-document check")
     require(fit / "heads.safetensors", report["heads_sha256"])
     init = binding["init_fit"]
-    init_dir = Path(init["fit_dir"])
+    init_dir = find_init_fit(fit, init, init_fit)
     require(init_dir / "fit.json", init["fit_sha256"])
     init_report = read(init_dir / "fit.json")
     shared.demand(init_report["selected_checkpoint_sha256"] == init["selected_checkpoint_sha256"],
@@ -241,7 +284,9 @@ def tower_fit_binding(fit, report, binding):
             "encoder_sha256": report["encoder_sha256"], "heads_sha256": report["heads_sha256"],
             "selected_checkpoint_sha256": report["selected_checkpoint_sha256"],
             "s2_module_sha256": s["module_sha256"],
-            "init_fit": {"fit_dir": str(init_dir), "fit_sha256": init["fit_sha256"],
+            "init_fit": {"fit_dir": provenance_paths.portable(init_dir)
+                         if provenance_paths.is_local_path(init["fit_dir"])
+                         else provenance_paths.portable_recorded(init["fit_dir"]), "fit_sha256": init["fit_sha256"],
                          "selected_checkpoint_sha256": init["selected_checkpoint_sha256"],
                          "encoder_sha256": init_report["encoder_sha256"], "heads_sha256": init_report["heads_sha256"]},
             "encoder_equal_to_init_fit": True, "document_heads_equal_to_init_fit": True,
@@ -250,6 +295,75 @@ def tower_fit_binding(fit, report, binding):
 
 def read(p):
     return json.loads(Path(p).read_bytes())
+
+
+def copy_calibration(path, value, dest):
+    """Copies the calibration `value` (read from `path`) into the export: byte for byte, unless its provenance
+    pointers (`CALIBRATION_POINTERS`) record absolute local paths, which are made portable; its maps, knots and
+    every other value are unchanged. Returns the changes as (JSON pointer, new string)."""
+    portable_value, changes = provenance_paths.portable_at(value, CALIBRATION_POINTERS)
+    if changes:
+        bridge.write_json(dest, portable_value)
+    else:
+        shutil.copyfile(path, dest)
+    return changes
+
+
+def published_binding(binding, rewrite):
+    """The `fit_binding` the manifest publishes: the fit's binding unchanged, or, for a fit whose binding records
+    absolute local paths, a copy with its provenance pointers made portable, only with `rewrite`
+    (`--rewrite-provenance`). Returns (binding, changes)."""
+    copy, changes = provenance_paths.portable_at(binding, BINDING_POINTERS)
+    if not changes:
+        return binding, []
+    shared.demand(rewrite, "the fit's binding records absolute local paths (" +
+                  ", ".join(p for p, _ in changes) + "); export with --rewrite-provenance to publish a rewritten "
+                  "copy, recorded in provenance-rewrite.json, or retrain with the current trainer")
+    return copy, [("/fit_binding" + p, new) for p, new in changes]
+
+
+def rewrite_record(out, fit, calibration_source, manifest_paths, cal_paths):
+    """`provenance-rewrite.json` beside the package files when the export rewrote a provenance string: what was
+    rewritten, by which tools, and the digests of the files before the rewrite. Pointers only, never a path."""
+    if not manifest_paths and not cal_paths:
+        return None
+    files = []
+    if manifest_paths:
+        files.append({"file": "manifest.json", "pointers": [p for p, _ in manifest_paths],
+                      "source": "the fit's binding.json", "source_sha256": bridge.sha256(fit / "binding.json"),
+                      "note": "/fit_binding is the fit's binding with these pointers made portable, so it is not "
+                              "the bytes /fit_hashes/binding_json_sha256 names (the binding before the rewrite)"})
+    if cal_paths:
+        files.append({"file": "calibration.json", "pointers": [p for p, _ in cal_paths],
+                      "source": "the calibration given to the export",
+                      "source_sha256": bridge.sha256(calibration_source),
+                      "note": "every other value is the source's; only these provenance strings differ"})
+    record = {"schema": REWRITE_SCHEMA, "tool": {"exporter_sha256": bridge.sha256(__file__),
+              "provenance_paths_sha256": bridge.sha256(provenance_paths.__file__)}, "files": files}
+    bridge.write_json(out / "provenance-rewrite.json", record)
+    return record
+
+
+def report_paths(contract, manifest_paths, calibration_paths, published=()):
+    """Says on stderr which provenance strings the export made portable, and warns about local paths left in
+    the contract (copied unchanged because the fit binds its digest) or anywhere else published (`published`:
+    (file name, value)); nothing outside the known provenance pointers is ever rewritten."""
+    for name, changes in (("manifest.json", manifest_paths), ("calibration.json", calibration_paths)):
+        for pointer, new in changes:
+            print(f"provenance: {name} {pointer} recorded as {new!r}", file=sys.stderr)
+    kept = provenance_paths.local_paths(contract)
+    if kept:
+        print(f"warning: contract.json keeps {len(kept)} absolute local path{'' if len(kept) == 1 else 's'} "
+              f"({', '.join(kept)}): the fit binds "
+              "the contract's digest, so the export copies it unchanged and the published artifact would carry "
+              "them. Build the normalization and the contract with portable paths before training.",
+              file=sys.stderr)
+    for name, value in published:
+        left = provenance_paths.local_paths(value)
+        if left:
+            print(f"warning: {name} keeps {len(left)} string{'' if len(left) == 1 else 's'} that read as or carry "
+                  f"a local path ({', '.join(left)}), outside the known provenance pointers; it is published as "
+                  "it is", file=sys.stderr)
 
 
 def require(path, expected):
@@ -663,7 +777,7 @@ def export(args):
     tower_fit = is_tower_fit(binding)
     if tower_fit:
         shared.demand(has_token_head, "the span tower feeds the token head")
-        fit_hashes, fit_heads = tower_fit_binding(fit, report, binding)
+        fit_hashes, fit_heads = tower_fit_binding(fit, report, binding, getattr(args, "init_fit", None))
     description, thresholds, calibrated, cal, span_spec = calibration(
         args.calibration, binding, report["selected_checkpoint_sha256"], binding["contract_sha256"], has_token_head)
     shared.demand(not (subset and calibrated), "diagnostic Train-subset exports are never calibrated")
@@ -765,8 +879,8 @@ def export(args):
                 f.write(bridge.canonical(case) + b"\n")
         bridge.write_json(out / "local-reference-predictions.json", local_refs)
         bridge.write_json(out / "local-reference-predictions-fp32.json", local_refs32)
-    if cal:
-        shutil.copyfile(args.calibration, out / "calibration.json")
+    cal_paths = copy_calibration(args.calibration, cal, out / "calibration.json") if cal else []
+    fit_binding, manifest_paths = published_binding(binding, getattr(args, "rewrite_provenance", False))
     member = lambda name: {"file": name, "sha256": bridge.sha256(out / name)}
     manifest = {"schema": EXPORT_SCHEMA, "complete": True, "arm": binding["arm"],
         "seed": binding["seed"], "selected_evaluation": report["selected_evaluation"],
@@ -789,7 +903,7 @@ def export(args):
         "token_head": artifact["token_head"], "span_emission": span_spec,
         "diagnostic_train_subset": report.get("diagnostic_train_subset"),
         "calibration": member("calibration.json") if cal else None, "calibrated": calibrated,
-        "selected_checkpoint_sha256": report["selected_checkpoint_sha256"], "fit_binding": binding,
+        "selected_checkpoint_sha256": report["selected_checkpoint_sha256"], "fit_binding": fit_binding,
         "exporter_sha256": bridge.sha256(__file__), "final_test_opened": False, "reference_device": str(device),
         "production_qualified": False, "runtime": {"torch": torch.__version__, "cuda": torch.version.cuda},
         "limits": ["Rust full-encoder replay and runtime measurements still required.",
@@ -807,6 +921,9 @@ def export(args):
             f"The span tower adds {len(tower['layers'])} ModernBERT layers per request for the token head only; "
             "document outputs never read it."]
     bridge.write_json(out / "manifest.json", manifest)
+    rewrite_record(out, fit, args.calibration, manifest_paths, cal_paths)
+    report_paths(contract, manifest_paths, cal_paths,
+                 [("manifest.json", manifest)] + ([("calibration.json", read(out / "calibration.json"))] if cal else []))
     print(json.dumps({"complete": True, "calibrated": calibrated, "references": len(references),
                       "local_references": len(local_refs), "schema": manifest["schema"]}), flush=True)
 
@@ -829,6 +946,10 @@ if __name__ == "__main__":
                            help="stratified Dev-iter rows added as private local reference cases")
             p.add_argument("--synthetic-cases",
                            help="JSONL of {id, text} synthetic cases appended to the reference requests")
+            p.add_argument("--init-fit", help="a tower fit's init fit directory (found by its fit.json digest)")
+            p.add_argument("--rewrite-provenance", action="store_true",
+                           help="publish a fit binding written before portable paths with its provenance pointers "
+                                "made portable, recorded in provenance-rewrite.json")
         p.set_defaults(func=func)
     p = sub.add_parser("offsets")
     p.add_argument("--artifact", required=True)

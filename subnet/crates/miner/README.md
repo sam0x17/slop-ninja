@@ -37,12 +37,37 @@ contract `slop_ninja_full_a_contract_v2`:
 never types them. Any other file in the directory is refused
 (`undeclared_file`).
 
+## Local paths
+
+The JSON role files are published with the artifact after its cohort closes.
+A provenance string that reads as an absolute local path (`/…`, `~/…`, a
+Windows drive or UNC path), or carries a home directory or a file URL inside
+it, would publish your directory layout, including your user name, and a
+relative path under an ignored `data/` tree would publish its private
+directory names, so `pack` and `check` warn about it, and about object keys
+that do (`src/provenance.rs`).
+The scan streams each JSON file and reports JSON pointers only (array
+positions as `*`, a path-like key as `<path-like key>`), listing them while
+their bytes fit the file's length and counting the rest; a file over its
+role's runtime bound, or one that cannot be read, is reported as not scanned.
+It reads the start of each string and a few embedded forms, so it can miss a
+path written another way: it is a check, not a guarantee. The coordinator
+admits such an artifact all the same. The repository's exporters and
+normalization tools record portable paths at the provenance fields they write:
+repository-relative, or only a final component under the ignored `data/` tree
+or outside the repository, never a user or home directory name
+(`grammar/crates/grammar-eval/python/provenance_paths.py`,
+`grammar_a_baseline::provenance`). A warning means a file was written another
+way, by an older revision, or carries a path in free text. Re-export, or
+rebuild the normalization and contract with relative paths before training,
+and pack again.
+
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `pack --dir MODEL_DIR --out OBJ` | Streams the six files into the protocol's artifact object `u32_le(len(H)) \|\| H \|\| files`, refuses a file that changes while it is packed, verifies the result with the protocol's `ArtifactReader`, and writes it with mode 0600 (it must stay secret until the cohort closes). `--file ROLE:PATH ... [--contract C] [--root DIR]` packs any file list instead. |
-| `check OBJ [--coordinator URL]` | Verifies the object and runs the artifact spec's admission checks, the streaming checks the coordinator runs: the file table, the tokenizer byte match, the role schemas, the ONNX pre-parse (custom domains, external data, operator allow-list), the graph class and the parameter bound. A refusal prints the code the coordinator would report in `check_failed`; an object that does not parse is refused as `object`. With a coordinator it also checks the cohort's contract, object bound and spec. Exit 0 pass, 1 refused, 3 incomplete: no coordinator given, a coordinator that cannot be chosen or read (a warning, and the reason in the `cohort_unknown` note; the local checks still run), or a cohort that uses another spec than this build. |
+| `pack --dir MODEL_DIR --out OBJ` | Streams the six files into the protocol's artifact object `u32_le(len(H)) \|\| H \|\| files`, refuses a file that changes while it is packed, verifies the result with the protocol's `ArtifactReader`, and writes it with mode 0600 (it must stay secret until the cohort closes). `--file ROLE:PATH ... [--contract C] [--root DIR]` packs any file list instead. It warns on stderr about each JSON file holding strings or keys that read as or carry a local path (see below), naming their JSON pointers; the object is written all the same, also when the scan cannot run. |
+| `check OBJ [--coordinator URL]` | Verifies the object and runs the artifact spec's admission checks, the streaming checks the coordinator runs: the file table, the tokenizer byte match, the role schemas, the ONNX pre-parse (custom domains, external data, operator allow-list), the graph class and the parameter bound. A refusal prints the code the coordinator would report in `check_failed`; an object that does not parse is refused as `object`. With a coordinator it also checks the cohort's contract, object bound and spec. A third checker, `slop_ninja_miner.provenance/v1`, reports `[WARNING] absolute_path` for each JSON file holding strings or keys that read as or carry a local path (`"warning": true` in `--json`), and a `not_scanned` note when it cannot scan; it never refuses and never leaves the check incomplete. Exit 0 pass, 1 refused, 3 incomplete: no coordinator given, a coordinator that cannot be chosen or read (a warning, and the reason in the `cohort_unknown` note; the local checks still run), or a cohort that uses another spec than this build. |
 | `commit --artifact OBJ` | Reads the admitting cohort from the coordinator and the hotkey's registration from finalized chain state, makes a fresh nonce and the opening, stores it with mode 0600, then signs and submits `Commitments.set_commitment(netuid, [Raw44(payload)])` with the hotkey and reads it back at finality. `--dry-run` shows the opening and the call and stores, signs and submits nothing. |
 | `upload --artifact OBJ [--opening FILE]` | Opens the session, uploads missing parts, completes and waits for verification. Rerun to resume. Without `--opening` it uploads the local opening whose payload is the commitment the coordinator observed, or else the newest one confirmed on chain. `--restart` aborts a refused attempt (for example `object_mismatch`) and sends every part again. |
 | `abort [SESSION] [--cohort N]` | Aborts this hotkey's session: by full id, by a unique prefix, or, with no id, the live session in the cohort. Needed before uploading another object for the same commitment. |
@@ -172,7 +197,8 @@ No test connects to a chain or signs a transaction.
 - `tests/cli.rs`: the binary with a test wallet hotkey: pack (file list and the
   spec's directory), check exit codes with spec codes (an unreadable file is an
   error, an unparseable object is refused as `object`, and an unreachable
-  coordinator still runs the local checks), `status` with nothing to show,
+  coordinator still runs the local checks), the absolute-path warning at pack
+  and check (text and `--json`), `status` with nothing to show,
   next-cohort with epochs relative to the confirmed epoch, the trust
   file pinning the coordinator, a resumed upload, a refused second artifact
   shown by `status`, abort by prefix and by cohort, and the choice of opening.

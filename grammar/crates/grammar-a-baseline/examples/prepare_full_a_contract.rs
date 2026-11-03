@@ -13,10 +13,16 @@
 //! stay in it. The trainer accepts such a contract only under a protocol
 //! `ai_roster` of rule `fixed_v1` naming the same list's digest. The embedding
 //! normalization is a Train-only fit of the frozen V6 h; FILE is either that
-//! object or a contract holding it, and its digest is recorded. No text is
-//! read beyond the row metadata.
+//! object or a contract holding it, and its digest is recorded. The contract
+//! is published with the artifact, so any absolute local path in the
+//! normalization (an older fit's run receipts) is recorded as
+//! `grammar_a_baseline::provenance` makes it portable at the run receipts'
+//! pointers: repository-relative, or only its final component under `data/` or
+//! outside the repository. The recorded digest stays
+//! that of FILE as read. No text is read beyond the row metadata.
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
+use grammar_a_baseline::provenance::portable_at;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -113,7 +119,13 @@ fn normalization(v: &Value) -> Result<Value> {
         );
     }
     ensure!(n["scale"].as_array().unwrap().iter().all(|x| x.as_f64().unwrap() > 0.0), "normalization scale");
-    Ok(n.clone())
+    let mut n = n.clone();
+    // Only the run receipts record locations (`fit_full_a_normalization`).
+    for pointer in portable_at(&mut n, &["/runs/*/run"]) {
+        let recorded = n.pointer(&pointer).unwrap_or(&Value::Null);
+        eprintln!("provenance: embedding_normalization{pointer} recorded as {recorded}");
+    }
+    Ok(n)
 }
 
 fn contract(manifest: &[u8], roster: Vec<String>, norm: Value, norm_sha: &str, parent: &str) -> Result<Value> {
@@ -187,6 +199,14 @@ mod tests {
             "calibration_used_for_fit": false, "development_used_for_fit": false, "reference_used_for_fit": false,
             "final_test_opened": false});
         assert!(normalization(&json!({"embedding_normalization": n.clone()})).is_ok());
+        // Run receipts with absolute local paths keep no local directory.
+        let mut runs = n.clone();
+        runs["runs"] = json!([{"run": "/opt/elsewhere/norm/run-000", "shard": 0}, {"run": "norm/run-001", "shard": 1}]);
+        let kept = normalization(&runs).unwrap();
+        assert_eq!(
+            (kept["runs"][0]["run"].as_str(), kept["runs"][1]["run"].as_str()),
+            (Some("run-000"), Some("norm/run-001"))
+        );
         let mut bad = n.clone();
         bad["development_used_for_fit"] = json!(true);
         assert!(normalization(&bad).is_err());

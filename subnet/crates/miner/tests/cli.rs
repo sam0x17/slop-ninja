@@ -153,6 +153,48 @@ async fn binary_pack_check_upload_and_status() {
         "{}",
         text(&checked)
     );
+    // An absolute local path in a JSON file warns at pack and at check, and
+    // changes nothing else: pack succeeds, check refuses only what it did.
+    std::fs::write(
+        model.join("contract.json"),
+        br#"{"runs":[{"run":"/opt/elsewhere/run-000"}]}"#,
+    )
+    .unwrap();
+    let paths = dir.path().join("paths.sna");
+    let packed = run(args(&["pack", "--dir", p(&model), "--out", p(&paths)])).await;
+    assert!(packed.status.success(), "{}", text(&packed));
+    let warned = String::from_utf8_lossy(&packed.stderr).into_owned();
+    assert!(
+        warned.contains(
+            "warning: contract.json: 1 string or key read as or carry a local path (/runs/*/run)"
+        ),
+        "{warned}"
+    );
+    assert!(
+        !text(&packed).contains("/opt/elsewhere"),
+        "{}",
+        text(&packed)
+    );
+    let checked = run(args(&["check", p(&paths)])).await;
+    assert_eq!(checked.status.code(), Some(1), "{}", text(&checked));
+    let out = text(&checked);
+    assert!(
+        out.contains("[WARNING] absolute_path: contract.json: 1 string or key read")
+            && out.contains("tokenizer_mismatch"),
+        "{out}"
+    );
+    let json = run(args(&["check", p(&paths), "--json"])).await;
+    let report: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    let warnings: Vec<&serde_json::Value> = report["reports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|r| r["findings"].as_array().unwrap())
+        .filter(|f| f["warning"] == true)
+        .collect();
+    assert_eq!(warnings.len(), 1, "{report}");
+    assert_eq!(warnings[0]["file"], "contract.json");
+    assert_eq!(warnings[0]["refuses"], false);
 
     // next-cohort reads the public snapshot, labelled unsigned.
     let next = run(args(&["next-cohort", "--public", &url])).await;

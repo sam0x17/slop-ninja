@@ -74,6 +74,7 @@ import full_a_bundle as bundle
 import full_a_s2 as s2
 import full_a_spans as spans_rule
 import last_block_a as base
+import provenance_paths
 import shared_a as shared
 import v6_embeddings as bridge
 import warm_start_a
@@ -427,6 +428,9 @@ def restore(model, saved, extra=None):
 
 
 INIT_FIT_SCHEMA = "slop_ninja_full_a_init_fit_v1"
+# A private file of a fit that started from an init fit: where that init fit was, for the export (never
+# exported; the binding records only the portable location).
+INIT_FIT_LOCATION = "init-fit-location.json"
 
 
 def load_init_fit(model, path, seed, contract):
@@ -455,7 +459,10 @@ def load_init_fit(model, path, seed, contract):
     shared.demand(torch.equal(model.heads.text_mean.cpu(), torch.tensor(norm["mean"], dtype=torch.float32)) and
                   torch.equal(model.heads.text_scale.cpu(), torch.tensor(norm["scale"], dtype=torch.float32)),
                   "init fit normalization differs from this contract")
-    return {"schema": INIT_FIT_SCHEMA, "fit_dir": str(fit_dir), "fit_sha256": bridge.sha256(fit_dir / "fit.json"),
+    # The binding (and so a tower export's published copy) records the init fit's location as package JSON
+    # may (`provenance_paths`); the export finds it by its fit.json digest ([`INIT_FIT_LOCATION`]).
+    return {"schema": INIT_FIT_SCHEMA, "fit_dir": provenance_paths.portable(fit_dir),
+            "fit_sha256": bridge.sha256(fit_dir / "fit.json"),
             "selected_checkpoint_sha256": report["selected_checkpoint_sha256"],
             "init_arm": report["binding"]["arm"], "init_seed": report["binding"]["seed"],
             "init_selected_evaluation": report["selected_evaluation"],
@@ -1003,6 +1010,8 @@ def fit(args, root, config, output):
     full_meta = full_dropped = subset = dev_keep = keep = allow_record = None
     if allowlist is not None:
         allow_record, allow_ids = bundle.read_allowlist(allowlist, root)
+        # The allow-list is bound by its digest; its location is recorded as package JSON may.
+        allow_record = {**allow_record, "file": provenance_paths.portable(allow_record["file"])}
         full_meta, full_dropped = bundle.train_metadata(root)
         missing = len(set(allow_ids) - {m.id for m in full_meta})
         shared.demand(missing == 0, f"{missing} allow-listed ids are not positive-weight Train rows of this bundle")
@@ -1142,6 +1151,8 @@ def fit(args, root, config, output):
     else:
         shared.demand(not (output / "binding.json").exists(), "incomplete first evaluation; use a new output directory")
         bridge.write_json(output / "binding.json", binding)
+        if init_record is not None:
+            bridge.write_json(output / INIT_FIT_LOCATION, {"fit_dir": str(init_dir), "fit_sha256": init_record["fit_sha256"]})
         # The per-cohort, per-label weight log precedes any optimizer step.
         bridge.write_json(output / "cohort-weights.json", weight_log)
         gate = initial_gate(model, train, device, pad_id, protocol["microbatch_token_budget"],

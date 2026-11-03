@@ -14,6 +14,7 @@ pub mod client;
 pub mod commit;
 pub mod object;
 pub mod opening;
+pub mod provenance;
 pub mod public;
 pub mod trust;
 pub mod upload;

@@ -10,7 +10,8 @@ use clap::{Args, Parser, Subcommand};
 use rtao_signer::KeyView as _;
 use slop_ninja_artifact_check::spec;
 use slop_ninja_miner::check::{
-    ArtifactCheck, CheckContext, Outcome, SpecCheck, StructuralCheck, file_lines, run_all,
+    ArtifactCheck, CheckContext, Outcome, ProvenanceCheck, SpecCheck, StructuralCheck, file_lines,
+    run_all,
 };
 use slop_ninja_miner::client::{
     AdmissionClient, RtaoSigner, Transfer, cohort_info, http_client, ss58,
@@ -20,7 +21,7 @@ use slop_ninja_miner::trust::{Source, Trust};
 use slop_ninja_miner::upload::{UploadOptions, UploadOutcome, describe};
 use slop_ninja_miner::wire::json::CohortInfo;
 use slop_ninja_miner::wire::{SessionState, is_session_id};
-use slop_ninja_miner::{chain, commit, object, public};
+use slop_ninja_miner::{chain, commit, object, provenance, public};
 use slop_ninja_protocol::{AccountId, NeuronIdentity};
 
 /// Exit status when an admission check refused the artifact, or the
@@ -412,6 +413,24 @@ fn pack(args: PackArgs) -> Result<ExitCode> {
     for line in file_lines(&verified) {
         println!("  {line}");
     }
+    // Local paths in the JSON files: a warning, never a refusal; a scan that
+    // cannot run is said, and pack still succeeds.
+    match provenance::scan_object(&args.out, &verified) {
+        Ok(scans) => {
+            for scan in scans {
+                match &scan.scan {
+                    provenance::Scan::Paths(hits) if !hits.is_empty() => {
+                        eprintln!("warning: {}", provenance::advice(&scan.name, hits));
+                    }
+                    provenance::Scan::Unreadable(why) => {
+                        eprintln!("warning: {}: not scanned for local paths: {why}", scan.name);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Err(error) => eprintln!("warning: not scanned for local paths: {error:#}"),
+    }
     println!("next: slop_ninja_miner check {}", args.out.display());
     Ok(ExitCode::SUCCESS)
 }
@@ -472,7 +491,7 @@ async fn check(args: CheckArgs) -> Result<ExitCode> {
         artifact_spec: cohort_spec.as_ref(),
         cohort_unknown: cohort_unknown.as_deref(),
     };
-    let checks: [&dyn ArtifactCheck; 2] = [&StructuralCheck, &SpecCheck];
+    let checks: [&dyn ArtifactCheck; 3] = [&StructuralCheck, &SpecCheck, &ProvenanceCheck];
     let (outcome, reports) = run_all(&checks, &cx)?;
     if args.json {
         println!(
@@ -491,7 +510,13 @@ async fn check(args: CheckArgs) -> Result<ExitCode> {
         for report in &reports {
             println!("{}: {:?}", report.checker, report.outcome);
             for finding in &report.findings {
-                let mark = if finding.refuses { "REFUSED" } else { "note" };
+                let mark = if finding.refuses {
+                    "REFUSED"
+                } else if finding.warning {
+                    "WARNING"
+                } else {
+                    "note"
+                };
                 println!("  [{mark}] {}: {}", finding.code, finding.message);
             }
         }

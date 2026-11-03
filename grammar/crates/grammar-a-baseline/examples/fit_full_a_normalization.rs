@@ -17,10 +17,17 @@
 //!     FP64; scale = max(sqrt(variance), 0.01). No label, Dev, CAL or Test row
 //!     is read.
 //!
+//! Each run's receipt records the run directory as package JSON may record a
+//! path (`grammar_a_baseline::provenance`): repository-relative inside the
+//! repository, and only its final component under the ignored `data/` tree or
+//! outside the repository (never a user or home directory name). The receipts
+//! reach the contract, which is published with the artifact.
+//!
 //! The output is accepted by `prepare_full_a_contract --normalization`.
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use grammar_a_baseline::mining::{bundle_digests, canonical_split, sha256_file, sha256_hex};
+use grammar_a_baseline::provenance::portable_path;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
@@ -243,7 +250,7 @@ fn fit(plan_path: &Path, runs: &[PathBuf], out: &Path) -> Result<()> {
             None => contract = Some((c, m["representation_contract"]["artifact_id"].clone())),
             Some((prev, _)) => ensure!(*prev == c, "runs use different representation contracts"),
         }
-        receipts.push(json!({"run": run.display().to_string(), "shard": shard,
+        receipts.push(json!({"run": portable_path(run), "shard": shard,
                              "manifest_sha256": sha256_file(&run.join("manifest.json"))?,
                              "rows_sha256": m["rows_sha256"], "requests_sha256": m["requests_sha256"]}));
     }
@@ -355,6 +362,9 @@ mod tests {
         assert!((n["mean"][0].as_f64().unwrap() - 2.0).abs() < 1e-12);
         assert!((n["scale"][5].as_f64().unwrap() - 2.0).abs() < 1e-12);
         assert_eq!(n["development_used_for_fit"], false);
+        // The receipts never record an absolute local path: these run
+        // directories lie outside the repository, so only their names remain.
+        assert_eq!((n["runs"][0]["run"].as_str(), n["runs"][1]["run"].as_str()), (Some("r0"), Some("r1")));
         // A missing shard, a repeated shard and a changed row are refused.
         assert!(fit(&out.join("plan.json"), &[d.join("r0")], &d.join("n2")).is_err());
         assert!(fit(&out.join("plan.json"), &[d.join("r0"), d.join("r0")], &d.join("n3")).is_err());

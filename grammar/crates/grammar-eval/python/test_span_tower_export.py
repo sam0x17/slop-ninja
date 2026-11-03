@@ -6,6 +6,7 @@ branch.
 No corpus, artifact, provider, detector or network access. CPU only.
 """
 import hashlib
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -20,6 +21,7 @@ import export_full_a
 import full_a
 import full_a_bundle as bundle
 import full_a_s2 as s2
+import provenance_paths
 import span_tower_golden as golden
 import synthetic_full_a as synthetic
 import test_full_a as base
@@ -200,6 +202,17 @@ class TowerExport(unittest.TestCase):
                              (sha(fit / "fit.json"), sha(fit / "binding.json"), report["heads_sha256"],
                               report["encoder_sha256"], report["selected_checkpoint_sha256"]))
             self.assertEqual(fh["init_fit"]["fit_sha256"], sha(e1 / "fit.json"))
+            # No local path reaches the manifest: the trainer recorded the init fit (outside the repository) by
+            # its final component, so the published fit binding is the fit's own binding unchanged, the content
+            # of the bytes binding_json_sha256 names, and no rewrite record is written.
+            self.assertEqual(provenance_paths.local_paths(m), [])
+            self.assertEqual((fh["init_fit"]["fit_dir"], m["fit_binding"]["init_fit"]["fit_dir"]), ("e1", "e1"))
+            own = json.loads((fit / "binding.json").read_text())
+            self.assertEqual(own, m["fit_binding"])
+            self.assertFalse((out / "provenance-rewrite.json").exists())
+            # The export found the init fit through the fit's private location file, by its digest.
+            location = json.loads((fit / trainer.INIT_FIT_LOCATION).read_text())
+            self.assertEqual(Path(location["fit_dir"]), e1.resolve())
             self.assertTrue(fh["encoder_equal_to_init_fit"] and fh["document_heads_equal_to_init_fit"])
             self.assertEqual(m["reference_tower_rotary_modules"], 1)
             # FP64 references carry the tower's token logits; the FP32 drift diagnostic stays close.
@@ -211,6 +224,80 @@ class TowerExport(unittest.TestCase):
                 self.assertEqual(len(a["token_logits"]), len(a["token_ids"]))
                 self.assertLess(max(abs(x - y) for x, y in zip(a["token_logits"], b["token_logits"])), 1e-4)
             self.assertTrue(all(r["span_emission"]["status"] in ("ok", "unsupported") for r in r64))
+
+    def test_calibration_copy_keeps_values_and_drops_local_paths(self):
+        cal = {"schema": export_full_a.CALIBRATION_SCHEMA, "involvement": {"selected": {"knots": [0.125, 1e-7]}},
+               "spans_provenance": {"cal_fit": "/opt/elsewhere/eval/cal-maps.json", "cal_fit_sha256": "a" * 64},
+               "document_calibration_source": {"file": "/opt/elsewhere/cal/calibration.json", "note": "n"}}
+        with tempfile.TemporaryDirectory() as d:
+            src, dest = Path(d) / "in.json", Path(d) / "out.json"
+            src.write_text(json.dumps(cal, indent=1))
+            changes = export_full_a.copy_calibration(src, cal, dest)
+            self.assertEqual(sorted(changes), [("/document_calibration_source/file", "calibration.json"),
+                                               ("/spans_provenance/cal_fit", "cal-maps.json")])
+            out = json.loads(dest.read_bytes())
+            self.assertEqual(provenance_paths.local_paths(out), [])
+            self.assertEqual(out["involvement"], cal["involvement"])
+            self.assertEqual(out["spans_provenance"]["cal_fit_sha256"], "a" * 64)
+            # Without a local path the copy is byte for byte.
+            clean = provenance_paths.portable_at(cal, export_full_a.CALIBRATION_POINTERS)[0]
+            src.write_text(json.dumps(clean, indent=1))
+            dest.unlink()
+            self.assertEqual(export_full_a.copy_calibration(src, clean, dest), [])
+            self.assertEqual(dest.read_bytes(), src.read_bytes())
+
+    def test_contract_paths_are_reported_not_changed(self):
+        contract = {"embedding_normalization": {"runs": [{"run": "/opt/elsewhere/run-000"}, {"run": "n/run-001"}]}}
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            export_full_a.report_paths(contract, [("/fit_binding/init_fit/fit_dir", "e1")], [])
+        text = err.getvalue()
+        self.assertIn("provenance: manifest.json /fit_binding/init_fit/fit_dir recorded as 'e1'", text)
+        self.assertIn("warning: contract.json keeps 1 absolute local path (/embedding_normalization/runs/0/run)",
+                      text)
+        self.assertNotIn("/opt/elsewhere", text)
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            export_full_a.report_paths({"runs": [{"run": "n/run-001"}]}, [], [])
+        self.assertEqual(err.getvalue(), "")
+        # A local path outside the known pointers is warned about by pointer, never rewritten.
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            export_full_a.report_paths({}, [], [], [("manifest.json", {"note": "run in /home/someone/x",
+                                                                       "heads_pointer": "/heads/sha256"})])
+        text = err.getvalue()
+        self.assertIn("warning: manifest.json keeps 2 strings", text)
+        self.assertIn("(/note, /heads_pointer)", text)
+        self.assertNotIn("someone", text)
+
+    def test_a_binding_with_absolute_paths_is_published_only_as_a_recorded_rewrite(self):
+        binding = {"arm": "S2c", "contract_sha256": "c" * 64,
+                   "init_fit": {"fit_dir": "/opt/elsewhere/fits/e1", "fit_sha256": "f" * 64},
+                   "route": "/v1/load", "train_allowlist": {"file": "/opt/elsewhere/allow.json", "sha256": "a" * 64}}
+        with self.assertRaises(ValueError) as refused:
+            export_full_a.published_binding(binding, False)
+        self.assertIn("--rewrite-provenance", str(refused.exception))
+        self.assertNotIn("/opt/elsewhere", str(refused.exception))
+        copy, changes = export_full_a.published_binding(binding, True)
+        self.assertEqual(sorted(changes), [("/fit_binding/init_fit/fit_dir", "e1"),
+                                           ("/fit_binding/train_allowlist/file", "allow.json")])
+        # Only the provenance pointers change; the contract digest stays as trained, routes stay.
+        self.assertEqual((copy["contract_sha256"], copy["route"]), (binding["contract_sha256"], "/v1/load"))
+        clean = dict(binding, init_fit={"fit_dir": "e1", "fit_sha256": "f" * 64}, train_allowlist={"file": "a"})
+        self.assertEqual(export_full_a.published_binding(clean, False), (clean, []))
+        with tempfile.TemporaryDirectory() as d:
+            fit, out = Path(d) / "fit", Path(d) / "out"
+            fit.mkdir()
+            out.mkdir()
+            (fit / "binding.json").write_text(json.dumps(binding))
+            cal = Path(d) / "cal.json"
+            cal.write_text("{}")
+            record = export_full_a.rewrite_record(out, fit, cal, changes, [("/spans_provenance/cal_fit", "m.json")])
+            written = json.loads((out / "provenance-rewrite.json").read_text())
+            self.assertEqual(record, written)
+            self.assertEqual(written["schema"], export_full_a.REWRITE_SCHEMA)
+            self.assertEqual(written["files"][0]["source_sha256"], sha(fit / "binding.json"))
+            self.assertEqual(written["files"][0]["pointers"], [p for p, _ in changes])
+            # Pointers only: no path the binding held appears in the record.
+            self.assertNotIn("/opt/elsewhere", json.dumps(written))
+            self.assertIsNone(export_full_a.rewrite_record(Path(d) / "none", fit, None, [], []))
 
     def test_heads_without_a_tower_stay_v2(self):
         model = base.make_model(seed=4)

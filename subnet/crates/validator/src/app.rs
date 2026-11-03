@@ -141,6 +141,14 @@ pub fn next_tempo(last_commit_epoch: u64, retained: &[Option<u64>]) -> Result<u6
 pub trait AppPorts {
     fn read_bundle(&mut self) -> Result<Vec<u8>>;
     fn trusted_keys(&self) -> Result<TrustedKeys>;
+    /// The fetch cache, under which a fetched v3 bundle names its receipt
+    /// objects (`None` without `[fetch]`: only absolute references verify).
+    fn receipts_root(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+    /// The installed bundle's referenced cache files failed: the next fetch
+    /// session assembles the bundle in full (never `unchanged`).
+    fn rebuild_fetched_bundle(&mut self) {}
     /// Genesis and netuid this validator serves.
     fn chain(&self) -> ([u8; 32], u16);
     /// `(uid, hotkey, registration_block)` for every registered UID at `head`.
@@ -250,8 +258,12 @@ pub enum AppOutcome {
     /// epoch (`authorization_refused`: the target is not the held one or the
     /// epoch precedes the authorization; never an expiry), a journaled
     /// signed revocation withdraws it (`authorization_revoked`, until a newer
-    /// authorization), or a
-    /// pending operation still awaits recovery (`pending_operation_unsettled`).
+    /// authorization), a
+    /// pending operation still awaits recovery (`pending_operation_unsettled`),
+    /// or, with `[fetch]`, a fetched v3 bundle's referenced cache files are
+    /// missing or changed (`referenced_object_missing`,
+    /// `referenced_object_mismatch`: logged `bundle_cache_unreadable` with
+    /// `alert = true`; the next fetch session rebuilds the bundle in full).
     /// The process exits for a later retry (75); the journal is unchanged
     /// apart from retiring superseded work that never landed.
     Deferred { code: &'static str, detail: String },
@@ -460,8 +472,18 @@ async fn apply_v2<P: AppPorts>(
         },
         None => slop_ninja_protocol::ActiveTarget::launch(&chain).map_err(|e| anyhow::anyhow!("{e}"))?,
     };
-    let authorized = match crate::package_v2::verify(bytes, &keys, &genesis, netuid, &held) {
+    let root = ports.receipts_root();
+    let authorized = match crate::package_v2::verify_in(bytes, &keys, &genesis, netuid, &held, root.as_deref()) {
         Ok(a) => std::sync::Arc::new(a),
+        // A fetched v3 bundle's cache files are missing or changed: the
+        // signed records were not refused, and a fetch session rebuilds the
+        // files while the host retains the receipts (or reports
+        // `receipts_expired`). Retry rather than halt.
+        Err(refusal) if root.is_some() && crate::package_v2::is_reference_refusal(refusal.code) => {
+            ports.rebuild_fetched_bundle();
+            tracing::warn!(event = "bundle_cache_unreadable", code = refusal.code, detail = %refusal.detail, alert = true);
+            return Ok(AppOutcome::Deferred { code: refusal.code, detail: refusal.detail });
+        }
         Err(refusal) => return Ok(refused(refusal)),
     };
     let loaded = match ports.revocations() {

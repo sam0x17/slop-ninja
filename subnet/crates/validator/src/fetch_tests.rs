@@ -297,6 +297,22 @@ fn run_with(
     previous: Option<&str>,
     keep: &[String],
 ) -> Result<Outcome> {
+    run_keeping(host, cache, held, previous, Some(keep))
+}
+
+/// A session whose keep set may be unknown (`None`: it prunes nothing).
+fn run_keeping(
+    host: &Host,
+    cache: &Path,
+    held: ActiveTarget,
+    previous: Option<&str>,
+    keep: Option<&[String]>,
+) -> Result<Outcome> {
+    run_in(host, cache, held, previous, &fetch::KeepSet::new(keep.map(<[String]>::to_vec)))
+}
+
+/// A session against a shared keep set (bundles it produces join it).
+fn run_in(host: &Host, cache: &Path, held: ActiveTarget, previous: Option<&str>, keep: &fetch::KeepSet) -> Result<Outcome> {
     let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
     let chain = fx::chain();
     block_on(
@@ -768,7 +784,7 @@ fn a_pointer_revocation_is_journaled_and_withdraws_the_authorization() -> Result
                 chain: &chain,
                 held: launch_held(),
                 previous: None,
-                keep: &[],
+                keep: &fetch::KeepSet::new(Some(Vec::new())),
                 revocations: Some(store),
             }
             .run(),
@@ -839,7 +855,7 @@ fn a_validator_that_missed_two_revocations_journals_both() -> Result<()> {
             chain: &chain,
             held: launch_held(),
             previous: None,
-            keep: &[],
+            keep: &fetch::KeepSet::new(Some(Vec::new())),
             revocations: Some(&store),
         }
         .run(),
@@ -1840,6 +1856,11 @@ fn every_session_prunes_the_cache_to_what_it_named_and_the_installed_cohorts() -
     point(&host, &fx::chain(), "cohort", &first.authorization, None);
     ready(run_with(&host, root.path(), activated(&first)?, None, std::slice::from_ref(&two))?);
     assert_eq!(cohort_dirs(root.path()), vec![one.clone(), two.clone()]);
+    // An unknown keep set (an installed or staged bundle file unreadable)
+    // prunes nothing: those cohorts may hold an installed v3 bundle's only
+    // receipts.
+    ready(run_keeping(&host, root.path(), activated(&first)?, None, None)?);
+    assert_eq!(cohort_dirs(root.path()), vec![one.clone(), two.clone()]);
     // A failed session prunes too: only what it named survives. (The
     // publication record now lists other bytes than the host serves.)
     let pub_path = format!("{}publication.json", dir(&first));
@@ -2347,17 +2368,21 @@ fn receipts_past_the_embedded_bound_are_named_from_the_cache() -> Result<()> {
     assert!(staged.bundle.len() < 64 << 10, "{} bytes", staged.bundle.len());
     assert_eq!(staged.info.receipts_verified, receipts);
     let r = b.receipts.as_ref().expect("receipts by reference");
-    let local = cache.join("cohorts").join(&big.manifest.cohort_label);
-    assert_eq!(std::path::Path::new(&r.index.path), std::path::absolute(local.join("receipt-index.signed"))?);
+    // Named relative to the cache root.
+    let local = format!("cohorts/{}", big.manifest.cohort_label);
+    assert_eq!(r.index.path, format!("{local}/receipt-index.signed"));
     assert_eq!(r.chunks.len(), 1);
-    assert_eq!(std::path::Path::new(&r.chunks[0].path), std::path::absolute(local.join(CHUNK))?);
+    assert_eq!(r.chunks[0].path, format!("{local}/{CHUNK}"));
     assert_eq!((r.chunks[0].sha256.as_str(), r.chunks[0].bytes), (sha(&big.chunk).as_str(), big.chunk.len() as u64));
     // The installed form verifies again from the cache, as the validator
-    // does each time it reads it.
+    // does each time it reads it; without the cache root it does not.
     let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
-    let again = crate::package_v2::verify(&staged.bundle, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held())
-        .map_err(|r| anyhow::anyhow!("{}", r.code))?;
+    let verify_at = |root: Option<&Path>| {
+        crate::package_v2::verify_in(&staged.bundle, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held(), root)
+    };
+    let again = verify_at(Some(&cache)).map_err(|r| anyhow::anyhow!("{}", r.code))?;
     assert_eq!(again.receipts_verified, receipts);
+    assert_eq!(verify_at(None).unwrap_err().code, "bundle_malformed");
     // Deleted from the host under the N+2 rule, the receipts are named from
     // the cache again, never asked of the host.
     delete_receipts(&host, &big);
@@ -2375,5 +2400,312 @@ fn receipts_past_the_embedded_bound_are_named_from_the_cache() -> Result<()> {
     point(&host, &fx::chain(), "cohort", &first.authorization, None);
     let small = ready(run(&host, &root.path().join("cache2"), launch_held())?);
     assert_eq!(serde_json::from_slice::<BundleV2>(&small.bundle)?.schema, BUNDLE_SCHEMA_V2);
+    Ok(())
+}
+
+/// Sets the length the publication record lists for `rel` (a lying host).
+fn relist(host: &Host, c: &Cohort, rel: &str, bytes: u64) -> Result<()> {
+    let pub_path = format!("{}publication.json", dir(c));
+    let mut publication: serde_json::Value = serde_json::from_slice(&host.get_bytes(&pub_path))?;
+    for o in publication["objects"].as_array_mut().unwrap() {
+        if o["rel"] == rel {
+            o["bytes"] = json!(bytes);
+        }
+    }
+    host.put(&pub_path, serde_json::to_vec(&publication)?);
+    Ok(())
+}
+
+/// Review (standing-r0 round 1, findings 2 and 4): the signed receipt
+/// indexes a session reads into memory are planned before any object is
+/// read. A target's or a carrier's listed index larger than any index the
+/// protocol can sign is refused `receipts_too_large` (an alerting refusal,
+/// not a budget error that every session repeats), and nothing of either
+/// cohort's receipts is read. Two indexes at the largest signable length,
+/// a target's and its carrier's, fit the session's receipt index allowance.
+#[test]
+fn receipt_indexes_a_session_cannot_hold_are_refused_before_any_read() -> Result<()> {
+    use slop_ninja_protocol::target_bundle::{receipt_index_bytes, receipt_index_capacity, validator_receipt_index_bytes};
+    let largest = receipt_index_bytes(receipt_index_capacity()?)?;
+    assert_eq!(fetch::receipt_index_allowance()?, 2 * largest);
+    assert_eq!(validator_receipt_index_bytes()?, 2 * largest);
+    let (first, second, _) = rv1::cohorts();
+    // `first`'s target, carried by `second` (which produced no target).
+    let carried = fx::signed(fx::authorization(
+        &second.manifest,
+        &second.package,
+        &first.target,
+        1,
+        second.manifest.opened_epoch + fx::PUBLISHED_TEMPO,
+    )?)?
+    .to_bytes()?;
+    let index_rel = "receipt-index.signed";
+    let setup = |target_index: Option<u64>, carrier_index: Option<u64>| -> Result<Host> {
+        let host = Host::default();
+        publish(&host, &first);
+        publish(&host, &second);
+        index(&host, &[(&first, true), (&second, true)]);
+        point(&host, &fx::chain(), "cohort", &carried, None);
+        if let Some(bytes) = target_index {
+            relist(&host, &first, index_rel, bytes)?;
+        }
+        if let Some(bytes) = carrier_index {
+            relist(&host, &second, index_rel, bytes)?;
+        }
+        Ok(host)
+    };
+    let untouched = |host: &Host| {
+        for c in [&first, &second] {
+            for rel in [index_rel, CHUNK, "chunk-map.json"] {
+                assert!(host.offsets(&format!("{}{rel}", dir(c))).is_empty(), "{rel} of {}", c.manifest.cohort_label);
+            }
+        }
+    };
+    for (target_index, carrier_index) in [(Some(largest + 1), None), (None, Some(largest + 1))] {
+        let host = setup(target_index, carrier_index)?;
+        let root = scratch()?;
+        let outcome = run(&host, root.path(), launch_held())?;
+        assert_eq!(outcome.code(), "receipts_too_large", "{outcome:?}");
+        assert!(outcome.alert());
+        untouched(&host);
+    }
+    // At the boundary both fit: the session goes on to read the indexes
+    // (whose lying lengths then fail their digests).
+    let host = setup(Some(largest), Some(largest))?;
+    let root = scratch()?;
+    let outcome = run(&host, root.path(), launch_held())?;
+    assert!(!matches!(outcome.code(), "receipts_too_large" | "bundle_too_large"), "{outcome:?}");
+    assert!(!host.offsets(&format!("{}{index_rel}", dir(&first))).is_empty());
+    Ok(())
+}
+
+/// Review (standing-r0 round 1, finding 3): the embedded form is chosen
+/// from the listed objects' lengths, which leave out the bundle's own
+/// framing (JSON keys and quoting, the authorization and its renewal). A
+/// cohort whose objects fit the embedded form while its assembled bundle
+/// exceeds the file bound by that framing is reassembled by reference
+/// (schema v3) from the objects already verified, never refused
+/// `bundle_too_large`.
+#[test]
+fn an_embedded_bundle_over_the_bound_by_its_framing_is_reassembled_by_reference() -> Result<()> {
+    use crate::package_v2::{BUNDLE_SCHEMA_V3, BundleV2};
+    let max = crate::package::MAX_BUNDLE_BYTES;
+    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
+    let renewal = |c: &Cohort| -> Result<Vec<u8>> {
+        let signed = slop_ninja_protocol::Signed::<slop_ninja_protocol::RewardIntentAuthorization>::from_bytes(&c.authorization)?;
+        let checked =
+            slop_ninja_protocol::RewardIntentAuthorization::check(&signed, &keys, &c.manifest, &c.package, &c.target, &activated(c)?)?;
+        Ok(fx::signed(slop_ninja_protocol::RewardIntentRenewal::new(&checked, 2, signed.record.renew_by_epoch - 1)?)?.to_bytes()?)
+    };
+    // What the form decision counts, and the assembled embedded bundle.
+    let listed = |c: &Cohort| cohort_objects(c).iter().map(|(_, b)| b.len() as u64).sum::<u64>();
+    let assembled = |c: &Cohort| -> Result<u64> {
+        let mut b: BundleV2 = serde_json::from_slice(&rv1::bundle(c))?;
+        b.authorization.renewal = Some(hex::encode(renewal(c)?));
+        Ok(serde_json::to_vec(&b)?.len() as u64)
+    };
+    let (a, b) = (rv1::sized(1_000), rv1::sized(2_000));
+    let per = (listed(&b) - listed(&a)) / 1_000;
+    assert_eq!(assembled(&b)? - assembled(&a)?, 2 * per * 1_000, "the map is not embedded");
+    let guess = (max / 2 - (listed(&a) - 1_000 * per)) / per;
+    let near = rv1::sized(guess);
+    let (l, asm) = (listed(&near) as i64, assembled(&near)? as i64);
+    drop(near);
+    // The most receipts past `guess` whose listed objects still fit.
+    let k = (max as i64 - 2 * l).div_euclid(2 * per as i64);
+    assert!(asm + 2 * k * per as i64 > max as i64, "the framing window holds no receipt count");
+    let c = rv1::sized((guess as i64 + k) as u64);
+    assert!(2 * listed(&c) <= max && assembled(&c)? > max, "the boundary case");
+    let host = Host::default();
+    publish(&host, &c);
+    index(&host, &[(&c, true)]);
+    point(&host, &fx::chain(), "cohort", &c.authorization, Some(&renewal(&c)?));
+    let root = scratch()?;
+    let staged = ready(run(&host, &root.path().join("cache"), launch_held())?);
+    assert_eq!(serde_json::from_slice::<BundleV2>(&staged.bundle)?.schema, BUNDLE_SCHEMA_V3);
+    assert_eq!(staged.info.receipts_verified, c.receipt_index.count());
+    Ok(())
+}
+
+/// Review (standing-r0 round 2, finding 1): a verified v3 bundle the process
+/// still holds (a successor waiting to be installed, the loop's newest, one
+/// in the fetcher's channel) keeps its cohorts in the shared keep set, which
+/// a session reads when it prunes. A later session that names another
+/// cohort and fails leaves the held bundle's receipts, so it still
+/// verifies; once dropped, its cohorts are pruned like any other, and
+/// `references_present` (what the `unchanged` shortcut checks) reports it.
+#[test]
+fn a_held_v3_bundle_keeps_its_receipts_through_a_failed_session() -> Result<()> {
+    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
+    let root = scratch()?;
+    let big = rv1::sized(VALIDATOR_BUNDLE_BYTES / receipt_bundle_bytes(1)? + 1_000);
+    let (first, _) = rv1::single(0x77);
+    let (held_label, other_label) = (big.manifest.cohort_label.clone(), first.manifest.cohort_label.clone());
+    assert_ne!(held_label, other_label);
+    let host = Host::default();
+    publish(&host, &big);
+    index(&host, &[(&big, true)]);
+    point(&host, &fx::chain(), "cohort", &big.authorization, None);
+    // Another host state: the pointer names another cohort whose package
+    // fails its listed digest.
+    let other = Host::default();
+    publish(&other, &first);
+    index(&other, &[(&first, true)]);
+    point(&other, &fx::chain(), "cohort", &first.authorization, None);
+    let pub_path = format!("{}publication.json", dir(&first));
+    let mut publication: serde_json::Value = serde_json::from_slice(&other.get_bytes(&pub_path))?;
+    for o in publication["objects"].as_array_mut().unwrap() {
+        if o["rel"] == "package.signed" {
+            o["sha256"] = json!("00".repeat(32));
+        }
+    }
+    other.put(&pub_path, serde_json::to_vec(&publication)?);
+    let cache = root.path().join("cache");
+    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
+    let verify = |b: &[u8]| {
+        crate::package_v2::verify_in(b, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held(), Some(&cache))
+            .map(|_| ())
+            .map_err(|r| r.code)
+    };
+    let keep = fetch::KeepSet::new(Some(Vec::new()));
+    let waiting = ready(run_in(&host, &cache, launch_held(), None, &keep)?);
+    let refs = fetch::bundle_references(&waiting.bundle)?;
+    assert!(!refs.is_empty(), "a v3 bundle");
+    assert_eq!(keep.snapshot(), Some(vec![held_label.clone()]));
+    let failed = run_in(&other, &cache, launch_held(), Some(&waiting.fingerprint), &keep)?;
+    assert_eq!(failed.code(), "object_digest_mismatch");
+    assert_eq!(cohort_dirs(&cache), vec![held_label.clone(), other_label.clone()]);
+    assert_eq!(verify(&waiting.bundle), Ok(()));
+    assert!(fetch::references_present(&cache, &refs));
+    // Released: the next session prunes it, and the shortcut sees the loss.
+    let bundle = waiting.bundle.clone();
+    drop(waiting);
+    assert_eq!(keep.snapshot(), Some(Vec::new()));
+    run_in(&other, &cache, launch_held(), None, &keep)?;
+    assert_eq!(cohort_dirs(&cache), vec![other_label]);
+    assert!(!fetch::references_present(&cache, &refs));
+    assert_eq!(verify(&bundle), Err("referenced_object_missing"));
+    // A full session (no previous fingerprint) rebuilds the files.
+    let rebuilt = ready(run_in(&host, &cache, launch_held(), None, &keep)?);
+    assert_eq!(rebuilt.bundle, bundle, "the same relative references");
+    assert_eq!(verify(&bundle), Ok(()));
+    Ok(())
+}
+
+/// Review (standing-r0 round 2, finding 6): while the bundle files' cohorts
+/// are unknown (one cannot be read) no session prunes, so none takes a new
+/// cohort into the cache either (`cache_keep_unknown`, retryable): disk use
+/// stays what the cache held. Cohorts it already holds are still read.
+#[test]
+fn an_unknown_keep_set_takes_no_new_cohort_into_the_cache() -> Result<()> {
+    let root = scratch()?;
+    let (first, second, _) = rv1::cohorts();
+    let host = Host::default();
+    publish(&host, &first);
+    publish(&host, &second);
+    index(&host, &[(&first, true), (&second, true)]);
+    point(&host, &fx::chain(), "cohort", &first.authorization, None);
+    let cache = root.path().join("cache");
+    let keep = fetch::KeepSet::new(None);
+    let outcome = run_in(&host, &cache, launch_held(), None, &keep)?;
+    assert_eq!(outcome.code(), "cache_keep_unknown", "{outcome:?}");
+    assert!(outcome.retryable() && !outcome.alert());
+    assert!(cohort_dirs(&cache).is_empty());
+    keep.set_files(Some(Vec::new()));
+    ready(run_in(&host, &cache, launch_held(), None, &keep)?);
+    assert_eq!(cohort_dirs(&cache), vec![first.manifest.cohort_label.clone()]);
+    // Unknown again: the cached cohort is read, a new one is not taken.
+    keep.set_files(None);
+    ready(run_in(&host, &cache, launch_held(), None, &keep)?);
+    point(&host, &fx::chain(), "cohort", &second.authorization, None);
+    let outcome = run_in(&host, &cache, activated(&first)?, None, &keep)?;
+    assert_eq!(outcome.code(), "cache_keep_unknown", "{outcome:?}");
+    assert_eq!(cohort_dirs(&cache), vec![first.manifest.cohort_label.clone()]);
+    Ok(())
+}
+
+/// Review (standing-r0 round 2, finding 7): the fetch path's peak memory at
+/// the receipt index bound, for the dispatch unit's `MemoryMax`: a target's
+/// cohort and its carrier each with the largest receipt index the protocol
+/// can sign (`receipt_index_capacity`), so the bundle is v3 and the session
+/// reads both signed indexes into memory. Measured as in
+/// [`peak_memory_at_the_bundle_bound`]: one session (with its verification),
+/// then the worst a continuous run holds at once (the installed bundle's
+/// verification, the loop's newest staged bundle, one waiting in the
+/// fetcher's channel, and a session assembling and verifying another).
+/// Linux only; run alone (`--ignored --nocapture --test-threads=1`); it
+/// prints the peaks above the starting set (the in-memory host's copies of
+/// the objects are part of the starting set).
+#[test]
+#[ignore = "measures peak memory at the receipt index bound; run alone"]
+fn peak_memory_at_the_receipt_index_bound() -> Result<()> {
+    use slop_ninja_protocol::target_bundle::{receipt_index_bytes, receipt_index_capacity};
+    let root = scratch()?;
+    let receipts = receipt_index_capacity()?;
+    // `first`'s target, carried by `second` (which produced no target).
+    let (first, second) = rv1::carried_sized(receipts);
+    assert_eq!((first.receipt_index.count(), second.receipt_index.count()), (receipts, receipts));
+    let host = Host::default();
+    publish(&host, &first);
+    publish(&host, &second);
+    index(&host, &[(&first, true), (&second, true)]);
+    point(&host, &fx::chain(), "cohort", &second.authorization, None);
+    drop((first, second));
+    let cache = root.path().join("public-cache");
+    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
+    let verify = |b: &[u8]| {
+        crate::package_v2::verify_in(b, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held(), Some(&cache))
+            .map_err(|r| anyhow::anyhow!("{}", r.code))
+    };
+    let (base, _) = rss_kib();
+    std::fs::write("/proc/self/clear_refs", "5")?;
+    let first = ready(run(&host, &cache, launch_held())?);
+    let (_, one_session) = rss_kib();
+    std::fs::write("/proc/self/clear_refs", "5")?;
+    let installed = verify(&first.bundle)?;
+    let (_, one_verification) = rss_kib();
+    let latest = ready(run(&host, &cache, launch_held())?);
+    let waiting = ready(run(&host, &cache, launch_held())?);
+    let (_, all) = rss_kib();
+    let report = json!({
+        "receipts_per_cohort": receipts,
+        "receipt_index_bytes": receipt_index_bytes(receipts)?,
+        "bundle_bytes": first.bundle.len(),
+        "receipts_verified": first.info.receipts_verified,
+        "base_kib": base,
+        "peak_one_session_kib": one_session.saturating_sub(base),
+        "peak_one_verification_kib": one_verification.saturating_sub(base),
+        "peak_held_and_session_kib": all.saturating_sub(base),
+    });
+    println!("peak_memory_at_the_receipt_index_bound {report}");
+    assert_eq!(installed.receipts_verified, 2 * receipts);
+    assert_eq!(first.info.receipts_verified, 2 * receipts);
+    drop((first, latest, waiting, installed));
+    Ok(())
+}
+
+/// A carried target past the embedded bound only together with its carrier
+/// (each cohort alone fits) is assembled as schema v3 naming both cohorts'
+/// receipt indexes and bundles, and verifies every receipt of both.
+#[test]
+fn a_carried_target_names_both_cohorts_receipts_by_reference() -> Result<()> {
+    use crate::package_v2::{BUNDLE_SCHEMA_V3, BundleV2};
+    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
+    let receipts = VALIDATOR_BUNDLE_BYTES / receipt_bundle_bytes(1)? / 2 + 1_000;
+    let (first, second) = rv1::carried_sized(receipts);
+    let host = Host::default();
+    publish(&host, &first);
+    publish(&host, &second);
+    index(&host, &[(&first, true), (&second, true)]);
+    point(&host, &fx::chain(), "cohort", &second.authorization, None);
+    let root = scratch()?;
+    let cache = root.path().join("cache");
+    let staged = ready(run(&host, &cache, launch_held())?);
+    let b: BundleV2 = serde_json::from_slice(&staged.bundle)?;
+    assert_eq!(b.schema, BUNDLE_SCHEMA_V3);
+    assert!(b.receipts.is_some() && b.carrier_receipts.is_some());
+    assert_eq!(staged.info.receipts_verified, 2 * receipts);
+    assert_eq!(staged.cohorts, vec![first.manifest.cohort_label.clone(), second.manifest.cohort_label.clone()]);
+    assert_eq!(fetch::bundle_references(&staged.bundle)?.len(), 4);
     Ok(())
 }

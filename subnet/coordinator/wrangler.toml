@@ -168,8 +168,12 @@ RECEIPT_PUBLIC_KEY = "6ecf3eadbae4eaaa139c04e2d8699ab976b1b873acf47a45301c9a2d01
 MAX_SCORE_LANES = "64"
 # Testnet roster cap for authoritative cohorts: the ceiling on every plan's
 # admission.roster_cap (the cohort's own cap, frozen in its plan; the standing
-# template is checked at it). The load instance may exceed it only to validate
-# scaling. Absent means no cap (mainnet).
+# template is checked at it). A deployment ceiling from the design note's
+# testnet plan, not a derived bound: the structural bound at the daily shape
+# is 64 (the package step's memory model), which `slop_ninja_eval_ops
+# standing-template` reports. Widening it is a deploy of this value. The load
+# instance may exceed it only to validate scaling. Absent means no cap
+# (mainnet).
 ROSTER_CAP = "40"
 LOAD_ROSTER_CAP = "128"
 # The shared Workers AI limiter: 290 a minute plus a burst of 10 never exceeds

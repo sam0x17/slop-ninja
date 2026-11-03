@@ -42,14 +42,23 @@ pub const PROBE_PLAN_SCHEMA: &str = "slop_ninja_eval_probe_plan_v1";
 pub const LOAD_PLAN_SCHEMA: &str = "slop_ninja_eval_load_plan_v1";
 /// The smallest batch a plan may name. The largest is not a constant: every
 /// receipt a cohort can record (each scored document of each job, at each
-/// attempt) must fit the receipt index's canonical sequence bound
-/// ([`receipt_capacity`]).
+/// attempt) must fit one signed receipt index ([`receipt_capacity`]).
 pub const MIN_CASES: u32 = 10;
 
+/// The most receipts one cohort may record: the entries one signed receipt
+/// index holds (`target_bundle::receipt_index_capacity`, the tighter of the
+/// codec's sequence bound and the signed-record limit). A native validator's
+/// fetch session holds two indexes of that size, a target's cohort's and its
+/// carrier's (`target_bundle::validator_receipt_index_bytes`), so this is
+/// also what every validator can fetch.
+pub fn receipt_index_bound() -> u64 {
+    slop_ninja_protocol::target_bundle::receipt_index_capacity().unwrap_or(0)
+}
+
 /// Whether `jobs_docs` scored documents at up to `max_attempts` attempts fit
-/// one receipt index (`slop_ninja_protocol::MAX_SEQUENCE_LEN` entries).
+/// one signed receipt index ([`receipt_index_bound`]).
 pub fn receipt_capacity(jobs_docs: u64, max_attempts: u8) -> bool {
-    jobs_docs.saturating_mul(u64::from(max_attempts)) <= u64::from(slop_ninja_protocol::MAX_SEQUENCE_LEN)
+    jobs_docs.saturating_mul(u64::from(max_attempts)) <= receipt_index_bound()
 }
 /// Ceiling on the declared per-kind shortfall tolerance (5 %).
 pub const MAX_KIND_SHORTFALL_PERMILLE: u16 = 50;
@@ -1015,7 +1024,7 @@ impl CohortPlan {
         // Every document each job scores, at every attempt, fits one receipt
         // index: references score the batch, entrants the batch, every probe
         // version in use and both canary audit draws.
-        e(receipt_capacity(self.scored_docs(), self.max_attempts), "n (receipts beyond one receipt index)")?;
+        e(receipt_capacity(self.scored_docs(), self.max_attempts), "n (receipts beyond one signed receipt index)")?;
         // The mix is a plan parameter: whole percentages summing to 100, every
         // origin present, and for a cohort realized exactly at this n (the
         // manifest's batch design checks the same). A probe build has no

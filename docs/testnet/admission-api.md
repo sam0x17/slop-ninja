@@ -866,9 +866,12 @@ authoritative for uploads; the snapshot is a published mirror and can lag it.
   tower class) are both admitted; any other spec is refused at the plan
   (`admission_spec_unsupported`). The standing template's roster cap is
   also bounded by the receipt index: every receipt a cohort at the cap can
-  record (every document at every attempt) must fit one index. Native
-  validators hold a target's receipts by reference (bundle schema v3), so
-  their 64 MiB bundle file bound limits only the embedded records.
+  record (every document at every attempt) must fit one signed index
+  (972,591 entries, what the protocol's 64 MiB signed-record limit holds).
+  Native validators hold a target's receipts by reference (bundle schema
+  v3), so their 64 MiB bundle file bound limits only the embedded records,
+  and they read the signed indexes of a target and its carrier within their
+  own allowance of two such indexes.
 - **Outside entrants.** An admitted entrant whose hotkey is not one of the
   plan's `operator_hotkeys`, whose hotkey no coldkey in `operator_coldkeys`
   owned at the cutoff (`Owner`, read in the cutoff snapshot; an owner that

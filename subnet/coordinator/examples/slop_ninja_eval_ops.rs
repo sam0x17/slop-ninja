@@ -83,13 +83,16 @@
 //!   version in RECORD.json, the authority's label prefix (without its
 //!   trailing `-`), both spec digests and the fewest multipart parts that
 //!   carry the spec's largest object at the block's part size, all derived.
-//!   The roster cap is N if given, else the largest cap up to the tracked
-//!   `ROSTER_CAP` that the coordinator's template check admits (its package
-//!   step and the receipt index); the scoring
+//!   The roster cap is N if given, else the largest cap the coordinator's
+//!   template check admits (its package step's memory model, the receipt
+//!   index, the scoring lanes), clamped to the tracked `ROSTER_CAP` (a
+//!   deployment ceiling, not a derived figure); the scoring
 //!   budget is the plan's upper bound at that cap (a runaway guard, never a
 //!   spend cap). The result passes the coordinator's own template check
-//!   under the tracked deployment vars before it is printed; the derived cap,
-//!   its receipts and the validator bundle schema they need go to stderr.
+//!   under the tracked deployment vars before it is printed. stderr names the
+//!   chosen cap, the structural bound at this shape without the ceiling (and
+//!   the refusal one past it), the ceiling, the receipts and the validator
+//!   bundle schema they need.
 //! - `authority-check` is the pre-deploy refusal for the eval Worker
 //!   (`config::deploy_check`): the deployed authority (`authority_name`,
 //!   `first_cohort`, `predecessors`, `cohorts`, `superseded_by`,
@@ -729,8 +732,9 @@ fn standing_template(flags: &BTreeMap<String, String>) {
     plan["fanout"]["score"]["artifact_spec"] = json!(id);
     plan["fanout"]["score"]["artifact_spec_sha256"] = json!(bounds.spec_sha256);
     plan["fanout"]["score"].as_object_mut().unwrap_or_else(|| fail("template: fanout.score")).remove("artifact_max_mib");
-    // The scoring budget at a cap: the plan's own upper bound there.
-    let budgeted = |t: &Value, cap: u64| -> Result<Value, String> {
+    // The scoring budget at a cap: the plan's own upper bound there, checked
+    // under `cfg` (the tracked ceilings, or none for the structural bound).
+    let budgeted_in = |cfg: &engine::EvalConfig, t: &Value, cap: u64| -> Result<Value, String> {
         let mut t = t.clone();
         t["plan"]["admission"]["roster_cap"] = json!(cap);
         t["plan"]["fanout"]["score"]["scoring_budget_microusd"] = json!(u64::MAX / 4);
@@ -752,10 +756,29 @@ fn standing_template(flags: &BTreeMap<String, String>) {
             full["previous_reference"]["manifest_key"] = json!(format!("artifacts/packages/{sha}.json"));
             full["previous_reference"]["package_sha256"] = json!(sha);
         }
-        let (_, adm) = engine::admit(&cfg, &serde_json::to_vec(&full).map_err(|e| e.to_string())?).map_err(|e| format!("plan at cap {cap}: {e:?}"))?;
+        let (_, adm) = engine::admit(cfg, &serde_json::to_vec(&full).map_err(|e| e.to_string())?).map_err(|e| format!("plan at cap {cap}: {e:?}"))?;
         t["plan"]["fanout"]["score"]["scoring_budget_microusd"] = json!(adm.scoring_upper_bound_microusd);
         let bytes = serde_json::to_vec(&t).map_err(|e| e.to_string())?;
-        calendar::check(&cfg, &bytes).map(|_| t).map_err(|e| format!("template at cap {cap}: {e:?}"))
+        calendar::check(cfg, &bytes).map(|_| t).map_err(|e| format!("template at cap {cap}: {e:?}"))
+    };
+    let budgeted = |t: &Value, cap: u64| budgeted_in(&cfg, t, cap);
+    // The structural bound at this shape: the largest cap the coordinator's
+    // own checks admit (memory model, receipt index, lanes) with no
+    // deployment ceiling, and the refusal one past it names. Every bound
+    // grows with the roster, so the admitted caps are 1..=bound.
+    let structural = {
+        let mut open = cfg.clone();
+        open.ceilings.roster_cap = None;
+        let (mut lo, mut hi) = (0u64, u64::from(slop_ninja_protocol::MAX_ROSTER));
+        if budgeted_in(&open, &t, hi).is_ok() {
+            lo = hi;
+        }
+        while hi - lo > 1 {
+            let mid = lo + (hi - lo) / 2;
+            if budgeted_in(&open, &t, mid).is_ok() { lo = mid } else { hi = mid }
+        }
+        let past = (lo < u64::from(slop_ninja_protocol::MAX_ROSTER)).then(|| budgeted_in(&open, &t, lo + 1).err()).flatten();
+        (lo, past)
     };
     let (cap, out) = match opt::<u64>(flags, "roster-cap") {
         Some(n) => (n, budgeted(&t, n).unwrap_or_else(|e| fail(&format!("the coordinator's template check refuses roster cap {n}: {e}")))),
@@ -769,9 +792,15 @@ fn standing_template(flags: &BTreeMap<String, String>) {
     };
     let bytes = serde_json::to_vec_pretty(&out).expect("template json");
     let parsed = calendar::check(&cfg, &bytes).unwrap_or_else(|e| fail(&format!("template check: {e:?}")));
+    // 40 is a deployment ceiling, not a derived figure: ROSTER_CAP in the
+    // tracked wrangler.toml bounds every plan's roster cap; each cohort
+    // freezes its own cap in its plan, and widening the ceiling is a deploy
+    // that changes ROSTER_CAP (up to the structural bound printed here).
     eprintln!(
-        "standing-template: roster_cap {cap} (ceiling {:?}); {}",
-        cfg.ceilings.roster_cap,
+        "standing-template: roster_cap {cap}; structural bound {} at this shape (memory model, receipt index, lanes; one more: {}); deployment ceiling ROSTER_CAP {}; {}",
+        structural.0,
+        structural.1.as_deref().unwrap_or("MAX_ROSTER"),
+        cfg.ceilings.roster_cap.map_or("none".to_owned(), |c| c.to_string()),
         calendar::capacity(&parsed)
     );
     println!("{}", String::from_utf8(bytes).expect("utf-8"));

@@ -1580,7 +1580,7 @@ reported no defect (19). The fixes:
 | 7 | The manifest could not lower the near-copy distance `d` | `0 < d <= 0.025` is a manifest parameter; the other reward-v1 values stay fixed by the rule |
 | 8, 24 | The coordinator's target route took 1 MiB while a reward-v1 bundle may be 2,000,000 bytes, and the embedded published index grows without bound | The route takes either bundle form up to its own bound; binding the index by digest (R2 or chunked rows) is not implemented yet (README) |
 | 10 | The span graph is allow-listed but not served; `artifact_max_mib` is a tuned plan value | Recorded (README); serving span heads, a schema-derived bound and admission wiring are still to do |
-| 11, 32 | Compiled limits | The batch size is bounded by the receipt index's sequence bound (receipts of every job at every attempt), attempts by the receipt's attempt number, generators by the price table (distinct), strata by the sequence bound |
+| 11, 32 | Compiled limits | The batch size is bounded by what one signed receipt index holds (receipts of every job at every attempt; the signed-record limit, tighter than the sequence bound), attempts by the receipt's attempt number, generators by the price table (distinct), strata by the sequence bound |
 | 12 | Every entrant scores both audit draws; draw A was smaller than the loose tier's sample | Draw B is taken only when the plan lists a drill (the testnet canary has no anchors); draw A must hold at least the cohort's humans. Scoring audits for candidates only is not implemented |
 | 13 | A re-audit could reuse its draw; the gap counted operator cohort numbers; promotion walks only retained heads; no-target cohorts cannot authorize the burn row | A re-audit must name another draw; the gap counts drawn reward-v1 cohorts (reuse ordinals, store v9); the other two are recorded (protocol README) for the paper |
 | 14 (high) | Rows summing to 65,535 were committed as they are, but rtao and the chain store them max-upscaled | `WeightRowV2::chain_values` (exact, half to even) is what both signers commit and compare with reveals; the canonical row and digest stay the audited record. Agreement with rtao's arithmetic is tested over every two-entry row |
@@ -2424,21 +2424,33 @@ standing template (AR-7). Code (branch `subnet-testnet/standing-r0`):
   (`VALIDATOR_BUNDLE_BYTES`, now the validator's `MAX_BUNDLE_BYTES`); schema
   v2 fits 10 such entrants. Bundle schema v3
   (`slop_ninja.reward_v1_bundle/v3`) closes the gap: it embeds the records
-  and names each cohort's signed receipt index and receipt chunks by
-  absolute path, SHA-256 and length; the validator checks each file before
-  use and verifies the receipts one chunk at a time against the index. The
-  fetcher writes v3 when the embedded form would not fit, pointing into its
-  verified cache, and `reward_v1_verify` writes `reward-v1-bundle-v3.json`
-  beside the v2 form. A cohort's receipts are then bounded by one receipt
-  index (2^20 entries, `plan::receipt_capacity`), which the template check
-  applies at the cap. The install reply reports receipts per cohort and
-  whether the embedded form still fits (`capacity`).
+  and names each cohort's signed receipt index and receipt chunks by path,
+  SHA-256 and length; the validator checks each file before use and
+  verifies the receipts one chunk at a time against the index. The fetcher
+  writes v3 when the embedded form would not fit, naming objects in its
+  verified cache relative to the cache root, and `reward_v1_verify` writes
+  `reward-v1-bundle-v3.json` (absolute paths) beside the v2 form. A cohort's
+  receipts are then bounded by one signed receipt index
+  (`plan::receipt_capacity`): 972,591 entries, the most whose record fits
+  the protocol's 64 MiB signed-record limit at 69 bytes an entry, which is
+  tighter than the codec's 2^20. The template check applies it at the cap.
+  A native validator's fetch session reads both signed indexes (target and
+  carrier) into memory within their own allowance of two such indexes,
+  beside the 64 MiB it reads for documents and records, and refuses a listed
+  index it could not hold (`receipts_too_large`) before reading anything.
+  The install reply reports receipts per cohort against each bound and
+  whether the embedded form still fits (`capacity`). (Review round 1
+  corrected an earlier statement that the 2^20 sequence bound was the
+  limit: at it the coordinator could not sign the index.)
 - **Template tool.** `slop_ninja_eval_ops standing-template` fills a base
   template for the tracked authority: R_0 and the probe record from the
   restart, the authority's label prefix, both spec digests, the fewest parts
-  that carry the spec's largest object, the largest roster cap up to
-  `ROSTER_CAP` that the coordinator's own template check admits, and the
+  that carry the spec's largest object, the largest roster cap the
+  coordinator's own template check admits clamped to `ROSTER_CAP`, and the
   scoring budget at the plan's upper bound for that cap (a runaway guard).
+  Its stderr names the structural bound at the template's shape (the
+  largest cap the checks admit with no ceiling, and the refusal one past
+  it) beside the ceiling.
 
 The daily shape is n = 1,000, K = 20 (one admission tempo, two transition
 tempos), renew-by hint 40 tempos (no expiry), the 1,024-document probe, 200 audit humans, three
@@ -2446,13 +2458,25 @@ attempts, one scoring lane per artifact, no pre-start, spec v3, the exposed
 pool `testnet-human-pool-pc1`, and the incentive rule with provisional
 gates. Spec v3's tower-class object needs the longest step the alarm wall
 allows for one isolation proof (`step_budget_ms` 780,000: 900 s less the
-generation lease). At this shape the derived cap is the deployment's
-`ROSTER_CAP`, **40 entrants**: 272,880 receipts per cohort against the
-receipt index's 1,048,576, and the package step fits the memory model (it
-refuses 65). A validator whose build predates bundle schema v3 refuses a
-target bundle beyond the embedded bound (`bundle_too_large`) and keeps its
-old target, so every native validator needs a v3 build before a cohort with
-more than 10 scored entrants produces a target.
+generation lease). At this shape the structural bound is **64 entrants**,
+set by the package step's memory model (it refuses 65); the receipt bound
+is well above it (one signed index holds 144 entrants at three attempts:
+(972,591 / 3 - 2,000) / 2,224). The template runs
+at **40 entrants**, the testnet deployment ceiling `ROSTER_CAP`, which is not
+derived: the design note's testnet plan caps the testnet roster at 40 (and
+rehearses fan-out above it on the load instance). Each cohort freezes its
+cap in its plan; widening the ceiling, up to the structural bound, is a
+deploy that changes `ROSTER_CAP` in `wrangler.toml` and a template
+reinstall. At 40 entrants a cohort records 272,880 receipts against one
+signed index's 972,591 (an 18.8 MB index). At 40 entrants the template takes at most 10
+attempts (909,600 receipts); 11 would fit the 2^20 sequence bound but not a
+signed index, and is refused. A validator whose build predates bundle
+schema v3 refuses a target bundle beyond the embedded bound
+(`bundle_too_large`) and keeps its old target, so every native validator
+needs a v3 build before a cohort with more than 10 scored entrants produces
+a target: validator2's next install, and every release binary offered to
+outside validators, must come from a build with schema v3 and this round's
+fetch fixes.
 
 ### Authorization without expiry and signed revocation (2026-11-03)
 

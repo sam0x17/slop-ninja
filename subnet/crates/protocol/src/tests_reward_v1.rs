@@ -3171,6 +3171,60 @@ fn a_receipt_takes_one_length_in_a_validator_bundle() -> Result<()> {
     Ok(())
 }
 
+/// Review (standing-r0 round 1): a signed receipt index's length is exact
+/// (69 bytes an entry beside a fixed header), and the receipt bound is the
+/// tighter of the codec's sequence bound and the signed-record limit: an
+/// index one entry past [`target_bundle::receipt_index_capacity`] cannot be
+/// signed, so the coordinator could not package such a cohort.
+#[test]
+fn the_receipt_index_capacity_is_what_one_signed_envelope_holds() -> Result<()> {
+    let receipt = |n: u32| AttemptReceipt {
+        attempt: Digest(domain_hash("test/receipt-index-capacity", &n.to_be_bytes()).0),
+        assignment: Digest([0x10; 32]),
+        artifact: Digest([0x11; 32]),
+        number: 1,
+        outcome: OutcomeClass::Prediction,
+        result_commitment: Digest([0x12; 32]),
+    };
+    let key = crate::fixtures::receipt_key();
+    for n in [0u32, 1, 3, 100] {
+        let mut entries: Vec<ReceiptIndexEntry> = (0..n).map(|i| ReceiptIndexEntry::for_receipt(&receipt(i)).unwrap()).collect();
+        entries.sort_by_key(|e| e.attempt);
+        let signed = crate::sign(ReceiptIndex { cohort_manifest: Digest([9; 32]), entries }, &key)?.to_bytes()?;
+        assert_eq!(target_bundle::receipt_index_bytes(u64::from(n))?, signed.len() as u64, "{n} entries");
+    }
+    let per = target_bundle::receipt_index_bytes(1)? - target_bundle::receipt_index_bytes(0)?;
+    assert_eq!(per, 69);
+    let capacity = target_bundle::receipt_index_capacity()?;
+    assert!(capacity < u64::from(crate::MAX_SEQUENCE_LEN), "the signed-record limit is the tighter bound");
+    // (64 MiB - 55 bytes of record header) / 69.
+    assert_eq!(capacity, 972_591);
+    // The record (the signed bytes less the envelope) fits at the capacity
+    // and not one entry later.
+    let envelope = target_bundle::receipt_index_bytes(0)?
+        - ReceiptIndex { cohort_manifest: Digest([0; 32]), entries: Vec::new() }.to_bytes()?.len() as u64;
+    let record = |n: u64| target_bundle::receipt_index_bytes(n).unwrap() - envelope;
+    assert!(record(capacity) <= u64::from(crate::MAX_SIGNED_RECORD_LEN));
+    assert!(record(capacity + 1) > u64::from(crate::MAX_SIGNED_RECORD_LEN));
+    // And the encoder agrees: one entry past the capacity is refused.
+    let entries: Vec<ReceiptIndexEntry> = (0..=capacity)
+        .map(|i| ReceiptIndexEntry {
+            attempt: Digest({
+                let mut d = [0u8; 32];
+                d[24..].copy_from_slice(&i.to_be_bytes());
+                d
+            }),
+            outcome: OutcomeClass::Prediction,
+            object_sha256: Digest([1; 32]),
+            object_len: 150,
+        })
+        .collect();
+    let over = Signed { record: ReceiptIndex { cohort_manifest: Digest([9; 32]), entries }, public_key: [0; 32], signature: [0; 64] };
+    assert!(matches!(over.to_bytes(), Err(Error::LengthLimit { field: "signed record", .. })));
+    assert_eq!(target_bundle::validator_receipt_index_bytes()?, 2 * target_bundle::receipt_index_bytes(capacity)?);
+    Ok(())
+}
+
 #[test]
 fn receipt_chunks_must_hold_every_indexed_receipt_once() -> Result<()> {
     let receipt = |n: u8| AttemptReceipt {

@@ -291,8 +291,12 @@ pub struct LivePorts {
     /// The fetcher, shared by the startup session and the dispatch run's
     /// background task (one session at a time).
     fetcher: Option<Arc<tokio::sync::Mutex<FetchSetup>>>,
-    /// Cohorts the installed bundle was built from, which the cache keeps.
-    keep_cohorts: Arc<std::sync::Mutex<Vec<String>>>,
+    /// What the fetch cache keeps: the bundle files' cohorts and those of
+    /// every fetched bundle this process holds ([`crate::fetch::KeepSet`]).
+    keep_cohorts: crate::fetch::KeepSet,
+    /// Set when the installed bundle's referenced cache files failed: the
+    /// next fetch session assembles the bundle in full.
+    fetch_rebuild: Arc<std::sync::atomic::AtomicBool>,
     /// A successor the startup fetch found eligible while work was in
     /// flight: the dispatch loop starts waiting for it.
     startup_wait: Option<(Box<Staged>, Decision, u64)>,
@@ -337,7 +341,8 @@ impl LivePorts {
             dry_run: false,
             staged_bundle: None,
             fetcher: None,
-            keep_cohorts: Arc::new(std::sync::Mutex::new(Vec::new())),
+            keep_cohorts: crate::fetch::KeepSet::new(Some(Vec::new())),
+            fetch_rebuild: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             startup_wait: None,
             loop_installed: None,
             tempo: None,
@@ -1291,6 +1296,14 @@ impl AppPorts for LivePorts {
         };
         self.installed_sha = Some(crate::fetch::sha256_hex(&bytes));
         Ok(bytes)
+    }
+
+    fn receipts_root(&self) -> Option<std::path::PathBuf> {
+        LivePorts::receipts_root(self)
+    }
+
+    fn rebuild_fetched_bundle(&mut self) {
+        self.fetch_rebuild.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn trusted_keys(&self) -> Result<TrustedKeys> {
@@ -2526,9 +2539,12 @@ struct FetchSetup {
     revocation_store: std::path::PathBuf,
     /// A session never outlives the interval to the next one.
     deadline: Duration,
-    /// [`Staged::fingerprint`] of the last bundle a session produced.
-    previous: Option<String>,
-    keep: Arc<std::sync::Mutex<Vec<String>>>,
+    /// [`Staged::fingerprint`] of the last bundle a session produced, and
+    /// the cache files it names by reference.
+    previous: Option<(String, Vec<crate::package_v2::ObjectRef>)>,
+    keep: crate::fetch::KeepSet,
+    /// [`LivePorts::fetch_rebuild`].
+    rebuild: Arc<std::sync::atomic::AtomicBool>,
     dry_run: bool,
 }
 
@@ -2544,7 +2560,16 @@ impl FetchSetup {
     /// times out leaves its partial objects to resume next time.
     async fn session(&mut self) -> Result<Outcome> {
         let held = self.held()?;
-        let keep = self.keep.lock().map(|k| k.clone()).unwrap_or_default();
+        // `unchanged` vouches for the last bundle, so it needs that bundle's
+        // referenced files: when one is gone (or a verification found one
+        // changed), the session assembles the bundle in full again.
+        let rebuild = self.rebuild.swap(false, std::sync::atomic::Ordering::SeqCst);
+        if let Some((_, refs)) = &self.previous
+            && (rebuild || !crate::fetch::references_present(&self.cache, refs))
+        {
+            tracing::warn!(event = "fetch_rebuild", reason = if rebuild { "verification" } else { "references_missing" });
+            self.previous = None;
+        }
         let outcome = {
             let session = Session {
                 transport: &self.transport,
@@ -2552,8 +2577,8 @@ impl FetchSetup {
                 keys: &self.keys,
                 chain: &self.chain,
                 held,
-                previous: self.previous.as_deref(),
-                keep: &keep,
+                previous: self.previous.as_ref().map(|(fingerprint, _)| fingerprint.as_str()),
+                keep: &self.keep,
                 revocations: Some(&self.revocation_store),
             };
             match tokio::time::timeout(self.deadline, session.run()).await {
@@ -2565,7 +2590,7 @@ impl FetchSetup {
             }
         };
         if let Outcome::Ready(staged) = &outcome {
-            self.previous = Some(staged.fingerprint.clone());
+            self.previous = Some((staged.fingerprint.clone(), crate::fetch::bundle_references(&staged.bundle)?));
         }
         Ok(outcome)
     }
@@ -2636,6 +2661,7 @@ impl LivePorts {
             deadline,
             previous: None,
             keep: self.keep_cohorts.clone(),
+            rebuild: self.fetch_rebuild.clone(),
             dry_run: self.dry_run,
         }));
         self.refresh_keep_cohorts(None);
@@ -2643,27 +2669,58 @@ impl LivePorts {
         Ok(Some(setup))
     }
 
-    /// Records the installed bundle's cohorts (`bytes`, or the installed
-    /// file), which the cache keeps.
+    /// The fetch cache a fetched v3 bundle names its receipt objects under.
+    pub fn receipts_root(&self) -> Option<std::path::PathBuf> {
+        self.config.fetch.as_ref()?.cache_dir(&self.config.journal_path).ok()
+    }
+
+    /// Records the bundle files' cohorts, which the cache keeps: those of
+    /// the bundle just written (`bytes`), the installed file, a bundle staged
+    /// in memory and a bundle staged on disk for an interrupted install (a
+    /// fetched bundle not yet written keeps its own through its
+    /// [`crate::fetch::KeepGuard`]). A v3 bundle's receipts live only there
+    /// once the host deleted them (N+2). A file whose manifests do not parse
+    /// keeps nothing (it cannot verify whatever the cache holds). When a
+    /// file cannot be read the set is unknown: sessions then prune nothing
+    /// and take no new cohort into the cache until it is known.
     fn refresh_keep_cohorts(&self, bytes: Option<&[u8]>) {
         let Some(package) = &self.config.package else {
             return;
         };
-        let cohorts = match bytes.or(self.staged_bundle.as_deref()) {
-            Some(bytes) => crate::fetch::bundle_cohorts(bytes),
-            None => match std::fs::read(&package.path) {
-                Ok(bytes) if crate::package_v2::is_v2(&bytes) => crate::fetch::bundle_cohorts(&bytes),
-                _ => Ok(Vec::new()),
-            },
+        let parsed = |bytes: &[u8], what: &str| -> Vec<String> {
+            crate::fetch::bundle_cohorts(bytes).unwrap_or_else(|error| {
+                tracing::warn!(event = "bundle_cohorts_unparsed", bundle = what, error = %format!("{error:#}"), alert = true);
+                Vec::new()
+            })
         };
-        match cohorts {
-            Ok(cohorts) => {
-                if let Ok(mut keep) = self.keep_cohorts.lock() {
-                    *keep = cohorts;
+        let file = |path: &std::path::Path| -> Result<Vec<String>> {
+            match std::fs::read(path) {
+                Ok(bytes) if crate::package_v2::is_v2(&bytes) => Ok(parsed(&bytes, "file")),
+                Ok(_) => Ok(Vec::new()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+                Err(error) => Err(error).with_context(|| format!("{} is unreadable", path.display())),
+            }
+        };
+        let mut sets = vec![file(&package.path), file(&staged_bundle_path(&package.path))];
+        for b in [bytes, self.staged_bundle.as_deref()].into_iter().flatten() {
+            sets.push(Ok(parsed(b, "memory")));
+        }
+        let cohorts = sets.into_iter().try_fold(Vec::new(), |mut all: Vec<String>, set| {
+            for c in set? {
+                if !all.contains(&c) {
+                    all.push(c);
                 }
             }
-            Err(error) => tracing::warn!(event = "installed_bundle_unreadable", error = %format!("{error:#}")),
-        }
+            Ok::<_, anyhow::Error>(all)
+        });
+        let keep = match cohorts {
+            Ok(cohorts) => Some(cohorts),
+            Err(error) => {
+                tracing::warn!(event = "installed_bundle_unreadable", error = %format!("{error:#}"), prune = false, alert = true);
+                None
+            }
+        };
+        self.keep_cohorts.set_files(keep);
     }
 
     fn chain_binding(&self) -> ChainBinding {
@@ -2716,7 +2773,15 @@ impl LivePorts {
         };
         let held = self.held_active()?;
         let verified = if crate::package_v2::is_v2(&bytes) {
-            crate::package_v2::verify(&bytes, &self.trusted_keys()?, &self.identity.genesis.0, self.identity.netuid.0, &held).ok()
+            crate::package_v2::verify_in(
+                &bytes,
+                &self.trusted_keys()?,
+                &self.identity.genesis.0,
+                self.identity.netuid.0,
+                &held,
+                self.receipts_root().as_deref(),
+            )
+            .ok()
         } else {
             None
         };
@@ -2753,9 +2818,14 @@ impl LivePorts {
             return Ok(None);
         }
         let held = self.held_active()?;
-        let Ok(authorized) =
-            crate::package_v2::verify(&bytes, &self.trusted_keys()?, &self.identity.genesis.0, self.identity.netuid.0, &held)
-        else {
+        let Ok(authorized) = crate::package_v2::verify_in(
+            &bytes,
+            &self.trusted_keys()?,
+            &self.identity.genesis.0,
+            self.identity.netuid.0,
+            &held,
+            self.receipts_root().as_deref(),
+        ) else {
             return Ok(None);
         };
         let info = BundleInfo::of(&bytes, &authorized)?;
@@ -2820,7 +2890,7 @@ impl LivePorts {
     /// Waits outside the dispatch loop after a deferred tempo, until the
     /// finalized epoch passes the current one: a fetch session every poll
     /// interval with `[fetch]` (returning early once it installs a renewal or
-    /// successor), else one epoch read a minute.
+    /// successor, or assembles a bundle afresh), else one epoch read a minute.
     pub async fn wait_after_deferral(&mut self) -> Result<()> {
         let start = self.finalized_epoch_index().await?;
         let poll = Duration::from_secs(self.config.fetch.as_ref().map_or(EPOCH_POLL_SECS, |f| f.poll_secs));
@@ -2836,7 +2906,10 @@ impl LivePorts {
                                 report = %serde_json::to_string(&report).unwrap_or_default()
                             );
                         }
-                        if report.installed {
+                        // An install, or a bundle assembled afresh (new
+                        // documents, or a rebuild after its cache files
+                        // failed), is applied at once.
+                        if report.installed || report.outcome == "ready" {
                             return Ok(());
                         }
                     }

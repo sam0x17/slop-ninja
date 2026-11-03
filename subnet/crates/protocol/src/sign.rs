@@ -14,8 +14,9 @@ use crate::{Digest, Error, Result, domain_hash};
 const SIGNATURE_DOMAIN: &str = "slop_ninja.protocol.signature/v1";
 const ENVELOPE_KIND: &str = "signed";
 const ENVELOPE_VERSION: u16 = 1;
-/// Largest signed record accepted in one envelope.
-const MAX_SIGNED_RECORD_LEN: u32 = 64 << 20;
+/// Largest signed record accepted in one envelope: [`Signed::to_bytes`]
+/// refuses to encode a longer record and the decoder refuses to read one.
+pub const MAX_SIGNED_RECORD_LEN: u32 = 64 << 20;
 
 /// Purpose of an application signing key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

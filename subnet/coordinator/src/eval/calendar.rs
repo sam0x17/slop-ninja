@@ -23,13 +23,19 @@
 //! probe-inclusive upper bound, its package step fits the memory model
 //! (`arena_routes::package_fits`), and every receipt it can record (every
 //! scored document at every attempt, `CohortPlan::receipt_bound`) fits one
-//! receipt index (`plan::receipt_capacity`, the codec's sequence bound).
-//! That is also what a native validator can hold: its bundle schema v3
-//! names the receipt indexes and chunks of a target's cohort and of its
-//! carrier by reference instead of embedding them, so the validators'
-//! 64 MiB file bound (`VALIDATOR_BUNDLE_BYTES`) limits only the embedded
-//! records. Schema v2 embeds the receipts hex-encoded; [`capacity`] reports
-//! whether that form would still fit ([`embedded_bundle_bytes`]). The roster
+//! signed receipt index (`plan::receipt_capacity`): the tighter of the
+//! codec's sequence bound and the entries whose record fits the protocol's
+//! 64 MiB signed-record limit (`target_bundle::receipt_index_capacity`,
+//! 69 bytes an entry), so the coordinator can sign the index it packages.
+//! A native validator holds that too: its bundle schema v3 names the
+//! receipt indexes and chunks of a target's cohort and of its carrier by
+//! reference instead of embedding them, so the validators' 64 MiB file
+//! bound (`VALIDATOR_BUNDLE_BYTES`) limits only the embedded records, and
+//! its fetch session reads the two signed indexes within their own
+//! allowance (`target_bundle::validator_receipt_index_bytes`, two indexes
+//! at that capacity) beside the file bound. Schema v2 embeds the receipts
+//! hex-encoded; [`capacity`] reports every bound and whether that form
+//! would still fit ([`embedded_bundle_bytes`]). The roster
 //! cap a template can take therefore follows from its shape (n, the probe
 //! and audit draws, `max_attempts`) and the protocol's bounds, never from a
 //! tuned figure. It runs the testnet plan defaults of the
@@ -205,10 +211,13 @@ pub fn check(cfg: &EvalConfig, bytes: &[u8]) -> R<Template> {
 }
 
 /// The template's roster cap and what it needs at that cap, for the install
-/// reply and the operator's template tool: receipts per cohort against the
-/// receipt index bound, and the bytes a schema v2 validator bundle would
-/// embed for a target and its carrier against the validators' file bound
-/// (beyond it, validators hold the receipts through bundle schema v3).
+/// reply and the operator's template tool: receipts per cohort against each
+/// receipt bound (the codec's sequence bound, the entries one signed index
+/// holds, the entries a validator session holds for a target and its
+/// carrier, and the tightest of them, which the template check applies),
+/// the signed index's bytes, and the bytes a schema v2 validator bundle
+/// would embed for a target and its carrier against the validators' file
+/// bound (beyond it, validators hold the receipts through bundle schema v3).
 pub fn capacity(t: &Template) -> Value {
     let mut full = t.plan.clone();
     let cap = t.plan.admission.as_ref().map_or(0, |a| a.roster_cap);
@@ -218,8 +227,20 @@ pub fn capacity(t: &Template) -> Value {
     }
     let embedded = embedded_bundle_bytes(&full);
     let bound = slop_ninja_protocol::target_bundle::VALIDATOR_BUNDLE_BYTES;
+    use slop_ninja_protocol::target_bundle as tb;
+    // The largest count whose two signed indexes (target and carrier) fit
+    // the validator session's receipt-index allowance.
+    let session = (|| {
+        let (base, one) = (tb::receipt_index_bytes(0).ok()?, tb::receipt_index_bytes(1).ok()?);
+        Some((tb::validator_receipt_index_bytes().ok()? / 2).checked_sub(base)? / one.checked_sub(base)?)
+    })();
+    let sequence = u64::from(slop_ninja_protocol::MAX_SEQUENCE_LEN);
     json!({"roster_cap": cap, "receipts_per_cohort": full.receipt_bound(),
-        "receipt_index_bound": slop_ninja_protocol::MAX_SEQUENCE_LEN,
+        "receipt_index_bound": crate::eval::plan::receipt_index_bound(),
+        "receipt_bounds": {"sequence": sequence, "signed_record": tb::receipt_index_capacity().ok(),
+            "validator_session": session},
+        "receipt_index_bytes": tb::receipt_index_bytes(full.receipt_bound()).ok(),
+        "validator_receipt_index_bytes": tb::validator_receipt_index_bytes().ok(),
         "embedded_bundle_receipt_bytes": embedded, "bundle_bound": bound,
         "embedded_bundle_fits": embedded.is_some_and(|b| b <= bound),
         "validator_bundle_schema": if embedded.is_some_and(|b| b <= bound) { "v2 or v3" } else { "v3" }})

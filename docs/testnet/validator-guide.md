@@ -247,7 +247,8 @@ never resets while a unit keeps restarting, so it would leave every later
 restart at its maximum.) A continuous run does not exit for routine work:
 it continues on a new target, and waits out a tempo with nothing to commit,
 in the same process. Both set
-`MemoryMax=1G` and `MemorySwapMax=0`. The dispatch unit is enabled for
+`MemoryMax=2G` (twice the measured worst case at the largest receipt
+indexes the protocol can sign) and `MemorySwapMax=0`. The dispatch unit is enabled for
 `default.target`, and lingering starts your user manager at boot, so the
 validator survives logout and reboots. The installer does all of this:
 
@@ -319,17 +320,25 @@ A lying host can make a fetch fail, never change what is verified. It also
 cannot fill your disk or memory: an authorization's length is fixed by its
 schema and its signature is checked before anything else is fetched; every
 receipt bundle must be accounted for by the signed receipt index and listed
-in `publication.json` before any is read; a session reads at most 64 MiB,
-cached objects included, and ends after `poll_secs`; and every session
-prunes the cache to what it and your installed bundle need. A refusal of
+in `publication.json` before any is read; a session reads at most 64 MiB
+into memory for documents and records, cached objects included, plus at
+most two signed receipt indexes (about 128 MiB, the largest the protocol
+can sign), and ends after `poll_secs`; receipt bundles stream to disk,
+bounded by the signed index; and every session prunes the cache to what it
+and the bundles your validator holds need. While your installed or staged
+bundle file cannot be read (`installed_bundle_unreadable`, alerting), no
+session prunes and none takes a new cohort into the cache
+(`cache_keep_unknown`) until it reads again. A refusal of
 records the host served is logged as `fetch_refused` with `alert = true`.
 
 For a cohort authorization, the fetcher takes the target's cohort and the
 carrying cohort the authorization names (a later cohort that produced no
 target), with their manifests, packages, closure, published index, receipt
 index and every receipt bundle, assembles the bundle, and verifies it
-against the target your validator holds. A session reads at most 64 MiB, the
-bundle file bound, and refuses a declared length before reading the body. A
+against the target your validator holds. A session reads at most 64 MiB
+into memory for documents and records (the bundle file bound) and at most
+two signed receipt indexes (about 128 MiB) beside it, and refuses a
+declared length before reading the body. A
 download interrupted part-way is kept as a partial file and continued with a
 range request at the next check; an object that fails its digest is deleted
 and fetched again. Verified objects stay in the cache while the current
@@ -371,7 +380,19 @@ need retained receipts, so a validator that never fetched a cohort's
 receipts before they were deleted reports `receipts_expired` and keeps its
 installed bundle; one that fetched them earlier assembles from its own
 verified cache. Commitments already submitted recover from the journal
-without receipts.
+without receipts. The cache keeps detailed receipts only for the cohorts
+of bundles your validator holds (installed, staged, or verified and waiting
+to be installed) and drops them at the first session after a successor is
+installed; it is not an archive. Once the host has deleted a carrier's
+receipts, an installed bundle that names them (schema v3) verifies only
+from the cache, so keep the cache in place across restarts and updates (or
+move it only together with its `[fetch] cache_dir` setting). If its files
+go missing or change, the validator does not halt: it logs
+`bundle_cache_unreadable` (alerting), retries, and the next session
+re-fetches them while the host still has them. A validator that starts
+fresh after the host deleted a carrier's receipts cannot assemble that
+target's bundle and commits nothing for it until the next authorization
+(`receipts_expired`).
 
 **No authorization expires.** Your validator keeps committing the installed
 target for as long as it is the held target, however long the coordinator is

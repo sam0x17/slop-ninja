@@ -1770,34 +1770,56 @@ fn daily_template(prefix: &str, cap: u16) -> crate::eval::calendar::Template {
 
 #[test]
 fn the_receipt_index_bounds_the_template_roster_and_validators_hold_it_by_reference() {
-    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
+    use slop_ninja_protocol::target_bundle::{
+        VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes, receipt_index_bytes, receipt_index_capacity,
+        validator_receipt_index_bytes,
+    };
     let cfg = cfg();
     let check = |t: &crate::eval::calendar::Template| crate::eval::calendar::check(&cfg, &serde_json::to_vec(t).unwrap());
     // Receipts per cohort from the shape alone: R_k, R_{k-1} and `cap`
     // entrants, every document at every attempt.
     let per_cohort = |cap: u64, attempts: u64| attempts * (2 * 1000 + cap * (1000 + 1024 + 200));
     // The full 40-entrant daily template is admitted: its receipts fit one
-    // receipt index, although a validator bundle that embeds them (schema
-    // v1) for a target and its carrier would exceed the 64 MiB file bound.
+    // signed receipt index, although a validator bundle that embeds them
+    // (schema v2) for a target and its carrier would exceed the 64 MiB file
+    // bound.
     let t = daily_template("testnet-cohort", 40);
     check(&t).unwrap();
     let c = crate::eval::calendar::capacity(&t);
+    let capacity = receipt_index_capacity().unwrap();
     assert_eq!(c["roster_cap"], 40);
     assert_eq!(c["receipts_per_cohort"], per_cohort(40, 3));
-    assert_eq!(c["receipt_index_bound"], slop_ninja_protocol::MAX_SEQUENCE_LEN);
+    // The signed-record limit is tighter than the codec's sequence bound,
+    // and a validator session holds two indexes at it.
+    assert!(capacity < u64::from(slop_ninja_protocol::MAX_SEQUENCE_LEN));
+    assert_eq!(c["receipt_index_bound"], capacity);
+    assert_eq!(c["receipt_bounds"]["sequence"], slop_ninja_protocol::MAX_SEQUENCE_LEN);
+    assert_eq!(c["receipt_bounds"]["signed_record"], capacity);
+    assert_eq!(c["receipt_bounds"]["validator_session"], capacity);
+    assert_eq!(c["receipt_index_bytes"], receipt_index_bytes(per_cohort(40, 3)).unwrap());
+    assert_eq!(c["validator_receipt_index_bytes"], validator_receipt_index_bytes().unwrap());
     let embedded = 2 * receipt_bundle_bytes(per_cohort(40, 3)).unwrap();
     assert!(embedded > VALIDATOR_BUNDLE_BYTES);
     assert_eq!(c["embedded_bundle_receipt_bytes"], embedded);
     assert_eq!((c["embedded_bundle_fits"].as_bool(), c["validator_bundle_schema"].as_str()), (Some(false), Some("v3")));
-    // The receipt index is the bound: the most attempts whose receipts fit
-    // one index is admitted, one more is refused.
-    let most = (1..=u8::MAX).filter(|&a| per_cohort(40, u64::from(a)) <= u64::from(slop_ninja_protocol::MAX_SEQUENCE_LEN)).max().unwrap();
+    // One signed receipt index is the bound: the most attempts whose
+    // receipts it holds is admitted, one more is refused. The attempts that
+    // fit the sequence bound alone (11 at 40 entrants: 1,000,560 receipts,
+    // a 69 MB signed index the protocol refuses to sign) are refused.
+    let most = (1..=u8::MAX).filter(|&a| per_cohort(40, u64::from(a)) <= capacity).max().unwrap();
+    let by_sequence = (1..=u8::MAX)
+        .filter(|&a| per_cohort(40, u64::from(a)) <= u64::from(slop_ninja_protocol::MAX_SEQUENCE_LEN))
+        .max()
+        .unwrap();
+    assert_eq!((most, by_sequence), (10, 11));
     let mut at = daily_template("testnet-cohort", 40);
     at.plan.max_attempts = most;
     check(&at).unwrap();
-    at.plan.max_attempts = most + 1;
-    let e = check(&at).unwrap_err();
-    assert!(matches!(&e, EvalError::Plan(c) if c.contains("receipt index")), "{e:?}");
+    for refused in [most + 1, by_sequence] {
+        at.plan.max_attempts = refused;
+        let e = check(&at).unwrap_err();
+        assert!(matches!(&e, EvalError::Plan(c) if c.contains("signed receipt index")), "{e:?}");
+    }
     // A small template still fits the embedded form.
     let one = daily_template("testnet-cohort", 1);
     let c = crate::eval::calendar::capacity(&one);

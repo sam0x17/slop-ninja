@@ -69,7 +69,7 @@ pub use records_v2::{
     RegistrationSnapshotV2, RewardV1Params, RosterEntry, ScorePackageV2, Stratum, TargetSource,
     WeightRowV2, canonical_fingerprints,
 };
-pub use sign::{KeyRole, Signed, TrustedKeys, sign, signing_payload};
+pub use sign::{KeyRole, MAX_SIGNED_RECORD_LEN, Signed, TrustedKeys, sign, signing_payload};
 
 #[cfg(test)]
 mod tests;

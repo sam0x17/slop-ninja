@@ -1561,15 +1561,27 @@ admitted entrants, its scoring budget covers their upper bound with two
 references, its package step fits the memory model
 (`arena_routes::package_fits`), and every receipt a cohort at the cap can
 record (every scored document at every attempt, `CohortPlan::receipt_bound`)
-fits one receipt index (`plan::receipt_capacity`). Validators hold a target's
+fits one signed receipt index (`plan::receipt_capacity`): the tighter of the
+codec's sequence bound (2^20 entries) and the entries whose record fits the
+protocol's 64 MiB signed-record limit at 69 bytes an entry
+(`target_bundle::receipt_index_capacity`, 972,591 entries), so the
+coordinator can sign every index it packages. Validators hold a target's
 receipts through bundle schema v3, which names the receipt indexes and
 chunks of the target's cohort and its carrier by path, digest and length
 instead of embedding them, so the native validator's 64 MiB file bound
-(`VALIDATOR_BUNDLE_BYTES`) limits only the embedded records. The cap a
-template can take thus follows from its shape and the protocol's bounds;
-`slop_ninja_eval_ops standing-template` derives the largest one up to
-`ROSTER_CAP`, and the install reply reports receipts per cohort and whether
-the embedded schema v2 form would still fit (`capacity`). It must run the testnet plan defaults of the
+(`VALIDATOR_BUNDLE_BYTES`) limits only the embedded records; its fetch
+session reads the two signed indexes into memory within their own
+allowance, two indexes at that capacity
+(`target_bundle::validator_receipt_index_bytes`). The structural bound on
+a template's cap thus follows from its shape and the protocol's bounds (with
+the package step's memory model and the scoring lanes);
+`slop_ninja_eval_ops standing-template` derives it and takes the largest cap
+it admits up to `ROSTER_CAP`, a deployment ceiling (40 on testnet, set by
+the design note's testnet plan; frozen into each cohort's plan; widened by
+a deploy that changes it), and the install reply reports receipts per cohort against each
+bound (`receipt_bounds`: sequence, signed record, validator session), the
+signed index's bytes, and whether the embedded schema v2 form would still
+fit (`capacity`). It must run the testnet plan defaults of the
 2026-11-01 ruling: `lane_docs >= n` (one scoring lane per artifact),
 `prestart_lead_ms = 0`, and `reward_v1.incentive` with its provisional-gates
 flag. When nothing is queued and the latest cohort is in its transition (or
@@ -1936,7 +1948,7 @@ milestone M7.
   (`framing_unavailable`) for the operator.
   The outside-entrant rule compares exact content digests; a pre-draw
   similarity probe is still to come. A full 40-entrant template fits the
-  coordinator's memory model and one receipt index; a native validator
+  coordinator's memory model and one signed receipt index; a native validator
   holds its target's receipts only through bundle schema v3 (by reference),
   so a validator whose build predates it refuses such a target's bundle
   (`bundle_too_large`) and keeps its old target. The span outputs are not
@@ -1973,8 +1985,9 @@ milestone M7.
   which the published index alone outgrows at about 5,000 published
   artifacts (about 130 full testnet cohorts); binding the index by digest and
   keeping it in R2 or chunked rows is still to do. The flat receipt index is
-  bounded by the canonical sequence bound (2^20 entries), and plans are
-  refused when a cohort's receipts could exceed it.
+  bounded by what one signed record holds (972,591 entries, below the
+  canonical sequence bound of 2^20), and plans are refused when a cohort's
+  receipts could exceed it.
 - **Authorization issue.** Reward-intent and launch authorizations are
   signed by the operator tool (`reward_v1_verify`) under the T12
   authorization key and installed with the bundle; the coordinator does not

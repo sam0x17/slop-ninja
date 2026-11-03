@@ -63,9 +63,61 @@ use crate::{
 /// receipt indexes and chunks of the target's cohort and of any carrying
 /// cohort included, so its receipts take [`receipt_bundle_bytes`] of it. A
 /// schema v3 bundle names those by path, digest and length instead, so only
-/// its records count against this bound and a cohort's receipts are
-/// bounded by the receipt index ([`crate::MAX_SEQUENCE_LEN`]).
+/// its records count against this bound; a cohort's receipts are then
+/// bounded by the largest receipt index the protocol can sign
+/// ([`receipt_index_capacity`]), which the validator reads beside the file
+/// bound ([`validator_receipt_index_bytes`]).
 pub const VALIDATOR_BUNDLE_BYTES: u64 = 64 << 20;
+
+/// The lengths of a signed receipt index: the envelope and the record with
+/// no entries, and one entry.
+fn receipt_index_shape() -> Result<(u64, u64, u64)> {
+    let empty = ReceiptIndex { cohort_manifest: Digest([0; 32]), entries: Vec::new() };
+    let record = empty.to_bytes()?.len() as u64;
+    let signed = Signed { record: empty, public_key: [0; 32], signature: [0; 64] }.to_bytes()?.len() as u64;
+    let entry = crate::ReceiptIndexEntry {
+        attempt: Digest([0; 32]),
+        outcome: crate::OutcomeClass::Prediction,
+        object_sha256: Digest([0; 32]),
+        object_len: 0,
+    };
+    let mut e = crate::Encoder::new();
+    crate::Canonical::encode_to(&entry, &mut e);
+    Ok((signed - record, record, e.into_bytes().len() as u64))
+}
+
+/// The exact length of a signed receipt index of `entries` entries (every
+/// entry has one length: two digests, an outcome class and a `u32`).
+pub fn receipt_index_bytes(entries: u64) -> Result<u64> {
+    let (envelope, record, per) = receipt_index_shape()?;
+    entries
+        .checked_mul(per)
+        .and_then(|b| b.checked_add(record))
+        .and_then(|b| b.checked_add(envelope))
+        .ok_or(Error::OutOfRange("receipt index bytes"))
+}
+
+/// The most entries one receipt index can hold: the codec's sequence bound
+/// ([`crate::MAX_SEQUENCE_LEN`]), and a record that fits one signed
+/// envelope ([`crate::MAX_SIGNED_RECORD_LEN`]); the tighter of the two. A
+/// cohort that could record more receipts could not be packaged, because its
+/// receipt index could not be signed.
+pub fn receipt_index_capacity() -> Result<u64> {
+    let (_, record, per) = receipt_index_shape()?;
+    let signable = u64::from(crate::MAX_SIGNED_RECORD_LEN).saturating_sub(record) / per;
+    Ok(signable.min(u64::from(crate::MAX_SEQUENCE_LEN)))
+}
+
+/// The bytes a native validator's fetch session may read into memory for
+/// signed receipt indexes, beside the [`VALIDATOR_BUNDLE_BYTES`] it reads
+/// for documents and records: a target's cohort's and its carrier's, each
+/// at most [`receipt_index_capacity`] entries. A session holds any receipt
+/// index the coordinator can sign.
+pub fn validator_receipt_index_bytes() -> Result<u64> {
+    receipt_index_bytes(receipt_index_capacity()?)?
+        .checked_mul(2)
+        .ok_or(Error::OutOfRange("receipt index bytes"))
+}
 
 /// The bytes `receipts` stored receipts take in a schema v2 validator
 /// bundle (embedded): each

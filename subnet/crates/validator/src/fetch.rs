@@ -39,19 +39,29 @@
 //!   what the signed index's entries declare (`u32` length prefix plus each
 //!   receipt object's signed length), all checked before a bundle is read;
 //! - every object read into memory counts against the session bound once,
-//!   whether it is read from the host or from the cache; receipt bundles a
-//!   v3 bundle names by reference are only streamed to the cache, and the
-//!   signed index bounds their total before any is read;
+//!   whether it is read from the host or from the cache (a signed receipt
+//!   index against the receipt index allowance); receipt bundles a v3 bundle
+//!   names by reference are only streamed to the cache, and the signed index
+//!   bounds their total before any is read;
 //! - the session ends by pruning the cache to the cohorts it named and the
-//!   ones the installed bundle was built from, whatever its outcome.
+//!   ones its [`KeepSet`] holds when it prunes (the bundle files' and every
+//!   verified bundle the process still holds), whatever its outcome; while
+//!   the bundle files' cohorts are unknown it prunes nothing and locates no
+//!   cohort the cache does not already hold (`cache_keep_unknown`).
 //!
 //! A fetch session is bounded: it reads at most [`SESSION_BYTES`] into
-//! memory (the validator's bundle file bound, [`MAX_BUNDLE_BYTES`]). The
-//! bundle embeds every object hex-encoded (bundle schema v2) when all of
-//! them fit the file bound; otherwise it embeds the records and names the
-//! receipt indexes and receipt bundles by their absolute paths in the cache
-//! (bundle schema v3), and a cohort whose listed records alone could not fit
-//! is refused before any object is read. It refuses a declared length before reading the body,
+//! memory for documents and objects (the validator's bundle file bound,
+//! [`MAX_BUNDLE_BYTES`]), and at most [`receipt_index_allowance`] for the
+//! signed receipt indexes of the target's cohort and its carrier (two of the
+//! largest the protocol can sign, so every cohort the coordinator can
+//! package). The bundle embeds every object hex-encoded (bundle schema v2)
+//! when all of them fit the file bound; otherwise, or when the assembled
+//! embedded form exceeds it by its framing, it embeds the records and names
+//! the receipt indexes and receipt bundles by their paths in the cache,
+//! relative to the cache root (bundle schema v3). Before any object is read
+//! the session refuses a cohort whose listed (or cached) receipt index could
+//! not be held (`receipts_too_large`) or whose listed records alone could
+//! not fit (`bundle_too_large`). It refuses a declared length before reading the body,
 //! abandons a request that receives nothing for the configured stall time,
 //! and the caller bounds the whole session in time. It is resumable: verified
 //! objects are kept in the cache, and a partial object is kept as
@@ -69,7 +79,7 @@
 //! its target is superseded. A carrying cohort produces no target, so its
 //! receipts are deleted two cohorts later even while the current
 //! authorization still names it. A validator that fetched them keeps them in
-//! its cache while its installed bundle needs them; one that was offline
+//! its cache while a bundle it holds needs them; one that was offline
 //! longer, or starts fresh, may find them gone. New commitments need retained
 //! receipts, so the session then reports [`Outcome::ReceiptsExpired`] and the
 //! installed bundle stays; commitments already submitted recover from the
@@ -77,7 +87,7 @@
 //! target to the current one ([`advance`]) are checked without receipts,
 //! because no commitment is made for them.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -108,14 +118,35 @@ pub const INDEX_SCHEMA: &str = "slop_ninja.public.cohort_index/v1";
 pub const PUBLICATION_SCHEMA: &str = "slop_ninja.public.publication/v1";
 pub const CHUNK_FORMAT: &str = "slop_ninja_receipt_chunk_v1";
 
-/// Bytes one session may read into memory, documents and objects together,
-/// whether from the host or from the cache. The assembled bundle holds the
-/// objects it embeds hex-encoded (twice their size) within
-/// [`MAX_BUNDLE_BYTES`], so they total at most half of this; the documents
-/// that locate them and the signed receipt indexes of a v3 bundle fit in the
-/// rest. Receipt bundles a v3 bundle names are streamed to the cache, not
-/// read into memory, and are not counted.
+/// Bytes one session may read into memory for documents and objects other
+/// than signed receipt indexes, whether from the host or from the cache.
+/// The assembled bundle holds the objects it embeds hex-encoded (twice their
+/// size) within [`MAX_BUNDLE_BYTES`], so they total at most half of this; the
+/// documents that locate them fit in the rest. Receipt bundles a v3 bundle
+/// names are streamed to the cache, not read into memory, and are not
+/// counted. Signed receipt indexes count against their own allowance
+/// ([`receipt_index_allowance`]).
 pub const SESSION_BYTES: u64 = MAX_BUNDLE_BYTES;
+
+/// Bytes one session may read into memory for signed receipt indexes: two
+/// (a target's cohort's and its carrier's), each at most the largest index
+/// the protocol can sign
+/// (`target_bundle::validator_receipt_index_bytes`), so the session holds
+/// every cohort the coordinator can package. Embedded (schema v2), the
+/// indexes also count within the bundle file bound.
+pub fn receipt_index_allowance() -> Result<u64> {
+    slop_ninja_protocol::target_bundle::validator_receipt_index_bytes()
+        .map_err(|e| anyhow::anyhow!("receipt index allowance: {e}"))
+}
+
+/// The largest signed receipt index one cohort may list
+/// (`target_bundle::receipt_index_capacity` entries).
+fn max_receipt_index_bytes() -> Result<u64> {
+    use slop_ninja_protocol::target_bundle::{receipt_index_bytes, receipt_index_capacity};
+    receipt_index_capacity()
+        .and_then(receipt_index_bytes)
+        .map_err(|e| anyhow::anyhow!("receipt index bound: {e}"))
+}
 
 /// Each receipt in a bundle object is `u32_le(len) || AttemptReceipt`.
 const RECEIPT_LEN_PREFIX: u64 = 4;
@@ -601,6 +632,8 @@ pub struct Stats {
 struct Reader<'a, T: Transport> {
     transport: &'a T,
     budget: Budget,
+    /// Signed receipt indexes read into memory ([`receipt_index_allowance`]).
+    indexes: Budget,
     stats: Stats,
     /// Objects already counted against the budget (read twice, counted once).
     reserved: BTreeSet<PathBuf>,
@@ -618,10 +651,11 @@ enum InMemory {
 }
 
 impl<'a, T: Transport> Reader<'a, T> {
-    fn new(transport: &'a T, bytes: u64) -> Self {
+    fn new(transport: &'a T, bytes: u64, index_bytes: u64) -> Self {
         Self {
             transport,
             budget: Budget::new(bytes),
+            indexes: Budget::new(index_bytes),
             stats: Stats::default(),
             reserved: BTreeSet::new(),
             documents: Sha256::new(),
@@ -629,10 +663,16 @@ impl<'a, T: Transport> Reader<'a, T> {
         }
     }
 
-    /// Counts an object read into memory against the session bound, once.
+    /// Counts an object read into memory against the session bound, once: a
+    /// signed receipt index against the receipt index allowance, anything
+    /// else against the session's read bound.
     fn reserve_once(&mut self, local: &Path, bytes: u64, what: &str) -> Result<()> {
         if self.reserved.insert(local.to_path_buf()) {
-            self.budget.reserve(bytes, what)?;
+            if local.file_name().is_some_and(|n| n == RECEIPT_INDEX) {
+                self.indexes.reserve(bytes, what)?;
+            } else {
+                self.budget.reserve(bytes, what)?;
+            }
         }
         Ok(())
     }
@@ -875,6 +915,87 @@ pub struct Staged {
     /// Labels of the cohorts the bundle was built from (target and carrier),
     /// which the cache keeps while it is installed.
     pub cohorts: Vec<String>,
+    /// Keeps [`Self::cohorts`] in the session's [`KeepSet`] for as long as
+    /// this value lives (a successor waiting in the dispatch loop, the
+    /// loop's newest bundle, one in the fetcher's channel), so no later
+    /// session prunes the receipts a v3 bundle names before it is installed.
+    pub kept: KeepGuard,
+}
+
+/// The cohorts the fetch cache keeps besides those a session names: the
+/// cohorts of the bundle files (the installed bundle, one staged on disk for
+/// an interrupted install, a dry run's staged in memory; `None` while one of
+/// them cannot be read), and those of every [`Staged`] bundle the process
+/// still holds. A session reads it when it prunes, not when it starts.
+///
+/// A cohort enters it only from the session that names it (a [`Staged`]
+/// bundle registers before the session prunes) or while a [`KeepGuard`]
+/// already keeps it (an install writes its bundle file while it holds the
+/// [`Staged`] value), so a snapshot taken at prune time never misses a
+/// cohort a held or installed bundle needs.
+#[derive(Clone, Debug)]
+pub struct KeepSet(Arc<std::sync::Mutex<KeepState>>);
+
+#[derive(Debug)]
+struct KeepState {
+    files: Option<Vec<String>>,
+    held: BTreeMap<u64, Vec<String>>,
+    next: u64,
+}
+
+impl KeepSet {
+    /// A keep set with the bundle files' cohorts (`None`: unknown).
+    pub fn new(files: Option<Vec<String>>) -> Self {
+        Self(Arc::new(std::sync::Mutex::new(KeepState { files, held: BTreeMap::new(), next: 0 })))
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, KeepState> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Records the bundle files' cohorts (`None`: a file cannot be read).
+    pub fn set_files(&self, files: Option<Vec<String>>) {
+        self.state().files = files;
+    }
+
+    /// Whether the bundle files' cohorts are known.
+    pub fn files_known(&self) -> bool {
+        self.state().files.is_some()
+    }
+
+    /// Keeps `cohorts` until the guard is dropped.
+    pub fn hold(&self, cohorts: &[String]) -> KeepGuard {
+        let mut state = self.state();
+        let id = state.next;
+        state.next += 1;
+        state.held.insert(id, cohorts.to_vec());
+        KeepGuard { set: self.clone(), id }
+    }
+
+    /// Every cohort kept now, or `None` while the bundle files' are unknown.
+    pub fn snapshot(&self) -> Option<Vec<String>> {
+        let state = self.state();
+        let mut all = state.files.clone()?;
+        for c in state.held.values().flatten() {
+            if !all.contains(c) {
+                all.push(c.clone());
+            }
+        }
+        Some(all)
+    }
+}
+
+/// Keeps a [`Staged`] bundle's cohorts in its [`KeepSet`]; released on drop.
+#[derive(Debug)]
+pub struct KeepGuard {
+    set: KeepSet,
+    id: u64,
+}
+
+impl Drop for KeepGuard {
+    fn drop(&mut self) {
+        self.set.state().held.remove(&self.id);
+    }
 }
 
 /// What a verified bundle holds. Content-free.
@@ -932,8 +1053,10 @@ pub struct Session<'a, T: Transport> {
     pub held: ActiveTarget,
     /// [`Staged::fingerprint`] of the last bundle a session produced.
     pub previous: Option<&'a str>,
-    /// Cohorts of the installed bundle, which pruning keeps.
-    pub keep: &'a [String],
+    /// What pruning keeps besides the cohorts this session names, read when
+    /// it prunes; while the bundle files' cohorts are unknown the session
+    /// prunes nothing and locates no cohort the cache does not hold.
+    pub keep: &'a KeepSet,
     /// Where each revocation of the pointer's set is journaled
     /// ([`crate::revocations::record`]); `None` checks them without keeping
     /// them.
@@ -996,14 +1119,127 @@ impl CohortObjects<'_> {
     }
 }
 
-/// The bytes of a cohort's cached receipt index and receipt bundles (0 for
-/// what the cache does not hold).
-fn cached_receipt_bytes(cohort_dir: &Path) -> u64 {
-    let len = |p: &Path| std::fs::metadata(p).map_or(0, |m| m.len());
-    let bundles = std::fs::read_dir(cohort_dir.join("receipts"))
-        .map(|d| d.filter_map(|e| e.ok()).map(|e| len(&e.path())).fold(0u64, u64::saturating_add))
-        .unwrap_or(0);
-    len(&cohort_dir.join(RECEIPT_INDEX)).saturating_add(bundles)
+/// One cohort's receipt objects as a session plans them: the signed
+/// receipt index, the chunk map and the receipt bundles, in bytes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ReceiptPlan {
+    index: u64,
+    map: u64,
+    bundles: u64,
+}
+
+impl ReceiptPlan {
+    /// What the publication record lists for a cohort whose receipts are
+    /// retained.
+    fn listed(c: &CohortObjects<'_>) -> Self {
+        Self {
+            index: c.listed(RECEIPT_INDEX).map_or(0, |o| o.bytes),
+            map: c.listed(CHUNK_MAP).map_or(0, |o| o.bytes),
+            bundles: c
+                .publication
+                .objects
+                .iter()
+                .filter(|o| o.rel.starts_with("receipts/"))
+                .map(|o| o.bytes)
+                .fold(0u64, u64::saturating_add),
+        }
+    }
+
+    /// What the cache holds for a cohort whose receipts were deleted from the
+    /// host under the N+2 rule (0 for what it does not hold): those files are
+    /// what the session would read.
+    fn cached(cohort_dir: &Path) -> Self {
+        let len = |p: &Path| std::fs::metadata(p).map_or(0, |m| m.len());
+        Self {
+            index: len(&cohort_dir.join(RECEIPT_INDEX)),
+            map: len(&cohort_dir.join(CHUNK_MAP)),
+            bundles: std::fs::read_dir(cohort_dir.join("receipts"))
+                .map(|d| d.filter_map(|e| e.ok()).map(|e| len(&e.path())).fold(0u64, u64::saturating_add))
+                .unwrap_or(0),
+        }
+    }
+}
+
+/// How a session holds a cohort bundle's objects, decided from their listed
+/// (or cached) lengths before any object is read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Form {
+    /// Schema v2: everything embedded.
+    Embedded,
+    /// Schema v3: the records embedded, receipts by reference.
+    Referenced,
+}
+
+/// Bytes a session plans to read for a cohort bundle.
+#[derive(Clone, Copy, Debug, Default)]
+struct BundlePlan {
+    /// Records, chunk maps and intermediate targets' records: always read
+    /// into memory.
+    records: u64,
+    /// Every signed receipt index (target and carrier): read into memory
+    /// against the receipt index allowance.
+    indexes: u64,
+    /// The largest single signed receipt index.
+    largest_index: u64,
+    /// Receipt bundles: read into memory only when embedded.
+    bundles: u64,
+}
+
+impl BundlePlan {
+    fn add_receipts(&mut self, r: ReceiptPlan) {
+        self.records = self.records.saturating_add(r.map);
+        self.indexes = self.indexes.saturating_add(r.index);
+        self.largest_index = self.largest_index.max(r.index);
+        self.bundles = self.bundles.saturating_add(r.bundles);
+    }
+
+    /// The form, or the refusal when no form fits: every signed receipt
+    /// index must be one the protocol can sign (`largest_index`) and all of
+    /// them must fit the session's receipt index allowance (`index_left`),
+    /// so a cohort the session cannot hold is refused `receipts_too_large`
+    /// before anything is read instead of failing every session part-way;
+    /// the records must fit the bundle hex-encoded and the session's read
+    /// bound (`records_left`), else `bundle_too_large`. The receipts are
+    /// embedded when everything fits the bundle hex-encoded and in memory
+    /// (a bundle whose assembled form still exceeds the file bound is
+    /// reassembled by reference).
+    fn form(&self, records_left: u64, index_left: u64, largest_signable: u64) -> std::result::Result<Form, Refusal> {
+        if self.largest_index > largest_signable || self.indexes > index_left {
+            return Err(Refusal::new(
+                "receipts_too_large",
+                format!(
+                    "the listed signed receipt indexes ({} bytes, the largest {}) exceed what a session holds ({} bytes, at most {} each)",
+                    self.indexes, self.largest_index, index_left, largest_signable
+                ),
+            ));
+        }
+        if self.records.saturating_mul(2) > MAX_BUNDLE_BYTES || self.records > records_left {
+            return Err(Refusal::new(
+                "bundle_too_large",
+                "the listed records cannot fit the bundle file bound and the session's read bound",
+            ));
+        }
+        let embedded = self.records.saturating_add(self.indexes).saturating_add(self.bundles);
+        if embedded.saturating_mul(2) > MAX_BUNDLE_BYTES || self.records.saturating_add(self.bundles) > records_left {
+            Ok(Form::Referenced)
+        } else {
+            Ok(Form::Embedded)
+        }
+    }
+}
+
+/// Counts bytes written (the assembled bundle's length without holding it).
+#[derive(Default)]
+struct Counter(u64);
+
+impl std::io::Write for Counter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 = self.0.saturating_add(buf.len() as u64);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// One cohort's receipts as a bundle holds them: embedded (schema v2: the
@@ -1071,13 +1307,16 @@ impl<T: Transport> Session<'_, T> {
     pub async fn run(&self) -> Result<Outcome> {
         private_dir(self.cache)?;
         let _lock = lock_cache(self.cache)?;
-        let mut reader = Reader::new(self.transport, SESSION_BYTES);
+        let mut reader = Reader::new(self.transport, SESSION_BYTES, receipt_index_allowance()?);
         let result = self.run_locked(&mut reader).await;
         // Writes only ever land in located cohorts, so pruning to those and
-        // the installed bundle's bounds the cache by one session's reads.
-        if !reader.named.is_empty() {
+        // the kept ones (read now, after this session's own bundle joined
+        // them) bounds the cache by one session's reads and the held state.
+        if !reader.named.is_empty()
+            && let Some(kept) = self.keep.snapshot()
+        {
             let mut keep: Vec<&str> = reader.named.iter().map(String::as_str).collect();
-            keep.extend(self.keep.iter().map(String::as_str));
+            keep.extend(kept.iter().map(String::as_str));
             prune(self.cache, &keep)?;
         }
         let legacy = self.cache.join(LEGACY_AUTHORIZATIONS);
@@ -1198,10 +1437,10 @@ impl<T: Transport> Session<'_, T> {
         };
         // Hashing and verifying a large bundle takes seconds; keep it off the
         // runtime thread that drives the finalized-head stream and signing.
-        let (keys, chain) = (self.keys.clone(), self.chain.clone());
+        let (keys, chain, cache) = (self.keys.clone(), self.chain.clone(), self.cache.to_path_buf());
         let (bytes, verified) = tokio::task::spawn_blocking(move || {
             let verified =
-                crate::package_v2::verify(&bytes, &keys, &chain.genesis.0, chain.netuid, &held);
+                crate::package_v2::verify_in(&bytes, &keys, &chain.genesis.0, chain.netuid, &held, Some(&cache));
             let sha256 = sha256_hex(&bytes);
             (bytes, verified.map(|a| (a, sha256)))
         })
@@ -1220,6 +1459,7 @@ impl<T: Transport> Session<'_, T> {
             stats: reader.stats.clone(),
             authorized: Arc::new(authorized),
             fingerprint,
+            kept: self.keep.hold(&cohorts),
             cohorts,
         })))
     }
@@ -1304,6 +1544,16 @@ impl<T: Transport> Session<'_, T> {
         let dir = entry.path.trim_end_matches('/');
         ensure!(safe_rel(dir), "unsafe cohort path");
         if !reader.named.contains(&entry.label) {
+            // Nothing prunes while the bundle files' cohorts are unknown, so
+            // no session may add a cohort to the cache meanwhile: its disk
+            // use stays what it held when the set became unknown.
+            if !self.keep.files_known() && !self.cache.join("cohorts").join(&entry.label).is_dir() {
+                return Ok(Step::Stop(incomplete(
+                    Some(&entry.label),
+                    "cache_keep_unknown",
+                    "an installed or staged bundle file cannot be read, so the cache keeps everything and takes no new cohort",
+                )));
+            }
             reader.named.push(entry.label.clone());
         }
         let path = format!("{dir}/publication.json");
@@ -1451,10 +1701,13 @@ impl<T: Transport> Session<'_, T> {
         let prefix = format!("cohorts/{label}/");
         let mut chunks = Vec::with_capacity(map.objects.len());
         let mut refs = Vec::with_capacity(if by_ref { map.objects.len() } else { 0 });
+        // Named relative to the cache root, which the validator resolves at
+        // each verification: a cache moved with its configuration keeps the
+        // installed bundle valid.
         let reference = |path: &Path, sha: &str, bytes: u64| -> Result<BundleObject> {
-            let path = std::path::absolute(path).context("absolute object path")?;
+            let rel = path.strip_prefix(self.cache).context("a receipt object outside the cache")?;
             Ok(BundleObject {
-                path: path.to_str().context("object path is not UTF-8")?.to_owned(),
+                path: rel.to_str().context("object path is not UTF-8")?.to_owned(),
                 sha256: sha.to_owned(),
                 bytes,
             })
@@ -1632,50 +1885,34 @@ impl<T: Transport> Session<'_, T> {
         }
 
         // Refuse before reading any object when the bundle could not fit:
-        // every object it holds, receipt bundles included, must be listed.
-        // The records are embedded hex-encoded; the receipt indexes and
-        // bundles are embedded too when everything fits the file bound
-        // (bundle schema v2), else named by reference (bundle schema v3),
-        // so then only the records count.
-        let mut records_planned = 0u64;
-        let mut receipts_planned = 0u64;
+        // every object it holds, receipt bundles included, must be listed (or,
+        // for receipts deleted under the N+2 rule, cached). The records are
+        // embedded hex-encoded; the receipt indexes and bundles are embedded
+        // too when everything fits the file bound (bundle schema v2), else
+        // named by reference (bundle schema v3). The signed receipt indexes
+        // are read into memory in either form.
+        let mut plan = BundlePlan::default();
         for (c, names) in std::iter::once((&target, &TARGET_OBJECTS[..]))
             .chain(carrier.iter().map(|c| (c, &CARRIER_OBJECTS[..])))
         {
-            for rel in names.iter().copied().chain(std::iter::once(CHUNK_MAP)) {
-                let bytes = c.listed(rel).map_or(0, |o| o.bytes);
-                if rel == RECEIPT_INDEX {
-                    receipts_planned = receipts_planned.saturating_add(bytes);
-                } else {
-                    records_planned = records_planned.saturating_add(bytes);
-                }
+            for rel in names.iter().copied().filter(|r| *r != RECEIPT_INDEX) {
+                plan.records = plan.records.saturating_add(c.listed(rel).map_or(0, |o| o.bytes));
             }
-            receipts_planned = receipts_planned.saturating_add(
-                c.publication
-                    .objects
-                    .iter()
-                    .filter(|o| o.rel.starts_with("receipts/"))
-                    .map(|o| o.bytes)
-                    .fold(0u64, u64::saturating_add),
-            );
-            if !c.entry.receipts_retained {
-                // Deleted from the host under the N+2 rule: served from the
-                // cache, whose files decide the form.
-                receipts_planned = receipts_planned.saturating_add(cached_receipt_bytes(&c.local(self.cache, "")));
-            }
+            plan.add_receipts(if c.entry.receipts_retained {
+                ReceiptPlan::listed(c)
+            } else {
+                ReceiptPlan::cached(&c.local(self.cache, ""))
+            });
         }
         for s in &steps {
             for rel in STEP_OBJECTS {
-                records_planned = records_planned.saturating_add(s.listed(rel).map_or(0, |o| o.bytes));
+                plan.records = plan.records.saturating_add(s.listed(rel).map_or(0, |o| o.bytes));
             }
         }
-        let by_ref = records_planned.saturating_add(receipts_planned).saturating_mul(2) > MAX_BUNDLE_BYTES;
-        if records_planned.saturating_mul(2) > MAX_BUNDLE_BYTES {
-            return Ok(Step::Stop(Outcome::Refused(Refusal::new(
-                "bundle_too_large",
-                "the listed records cannot fit the bundle file bound",
-            ))));
-        }
+        let form = match plan.form(reader.budget.left(), reader.indexes.left(), max_receipt_index_bytes()?) {
+            Ok(form) => form,
+            Err(refusal) => return Ok(Step::Stop(Outcome::Refused(refusal))),
+        };
 
         // Advance through intermediates, checked without receipts.
         let mut held = self.held.clone();
@@ -1700,51 +1937,49 @@ impl<T: Transport> Session<'_, T> {
                 self.cohort_object(reader, &target, rel).await?
             ))?);
         }
-        let receipts = step_go!(self.receipts(reader, &target, by_ref).await?);
-        let (carrier_hex, carrier_receipts) = match &carrier {
-            Some(c) => {
-                let mut objects = Vec::new();
-                for rel in CARRIER_OBJECTS.iter().filter(|r| **r != RECEIPT_INDEX) {
-                    objects.push(std::fs::read(step_go!(
-                        self.cohort_object(reader, c, rel).await?
-                    ))?);
-                }
-                let receipts = step_go!(self.receipts(reader, c, by_ref).await?);
-                let [manifest, package, contents, fingerprints] = <[Vec<u8>; 4]>::try_from(objects)
-                    .map_err(|_| anyhow::anyhow!("carrier objects"))?;
-                (
-                    Some(CarrierHex {
-                        manifest: hex::encode(manifest),
-                        package: hex::encode(package),
-                        receipt_index: receipts.embedded_index(),
-                        published_contents: hex::encode(contents),
-                        fingerprint_index: hex::encode(fingerprints),
-                    }),
-                    Some(receipts),
-                )
+        let [manifest, package, target_rec, closure, contents, fingerprints] =
+            <[Vec<u8>; 6]>::try_from(records).map_err(|_| anyhow::anyhow!("target objects"))?;
+        let mut carrier_records = None;
+        if let Some(c) = &carrier {
+            let mut objects = Vec::new();
+            for rel in CARRIER_OBJECTS.iter().filter(|r| **r != RECEIPT_INDEX) {
+                objects.push(std::fs::read(step_go!(self.cohort_object(reader, c, rel).await?))?);
             }
-            None => (None, None),
-        };
-        let [
-            manifest,
-            package,
-            target_rec,
-            closure,
-            contents,
-            fingerprints,
-        ] = <[Vec<u8>; 6]>::try_from(records).map_err(|_| anyhow::anyhow!("target objects"))?;
-        Ok(Step::Go((
-            BundleV2 {
+            carrier_records = Some(
+                <[Vec<u8>; 4]>::try_from(objects).map_err(|_| anyhow::anyhow!("carrier objects"))?,
+            );
+        }
+        let mut form = form;
+        loop {
+            let by_ref = form == Form::Referenced;
+            let receipts = step_go!(self.receipts(reader, &target, by_ref).await?);
+            let (carrier_hex, carrier_receipts) = match (&carrier, &carrier_records) {
+                (Some(c), Some([manifest, package, contents, fingerprints])) => {
+                    let receipts = step_go!(self.receipts(reader, c, by_ref).await?);
+                    (
+                        Some(CarrierHex {
+                            manifest: hex::encode(manifest),
+                            package: hex::encode(package),
+                            receipt_index: receipts.embedded_index(),
+                            published_contents: hex::encode(contents),
+                            fingerprint_index: hex::encode(fingerprints),
+                        }),
+                        Some(receipts),
+                    )
+                }
+                _ => (None, None),
+            };
+            let bundle = BundleV2 {
                 schema: if by_ref { BUNDLE_SCHEMA_V3 } else { BUNDLE_SCHEMA_V2 }.into(),
                 shortcut: "T12".into(),
                 source: Some(SourceHex {
-                    manifest: hex::encode(manifest),
-                    package: hex::encode(package),
-                    target: hex::encode(target_rec),
-                    closure: hex::encode(closure),
+                    manifest: hex::encode(&manifest),
+                    package: hex::encode(&package),
+                    target: hex::encode(&target_rec),
+                    closure: hex::encode(&closure),
                     receipt_index: receipts.embedded_index(),
-                    published_contents: hex::encode(contents),
-                    fingerprint_index: hex::encode(fingerprints),
+                    published_contents: hex::encode(&contents),
+                    fingerprint_index: hex::encode(&fingerprints),
                 }),
                 authorization: AuthorizationHex {
                     kind: "cohort".into(),
@@ -1756,12 +1991,29 @@ impl<T: Transport> Session<'_, T> {
                 carrier_receipt_chunks: carrier_receipts.as_ref().map(Receipts::embedded_chunks).unwrap_or_default(),
                 receipts: receipts.referenced(),
                 carrier_receipts: carrier_receipts.and_then(|r| r.referenced()),
-            },
-            advance,
-            std::iter::once(target.entry.label.clone())
-                .chain(carrier.iter().map(|c| c.entry.label.clone()))
-                .collect(),
-        )))
+            };
+            // The listed lengths leave out the bundle's own framing (keys,
+            // quoting, the authorization and renewal): an embedded bundle
+            // just under the bound by its objects can still exceed it once
+            // assembled. Its objects are verified and cached by now, so it is
+            // reassembled by reference, never refused for its form.
+            if !by_ref {
+                let mut length = Counter::default();
+                serde_json::to_writer(&mut length, &bundle)?;
+                if length.0 > MAX_BUNDLE_BYTES {
+                    drop(bundle);
+                    form = Form::Referenced;
+                    continue;
+                }
+            }
+            return Ok(Step::Go((
+                bundle,
+                advance,
+                std::iter::once(target.entry.label.clone())
+                    .chain(carrier.iter().map(|c| c.entry.label.clone()))
+                    .collect(),
+            )));
+        }
     }
 
     /// A located cohort's calculation target, authenticated.
@@ -1859,7 +2111,7 @@ pub fn advance(
 
 /// Removes cached cohorts other than `keep`, and the authorization objects
 /// an earlier layout cached. The cache then holds at most the cohorts one
-/// session named and those the installed bundle was built from.
+/// session named and those its [`KeepSet`] held.
 pub fn prune(cache: &Path, keep: &[&str]) -> Result<()> {
     let dir = cache.join("cohorts");
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -1882,6 +2134,29 @@ pub fn prune(cache: &Path, keep: &[&str]) -> Result<()> {
         std::fs::remove_dir_all(&legacy)?;
     }
     Ok(())
+}
+
+/// The files a bundle names by reference (schema v3: each cohort's signed
+/// receipt index and receipt bundles); none for an embedded bundle.
+pub fn bundle_references(bytes: &[u8]) -> Result<Vec<BundleObject>> {
+    let b: BundleV2 = serde_json::from_slice(bytes)?;
+    Ok([b.receipts, b.carrier_receipts]
+        .into_iter()
+        .flatten()
+        .flat_map(|r| std::iter::once(r.index).chain(r.chunks))
+        .collect())
+}
+
+/// Whether every referenced file is a regular file of its named length, a
+/// relative reference under `cache`. Only lengths are checked (no read):
+/// a changed file of the same length fails its digest at verification,
+/// which then asks the fetcher for a full session.
+pub fn references_present(cache: &Path, refs: &[BundleObject]) -> bool {
+    refs.iter().all(|r| {
+        let named = Path::new(&r.path);
+        let path = if named.is_absolute() { named.to_path_buf() } else { cache.join(named) };
+        std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == r.bytes)
+    })
 }
 
 /// Labels of the cohorts an installed bundle was built from (its target's

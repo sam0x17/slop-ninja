@@ -575,6 +575,10 @@ struct TestApp {
     limit_reads: usize,
     /// The journaled revocation store, when the test uses one.
     revocation_store: Option<std::path::PathBuf>,
+    /// The fetch cache a v3 bundle's references resolve under (`[fetch]`).
+    receipts_root: Option<std::path::PathBuf>,
+    /// How often the application asked for a full fetch session.
+    rebuilds: usize,
 }
 
 impl TestApp {
@@ -602,6 +606,8 @@ impl TestApp {
             },
             limit_reads: 0,
             revocation_store: None,
+            receipts_root: None,
+            rebuilds: 0,
         })
     }
 
@@ -622,6 +628,12 @@ impl AppPorts for TestApp {
     }
     fn chain(&self) -> ([u8; 32], u16) {
         self.served
+    }
+    fn receipts_root(&self) -> Option<std::path::PathBuf> {
+        self.receipts_root.clone()
+    }
+    fn rebuild_fetched_bundle(&mut self) {
+        self.rebuilds += 1;
     }
     fn revocations(&self) -> Result<crate::revocations::Loaded> {
         let Some(store) = &self.revocation_store else { return Ok(Default::default()) };
@@ -1554,6 +1566,21 @@ pub(crate) mod rv1 {
         predecessor: Digest,
         specs: &[Spec],
     ) -> Cohort {
+        let (receipt_index, chunk) = bind_receipts(&manifest, &mut package);
+        let target = CalculationTargetV2::for_package(&package, Some(predecessor)).unwrap();
+        let closure = fx::closure(&manifest, &package, Some(&target), specs).unwrap();
+        let authorization = fx::signed(
+            fx::authorization(&manifest, &package, &target, 1, manifest.opened_epoch + fx::PUBLISHED_TEMPO).unwrap(),
+        )
+        .unwrap()
+        .to_bytes()
+        .unwrap();
+        Cohort { manifest, package, target, closure, index, receipt_index, chunk, authorization }
+    }
+
+    /// One receipt object per receipt the package counts, in one chunk, and
+    /// the package's receipt root and count set to their index's.
+    fn bind_receipts(manifest: &CohortManifestV2, package: &mut ScorePackageV2) -> (ReceiptIndex, Vec<u8>) {
         let mut receipts: Vec<AttemptReceipt> = (0..package.receipt_count)
             .map(|i| AttemptReceipt {
                 attempt: slop_ninja_protocol::domain_hash("validator-test-attempt", &i.to_le_bytes()),
@@ -1577,15 +1604,7 @@ pub(crate) mod rv1 {
             chunk.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
             chunk.extend_from_slice(&bytes);
         }
-        let target = CalculationTargetV2::for_package(&package, Some(predecessor)).unwrap();
-        let closure = fx::closure(&manifest, &package, Some(&target), specs).unwrap();
-        let authorization = fx::signed(
-            fx::authorization(&manifest, &package, &target, 1, manifest.opened_epoch + fx::PUBLISHED_TEMPO).unwrap(),
-        )
-        .unwrap()
-        .to_bytes()
-        .unwrap();
-        Cohort { manifest, package, target, closure, index, receipt_index, chunk, authorization }
+        (receipt_index, chunk)
     }
 
     fn signed_hex<R: Record + Clone>(r: &R, key: &SigningKey) -> String {
@@ -1710,6 +1729,58 @@ pub(crate) mod rv1 {
         (first, second, specs)
     }
 
+    /// The computed cohort and a carrier of its target (a later cohort that
+    /// produced no target, its index the computed index after the computed
+    /// closure), each bound to `receipts` receipts, for sizing a target's
+    /// cohort and its carrier against the receipt index bound. The
+    /// carrier's `target` and `closure` are the carried target's (it has
+    /// none of its own; only its records are read); its `authorization`
+    /// authorizes the carried target.
+    pub fn carried_sized(receipts: u64) -> (Cohort, Cohort) {
+        use slop_ninja_protocol::reward_v1;
+        let c = fx::computed().unwrap();
+        let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
+        let mut package = c.package.clone();
+        package.receipt_count = receipts;
+        let first = bound(c.manifest.clone(), package, c.index.clone(), launch, &c.specs);
+        let index = c.index.after_closure(&first.package, fx::closure_fingerprints(&c)).unwrap();
+        let refs = reward_v1::next_references(&c.manifest.references, &first.package, &c.index).unwrap();
+        let low = [Spec::new(0x93, bp(8000))];
+        let manifest = fx::manifest_with(
+            fx::chain(),
+            4,
+            1000,
+            fx::sigma_permille(40),
+            refs,
+            &index,
+            fx::probe(fx::EXAMPLE_PROBE_SIZE),
+            &low,
+        );
+        let mut package = fx::package(&manifest, bp(9600), refs.predecessor.map(|_| bp(9500)), &low).unwrap();
+        reward_v1::finalize(&mut package, &index, &mut fx::spec_measure(&low, 1000, |h, o| low[h].family == low[o].family))
+            .unwrap();
+        assert_eq!(package.mode, slop_ninja_protocol::CutoffMode::NoTarget);
+        package.receipt_count = receipts;
+        let (receipt_index, chunk) = bind_receipts(&manifest, &mut package);
+        let authorization = fx::signed(
+            fx::authorization(&manifest, &package, &first.target, 1, manifest.opened_epoch + fx::PUBLISHED_TEMPO).unwrap(),
+        )
+        .unwrap()
+        .to_bytes()
+        .unwrap();
+        let carrier = Cohort {
+            manifest,
+            package,
+            target: first.target.clone(),
+            closure: first.closure.clone(),
+            index,
+            receipt_index,
+            chunk,
+            authorization,
+        };
+        (first, carrier)
+    }
+
     /// A first cohort with one credited entrant `tag` and no predecessor,
     /// bound to receipts: its row pays only that entrant's UID.
     pub fn single(tag: u8) -> (Cohort, Vec<Spec>) {
@@ -1757,6 +1828,8 @@ fn rv1_app(root: &Path) -> Result<TestApp> {
         },
         limit_reads: 0,
         revocation_store: None,
+        receipts_root: None,
+        rebuilds: 0,
     })
 }
 
@@ -2095,6 +2168,50 @@ fn a_v3_bundle_verifies_receipts_by_reference_beyond_the_embedded_bound() -> Res
     Ok(())
 }
 
+/// Review (standing-r0 round 2, finding 2): an installed v3 bundle whose
+/// referenced cache files are missing or changed is not a refused package.
+/// With `[fetch]` the application defers (exit 75, or a wait in a continuous
+/// run) and asks the fetcher for a full session, which rebuilds the files
+/// while the host retains them; restored, the bundle commits again. Without
+/// a fetch cache (an operator-installed bundle) it still halts.
+#[test]
+fn an_installed_v3_bundle_with_damaged_cache_files_defers_and_asks_for_a_rebuild() -> Result<()> {
+    let root = scratch()?;
+    let (first, _, specs) = rv1::cohorts();
+    let mut app = rv1_app(root.path())?;
+    app.snapshot = rv1::snapshot(&specs);
+    app.epoch = 80;
+    let cache = root.path().join("public-cache");
+    std::fs::create_dir(&cache)?;
+    app.bundle = rv1::bundle_v3(&first, &cache, 3);
+    let b: crate::package_v2::BundleV2 = serde_json::from_slice(&app.bundle)?;
+    let chunk = b.receipts.as_ref().unwrap().chunks[1].path.clone();
+    let saved = std::fs::read(&chunk)?;
+    std::fs::remove_file(&chunk)?;
+    // Without a fetch cache: a refusal, as before.
+    let outcome = block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?;
+    assert!(matches!(&outcome, AppOutcome::Refused { code: "referenced_object_missing", .. }), "{outcome:?}");
+    assert_eq!(app.rebuilds, 0);
+    // With one: a deferral and a rebuild request, nothing enqueued.
+    app.receipts_root = Some(cache.clone());
+    let outcome = block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?;
+    assert!(matches!(&outcome, AppOutcome::Deferred { code: "referenced_object_missing", .. }), "{outcome:?}");
+    assert_eq!(app.rebuilds, 1);
+    assert!(app.held.is_none(), "no held target recorded from an unverified bundle");
+    let mut altered = saved.clone();
+    let last = altered.len() - 1;
+    altered[last] ^= 1;
+    std::fs::write(&chunk, &altered)?;
+    let outcome = block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?;
+    assert!(matches!(&outcome, AppOutcome::Deferred { code: "referenced_object_mismatch", .. }), "{outcome:?}");
+    assert_eq!(app.rebuilds, 2);
+    // The fetcher's rebuild restores the file: the bundle commits.
+    std::fs::write(&chunk, &saved)?;
+    let (_, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created);
+    Ok(())
+}
+
 /// Every referenced object is checked before it is used: a missing, short,
 /// altered, relative or extra reference, receipts in the other schema's
 /// form, and an incomplete or duplicated chunk set are all refused.
@@ -2119,34 +2236,57 @@ fn a_v3_bundle_refuses_objects_that_are_not_the_referenced_ones() -> Result<()> 
     // A missing chunk file, and a missing index file.
     let b = fresh("missing");
     std::fs::remove_file(&b.receipts.as_ref().unwrap().chunks[1].path)?;
-    assert_eq!(code(&b), "receipts_incomplete");
+    assert_eq!(code(&b), "referenced_object_missing");
     let b = fresh("missing-index");
     std::fs::remove_file(&b.receipts.as_ref().unwrap().index.path)?;
-    assert_eq!(code(&b), "receipts_incomplete");
+    assert_eq!(code(&b), "referenced_object_missing");
     // A file of another length, or the same length with other bytes.
     let b = fresh("short");
     let p = b.receipts.as_ref().unwrap().chunks[0].path.clone();
     let mut bytes = std::fs::read(&p)?;
     bytes.pop();
     std::fs::write(&p, &bytes)?;
-    assert_eq!(code(&b), "receipt_object_mismatch");
+    assert_eq!(code(&b), "referenced_object_mismatch");
     let b = fresh("altered");
     let p = b.receipts.as_ref().unwrap().chunks[2].path.clone();
     let mut bytes = std::fs::read(&p)?;
     let last = bytes.len() - 1;
     bytes[last] ^= 1;
     std::fs::write(&p, &bytes)?;
-    assert_eq!(code(&b), "receipt_object_mismatch");
+    assert_eq!(code(&b), "referenced_object_mismatch");
     // A reference whose digest names other bytes, even if they verify.
     let mut b = fresh("renamed");
     let r = b.receipts.as_mut().unwrap();
     r.chunks[0].sha256 = r.chunks[1].sha256.clone();
-    assert_eq!(code(&b), "receipt_object_mismatch");
+    assert_eq!(code(&b), "referenced_object_mismatch");
     // A relative path.
     let mut b = fresh("relative");
     let r = b.receipts.as_mut().unwrap();
     r.chunks[0].path = std::path::Path::new(&r.chunks[0].path).file_name().unwrap().to_str().unwrap().into();
     assert_eq!(code(&b), "bundle_malformed");
+    // Relative paths under the fetch cache (the fetcher's form) resolve
+    // under the root the validator passes, so a moved cache keeps the
+    // bundle; never outside it.
+    let code_in = |b: &BundleV2, dir: &std::path::Path| {
+        crate::package_v2::verify_in(&serde_json::to_vec(b).unwrap(), &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held, Some(dir))
+            .map(|_| "ok")
+            .unwrap_or_else(|r| r.code)
+    };
+    let mut b = fresh("rooted");
+    let dir = root.path().join("rooted");
+    let r = b.receipts.as_mut().unwrap();
+    for o in std::iter::once(&mut r.index).chain(r.chunks.iter_mut()) {
+        o.path = std::path::Path::new(&o.path).strip_prefix(&dir)?.to_str().unwrap().into();
+    }
+    assert_eq!(code(&b), "bundle_malformed", "no root");
+    assert_eq!(code_in(&b, &dir), "ok");
+    let moved = root.path().join("rooted-moved");
+    std::fs::rename(&dir, &moved)?;
+    assert_eq!(code_in(&b, &moved), "ok", "the moved cache, named by its configuration");
+    assert_eq!(code_in(&b, &dir), "referenced_object_missing");
+    let mut escape = b.clone();
+    escape.receipts.as_mut().unwrap().chunks[0].path = format!("../rooted-moved/{}", b.receipts.as_ref().unwrap().chunks[0].path);
+    assert_eq!(code_in(&escape, &moved), "bundle_malformed");
     // A chunk left out, and a chunk named twice (each receipt once).
     let mut b = fresh("dropped");
     b.receipts.as_mut().unwrap().chunks.pop();

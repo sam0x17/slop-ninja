@@ -33,7 +33,9 @@ RestartPreventExitStatus=2 3
 # SIGTERM pauses the journal and exits; retained work survives the restart.
 KillSignal=SIGTERM
 TimeoutStopSec=90
-MemoryMax=1G
+# Twice the measured worst case at the receipt index bound, rounded up to a
+# whole GiB (README, fetch_tests::peak_memory_at_the_receipt_index_bound).
+MemoryMax=2G
 MemorySwapMax=0
 UMask=0077
 NoNewPrivileges=yes

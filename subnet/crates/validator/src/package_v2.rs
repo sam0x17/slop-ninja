@@ -18,13 +18,23 @@
 //!
 //! Bundle schema v3 (`slop_ninja.reward_v1_bundle/v3`) carries the same
 //! records, except that the receipt indexes and receipt chunk objects of the
-//! target's cohort and of any carrier are not embedded: each is named by an
-//! absolute file path, its SHA-256 and its length ([`ObjectRef`]), and is
-//! read from that file, checked against both and verified one chunk at a
-//! time. Embedding them hex-encoded limits a cohort and its carrier to about
-//! 150,000 receipts within the 64 MiB file bound; by reference, the receipt
-//! index's own sequence bound is the limit. The fetcher keeps them in its
-//! verified cache; the operator's tool writes them to a directory it names.
+//! target's cohort and of any carrier are not embedded: each is named by a
+//! file path, its SHA-256 and its length ([`ObjectRef`]), and is read from
+//! that file, checked against both and verified one chunk at a time.
+//! Embedding them hex-encoded limits a cohort and its carrier to about
+//! 150,000 receipts within the 64 MiB file bound; by reference, the limit is
+//! the largest receipt index the protocol can sign
+//! (`target_bundle::receipt_index_capacity`, 972,591 entries: the
+//! 64 MiB signed-record limit at 69 bytes an entry, tighter than the codec's
+//! 2^20 sequence bound). The fetcher keeps them in its verified cache and
+//! names them relative to the cache root, which the validator resolves at
+//! every verification ([`verify_in`]); the operator's tool names them by
+//! absolute path in a directory it chooses. Either way a bundle whose files
+//! are gone or changed no longer verifies (`referenced_object_missing`,
+//! `referenced_object_mismatch`, [`is_reference_refusal`]): with `[fetch]`
+//! the application retries and the fetcher rebuilds the files while the host
+//! retains the receipts; after their deletion from the host (N+2) only the
+//! cache holds them.
 //!
 //! The row is `reward_v1::derive_row` against this validator's own finalized
 //! snapshot, including the finalized subnet owner hotkey, which receives any
@@ -46,7 +56,8 @@ pub const BUNDLE_SCHEMA_V2: &str = "slop_ninja.reward_v1_bundle/v1";
 /// Bundle schema v3: receipt indexes and chunks by reference ([`ObjectRef`]).
 pub const BUNDLE_SCHEMA_V3: &str = "slop_ninja.reward_v1_bundle/v3";
 
-/// An object a v3 bundle names instead of embedding: an absolute path, the
+/// An object a v3 bundle names instead of embedding: an absolute path, or a
+/// path relative to the validator's fetch cache (the fetcher's form), the
 /// object's SHA-256 (lowercase hex) and its exact length.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -136,29 +147,63 @@ pub fn is_v2(bytes: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
-/// Opens a referenced object: an absolute path to a regular file of exactly
-/// the named length (checked before reading), whose SHA-256 is the named
-/// one. A missing file is `receipts_incomplete`; any other mismatch
-/// `receipt_object_mismatch`.
-pub fn read_object(r: &ObjectRef, what: &str) -> Result<Vec<u8>, Refusal> {
+/// A v3 bundle's referenced file is missing or unreadable.
+pub const REFERENCED_MISSING: &str = "referenced_object_missing";
+/// A v3 bundle's referenced file has another length or digest.
+pub const REFERENCED_MISMATCH: &str = "referenced_object_mismatch";
+
+/// Whether a refusal is about a v3 bundle's referenced files rather than its
+/// signed records: a fetch session that rebuilds the bundle from the host
+/// (while it retains the receipts) repairs it, so the validator retries
+/// instead of halting.
+pub fn is_reference_refusal(code: &str) -> bool {
+    code == REFERENCED_MISSING || code == REFERENCED_MISMATCH
+}
+
+/// Opens a referenced object: an absolute path, or a relative one under
+/// `root` (the fetch cache; only plain components), to a regular file of
+/// exactly the named length, whose SHA-256 is the named one. The file is
+/// opened once and read through its own handle, never past the named length,
+/// so a file that grows or is replaced meanwhile cannot make it read more. A
+/// missing or unreadable file is `referenced_object_missing`; a file of
+/// another length or digest `referenced_object_mismatch`
+/// ([`is_reference_refusal`]: the file, not the signed records, failed).
+pub fn read_object(r: &ObjectRef, what: &str, root: Option<&std::path::Path>) -> Result<Vec<u8>, Refusal> {
     use sha2::{Digest as _, Sha256};
-    let path = std::path::Path::new(&r.path);
-    if !path.is_absolute() {
-        return Err(Refusal::new("bundle_malformed", format!("{what}: an object path must be absolute")));
-    }
-    let meta = match std::fs::metadata(path) {
-        Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(Refusal::new("receipts_incomplete", format!("{what}: the referenced object is missing")));
+    use std::io::Read as _;
+    let named = std::path::Path::new(&r.path);
+    let path = if named.is_absolute() {
+        named.to_path_buf()
+    } else {
+        let plain = !r.path.is_empty() && named.components().all(|c| matches!(c, std::path::Component::Normal(_)));
+        match root {
+            Some(root) if plain => root.join(named),
+            Some(_) => return Err(Refusal::new("bundle_malformed", format!("{what}: an unsafe relative object path"))),
+            None => {
+                return Err(Refusal::new(
+                    "bundle_malformed",
+                    format!("{what}: a relative object path needs the fetch cache ([fetch] configured)"),
+                ));
+            }
         }
-        Err(e) => return Err(Refusal::new("receipts_incomplete", format!("{what}: {e}"))),
     };
+    let missing = |e: std::io::Error| match e.kind() {
+        std::io::ErrorKind::NotFound => Refusal::new(REFERENCED_MISSING, format!("{what}: the referenced object is missing")),
+        _ => Refusal::new(REFERENCED_MISSING, format!("{what}: {e}")),
+    };
+    let file = std::fs::File::open(&path).map_err(missing)?;
+    let meta = file.metadata().map_err(missing)?;
     if !meta.is_file() || meta.len() != r.bytes {
-        return Err(Refusal::new("receipt_object_mismatch", format!("{what}: the referenced object's length differs")));
+        return Err(Refusal::new(REFERENCED_MISMATCH, format!("{what}: the referenced object's length differs")));
     }
-    let bytes = std::fs::read(path).map_err(|e| Refusal::new("receipts_incomplete", format!("{what}: {e}")))?;
+    let capacity = usize::try_from(r.bytes)
+        .map_err(|_| Refusal::new(REFERENCED_MISMATCH, format!("{what}: the referenced object is too long")))?;
+    let mut bytes = Vec::with_capacity(capacity);
+    file.take(r.bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| Refusal::new(REFERENCED_MISSING, format!("{what}: {e}")))?;
     if bytes.len() as u64 != r.bytes || hex::encode(Sha256::digest(&bytes)) != r.sha256.to_ascii_lowercase() {
-        return Err(Refusal::new("receipt_object_mismatch", format!("{what}: the referenced object's digest differs")));
+        return Err(Refusal::new(REFERENCED_MISMATCH, format!("{what}: the referenced object's digest differs")));
     }
     Ok(bytes)
 }
@@ -168,9 +213,10 @@ fn verify_chunk_refs(
     mut v: slop_ninja_protocol::target_bundle::ReceiptChunkVerifier<'_>,
     chunks: &[ObjectRef],
     what: &str,
+    root: Option<&std::path::Path>,
 ) -> Result<u64, Refusal> {
     for c in chunks {
-        let bytes = read_object(c, what)?;
+        let bytes = read_object(c, what, root)?;
         v.push(&bytes).map_err(protocol("receipt_object_mismatch"))?;
     }
     v.finish().map_err(protocol("receipt_object_mismatch"))
@@ -260,13 +306,28 @@ impl Authorized {
 /// Parses and verifies a reward-v1 bundle for this chain and subnet, for a
 /// validator whose own checked history holds `held` active. The bundle's
 /// target must be the held one or its successor; the verified
-/// [`VerifiedTarget::active`] is what the caller records next.
+/// [`VerifiedTarget::active`] is what the caller records next. A v3
+/// bundle's objects must be named by absolute path ([`verify_in`] resolves
+/// the fetcher's relative ones).
 pub fn verify(
     bytes: &[u8],
     keys: &TrustedKeys,
     genesis: &[u8; 32],
     netuid: u16,
     held: &ActiveTarget,
+) -> Result<Authorized, Refusal> {
+    verify_in(bytes, keys, genesis, netuid, held, None)
+}
+
+/// [`verify`], resolving a v3 bundle's relative object paths under `root`
+/// (the validator's fetch cache).
+pub fn verify_in(
+    bytes: &[u8],
+    keys: &TrustedKeys,
+    genesis: &[u8; 32],
+    netuid: u16,
+    held: &ActiveTarget,
+    root: Option<&std::path::Path>,
 ) -> Result<Authorized, Refusal> {
     if bytes.len() as u64 > crate::package::MAX_BUNDLE_BYTES {
         return Err(Refusal::new("bundle_too_large", "bundle exceeds the file bound"));
@@ -292,7 +353,7 @@ pub fn verify(
     // v3: the referenced receipt indexes, read and checked against their
     // references before anything is verified.
     let index_ref = |r: &Option<ReceiptsRef>, what: &str| -> Result<Option<Vec<u8>>, Refusal> {
-        r.as_ref().map(|r| read_object(&r.index, what)).transpose()
+        r.as_ref().map(|r| read_object(&r.index, what, root)).transpose()
     };
     let (source_index, carrier_index) = if v3 {
         (
@@ -374,7 +435,7 @@ pub fn verify(
         if verified.source.is_some() {
             let r = b.receipts.as_ref().ok_or_else(|| Refusal::new("receipts_incomplete", "the bundle names no receipts"))?;
             let v = verified.receipt_verifier().map_err(protocol("receipts_incomplete"))?;
-            receipts_verified = verify_chunk_refs(v, &r.chunks, "receipts.chunks")?;
+            receipts_verified = verify_chunk_refs(v, &r.chunks, "receipts.chunks", root)?;
         }
         if verified.carrier().is_some() {
             let r = b
@@ -382,7 +443,7 @@ pub fn verify(
                 .as_ref()
                 .ok_or_else(|| Refusal::new("receipts_incomplete", "the bundle names no carrier receipts"))?;
             let v = verified.carrier_receipt_verifier().map_err(protocol("receipts_incomplete"))?;
-            receipts_verified += verify_chunk_refs(v, &r.chunks, "carrier_receipts.chunks")?;
+            receipts_verified += verify_chunk_refs(v, &r.chunks, "carrier_receipts.chunks", root)?;
         }
         MechId::new(verified.chain.mechanism).map_err(|error| Refusal::new("package_mechanism", error.to_string()))?;
         return Ok(Authorized { verified, keys: keys.clone(), receipts_verified, revocations: Default::default() });

@@ -463,16 +463,29 @@ never deleted. Neither the pointer nor the authorization has a validity
 window: a pointer that stops changing keeps validators committing its
 authorization.
 
-A session reads at most `SESSION_BYTES` into memory: `MAX_BUNDLE_BYTES`
-(64 MiB, the bundle file bound), documents and objects together, counting
-an object read from the cache as well as one fetched. When every listed
-object of the target's cohort and carrier fits the bundle hex-encoded (half
-the bound), the bundle embeds them (schema v2, `slop_ninja.reward_v1_bundle/v1`). Otherwise it embeds the
+A session reads at most `SESSION_BYTES` into memory for documents and
+objects: `MAX_BUNDLE_BYTES` (64 MiB, the bundle file bound), counting an
+object read from the cache as well as one fetched. The signed receipt
+indexes of the target's cohort and its carrier count against their own
+allowance instead (`fetch::receipt_index_allowance`: two indexes of the
+largest size the protocol can sign, 972,591 entries or 67,108,947 bytes
+each, so 134,217,894 bytes), because they are read into memory in either
+form and a cohort may need up to one full index. When every listed object
+of the target's cohort and carrier fits the bundle hex-encoded (half the
+bound), the bundle embeds them (schema v2, `slop_ninja.reward_v1_bundle/v1`). Otherwise it embeds the
 records and names each cohort's signed receipt index and receipt bundles by
-their absolute paths in the cache, with SHA-256 and length (schema v3,
-below); those bundles are streamed to the cache and never read into the
-session's memory. Before reading any object of a cohort the session refuses
-one whose listed records alone could not fit (`bundle_too_large`). Authorization and renewal
+their paths in the cache, relative to the cache root, with SHA-256 and
+length (schema v3, below); those bundles are streamed to the cache and
+never read into the session's memory. The listed lengths leave out the
+bundle's own framing (keys, the authorization and its renewal), so a bundle
+that exceeds the file bound once assembled embedded is reassembled by
+reference from the objects the session already verified. Before reading any
+object the session plans what it will read from the listed (or, for
+receipts deleted from the host, cached) lengths and refuses a cohort whose
+signed receipt index exceeds the largest signable one or whose indexes
+exceed the allowance (`receipts_too_large`), or whose listed records could
+not fit the file bound or the read bound (`bundle_too_large`); both are
+alerting refusals that every session repeats until the host changes. Authorization and renewal
 objects are read into memory, their length checked against the schema and
 their signature verified before anything else is fetched; they are never
 cached. Before reading any receipt bundle, the signed receipt index is
@@ -491,19 +504,65 @@ the 1,024-document probe and a 200-case audit draw) plus the references'
 batches, so 40 entrants at three attempts need about 545,000 across both
 cohorts. A `slop_ninja.reward_v1_bundle/v3` bundle therefore names them
 instead: `receipts` and `carrier_receipts` each hold an `index` and a list
-of `chunks`, each an object reference `{ "path", "sha256", "bytes" }` with
-an absolute path; the embedded `receipt_index` fields and chunk lists stay
-empty. The validator checks each referenced file's length before reading
-it and its SHA-256 after, then verifies the receipts one chunk at a time
-against the signed index (each entry exactly once), so a cohort's receipts
-are bounded by the receipt index (2^20 entries), not by the file bound. A
-missing file is `receipts_incomplete`, any other difference
-`receipt_object_mismatch`, a relative path or receipts in the other
-schema's form `bundle_malformed`. The fetcher's references point into its
-cache, which keeps the installed bundle's cohorts; the operator's
-`reward_v1_verify` writes `reward-v1-bundle-v3.json` pointing at the cohort
+of `chunks`, each an object reference `{ "path", "sha256", "bytes" }`; the
+embedded `receipt_index` fields and chunk lists stay empty. A path is
+absolute, or relative to the validator's fetch cache (only plain
+components; the fetcher's form, resolved at every verification against the
+configured `[fetch]` cache, so a cache moved together with its
+configuration keeps the bundle valid). The validator opens each referenced
+file once, checks its length, reads it through the same handle never past
+that length, and checks its SHA-256, then verifies the receipts one chunk at
+a time against the signed index (each entry exactly once). A cohort's
+receipts are therefore bounded by the largest receipt index the protocol
+can sign (972,591 entries: the 64 MiB signed-record limit at 69 bytes an
+entry, tighter than the codec's 2^20 sequence bound), which is also the
+coordinator's template bound, not by the file bound. A missing or
+unreadable file is `referenced_object_missing`, a file of another length or
+digest `referenced_object_mismatch`; a relative path without a fetch cache,
+one that leaves it, or receipts in the other schema's form
+`bundle_malformed`. With `[fetch]` configured, the two referenced-file codes
+are not a refused package: the run logs `bundle_cache_unreadable` (alerting),
+defers (exit 75, or a wait in a continuous run) and asks the fetcher for a
+full session, which rebuilds the files while the host retains the receipts
+(else `receipts_expired`, and the deferral repeats until a later
+authorization or a successor target is installed). Without `[fetch]` (an operator-installed bundle with absolute
+paths) they halt as before (exit 3). The operator's `reward_v1_verify`
+writes `reward-v1-bundle-v3.json` with absolute paths into the cohort
 directory it read, which must stay in place. A validator built before
 schema v3 refuses a v3 bundle (`bundle_schema`) and keeps its target.
+
+**What the fetch cache keeps.** Each verification of the installed bundle
+(at every start and every switch) reads a v3 bundle's receipts from the
+cache files it names. The cache holds detailed receipts only for the
+cohorts of bundles this validator holds: every session prunes it to the
+cohorts the session named plus its keep set, read when the session prunes:
+the cohorts of the installed bundle, of a bundle staged on disk for an
+interrupted install (the next start installs or discards it), of a dry
+run's bundle staged in memory, and of every verified bundle the process
+still holds before installing it (a successor waiting for in-flight work,
+the dispatch loop's newest, one in the fetcher's channel; each keeps its
+cohorts while it lives). A cohort leaves the cache at the first session
+after no held bundle names it, so a successor's install releases its
+predecessor's receipts. This is the same retention a schema v2 bundle
+always had, which embeds its receipts in the installed file. When the
+installed or staged bundle file cannot be read the keep set is unknown
+(`installed_bundle_unreadable`, alerting): no session prunes, and none
+takes a new cohort into the cache (`cache_keep_unknown`, retryable) until
+the file reads again; a file whose manifests do not parse keeps nothing
+(`bundle_cohorts_unparsed`, alerting), since it cannot verify. Whether a
+validator may keep committing a carried target from its own verified copy
+after the host deleted the carrier's receipts (N+2) awaits the user's ruling
+on the receipts rule (the same open point as the coordinator's carrier
+hold); until then it does, for as long as that target stays installed. A
+validator without that copy (a fresh start, or a lost cache) cannot rebuild
+the carrier's receipts once the host deleted them: it reports
+`receipts_expired` and commits nothing for that target until a later
+authorization (naming retained receipts) or a successor is installed;
+commitments already submitted still recover from the journal. The cache is not an archive and needs no backup of its own; if
+you restore the journal and installed bundle from a backup, a cache from
+the same point keeps a carried target committing past the carrier's
+deletion. Move the cache only together with its `[fetch] cache_dir`
+setting.
 
 Each session holds the cache lock (`<cache>/.lock`; another process gets
 `cache_busy`, and `fetch` then exits 75), never follows a redirect, sends no
@@ -512,11 +571,14 @@ and the whole session after `poll_secs`. Verified objects stay in the cache
 (directories mode 700, files 600); a partial object is kept as
 `<name>.part` and continued with a range request (a host that ignores the
 range restarts it); a digest mismatch deletes it. Every session that
-located a cohort then prunes the cache to the cohorts it named and those
-the installed bundle was built from, whatever its outcome, so a host that
-lists junk cannot grow it past one session's reads. A session whose
+located a cohort then prunes the cache to the cohorts it named and its keep
+set, whatever its outcome, so a host that lists junk cannot grow it past one
+session's reads and the held bundles' cohorts. A session whose
 documents and held target are byte-identical to those of the last session
-that produced a bundle reports `unchanged` and reads no object; signature
+that produced a bundle reports `unchanged` and reads no object, as long as
+that bundle's referenced files are all present at their lengths; when one is
+gone, or a verification found one changed, the session assembles the bundle
+in full (`fetch_rebuild`); signature
 checks and bundle verification run on a blocking thread, off the runtime
 that drives the finalized-head stream and signing.
 
@@ -697,7 +759,11 @@ when none exists, runs
 path, so a typo never replaces history), enables lingering
 (`loginctl enable-linger`), reloads the user manager and enables
 `slop_ninja_validator-dispatch@<name>`. Back up the journal with the wallet.
-It holds sensitive commit material, so do not publish it.
+It holds sensitive commit material, so do not publish it. Back up the fetch
+cache, the installed bundle and the held-target record with it: a v3
+bundle's receipts live only in the cache once the host deleted them (see
+"The fetch cache is validator state" above). A restart, reinstall or update
+must keep all four in place (or move the cache only with its configuration).
 
 `slop_ninja_validator-dispatch@<name>` runs `run --dispatch` with
 `Restart=always` and `WantedBy=default.target`, so with lingering it starts
@@ -709,14 +775,26 @@ work: it continues on a successor in the same process and waits out a
 deferred tempo. After exit 2 or 3, fix the cause, then
 `systemctl --user reset-failed slop_ninja_validator-dispatch@<name>` and
 start the unit again. `slop_ninja_validator@<name>` runs the dry run with
-`Restart=on-failure`. Both set `MemoryMax=1G` and `MemorySwapMax=0`, from a
-measurement at the bundle bound (`fetch_tests::peak_memory_at_the_bundle_bound`,
-ignored by default; debug build, 2026-11-01): with a 66,437,318-byte bundle
-(148,235 receipts, just under the 64 MiB bound) one fetch session peaked
-217 MiB above its starting set, and the most a continuous run holds at once
-(the installed verification, two staged bundles and a session in flight)
-386 MiB above a 63 MiB start. A live dispatch run with a 15,344-receipt bundle
-peaked at 56 MiB. A larger bundle bound needs a new measurement. Keep
+`Restart=on-failure`. Both set `MemoryMax=2G` and `MemorySwapMax=0`, twice
+the measured worst case rounded up to a whole GiB. The worst case is at the
+receipt index bound (`fetch_tests::peak_memory_at_the_receipt_index_bound`,
+ignored by default; debug build, 2026-11-03): a target's cohort and its
+carrier each with the largest receipt index the protocol can sign (972,591
+receipts, a 67,108,947-byte index, so a 35,773-byte v3 bundle verifying
+1,945,182 receipts). One fetch session peaked 409 MiB above its starting set,
+one verification 543 MiB (with that session's bundle still held), and the
+most a continuous run holds at once (the installed verification, the loop's
+newest staged bundle, one waiting in the fetcher's channel and a session in
+flight) 810 MiB; each verified bundle holds its decoded receipt indexes. With
+the 63 MiB start measured at the bundle bound that is about 0.85 GiB, too
+close to the earlier 1G. The embedded bound measured less
+(`fetch_tests::peak_memory_at_the_bundle_bound`, 2026-11-01: a
+66,437,318-byte bundle of 148,235 receipts, 217 MiB for one session and 386
+MiB for the most a continuous run holds above a 63 MiB start). A live
+dispatch run with a 15,344-receipt bundle peaked at 56 MiB; the installed
+daily template (272,880 receipts a cohort) reads about 37.7 MB of indexes
+for a target and its carrier. A larger receipt or bundle bound needs a new
+measurement. Keep
 `recommit = "per_tempo"` under the dispatch unit: with `once`, each restart
 commits again. Stop the unit before using the offline journal CLI, because
 the journal holds a lifetime lock:

@@ -6,9 +6,10 @@
 //! allow-list one or bake one into an identity. Signing reads the live versions
 //! inside rtao at signing time; that is outside this tree.
 //!
-//! The scan covers the subnet crates and the coordinator. Test files and
-//! everything after a file's first `#[cfg(test)]` are skipped. Comments are
-//! ignored. Run with `cargo test --test no_runtime_gates`.
+//! The scan covers the subnet crates, the coordinator, the publisher and the
+//! alerts relay. Test files and everything after a file's first
+//! `#[cfg(test)]` are skipped. Comments are ignored. Run with
+//! `cargo test --test no_runtime_gates`.
 
 use std::path::{Path, PathBuf};
 
@@ -115,6 +116,9 @@ fn production_code_never_compares_runtime_versions() {
         "crates/artifact-check/src",
         "crates/arena/src",
         "coordinator/src",
+        "publisher/src",
+        "alerts-relay/src",
+        "alerts-relay/wire/src",
     ] {
         rust_files(&root.join(dir), &mut files);
     }

@@ -22,9 +22,19 @@
 #   COORDINATOR_STATUS_TOKEN  the coordinator Worker's read-only status token
 #   EVAL_STATUS_TOKEN         the eval Worker's read-only status token (each
 #                             Worker checks its own; the values differ)
-#   ALERT_SINK_URL            the alert sink: a test sink until decision D18
-#   HEARTBEAT_URL             the external dead-man check; pinged only when
-#                             HEARTBEAT_ENABLED is "true"
+#   ALERT_SINK_URL            optional https alert sink (json, slack or discord);
+#                             ignored, with a config_warning alert, while
+#                             ALERT_RELAY is "true" (check `wrangler secret
+#                             list --env testnet` before such a deploy)
+#   HEARTBEAT_URL             optional external dead-man check; pinged only
+#                             when HEARTBEAT_ENABLED is "true"
+#
+# Decision D18: alerts are email, sent by the private alerts relay Worker
+# (subnet/alerts-relay) through the ALERTS_RELAY_TESTNET service binding when
+# ALERT_RELAY is "true". The relay is also the dead-man check: each run whose
+# alert phase finished posts it a heartbeat. Deploy the relay before any
+# publisher deploy that carries this binding (a binding to a Worker that does
+# not exist refuses the deploy).
 #
 # No account ID belongs here. The top level is a local-only shell with no
 # bindings, triggers or route.
@@ -72,6 +82,10 @@ WATCHDOG_SILENCE_SECS = "300"
 # Decision D7 (a): content-free receipt indexes and chunks are public.
 PUBLISH_RECEIPTS = "true"
 ALERT_SINK_FORMAT = "json"
+# Decision D18: alerts go to the alerts relay (email); no ALERT_SINK_URL.
+ALERT_RELAY = "true"
+# The relay's own alerts remind at the same interval (sent in the heartbeat).
+# At least one cron period (60); a shorter value is refused.
 ALERT_RENOTIFY_SECS = "21600"
 HEARTBEAT_ENABLED = "false"
 # Wall time after which a run starts no new step (a cohort verification or an
@@ -121,6 +135,12 @@ service = "slop-ninja-coordinator-testnet"
 [[env.testnet.services]]
 binding = "EVAL_WORKER_TESTNET"
 service = "slop-ninja-eval-testnet"
+
+# Alert posts and the dead-man heartbeat (decision D18). The relay has no
+# route and no workers.dev name: this binding is its only way in.
+[[env.testnet.services]]
+binding = "ALERTS_RELAY_TESTNET"
+service = "slop-ninja-alerts-testnet"
 
 # Alert state, the run lease and the before-record memo.
 [[env.testnet.durable_objects.bindings]]

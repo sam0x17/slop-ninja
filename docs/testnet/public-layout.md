@@ -252,7 +252,11 @@ Field meanings:
 | `notice` | The burn regime in plain words; the statement that testnet scores test plumbing and that evaluation documents may be reused and exposed (decision D8); any operator notice |
 
 A snapshot older than a few minutes (`generated_at`) means the publisher has
-stopped. The dead-man heartbeat pages the operator when that happens.
+stopped. The operator is alerted when that happens: the publisher posts a
+heartbeat to a separate private alerts Worker after every run whose alert
+phase finished, and that Worker's own cron emails the operator when the
+heartbeats stop (see `subnet/alerts-relay/README.md`). It never touches the
+public host.
 
 ## The cohort index: `v1/cohorts/index.json`
 

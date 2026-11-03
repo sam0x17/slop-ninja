@@ -27,6 +27,8 @@ sha2 = "0.10"
 # The admission contract's chain and next-cohort shapes, so the status
 # snapshot is exactly what `slop_ninja_miner status` reads.
 slop-ninja-admission-wire = { path = "../crates/miner/wire" }
+# The alert post, heartbeat and state machine shared with the alerts relay.
+slop-ninja-alerts-wire = { path = "../alerts-relay/wire" }
 slop-ninja-protocol = { path = "../crates/protocol" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

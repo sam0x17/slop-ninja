@@ -679,6 +679,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "slop-ninja-alerts-wire"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "slop-ninja-protocol"
 version = "0.1.0"
 dependencies = [
@@ -699,6 +709,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "slop-ninja-admission-wire",
+ "slop-ninja-alerts-wire",
  "slop-ninja-protocol",
  "wasm-bindgen",
  "wasm-bindgen-futures",

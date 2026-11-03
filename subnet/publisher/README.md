@@ -7,6 +7,8 @@ into static public objects. Once a minute it:
    Worker's `/status`, and the eval Worker's `/status` and `/eval/status`,
    each with that Worker's read-only status token), writes the redacted
    status snapshot and evaluates the alert rules, before any cohort work;
+   once that phase has saved its state, it posts a heartbeat to the alerts
+   relay (decision D18, below);
 2. verifies the next closed `reward-v1` cohort of the public record in the
    private receipts bucket, as a validator would (at most one to completion
    per run). It then copies the cohort's public objects into the separate
@@ -24,31 +26,35 @@ into static public objects. Once a minute it:
    cohort is listed;
 6. deletes cohort N's detailed receipts from the public host once N+1 and N+2
    are published and N's target is superseded;
-7. pings the dead-man heartbeat when enabled, after a run that finished.
+7. pings an external dead-man URL when one is enabled, after a run that
+   finished both phases.
 
 The public host serves the bucket's objects directly. The Worker has no
 request route, so traffic never runs Worker code and never touches the
 spending cap. The object layout is
 [`docs/testnet/public-layout.md`](../../docs/testnet/public-layout.md).
 
-**State:** built and tested natively, with a `wasm32` check. Not deployed.
-Deployment needs decision D6 (the resources), and the public bucket stays
-private until the user turns on public access (D5). The alert sink is a test
-sink until D18 picks the channel.
+**State:** deployed with no route and no custom domain; public access to
+the public-candidate bucket is off until the user turns it on (D5). Decision
+D18: alerts are email, sent by the private alerts relay Worker
+([`subnet/alerts-relay`](../alerts-relay/README.md)) through the
+`ALERTS_RELAY_TESTNET` service binding (`ALERT_RELAY = "true"`). Deploy the
+relay before any publisher deploy that carries the binding: Cloudflare
+refuses a deploy whose service binding names a Worker that does not exist.
 
 ## Layout of the crate
 
 The crate is its own Cargo workspace. It depends on the shared
-`slop-ninja-protocol` crate and the admission wire crate by path, so the
-records it verifies and the snapshot shape the miner client reads are the
-same code.
+`slop-ninja-protocol` crate, the admission wire crate and the alerts wire
+crate by path, so the records it verifies, the snapshot shape the miner
+client reads and the alert posts the relay reads are the same code.
 
 | Module | Role |
 | --- | --- |
 | `verify` | cohort verification: signatures, bindings, receipts, published index, recomputed outcome, closure |
 | `publish` | one run: discovery, copy, re-verification, artifacts, records, retention |
 | `status` | typed status parsing and the public snapshot built from it |
-| `alerts` | alert rules, state across runs, sink payloads |
+| `alerts` | alert rules, sink payloads and delivery; the hold/renotify state machine and the post and heartbeat contract are the `slop-ninja-alerts-wire` crate (`../alerts-relay/wire`), shared with the relay |
 | `index` | cohort index, publication records, reference pointers |
 | `leaderboard` | leaderboard document and the static page |
 | `redact` | what may leave the private side |
@@ -184,7 +190,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v2`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v3`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -200,39 +206,110 @@ The rule set is `slop_ninja.publisher.alerts/v2`. The table is in
 - refused or stalled publications: cohorts, artifact admission records and
   copies, and the authorization;
 - unverifiable manifests (one aggregated alert);
-- a refused configuration;
+- a refused configuration, and a setting the configuration ignored
+  (`config_warning`);
 - runs interrupted for a whole tempo.
 
 Each condition has a hold time. It fires once the hold passes, is re-posted
 every `ALERT_RENOTIFY_SECS` while it lasts, and posts a resolution when it
 clears. A failed post is retried by the next run. A duplicate run posts
-nothing new. Posts are content-free. `ALERT_SINK_FORMAT` shapes them for a
-generic JSON receiver, a Slack-style `{"text"}` webhook or a Discord-style
-`{"content"}` webhook. Events are split into posts within the sink's limit
-(2,000 characters for Discord, 40,000 for Slack and for the JSON body), and
-each delivered post is acknowledged on its own.
+nothing new. Posts are content-free. Events are split into posts within the
+sink's limit (2,000 characters for Discord, 40,000 for Slack and for the JSON
+body), and each delivered post is acknowledged on its own.
+
+Every event carries an id derived from the alert state (the rule set, kind,
+rule, subject, when the condition was first seen and when it was last
+notified), and the last-notified time it is derived from. A retried post
+repeats its ids, and the next reminder has new ones. A firing is marked as
+attempted before its post. If its answer is lost and the condition clears
+before a retry is acknowledged, a resolution with no last-notified time is
+posted. The relay emails it only if the firing went out; a URL sink receives
+it as it is. A sink that does not
+answer at all is not asked again in the same run, so a hung sink costs one
+outbound bound per run.
+
+The post schema is `slop_ninja.publisher.alert/v3`. **Breaking change for
+generic JSON receivers:** the deployed publisher's JSON sink sent
+`slop_ninja.publisher.alert/v1`, whose events had no `id` or `notified_ms`.
+A receiver that validates v1, or refuses unknown fields, must be updated
+before this build is deployed with `ALERT_SINK_FORMAT = "json"`. The Slack
+and Discord formats are unchanged.
+
+One sink at a time:
+
+- **The alerts relay** (decision D18, `ALERT_RELAY = "true"`): the JSON body,
+  posted through the `ALERTS_RELAY_TESTNET` service binding. The relay emails
+  each event id once and answers 2xx only when every event of the post is
+  settled, so a post whose answer was lost is retried and sends nothing
+  twice. A JSON event longer than the limit has its detail shortened (rule
+  and subject kept), so every post fits the relay's body bound.
+- **An https URL** (`ALERT_SINK_URL`), shaped by `ALERT_SINK_FORMAT` for a
+  generic JSON receiver, a Slack-style `{"text"}` webhook or a Discord-style
+  `{"content"}` webhook. Such a sink keeps no record of what it posted, so
+  the publisher never sends it a resolution of a firing whose post was not
+  acknowledged: that entry is dropped when it clears, as before the relay
+  sink existed.
+- With both set, the relay wins. The URL is ignored and raised as
+  `config_warning` ("remove the secret"). This is never a refusal, because
+  the configuration also drives publication, and validators depend on
+  publication.
+
+`ALERT_RENOTIFY_SECS` must be at least one cron period (60 s). A reminder
+cannot come more often than the runs do, so a shorter value, including 0,
+is refused rather than read as "every run".
 
 A run first writes the snapshot and evaluates the alerts, using the
 publication results of the previous run, then saves its state, and only
-then starts cohort work. Each step (a cohort verification, an artifact
-copy) renews a two-minute lease and starts only within `RUN_WALL_BUDGET_MS`
-(default one cron period). A run killed mid-step blocks the next runs for
+then starts cohort work. When alerts are due, it also saves the observed
+alert state, with the marks of the posts about to go out, before it posts
+any of them, and posts nothing when that save fails. The event ids derive
+from that state, so a run that dies after posting, or whose later save
+fails, leaves the next run the same ids, and the relay emails them once.
+A resolution whose post was attempted marks its entry: if the condition
+comes back before the resolution is acknowledged, it fires again as a new
+episode instead of waiting for the next reminder. Each step (a cohort verification, an artifact
+copy) renews a two-minute lease (`PUBLISHER_LEASE_MS` of the alerts wire
+crate) and starts only within `RUN_WALL_BUDGET_MS` (default one cron
+period). A run killed mid-step blocks the next runs for
 one lease at most, and a blocked run still refreshes the snapshot. A refused
 configuration still writes a fault snapshot and raises `config_refused`
 through whatever sink parses.
 
-The dead-man heartbeat (`HEARTBEAT_URL`, enabled only by
-`HEARTBEAT_ENABLED = "true"`) is a GET after each run that finished both
-phases. An external service pages when the pings stop.
+The dead-man check is the relay's (decision D18). With `ALERT_RELAY = "true"`,
+each run posts a heartbeat (`slop_ninja.publisher.heartbeat/v3`) to the relay
+once its alert phase has saved its state:
+
+- A run blocked by a held lease, or whose state object did not answer,
+  sends none. A run whose configuration was refused sends one after it
+  alerted the refusal.
+- The heartbeat goes out beside phase 2 (kept alive by `wait_until`), so a
+  slow relay does not take phase 2's wall budget.
+- It carries the post schema this build sends, how many due events the run
+  left undelivered and since which run, and this configuration's
+  `watermark_stalled` bound, which the relay uses for the coordinator while
+  the publisher is down. The relay emails when posts keep failing while
+  heartbeats arrive.
+- The relay is a separate Worker with its own cron, so a crashed publisher,
+  a stopped cron or a broken binding is caught.
+- Its bounds come from the cron period, lease, hold and status-read bound
+  that this crate takes from the shared alerts wire crate (see the relay's
+  README).
+
+An external check can still be pinged: `HEARTBEAT_URL`, enabled only by
+`HEARTBEAT_ENABLED = "true"`, is a GET after each run that finished both
+phases.
 
 ## Configuration
 
 See `wrangler.toml`. The vars set at deploy are `PUBLISH_FROM_EPOCH`,
 `RECORD_LABEL_PREFIX`, `PRIVATE_DIGESTS`, `OPERATOR_HOTKEYS`,
 `ARTIFACT_SOURCE_KEY`, `ADMISSION_RECORD_KEY`, `ADMISSION_ORIGIN` and
-`NOTICE`. The secrets are `COORDINATOR_STATUS_TOKEN` (the coordinator
-Worker's status token), `EVAL_STATUS_TOKEN` (the eval Worker's, which is a
-different value), `ALERT_SINK_URL` and `HEARTBEAT_URL`. The trust roots are
+`NOTICE`. `ALERT_RELAY` is tracked (`"true"`, decision D18). The secrets are
+`COORDINATOR_STATUS_TOKEN` (the coordinator Worker's status token),
+`EVAL_STATUS_TOKEN` (the eval Worker's, which is a different value), and the
+optional `ALERT_SINK_URL` (ignored, with a warning, while the relay is on)
+and `HEARTBEAT_URL`. Before a deploy that turns the relay on, check that
+`wrangler secret list --env testnet` lists no `ALERT_SINK_URL`. The trust roots are
 the compiled `subnet/coordinator/testnet-trust.json`. The publisher verifies with exactly
 the file it publishes, so rotating the roots (D20) means rebuilding the
 publisher.
@@ -262,10 +339,10 @@ cargo check --manifest-path subnet/publisher/Cargo.toml --target wasm32-unknown-
 
 ## Not yet done
 
-- Deployment and the live checks:
+- Live checks:
   - anonymous GETs;
-  - one forced drill per alert rule;
-  - a heartbeat miss that pages;
+  - one forced drill per alert rule, through the relay;
+  - a heartbeat miss that the relay emails;
   - a stream copy of a full-size artifact (about 610 MB) between buckets.
 
   Whether R2 accepts an R2 body stream as a put body without a

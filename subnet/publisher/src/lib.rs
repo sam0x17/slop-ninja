@@ -6,6 +6,8 @@
 //!
 //! 1. writes the redacted status snapshot and evaluates the alert rules,
 //!    posting transitions to the configured sink ([`status`], [`alerts`]);
+//!    once that phase has saved its state, it posts the alerts relay's
+//!    dead-man heartbeat (decision D18), beside the next steps;
 //! 2. verifies the next closed `reward-v1` cohort of the public record in the
 //!    private receipts bucket under the pinned trust roots, exactly as a
 //!    validator would (records, receipt chunks, the published index, the
@@ -18,7 +20,8 @@
 //! 4. writes the cohort index, the leaderboard, the reference pointers (each
 //!    linking its staged reference package, when one is staged) and the
 //!    current validator authorization ([`index`], [`leaderboard`]);
-//! 5. pings the dead-man heartbeat when one is enabled.
+//! 5. pings an external dead-man URL when one is enabled, after a run that
+//!    finished both phases.
 //!
 //! The public host serves those objects directly; the Worker has no request
 //! route. All logic except `cf.rs` is plain Rust over the [`store::Store`]

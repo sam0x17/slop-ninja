@@ -1,13 +1,29 @@
-//! Alert rules (`slop_ninja.publisher.alerts/v2`), their state across runs,
-//! and the posts to the sink chosen under decision D18.
+//! Alert rules (`slop_ninja.publisher.alerts/v3`), their state across runs,
+//! and the posts to the sink: under decision D18 the private alerts relay
+//! (email, through a service binding), or an https sink.
 //!
 //! Each run turns the observed status into a set of [`Condition`]s
 //! ([`evaluate`]). The durable [`AlertState`] (kept in the publisher's
-//! Durable Object) remembers when each condition was first seen and what was
-//! notified, so a condition fires once it has held for its rule's hold time,
-//! is re-posted as a reminder every renotify interval while it lasts, and
-//! posts a resolution when it clears. A failed post leaves its events due, so
-//! the next run retries them; a duplicate run posts nothing new.
+//! Durable Object; the state machine is `slop_ninja_alerts_wire::state`,
+//! shared with the relay) remembers when each condition was first seen and
+//! what was notified, so a condition fires once it has held for its rule's
+//! hold time, is re-posted as a reminder every renotify interval while it
+//! lasts, and posts a resolution when it clears. A failed post leaves its
+//! events due with the same ids ([`event_id`]), so the next run retries them
+//! and the relay sends them once; a duplicate run posts nothing new. The run
+//! saves its observed state, with these marks, before it posts anything
+//! (`cf.rs`), so a run that dies after posting, or whose save after posting
+//! fails, leaves the next run the same first-seen times, hence the same ids.
+//!
+//! For the alerts relay, which keeps a ledger of what it sent, a firing post
+//! that was attempted but never acknowledged is resolved when its condition
+//! clears (the relay emails that resolution only if the firing may have gone
+//! out), so a lost answer never leaves a firing email unresolved. An https
+//! sink has no such ledger: its firings are not marked, and an unconfirmed
+//! resolution is never posted to it (the entry is dropped, as before the
+//! relay existed). For every sink, a resolution that was attempted marks
+//! its entry, so a condition that comes back afterwards fires again as a
+//! new episode.
 //!
 //! Details are content-free: codes, labels, epochs and ages, never spend
 //! figures or private data.
@@ -28,6 +44,7 @@
 //! | `publication_pending` | a closed cohort, an artifact copy or the authorization has been incomplete for a whole tempo |
 //! | `publication_unverifiable` | closed cohorts whose manifest does not open under the compiled trust roots (one alert for all) |
 //! | `config_refused` | the publisher's configuration was refused; only the status fault snapshot is written |
+//! | `config_warning` | the configuration was accepted with a setting ignored (an `ALERT_SINK_URL` while `ALERT_RELAY` is on) |
 //! | `run_interrupted` | every run for a whole tempo stopped before it finished (it never released its lease) |
 //!
 //! Not covered here (AR-13 gaps, listed in the README): commits by our other
@@ -35,16 +52,21 @@
 //! divergence between the chain's consensus for the subnet and our row, which
 //! needs chain reads.
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::config::SinkFormat;
 use crate::status::{Observed, WorkerView};
 
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v2";
-pub const ALERT_SCHEMA: &str = "slop_ninja.publisher.alert/v1";
+pub use slop_ninja_alerts_wire::{
+    AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
+};
+
+/// v3: `config_warning`, and resolutions of attempted firings.
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v3";
+/// The post schema (each event carries its id and the last-notified time
+/// it is derived from, so the alerts relay sends a retried post once).
+pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
 
 /// Work phases that must end by the package deadline.
 pub const WORK_PHASES: &[&str] = &["generating", "sealing", "scoring", "packaging"];
@@ -79,26 +101,20 @@ pub struct Rules {
 }
 
 impl Rules {
+    /// The cron period and the unanswered-source hold are the shared wire
+    /// crate's, so the alerts relay's dead-man bounds derive from the same
+    /// values.
     pub fn derive(tempo_ms: u64, silence_ms: u64, renotify_ms: u64) -> Self {
         Self {
             fallback_ms: tempo_ms,
-            watermark_stall_ms: silence_ms + 2 * 60_000,
+            watermark_stall_ms: slop_ninja_alerts_wire::watermark_stall_ms(silence_ms),
             commit_gap_tempos: 2,
             ledger_permille: 800,
-            unreachable_hold_ms: 2 * 60_000,
+            unreachable_hold_ms: slop_ninja_alerts_wire::PUBLISHER_UNREACHABLE_HOLD_MS,
             publication_hold_ms: tempo_ms,
             renotify_ms,
         }
     }
-}
-
-/// One condition observed this run.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Condition {
-    pub rule: &'static str,
-    pub subject: String,
-    pub detail: String,
-    pub hold_ms: u64,
 }
 
 /// What the publisher itself observed in its last publication pass.
@@ -118,6 +134,9 @@ pub struct PublisherObs {
     /// eviction or a trap): it never released its lease.
     #[serde(default)]
     pub interrupted: bool,
+    /// Settings this run's accepted configuration ignored.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 fn cond(rule: &'static str, subject: &str, detail: String, hold_ms: u64) -> Condition {
@@ -290,6 +309,14 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
     if let Some(why) = &p.config {
         out.push(cond("config_refused", "publisher", why.clone(), 0));
     }
+    if !p.warnings.is_empty() {
+        out.push(cond(
+            "config_warning",
+            "publisher",
+            p.warnings.join("; "),
+            0,
+        ));
+    }
     if p.interrupted {
         out.push(cond(
             "run_interrupted",
@@ -325,151 +352,37 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
     out
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Entry {
-    pub rule: String,
-    pub subject: String,
-    pub detail: String,
-    pub hold_ms: u64,
-    pub first_seen_ms: u64,
-    /// The last firing or reminder post, once it fired.
-    pub notified_ms: Option<u64>,
-    /// Cleared after it fired; the resolution is not yet posted.
-    pub resolved: bool,
-}
-
-/// Alert state across runs, keyed by `rule/subject`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AlertState {
-    pub rules: String,
-    pub entries: BTreeMap<String, Entry>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventKind {
-    Firing,
-    Reminder,
-    Resolved,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Event {
-    pub state: EventKind,
-    pub rule: String,
-    pub subject: String,
-    pub detail: String,
-    pub since_ms: u64,
-}
-
-fn key(rule: &str, subject: &str) -> String {
-    format!("{rule}/{subject}")
-}
-
-/// Records this run's conditions: new ones start their hold, cleared ones that
-/// fired await their resolution post, cleared ones that never fired vanish.
+/// Records this run's conditions under [`RULES_ID`] (the state machine is
+/// shared with the alerts relay: `slop_ninja_alerts_wire::state`).
 pub fn observe(state: &mut AlertState, conditions: &[Condition], now_ms: u64) {
-    state.rules = RULES_ID.into();
-    let mut present = std::collections::BTreeSet::new();
-    for c in conditions {
-        let k = key(c.rule, &c.subject);
-        present.insert(k.clone());
-        let e = state.entries.entry(k).or_insert_with(|| Entry {
-            rule: c.rule.into(),
-            subject: c.subject.clone(),
-            first_seen_ms: now_ms,
-            ..Entry::default()
-        });
-        e.detail = c.detail.clone();
-        e.hold_ms = c.hold_ms;
-        if e.resolved {
-            // It came back before its resolution was posted: still firing.
-            e.resolved = false;
-        }
-    }
-    state.entries.retain(|k, e| {
-        if present.contains(k) {
-            return true;
-        }
-        if e.notified_ms.is_some() {
-            e.resolved = true;
-            true
-        } else {
-            false
-        }
-    });
-}
-
-/// The posts due now.
-pub fn due(state: &AlertState, now_ms: u64, renotify_ms: u64) -> Vec<Event> {
-    let mut out = Vec::new();
-    for e in state.entries.values() {
-        let kind = match (e.resolved, e.notified_ms) {
-            (true, _) => Some(EventKind::Resolved),
-            (false, None) if now_ms.saturating_sub(e.first_seen_ms) >= e.hold_ms => {
-                Some(EventKind::Firing)
-            }
-            (false, Some(at)) if now_ms.saturating_sub(at) >= renotify_ms => {
-                Some(EventKind::Reminder)
-            }
-            _ => None,
-        };
-        if let Some(state) = kind {
-            out.push(Event {
-                state,
-                rule: e.rule.clone(),
-                subject: e.subject.clone(),
-                detail: e.detail.clone(),
-                since_ms: e.first_seen_ms,
-            });
-        }
-    }
-    out
-}
-
-/// Marks `events` as posted.
-pub fn acknowledge(state: &mut AlertState, events: &[Event], now_ms: u64) {
-    for ev in events {
-        let k = key(&ev.rule, &ev.subject);
-        match ev.state {
-            EventKind::Resolved => {
-                state.entries.remove(&k);
-            }
-            EventKind::Firing | EventKind::Reminder => {
-                if let Some(e) = state.entries.get_mut(&k) {
-                    e.notified_ms = Some(now_ms);
-                }
-            }
-        }
-    }
+    slop_ninja_alerts_wire::observe(state, RULES_ID, conditions, now_ms);
 }
 
 /// The largest message one post carries, by sink: Discord refuses a
 /// `content` over 2,000 characters; Slack truncates a `text` over 40,000;
-/// the generic JSON body uses Slack's bound for its serialized events.
+/// the generic JSON body (also the alerts relay's) uses Slack's bound for
+/// its serialized events (`slop_ninja_alerts_wire::POST_EVENTS_BYTES`).
 pub fn post_limit(format: SinkFormat) -> usize {
     match format {
         SinkFormat::Discord => 2_000,
-        SinkFormat::Slack | SinkFormat::Json => 40_000,
+        SinkFormat::Slack | SinkFormat::Json => slop_ninja_alerts_wire::POST_EVENTS_BYTES,
     }
 }
 
 fn line(e: &Event, network: &str) -> String {
-    let tag = match e.state {
-        EventKind::Firing => "FIRING",
-        EventKind::Reminder => "STILL FIRING",
-        EventKind::Resolved => "RESOLVED",
-    };
     format!(
-        "[{tag}] slop-ninja {network} {} {}: {}",
-        e.rule, e.subject, e.detail
+        "[{}] slop-ninja {network} {} {}: {}",
+        e.state.tag(),
+        e.rule,
+        e.subject,
+        e.detail
     )
 }
 
 /// The size an event adds to a post of `format`.
 fn event_size(e: &Event, format: SinkFormat, network: &str) -> usize {
     match format {
-        SinkFormat::Json => serde_json::to_vec(e).map_or(0, |b| b.len()) + 1,
+        SinkFormat::Json => e.wire_len() + 1,
         _ => line(e, network).chars().count() + 1,
     }
 }
@@ -488,7 +401,13 @@ pub fn payload(events: &[Event], format: SinkFormat, network: &str) -> Vec<u8> {
         .join("\n");
     let body = match format {
         SinkFormat::Json => {
-            json!({"schema": ALERT_SCHEMA, "rules": RULES_ID, "network": network, "events": events})
+            return slop_ninja_alerts_wire::Post {
+                schema: ALERT_SCHEMA.into(),
+                rules: RULES_ID.into(),
+                network: network.into(),
+                events: events.to_vec(),
+            }
+            .body();
         }
         SinkFormat::Slack => json!({"text": text}),
         SinkFormat::Discord => json!({"content": text}),
@@ -498,25 +417,111 @@ pub fn payload(events: &[Event], format: SinkFormat, network: &str) -> Vec<u8> {
 
 /// The events split into posts within the sink's limit, in order; each post
 /// is delivered and acknowledged on its own, so one refused post never holds
-/// back the others.
+/// back the others. A JSON event longer than the limit on its own has its
+/// detail shortened to fit (its rule and subject, which key the
+/// acknowledgment, are kept), so every JSON post stays within the relay's
+/// body bound.
 pub fn batches(events: &[Event], format: SinkFormat, network: &str) -> Vec<Vec<Event>> {
     let limit = post_limit(format);
     let mut out: Vec<Vec<Event>> = Vec::new();
     let mut size = 0usize;
     for e in events {
-        let n = event_size(e, format, network).min(limit);
+        let mut e = e.clone();
+        if format == SinkFormat::Json {
+            // One event plus its separator within the limit.
+            e.fit(limit - 1);
+        }
+        let n = event_size(&e, format, network).min(limit);
         match out.last_mut() {
             Some(batch) if size + n <= limit => {
-                batch.push(e.clone());
+                batch.push(e);
                 size += n;
             }
             _ => {
-                out.push(vec![e.clone()]);
+                out.push(vec![e]);
                 size = n;
             }
         }
     }
     out
+}
+
+/// How a sink answered one post.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Posted {
+    /// A 2xx.
+    Accepted,
+    /// Any other answer (the sink refused it, or failed on its side).
+    Refused,
+    /// No answer within the outbound bound.
+    NoAnswer,
+}
+
+/// One delivery channel: an https sink or the alerts relay's service
+/// binding (`cf.rs`), or a recorder in tests.
+#[allow(async_fn_in_trait)]
+pub trait Poster {
+    /// Delivers one post body.
+    async fn post(&self, body: Vec<u8>) -> Posted;
+    /// The receiver keeps a ledger of what it sent (the alerts relay), so it
+    /// can tell whether an unconfirmed resolution's firing went out.
+    fn ledger(&self) -> bool {
+        false
+    }
+}
+
+/// Marks the posts about to be sent to a receiver with a ledger
+/// ([`attempt`]: firings and resolutions) or without one (resolutions
+/// only). Idempotent; call it before saving the state that precedes the
+/// posts.
+pub fn mark(state: &mut AlertState, events: &[Event], now_ms: u64, ledger: bool) {
+    if ledger {
+        attempt(state, events, now_ms);
+    } else {
+        slop_ninja_alerts_wire::attempt_resolutions(state, events, now_ms);
+    }
+}
+
+/// Posts `events` in batches within the sink's limit and acknowledges each
+/// delivered batch on its own; an undelivered batch stays due, with the same
+/// event ids, for the next run. Each post is marked attempted before it is
+/// sent ([`mark`]). A receiver without a ledger is never sent an
+/// unconfirmed resolution: those entries are dropped. A sink that does not
+/// answer at all is not asked again this run (its remaining batches wait
+/// for the next run), so a hung sink costs one outbound bound per run, not
+/// one per batch. Returns the number of undelivered events.
+pub async fn deliver(
+    state: &mut AlertState,
+    events: &[Event],
+    format: SinkFormat,
+    network: &str,
+    now_ms: u64,
+    poster: &impl Poster,
+) -> usize {
+    let ledger = poster.ledger();
+    let (unverifiable, events): (Vec<Event>, Vec<Event>) = events
+        .iter()
+        .cloned()
+        .partition(|e| !ledger && e.unconfirmed());
+    acknowledge(state, &unverifiable, now_ms);
+    let mut undelivered = 0;
+    let mut answering = true;
+    for batch in batches(&events, format, network) {
+        if !answering {
+            undelivered += batch.len();
+            continue;
+        }
+        mark(state, &batch, now_ms, ledger);
+        match poster.post(payload(&batch, format, network)).await {
+            Posted::Accepted => acknowledge(state, &batch, now_ms),
+            Posted::Refused => undelivered += batch.len(),
+            Posted::NoAnswer => {
+                undelivered += batch.len();
+                answering = false;
+            }
+        }
+    }
+    undelivered
 }
 
 #[cfg(test)]
@@ -649,6 +654,7 @@ mod tests {
             unverifiable: vec!["old-a".into(), "old-b".into()],
             config: Some("NETWORK must be testnet".into()),
             interrupted: true,
+            warnings: vec![],
         };
         let c = evaluate(&o, &p, &r);
         assert_eq!(
@@ -717,17 +723,27 @@ mod tests {
 
     #[test]
     fn payload_formats() {
-        let ev = vec![Event {
-            state: EventKind::Firing,
-            rule: "commit_gap".into(),
-            subject: "coordinator".into(),
-            detail: "last commit at epoch 1, now 4".into(),
-            since_ms: 5,
-        }];
+        let ev = vec![Event::new(
+            RULES_ID,
+            EventKind::Firing,
+            "commit_gap",
+            "coordinator",
+            "last commit at epoch 1, now 4",
+            5,
+            None,
+        )];
         let j: serde_json::Value =
             serde_json::from_slice(&payload(&ev, SinkFormat::Json, "testnet")).unwrap();
         assert_eq!(j["schema"], ALERT_SCHEMA);
         assert_eq!(j["events"][0]["state"], "firing");
+        assert_eq!(j["events"][0]["id"], ev[0].id.as_str());
+        // The JSON body is exactly the relay's post.
+        let post = slop_ninja_alerts_wire::Post::parse(
+            &payload(&ev, SinkFormat::Json, "testnet"),
+            "testnet",
+        )
+        .unwrap();
+        assert_eq!((post.rules.as_str(), post.events), (RULES_ID, ev.clone()));
         let s: serde_json::Value =
             serde_json::from_slice(&payload(&ev, SinkFormat::Slack, "testnet")).unwrap();
         assert!(
@@ -747,12 +763,16 @@ mod tests {
     #[test]
     fn posts_are_split_within_the_sink_limit() {
         let ev: Vec<Event> = (0..120)
-            .map(|i| Event {
-                state: EventKind::Firing,
-                rule: "publication_refused".into(),
-                subject: format!("testnet-c{i}"),
-                detail: "manifest.signed: untrusted_key".repeat(3),
-                since_ms: i,
+            .map(|i| {
+                Event::new(
+                    RULES_ID,
+                    EventKind::Firing,
+                    "publication_refused",
+                    &format!("testnet-c{i}"),
+                    &"manifest.signed: untrusted_key".repeat(3),
+                    i,
+                    None,
+                )
             })
             .collect();
         for format in [SinkFormat::Discord, SinkFormat::Slack, SinkFormat::Json] {
@@ -778,5 +798,320 @@ mod tests {
                 assert!(batches.len() > 1);
             }
         }
+    }
+
+    /// A recording sink: answers each post in turn from `answers` (then
+    /// accepted) and keeps every body it was sent. `new` is the relay (with
+    /// a ledger), `plain` an https sink.
+    struct Recorder {
+        answers: std::cell::RefCell<Vec<Posted>>,
+        bodies: std::cell::RefCell<Vec<Vec<u8>>>,
+        ledger: bool,
+    }
+
+    impl Recorder {
+        fn new(answers: &[Posted]) -> Self {
+            Self {
+                answers: std::cell::RefCell::new(answers.iter().rev().copied().collect()),
+                bodies: std::cell::RefCell::new(Vec::new()),
+                ledger: true,
+            }
+        }
+
+        fn plain(answers: &[Posted]) -> Self {
+            Self {
+                ledger: false,
+                ..Self::new(answers)
+            }
+        }
+    }
+
+    impl Poster for Recorder {
+        async fn post(&self, body: Vec<u8>) -> Posted {
+            self.bodies.borrow_mut().push(body);
+            self.answers.borrow_mut().pop().unwrap_or(Posted::Accepted)
+        }
+        fn ledger(&self) -> bool {
+            self.ledger
+        }
+    }
+
+    /// An https sink (no ledger) that refused a firing, then the condition
+    /// clears: nothing is posted for it, as before the relay sink existed.
+    /// A resolution that was posted to it and then recurs fires again.
+    #[test]
+    fn plain_sinks_never_get_unconfirmed_resolutions() {
+        use crate::store::block_on;
+        let mut st = AlertState::default();
+        let now = 1_000_000;
+        observe(&mut st, &[held("coordinator")], now);
+        let events = due(&st, now, 3_600_000);
+        let slack = Recorder::plain(&[Posted::Refused]);
+        let left = block_on(deliver(
+            &mut st,
+            &events,
+            SinkFormat::Slack,
+            "testnet",
+            now,
+            &slack,
+        ));
+        assert_eq!(left, 1);
+        assert_eq!(
+            st.get("commit_gap", "coordinator").unwrap().attempted_ms,
+            None,
+            "no firing mark for a sink without a ledger"
+        );
+        observe(&mut st, &[], now + 60_000);
+        assert!(st.entries.is_empty(), "dropped silently");
+        // A state carried over from the relay sink (a firing mark): its
+        // unconfirmed resolution is dropped, never posted to the https sink.
+        let mut st = AlertState::default();
+        observe(&mut st, &[held("coordinator")], now);
+        let events = due(&st, now, 3_600_000);
+        attempt(&mut st, &events, now);
+        observe(&mut st, &[], now + 60_000);
+        let z = due(&st, now + 60_000, 3_600_000);
+        assert!(z[0].unconfirmed());
+        let slack = Recorder::plain(&[]);
+        let left = block_on(deliver(
+            &mut st,
+            &z,
+            SinkFormat::Slack,
+            "testnet",
+            now + 60_000,
+            &slack,
+        ));
+        assert_eq!((left, slack.bodies.borrow().len()), (0, 0));
+        assert!(st.entries.is_empty());
+        // A delivered firing, a resolution whose answer was lost, and the
+        // condition back: a new firing.
+        let mut st = AlertState::default();
+        observe(&mut st, &[held("coordinator")], now);
+        let f = due(&st, now, 3_600_000);
+        let ok = Recorder::plain(&[]);
+        block_on(deliver(&mut st, &f, SinkFormat::Slack, "testnet", now, &ok));
+        observe(&mut st, &[], now + 60_000);
+        let z = due(&st, now + 60_000, 3_600_000);
+        let lost = Recorder::plain(&[Posted::NoAnswer]);
+        block_on(deliver(
+            &mut st,
+            &z,
+            SinkFormat::Slack,
+            "testnet",
+            now + 60_000,
+            &lost,
+        ));
+        observe(&mut st, &[held("coordinator")], now + 120_000);
+        let again = due(&st, now + 120_000, 3_600_000);
+        assert_eq!(again.len(), 1);
+        assert_eq!(again[0].state, EventKind::Firing);
+        assert_ne!(again[0].id, f[0].id);
+    }
+
+    fn held(subject: &str) -> Condition {
+        Condition {
+            rule: "commit_gap",
+            subject: subject.into(),
+            detail: "last commit at epoch 1, now 4".into(),
+            hold_ms: 0,
+        }
+    }
+
+    /// The relay sink: posts parse as the relay's contract, an undelivered
+    /// post stays due with the same ids (so the relay, which already sent
+    /// what it received, sends nothing twice), and a delivered one is
+    /// acknowledged.
+    #[test]
+    fn relay_posts_retry_with_the_same_ids() {
+        use crate::store::block_on;
+        let mut st = AlertState::default();
+        let now = 1_000_000;
+        observe(&mut st, &[held("coordinator"), held("eval_worker")], now);
+        let events = due(&st, now, 3_600_000);
+        assert_eq!(events.len(), 2);
+        // The first post's answer is lost.
+        let lost = Recorder::new(&[Posted::NoAnswer]);
+        let left = block_on(deliver(
+            &mut st,
+            &events,
+            SinkFormat::Json,
+            "testnet",
+            now,
+            &lost,
+        ));
+        assert_eq!(left, 2);
+        let first =
+            slop_ninja_alerts_wire::Post::parse(&lost.bodies.borrow()[0], "testnet").unwrap();
+        // The next run posts the same events, ids unchanged, and is acknowledged.
+        observe(
+            &mut st,
+            &[held("coordinator"), held("eval_worker")],
+            now + 60_000,
+        );
+        let again = due(&st, now + 60_000, 3_600_000);
+        let ok = Recorder::new(&[]);
+        assert_eq!(
+            block_on(deliver(
+                &mut st,
+                &again,
+                SinkFormat::Json,
+                "testnet",
+                now + 60_000,
+                &ok
+            )),
+            0
+        );
+        let second =
+            slop_ninja_alerts_wire::Post::parse(&ok.bodies.borrow()[0], "testnet").unwrap();
+        let ids = |p: &slop_ninja_alerts_wire::Post| {
+            p.events.iter().map(|e| e.id.clone()).collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&first), ids(&second));
+        observe(
+            &mut st,
+            &[held("coordinator"), held("eval_worker")],
+            now + 61_000,
+        );
+        assert!(due(&st, now + 61_000, 3_600_000).is_empty(), "acknowledged");
+        // A reminder carries new ids.
+        observe(
+            &mut st,
+            &[held("coordinator"), held("eval_worker")],
+            now + 60_000 + 3_600_000,
+        );
+        let reminders = due(&st, now + 60_000 + 3_600_000, 3_600_000);
+        assert!(reminders.iter().all(|e| e.state == EventKind::Reminder));
+        assert!(reminders.iter().all(|e| !ids(&second).contains(&e.id)));
+    }
+
+    /// A firing whose post got no answer (the relay may have sent it) is
+    /// resolved when the condition clears, with an unconfirmed resolution
+    /// the relay emails only if the firing went out; a sink that does not
+    /// answer is not asked again in the same run.
+    #[test]
+    fn unanswered_firings_resolve_and_stop_the_run() {
+        use crate::store::block_on;
+        let mut st = AlertState::default();
+        let now = 1_000_000;
+        let many: Vec<Condition> = (0..3)
+            .map(|i| {
+                let mut c = held(&format!("testnet-c{i}"));
+                c.rule = "publication_refused";
+                c.detail = "x".repeat(30_000);
+                c
+            })
+            .collect();
+        observe(&mut st, &many, now);
+        let events = due(&st, now, 3_600_000);
+        let rec = Recorder::new(&[Posted::NoAnswer]);
+        let left = block_on(deliver(
+            &mut st,
+            &events,
+            SinkFormat::Json,
+            "testnet",
+            now,
+            &rec,
+        ));
+        assert_eq!(left, 3);
+        assert_eq!(
+            rec.bodies.borrow().len(),
+            1,
+            "one post per run to a hung sink"
+        );
+        // A refused post does not stop the others.
+        let rec = Recorder::new(&[Posted::Refused]);
+        let left = block_on(deliver(
+            &mut st,
+            &events,
+            SinkFormat::Json,
+            "testnet",
+            now + 60_000,
+            &rec,
+        ));
+        assert_eq!((left, rec.bodies.borrow().len()), (1, 3));
+        // The first firing was attempted, never acknowledged; it clears.
+        let rest: Vec<Condition> = many[1..].to_vec();
+        observe(&mut st, &rest, now + 120_000);
+        let ev = due(&st, now + 120_000, 3_600_000);
+        assert_eq!(ev.len(), 1);
+        assert!(ev[0].unconfirmed() && ev[0].subject == "testnet-c0");
+        let post = slop_ninja_alerts_wire::Post::parse(
+            &payload(&ev, SinkFormat::Json, "testnet"),
+            "testnet",
+        )
+        .unwrap();
+        assert_eq!(post.events[0].firing_id(RULES_ID), events[0].id);
+    }
+
+    /// A setting the configuration ignored is alerted, not refused.
+    #[test]
+    fn config_warnings_alert() {
+        let p = PublisherObs {
+            warnings: vec!["ALERT_SINK_URL is ignored".into()],
+            ..PublisherObs::default()
+        };
+        let c = evaluate(&healthy(), &p, &rules());
+        assert_eq!(rules_of(&c), vec!["config_warning"]);
+        assert_eq!(c[0].detail, "ALERT_SINK_URL is ignored");
+    }
+
+    /// The thresholds the alerts relay derives its dead-man bounds from are
+    /// the shared wire crate's values, and the cron is the wire crate's
+    /// period.
+    #[test]
+    fn rule_timing_is_the_wire_crates() {
+        let r = rules();
+        assert_eq!(
+            r.unreachable_hold_ms,
+            slop_ninja_alerts_wire::PUBLISHER_UNREACHABLE_HOLD_MS
+        );
+        assert_eq!(
+            r.watermark_stall_ms,
+            slop_ninja_alerts_wire::watermark_stall_ms(300_000)
+        );
+        let toml = include_str!("../wrangler.toml");
+        let testnet = toml.split("[env.testnet.triggers]").nth(1).unwrap();
+        assert!(
+            testnet.trim_start().starts_with("crons = [\"* * * * *\"]"),
+            "the publisher's cron is once a minute, PUBLISHER_CRON_PERIOD_MS"
+        );
+        assert_eq!(slop_ninja_alerts_wire::PUBLISHER_CRON_PERIOD_MS, 60_000);
+    }
+
+    /// A JSON event whose detail alone exceeds the limit is shortened to fit,
+    /// keeping its rule and subject, so the relay never refuses the post for
+    /// its size and the acknowledgment still finds the entry.
+    #[test]
+    fn oversized_json_events_fit_the_relay_bound() {
+        use crate::store::block_on;
+        let mut st = AlertState::default();
+        let mut c = held("testnet-c9");
+        c.rule = "publication_refused";
+        c.detail = "x".repeat(3 * slop_ninja_alerts_wire::POST_EVENTS_BYTES);
+        observe(&mut st, &[c], 5);
+        let events = due(&st, 5, 3_600_000);
+        let rec = Recorder::new(&[]);
+        assert_eq!(
+            block_on(deliver(
+                &mut st,
+                &events,
+                SinkFormat::Json,
+                "testnet",
+                5,
+                &rec
+            )),
+            0
+        );
+        let body = rec.bodies.borrow()[0].clone();
+        assert!(body.len() <= slop_ninja_alerts_wire::post_bound());
+        let post = slop_ninja_alerts_wire::Post::parse(&body, "testnet").unwrap();
+        assert_eq!(post.events[0].subject, "testnet-c9");
+        assert_eq!(post.events[0].id, events[0].id);
+        assert!(
+            st.get("publication_refused", "testnet-c9")
+                .unwrap()
+                .notified_ms
+                .is_some()
+        );
     }
 }

@@ -29,6 +29,8 @@ pub enum ConfigError {
     Prefix,
     /// Artifact publication is configured without one of its guards.
     Guards(&'static str),
+    /// A duration below its derived minimum (or one that overflows).
+    Duration(&'static str, u64),
 }
 
 impl core::fmt::Display for ConfigError {
@@ -47,14 +49,18 @@ impl core::fmt::Display for ConfigError {
             Self::Format => f.write_str("ALERT_SINK_FORMAT must be json, slack or discord"),
             Self::Prefix => f.write_str("RECORD_LABEL_PREFIX must use the cohort label alphabet"),
             Self::Guards(v) => write!(f, "ARTIFACT_SOURCE_KEY is set but {v}"),
+            Self::Duration(v, min) => {
+                write!(f, "{v} must be at least {min} and fit in milliseconds")
+            }
         }
     }
 }
 
-/// How alert posts are shaped for the sink chosen under decision D18.
+/// How alert posts are shaped for an https sink.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SinkFormat {
-    /// The publisher's own JSON document.
+    /// The publisher's own JSON document (`slop_ninja.publisher.alert/v2`),
+    /// also the alerts relay's post.
     Json,
     /// `{"text": ...}` (Slack-style incoming webhooks).
     Slack,
@@ -62,10 +68,29 @@ pub enum SinkFormat {
     Discord,
 }
 
+/// Where alert posts go.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Sink {
-    pub url: String,
-    pub format: SinkFormat,
+pub enum Sink {
+    /// An https webhook, its posts shaped by `ALERT_SINK_FORMAT`.
+    Url { url: String, format: SinkFormat },
+    /// Decision D18: the private alerts relay Worker (email), through the
+    /// service binding `ALERTS_RELAY_TESTNET` (`ALERT_RELAY = "true"`). Posts
+    /// are the JSON document; each run whose alert phase finished also
+    /// posts the relay's dead-man heartbeat. It wins over an
+    /// `ALERT_SINK_URL` set at the same time, which is ignored and alerted
+    /// (`config_warning`), never a refusal: the configuration also drives
+    /// publication.
+    Relay,
+}
+
+impl Sink {
+    /// The body shape of this sink's posts.
+    pub fn format(&self) -> SinkFormat {
+        match self {
+            Self::Url { format, .. } => *format,
+            Self::Relay => SinkFormat::Json,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +131,10 @@ pub struct Config {
     pub notice: Option<String>,
     pub rules: Rules,
     pub sink: Option<Sink>,
+    /// Settings that were ignored (raised as `config_warning`).
+    pub warnings: Vec<String>,
+    /// The publisher's own renotify interval, sent in the relay heartbeat.
+    pub renotify_ms: u64,
     /// The external dead-man URL; pinged only when enabled.
     pub heartbeat: Option<String>,
     /// Wall time after which a run starts no new step (a cohort
@@ -209,12 +238,13 @@ fn flag(
     }
 }
 
-/// The cron runs once a minute (`wrangler.toml`).
-pub const CRON_PERIOD_MS: u64 = 60_000;
+/// The cron runs once a minute (`wrangler.toml`); the alerts relay derives its
+/// dead-man bound from the same constant.
+pub const CRON_PERIOD_MS: u64 = slop_ninja_alerts_wire::PUBLISHER_CRON_PERIOD_MS;
 const DEFAULT_TEMPO_BLOCKS: u64 = 360;
 const DEFAULT_BLOCK_SECS: u64 = 12;
 const DEFAULT_SILENCE_SECS: u64 = 300;
-const DEFAULT_RENOTIFY_SECS: u64 = 6 * 3600;
+const DEFAULT_RENOTIFY_SECS: u64 = slop_ninja_alerts_wire::DEFAULT_RENOTIFY_MS / 1000;
 
 /// The rules at the default durations, for a run whose configuration was
 /// refused.
@@ -226,10 +256,10 @@ pub fn default_rules() -> Rules {
     )
 }
 
-fn sink(get: &impl Fn(&str) -> Option<String>) -> Result<Option<Sink>, ConfigError> {
+fn url_sink(get: &impl Fn(&str) -> Option<String>) -> Result<Option<Sink>, ConfigError> {
     Ok(match https("ALERT_SINK_URL", get("ALERT_SINK_URL"))? {
         None => None,
-        Some(url) => Some(Sink {
+        Some(url) => Some(Sink::Url {
             url,
             format: match get("ALERT_SINK_FORMAT").as_deref().map(str::trim) {
                 None | Some("json") => SinkFormat::Json,
@@ -241,10 +271,37 @@ fn sink(get: &impl Fn(&str) -> Option<String>) -> Result<Option<Sink>, ConfigErr
     })
 }
 
+/// The warning for an `ALERT_SINK_URL` set while the relay is on.
+pub const SINK_URL_IGNORED: &str =
+    "ALERT_SINK_URL is set but ignored while ALERT_RELAY is true; remove the secret";
+
+/// The sink, and a warning when a URL sink is set beside the relay (the
+/// relay wins; whether the URL parses does not matter then).
+fn sink(
+    get: &impl Fn(&str) -> Option<String>,
+) -> Result<(Option<Sink>, Option<&'static str>), ConfigError> {
+    if flag(get, "ALERT_RELAY", false)? {
+        let ignored = get("ALERT_SINK_URL").is_some_and(|v| !v.trim().is_empty());
+        return Ok((Some(Sink::Relay), ignored.then_some(SINK_URL_IGNORED)));
+    }
+    Ok((url_sink(get)?, None))
+}
+
+/// A duration in seconds as milliseconds, at least `min_ms`.
+fn duration_ms(name: &'static str, secs: u64, min_ms: u64) -> Result<u64, ConfigError> {
+    secs.checked_mul(1000)
+        .filter(|&ms| ms >= min_ms)
+        .ok_or(ConfigError::Duration(name, min_ms / 1000))
+}
+
 /// The alert sink alone, when it parses: a refused configuration still
-/// alerts through it.
+/// alerts through it. The relay wins when it is enabled (it needs no URL to
+/// parse).
 pub fn sink_only(get: impl Fn(&str) -> Option<String>) -> Option<Sink> {
-    sink(&get).ok().flatten()
+    if flag(&get, "ALERT_RELAY", false) == Ok(true) {
+        return Some(Sink::Relay);
+    }
+    url_sink(&get).ok().flatten()
 }
 
 /// Parses the configuration. `get` returns a var or secret by name.
@@ -332,12 +389,22 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
     let tempo_blocks = number(&get, "TEMPO_BLOCKS", DEFAULT_TEMPO_BLOCKS)?;
     let block_secs = number(&get, "BLOCK_SECS", DEFAULT_BLOCK_SECS)?;
     let silence_secs = number(&get, "WATCHDOG_SILENCE_SECS", DEFAULT_SILENCE_SECS)?;
+    let tempo_secs = tempo_blocks
+        .checked_mul(block_secs)
+        .ok_or(ConfigError::Duration("TEMPO_BLOCKS", 0))?;
+    // A reminder cannot come more often than the runs do: a shorter
+    // interval (0 included) is refused rather than meaning "every run".
+    let renotify_ms = duration_ms(
+        "ALERT_RENOTIFY_SECS",
+        number(&get, "ALERT_RENOTIFY_SECS", DEFAULT_RENOTIFY_SECS)?,
+        slop_ninja_alerts_wire::MIN_RENOTIFY_MS,
+    )?;
     let rules = Rules::derive(
-        tempo_blocks * block_secs * 1000,
-        silence_secs * 1000,
-        number(&get, "ALERT_RENOTIFY_SECS", DEFAULT_RENOTIFY_SECS)? * 1000,
+        duration_ms("TEMPO_BLOCKS", tempo_secs, 0)?,
+        duration_ms("WATCHDOG_SILENCE_SECS", silence_secs, 0)?,
+        renotify_ms,
     );
-    let sink = sink(&get)?;
+    let (sink, sink_warning) = sink(&get)?;
     let heartbeat = if flag(&get, "HEARTBEAT_ENABLED", false)? {
         https("HEARTBEAT_URL", get("HEARTBEAT_URL"))?
     } else {
@@ -368,6 +435,8 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
             .filter(|n| !n.is_empty()),
         rules,
         sink,
+        warnings: sink_warning.into_iter().map(str::to_owned).collect(),
+        renotify_ms,
         heartbeat,
         run_wall_budget_ms: number(&get, "RUN_WALL_BUDGET_MS", CRON_PERIOD_MS)?,
     })
@@ -426,6 +495,81 @@ mod tests {
         assert!(with("ALERT_SINK_URL", "https://user:pw@example.invalid/hook").is_err());
         assert!(with("ADMISSION_ORIGIN", "https://example.invalid/admission").is_err());
         assert!(with("PUBLISH_RECEIPTS", "yes").is_err());
+        assert!(with("ALERT_RELAY", "yes").is_err());
+    }
+
+    /// The relay sink (decision D18) and the https sinks: one at a time;
+    /// the URL sinks keep working; a URL set beside the relay is ignored
+    /// with a warning, never a refusal (the configuration also drives
+    /// publication).
+    #[test]
+    fn alert_sinks() {
+        let base = [("NETWORK", "testnet"), ("SUBNET_NETUID", "601")];
+        let with = |extra: &[(&'static str, &'static str)]| {
+            let mut p = base.to_vec();
+            p.extend_from_slice(extra);
+            p
+        };
+        let relay = with(&[("ALERT_RELAY", "true")]);
+        assert_eq!(parse(vars(&relay)).unwrap().sink, Some(Sink::Relay));
+        assert_eq!(Sink::Relay.format(), SinkFormat::Json);
+        let url = with(&[
+            ("ALERT_SINK_URL", "https://example.invalid/hook"),
+            ("ALERT_SINK_FORMAT", "discord"),
+        ]);
+        assert_eq!(
+            parse(vars(&url)).unwrap().sink,
+            Some(Sink::Url {
+                url: "https://example.invalid/hook".into(),
+                format: SinkFormat::Discord
+            })
+        );
+        let off = with(&[("ALERT_RELAY", "false")]);
+        assert_eq!(parse(vars(&off)).unwrap().sink, None);
+        let both = with(&[
+            ("ALERT_RELAY", "true"),
+            ("ALERT_SINK_URL", "https://example.invalid/hook"),
+        ]);
+        let c = parse(vars(&both)).unwrap();
+        assert_eq!(c.sink, Some(Sink::Relay));
+        assert_eq!(c.warnings, vec![SINK_URL_IGNORED.to_owned()]);
+        assert!(parse(vars(&relay)).unwrap().warnings.is_empty());
+        // Even a URL that would not parse is only ignored beside the relay.
+        let bad = with(&[("ALERT_RELAY", "true"), ("ALERT_SINK_URL", "http://x")]);
+        assert_eq!(parse(vars(&bad)).unwrap().warnings.len(), 1);
+        assert_eq!(sink_only(vars(&both)), Some(Sink::Relay));
+        assert_eq!(sink_only(vars(&url)), parse(vars(&url)).unwrap().sink);
+        assert_eq!(
+            parse(vars(&with(&[("ALERT_RENOTIFY_SECS", "60")])))
+                .unwrap()
+                .renotify_ms,
+            60_000
+        );
+    }
+
+    /// The renotify interval is at least one cron period, and no duration
+    /// overflows into milliseconds.
+    #[test]
+    fn durations_are_bounded() {
+        let base = [("NETWORK", "testnet"), ("SUBNET_NETUID", "601")];
+        let with = |k: &'static str, v: &'static str| {
+            let mut p = base.to_vec();
+            p.push((k, v));
+            parse(vars(&p))
+        };
+        for v in ["0", "59"] {
+            assert_eq!(
+                with("ALERT_RENOTIFY_SECS", v).unwrap_err(),
+                ConfigError::Duration("ALERT_RENOTIFY_SECS", 60)
+            );
+        }
+        assert!(with("ALERT_RENOTIFY_SECS", "18446744073709551615").is_err());
+        assert!(with("WATCHDOG_SILENCE_SECS", "18446744073709551615").is_err());
+        assert!(with("TEMPO_BLOCKS", "18446744073709551615").is_err());
+        assert_eq!(
+            default_rules().renotify_ms,
+            slop_ninja_alerts_wire::DEFAULT_RENOTIFY_MS
+        );
     }
 
     /// Artifact copies are configured only with every guard: the admission

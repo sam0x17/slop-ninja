@@ -1,8 +1,9 @@
 //! Workers entry points (wasm32 only): the one-minute cron, the R2 store
-//! adapter, the status reads through service bindings, and the
-//! `PublisherState` Durable Object that holds the alert state and the run
-//! lease. There is no fetch route: the public host serves the bucket's
-//! objects directly.
+//! adapter, the status reads through service bindings, the alert sinks (an
+//! https URL or the private alerts relay's service binding, with its
+//! dead-man heartbeat), and the `PublisherState` Durable Object that holds
+//! the alert state and the run lease. There is no fetch route: the public
+//! host serves the bucket's objects directly.
 
 use std::time::Duration;
 
@@ -15,13 +16,14 @@ use worker::{
     console_error, console_log, durable_object, event,
 };
 
-use crate::alerts::{self, AlertState, PublisherObs};
+use crate::alerts::{self, AlertState, Posted, PublisherObs};
 use crate::arena::{self, Budget};
 use crate::config::{self, Config, Sink};
 use crate::layout::{self, Cache};
 use crate::publish::{Buckets, Keepalive, Memo, Report, Run};
 use crate::status::{self, Observed, SnapshotInputs};
 use crate::store::{ObjectMeta, Put, Store, StoreError};
+use slop_ninja_alerts_wire as wire;
 use slop_ninja_protocol::Digest;
 
 const RECEIPTS: &str = "RECEIPTS_TESTNET";
@@ -30,17 +32,22 @@ const PUBLIC: &str = "PUBLIC_TESTNET";
 const COORDINATOR_SERVICE: &str = "COORDINATOR_TESTNET";
 const EVAL_SERVICE: &str = "EVAL_WORKER_TESTNET";
 const STATE: &str = "PUBLISHER_STATE_TESTNET";
+/// The private alerts relay Worker (decision D18), reached only through this
+/// service binding.
+const RELAY: &str = "ALERTS_RELAY_TESTNET";
 
 /// Each status read is answered within this or skipped for the run (the
-/// coordinator's own liveness probe uses the same order of bound).
-const STATUS_TIMEOUT_MS: u64 = 10_000;
-/// Alert and heartbeat requests.
-const OUTBOUND_TIMEOUT_MS: u64 = 10_000;
+/// coordinator's own liveness probe uses the same order of bound). The wire
+/// crate's value, which the alerts relay reads with too.
+const STATUS_TIMEOUT_MS: u64 = wire::STATUS_TIMEOUT_MS;
+/// Alert and heartbeat requests (the relay answers within half of it).
+const OUTBOUND_TIMEOUT_MS: u64 = wire::OUTBOUND_TIMEOUT_MS;
 /// Two cron periods. A run renews the lease before every step (one cohort
 /// verification, one artifact copy), so a run killed mid-step blocks the
 /// next runs for two periods at most; a blocked run still refreshes the
-/// snapshot.
-const LEASE_MS: u64 = 2 * 60_000;
+/// snapshot. The wire crate's value: the relay's dead-man bound derives from
+/// it.
+const LEASE_MS: u64 = wire::PUBLISHER_LEASE_MS;
 
 fn now_ms() -> u64 {
     Date::now().as_millis()
@@ -306,7 +313,7 @@ async fn observe(env: &Env, budget: &Budget) -> Observed {
     observed
 }
 
-async fn post(url: &str, body: Option<Vec<u8>>) -> bool {
+async fn post(url: &str, body: Option<Vec<u8>>) -> Posted {
     let headers = Headers::new();
     let mut init = RequestInit::new();
     match body {
@@ -320,41 +327,184 @@ async fn post(url: &str, body: Option<Vec<u8>>) -> bool {
         }
     }
     init.with_headers(headers);
-    within(OUTBOUND_TIMEOUT_MS, async {
+    let answered = within(OUTBOUND_TIMEOUT_MS, async {
         let request = Request::new_with_init(url, &init).ok()?;
         let response = worker::Fetch::Request(request).send().await.ok()?;
-        Some((200..300).contains(&response.status_code()))
+        Some(response.status_code())
     })
     .await
-    .flatten()
-    .unwrap_or(false)
+    .flatten();
+    posted(answered)
+}
+
+fn posted(status: Option<u16>) -> Posted {
+    match status {
+        Some(200..=299) => Posted::Accepted,
+        Some(_) => Posted::Refused,
+        None => Posted::NoAnswer,
+    }
+}
+
+/// One post to the relay through its service binding: accepted on a 2xx (the
+/// relay sent the email, or had already sent every event in the post).
+async fn relay_post(env: &Env, path: &str, body: Vec<u8>) -> Posted {
+    let Ok(fetcher) = env.service(RELAY) else {
+        return Posted::Refused;
+    };
+    let headers = Headers::new();
+    let _ = headers.set("content-type", "application/json");
+    let mut init = RequestInit::new();
+    let array = js_sys::Uint8Array::from(body.as_slice());
+    init.with_method(Method::Post)
+        .with_headers(headers)
+        .with_body(Some(array.into()));
+    let url = format!("https://alerts-relay.internal{path}");
+    let answered = within(OUTBOUND_TIMEOUT_MS, async {
+        let request = Request::new_with_init(&url, &init).ok()?;
+        let response = fetcher.fetch_request(request).await.ok()?;
+        Some(response.status_code())
+    })
+    .await
+    .flatten();
+    posted(answered)
+}
+
+/// An https sink.
+struct UrlPoster<'a>(&'a str);
+
+impl alerts::Poster for UrlPoster<'_> {
+    async fn post(&self, body: Vec<u8>) -> Posted {
+        post(self.0, Some(body)).await
+    }
+}
+
+/// The alerts relay's `/alerts` route.
+struct RelayPoster<'a>(&'a Env);
+
+impl alerts::Poster for RelayPoster<'_> {
+    async fn post(&self, body: Vec<u8>) -> Posted {
+        relay_post(self.0, wire::ALERTS_PATH, body).await
+    }
+    fn ledger(&self) -> bool {
+        true
+    }
+}
+
+/// The relay's dead-man heartbeat for a run whose alert phase finished,
+/// with how its posts fared.
+fn heartbeat(
+    run_started_ms: u64,
+    rules: &alerts::Rules,
+    config_refused: bool,
+    durable: &Durable,
+) -> wire::Heartbeat {
+    wire::Heartbeat {
+        schema: wire::HEARTBEAT_SCHEMA.into(),
+        network: "testnet".into(),
+        rules: alerts::RULES_ID.into(),
+        post_schema: wire::POST_SCHEMA.into(),
+        run_started_ms,
+        renotify_ms: rules.renotify_ms,
+        watermark_stall_ms: rules.watermark_stall_ms,
+        config_refused,
+        undelivered: durable.undelivered,
+        undelivered_since_ms: durable.undelivered_since_ms,
+    }
+}
+
+async fn relay_heartbeat(env: Env, beat: wire::Heartbeat) {
+    if relay_post(&env, wire::HEARTBEAT_PATH, beat.body()).await != Posted::Accepted {
+        console_error!("publisher: relay heartbeat not accepted");
+    }
+}
+
+/// The run that posts alerts: its lease holder, for the save before posting.
+struct AlertRun<'a> {
+    holder: &'a str,
+    sink: Option<&'a Sink>,
 }
 
 /// Evaluates the rules and posts what is due, one post per batch within the
-/// sink's limit; each delivered batch is acknowledged on its own.
+/// sink's limit; each delivered batch is acknowledged on its own. Records in
+/// `durable` how many due events stayed undelivered, and since which run.
 async fn alert(
-    state: &mut AlertState,
+    env: &Env,
+    durable: &mut Durable,
     observed: &Observed,
     publisher: &PublisherObs,
     rules: &alerts::Rules,
-    sink: Option<&Sink>,
+    run: AlertRun<'_>,
+    run_started_ms: u64,
 ) {
+    let left = deliver_due(env, durable, observed, publisher, rules, run).await;
+    durable.undelivered = left as u64;
+    durable.undelivered_since_ms = if left > 0 {
+        Some(durable.undelivered_since_ms.unwrap_or(run_started_ms))
+    } else {
+        None
+    };
+}
+
+/// Saves the observed state, with the marks of the posts about to go out,
+/// before any of them is sent: the event ids derive from it (each entry's
+/// first-seen time), so a run that dies after posting, or whose save after
+/// posting fails, leaves the next run the same ids, and the relay emails
+/// them once. Nothing is posted when this save fails.
+async fn save_then_deliver(
+    env: &Env,
+    durable: &mut Durable,
+    events: &[alerts::Event],
+    format: config::SinkFormat,
+    holder: &str,
+    now: u64,
+    poster: &impl alerts::Poster,
+) -> usize {
+    alerts::mark(&mut durable.alerts, events, now, poster.ledger());
+    let saved: Option<()> = state_call(
+        env,
+        "/checkpoint",
+        &Save {
+            holder: holder.to_owned(),
+            now_ms: now_ms(),
+            state: durable.clone(),
+        },
+    )
+    .await;
+    if saved.is_none() {
+        console_error!("publisher: alert state not saved; nothing posted this run");
+        return events.len();
+    }
+    alerts::deliver(&mut durable.alerts, events, format, "testnet", now, poster).await
+}
+
+async fn deliver_due(
+    env: &Env,
+    durable: &mut Durable,
+    observed: &Observed,
+    publisher: &PublisherObs,
+    rules: &alerts::Rules,
+    run: AlertRun<'_>,
+) -> usize {
     let now = now_ms();
     let conditions = alerts::evaluate(observed, publisher, rules);
-    alerts::observe(state, &conditions, now);
-    let events = alerts::due(state, now, rules.renotify_ms);
+    alerts::observe(&mut durable.alerts, &conditions, now);
+    let events = alerts::due(&durable.alerts, now, rules.renotify_ms);
     if events.is_empty() {
-        return;
+        return 0;
     }
-    match sink {
-        Some(Sink { url, format }) => {
-            for batch in alerts::batches(&events, *format, "testnet") {
-                if post(url, Some(alerts::payload(&batch, *format, "testnet"))).await {
-                    alerts::acknowledge(state, &batch, now);
-                }
-            }
+    let holder = run.holder;
+    let left = match run.sink {
+        Some(Sink::Url { url, format }) => {
+            let p = UrlPoster(url);
+            save_then_deliver(env, durable, &events, *format, holder, now, &p).await
+        }
+        Some(Sink::Relay) => {
+            let format = config::SinkFormat::Json;
+            let p = RelayPoster(env);
+            save_then_deliver(env, durable, &events, format, holder, now, &p).await
         }
         None => {
+            let state = &mut durable.alerts;
             for e in &events {
                 console_log!(
                     "publisher alert {:?} {} {}: {}",
@@ -365,8 +515,13 @@ async fn alert(
                 );
             }
             alerts::acknowledge(state, &events, now);
+            0
         }
+    };
+    if left > 0 {
+        console_error!("publisher: {left} alert events not delivered; retried next run");
     }
+    left
 }
 
 // ------------------------------------------------------- state and lease
@@ -379,6 +534,13 @@ struct Durable {
     /// run's first phase.
     publisher: PublisherObs,
     last_published: Option<u64>,
+    /// Due alert events the last alert phase left undelivered, and the start
+    /// of the first run of the current series that left some (sent in the
+    /// relay heartbeat).
+    #[serde(default)]
+    undelivered: u64,
+    #[serde(default)]
+    undelivered_since_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -596,15 +758,23 @@ async fn config_fault(env: &Env, error: config::ConfigError) {
         ..durable.publisher.clone()
     };
     let sink = config::sink_only(|name| var_or_secret(env, name));
+    let rules = config::default_rules();
+    let run = AlertRun {
+        holder: &holder,
+        sink: sink.as_ref(),
+    };
     alert(
-        &mut durable.alerts,
+        env,
+        &mut durable,
         &observed,
         &publisher,
-        &config::default_rules(),
-        sink.as_ref(),
+        &rules,
+        run,
+        started,
     )
     .await;
-    let _: Option<()> = state_call(
+    let beat = heartbeat(started, &rules, true, &durable);
+    let ended: Option<()> = state_call(
         env,
         "/end",
         &Save {
@@ -614,10 +784,14 @@ async fn config_fault(env: &Env, error: config::ConfigError) {
         },
     )
     .await;
+    // The alert phase finished (the refusal itself is alerted): heartbeat.
+    if ended.is_some() && sink == Some(Sink::Relay) {
+        relay_heartbeat(env.clone(), beat).await;
+    }
 }
 
 #[event(scheduled)]
-async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
     let started = now_ms();
     let cfg: Config = match config::parse(|name| var_or_secret(&env, name)) {
         Ok(c) => c,
@@ -676,17 +850,24 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     let status_written = put_status(&public, &snapshot).await;
     let mut publisher = durable.publisher.clone();
     publisher.interrupted = interrupted;
+    publisher.warnings.clone_from(&cfg.warnings);
     if !status_written {
         publisher
             .refused
             .push(("status".into(), "status snapshot not written".into()));
     }
+    let run = AlertRun {
+        holder: &holder,
+        sink: cfg.sink.as_ref(),
+    };
     alert(
-        &mut durable.alerts,
+        &env,
+        &mut durable,
         &observed,
         &publisher,
         &cfg.rules,
-        cfg.sink.as_ref(),
+        run,
+        started,
     )
     .await;
     let saved: Option<()> = state_call(
@@ -702,6 +883,14 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     if saved.is_none() {
         console_log!("publisher: lease lost after the snapshot");
         return;
+    }
+    // The relay's dead-man heartbeat: the alert phase finished and its state
+    // is saved (a run blocked by a held lease, or one whose state object did
+    // not answer, sends none). It runs beside phase 2 (kept alive by
+    // wait_until), so a slow relay never takes phase 2's wall budget.
+    if cfg.sink == Some(Sink::Relay) {
+        let beat = heartbeat(started, &cfg.rules, false, &durable);
+        ctx.wait_until(relay_heartbeat(env.clone(), beat));
     }
 
     // Phase 2: publication, step by step under the renewed lease.
@@ -736,6 +925,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
         unverifiable: report.unverifiable.clone(),
         config: None,
         interrupted: false,
+        warnings: Vec::new(),
     };
     if let Some(i) = &index {
         durable.last_published = i.last_cohort();

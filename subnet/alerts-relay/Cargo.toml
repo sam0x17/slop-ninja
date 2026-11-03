@@ -1,0 +1,37 @@
+[package]
+name = "slop-ninja-alerts-relay"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Private Worker that emails Slop Ninja testnet alerts: the publisher's posts, a dead-man check on the publisher and the spend tracker's alerts"
+
+# Independent of the native `subnet/` workspace, the coordinator and the
+# publisher, so a publisher build or deploy never changes the relay and the
+# Wasm build never pulls the native rtao runtime. The wire crate is shared
+# with the publisher by path.
+[workspace]
+members = [".", "wire"]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+slop-ninja-alerts-wire = { path = "wire" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+worker = "0.8.7"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

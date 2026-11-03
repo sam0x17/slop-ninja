@@ -1,0 +1,113 @@
+# Slop Ninja alerts relay: Wrangler configuration (tracked).
+#
+# Decision D18: alerts are email. This private Worker sends them through a
+# send_email binding. It has no route, no workers.dev name and no preview
+# URLs: the publisher's service binding (ALERTS_RELAY_TESTNET) is the only way
+# in, and its own cron is the dead-man check on the publisher and the spend
+# tracker. It never changes Email Routing: there is no `addresses` field (a
+# Worker's `addresses` rewrites the zone's routing rules) and no email
+# handler.
+#
+# Deploy the testnet environment only, before any publisher deploy that
+# carries the ALERTS_RELAY_TESTNET binding:
+#
+#   wrangler r2 bucket create alerts-bucket-testnet   # private, no domain
+#   WRANGLER_WRITE_LOGS=false wrangler deploy --env testnet \
+#     --tag testnet --message "slop-ninja alerts relay testnet"
+#
+# Secrets, installed by the operator from the private files (their values
+# never appear in tracked files):
+#
+#   ALERT_EMAIL_FROM          the sender: an address on the zone that has
+#                             Email Routing enabled
+#   ALERT_EMAIL_TO            the recipient; before a sending domain is
+#                             onboarded, Cloudflare sends only to verified
+#                             destination addresses of the account
+#   COORDINATOR_STATUS_TOKEN  read-only status tokens, used only while the
+#   EVAL_STATUS_TOKEN         publisher is silent (each Worker checks its own)
+#   HEARTBEAT_URL             optional external dead-man check (https, no
+#                             credentials), pinged after each tick that
+#                             finished with its email path working
+#
+# Deploy-time vars (not here): SPEND_FIGURES_IN_EMAIL = "true" puts month
+# totals in the body of spend alerts. Set it only when the recipient delivers
+# to the user's mailbox alone. Subjects never carry figures.
+# HEARTBEAT_ENABLED = "true" pings HEARTBEAT_URL (off by default).
+#
+# Only NETWORK, ALERT_EMAIL_FROM and ALERT_EMAIL_TO are required. An optional
+# setting that does not parse is ignored (its default applies) and emailed as
+# relay_config_warning.
+#
+# No account ID or address belongs here. The top level is a local-only shell
+# with no bindings, triggers or route.
+
+name = "slop-ninja-alerts-local-testnet"
+main = "build/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+[triggers]
+crons = []
+
+# ------------------------------------------------------------------ testnet
+
+[env.testnet]
+name = "slop-ninja-alerts-testnet"
+workers_dev = false
+preview_urls = false
+
+[env.testnet.observability]
+enabled = false
+
+# One tick a minute: the dead-man and tracker rules, reminders, resolutions.
+[env.testnet.triggers]
+crons = ["* * * * *"]
+
+[env.testnet.vars]
+# The build refuses any other value.
+NETWORK = "testnet"
+# Fallbacks only. The relay's coordinator check (only while the publisher is
+# silent) uses the watermark bound the publisher's last heartbeat carried;
+# this silence (plus two cron periods) applies only before the first one.
+WATCHDOG_SILENCE_SECS = "300"
+# The tracker's uploads state its own schedule period (its output is stale
+# after two); this applies only until an upload states one.
+TRACKER_PERIOD_SECS = "86400"
+
+# Email through the zone's existing Email Routing (no rule, destination or
+# DNS record is changed). No restriction attribute: the binding sends only
+# to verified destination addresses of the account; the code sends only to
+# ALERT_EMAIL_TO.
+[[env.testnet.send_email]]
+name = "ALERT_EMAIL_TESTNET"
+
+# The spend tracker's upload (spend-tracker/latest.json). Private.
+[[env.testnet.r2_buckets]]
+binding = "ALERTS_TESTNET"
+bucket_name = "alerts-bucket-testnet"
+
+# Status reads while the publisher is silent (GET /status with each Worker's
+# token).
+[[env.testnet.services]]
+binding = "COORDINATOR_TESTNET"
+service = "slop-ninja-coordinator-testnet"
+
+[[env.testnet.services]]
+binding = "EVAL_WORKER_TESTNET"
+service = "slop-ninja-eval-testnet"
+
+# The sent-event ledger, the relay's alert state and the last heartbeat.
+[[env.testnet.durable_objects.bindings]]
+name = "ALERTS_RELAY_STATE_TESTNET"
+class_name = "AlertsRelayState"
+
+[[env.testnet.migrations]]
+tag = "v1"
+new_sqlite_classes = ["AlertsRelayState"]

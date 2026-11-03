@@ -1747,6 +1747,109 @@ protocol and arena trees (`3f9848fd`), which include the lane-client fix.
   previous binary (`9efb681a...`) staged and passed as the pin, and revert
   `17be0399` on main. The lane client works with either scorer.
 
+### Coordinator admission review fixes (2026-11-02)
+
+Branch `subnet-testnet/admission`, on main as `959bf738` (fixes) over
+`d92a4019` (admission). The review's 39 findings, by outcome:
+
+| Findings | Outcome |
+| --- | --- |
+| 1 zero header length loops the reader and the framer | fixed: the protocol reader refuses it; the framer parses nothing itself and counts its attempts |
+| 2, 29 one undecodable commitment aborts every reader round | fixed: decode failures, empty fields, batch extrinsics, discarded state and a runtime change at the block end only that commitment |
+| 3, 21 a lost multipart completion holds the freeze | fixed: the completion is a resumed step; only R2's definitive part refusal is `object_mismatch`; `/eval/session/refuse` and abandoning a faulted admission cohort are the operator's ways out |
+| 4, 22 the calendar names a stale reference after a promotion | fixed: references follow a pending promotion, then `reference_state`, then the template; reinstalls never reset the chain; a seal mismatch faults |
+| 5 two hotkeys at one position stop all work | fixed: shared extrinsics are refused; a refused frozen plan faults the cohort |
+| 6 rule (b) bypassed by another claim | fixed: verdicts record the build they were reached on |
+| 7, 15, 25, 26 classification and probe-route limits | fixed in classification (reply body, exact codes, control document); the dedicated admission route with the cohort's limits is a lane-client change (open) |
+| 8, 28 discarded state retried forever | fixed: unresolvable, listing restart, snapshot fault |
+| 9, 28 reader starves the RPC budget | fixed: the reader's own share |
+| 10, 34 unauthenticated load and public exposure | fixed in part: routes off by default, `hotkeys` mode for drills, stateless signature check, one session per commitment, truncated hotkey view; rate limits open |
+| 11, 27 fresh stock unlocked by non-working or operator entrants | fixed: published copies and failed control documents never unlock; a fresh pool needs the operator list; chain-owner (coldkey) checks open |
+| 12, 31 `SpendLedger` names | admission runs settle; the `SpendLedger` rename is a lane-client change (open); deploys pass the old name |
+| 13, 23 spec v3 cohorts wait forever | fixed: admission plans are spec v2 only until runs name the spec |
+| 14 platform retries forever | fixed: doubling backoff, status counters, operator refusal |
+| 16, 35 framing and reader memory | fixed in part (one parse, file-count bound, one large read a round, one copy); measurements open |
+| 17 reader body bound | fixed (one large read a round) |
+| 18 contract details | fixed: transient not-found never refuses, a retried creation answers first, admission arena refusals fault the admitting cohort, runs count scoring lanes |
+| 19, 38 `float_roundtrip` | declared in the coordinator manifest as evaluation semantics; `BILLING_CYCLE_DAY` reworded |
+| 20 checks not rerun | rerun (see below) |
+| 24 header decoding in the key-holding Worker | open: needs a lane-client change or a key-free Worker; routes stay off outside drills |
+| 30 blobs of non-admitted uploads | fixed: the blobs and manifest a session created are deleted with it |
+| 32 template vs the validator bundle bound | open (bundle schema v3, W7) |
+| 33 freeze not at a tempo boundary | fixed |
+| 36 cron-driven reader | open (needs a ruling) |
+| 37 W = 1, no pre-start, incentive | fixed in the template check; the D12b canary rule is open |
+| 39 confidentiality and gates | no change needed; the trust file pins no admission origin until the public-access decision |
+
+Checks (build-host, one Cargo job, `-j 4`, offline, `--locked`): coordinator
+lib 229/229, clippy native and wasm32 `-D warnings` clean, protocol 94,
+miner and wire 42, `no_runtime_gates` 2/2, publisher 50, subnet workspace
+clippy `-D warnings` clean, `cargo metadata --locked`.
+
+### Coordinator admission, live drill (2026-11-02)
+
+The eval Worker runs main `959bf738` (store v9 to v11 in place, migrated on
+the first request; Container application unchanged). The deploy opened the
+admission routes in drill mode only: `ADMISSION_ROUTES=hotkeys`, with
+`ADMISSION_HOTKEYS` naming the three operator-held test-miner hotkeys,
+passed at deploy time (the tracked default stays `off`). A signed request
+from any other hotkey gets 404 at the Worker; the unsigned cohort read
+answers. The test-miner wallets were registered on 601 by burn (UIDs 4 to
+6); a shielded registration sent within a few blocks of another failed as
+Invalid and went through on its own retry.
+
+- **Template and calendar.** A standing template (`testnet-adm`, n = 200,
+  K = 4, one admission tempo, a roster of at most 4, spec v2, exposed pool, the test
+  miners listed as operator hotkeys, no fresh pool, W = 1, no pre-start, the
+  incentive rule with provisional gates) was installed with
+  `POST /eval/template`. The calendar queued cohort 13 `testnet-adm-13` at
+  once (cohort 12 closed) and the engine opened it at the next boundary
+  (epoch 71). The install reply named the next references from the chain
+  (`source: chain`): the main chain's R_k is the old `r0-flat`, which the
+  generalized scorer refuses, so this cohort cannot package (see below).
+- **Two fresh hotkeys admitted.** Test miners 1 and 2 packed re-encoded
+  rehearsal artifacts (`ha-0.5`, `ha-2.0`) with `slop_ninja_miner pack`,
+  committed them (`commit`) and uploaded them (`upload`, about 613 MB each,
+  64 MiB parts). Each first session request answered `commitment_not_found`
+  (the log had not resolved the commitment yet) and the client's retry
+  opened the session. Completion, framing, the blob copies and the verdict
+  run on a fresh scorer instance each finished within minutes; both
+  sessions were `verified`, then `admitted` at the freeze, ranked by
+  position (8357097-6, then 8357106-5).
+- **Overwritten commitment.** Test miner 3 committed, uploaded and was
+  verified (8357116-5), then committed again for the same cohort
+  (`commit --replace`, 8357171-5) without uploading. At the freeze its
+  session was refused `commitment_overwritten`; the snapshot at
+  `cutoff_block - 1` had the newer commitment.
+- **Cutoff and freeze.** The window closed at the epoch-72 boundary (cutoff
+  block 8357439). The snapshot was read within the same epoch and the
+  roster froze at that boundary: 2 admitted, 0 overflow, 1 refused; no
+  outside entrant (operator hotkeys), so the cohort draws exposed stock.
+  The commitment log used its own RPC share throughout (about 1.5 reads a
+  minute while admitting).
+- **Client note.** For test miner 3 the miner CLI reported "no commitment in
+  finalized state after inclusion" although the commitment had landed and
+  the coordinator logged it at its position; `status` showed it, and
+  `upload` used the matching opening. The client reads `CommitmentOf` at the
+  finalized head once, right after finalized inclusion; a read that lands on
+  an endpoint whose finalized head is still behind sees nothing.
+- **After the freeze.** Cohort 13 drew exposed stock, generated, sealed
+  (binding the two admitted entrants with their own openings and
+  positions) and scored both entrants. Its reference, the main chain's old
+  `r0-flat`, is refused by the generalized scorer (`refused profile_id`); a
+  refused reference counts as a scorer failure, so the cohort faults
+  `scorer_unavailable` only after the plan's `failures_before_pause` and is
+  then abandoned. The template is paused, so no further cohort opens on the
+  old chain.
+- **Not run here.** A coordinator-opened cohort opening at its
+  predecessor's close: no cohort on main's current chain can reach its
+  transition, so this waits for the chain-record restart (cohort 13 itself
+  was queued and opened by the calendar, with no operator plan, at the
+  first boundary after the template's install; the queue during a
+  predecessor's transition is covered by tests).
+- **Routes after the drill.** Redeployed with `ADMISSION_ROUTES` off once
+  both instances were idle.
+
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 
 The projection's inputs come from the load rehearsals of 2026-10-31 (3 to 129

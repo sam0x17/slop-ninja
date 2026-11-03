@@ -23,8 +23,13 @@ Dev-iter ones) and passes a package-corpus scan. Paid A serves a published,
 qualified artifact (R0 once its public package is published).
 Update the whitepaper's baseline evidence at meaningful evaluated milestones,
 not after every experiment. Keep both A and B's measured limits explicit.
-Whitepaper draft 0.59 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
-alone; C (shared CFG contributions) and B transformation activate separately.
+Whitepaper draft 0.60 and `docs/cloudflare-subnet-draft.md` describe the current plan: launch A
+alone; B transformation and C (shared contributions to the grammar B uses)
+activate separately, each by its own decision, and C may activate before B so
+the grammar can grow first. A reads raw text; the native CFG is a later B input
+for edit units and revision guidance, with grammar-level writer-style features
+a candidate B input qualified on B's own evidence. Present CFG in public pages
+and docs as later B work, not as part of A.
 B is the main product objective: authorized writing transformation toward the
 author's intended voice with meaning, readability, and tone preserved. A is a
 supporting detection and attribution mechanism and the initial standalone
@@ -54,7 +59,8 @@ once, announced in advance, by the next qualified reference only if it passes
 every gate; later reference changes follow cohort promotion. Mainnet opens a
 fresh chain record with the reference testnet then holds, with no separate
 one-time replacement.
-Faithful word/grammar explanations are later extensions.
+Faithful word-level explanations are later A extensions; grammar-level
+explanations belong to later B revision guidance.
 The launch A input contract is raw text: miner artifacts are text models (ONNX
 graph plus fixed tokenizer) and cohorts feed canonical text, not CFG vectors.
 The manifest caps artifacts at the allow-listed ModernBERT-base graph, with or
@@ -63,12 +69,14 @@ the tokenizer byte-matches the allow-listed one and other files validate against
 fixed role schemas, with no separate byte cap. The allow-list widens only by a
 versioned manifest. Avoid arbitrary caps that can strand the subnet: derive any
 needed limit from structure and version it in the manifest, never hard-wired.
-CFG-only learned inputs remain a research hypothesis; their first real-data test
-failed and text+CFG fusion gave only a small, uncertain gain
-(`docs/cfg-vector-viability.md`, `docs/a-v6-cfg-fusion.md`). CFG writer vectors
-also scored below the A encoder as writer profiles (`docs/cfg-vs-encoder-results.md`).
-CFG keeps its B transformation, C contribution and explanation roles on their
-own evidence.
+A does not use CFG inputs: CFG-only inputs failed their first real-data test,
+text+CFG fusion gave only a small, uncertain gain, and CFG writer vectors
+scored below the A encoder and added little on top of encoder plus stylometry
+(`docs/cfg-vector-viability.md`, `docs/a-v6-cfg-fusion.md`,
+`docs/cfg-vs-encoder-results.md`). The grammar work continues for later B
+(edit units and revision guidance, with grammar-level writer-style features a
+candidate input) and for C; qualify each use on its own evidence and keep the
+dated results.
 Attribution returns conditional human and model results with role involvement
 probabilities, without a presence cutoff. When no named profile for a role
 qualifies, return `other_human` ("Other human") or `other_ai` ("Other AI").
@@ -79,9 +87,9 @@ regardless of predicted probability; conditional results for absent roles
 do not themselves assert a false attribution.
 The main eventual human-attribution workflow uses a customer's own samples to
 construct a private writer profile from the A encoder plus stylometric features
-(function words and character n-grams), with CFG at most an optional fused
-input, initially proposing a normalized weighted mean under a qualified
-versioned pooling contract. A learned matcher on fresh authors, with thresholds
+(function words and character n-grams), with no CFG channel, initially
+proposing a normalized weighted mean under a qualified versioned pooling
+contract. A learned matcher on fresh authors, with thresholds
 measured on withheld writers and real style-transfer data, is the next
 qualification before any profile type backs `provided_writer` or B's
 author-fit feedback. A receives that profile rather
@@ -99,7 +107,9 @@ an authorship probability. Trusted preprocessing still reads samples and editing
 still needs source prose. Samples and profiles stay private, with no miner access,
 automatic public enrollment, or automatic training reuse. Pooling viability and
 the personal revision workflow remain future qualifications.
-C credits accepted contributions once. Pilot scoring is coordinator-led.
+C credits accepted grammar contributions once. It supports the grammar later B
+uses and activates by its own decision, which may precede B's; B's revised
+mechanism mapping must then also place C's credit. Pilot scoring is coordinator-led.
 A rewards use `reward-v1` (whitepaper Section 5), selected on
 2026-10-30; its lagged-payout, fallback-assumption, unregistered-credit and
 reference-failure defaults remain to be confirmed with the implementation. The baseline is the public reference model R_k, re-run on each
@@ -310,8 +320,8 @@ generated from scratch. A low detector score does not establish fidelity,
 readability, human authorship, or performance on unseen sources.
 
 B must support long multi-paragraph documents, including book-length customer
-jobs. Word, clause and sentence repairs are edit units; the assembled document
-is the evaluation unit. Test chapter and section boundaries, long-range claim
+jobs. Word, phrase, clause and sentence repairs are edit units; the native
+grammar types them, and the assembled document is the evaluation unit. Test chapter and section boundaries, long-range claim
 and terminology consistency, and author voice across the work. Do not infer
 document success from isolated sentence or section scores. Keep all text covered,
 record model context limits, and distinguish window diagnostics from calibrated
@@ -344,7 +354,10 @@ separate across fitting and evaluation. Date-based exports still need usable
 dates for their declared chronological split. Keep corpus discovery notes and
 downloaded samples in ignored `data/author-corpora/`.
 
-The fresh composable base lives in the independent `grammar/` Cargo workspace.
+The native grammar for later B work lives in the independent `grammar/` Cargo
+workspace, which also hosts parser-free A crates (`grammar-a-*`,
+`grammar-cc-human`) and the public A training recipe in
+`grammar/crates/grammar-eval/python/`.
 Keep parsing adapters separate from Rust syntax, word counts, feature extraction,
 geometry and rewrite rules. Version changes to feature meanings, denominators,
 rules and geometry. Compare all candidate points in the same frozen space; a

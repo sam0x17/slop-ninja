@@ -7,13 +7,14 @@
     <text x="116" y="102" font-size="17" text-anchor="middle">Document + references</text>
     <rect x="286" y="26" width="570" height="207" rx="8" fill="#f0f7f7" stroke="#4d777e" stroke-width="2"/>
     <text x="310" y="61" font-size="23">Slop Ninja-controlled execution</text>
-    <text x="310" y="92" font-size="18">Input checks, parsing, resolution, private job state</text>
+    <text x="310" y="92" font-size="18">Input checks, tokenization, private job state</text>
     <rect x="310" y="115" width="244" height="86" rx="5" fill="white" stroke="#8a9da1"/>
     <text x="432" y="148" font-size="21" text-anchor="middle">Public A artifact</text>
     <text x="432" y="178" font-size="18" text-anchor="middle">Origin + attribution</text>
     <rect x="580" y="115" width="250" height="86" rx="5" fill="white" stroke="#8a9da1"/>
     <text x="705" y="148" font-size="21" text-anchor="middle">Later B workflow</text>
-    <text x="705" y="178" font-size="18" text-anchor="middle">Rank, validate, assemble</text>
+    <text x="705" y="172" font-size="16" text-anchor="middle">Parse, edit, rank,</text>
+    <text x="705" y="192" font-size="16" text-anchor="middle">validate, assemble</text>
     <path d="M204 79 H278" fill="none" stroke="#395c65" stroke-width="2"/>
     <path d="M278 74 L286 79 L278 84 Z" fill="#395c65"/>
     <path d="M286 215 H116 V131" fill="none" stroke="#395c65" stroke-width="2"/>

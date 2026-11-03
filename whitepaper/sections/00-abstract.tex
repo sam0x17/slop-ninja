@@ -36,20 +36,28 @@ document's AI-written characters and mostly misses clause and single-sentence
 edits. The first package that serves spans will use an adopted head with an
 added encoder tower, which recovers about 53\% at about a fifth more encoder
 time but puts spans on more human documents.
-Context-free-grammar (CFG) inputs remain a research hypothesis after a failed
-first real-data test. Private writer profiles use \textit{A}'s encoder plus
-stylometric features, because CFG writer vectors scored below the encoder on
-writer verification; no profile tested so far is a reliable author-fit signal.
+\textit{A} reads raw text and uses no context-free-grammar (CFG) features: a
+CFG-only detector failed its first real-data test, and CFG writer vectors scored
+below \textit{A}'s encoder on writer verification and added little on top of the
+encoder plus stylometric features. Private writer profiles therefore use
+\textit{A}'s encoder plus stylometric features; no profile tested so far is a
+reliable author-fit signal.
 
 \textit{B}'s proposed private adapters run in miner-owned Cloudflare accounts:
 miners pay their model bills but must not receive customer prompts or responses.
 Cloudflare and Slop Ninja remain trusted operators; private weights must be
-inaccessible to the general public. Mechanism \textit{C} supports the shared
-grammar by crediting accepted reusable contributions once. It activates
-separately and is not required for the \textit{A} launch.
+inaccessible to the general public. \textit{B}'s editing pipeline is planned
+to use a shared English grammar for typed word, phrase, and clause edits and
+for revision guidance. Mechanism \textit{C} credits accepted reusable
+contributions to that grammar once. It activates by its own decision, which
+may come before \textit{B}'s so the grammar can grow first, and is not required
+for the \textit{A} launch.
 
 One lead validator, operated by Slop Ninja, serves as the coordinator.
-It runs entirely serverlessly. Miners commit artifact digests on chain and
+The protocol below states requirements, and Section~\ref{implementation-status}
+records which parts run today: the coordinator is specified to run entirely
+serverlessly but remains unfinished, and testnet cohorts still run in a
+separate evaluation service. Miners commit artifact digests on chain and
 upload their models privately; the coordinator scores every entrant and the
 reference model on a fresh hidden batch of paired cases each day, then
 publishes the entrants' models, licensed CC BY-SA 4.0, and signed per-miner
@@ -77,7 +85,7 @@ and is paid during the following cohort. Slow work, missed wakeups, and
 coordinator outages preserve the same cohort for recovery, and no record or
 gate depends on a chain runtime version. This protocol pause does not stop the
 chain or its emissions. Production applications use
-Rust: native participants use \texttt{rtao}, while the coordinator runs on
+Rust: native participants use \texttt{rtao}, while the coordinator is to run on
 Cloudflare Workers with durable state and separately qualified chain integration,
 woken by finalized-block notifications rather than a resident server.
 

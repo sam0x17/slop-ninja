@@ -41,7 +41,9 @@ configuration is \(R_0\) plus the token head trained with the spliced
 rewrites on the frozen seed-17 fit. Its document outputs are bit-identical to
 \(R_0\)'s on 227 replay requests, and its Rust FP64 replay matches the reference
 within \(6.1\times10^{-6}\) in token probability, against a \(10^{-5}\) bound,
-with every span offset equal. On the 823 held-out spliced rewrites of the report
+with every span offset equal. After the share tilt of
+Section~\ref{span-outputs}, the mean word probability equals the emitted
+document share within \(6\times10^{-16}\) in every evaluated document. On the 823 held-out spliced rewrites of the report
 half, scored once after the decoder and calibration maps were frozen, the
 calibrated head reaches word Brier 0.128 and character F1 0.410, with precision 0.862 and recall 0.402;
 span-level F1 is 0.245 and mean span IoU 0.306, and it decodes no span in 346
@@ -72,7 +74,11 @@ to \(R_0\)'s at every seed. Its primary span metric, a tilted word Brier on
 2,011 development mixed documents, is 0.1295 over three seeds, against 0.1412
 for the shipped recipe and 0.1205 for the joint fine-tune: it beats the shipped
 recipe, by \(0.0118\) [\(0.0104\), \(0.0131\)], but not the joint fine-tune,
-so the pre-registered outcome is partial. No point of the original decoder grid
+so the pre-registered outcome is partial. Before the tilt its word Brier, 0.109,
+equals the joint fine-tune's; tilting to \(R_0\)'s document share costs it
+0.020, against 0.012 for the joint fine-tune, which retrained its share head.
+After the tilt, mean word probability equals document share within
+\(6\times10^{-16}\) for every arm. No point of the original decoder grid
 met the 22-human limit; its declared extension chose a decoder that puts spans
 on 21 of 570 development humans at seed 17, and on 22 and 27 at seeds 29 and 41.
 On the 823 spliced rewrites of the report half, already scored for the other
@@ -341,7 +347,9 @@ fit, the nearest available data were hosted-model rewrites in a voice derived
 from one passage of the target writer. Every profile ranked them near chance,
 with mean per-target AUC 0.53--0.55, and the kind of rewrite moved scores more
 than the target did. All profiles used unlearned matchers, so these tests do not
-measure the learned matcher the design requires.
+measure the learned matcher the design requires. CFG writer vectors therefore do
+not enter writer profiles; the grammar's planned role is \textit{B}'s edit
+representation (Section~\ref{later-b}).
 
 
 \subsection{Implementation status}\label{implementation-status}
@@ -361,7 +369,8 @@ requires~\cite{rtaoshield,rtaocompat}. Adapter, validator, and protocol tests,
 including a journal-migration fixture, mutated-metadata cases, and metadata
 fuzzing, passed with Clippy on Linux on October 30 and 31, 2026, without keys or
 transactions, and the native validator's live testnet commitments ran at this
-pin (Sections~\ref{testnet-m2} and~\ref{testnet-reward-v1}). A later repin to newer \texttt{rtao} waits until
+pin (the \hyperref[testnet-m2]{``Testnet weight commitments''} and
+\hyperref[testnet-reward-v1]{``Testnet reward rehearsal''} paragraphs below). A later repin to newer \texttt{rtao} waits until
 upstream finishes its bounded-memory rework and then repeats these tests.
 
 At this pin the weight scheduler still composes through compiled call descriptors,
@@ -383,7 +392,8 @@ byte for byte on native and wasm32 targets~\cite{protocolcrate}. On testnet the
 coordinator's evaluation service runs \texttt{reward-v1} cohorts, building probe
 versions and fingerprints, keeping the published-artifact index, measuring the
 gates, and signing packages, and the coordinator and the native validator
-verify them and commit the resulting rows (Section~\ref{testnet-reward-v1}).
+verify them and commit the resulting rows (the
+\hyperref[testnet-reward-v1]{``Testnet reward rehearsal''} paragraph below).
 Not yet implemented are signed corrections; the commitment call's chain
 encoding and on-chain admission, so the operator declares each roster; the
 lookup canary's statistic, since testnet has no anchors and its flags come
@@ -397,7 +407,7 @@ full testnet cohorts; detailed-receipt deletion; and span serving. Testnet
 cohorts still run in a separate evaluation service, and validators receive
 packages as operator-installed bundles rather than fetching them. Native
 signing, commit--reveal, and recovery were exercised on testnet
-(Section~\ref{testnet-m2}). The coordinator's own commit and reveal have also run
+(the \hyperref[testnet-m2]{``Testnet weight commitments''} paragraph below). The coordinator's own commit and reveal have also run
 live there through the Workers chain path, but its signing is not yet
 qualified.
 
@@ -417,7 +427,7 @@ reader, and an HPKE receipt prototype whose trusted assignments come from its
 caller. That prototype establishes neither a deployed key registry nor the
 customer protocol~\cite{receipts}. The reported \textit{B} experiment
 uses a host-side author-conditioned proposer; it establishes neither a trained
-CFG ranker nor independently validated joint preservation, author-fit, and
+grammar-based \textit{B} ranker nor independently validated joint preservation, author-fit, and
 evasion performance. A production origin service and a commercially validated
 transformation service both remain to be demonstrated.
 
@@ -425,17 +435,22 @@ transformation service both remain to be demonstrated.
 On testnet subnet 601, the native validator signed timelocked weight
 commitments (commit--reveal version 4) with a registered validator hotkey, for a
 coordinator-signed fixture package derived under a testnet-only reward rule
-rather than \texttt{reward-v1}~\cite{testnetm2}. Commitments for epochs 7
-through 11 and 14 finalized, each re-commitment under its own per-tempo
-operation identity. The epoch-12 attempt was withheld by a drill, expired
-unexecuted, and was signed once more, with the same nonce, in epoch 14. After
+rather than \texttt{reward-v1}~\cite{testnetm2}. The first commitment, in
+epoch 7, used the target's operation identity, and each re-commitment its own
+per-tempo identity. Each operation for epochs 7 through 11 holds one signed
+attempt, which finalized. A drill withheld the first signed attempt of the
+epoch-12 operation, which expired unexecuted; the same operation was signed
+once more, with the same nonce, in epoch 14, and that second attempt
+finalized. After
 every reveal the validator's on-chain weights equalled the package's integer
 row. Fault drills crashed the process at each journal phase boundary, killed it
 after the node acknowledged a submission, dropped acknowledgments behind HTTP
 429 responses and behind a failed endpoint, and withheld a signed submission
 until its era expired. Every restart recovered from the journal, and finalized
-read-backs found no duplicate commitment; the journal ended with seven
-operations and seven attempts, none unresolved. An independent verification
+read-backs found no duplicate commitment. The journal ended with seven
+operations, none unresolved: the six committed ones, which hold the seven
+signed attempts (six finalized and one expired unexecuted), and an epoch-15
+re-commitment that was pending and not yet signed. An independent verification
 passed. The drills exposed \texttt{rtao} behaviors now reported upstream: a
 reconnection that meets an HTTP 429 leaves its session failed, so the
 application restarts with fresh connections, and each commitment makes 26 to 28
@@ -484,5 +499,6 @@ fresh pool was refused. No live row has yet paid two UIDs, because no
 available artifact beats the reference by the margin while staying clear of
 every published one: the max-upscaled form of such a row, promotion, the
 fallback cutoff, and canary re-audits are covered by tests alone, and the
-fault drills of Section~\ref{testnet-m2} have not been repeated under
+fault drills of the \hyperref[testnet-m2]{``Testnet weight commitments''}
+paragraph have not been repeated under
 \texttt{reward-v1}.

@@ -1,9 +1,10 @@
 # Subnet implementation plan
 
-November 1, 2026. This plan implements the [Cloudflare design](cloudflare-subnet-draft.md)
-and [whitepaper draft 0.59](../whitepaper/main.tex). It describes work to build and qualify;
-it does not establish a deployed subnet. Launch includes A alone. C and B have
-separate activation requirements. The shared protocol crate implements the
+November 2, 2026. This plan implements the [Cloudflare design](cloudflare-subnet-draft.md)
+and [whitepaper draft 0.60](../whitepaper/main.tex). It describes work to build and qualify;
+it does not establish a deployed subnet. Launch includes A alone. B and C have
+separate activation requirements. A reads raw text; the native grammar serves
+later B and C. The shared protocol crate implements the
 `reward-v1` calculation, the copy policy, private submission records, the launch
 and reward-intent authorizations, the cohort phase checks and active-target
 bundle verification. On testnet the coordinator's evaluation Worker runs
@@ -114,19 +115,21 @@ The Workers journal/transport composition remains implementation work. The
 provider's unbilled block webhooks are live: a Finney pilot at
 `https://finney.rtao.io/webhooks` and a separate testnet service with its own
 management password, subscriptions, and signing keys. Receiver integration and
-Slop Ninja qualification remain our work. Follow
-the provider's private webhook instructions for Finney and for testnet
-for each service's current contract and private credential location. Provider checks of
-the deployed services do not qualify our receiver. Recheck upstream before each
+Slop Ninja qualification remain our work. On the authorized compute host,
+follow the operator's private Finney and testnet webhook instruction files for
+each service's current contract and private credential location. Provider
+checks of the deployed services do not qualify our receiver. Recheck upstream before each
 registration.
 
 **Work sequence and acceptance criteria**
 
 1. **Establish the integration baseline and shared Rust contracts.**
 
-   Inventory the existing subnet adapter, grammar runtime, evaluation code, and
-   receipt prototypes. Reuse tested components and keep the existing grammar
-   workspace independent unless a concrete dependency requires a change.
+   Inventory the existing subnet adapter, the parser-free A crates
+   (`grammar-a-baseline` and related), evaluation code, and receipt prototypes.
+   Reuse tested components. The A launch path has no native-parser dependency.
+   Keep the grammar workspace independent of the subnet workspace; its native
+   parser serves later B.
    Record upstream revisions and available RPC methods, authentication, history
    coverage, and submission behavior. Resolve the observed RPC HTTP 403 before
    relying on that endpoint; service fees remain budgeted at zero.
@@ -284,7 +287,7 @@ registration.
 
    Webhook integration procedure, to execute when implementation begins:
 
-   - Reread the instructions for the target network.
+   - Reread the instructions for the target network on the authorized compute host.
      For Finney, use `https://finney.rtao.io/webhooks` as the management API base;
      the testnet instructions name that service's base. Never reuse a management
      password, subscription, or signing key across networks. Start with
@@ -651,22 +654,23 @@ consume signed fixtures before the coordinator publishes live packages. Payment
 integration can use synthetic jobs before commercial activation. Updater and
 migration coverage grow with every persisted component.
 
-C's contribution format, linguistic review, duplicate/overlap handling, and one-time
-award settlement follow a separate activation plan. Later B adds qualified private
-miner-account inference, author-profile feedback, preservation checks, and its
-own evaluation/funding rules. Writer profiles use the A encoder plus stylometric
-features (CFG at most an optional fused input); a learned matcher on fresh
+Later B adds qualified private miner-account inference, author-profile
+feedback, preservation checks, and its own evaluation/funding rules. Writer
+profiles use the A encoder plus stylometric features; a learned matcher on fresh
 authors, with thresholds measured on withheld writers and real style-transfer
 data, must qualify before any profile backs `provided_writer` or B's author-fit
-feedback. Word and grammar explanations remain a later
-feature, and CFG input profiles remain research. None becomes an implicit A
-launch dependency.
+feedback. Later B work uses the native grammar for edit units and revision
+guidance, and grammar-level explanations belong to that guidance. C's
+contribution format, linguistic review, duplicate/overlap handling, and one-time
+award settlement follow their own activation plan, which may precede B's. A has
+no CFG input, and word-level explanations remain a later feature. None becomes
+an implicit A launch dependency.
 
 **Validation and workspace practice**
 
-Run focused builds, tests, and experiments with explicit resource
-bounds and durable task-owned jobs. Start with one Cargo job and zero swap;
-increase concurrency only after checking headroom. The repository has no CI.
+Run focused builds, tests, and experiments on the authorized compute host with
+explicit resource bounds and durable task-owned jobs. Start with one Cargo job
+and zero swap; increase concurrency only after checking headroom. The repository has no CI.
 Tests use synthetic or authorized fixtures and do not
 silently invoke paid models or detectors. Use only authorized runners for
 platform-specific checks; a target remains unqualified until its evidence exists.

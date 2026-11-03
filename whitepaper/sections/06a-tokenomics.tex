@@ -108,26 +108,16 @@ detection target instead implies \(M_{\mathrm{price}}\approx47\)--\(70\). For a
 chosen price ceiling \(P_{\mathrm{USD,max}}\), the general constraint is
 \(M_{\mathrm{price}}\le P_{\mathrm{USD,max}}/C_{\mathrm{model}}\).
 
-A later CFG input profile would add parsing and ambiguity resolution to every
-detection job. The batched 8B resolution budget of the revision scenario costs
-\(\$0.00093\) after the retry allowance; with \(\$0.00001\) for numeric heads on
-CFG features, the job costs \(\$0.00094\), more than twice the raw-text bound.
-A 70B resolver using 20,000 input and 2,000 output tokens at the stated tariff
-costs \(\$0.0129575\); with the numeric heads the job costs \(\$0.0129675\),
-about \(\$0.3242\) at \(M_{\mathrm{price}}=25\). For such a profile the escalation rate and workload
-bounds matter more than the multiplier. The comparison with Pangram's dated
-\(\$0.40\) bulk and \(\$0.50\) realtime rates assumes neither equivalent accuracy
-nor equal terms. Subscription discounts, minimum charges, and word-block
-rounding still apply.
+The comparison of raw-text detection with Pangram's dated \(\$0.40\) bulk and
+\(\$0.50\) realtime rates assumes neither equivalent accuracy nor equal terms.
+Subscription discounts, minimum charges, and word-block rounding still apply.
 
 \begin{figure}[!htb]
 \centering
 \input{figures/tokenomics-pricing.tex}
 \caption{Price sensitivity per 1,000-word detection job. The band spans the
-raw-text launch cost of \$0.0002875--\$0.000425 from measured Container busy
-time; the other curves are later CFG-profile scenarios with the batched 8B
-resolver (\$0.00094) and a 70B resolver (\$0.0129675), including the stated
-retry and numeric-inference allowances. The shaded \$0.01--\$0.03 range is the
+raw-text cost of \$0.0002875--\$0.000425 from measured Container busy time,
+including the stated retry allowance. The shaded \$0.01--\$0.03 range is the
 proposed detection target; Pangram's dated bulk and realtime rates are price
 comparisons only. The price axis is logarithmic. No token-price assumption
 enters this calculation.}
@@ -140,6 +130,13 @@ calls. Operator model, compute, storage, and delivery costs are approximately
 is \(\$0.0004\)--\(\$0.0009\). Table~\ref{tab:tokenomics-volume} scales these
 proxies without economies of scale. Burn principal is unavailable for either
 party's bills.
+
+Revision cost is sensitive to its resolver. The batched 8B resolution budget
+costs \(\$0.00093\) after the retry allowance; a 70B resolver using 20,000 input
+and 2,000 output tokens at the stated tariff would cost \(\$0.0129575\) instead,
+raising revision model cost from \(\$0.0082885\) to \(\$0.020316\), about
+\(\$0.5079\) at \(M_{\mathrm{price}}=25\). For such workloads the escalation
+rate and workload bounds matter more than the multiplier.
 
 \begin{table}[htbp]
 \centering\small
@@ -245,7 +242,7 @@ attack budget; a miner-only calculation cannot establish resistance.
 Low demand makes reward concentration and fixed costs more important; high
 demand raises aggregate bills and can dilute rewards below serving cost.
 Calibration must test both regimes, including declining realizable token value,
-illiquid sales, resolver escalation in parsed workloads, retry spikes, provider repricing,
+illiquid sales, resolver escalation in later \textit{B}'s parsed workloads, retry spikes, provider repricing,
 delayed burns, and post-burn refunds. Use measured cost distributions rather
 than only averages, and treat free beta inference as a temporary subsidy.
 

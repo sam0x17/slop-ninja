@@ -67,15 +67,15 @@ and reference writing under their declared rights for a quoted job; buying infer
 permission to add either to training or benchmarks. Author references and
 derived profiles receive the same content protection as the query document.
 
-Later \textit{C} contributors submit public grammar and lexical improvements.
-Accepted contributions receive credit once under a separately activated
-contribution contract (Section~\ref{grammar-contributions}). Later \textit{B}
-miners register private transformation pipelines, with language-model adapters
-served by Cloudflare in their own accounts and numeric rankers executed by
-Slop Ninja. These miners maintain their delegated access, capacity, and billing,
-and pay for their model calls, including required evaluations. Customer
-payments follow the burn policy; no direct per-job reimbursement is promised.
-Neither \textit{B} service obligations nor \textit{C} rewards apply to the
+Later \textit{B} miners register private transformation pipelines, with
+language-model adapters served by Cloudflare in their own accounts and numeric
+rankers executed by Slop Ninja. These miners maintain their delegated access,
+capacity, and billing, and pay for their model calls, including required
+evaluations. Customer payments follow the burn policy; no direct per-job
+reimbursement is promised. Later \textit{C} contributors submit public grammar
+and lexical improvements to the grammar \textit{B} uses for edits. Accepted
+contributions receive credit once under a separately activated contribution
+contract (Section~\ref{grammar-contributions}). Neither \textit{B} service obligations nor \textit{C} rewards apply to the
 \textit{A}-only launch.
 
 \subsection{Rust applications and serverless execution}
@@ -173,8 +173,8 @@ idempotent messages; a transaction in one Durable Object cannot atomically
 update another~\cite{cfdo}.
 
 All production inference, challenge generation and execution, and scoring run
-serverlessly. Parsing and model execution take place outside the objects that
-serialize admission and accounting. Bounded Rust/Wasm computation runs in
+serverlessly. Model execution, and later \textit{B} parsing, take place
+outside the objects that serialize admission and accounting. Bounded Rust/Wasm computation runs in
 Workers; a qualified Cloudflare serverless Container under Slop Ninja's control
 supplies bounded computation beyond their limits, including every \textit{A}
 model run. Workers AI supplies supported language-model and adapter formats; it

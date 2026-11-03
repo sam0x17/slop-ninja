@@ -13,8 +13,8 @@ Known AI models have predefined author profiles alongside human
 writers. Detecting AI involvement is the primary purpose of the origin output
 and the only reward quantity; the other outputs are qualification gates. The
 transformation mechanism \textit{B} is deferred to Section~\ref{later-b};
-\textit{C}'s proposed contributions to the shared grammar appear in
-Section~\ref{grammar-contributions}.
+\textit{C}'s proposed contributions to the shared grammar that \textit{B} uses
+appear in Section~\ref{grammar-contributions}.
 
 The shared encoder is intended to let the two tasks improve each other.
 Learning author- and generator-specific writing patterns can help identify
@@ -167,7 +167,7 @@ frequencies and character n-grams, then pools them into one writer profile under
 a qualified, versioned pooling contract. A normalized weighted mean is the
 initial candidate; the contract fixes feature scaling, per-work weights,
 missing-channel handling, and the compatible encoder, feature, and pooling
-versions. A CFG writer vector may enter at most as an optional fused input. The
+versions. The
 matcher receives the profile instead of raw reference prose. A pooled summary
 need not represent any single work, so qualification must test whether
 averaging loses useful variation across topics or registers and whether sample
@@ -179,8 +179,10 @@ author-fit feedback (Section~\ref{author-transformation-and-detector-evasion}).
 
 No profile type yet qualifies to back \emph{Provided writer} or that feedback.
 In an October 31, 2026 comparison on writers neither system had seen, unlearned
-profiles from \(R_0\)'s encoder beat CFG writer vectors on verification, and
-stylometric features beat both. Encoder plus stylometry was the strongest
+profiles from \(R_0\)'s encoder beat CFG writer vectors on verification,
+stylometric features beat both, and adding CFG to the encoder plus stylometry
+gained only \(+0.0015\) in AUC, so CFG writer vectors are not a profile
+channel. Encoder plus stylometry was the strongest
 profile, yet at five references 42\% of impostor trials still passed when 90\%
 of genuine ones did, and no profile ranked rewrites toward a target writer much
 above chance (Section~\ref{writer-profile-evidence}). The next qualification is
@@ -217,13 +219,18 @@ token-level head on the shared encoder. It returns an AI probability for every
 token, decodes those probabilities into AI spans with exact character offsets
 into the canonical text and a confidence for each span, and derives per-sentence
 AI share and AI-involvement confidence from the same token probabilities. The
-document-level outputs keep their meanings and must agree with the span outputs;
-for example, document share should match the expected AI word fraction implied
-by the token probabilities. Sentence shares aggregate to documents by
-final-word counts over complete, nonoverlapping partitions, but document
-involvement confidence needs joint calibration because neighboring sentences are
-dependent. Neither averaging sentence confidences nor multiplying their
-complements yields a document probability.
+document-level outputs keep their meanings, and the span outputs are made to
+agree with them by construction. In the runtime's emission, a word's
+probability is the mean probability of its tokens, and a share tilt shifts every
+word's logit by one common bias so that the mean word probability equals the
+emitted document share. A sentence's
+share is the mean tilted probability of its words, so sentence shares aggregate
+to the document share by final-word counts over complete, nonoverlapping
+partitions. Document involvement confidence cannot be assembled that way,
+because neighboring sentences are dependent: neither averaging sentence
+confidences nor multiplying their complements yields a document probability.
+It remains the document head's calibrated output, and sentence and span
+confidences are capped at it.
 
 The training labels already exist: retained exact model-produced spans for mixed
 documents, all-AI labels for model-only documents, and all-human labels for
@@ -232,7 +239,11 @@ Qualification measures token-level Brier score, character-span intersection over
 union and F1 against the retained spans, span-boundary error, and sentence-level
 calibration. Each cohort reports these measures as a qualification gate whose
 thresholds are fixed after measurement; span outputs earn no reward, and
-document involvement Brier remains the reward. The span gate includes the
+document involvement Brier remains the reward. Agreement with the document
+outputs needs no gate, because the emission guarantees it; the gap between mean
+word probability and document share before the tilt is reported as a
+diagnostic, since the tilt costs word-level accuracy wherever the document
+share is the less accurate estimate. The span gate includes the
 false-positive rate of human sentences inside mixed documents, reported
 separately from the pure-human document gate, because identical human words
 score higher next to AI text than alone (Section~\ref{cohort-mix-evidence});
@@ -281,19 +292,20 @@ so admission refuses that graph until span serving qualifies
 (Section~\ref{a-artifact-execution}). Enforcing the gate does not by itself
 change the reference; reference changes follow Section~\ref{reference-model}.
 
-A further extension could identify words and grammar choices that materially
-influence a score. CFG features can map those choices to exact spans and
-productions. Test explanations by removing or changing the cited feature,
-reparsing, and measuring the model's response with meaning and context controls.
-Require stability across valid parses and innocuous formatting changes. An
+A further extension could identify words and constructions that materially
+influence a score, starting from the token-level outputs. Test explanations by
+removing or changing the cited text and measuring the model's response with
+meaning and context controls. Require stability across innocuous formatting
+changes. Explanations in terms of grammatical constructions belong to later
+\textit{B} revision guidance, which uses the shared grammar. An
 influence on a model score is evidence about its calculation, not proof that a
 word or construction was produced by AI. Attention weights or a generated
 explanation alone do not establish that influence. These explanations are a
 separate future qualification, not an initial launch requirement.
 
-\subsection{Launch input contract: raw text}\label{input-contract}
+\subsection{\textit{A} input contract: raw text}\label{input-contract}
 
-The launch \textit{A} input is the canonical document text. A miner artifact is a
+The \textit{A} input is the canonical document text. A miner artifact is a
 text model: an ONNX computation graph, a fixed tokenizer, the output heads, and
 their calibration. The coordinator tokenizes each document with the
 allow-listed tokenizer, which the artifact's own must match byte for byte, and
@@ -310,11 +322,9 @@ package adds the token-level span head. Its architecture,
 with or without a token-level span head, defines the graphs that admission
 allows (Section~\ref{a-artifact-execution}).
 
-Training \textit{A} on features derived from a resolved context-free-grammar (CFG)
-parse remains an open research hypothesis. Such a representation could tie
-detection to lexical and structural choices and place a later revision in the
-same feature space as its source and target-author references. Its first
-real-data test failed: on an October 26, 2026 research Test of 102 documents
+\textit{A} uses no features derived from a resolved context-free-grammar (CFG)
+parse. A CFG-only detector failed its first real-data test: on an October 26,
+2026 research Test of 102 documents
 (splits as in Section~\ref{splits}),
 CFG-only shared models had AI-involvement Brier 0.126--0.134 against 0.096 for a
 Calibration-mapped Pangram comparator on the same documents, and flagged
@@ -326,12 +336,13 @@ ordered and tree-aware CFG inputs remain untested. Parsing and ambiguity
 resolution also add latency and cost, and numeric features carry information
 about the source, so they provide no confidentiality guarantee.
 
-A later CFG input profile would begin a new comparison. It would bind the
-shared parser, grammar, resolver, and projection, and would compare lexical,
-structural, combined, and raw-text models on the same populations and splits,
-with parse failures kept in the requested population. The grammar
-contributions of mechanism \textit{C} (Section~\ref{grammar-contributions}) do not
-depend on the launch input contract.
+The grammar's planned uses are \textit{B}'s edit representation, which types
+edits and places a revision alongside its source (Section~\ref{later-b}), and
+\textit{C}'s contributions to it (Section~\ref{grammar-contributions}); neither
+depends on \textit{A}'s input contract. Any change to that contract, including
+grammar features, would need a new paired comparison against raw-text models,
+including its added cost, before admission
+(Section~\ref{development-and-launch-criteria}).
 
 \subsection{Artifact submission and execution policy}\label{a-artifact-execution}
 

@@ -7,14 +7,15 @@ text against public A detectors, while authorized B revisions challenge future
 A training after evaluation retirement. Mechanism A also supplies
 supporting attribution signals and launches first as a public
 evaluator and initial detection service. Its model reports AI share,
-AI-involvement confidence, and human/model attribution. Training entirely on
-CFG-derived inputs awaits real-data viability evidence.
+AI-involvement confidence, and human/model attribution from raw text. The
+native English grammar (CFG) is reserved for later B work, as an input for
+edit units and revision guidance; it is not part of the A detector.
 
 The proposal has three logical mechanisms, activated separately:
 
 - **A** launches first, with coordinator-led evaluation of public models and Rust validators checking signed records before submitting weights.
-- **C** would credit accepted reusable grammar contributions once.
-- **B** would transform authorized writing while preserving meaning, readability, and tone. Its proposed Cloudflare path keeps content from miners and private weights from the public, with provider/operator trust and qualification still required.
+- **B** would transform authorized writing while preserving meaning, readability, and tone, using the native grammar to define edit units and guide revision. Its proposed Cloudflare path keeps content from miners and private weights from the public, with provider/operator trust and qualification still required.
+- **C** would credit accepted reusable contributions to the shared grammar that later B work uses, once each, under its own activation decision.
 
 The current design and evidence boundaries are in the [whitepaper](whitepaper/slop_ninja.pdf).
 Testnet subnet 601 has its own [landing page](docs/testnet/README.md), with the miner,
@@ -43,8 +44,8 @@ workspace's native grammar is not yet included; see
 - [docs](docs/README.md): current operating guides, corpus policy, API evaluation, privacy, and retained evidence.
 - [baseline/detector](baseline/detector/README.md): the V6 reference detector and its released evidence.
 - [baseline/transformer](baseline/transformer/README.md): the current B research baseline.
-- [grammar](grammar/README.md): the A crates, the public A training recipe, and the spaCy feature crates.
 - [whitepaper](whitepaper/README.md): LaTeX source and PDF build.
+- [grammar](grammar/README.md): the parser-free A crates (baseline, training data preparation, Common Crawl stock), the spaCy feature crates and, in `grammar/crates/grammar-eval/python/`, the public A training recipe and exporter. The native English grammar for later B work is not yet included.
 
 ## Local development
 
@@ -61,11 +62,11 @@ from their compressed Git storage (see [dataset storage](tools/dataset-storage/R
 cargo run --release --locked --manifest-path tools/dataset-storage/Cargo.toml -- restore .
 ```
 
-The grammar workspace is separate:
+The grammar workspace, which holds the parser-free A crates, is separate:
 
 ```sh
 cd grammar
-cargo check
+cargo check -p grammar-a-baseline
 ```
 
 Run focused builds and tests in bounded jobs with explicit memory limits and no

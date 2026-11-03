@@ -2,8 +2,8 @@
 
 These checkpoints precede \(R_0\) and gate nothing at launch. \(R_0\) was
 fine-tuned from the V6 detector below, and the adaptation results trace that
-path; the grammar and CFG-vector results bear on later CFG inputs, which the
-launch does not use.
+path; the grammar and CFG-vector results explain why \textit{A} uses no CFG
+inputs and record the grammar's state for later \textit{B} work.
 
 \paragraph{Origin detector baseline, September 13, 2026.}
 Our V6 baseline is a raw-text ModernBERT-base experiment fine-tuned for three
@@ -19,8 +19,7 @@ $P(\mathrm{model\_only})+P(\mathrm{mixed})$ strictly above the respective
 full-precision cutoff. Calibration targeted 1\% and 5\% human false-positive
 rates, respectively; these targets are not population guarantees. The 0.5
 boundary below is a separate diagnostic operating point.
-Its results provide a raw-text comparator for the proposed CFG-only detector;
-they do not show that the parsed-vector restriction preserves detection performance.
+Its results provided the raw-text comparator for the CFG-only experiments below.
 
 The second-rewrite Test view, labeled R2 in the detector release, pairs 112
 unchanged historical human-source passages with
@@ -76,8 +75,9 @@ cache records the source span, grammar identity, resource envelope, grammar-item
 dependencies and any selected tree. A grammar change can require replay beyond
 the old production-dependency set when it introduces new alternatives.
 An unchanged selected tree carries forward only when it maps exactly onto the
-new forest. This is the proposed representation for \textit{A} and \textit{B};
-the author-retrieval results below still come from the earlier feature system.
+new forest. This is the proposed representation for later \textit{B} edits;
+\textit{A} does not use it. The author-retrieval results below come from the
+earlier feature system.
 
 At this checkpoint, the native grammar campaign had completed 205 of its first
 500 documents. Of these, 151 tracked-public documents contributed 1,696 exact candidate units to a
@@ -328,8 +328,8 @@ The roughly 623 MB parent/overlay/head artifacts and native-library profile do
 not fit or qualify Workers/Wasm; Container execution was then unqualified.
 Full results, scope, fixed-comparator routes and recovery commands are in
 \texttt{docs/a-encoder-adaptation.md}. Persisted CFG vectors and compressed
-ambiguous-forest archives support later reuse, without changing this experiment's
-learned inputs. No deployment or grammar expansion was performed.
+ambiguous-forest archives support later reuse in \textit{B} work, without
+changing this experiment's learned inputs. No deployment or grammar expansion was performed.
 
 \paragraph{Earlier author experiments.}
 

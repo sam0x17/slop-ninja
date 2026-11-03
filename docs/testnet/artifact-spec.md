@@ -469,6 +469,9 @@ spelling. `canonical::encode` writes a value in a role's layout for tools.
 | `calibration.json` | `slop_ninja_full_a_calibration_v2`, all 20 fields typed, including the fit report, its policy and both role records | complete; fit split `cal`; map `isotonic_v1_clipped` with its algorithm and interpolation; the policy `slop_ninja_involvement_calibration_policy_v3` with its primary, fallback, selection, bound and temperature rule; knots exactly `{involvement, rows, score, weight, weighted_positives}`, sorted, monotone and inside `[lo, hi]` (heads runtime); at most `cal_rows` knots; report support summing to `cal_rows`; `final_test_opened` false |
 | `manifest.json` | `slop_ninja_full_a_export_v2`, all 22 fields and the 22-field fit binding typed, with the arm definition typed as the trainer validates it | complete and calibrated; the arm definition's value rules; the file names of heads, contract and calibration |
 
+The contract's 1,820 CFG coordinates are pinned at zero and carry no input;
+*A* reads raw text.
+
 `cal_rows` is the miner's own count, so "at most `cal_rows` knots" does not
 bound the knot list by itself. The knot list is bounded because the heads
 carry it and `heads.json` is at most 64 MiB; the calibration's two copies must

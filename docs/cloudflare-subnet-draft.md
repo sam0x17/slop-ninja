@@ -1,7 +1,7 @@
 # Draft Cloudflare subnet design
 
-Draft 0.37, November 1, 2026. Implementation design notes accompanying
-[whitepaper draft 0.59](../whitepaper/main.tex). Both describe a proposal;
+Draft 0.38, November 2, 2026. Implementation design notes accompanying
+[whitepaper draft 0.60](../whitepaper/main.tex). Both describe a proposal;
 neither establishes a deployed or qualified subnet.
 
 The [implementation plan](subnet-implementation-plan.md) defines the build
@@ -18,8 +18,10 @@ Fresh held-out evaluation must establish any improvement in either mechanism.
 and detection service; launch order does not change the main product objective.
 
 The subnet has three logical mechanisms: *A* for AI detection through origin
-and author attribution, *B* for transformation, and *C* for improving the shared
-CFG. Launch includes *A* alone; *C* and *B* require separate activation. Slop Ninja operates the customer
+and author attribution, *B* for transformation, and *C* for shared
+contributions to the native grammar (CFG) that later *B* work uses. *A* reads
+raw text and does not use the CFG. Launch includes *A* alone; *B* and *C*
+require separate activation. Slop Ninja operates the customer
 API and executes *A* artifacts in its own account. The proposed later *B* service
 uses private LoRA adapters in miner-owned Cloudflare accounts, with miners
 paying those inference bills and our runtime controlling the document workflow.
@@ -50,9 +52,9 @@ cohort advancement, scoring, service, upgrades, or recovery.
 
 Launch evaluates English documents, with document-level scores and AI span
 localization. Multilingual detection rewards and broader length classes each
-need qualified data and workload profiles. *C* may improve parsing of informal English and
-embedded foreign or technical material without establishing those detector
-capabilities. The later cleanup product follows an authorized writer's brief
+need qualified data and workload profiles. For later *B*, *C* may improve
+parsing of informal English and embedded foreign or technical material. *A*
+reads raw text, so grammar coverage does not change its detection capabilities. The later cleanup product follows an authorized writer's brief
 and preserves meaning; a lower detector score never changes production history.
 
 The privacy requirement is that miners cannot retrieve customer prompts or
@@ -102,12 +104,7 @@ privately to the coordinator, which publishes it after the cohort ends. The
 miner does not need a miner-owned Cloudflare account, private LoRA, or delegated
 inference credential.
 Slop Ninja pays for production
-*A* execution. A proposed *C* miner contributes public, reusable grammar or
-lexical improvements to the shared representation. Accepted contributions earn
-credit once; continued use does not earn recurring credit. The admissible
-contribution format, correctness tests, attribution, and award sizes remain to
-be defined.
-Grammar size by itself is not a proposed quality measure.
+*A* execution.
 
 Slop Ninja is the **operator**; the **subnet owner** is the account recognized
 on chain. Slop Ninja may operate through ownership or a lease. A lease must
@@ -132,9 +129,16 @@ consensus still determines actual payouts.
 
 *A*, *B*, and *C* name logical workstreams. The current
 [native mechanism documentation](https://www.bittensor.com/docs/guides/subnets#mechanisms)
-supports two mechanisms. *A*-only can use one; *A* plus *C* can use two. Adding
-*B* later needs an explicit mapping of logical scores into supported native
-mechanisms. No third native mechanism is assumed.
+supports two mechanisms. *A* alone uses one native mechanism; a second can
+carry *B* or *C*. *C* may activate before *B*, so *B*'s activation plan chooses
+a mapping that also places *C*'s credit. No third native mechanism is assumed.
+
+A proposed *C* miner contributes public, reusable grammar or lexical
+improvements to the shared grammar used by later *B* work. Accepted
+contributions earn credit once; continued use does not earn recurring credit.
+The admissible contribution format, correctness tests, attribution, and award
+sizes remain to be defined. Grammar size by itself is not a proposed quality
+measure.
 
 The detailed *B* hosting, rewrite benchmarks, mandatory *A*-to-*B* service, and
 private-result rules below remain later-phase proposals. They are not launch
@@ -145,7 +149,8 @@ Neither the *A* training-request duty nor the *B* availability/recovery gate
 applies before *B* activates. Absent duties must not require a positive ticket
 count or fabricated service successes for *A* eligibility.
 The launch input contract is raw text and the reward rule is `reward-v1`; gate
-thresholds and the shared grammar/version policy still await qualification.
+thresholds still await qualification. The grammar version policy belongs to
+later *B* and *C* activation.
 *C*'s contribution contract and allocation must be settled before its later
 activation. Paid-use credit for centrally hosted *A* would reward the model
 contributor; Slop Ninja pays serving costs. Its inclusion and rate remain open.
@@ -211,8 +216,10 @@ fractional share labels: final words in recorded model-produced replacements
 divided by all final-document words under a fixed counting convention.
 A complete rewrite of a human source can have 100% replacement-span share while
 retaining mixed production history. The
-[viability plan](cfg-vector-viability.md#controlled-replacement-span-experiment)
-defines the experiment and its limits. Both scores need workload-specific
+[controlled replacement-span experiment](cfg-vector-viability.md#controlled-replacement-span-experiment)
+defines that design and its limits, and the
+[spliced-rewrite span data](a-spans-data.md) supply *A*'s current share and span
+supervision. Both scores need workload-specific
 qualification. Confidence Brier is the reward; share accuracy is a
 qualification gate with no reward weight.
 
@@ -241,8 +248,10 @@ the *A* encoder's output and stylometric features (function-word frequencies
 and character n-grams), then pools them into one private writer profile under a
 qualified, versioned pooling contract. A normalized weighted mean is the
 proposed starting point; the pooling rule, per-work weights, missing-feature
-masks, feature definitions, and encoder version are versioned and qualified. A
-CFG writer vector may enter at most as an optional fused input. The matcher
+masks, feature definitions, and encoder version are versioned and qualified.
+The proposed profile has no CFG component (on top of encoder plus stylometry,
+CFG added +0.0015 verification AUC; below). CFG writer-style features remain a
+candidate *B* revision input, qualified separately. The matcher
 consumes the profile instead of raw reference prose. Upstream preprocessing
 still reads the samples. Test sensitivity to sample length, topic, register,
 and heterogeneous writing; a single average may discard useful variation.
@@ -252,16 +261,18 @@ feedback. In the October 31, 2026 [writer-profile comparison](cfg-vs-encoder-res
 on writers neither system had seen, unlearned R0-encoder profiles beat CFG
 writer vectors on verification (pooled AUC at five references 0.778 against
 0.743; difference −0.034 [−0.047, −0.022]), stylometry alone reached 0.828,
-and encoder plus stylometry 0.846. Adding CFG to that fusion gained only
-+0.0015 [+0.0004, +0.0025] on the same writers. Even the strongest profile let
+and encoder plus stylometry 0.846. Fused with the encoder alone, CFG added
++0.027 [+0.022, +0.032], less than stylometry's +0.069; adding CFG to encoder
+plus stylometry gained only +0.0015 [+0.0004, +0.0025] on the same writers. Even the strongest profile let
 42% of impostor trials pass at 90% of genuine ones, training thresholds missed
 their false-accept target on withheld writers, and every profile ranked
 rewrites toward a target near chance (mean per-target AUC 0.53–0.55). The next
 qualification is a learned matcher trained on fresh authors, with acceptance
 thresholds measured on withheld writers and real style-transfer data. Until a
 profile type passes it, neither `provided_writer` nor *B*'s author-fit feedback
-is offered. CFG keeps its *B* transformation, *C* contribution and explanation
-roles on their own evidence.
+is offered. The grammar's planned use is later *B* work (edit units,
+writer-style guidance and grammar-level revision explanations), each qualified
+on its own evidence; *C*'s contributions target that grammar.
 
 Under the ordinary named-match rule, the customer-scoped profile can return
 `provided_writer`, displayed as "Provided writer". It reports a match to the
@@ -321,12 +332,16 @@ The goal is AI span localization; sentences are one view of it. A token-level
 head on the shared encoder returns an AI probability per token. Those
 probabilities decode into AI spans with exact character offsets and a confidence
 per span, and they give per-sentence AI share and confidence. Document-level
-outputs keep their meanings and must stay consistent with the spans: document
-share should match the expected AI word fraction implied by the token
-probabilities. Sentence shares aggregate by final-word weights over complete,
-nonoverlapping partitions; document involvement confidence needs joint
-calibration, since correlated sentences do not justify averaging confidences
-or multiplying their complements.
+outputs keep their meanings, and the runtime's emission makes the spans agree
+with them by construction: a word's probability is the mean of its token
+probabilities, and a share tilt shifts every word's logit by one bias so that
+the mean word probability equals the emitted document share. Sentence shares
+are means of tilted word probabilities, so they aggregate to the document share
+by final-word weights over complete, nonoverlapping partitions. Document
+involvement confidence cannot be assembled that way, since correlated sentences
+do not justify averaging confidences or multiplying their complements; it stays
+the document head's calibrated output, and sentence and span confidences are
+capped at it.
 
 Training labels already exist: the retained exact model-produced spans for mixed
 documents, all-AI labels for model-only documents, and all-human labels for
@@ -334,7 +349,11 @@ human-only documents. Qualification measures token-level Brier, character-span
 IoU and F1 against the retained spans, boundary error, and sentence-level
 calibration. Each cohort reports them as a qualification gate whose thresholds
 are fixed after measurement; spans earn no reward, and document involvement
-Brier remains the reward. The span gate includes the false-positive rate of
+Brier remains the reward. Agreement with the document outputs needs no gate,
+because the emission guarantees it; the pre-tilt gap between mean word
+probability and document share is reported as a diagnostic, since the tilt
+costs word-level accuracy wherever the document share is the less accurate
+estimate. The span gate includes the false-positive rate of
 human sentences inside mixed documents, reported separately from the
 pure-human document gate and with reward weight 0, because identical human
 words score higher next to AI text than alone (context bleed, measured on a
@@ -392,15 +411,16 @@ affecting eligibility; from that manifest on, every entrant must provide it.
 Enforcing the gate does not itself change the reference; reference changes
 follow the rules under "Reward rules" below.
 
-A further extension could highlight words and grammar choices that materially
-influence a score. Map explanations to source spans and CFG productions; test
-controlled changes, reparse, and measure score responses with meaning and
-context controls. Check stability across valid parses and harmless formatting.
+A further extension could highlight words and constructions that materially
+influence a score. Map explanations to source spans; test controlled changes and
+measure score responses with meaning and context controls. Check stability
+across harmless formatting. Grammar-level explanations, mapped to CFG
+productions, belong to later *B* revision guidance.
 Attention weights or generated explanations alone do not establish faithfulness.
 Such highlights explain a model calculation and do not prove that particular
 words were produced by AI. This extension is not an initial launch requirement.
 
-### Launch input contract and CFG research
+### Launch input contract
 
 The *A* input contract is raw text. Miner artifacts are text models: an ONNX
 graph, a fixed tokenizer, heads, and calibration. The cohort input profile is
@@ -408,29 +428,24 @@ canonical text, not CFG vectors. The launch model, `Faux` (recipe `E1aux`) seed
 17, is a text-only ModernBERT-base fine-tuned from V6 on raw tokens
 ([release candidate](a-baseline-release.md)).
 
-Training *A* on CFG-derived vectors remains an open research hypothesis. Its
-first real-data test failed: on 102 Test documents, CFG-only shared models had
+*A* does not use CFG-derived inputs. A CFG-only detector failed its first
+real-data test: on 102 Test documents, CFG-only shared models had
 involvement Brier 0.126–0.134 against 0.096 for mapped Pangram, with human
 false-positive rates at 0.5 of 67–87% ([viability experiment](cfg-vector-viability.md)).
 Adding CFG to frozen text features gave only a small, uncertain Development
 gain, 0.048–0.057 against 0.052–0.058 for text alone
 ([fusion pilot](a-v6-cfg-fusion.md)). Those inputs were pooled grammatical-leaf
-counts; ordered and tree-aware CFG representations remain untested. *C*'s
-grammar contributions are unaffected. CFG writer vectors also scored below the
-encoder as writer profiles (above), so private writer profiles do not rest on
-CFG.
+counts; ordered and tree-aware CFG representations remain untested. CFG writer
+vectors also scored below the encoder as writer profiles (above), so private
+writer profiles do not rest on CFG. The grammar work continues for later *B*
+(edit units, writer-style guidance, revision) and *C*'s contributions.
 
-A later CFG input profile would begin a new comparison. Freeze its parser,
-resolver, projection, and feature catalog, and compare lexical-only,
-structural-only, combined CFG, and raw-text models on the same documents and
-splits. Sources used for grammar development or parse-selection tuning count as
-training exposure. Measure binary involvement Brier, three-class origin Brier,
-calibration, sensitivity at fixed human false-positive rates, attribution, and
-open-set rejection, with paired comparisons on complete documents, coverage,
-failures, cold/warm parsing, resolution tokens, tail latency, and total cost.
-Missing parses must not disappear from the product evaluation. Predeclare
-acceptable quality/cost tradeoffs on development data before reading held-out
-results.
+No CFG input profile is planned for *A*. Any proposal would be a new frozen
+comparison against raw-text models on the same documents and splits, counting
+grammar-development sources as training exposure and keeping parse failures in
+the evaluation; the
+[viability note](cfg-vector-viability.md#measurements-and-decision) lists the
+measurements such a comparison needs.
 
 ### Training data and qualification
 
@@ -510,13 +525,14 @@ models outgrow can strand a subnet. The allow-list widens only by a versioned
 manifest. The cap bounds learned capacity (an estimated 40–72 MB: 160M
 parameters at the measured 2–3.6 bits per parameter) available for memorizing
 human text, and an embedded text index or lookup table fails
-admission. Upstream parsing/resolution still sees the text and needs its own
-fixed policy and contamination checks.
+admission. Upstream preprocessing, and for later *B* parsing and resolution,
+still sees the text and needs its own fixed policy and contamination checks.
 
 The paper's proposed 50-writer acquisition pilot and larger 500-writer cohort
 remain possible ways to obtain stronger labels and multiple independent works.
 They are unfunded targets, not collected data or prerequisites already satisfied.
-The [experiment plan](cfg-vector-viability.md) records what is available now.
+The [CFG viability note](cfg-vector-viability.md#available-evidence-and-its-limits)
+records the writer data available on its date.
 
 ### The A cohort round and `reward-v1`
 
@@ -1217,8 +1233,8 @@ submission. A cached block height cannot keep an authorization alive indefinitel
 Persist the cohort ID, phase, manifest, roster and artifact bindings, task IDs,
 completed and outstanding work, remaining active scheduling budgets, scores, and
 weight-submission receipts before dependent actions. Keep the data and model
-artifacts needed to resume, including selected parses and nondeterministic
-resolver outputs. Incomplete-cohort records
+artifacts needed to resume, and for later *B* work its selected parses and
+nondeterministic resolver outputs. Incomplete-cohort records
 have no automatic cleanup or expiry based on elapsed tempos. Backups and a
 restart rehearsal must demonstrate recovery of this state; a local process's
 memory or an unverified "sent" flag is insufficient.
@@ -1599,7 +1615,8 @@ permission to silently declare a cohort complete.
 ### Later C contribution rounds
 
 An optional *C* round would accept bounded public data patches against a fixed
-parent grammar, with lexical/form changes, reusable structural productions, and
+parent grammar, the grammar that later *B* uses for edit units and writer-style
+guidance, with lexical/form changes, reusable structural productions, and
 authorized examples. The coordinator would review the linguistic claims,
 measure transfer to held-out documents, replay affected prior interpretations,
 and check interactions when patches are combined. A changed old parse is a
@@ -1627,7 +1644,8 @@ assigned to that settlement epoch.
 If *C* later activates, a candidate mapping is native mechanism 0 for
 *A* quality and any paid-use credit, and native mechanism 1 for *C*. Under Yuma
 Consensus the UID limit times the mechanism count may not exceed 256, so a
-second mechanism halves the subnet's UID slots to 128. Let `c` be
+second mechanism halves the subnet's UID slots to 128. *C* may activate before
+*B*; *B*'s revised mapping must then also place *C*'s credit. Let `c` be
 the fraction of total miner emissions assigned to *C* and `f` the total fraction
 assigned to paid *A* use, with `c + f <= 1`. With separately normalized quality,
 usage, and grammar-credit distributions `Q_i`, `I_i`, and `K_i`, the intended
@@ -1650,7 +1668,8 @@ determines the final payouts. Adding *B* requires a revised mapping before activ
 | Training and model development | Miner | Training data, training compute, experiments, and model improvements. |
 | Private LoRA and Workers AI account | Miner; execution by Cloudflare | Upload the adapter, keep it private, maintain billing and capacity, grant Slop Ninja Workers AI Read access. |
 | Customer API and MCP interface | Slop Ninja Workers | Authentication, quotes, reservations, submission, status, and result retrieval. |
-| CFG, resolver, public *A* models, private *B* ranker, edit search | Slop Ninja runtime on Cloudflare | Construct admitted vectors, propose and assess edits, enforce bounds, select the final document. |
+| Public *A* models | Slop Ninja runtime on Cloudflare | Run admitted raw-text artifacts for evaluation and detection jobs. |
+| Later *B*: CFG parser and resolver, private *B* ranker, edit search | Slop Ninja runtime on Cloudflare | Parse sources into edit units, propose and assess edits, enforce bounds, select the final document. |
 | Job state, credentials, encrypted documents, receipt signer | Slop Ninja Workers, Durable Objects, and private storage | Durable processing, restricted content access, delivery, and accounting. |
 | Benchmark evaluation and lead validator | Slop Ninja Workers coordinator; other Rust validators independently calculate weights from signed scores | Hidden evaluation stays in the coordinator. All validators verify public arithmetic and receipts and commit in parallel; the coordinator signs, submits, and recovers its own chain work serverlessly and later certifies its finalized row. Later *B* review authority remains to be chosen. |
 | Registry, burn records, and emissions | Subtensor and proposed coordination components | Bind identities and offers, anchor receipts and burns, apply qualified native emission rules. |
@@ -1667,7 +1686,7 @@ flowchart LR
     PAY -->|Reserve refundable funds| F[Payment custody]
     REG --> W
     W --> J[Coordinator: lead validator on Workers and Durable Objects]
-    J --> R[CFG, resolver, A scoring, B ranking]
+    J --> R[A scoring; later B: CFG, resolver, ranking]
     SEC --> R
     R -->|Direct API with pinned adapter UUID| AI
     AI -->|Candidate edits and usage| R
@@ -1875,7 +1894,8 @@ during the tail of generation, and cold starts are accepted. The testnet roster
 is capped at 40 entrants; mainnet has no roster cap beyond the 256-UID space
 and no spending cap. Containers
 own no authoritative coordinator state or scheduling. Admission must qualify the
-entire model, parser, resolver, and scoring path in these environments. Serving
+entire model and scoring path, and for later *B* the parser and resolver, in
+these environments. Serving
 and benchmark execution never depend on a miner's or validator's local machine
 or a permanently running development-host process. Participant availability is
 required for its own enrollment and chain submissions, not for hosted inference.
@@ -1894,7 +1914,7 @@ Durable Object transactions are local to one object. Keep each balance and its
 reservation mutations together, and use persisted, idempotent messages for
 cross-object work. Cohort control and customer accounting have separate owners;
 the coordinator does not run every inference through one global object. Heavy
-parsing and scoring execute outside the objects that serialize decisions.
+scoring, and later *B* parsing, execute outside the objects that serialize decisions.
 Lanes report to the cohort object through short, idempotent requests. No
 invocation waits on hundreds of lanes, because each invocation can have only
 [six connections waiting for response headers](https://developers.cloudflare.com/workers/platform/limits/#simultaneous-open-connections).
@@ -1929,7 +1949,7 @@ Each execution step must fit its
 Parallelism comes from more lanes, each a separate invocation with its own
 limits, not from more requests per invocation.
 The current 128 MB isolate limit includes Wasm allocations; a successful native
-parser run does not establish Workers compatibility. Workers code allocates only
+run, such as of the later-*B* CFG parser, does not establish Workers compatibility. Workers code allocates only
 inside a bounded memory arena, following the rtao/rtao-rpc memory work: fixed
 Wasm linear memory sized from measured peaks plus versioned headroom; every
 decoder and parser checks a declared length against the arena budget before
@@ -2163,7 +2183,7 @@ normalized errors. It disables content logging in Workers, traces, and support
 tools. Input and output storage is private, encrypted, tenant-authorized, and
 time-limited. Even parsed features can reveal content and receive the same
 access controls as text.
-Parsing and ambiguity resolution, including any LLM resolver, stay within the
+*B*'s parsing and ambiguity resolution, including any LLM resolver, stay within the
 Slop Ninja and Cloudflare trust boundary. Miners receive no resolver content.
 
 An adversarial adapter could encode prompt information in output length and
@@ -2250,7 +2270,7 @@ in Workers/Containers contribute their attributable runtime cost here; charge
 that cost once, not again as non-model orchestration. Token or neuron usage
 alone is not the dollar cost.
 
-`C_total_ref` additionally includes non-model parsing and orchestration,
+`C_total_ref` additionally includes later *B*'s non-model parsing, orchestration,
 storage, delivery, payment/conversion expense, and expected retry/refund
 overhead not already counted. Set our `rtao-rpc` service fee to $0; retain chain
 transaction fees and the coordinator's RPC-call execution costs. Recompute
@@ -2382,6 +2402,12 @@ The revision runtime assumption has limited historical support. The
 That was an older grammar on Apple hardware, excluding startup and model
 resolution; it is not a current Cloudflare CPU measurement. Structural outliers
 and the size of the resolver's dependent choices can exceed the assumed budget.
+Revision cost is also sensitive to the resolver tier: a 70B resolver using
+20,000 input and 2,000 output tokens at the stated tariff would cost about
+$0.013 per job with the retry allowance, instead of $0.00093 for the batched
+8B budget, raising revision model cost to about $0.0203 and its price to about
+$0.508 at 25x. Measure escalation frequency and price difficult workloads
+within explicit bounds.
 
 The contemporary [Pangram API rates](https://www.pangram.com/solutions/api)
 provide this comparison at exactly 1,000 words:
@@ -2401,13 +2427,7 @@ so short-document comparisons must account for its
 
 At `M_price = 25`, raw-text detection prices at about $0.007-$0.011, at the
 bottom of the target range; a $0.02 price implies `M_price` of about 47-70. Test
-those alternatives without treating 25 as a fixed point. A later CFG input
-profile would add parsing and resolution to each detection job: the batched 8B
-resolution budget costs $0.00093 with the retry allowance, or $0.00094 per job
-with $0.00001 for numeric heads on CFG features. A 70B resolver using 20,000
-input and 2,000 output tokens would cost about $0.013, implying about $0.324 at
-25x before other model work. For such a profile, measure escalation frequency
-and price difficult workloads within explicit bounds.
+those alternatives without treating 25 as a fixed point.
 Keep customer-requested Pangram checks separately priced and authorized.
 These scenarios do not determine `f`; that requires paid volume, miner costs,
 and the realizable value of the available emissions.
@@ -2527,7 +2547,7 @@ required owner-controlled hyperparameter changes separately before live weights.
 | Miner training and development | Miner | Miner capital and any earned emissions; no reimbursement. |
 | Later *B* customer-serving model calls in a miner's account | Miner | Variable inference emissions; the customer payment is burned. No guaranteed per-job fiat recovery. |
 | Later *B* mandatory benchmark and service-test model calls | Miner | Cost of participation for potential quality emissions; no service fee or reimbursement. |
-| Our model calls, CFG, scoring/ranking, storage, delivery, and coordination | Slop Ninja | Explicit operating treasury, potentially funded by allocated owner proceeds or capital. |
+| Our model calls, later *B* CFG parsing, scoring/ranking, storage, delivery, and coordination | Slop Ninja | Explicit operating treasury, potentially funded by allocated owner proceeds or capital. |
 | Slop Ninja RPC service access | No service charge | Provided by `rtao-rpc`; chain transaction fees and our own runtime costs remain separately budgeted. |
 | Payment processing, conversion/burn fees, service refunds, and uncovered disputes | Slop Ninja | Operating treasury and funded reserves; provider-covered onramp fraud/disputes follow its contract. No deduction from the inference principal. |
 | Customer-authorized external detector check | Slop Ninja's provider account | Separate disclosed customer pass-through budget and disclosure authorization. |
@@ -3000,13 +3020,13 @@ research context, with its dated populations and limitations:
 | Copy policy, October 30, 2026 | On 2,000 random 40/40/20 batches at six sizes, no independent pair came within `d = 0.025` (closest 0.034 at 1,024 documents; launch-recipe seeds ≥ 0.059). Recalibrated copies sit at distance 0. The cheapest escape (rank-space noise after the best recalibration), pooled over the implementer's and a verifier's 128 realizations each, costs about 3.5e-4 to 4.8e-4 (0.07–0.10 band) at 1k and about 4.7e-4 (a fifth of a band) at 4k with the probe. 50/50 output averages of two published seeds score 0.19–0.29 band above `R_0`; such averages need two graphs and cannot be submitted. Weight soups, and the credit of copies degraded beyond the cheapest escape, were not measured. Native and wasm32 golden reports reproduce byte for byte. |
 | Common Crawl human pilot, October 30, 2026 | [Pilot](../grammar/crates/grammar-cc-human/README.md): 178 WET files (24.45 GB, 8,245,186 records), no digest or parse errors, 416,492 excerpts admitted (17,031 per GB, median 204 words), 5.53 valid passages per page. `R_0` flags 3.13% [2.68, 3.65] of 4,954 sampled documents at its CAL 1% point (2.20% pool-weighted, against 1.31% of Test humans), with no crawl-year trend (z = 0.19); fiction 11.6% in every year. Of 45 flagged documents reviewed, 38 read as human and none as GPT-2/3-era prose; Pangram labelled all 302 observed human. An era probe separates 2013–2016 from 2020–2022 text at AUC 0.688; `R_0` shows no era drift (AUC 0.496). Detector sensitivity to 2019–2022 machine text is unmeasured. |
 | Common Crawl stock qualification, October 31, 2026 | [Sampler follow-ups](../grammar/crates/grammar-cc-human/README.md): three fresh 450-document precision draws raised pooled usable precision (launch-share weighted) from 49% (rules v1) to 72% [64, 79] (rules v3; legal 62% to speech and email 84%; machine text 7 of 450). Mock CC cohort (400 human-only, 947 mixed, 480 model-only, local generators, cohort profile v1): era-only 2.9% [1.5, 5.04] and layout/typography 1.6% [0.3, 4.1] of headroom, both passing; diagnostics character-class 6.9%, probe AUC 0.714, mean word length 16.7%; headroom 0.112, σ 2.53 / 1.79 / 1.26% of headroom at 1k / 2k / 4k (δ 0.051 / 0.036 / 0.025). R0's mixed Brier rose from 0.089 to 0.143 on outputs that were only normalised. Twins: 698 twins against 525 frame excerpts show no R0 difference (AUC 0.464); honest-model offset τ̂ 0.0073 (systematic 0.0035), so a 10k-twin bank is being built. Red team: no masked-LM membership signal in two small CC-pretrained encoders; a linear head on R0's encoder recovers 8.5–14.7% of trained members at 0.1% FPR. |
-| Testnet weight commitments, October 30, 2026 | On subnet 601 the native validator made real CRv4 commitments in epochs 7–11 and 14 under a coordinator-signed fixture package (testnet-only reward rule), each re-commitment under its own per-tempo identity; on-chain weights equalled the row after every reveal. Crash, kill-after-ack, 429, endpoint-failover and era-expiry drills all recovered from the journal without a duplicate commitment (7 operations, 7 attempts, none unresolved), and an independent verification passed. |
+| Testnet weight commitments, October 30, 2026 | On subnet 601 the native validator made real CRv4 commitments in epochs 7–11 and 14 under a coordinator-signed fixture package (testnet-only reward rule), each re-commitment under its own per-tempo identity; on-chain weights equalled the row after every reveal. Crash, kill-after-ack, 429, endpoint-failover and era-expiry drills all recovered from the journal without a duplicate commitment. The journal ended with 7 operations, none unresolved: 6 committed, holding 7 signed attempts (6 finalized; the withheld epoch-12 attempt expired unexecuted and the same operation was re-signed in epoch 14), and a pending epoch-15 re-commitment not yet signed. An independent verification passed. |
 | `reward-v1` testnet rehearsal, October 31 to November 1, 2026 | [Runbook](../subnet/coordinator/TESTNET.md#reward-v1-rehearsal-2026-10-31-to-2026-11-01): K = 4, n = 1,000 at 20/55/25, `sigma` 0.035 (`delta` 0.07), probe v1 (1,024 documents), reuse limits `max_uses` 4 and `min_gap` 7, provisional gates, exposed pools only. Reference: `R_0` with its calibration flattened halfway to 0.5 (rank-preserving), so `R_0` could beat it; entrants were copies and variants of `R_0`. A reference-only cohort gave no target (launch burn row stayed); a seven-entrant cohort gave `Margin` with `R_0` the only head above the cutoff, blocked by a canary drill flagged twice (no promotion, whole row to its cluster); two later cohorts gave no target and carried it. Exact copies were never executed; recalibrated copies and a soup within `d` failed on the batch or probe; a noisy variant clearing the batch failed on the probe. An offline verifier and the native validator verified the packages (14,344 receipts for the seven-entrant cohort) and reproduced every reported row digest. The coordinator committed the launch row at eight epochs and the target from activation; the native validator committed the target from activation and under a carrying package; every reveal matched. Limits: no live two-UID row (max-upscaled form, promotion, fallback and canary re-audits tested only); no M2-style fault drills under `reward-v1`. |
 | Earlier shared A and bounded final-block adaptation, October 26, 2026 | The [636-query frozen Test](a-encoder-adaptation.md) improved balanced Brier over the matched frozen encoder, with tradeoffs against the then-previous A; Pangram led on that Test. These results predate the baseline release candidate. |
-| CFG inputs | CFG-only failed its first real-data test ([viability](cfg-vector-viability.md)) and text+CFG fusion gave a small, uncertain gain ([fusion](a-v6-cfg-fusion.md)); the launch input contract is raw text. |
+| CFG inputs for *A* | CFG-only failed its first real-data test ([viability](cfg-vector-viability.md)) and text+CFG fusion gave a small, uncertain gain ([fusion](a-v6-cfg-fusion.md)); the launch input contract is raw text; the grammar continues as a later *B* input. |
 | Writer profiles, October 31, 2026 | [Frozen comparison](cfg-vs-encoder-results.md) on 630 evaluation and 474 training writers neither system had seen, unlearned cosine profiles, five references: verification AUC CFG 0.743, R0 encoder 0.778, stylometry (203 function words, 2,000 character 3-grams) 0.828, encoder + stylometry 0.846; CFG − encoder −0.034 [−0.047, −0.022]; adding CFG to encoder + stylometry +0.0015 [+0.0004, +0.0025]. The best profile still passes 42% of impostors at 90% of genuine trials, and every profile is near chance on author fit (mean AUC 0.53–0.55). A learned matcher is untested. |
-| Earlier author retrieval and transfer | These used word/spaCy features, with topic and editorial confounds. They do not validate the new CFG representation or shared model. |
-| Native grammar coverage and retained selections | These establish parsing/cache behavior, not semantic correctness or detector quality. The current [80-document preparation](cfg-vector-viability.md#prepared-checkpoint) yielded 70 structural exports, with no fitted model. |
+| Earlier author retrieval and transfer | These used word/spaCy features, with topic and editorial confounds. They do not validate the native CFG representation or the shared *A* model. |
+| Native grammar coverage and retained selections (a later *B* input) | These establish parsing/cache behavior, not semantic correctness or detector quality. The current [80-document preparation](cfg-vector-viability.md#prepared-checkpoint) yielded 70 structural exports, with no fitted model. |
 | B proposers and protocol utilities | These remain research components and checks, not a demonstrated joint editing result, deployed registry, or settled customer service. |
 
 Keep the paper's [related-work comparison](../whitepaper/sections/related-work.tex)
@@ -3072,8 +3092,9 @@ The *A* launch prototype needs these checks:
 5. Run a coordinator-scored benchmark. The coordinator decides whether measured
    quality supports opening a bounded paid *A* pilot. Expand
    document sizes and capacity only after measured latency, quality, privacy,
-   and operating funds support the next workload class. *C* is deferred and
-   needs its acceptance and one-time credit rules before separate activation.
+   and operating funds support the next workload class. *C* is deferred with the
+   later *B* grammar work and needs its acceptance and one-time credit rules
+   before separate activation.
 
 Before live weights, rehearse the complete reserved evaluation workload against
 the chosen cadence. Verify the owner's enabled commit/reveal setting and parallel
@@ -3232,22 +3253,22 @@ Deferred requirements apply before their respective features activate.
 
 | Current paper section | Coverage |
 | --- | --- |
-| [Purpose](../whitepaper/sections/01-purpose.tex) | A-only launch, coordinator-controlled sales, document-level AI share/confidence, AI spans, and attribution; C, B, and explanations activate later. |
+| [Purpose](../whitepaper/sections/01-purpose.tex) | A-only launch, coordinator-controlled sales, document-level AI share/confidence, AI spans, and attribution; B, C, and explanations activate later; the grammar's role in later B editing and why A uses no CFG features. |
 | [Related work](../whitepaper/sections/related-work.tex) | Research and service comparisons with limits on novelty and performance claims. |
 | [Participants](../whitepaper/sections/02-participants.tex) | Rust miners and other validators using rtao; the lead validator is the serverless Workers coordinator. Free rtao-rpc access and its live block webhooks support its chain work. All validators derive canonical rows from signed scores; the coordinator's finalized certificate is later consistency evidence. |
-| [Models](../whitepaper/sections/03-models.tex) | Shared-encoder text A artifact, licences and reference-package publication, the shipped span head and its limits, the adopted S2c head, conditional attribution, encoder-plus-stylometry writer profiles awaiting a learned matcher, the raw-text input contract and CFG research, execution contracts, the artifact cap and object format, galleries, private submission, and clustering. |
+| [Models](../whitepaper/sections/03-models.tex) | Shared-encoder text A artifact, licences and reference-package publication, the shipped span head and its limits, the adopted S2c head, conditional attribution, encoder-plus-stylometry writer profiles awaiting a learned matcher, the raw-text input contract with the dated CFG evidence, execution contracts, the artifact cap and object format, galleries, private submission, and clustering. |
 | [Training data](../whitepaper/sections/04-training-data.tex) | Production and authorship records, controlled-rewrite share labels, permissions, source-family splits, retired-only reuse, and funded canary anchors. |
 | [Rewards](../whitepaper/sections/07-rewards.tex) | The cohort batch, reuse rule and rewrite ledger, the Common Crawl stock (domain rules, share caps, cohort generation profile, era gates), the testnet stock and its no-fresh-stock rule, lookup exposure and the canary, involvement Brier utility, the reference model, the testnet's one advance-announced replacement and the mainnet opening reference, `reward-v1` bands and the max-upscaled committed row, the public-copy gate and fingerprint probe, clusters, retained-head promotion and fallback cutoff, failure rules, burns, the open mainnet emission split, and optional C/paid-use allocations. |
 | [Cohorts](../whitepaper/sections/07b-cohorts.tex) | Daily 20-tempo cohorts, lagged payout with per-tempo re-commits, native abstention from all-burn rows, the launch and reward-intent authorizations with their current limits, durable active-target records, fan-out evaluation lanes, durable recovery, receipt retention, the runtime-version rule, automatic updates/migrations, and parallel validator commit/reveal with no coordinator finality or adoption barrier. |
 | [Confidentiality](../whitepaper/sections/05-confidentiality.tex) | Central A execution and proposed miner-owned Cloudflare B accounts; provider/operator trust, content isolation, private weights, and remaining logging tests. |
 | [Paid inference](../whitepaper/sections/06-paid-inference.tex) | Operator quotes, bounded asynchronous jobs, card/TAO/alpha burns, private delivery, operator receipts, payer assignments, and refunds. |
 | [Tokenomics](../whitepaper/sections/06a-tokenomics.tex) | Cost and price scenarios, burn hypothesis, emission allocation, liquidity, self-purchase incentives, and sensitivity graphs. |
-| [Grammar contributions](../whitepaper/sections/07c-grammar.tex) | Later one-time credit for accepted reusable CFG contributions, with correctness and overlap rules to qualify. |
-| [Later transformation](../whitepaper/sections/07a-adjudication.tex) | Author fit, preservation/readability/tone, nonregression, exact-byte evidence, and service obligations; B authority and settlement remain undecided. |
+| [Later transformation](../whitepaper/sections/07a-adjudication.tex) | The CFG as B's edit representation, author fit, preservation/readability/tone, nonregression, exact-byte evidence, and service obligations; B authority and settlement remain undecided. |
+| [Grammar contributions](../whitepaper/sections/07c-grammar.tex) | Later one-time credit for accepted reusable contributions to the grammar used by later B, with correctness and overlap rules to qualify. |
 | [External comparisons](../whitepaper/sections/08-pangram-audits.tex) | Independent labels, continuing Pangram comparison, anchor replacement, exact report identity, funded observations, and scoped disclosure. |
 | [Trust](../whitepaper/sections/09-trust.tex) | Coordinator honesty, hidden-label curation, model isolation, provider trust, native-consensus limits, and validator refusal. |
 | [Existing evidence](../whitepaper/sections/10-evidence.tex) | The baseline release candidate and its span head, the adopted S2c head, its sealed Test against Pangram, Container serving, cohort sizing, the cohort mix and context bleed, copy-policy measurements, the public stock, the Common Crawl pilot and stock qualification, the writer-profile comparison, testnet weight commitments, the `reward-v1` testnet rehearsal, and implementation status at the rtao `b5553a76` pin, with their populations and limitations kept separate from launch qualification. |
-| [Launch criteria](../whitepaper/sections/11-launch.tex) | A quality, recovery and chain rehearsals, funded commercial activation, and separate later C/B qualification. |
+| [Launch criteria](../whitepaper/sections/11-launch.tex) | A quality, recovery and chain rehearsals, funded commercial activation, and separate later B/C qualification. |
 | [Appendix: earlier checkpoints](../whitepaper/sections/12-earlier-checkpoints.tex) | Dated research checkpoints that precede `R_0` and gate nothing at launch: the origin detector baseline, grammar and CFG-vector results, V6 and its adaptation, and earlier author experiments. |
 
 The launch sequence, commercial activation authority, the raw-text *A* input
@@ -3260,12 +3281,12 @@ table v5, cohort profile v1 and gate definitions v2), the writer-profile basis,
 the licences and reference-package publication, the testnet reference with its
 one advance-announced replacement, the mainnet opening reference, and the testnet rule that
 cohorts without a working outside entrant reuse exposed documents instead of
-drawing fresh stock. Whitepaper draft 0.59 incorporates the proposal with the following choices marked open; each must be
+drawing fresh stock. Whitepaper draft 0.60 incorporates the proposal with the following choices marked open; each must be
 settled before the corresponding feature goes live:
 
 1. *A*'s supported numerical architectures, identity policy, profile pooling,
-   the detailed enrollment policy for permitted public/licensed references, and
-   any later CFG input profile. Gate thresholds for share, attribution, spans
+   and the detailed enrollment policy for permitted public/licensed references.
+   Gate thresholds for share, attribution, spans
    and both pure-human false-positive tiers, fixed after measurement as floors
    against unusable outputs rather than improvement targets, with `R_0`'s
    measured share error (15.5 points) and attribution top-1 (0.35) among that
@@ -3295,8 +3316,9 @@ settled before the corresponding feature goes live:
    semantics remain frozen across operational upgrades, and no runtime version
    gates anything. Calibrate numbers on development evidence rather than
    final-test results.
-3. *C*'s later activation, contribution and correctness contract, overlap
-   attribution, award size, settlement/weight-expiry rule, and `c`.
+3. *C*'s later activation with *B*'s grammar use, and its contribution and
+   correctness contract, overlap attribution, award size, settlement/weight-expiry
+   rule, and `c`.
    Launch has `c = 0`; one-time credit is fixed. Optional A paid-use credit still
    needs `f`, model attribution, ensemble treatment, a reward/burn cap, and
    unused-pool handling. The mainnet owner/validator/miner emission split is not
@@ -3315,5 +3337,7 @@ settled before the corresponding feature goes live:
    exact settlement latency and original-payment refunds need qualification.
 5. Before later *B*: model/base qualification, content-privacy controls, panel
    ranking, report selection, benchmark/service/incident authority, native
-   mechanism remapping, and measured workload/review capacity. These choices
+   mechanism remapping, measured workload/review capacity, and the qualified
+   grammar representation for *B*'s edit units and writer-style guidance, its
+   parse/resolution cost on the workload, and the grammar version policy. These choices
    must be settled together before bringing B's reward and service duties live.

@@ -46,10 +46,10 @@ reference cost and multiplier:
   C_{\mathrm{total}} = C_{\mathrm{model}} + C_{\mathrm{other}}.
 \]
 Here \(C_{\mathrm{model}}\) is the expected cost of all model invocations per
-delivered job: execution of the \textit{A} artifact and, for later revision or a
-later CFG input profile, ambiguity resolution, proposal, ranking, and required
+delivered job: execution of the \textit{A} artifact and, for later \textit{B}
+revision, ambiguity resolution of its parse, proposal, ranking, and required
 semantic checks.
-\(C_{\mathrm{other}}\) includes non-model parsing, orchestration, storage,
+\(C_{\mathrm{other}}\) includes \textit{B}'s non-model parsing, orchestration, storage,
 delivery, payment and chain fees, and expected refund overhead. Numeric-model
 runtime is counted once. Training and mandatory benchmark research have
 separate budgets.
@@ -79,7 +79,7 @@ Bounded revision & \$0.008289 & \$0.0106--\$0.0112 & \$0.2072 \\
 \end{tabularx}
 \end{center}
 
-A launch detection job tokenizes the canonical text and runs the raw-text
+An \textit{A} detection job tokenizes the canonical text and runs the raw-text
 \textit{A} artifact (Section~\ref{input-contract}); it has no grammar parse and
 no language-model call. Its model cost is the October 29, 2026 Container
 busy-time measurement, \$0.23--\$0.34 per 1,000 documents at the 2,048-token
@@ -207,11 +207,12 @@ reservation. Cross-ledger operations must reconcile before execution.
 before acceptance. Construct the admitted input, canonical text under the
 launch profile, and run the selected \textit{A} artifact. Check complete input
 coverage, schema validity, probabilities, share/confidence consistency, and
-attribution. An input beyond the artifact's length limit, or under a later CFG
-profile an unresolved parse or exhausted ambiguity budget, produces an explicit
-failure or a separately quoted diagnostic result.
-\item For later \textit{B}, execute the bounded proposal and ranking procedure
-and check the assembled document for preservation, readability, requested
+attribution. An input beyond the artifact's length limit produces an explicit
+unsupported-length failure.
+\item For later \textit{B}, parse the source under the frozen grammar; an
+unresolved parse or exhausted ambiguity budget produces an explicit failure or
+a separately quoted diagnostic result. Then execute the bounded proposal and
+ranking procedure and check the assembled document for preservation, readability, requested
 tone, and any qualified author-fit objective. Local edit acceptance does not
 establish whole-document success. Customer-requested Pangram checks require
 separate disclosure authorization and funding.

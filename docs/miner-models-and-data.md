@@ -2,8 +2,8 @@
 
 The [whitepaper](../whitepaper/slop_ninja.pdf) and the
 [Cloudflare design](cloudflare-subnet-draft.md) define the current proposal.
-Launch includes *A* alone. *C* grammar contributions and *B* transformation
-require separate activation decisions. This guide describes model and data
+Launch includes *A* alone. *B* transformation and the *C* grammar contributions
+that support it require separate activation decisions. This guide describes model and data
 boundaries; the paper owns reward policy. To take part on testnet subnet 601,
 start with the [testnet miner guide](testnet/miner-guide.md).
 
@@ -54,32 +54,36 @@ calibration, and qualified execution profile. The
 requirements. An accurate origin classifier alone does not qualify the shared
 model's other outputs.
 
-## Input contract and parsed-vector research
+## Input contract
 
-The launch input contract is raw text: an artifact is an ONNX graph with a fixed
+The *A* input contract is raw text: an artifact is an ONNX graph with a fixed
 tokenizer, heads, and calibration, and cohorts feed it canonical text. Beyond
 its declared parameters it carries only the tokenizer, calibration, and contract
-files; an embedded text index or lookup table fails admission. A model
-that learns from CFG-derived word and grammar vectors remains a research
-hypothesis. Its first real-data test failed, and adding CFG to text gave only a
-small, uncertain gain ([viability](cfg-vector-viability.md),
-[fusion](a-v6-cfg-fusion.md)). Parsing coverage, ambiguity resolution, and
-trained predictive performance are separate measurements.
+files; an embedded text index or lookup table fails admission. *A* uses no
+CFG-derived inputs: a CFG-only model failed its first real-data test, and adding
+CFG to text gave only a small, uncertain gain ([viability](cfg-vector-viability.md),
+[fusion](a-v6-cfg-fusion.md)). The v2 artifact contract still lists a block of
+1,820 CFG coordinates; it is pinned at zero and carries no input
+([artifact spec](testnet/artifact-spec.md)). The native grammar is a later *B*
+input for edit units and revision guidance. Any change to *A*'s input contract
+needs a new paired comparison against raw-text models before admission.
 
-Freeze tokenization, parsing, resolution, feature meanings, and reference
-pooling with each experiment. Fit vocabularies and learned transformations on
-training data. Keep unsupported inputs visible; neither a partial parse nor a
-zero-vector substitute establishes document coverage. A later CFG input
-profile would begin a new comparison.
+Freeze tokenization, feature meanings, and reference pooling with each
+experiment. Fit vocabularies and learned transformations on training data. Keep
+unsupported inputs visible; a zero-vector substitute does not establish
+document coverage.
 
 The main intended human-attribution workflow lets customers provide independent
-samples of their own writing. Trusted preprocessing parses and projects each
-sample into a compatible CFG vector. The proposed starting profile is a
-normalized weighted mean characterizing that writer. Qualify and freeze pooling,
-per-work weights, masks, grammar/schema, and projection; measure length, topic,
-and register sensitivity and information lost when varied works are averaged.
-The learned model receives the profile vector rather than raw reference prose.
-The upstream parser still reads those references.
+samples of their own writing. Trusted preprocessing represents each sample by
+the *A* encoder's output and stylometric features (function-word frequencies and
+character n-grams). The proposed starting profile is a normalized weighted mean
+characterizing that writer. Qualify and freeze pooling, per-work weights, masks,
+feature definitions, and encoder version; measure length, topic, and register
+sensitivity and information lost when varied works are averaged. CFG writer
+vectors scored below the encoder and added little to encoder plus stylometry
+([writer-profile comparison](cfg-vs-encoder-results.md)), so they are not a
+profile channel. The learned matcher receives the profile rather than raw
+reference prose. Trusted preprocessing still reads those references.
 
 A qualifying named match to this private profile is `provided_writer`, displayed
 as "Provided writer". It is scoped to the job or customer and follows the same
@@ -99,7 +103,7 @@ would run in Slop Ninja's runtime, with private adapters served through direct
 Workers AI requests to miners' Cloudflare accounts. Its scoring authority,
 semantic review, privacy qualification, and emissions remain activation work.
 For the intended personal-voice workflow, *B* iteratively proposes and ranks edits
-using continuous author-fit feedback from *A* against the fixed writer vector.
+using continuous author-fit feedback from *A* against the fixed writer profile.
 The categorical match alone cannot rank improvements. Freeze the profile,
 evaluator, and calibration throughout the job. Editing still requires the source
 prose; trusted preprocessing sees the references, and serving miners receive
@@ -108,7 +112,9 @@ readability, or tone verdict and cannot change the work's production history.
 The existing [style utility contract](reward-adjudication.md) records candidate
 research formulas without defining a live service.
 
-*C* would credit accepted reusable grammar contributions once. Contributions
+*B*'s pipeline is planned to use the native grammar to type word, phrase, and
+clause edits and to reparse candidates against their source. *C* would credit
+accepted reusable contributions to that grammar once. Contributions
 must improve the shared parser without hard-coding a document's text. The
 [mechanism policy](../whitepaper/sections/07c-grammar.tex) governs prospective
 credit; development campaign admission alone creates no emission entitlement.
@@ -124,10 +130,11 @@ The [author-projection experiment](author-projection.md) compared
 `3557 -> 128` and `3557 -> 256 -> 128` models with the full word/grammar metric.
 Neither replaced that reference. The
 [Global Voices transfer evaluation](global-voices-transfer.md) also found that
-frozen grammar contributions could reduce accuracy on a new source. These
-results motivate comparisons across sources, including word-only,
-grammar-only, and combined inputs. They do not establish that the native CFG
-vector is ready for production.
+frozen grammar contributions could reduce accuracy on a new source. For later
+*B* author-fit research, these results motivate comparisons across sources,
+including word-only, grammar-only, and combined inputs. They do not establish
+that the native CFG vector is ready for production, and they do not apply to
+*A*, which reads raw text.
 
 Raw-text decoder baselines remain useful for authorized revision research.
 Record the checkpoint, tokenizer, license, runtime, decoding settings, and cost

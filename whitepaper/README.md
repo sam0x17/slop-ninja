@@ -1,6 +1,6 @@
 # Whitepaper
 
-[Draft 0.59](slop_ninja.pdf), November 1, 2026, describes a subnet whose main
+[Draft 0.60](slop_ninja.pdf), November 2, 2026, describes a subnet whose main
 objective is B: transforming authorized writing toward the author's intended
 voice while preserving meaning, readability, and tone. A supplies supporting
 detection and attribution signals for that editing process and launches first.
@@ -31,9 +31,10 @@ geometric band mechanism, with no credit for copies of published artifacts,
 equal splits inside near-duplicate clusters, a fallback cutoff against the
 previous reference, and burns for unallocated credit. Private writer profiles
 for later attribution and B author-fit feedback use A's encoder plus
-stylometric features and await a learned matcher. C grammar contributions and
-B transformation activate separately, and the mainnet emission split is left
-open.
+stylometric features and await a learned matcher. A uses no CFG features; the
+shared English grammar is kept as a later B input for edit units and revision
+guidance. B transformation and the C grammar contributions that support it
+activate separately, and the mainnet emission split is left open.
 
 The current evidence is dated. On an October 30 sealed, pre-registered Test, the
 A baseline release candidate was noninferior to Pangram 4.1: balanced Brier 0.0518 against
@@ -47,8 +48,9 @@ about 40% of AI-written characters in held-out spliced rewrites, mostly missing
 clause and single-sentence edits. A head with an added four-layer encoder
 tower, adopted for the first package that serves spans, finds about 53%, at
 18–20% more encoder time, but puts spans on more consumed-Test humans. CFG-only inputs failed their first real-data
-test, so the launch input contract is raw text, and CFG writer vectors scored
-below the encoder on writer verification. A Common Crawl pilot found a 3.1%
+test, and CFG writer vectors scored below the encoder on writer verification and
+added little to encoder plus stylometry, so A uses no CFG features and the
+grammar continues as later B work. A Common Crawl pilot found a 3.1%
 detector flag rate with no trend across crawl years; its follow-ups reached 72%
 usable domain precision and passed both era gates on their point estimates.
 A native validator committed, re-committed and recovered weight commitments on
@@ -83,7 +85,7 @@ The authoritative source is [main.tex](main.tex), with editable LaTeX files in
 an editable SVG diagram and PGFPlots graph sources in [figures/](figures/). The
 source and rendered paper are design proposals. [The design notes](../docs/cloudflare-subnet-draft.md)
 provide more implementation detail for the coordinator-scored A-only pilot
-and the separately activated C and B mechanisms.
+and the separately activated B and C mechanisms.
 
 Run on the authorized compute host:
 
@@ -96,7 +98,7 @@ TeX Gyre Pagella/Heros and Latin Modern Mono fonts. It renders the SVG diagram
 and compiles the native LaTeX source, including the PGFPlots graphs. Build output
 stays in ignored `build/`. The PDF and PDF diagram are checked in.
 
-Draft 0.59 was built on build-host with `build.sh` inside a local Docker image
+Draft 0.60 was built on the authorized compute host with `build.sh` inside a local Docker image
 derived from `texlive/texlive:TL2025-historic`, pinned by digest
 `sha256:7056390eac37715fd3e01875037ceb4016cb17d44c611f7bbbfa7a012007979f`,
 with Debian's `librsvg2-bin` 2.63.3 added and the XeLaTeX format prebuilt. The

@@ -1,7 +1,11 @@
-\section{Later mechanism C: grammar contributions}\label{grammar-contributions}
+\section{Later mechanism C: grammar contributions for B}\label{grammar-contributions}
 
-\textit{C} would reward improvements to the shared English CFG and lexicon.
-It starts inactive. Its objective is correct, reusable analysis of English as
+\textit{C} would reward improvements to the shared English CFG and lexicon that
+later \textit{B} uses for edit units and revision guidance
+(Section~\ref{later-b}); \textit{A} does not use the grammar. \textit{C} starts
+inactive and activates by its own decision, which may precede \textit{B}'s so
+the grammar grows before \textit{B} uses it. Its objective is correct, reusable
+analysis of English as
 used, including informal constructions, unusual vocabulary, spelling errors,
 and embedded technical or foreign material. It must not equate prescriptive
 correctness with parseability or reward broad catch-all rules merely for
@@ -25,10 +29,9 @@ documents before any repair. Freeze resource limits so a gain cannot come solely
 from lifting a ceiling. Rule count, added bytes, dictionary size, and grammar
 size are not reward scores.
 
-Accepted changes enter a subsequent shared profile. The launch \textit{A}
-comparison reads raw text and does not depend on it; any comparison that uses a
-CFG input profile continues with its frozen grammar, projection, and selected
-derivations.
+Accepted changes enter a subsequent shared grammar profile for \textit{B}.
+\textit{A} reads raw text and does not depend on it; a \textit{B} comparison
+continues with its frozen grammar, projection, and selected derivations.
 Compact cached parses and production dependencies reduce repeated work, but
 new productions can affect documents outside the old dependency set. The
 acceptance protocol therefore needs both targeted replay and broader change
@@ -46,6 +49,6 @@ assigning a nonzero \(c\) in Equation~\ref{eq:mechanism-allocation}.
 
 The project already develops its grammar as research infrastructure. That work
 does not establish a live \textit{C} protocol, and a \textit{C} award would not
-itself establish improved detection. The downstream model comparison must test
-whether a new shared representation improves quality enough to justify its
+itself establish improved transformation. \textit{B}'s frozen comparison must
+test whether a grammar change improves edit quality enough to justify its
 parsing and resolution cost.

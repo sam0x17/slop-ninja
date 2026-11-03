@@ -327,7 +327,7 @@ flowchart LR
   receipts in the Worker or Durable Object.** The heads consume one pooled
   768-dimensional vector per document (3 KB at f32), which plain Wasm f32
   computes identically on every host. This keeps calibration versioned with *A*
-  rather than inside an image, keeps a customer's private writer vector inside
+  rather than inside an image, keeps a customer's private writer profile inside
   Cloudflare, and makes the CPU fallback differ only in the encoder vector. If a
   later share head reads token states, the payload grows to about 3 MB per
   2,048 tokens and the whole model may be better placed on the GPU.

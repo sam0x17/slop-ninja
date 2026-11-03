@@ -32,9 +32,12 @@ when they serve the brief without losing information or increasing certainty.
 
 For the main intended customer workflow, the target is the private writer
 profile built from the user's samples (Section~\ref{author-and-origin-detection}).
-The proposed pipeline generates typed word, phrase, and clause edits, reparses
-candidates under the shared grammar, and uses \textit{A}'s continuous
-author-fit signal against that profile to rank successive revisions. The
+The shared English CFG is the proposed pipeline's edit representation: it
+divides the source into word, phrase, and clause units, types each proposed
+edit, and reparses candidates so a revision can be compared with its source.
+\textit{A}'s continuous author-fit signal against that profile ranks successive
+revisions; grammar-level writer-style features are a candidate further input to
+that guidance, qualified on their own evidence. The
 categorical \emph{Provided writer} match alone is too coarse to guide this
 search. No representation tested so far supplies that signal: rewrites toward a
 target writer scored near chance against rewrites toward other writers for

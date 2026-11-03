@@ -1,6 +1,6 @@
 # Style utility and semantic review
 
-Whitepaper draft 0.48 proposes these candidate formulas for the
+[Whitepaper draft 0.60](../whitepaper/slop_ninja.pdf) proposes these candidate formulas for the
 [later B mechanism](../whitepaper/sections/07a-adjudication.tex). They are a
 research contract; *B* is deferred, and its scoring authority, review process,
 and activation remain open. Launch *A* scoring follows the separate
@@ -21,17 +21,26 @@ meanings, pooling, parameters, runtime, arithmetic, and resource limits.
 Calibration uses development queries and independent same-author reference
 works, separated from fitting and evaluation. Preserve repeated distances.
 
-For the intended personal-voice service, trusted preprocessing converts the
-customer's independent writing samples to a representative CFG writer vector.
-A normalized weighted mean is the starting proposal, subject to qualification
-of pooling, per-work weights, masks, and grammar/schema/projection compatibility.
-The learned author-fit scorer consumes that vector instead of raw references;
+For the intended personal-voice service, the target is the private writer
+profile that *A* uses: trusted preprocessing represents each of the customer's
+independent writing samples by the *A* encoder's output and stylometric features
+(function-word frequencies and character n-grams), then pools them under a
+qualified, versioned pooling contract. A normalized weighted mean is the
+starting proposal; the contract fixes feature scaling, per-work weights,
+missing-channel handling, and the encoder, feature, and pooling versions. The
+learned author-fit scorer consumes that profile instead of raw references;
 editing still needs the source prose, and preprocessing still reads the samples.
-Freeze the vector and its reference bindings for the comparison. Keep both
+Grammar-level writer-style features from the native CFG are a candidate further
+*B* input that needs its own qualification: CFG writer vectors scored below the
+encoder on verification and, like every profile tested, near chance on author
+fit ([writer-profile comparison](cfg-vs-encoder-results.md)). Freeze the profile
+and its reference bindings for the comparison. Keep the samples and profile
 private under the job or customer scope, with no disclosure to serving miners.
 
 *B* uses continuous *A* author-fit feedback to rank iterative revisions toward
-that writer. *A*'s `provided_writer` named match, displayed as "Provided writer",
+that writer. No profile type qualifies to supply it yet; the feedback waits for
+a learned matcher trained on fresh authors and for rewrites conditioned on
+several of a writer's own samples. *A*'s `provided_writer` named match, displayed as "Provided writer",
 is a categorical result under the normal match rule; it cannot measure each
 incremental improvement or authenticate a real-world identity. A qualified
 mapping from *A*'s continuous fit signal to `d_theta` may supply this evaluator.

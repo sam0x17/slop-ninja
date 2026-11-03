@@ -1,10 +1,11 @@
 # Public-model evaluation
 
-Whitepaper draft 0.48 and the [Cloudflare design](cloudflare-subnet-draft.md)
-define the current proposal. Launch admits public *A* artifacts and uses
-coordinator-led hidden evaluation. Every validator independently derives the
-weight row from signed per-miner scores and commits through native commit/reveal.
-*B* activates separately. This guide summarizes evaluation policy; the
+[Whitepaper draft 0.60](../whitepaper/slop_ninja.pdf) and the
+[Cloudflare design](cloudflare-subnet-draft.md) define the current proposal.
+Launch admits public *A* artifacts and uses coordinator-led hidden evaluation.
+Every validator independently derives the weight row from signed per-miner
+scores and commits through native commit/reveal. *B* and *C* activate
+separately. This guide summarizes evaluation policy; the
 production runner still requires implementation and qualification.
 
 ## What publication provides
@@ -44,12 +45,15 @@ of collusion or memorized examples.
 
 One shared learned encoder supports origin, AI-share, and attribution outputs.
 The [model contract](../whitepaper/sections/03-models.tex) fixes their meanings
-and qualification. A weight file alone is insufficient. The complete artifact
-binds preprocessing, feature meanings, reference pooling, calibration, numerical
-precision and tolerances, dependencies, allowed operators, resource limits,
-and reference outputs. Under the proposed CFG-only profile, it also binds the
-parser, grammar, resolution policy, and projection. That input restriction
-still depends on the [viability experiment](cfg-vector-viability.md).
+and qualification. A weight file alone is insufficient. An *A* artifact is a
+raw-text model: an ONNX graph, a fixed tokenizer that must match the
+allow-listed one byte for byte, the output heads, and their calibration. Its
+execution manifest binds the canonical text profile, feature meanings, reference
+pooling, calibration, numerical precision and tolerances, dependencies, allowed
+operators, resource limits, and reference outputs. *A* uses no CFG-derived
+inputs; the dated [viability experiment](cfg-vector-viability.md) and
+[text/CFG fusion](a-v6-cfg-fusion.md) results record why. The native grammar is
+a later *B* input.
 
 One shared learned encoding interface is required; useful feature sharing and
 its benefit remain hypotheses.
@@ -58,15 +62,22 @@ does not show whether heads use common useful features. Adverse results inform
 an explicit design revision rather than an entrant-specific exception.
 
 The main intended human profile comes from a customer's independent writing
-samples. Trusted preprocessing projects compatible CFG vectors and constructs a
-representative writer vector for the learned model. A normalized weighted mean
-is the proposed starting point, with versioned pooling, per-work weights, masks,
-and grammar/schema/projection bindings. Test sample length, topic, register, and
-variation lost in averaging. The named `provided_writer` result ("Provided
+samples. Trusted preprocessing represents each sample by the *A* encoder's
+output and stylometric features (function-word frequencies and character
+n-grams) and pools them into one private writer profile under a qualified,
+versioned pooling contract. A normalized weighted mean is the proposed starting
+point; the contract fixes feature scaling, per-work weights, missing-channel
+handling, and the encoder, feature, and pooling versions. Test sample length,
+topic, register, and variation lost in averaging. CFG writer vectors scored
+below the encoder and are not a profile channel
+([writer-profile comparison](cfg-vs-encoder-results.md)). No profile type
+qualifies yet: a learned matcher trained on fresh authors, with thresholds
+measured on withheld writers and real style-transfer data, must pass before
+`provided_writer` is offered. The named `provided_writer` result ("Provided
 writer") follows the ordinary match rule and leaves `other_human` available when
 no human profile qualifies. It identifies a supplied profile, not a verified
 person. AI share/confidence and both role probabilities remain separate outputs.
-Keep these references and vectors private to their job or customer; publication
+Keep these references and profiles private to their job or customer; publication
 of *A* does not publish customer profiles. Secondary human galleries may use
 documented public/licensed references under a provenance and permitted-use policy.
 
@@ -127,11 +138,11 @@ scores cannot certify preservation or author fit. The
 candidate objectives and remaining activation choices without requiring TEE
 execution evidence.
 
-For personal-voice editing, *B* uses the same fixed writer vector and continuous
+For personal-voice editing, *B* uses the same fixed writer profile and continuous
 *A* author-fit signal to rank successive revisions. Freeze the evaluator,
 profile, and calibration for each comparison. Qualify any mapping to the public
 style distance; its calibrated rank is not an authorship probability. Test
 adaptive metric gaming against independent author-fit judgments and separate
 preservation, readability, and tone review. The learned scorer receives the
-reference vector; trusted preprocessing sees the samples and the editing
+profile; trusted preprocessing sees the samples and the editing
 pipeline still needs the source prose. None is disclosed to serving miners.

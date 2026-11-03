@@ -29,7 +29,7 @@ confidence (Section~\ref{span-outputs}). The release package pairs the first
 reference, a document model, with a span head, but the scoring runtime does not
 run span heads yet, so cohort scoring at launch and the first paid service are
 document-level. Explanations
-tied to particular words or grammar choices are later extensions.
+tied to particular words or constructions are later extensions.
 
 Human writers have recurring habits of expression. Language models can also
 exhibit characteristic choices in vocabulary, syntax, rhythm, and document
@@ -40,10 +40,11 @@ whether AI was involved. Signatures can overlap and change with prompts or
 editing; they are statistical evidence, not unique identifiers. Their value
 for AI detection must be measured on unseen writers, generators, and workflows.
 
-The launch detector learns these signatures from raw text. A shared English
-grammar remains a candidate representation for them and, later, for controlled
-editing. Detector evaluation can begin before transformation, private serving,
-or grammar incentives are ready.
+\textit{A} learns these signatures from raw text and uses no grammar features.
+A shared English grammar is planned as a later input for \textit{B}, where it
+locates typed word, phrase, and clause edits and guides revision. Detector
+evaluation can begin before transformation, private serving, or grammar
+incentives are ready.
 
 The three logical mechanisms have distinct jobs:
 \begin{itemize}\tightlist
@@ -52,12 +53,13 @@ involvement from production origin, matches human or AI-model profiles, and,
 once span outputs are qualified, locates AI spans. Entrant models are
 published, licensed CC BY-SA 4.0, after each daily evaluation cohort.
 Launch includes \textit{A} alone.
-\item \textit{C}, grammar improvement: accepted reusable lexical and structural
-contributions earn credit once, after a separate acceptance and reward protocol
-is qualified.
 \item \textit{B}, authorized transformation: a private model proposes revisions
 that improve fit to a writer's brief and reduce detector scores while preserving
 meaning, readability, and intended tone. It activates separately.
+\item \textit{C}, grammar improvement for \textit{B}: accepted reusable lexical
+and structural contributions to the grammar that \textit{B} uses for edits earn
+credit once, after a separate acceptance and reward protocol is qualified. It
+activates by its own decision, possibly before \textit{B}.
 \end{itemize}
 These names describe workstreams, not three available native chain mechanisms.
 The launch uses one native mechanism; later allocation must fit the chain's
@@ -76,7 +78,7 @@ never a default human label.
 The launch evaluates English complete documents within declared length and
 resource bounds. Span outputs rely on retained exact span labels; multilingual
 detection and manuscript-scale support each require suitable data and
-measurements. Parsing an embedded
+measurements. Handling an embedded
 foreign phrase, equation, or code block does not establish detection quality
 for that language or content type. Predictions must retain uncertainty,
 calibration context, and the limitations of the measured population.
@@ -85,27 +87,27 @@ We use \emph{slop} for defects in prose: vague or formulaic phrasing, needless
 repetition, filler, and other patterns that weaken the piece. This is an
 editorial definition, separate from production origin. Informal language,
 unusual grammar, or a writer's recurring verbal habit may be appropriate to a
-brief. The grammar aims to describe English as used, including errors and
-nonstandard forms, rather than enforce a prescriptive ideal.
+brief. The shared grammar planned for \textit{B}'s edits likewise describes
+English as used, including errors and nonstandard forms, rather than enforcing
+a prescriptive ideal.
 
-\subsection{The representation hypothesis}
+\subsection{The grammar's role in later editing}\label{grammar-role}
 
-A resolved parse can expose lexical choices, grammatical relations, and
-document structure in a reusable representation. If such features supported
-strong detection and attribution, the same representation could make later
-editing decisions easier to locate and inspect. That remains a hypothesis.
-Parsing costs money and time, resolution can be wrong, and a restricted
-representation can discard predictive information. The first real-data test
-of a CFG-only detector failed, and adding CFG features to text gave only a
-small, uncertain gain. The launch input contract is therefore raw text
-(Section~\ref{input-contract}); CFG inputs stay a research direction with their
-own future comparison. A head-to-head test of writer profiles also found CFG
-writer vectors below \textit{A}'s encoder on writer verification, and simple
-stylometric features above both, so private writer profiles use the encoder and
-stylometric features, with CFG at most an optional fused input
-(Section~\ref{writer-profile-evidence}). The grammar remains shared
-infrastructure, and its other roles, typed editing for \textit{B}, contributions
-under \textit{C}, and later explanations, each rest on their own evidence.
+A resolved parse exposes lexical choices, grammatical relations, and document
+structure in a reusable representation. \textit{B} is planned to use the shared
+English grammar to divide a source into typed word, phrase, and clause edit
+units and to compare each revision with its source (Section~\ref{later-b}).
+\textit{A} does not use it. The first real-data test of a CFG-only detector
+failed, and adding CFG features to text gave only a small, uncertain gain, so
+\textit{A}'s input contract is raw text (Section~\ref{input-contract}). A
+head-to-head test of writer profiles found CFG writer vectors below
+\textit{A}'s encoder on writer verification, by \(-0.034\) in AUC, simple
+stylometric features above both, and only \(+0.0015\) from adding CFG to the
+encoder plus stylometry, so private writer profiles use the encoder and
+stylometric features (Section~\ref{writer-profile-evidence}). For \textit{B},
+parsing costs money and time, and resolution can be wrong. Whether grammar-typed edits help
+\textit{B}, whether \textit{C}'s contributions improve them, and any later
+explanations each need their own evidence.
 
 \subsection{Commercial thesis and users}\label{commercial-thesis}
 
@@ -114,7 +116,7 @@ researchers, and document workflows that need to assess AI involvement in
 writing, with origin probabilities and attribution as additional detail.
 \textit{A} artifacts become freely executable when their cohort ends. The paid API
 offers maintained attribution profiles, bounded execution of a qualified
-artifact, private delivery, and integration convenience. A launch detection job
+artifact, private delivery, and integration convenience. An \textit{A} detection job
 runs the raw-text model alone, with no grammar parse. Publishing a model does not establish
 that users will pay for hosting it; the commercial pilot must measure repeat
 use, willingness to pay, false-positive disputes, and delivery cost.

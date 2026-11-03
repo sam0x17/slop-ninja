@@ -1,9 +1,11 @@
 # Documentation
 
 This directory contains design notes, research contracts, and the evidence cited
-by [whitepaper draft 0.59](../whitepaper/slop_ninja.pdf), the canonical protocol
+by [whitepaper draft 0.60](../whitepaper/slop_ninja.pdf), the canonical protocol
 proposal. The paper adopts the [Cloudflare design](cloudflare-subnet-draft.md).
 Launch includes *A* alone; *B* and *C* require separate activation decisions.
+*A* reads raw text; the grammar (CFG) notes are grouped under later *B* work
+below.
 
 ## Subnet, privacy, and service operation
 
@@ -37,17 +39,11 @@ Launch includes *A* alone; *B* and *C* require separate activation decisions.
 - [Admission API (testnet)](testnet/admission-api.md)
 - [Service evidence and recovery](service-evidence.md)
 - [Receipts and external-detector evidence](subnet-receipts-and-audits.md)
+- [Executable receipt-envelope prototype and version-1 schema](receipt-envelope.md)
 - [Subnet testnet stack migration](testnet-stack-migration.md)
 
-## Research contracts and implementation
+## A research and implementation
 
-- [Executable receipt-envelope prototype and version-1 schema](receipt-envelope.md)
-- [Later B style utility and review contract](reward-adjudication.md)
-- [CFG-vector viability experiment](cfg-vector-viability.md)
-- [CFG writer vectors versus A encoder profiles: frozen protocol](cfg-vs-encoder-protocol.md)
-- [CFG writer vectors versus A encoder profiles: results](cfg-vs-encoder-results.md)
-- [CFG-versus-encoder commit aliases](cfg-vs-encoder-aliases.md)
-- [Frozen V6 features with a shared A head (text/CFG fusion)](a-v6-cfg-fusion.md)
 - [Restoring the stronger A reference](a-reference-comparison.md)
 - [Bounded encoder adaptation](a-encoder-adaptation.md)
 - [Shared A on fresh source families](a-balanced-baseline.md)
@@ -62,7 +58,7 @@ Launch includes *A* alone; *B* and *C* require separate activation decisions.
 - [Corpus design and collection](corpus.md)
 - [Consolidated corpus](a-consolidated-corpus.md)
 - [A corpus acquisition](a-corpus-acquisition.md)
-- [Reusable A data and CFG evidence](a-data-storage.md)
+- [Reusable A data and retained CFG parse evidence](a-data-storage.md)
 - [Author sources, 2026-10-26](a-baseline-author-sources-20261026.md)
 - [Published dataset storage](dataset-history-compression.md)
 - [Public datasets](public-datasets.md)
@@ -78,9 +74,25 @@ Launch includes *A* alone; *B* and *C* require separate activation decisions.
 - [V6 detector evidence](../baseline/detector/releases/v0.6.0/RESULTS.md)
 - [Pangram public-result verification](pangram-public-results.md)
 - [Pangram repeatability probe](pangram-repeatability.md)
-- [Author-projection evaluation](author-projection.md)
-- [Global Voices transfer evaluation](global-voices-transfer.md)
-- [Edit-utility evaluation](edit-utility-matrix.md)
 - [Pangram model-card notes](model-card-notes.md)
 - [Watermark provenance](watermark-provenance.md)
 - [Research notes](research-notes.md)
+
+## Later B transformation and grammar
+
+*B* and *C* activate separately after launch, each by its own decision. The
+native grammar (CFG) is a planned *B* input for edit units and revision
+guidance, and the target of *C*'s contributions. The dated CFG comparisons below
+are why *A* reads raw text; the writer-profile results also underpin *A*'s
+encoder-plus-stylometry profile.
+
+- [Later B style utility and review contract](reward-adjudication.md)
+- [Edit-utility evaluation](edit-utility-matrix.md)
+- [Native grammar workspace](../grammar/README.md)
+- [CFG writer vectors versus A encoder profiles: results](cfg-vs-encoder-results.md)
+- [CFG writer vectors versus A encoder profiles: frozen protocol](cfg-vs-encoder-protocol.md)
+- [CFG-versus-encoder commit aliases](cfg-vs-encoder-aliases.md)
+- [Frozen V6 features with a shared A head (text/CFG fusion)](a-v6-cfg-fusion.md)
+- [CFG-vector viability experiment](cfg-vector-viability.md)
+- [Author-projection evaluation](author-projection.md)
+- [Global Voices transfer evaluation](global-voices-transfer.md)

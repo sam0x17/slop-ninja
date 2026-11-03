@@ -103,8 +103,8 @@ RUN_WALL_BUDGET_MS = "60000"
 # changes, the publisher archives the previous record's index under
 # v1/records/<its first label>/, removes the live leaderboard and reference
 # pointers, and starts a fresh record (publish.rs, `start_record`).
-PUBLISH_FROM_EPOCH = "52"
-RECORD_LABEL_PREFIX = "testnet-rv1-"
+PUBLISH_FROM_EPOCH = "76"
+RECORD_LABEL_PREFIX = "testnet-r0-"
 # Set at deploy, not here:
 #   PRIVATE_DIGESTS       comma-separated content digests and artifact SHA-256s
 #                         of the references (the initial reference and its

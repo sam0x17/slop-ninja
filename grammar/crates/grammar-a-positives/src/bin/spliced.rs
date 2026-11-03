@@ -2178,8 +2178,10 @@ mod tests {
     const OFF_GOLDEN: &str = "4c0aa6753c72f489fc6cb34bc9de930b57f8377bb936550f23f5c4665c33446e";
     // Re-pinned at B24 for the layout id alone (layout_transfer_v4): with the
     // id set back to layout_transfer_v2 the earlier digest d95a7e6d... is
-    // reproduced.
-    const V2_N_FORM_GOLDEN: &str = "fbf9d7fbf35b56312eac8bedb88b3d83c24c6b525034a6ae8dbd7df8a1d5d759";
+    // reproduced. Re-pinned for amendment 38's build for the id alone
+    // (layout_transfer_v5): with it set back to layout_transfer_v4 the
+    // digest fbf9d7fb... is reproduced.
+    const V2_N_FORM_GOLDEN: &str = "6a60625a09daa4bb566a082a2041ebb35b293199d675814c8a11f4429ea1db89";
 
     #[test]
     fn spliced_finalize_profile_off_outputs_are_the_pre_twin_bytes() {

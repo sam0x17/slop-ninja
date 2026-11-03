@@ -606,7 +606,7 @@ fn profile_v2_id_window_and_every_class() {
     assert_eq!(Profile::DEFAULT, Profile::CohortV1);
     assert!(Profile::CohortV2.check_prior(None).is_err());
     let rec = Profile::CohortV2.record();
-    assert_eq!(rec["layout_transfer"], "layout_transfer_v4");
+    assert_eq!(rec["layout_transfer"], "layout_transfer_v5");
     assert_eq!(rec["layout_measure"], "layout_measure_v2");
     assert_eq!(rec["echo_screen"], "cc_echo_screen_v1");
     // The C block keeps v1's every-class step.

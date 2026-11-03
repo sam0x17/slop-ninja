@@ -91,6 +91,10 @@ fn alone(parent: &str, edits: &[EditV2]) -> Option<(String, Vec<(usize, usize)>)
 ///   and the text do not fit (item 13.7: the moved suffix holds at least one
 ///   word).
 ///
+/// Amendment 38 item 38.1 now splits the first kind and the second where a
+/// break point lets the moved part fit (`a38_rules`); these item 29.1 tests
+/// keep the wider excuse.
+///
 /// `edits`: each edit's final span and whether its column holds an earlier
 /// edit's text.
 fn excused(doc: &str, w: usize, edits: &[((usize, usize), bool)]) -> Vec<usize> {
@@ -457,11 +461,14 @@ fn the_no_room_line_takes_a_continuation_lead_not_a_paragraph_first_lead() {
 }
 
 #[test]
-fn a_later_edit_on_a_line_of_its_own_keeps_the_parents_column_and_a_long_first_word_stands_alone() {
+fn a_later_edit_on_a_line_of_its_own_keeps_the_parents_column_and_a_long_first_word_moves_by_amendment_38() {
     // Item 29.1's "Unchanged": a later edit whose document line holds no
     // earlier edit's text keeps the parent's column, takes no no-room line
-    // break, and lays out exactly as alone; item 10.1's long first word,
-    // wider than W less that column, stands alone after the parent text.
+    // break (`sibling_column_wraps`), and lays out exactly as alone. Item
+    // 10.1's long first word, wider than W less that column, is laid out
+    // alone after the parent text; amendment 38 item 38.1 then moves it to a
+    // new line with a continuation lead (`document_line_splits`), as for the
+    // edit alone (item 29.2's example).
     let long = "Incomprehensibilities";
     let mut r = Lcg(2960);
     let mut seen = 0;
@@ -485,8 +492,10 @@ fn a_later_edit_on_a_line_of_its_own_keeps_the_parents_column_and_a_long_first_w
         assert!(!l1.src.sibling_column);
         assert_eq!(l1.src.column, col);
         let rep = &it.reps[1];
-        assert!(rep.starts_with(long), "{rep:?}: no leading line break; the long word stands alone at the parent's column");
+        let lead = replacement_lead(rep).unwrap();
+        assert!(rep.starts_with('\n') && rep[lead..].starts_with(long), "{rep:?}: the long word starts a new line");
         assert!(it.record["edits"][1]["transfer"].get("sibling_column_wraps").is_none());
+        assert!(it.record["edits"][1]["transfer"]["document_line_splits"].as_u64().unwrap() >= 1);
         assert_eq!(*rep, item_v2(&p, &none(), &edits[1..]).reps[0]);
         assert_eq!(it.reps[0], item_v2(&p, &none(), &edits[..1]).reps[0]);
         seen += 1;

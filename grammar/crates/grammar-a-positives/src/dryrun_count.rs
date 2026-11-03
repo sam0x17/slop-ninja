@@ -2028,6 +2028,12 @@ mod tests {
     }
 
     /// Taken at 90561e09 (2026-11-03, a detached worktree with this test
-    /// and its fixtures added, its own target directory).
-    const PINNED_90561E09: &str = r#"{"rows":["914393d2616440776bc917afb11cd4e3f831acc41e76a0d05866bd955a1f17b7","da706112c7b875a6f146209122768e6535a94bd4b4279cf8ced107ffd442831a"],"spliced":["0cac28cf6ba3d580bd514e07c339969a59ad222127a662f4aac9d1387b61d76e","730b57e7394733c641229ced9feda48107c95f56a0a6ba445d39fae840ac6f86","fd856b899ca4720a570fc1f326f62a463bfd0eb61ca8adcb42c5f6b763e81f50"]}"#;
+    /// and its fixtures added, its own target directory) as rows 914393d2...
+    /// and da706112..., spliced 0cac28cf..., 730b57e7... and fd856b89...
+    /// Re-pinned for amendment 38's build for the layout id
+    /// (`layout_transfer_v5`) and the summaries' `document_line_splits`
+    /// totals alone: with the id set back to `layout_transfer_v4` and the
+    /// totals left out, those digests are reproduced (the rule splits no
+    /// line of these fixtures).
+    const PINNED_90561E09: &str = r#"{"rows":["69b55283346bdc6a334180350f2e7b74000261948da1d27df8905f45147fba9d","a551f2e23acab1fa7769b58cb4209ac5be071d1211bccb8d33cfe4e49424ed3f"],"spliced":["b71d46a798087834bea0fb05f70782b9d98e3b0712dd4560f182c20e86eb46cc","736ced358ec58e556800d42b26fa271f27a13e9783cf7c3c401d17dabc9d1fb9","3df3f441f04cc4597aff7c1114f5eec93149ed73cdbffe01553a5f8c75d92cd8"]}"#;
 }

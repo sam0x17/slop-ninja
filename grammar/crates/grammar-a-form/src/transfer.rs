@@ -1,6 +1,7 @@
-//! The parent-conditioned layout transfer `layout_transfer_v4` of
+//! The parent-conditioned layout transfer `layout_transfer_v5` of
 //! `cc_cohort_profile_v2` (protocol A2 §6.2, as amended by amendments 7, 10,
-//! 13, 29 and 30; `layout_transfer_v3` was amendment 29's alone).
+//! 13, 29, 30 and 38; `layout_transfer_v3` was amendment 29's alone and
+//! `layout_transfer_v4` added amendment 30's).
 //!
 //! A child takes every whitespace-layout property from its source, measured
 //! exactly (`measure`, `layout_measure_v2`). The source of a mirror is the
@@ -71,6 +72,41 @@
 //!    less its column, its text starts on a new line with a continuation
 //!    lead (`sibling_column_wraps`, counted): the replacement then begins
 //!    with that line break and lead.
+//!
+//!    **The split on the assembled document line** (amendment 38 item 38.1,
+//!    as amendment 39 item 39.1 reads it; `split_document_lines`). After the
+//!    layout above, each line of the document that holds a word of the
+//!    child's wrapped unit, holds more than one word and is wider than W
+//!    (item 10.1's columns) is split. W is the smallest W of the edits whose
+//!    wrapped words share the line (an item's earlier edits keep theirs,
+//!    `LineContext::widths`). It may break only inside the child's laid-out
+//!    text: between two of its words on the line, or just before its first
+//!    word on the line when that word is the replacement's first and some
+//!    word precedes it on the line (the replacement then begins with the
+//!    line break and the lead, as in item 29.1's no-room case). The part of
+//!    the line after the break moves to a new line, whoever wrote its words,
+//!    with the next continuation lead of the child's source (the pool cycled
+//!    on from its own layout's picks); the line left before a break between
+//!    two words takes the source's next wrap trail (item 10.6(c), cycled on
+//!    from the layout's picks, an empty pool counted), and a break before
+//!    the first word takes none (the bytes before it are fixed). The break
+//!    is the earliest at which the moved part fits in the child's own W (the
+//!    only W on the new line; item 13.7's maximal suffix), else the last.
+//!    The rule is applied again to the shortened line, then to the new one,
+//!    until no line qualifies; one-word lines are exempt, and a line whose
+//!    overflow lies in parent text or that has no break point is left
+//!    (count 4 reads it). Parent bytes are never changed. The document lines
+//!    are read from `SourceLayout::line`: for a single edit, its parent's
+//!    text before it on its first line and after it on its last; for an edit
+//!    of an item (`profile::lay_out_item`), the item assembled so far before
+//!    it (earlier edits' text final) and, when the next edit starts on its
+//!    last line, the parent text up to that edit only (item 29.1's tail),
+//!    or, when the next edit is an insertion whose separator breaks the
+//!    line, the parent text up to its point and the separator up to its
+//!    first line break (the assembled line). So an edit's text never depends
+//!    on a later sibling's text, and an earlier edit is never changed by a
+//!    later one. Each application is counted (`document_line_splits`,
+//!    recorded only when not 0).
 //! 4. **Separators** (amendment 10 item 10.4, as amended by amendment 13
 //!    item 13.8). The boundary between the head frame and the body takes the
 //!    source's last head-side boundary, and the one between the body and the
@@ -123,7 +159,7 @@ use crate::text;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
-pub const LAYOUT_TRANSFER_ID: &str = "layout_transfer_v4";
+pub const LAYOUT_TRANSFER_ID: &str = "layout_transfer_v5";
 /// The separator between a line-form child's blocks when its source has no
 /// paragraph boundary (and so no blank line): one newline.
 pub const LINE_FORM_FALLBACK: &str = "\n";
@@ -165,8 +201,29 @@ pub struct SourceFrames {
     pub tail_seps: Vec<String>,
 }
 
+/// The text on an edit's first and last document lines, which amendment
+/// 38's split reads (item 38.1, as amendment 39 item 39.1 reads it): the
+/// text before the edit on the line holding its start (an insertion's
+/// separator included, or the part after its last newline; for an edit of
+/// an item, the item assembled so far, earlier edits' laid-out text
+/// included) and the text after it on the line holding its end (the parent
+/// to that line's end, or for an edit of an item the parent text up to the
+/// next edit, `profile::lay_out_item`). Empty for a whole-text source.
+/// Never recorded.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LineContext {
+    pub before: String,
+    pub after: String,
+    /// The byte ranges in `before` of earlier edits' wrapped units, each
+    /// with that edit's W: a line that holds their words is measured
+    /// against the smallest W of the edits whose words share it (item
+    /// 38.1). Empty for a single edit.
+    pub widths: Vec<((usize, usize), usize)>,
+}
+
 /// A source's layout properties: whitespace strings, counts, fractions,
-/// widths and reason names, never text.
+/// widths and reason names; never text, except the unrecorded
+/// `LineContext` of a span or insertion.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SourceLayout {
     /// A mixed child's span (false: a mirror's parent or a donor).
@@ -212,6 +269,14 @@ pub struct SourceLayout {
     /// property, so not serialised.
     #[serde(skip_serializing)]
     pub sibling_column: bool,
+    /// The text on the child's first and last document lines, for amendment
+    /// 38's split, which `transfer` applies to the child once it is laid out
+    /// (`split_alone`); `profile::lay_out_item` sets it for each edit of an
+    /// item from the item assembled so far. None: no split (no constructor
+    /// leaves it None; tests use it for the layout before amendment 38).
+    /// Not serialised.
+    #[serde(skip_serializing)]
+    pub line: Option<LineContext>,
     /// The source body paragraphs in word order: their words and whether a
     /// child paragraph at their midpoint is wrapped (amendment 10 item
     /// 10.3).
@@ -281,6 +346,16 @@ fn tail_columns(m: &Measure, parent: &str, e: usize) -> usize {
     m.lines.iter().find(|l| l.body.0 < e && e <= l.body.1).map_or(0, |l| chars(&parent[e..l.body.1]))
 }
 
+/// The start of the `'\n'`-line holding byte offset `x`.
+fn line_start(t: &str, x: usize) -> usize {
+    t[..x].rfind('\n').map_or(0, |k| k + 1)
+}
+
+/// The end of the `'\n'`-line holding byte offset `x` (its newline excluded).
+fn line_end(t: &str, x: usize) -> usize {
+    t[x..].find('\n').map_or(t.len(), |k| x + k)
+}
+
 impl SourceLayout {
     /// A mirror's source (or a donor's): the whole text.
     pub fn whole(parent: &str) -> SourceLayout {
@@ -329,6 +404,7 @@ impl SourceLayout {
             column: 0,
             tail_column: 0,
             sibling_column: false,
+            line: Some(LineContext::default()),
             body_wrap: body.clone().map(|k| (m.paragraphs[k].words, wrap_flag(&m, k))).collect(),
             pools: pools_of(&m, body_lines),
             frames,
@@ -366,6 +442,7 @@ impl SourceLayout {
         let post = m.paragraphs.iter().find(|p| p.range.0 <= e && e <= p.range.1);
         let column = m.lines.iter().find(|l| l.body.0 <= s && s <= l.body.1).map_or(0, |l| chars(&parent[l.start..l.body.0]) + chars(&parent[l.body.0..s]));
         let tail_column = tail_columns(&m, parent, e);
+        let line = Some(LineContext { before: parent[line_start(parent, s)..s].to_string(), after: parent[e..line_end(parent, e)].to_string(), widths: Vec::new() });
         Some(SourceLayout {
             mixed: true,
             line_form: counts.class == LayoutClass::LineForm,
@@ -384,6 +461,7 @@ impl SourceLayout {
             column,
             tail_column,
             sibling_column: false,
+            line,
             body_wrap: seg_words.into_iter().zip(seg_wrap).collect(),
             pools: pools_of(&m, lines.iter().copied()),
             frames: SourceFrames::default(),
@@ -420,6 +498,11 @@ impl SourceLayout {
         };
         let para = pi.map(|k| m.paragraphs[k].range);
         let tail_column = tail_columns(&m, parent, s);
+        let before = match sep.rfind('\n') {
+            Some(k) => sep[k + 1..].to_string(),
+            None => format!("{}{sep}", &parent[line_start(parent, s)..s]),
+        };
+        let line = Some(LineContext { before, after: parent[s..line_end(parent, s)].to_string(), widths: Vec::new() });
         Some(SourceLayout {
             mixed: true,
             line_form: counts.class == LayoutClass::LineForm,
@@ -438,6 +521,7 @@ impl SourceLayout {
             column,
             tail_column,
             sibling_column: false,
+            line,
             body_wrap: pi.map(|k| (m.paragraphs[k].words, wrap_flag(&m, k))).into_iter().collect(),
             pools: pools_of(&m, li.into_iter()),
             frames: SourceFrames::default(),
@@ -526,6 +610,11 @@ pub struct TransferRecord {
     /// so the records of every other child keep their fields.
     #[serde(skip_serializing_if = "is_zero")]
     pub sibling_column_wraps: usize,
+    /// Applications of the split on the assembled document line (amendment
+    /// 38 item 38.1). Recorded only when not 0, so the record of every child
+    /// the rule does not change keeps its bytes.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub document_line_splits: usize,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -634,6 +723,15 @@ pub struct Transferred {
     pub record: TransferRecord,
     /// The dry run's diagnostics (`TransferDiag`): read by no rule.
     pub diag: TransferDiag,
+    /// One per unit of `paragraphs`: the unit is a wrapped body paragraph
+    /// (amendment 38's split reads only these).
+    pub unit_wrapped: Vec<bool>,
+    /// The continuation leads the layout has taken from the source's pool
+    /// (amendment 38's split cycles on from here).
+    pub cont_picks: usize,
+    /// The wrap trails the layout has taken from the source's pool (amendment
+    /// 39 item 39.3: a split between two words cycles on from here).
+    pub trail_picks: usize,
 }
 
 /// Greedy wrap of one squashed paragraph at `w` characters, the first line
@@ -1000,11 +1098,11 @@ fn wrapped_at(src: &SourceLayout, c: usize, w: usize, n: usize) -> bool {
 
 /// Lays out a prose child's units with the source's whitespace by role,
 /// budgets and separators. Returns the text and each unit's byte range.
-fn lay_out_prose(units: &[(String, Role)], src: &SourceLayout, rec: &mut TransferRecord) -> (String, Vec<(usize, usize)>) {
+fn lay_out_prose(units: &[(String, Role)], src: &SourceLayout, rec: &mut TransferRecord) -> (String, Vec<(usize, usize)>, (usize, usize)) {
     let mut out = String::new();
     let mut ranges = Vec::new();
     if units.is_empty() {
-        return (out, ranges);
+        return (out, ranges, (0, 0));
     }
     if !src.mixed && !src.head.is_empty() {
         out.push_str(&src.head);
@@ -1175,7 +1273,7 @@ fn lay_out_prose(units: &[(String, Role)], src: &SourceLayout, rec: &mut Transfe
     rec.head_frame_lines = n_head;
     rec.tail_frame_lines = n_tail;
     rec.ws_pool_fallbacks = fb;
-    (out, ranges)
+    (out, ranges, (ci, wi))
 }
 
 /// Lays out a line-form child's lines (blocks of one line each) with the
@@ -1223,7 +1321,7 @@ fn lay_out_lines(blocks: &[String], src: &SourceLayout, rec: &mut TransferRecord
     (out, ranges)
 }
 
-/// `layout_transfer_v4`: the raw child `t` laid out like `src`, in the
+/// `layout_transfer_v5`: the raw child `t` laid out like `src`, in the
 /// conventions `conv` (see the module notes).
 pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred {
     let mut rec = TransferRecord {
@@ -1252,6 +1350,7 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
         frame_internal_reused: 0,
         tail_budget_splits: 0,
         sibling_column_wraps: 0,
+        document_line_splits: 0,
     };
     if !src.line_form {
         let framed = !src.mixed && (src.frames.head || src.frames.tail);
@@ -1319,7 +1418,7 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
         rec.closed_paragraphs = body.closed;
         rec.targets_on_fixed_boundaries = body.on_fixed;
         rec.wrapped_at = src.width;
-        let (text, paragraphs) = lay_out_prose(&units, src, &mut rec);
+        let (text, paragraphs, (cont_picks, trail_picks)) = lay_out_prose(&units, src, &mut rec);
         let mut changes = body.changes;
         add_changes(&mut changes, &frame_changes);
         let body_ix: Vec<usize> = (0..units.len()).filter(|&k| matches!(units[k].1, Role::Body(_) | Role::Kept)).collect();
@@ -1329,7 +1428,8 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
         };
         let frame_lines = (0..units.len()).filter(|&k| matches!(units[k].1, Role::Head(_) | Role::Tail(_))).map(|k| paragraphs[k]).collect();
         let diag = if diag_units.len() == paragraphs.len() { TransferDiag { units: diag_units, kept: body.kept } } else { TransferDiag::default() };
-        return Transferred {
+        let unit_wrapped = units.iter().map(|u| u.1 == Role::Body(true)).collect();
+        let mut t = Transferred {
             text,
             changes,
             layout: body.layout,
@@ -1340,7 +1440,12 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
             frame_lines,
             record: rec,
             diag,
+            unit_wrapped,
+            cont_picks,
+            trail_picks,
         };
+        split_alone(&mut t, src);
+        return t;
     }
     // Line-form: the child's own lines in order, each its own block, so every
     // break between them takes the source's boundary separators in order.
@@ -1383,7 +1488,202 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
         frame_lines: Vec::new(),
         record: rec,
         diag,
+        unit_wrapped: vec![false; blocks.len()],
+        cont_picks: 0,
+        trail_picks: 0,
     }
+}
+
+// ------------------------------------------------------------------ amendment 38
+
+/// An edit as amendment 38's split reads it in its document line context
+/// (item 38.1, as amendment 39 item 39.1 reads it): its replacement's bytes,
+/// its wrapped units' byte ranges, its W, earlier edits' wrapped units with
+/// their W (`LineContext::widths`), and its source's continuation leads and
+/// wrap trails with the picks already taken.
+struct LineEdit<'a> {
+    range: (usize, usize),
+    wrapped: Vec<(usize, usize)>,
+    width: usize,
+    others: Vec<((usize, usize), usize)>,
+    cont_leads: &'a [String],
+    cursor: usize,
+    wrap_trails: &'a [String],
+    trail_cursor: usize,
+}
+
+impl LineEdit<'_> {
+    fn next_lead(&self) -> &str {
+        if self.cont_leads.is_empty() { "" } else { self.cont_leads[self.cursor % self.cont_leads.len()].as_str() }
+    }
+
+    fn next_trail(&self) -> &str {
+        if self.wrap_trails.is_empty() { "" } else { self.wrap_trails[self.trail_cursor % self.wrap_trails.len()].as_str() }
+    }
+}
+
+/// One application of the split on an edit's replacement, in the order
+/// applied: the replacement's bytes `at.0..at.1` (as it stands then; the
+/// whitespace between two of its words, or the empty range before its first
+/// word) become `trail`, a line break and `lead`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LineSplit {
+    at: (usize, usize),
+    lead: String,
+    /// The continuation pool was empty (the lead is `""`, counted as `pick`
+    /// counts it).
+    fallback: bool,
+    /// The wrap trail the line left before a break between two words takes
+    /// (amendment 39 item 39.3); none before the edit's first word.
+    trail: String,
+    /// A break between two words found the wrap-trail pool empty (counted).
+    trail_fallback: bool,
+}
+
+/// Byte ranges of the maximal runs of non-whitespace characters of `s`,
+/// offset by `off` (the words `str::split_whitespace` gives).
+fn word_ranges(s: &str, off: usize) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut start: Option<usize> = None;
+    for (i, c) in s.char_indices() {
+        if c.is_whitespace() {
+            if let Some(a) = start.take() {
+                out.push((off + a, off + i));
+            }
+        } else if start.is_none() {
+            start = Some(i);
+        }
+    }
+    if let Some(a) = start {
+        out.push((off + a, off + s.len()));
+    }
+    out
+}
+
+/// Amendment 38 item 38.1 for edit `e` in `doc`, as amendment 39 item 39.1
+/// reads it (see the module notes, step 3): lines are read in document
+/// order, and a split line is read again, then the line it made. A line is
+/// over when it is wider than the smallest W of the edits whose wrapped
+/// words it holds; the moved part must fit in the edit's own W, the only W
+/// on the new line (it holds the edit's words and parent text alone).
+/// Returns the edit's applications, in order. Each moves at least one word
+/// to a new line and leaves at least one before it, so the loop ends.
+fn split_document_lines(doc: &str, e: &mut LineEdit) -> Vec<LineSplit> {
+    let mut doc = doc.to_string();
+    let mut out = Vec::new();
+    let mut ls = 0usize;
+    loop {
+        let le = line_end(&doc, ls);
+        let words = word_ranges(&doc[ls..le], ls);
+        let own = |&(a, b): &(usize, usize)| e.wrapped.iter().any(|&(x, y)| x <= a && b <= y);
+        // (word index, the break lies between two of the edit's words)
+        let mut chosen: Option<(usize, bool)> = None;
+        if words.len() > 1 && words.iter().any(own) {
+            let line_cols = chars(&doc[ls..words[words.len() - 1].1]);
+            // the earlier edits' words keep their bytes (their ranges lie
+            // before the edit's), so their W is read where they stand
+            let line_w = words
+                .iter()
+                .filter_map(|&(a, b)| e.others.iter().find(|((x, y), _)| *x <= a && b <= *y).map(|o| o.1))
+                .fold(e.width, usize::min);
+            if line_cols > line_w {
+                let mut last = None;
+                for j in 1..words.len() {
+                    if !own(&words[j]) {
+                        continue;
+                    }
+                    let inside = e.range.0 <= words[j - 1].0 && words[j - 1].1 <= e.range.1;
+                    if !(inside || words[j].0 == e.range.0) {
+                        continue;
+                    }
+                    last = Some((j, inside));
+                    if chars(e.next_lead()) + line_cols - chars(&doc[ls..words[j].0]) <= e.width {
+                        chosen = last;
+                        break;
+                    }
+                }
+                chosen = chosen.or(last);
+            }
+        }
+        let Some((j, inside)) = chosen else {
+            if le >= doc.len() {
+                break;
+            }
+            ls = le + 1;
+            continue;
+        };
+        let (x, y) = (if inside { words[j - 1].1 } else { words[j].0 }, words[j].0);
+        let lead = e.next_lead().to_string();
+        let fallback = e.cont_leads.is_empty();
+        e.cursor += 1;
+        let (trail, trail_fallback) = if inside {
+            let t = e.next_trail().to_string();
+            let f = e.wrap_trails.is_empty();
+            e.trail_cursor += 1;
+            (t, f)
+        } else {
+            (String::new(), false)
+        };
+        let ins = format!("{trail}\n{lead}");
+        out.push(LineSplit { at: (x - e.range.0, y - e.range.0), lead, fallback, trail, trail_fallback });
+        doc.replace_range(x..y, &ins);
+        let map = |p: usize| if p >= y { p + ins.len() - (y - x) } else { p };
+        // the line break before the edit's first word is the edit's own
+        e.range.1 = map(e.range.1);
+        for r in &mut e.wrapped {
+            *r = (map(r.0), map(r.1));
+        }
+    }
+    out
+}
+
+/// Applies an edit's splits (`split_document_lines`) to its transfer: the
+/// text, the unit, body and frame-line ranges, and the record's counts.
+fn apply_line_splits(t: &mut Transferred, splits: &[LineSplit]) {
+    for s in splits {
+        let (x, y) = s.at;
+        let ins = format!("{}\n{}", s.trail, s.lead);
+        t.text.replace_range(x..y, &ins);
+        let map = |p: usize| if p >= y { p + ins.len() - (y - x) } else { p };
+        let mr = |r: &mut (usize, usize)| *r = (map(r.0), map(r.1));
+        t.paragraphs.iter_mut().for_each(mr);
+        t.frame_lines.iter_mut().for_each(mr);
+        if let Some(b) = t.body.as_mut() {
+            mr(b);
+        }
+        t.record.document_line_splits += 1;
+        t.record.child_lines += usize::from(x < y);
+        t.record.leading_ws_lines += usize::from(!s.lead.is_empty());
+        t.record.trailing_ws_lines += usize::from(!s.trail.is_empty());
+        t.record.ws_pool_fallbacks += usize::from(s.fallback) + usize::from(s.trail_fallback);
+        t.cont_picks += 1;
+        t.trail_picks += usize::from(x < y);
+    }
+}
+
+/// Amendment 38's split for a laid-out child, on the document lines its
+/// text shares with its context (`SourceLayout::line`): break points in its
+/// own text only (amendment 39 item 39.1).
+fn split_alone(t: &mut Transferred, src: &SourceLayout) {
+    let (Some(ctx), Some(width)) = (&src.line, src.width) else { return };
+    if !t.unit_wrapped.contains(&true) {
+        return;
+    }
+    let at = ctx.before.len();
+    let doc = format!("{}{}{}", ctx.before, t.text, ctx.after);
+    let wrapped = t.paragraphs.iter().zip(&t.unit_wrapped).filter(|x| *x.1).map(|(&(a, b), _)| (at + a, at + b)).collect();
+    let mut e = LineEdit {
+        range: (at, at + t.text.len()),
+        wrapped,
+        width,
+        others: ctx.widths.clone(),
+        cont_leads: &src.pools.cont_leads,
+        cursor: t.cont_picks,
+        wrap_trails: &src.pools.wrap_trails,
+        trail_cursor: t.trail_picks,
+    };
+    let splits = split_document_lines(&doc, &mut e);
+    apply_line_splits(t, &splits);
 }
 #[cfg(test)]
 mod tests {
@@ -1416,6 +1716,187 @@ mod tests {
         assert_eq!(t.text, "Alpha beta gamma delta epsilon zeta eta theta. Iota kappa lambda mu nu xi omicron pi.");
         assert_eq!(t.record.child_paragraphs, 1);
         assert_eq!(t.record.separators_applied, 0);
+    }
+
+    // ---------------------------------------------------------- amendment 38
+
+    /// An edit laid at `at` with one wrapped unit over its whole replacement.
+    fn edit<'a>(range: (usize, usize), width: usize, leads: &'a [String], cursor: usize, trails: &'a [String]) -> LineEdit<'a> {
+        LineEdit { range, wrapped: vec![range], width, others: Vec::new(), cont_leads: leads, cursor, wrap_trails: trails, trail_cursor: 0 }
+    }
+
+    /// One edit, wrapped as one unit, laid at `before.len()` in
+    /// `before + rep + after`, with earlier edits' wrapped words `others`
+    /// (ranges in `before`, each with its W): the split's result and the
+    /// replacement after the edit's applications.
+    #[allow(clippy::too_many_arguments)]
+    fn split_with(before: &str, rep: &str, after: &str, w: usize, leads: &[String], cursor: usize, trails: &[String], others: Vec<((usize, usize), usize)>) -> (String, Vec<LineSplit>) {
+        let doc = format!("{before}{rep}{after}");
+        let at = before.len();
+        let mut e = edit((at, at + rep.len()), w, leads, cursor, trails);
+        e.others = others;
+        let sp = split_document_lines(&doc, &mut e);
+        assert_eq!(e.cursor, cursor + sp.len());
+        assert_eq!(e.trail_cursor, sp.iter().filter(|x| x.at.0 < x.at.1).count());
+        let mut r = rep.to_string();
+        for x in &sp {
+            r.replace_range(x.at.0..x.at.1, &format!("{}\n{}", x.trail, x.lead));
+        }
+        (r, sp)
+    }
+
+    fn split_one(before: &str, rep: &str, after: &str, w: usize, leads: &[String], cursor: usize) -> (String, Vec<LineSplit>) {
+        split_with(before, rep, after, w, leads, cursor, &flush(), Vec::new())
+    }
+
+    fn flush() -> Vec<String> {
+        vec![String::new()]
+    }
+
+    /// An application with no wrap trail.
+    fn at(at: (usize, usize), lead: &str, fallback: bool) -> LineSplit {
+        LineSplit { at, lead: lead.into(), fallback, trail: String::new(), trail_fallback: false }
+    }
+
+    #[test]
+    fn a38_a_first_word_with_no_room_after_the_parents_column_moves_to_a_new_line() {
+        // 20 columns of parent text, then the edit's first word alone (item
+        // 10.1): the document line holds five words over W 20.
+        let (r, sp) = split_one("aaaa bbbb cccc dddd ", "eeee\nffff gggg", "", 20, &flush(), 0);
+        assert_eq!(r, "\neeee\nffff gggg");
+        assert_eq!(sp, vec![at((0, 0), "", false)]);
+    }
+
+    #[test]
+    fn a38_the_moved_part_takes_the_parent_text_after_the_edit_with_it() {
+        // A one-word edit mid-line: the break before it moves it and the
+        // parent text after it (item 13.7's case on the document line).
+        let (r, _) = split_one("aaaa bbbb cccc dddd ", "eeee", " ff", 20, &flush(), 0);
+        assert_eq!(r, "\neeee");
+        // With no room for the word and that text, the last break is taken
+        // all the same; the new line, over W, has no break point and stays.
+        let tail = format!(" {}", "x".repeat(18));
+        let (r, sp) = split_one("aaaa bbbb cccc dddd ", "eeee", &tail, 20, &flush(), 0);
+        assert_eq!((r.as_str(), sp.len()), ("\neeee", 1));
+    }
+
+    #[test]
+    fn a38_the_earliest_fitting_break_is_taken() {
+        // Parent text on both sides (an item's earlier edit's text before,
+        // item 29.1, reads the same): the earliest break point at which the
+        // moved part fits is before the edit's first word.
+        let (r, sp) = split_one("pp ", "aaaaa bbbbb", " mm cccccccc ttttt", 30, &flush(), 0);
+        assert_eq!(r, "\naaaaa bbbbb");
+        assert_eq!(sp, vec![at((0, 0), "", false)]);
+        // With a two-column lead the whole moved part (31) no longer fits:
+        // the next break, between the edit's words, is taken.
+        let (r, sp) = split_one("pp ", "aaaaa bbbbb", " mm cccccccc ttttt", 30, &["  ".to_string()], 0);
+        assert_eq!(r, "aaaaa\n  bbbbb");
+        assert_eq!(sp, vec![at((5, 6), "  ", false)]);
+    }
+
+    #[test]
+    fn a38_a_moved_part_of_exactly_w_columns_fits() {
+        // Item 13.7's "fits" includes W itself: with a one-column lead the
+        // moved part from the edit's first word is 1 + 29 = 30 = W, so that
+        // break is the earliest fitting one.
+        let (r, sp) = split_one("pp ", "aaaaa bbbbb", " mm cccccccc ttttt", 30, &[" ".to_string()], 0);
+        assert_eq!(r, "\n aaaaa bbbbb");
+        assert_eq!(sp, vec![at((0, 0), " ", false)]);
+        // One column less and it no longer fits: the next break is taken.
+        let (r, _) = split_one("pp ", "aaaaa bbbbb", " mm cccccccc ttttt", 29, &[" ".to_string()], 0);
+        assert_eq!(r, "aaaaa\n bbbbb");
+    }
+
+    #[test]
+    fn a38_a_shared_line_is_measured_against_the_smallest_w_of_its_edits() {
+        // An earlier edit's wrapped word "yy" (W 12) shares the line with the
+        // edit (W 30). The line (15 columns) is within the edit's W but over
+        // the earlier edit's: it is split, and the moved part need only fit
+        // in the edit's own W (the new line holds no earlier edit's word).
+        let (r, sp) = split_with("xx yy ", "aaaa bbbb", "", 30, &flush(), 0, &flush(), vec![((3, 5), 12)]);
+        assert_eq!(r, "\naaaa bbbb");
+        assert_eq!(sp, vec![at((0, 0), "", false)]);
+        // Without that word on the line, the edit's own W applies: no split.
+        assert_eq!(split_with("xx yy ", "aaaa bbbb", "", 30, &flush(), 0, &flush(), vec![]).1, vec![]);
+        // An earlier edit whose words lie on an earlier line does not count.
+        assert_eq!(split_with("zz\nxx yy ", "aaaa bbbb", "", 30, &flush(), 0, &flush(), vec![((0, 2), 1)]).1, vec![]);
+        // The moved part need fit only the edit's own W: from the edit's first
+        // word it is 14 columns, over the earlier edit's W but within the
+        // edit's, so that earliest break is taken.
+        let (r, _) = split_with("xx yy ", "aaaa bbbb cccc", "", 30, &flush(), 0, &flush(), vec![((3, 5), 12)]);
+        assert_eq!(r, "\naaaa bbbb cccc");
+        // A larger W of an earlier edit does not raise the edit's own.
+        assert_eq!(split_with("xx yy ", "aaaa bbbb", "", 12, &flush(), 0, &flush(), vec![((3, 5), 40)]).1.len(), 1);
+    }
+
+    #[test]
+    fn a38_a_break_between_two_words_takes_the_next_wrap_trail() {
+        // Item 10.6(c): the line left before a break between two of the
+        // edit's words takes the source's next wrap trail, cycled on from
+        // the layout's picks; a break before the edit's first word takes
+        // none and draws none.
+        let (p, a, b) = ("p".repeat(18), "a".repeat(10), "b".repeat(10));
+        let leads = vec!["".to_string(), "    ".to_string()];
+        let trails = vec![" ".to_string(), "\t".to_string()];
+        let (r, sp) = split_with(&format!("{p} "), &format!("{a} {b}"), "", 20, &leads, 1, &trails, vec![]);
+        assert_eq!(r, format!("\n{a} \n    {b}"));
+        assert_eq!(
+            sp,
+            vec![
+                LineSplit { at: (10, 11), lead: "    ".into(), fallback: false, trail: " ".into(), trail_fallback: false },
+                at((0, 0), "", false),
+            ]
+        );
+        // An empty pool gives no trail and is counted.
+        let (_, sp) = split_with(&format!("{p} "), &format!("{a} {b}"), "", 20, &leads, 1, &[], vec![]);
+        assert_eq!((sp[0].trail.as_str(), sp[0].trail_fallback, sp[1].trail_fallback), ("", true, false));
+    }
+
+    #[test]
+    fn a38_overflow_in_parent_text_and_one_word_lines_are_left() {
+        // The edit's word starts the line: no break point, so the line stays.
+        let tail = format!(" {}", "x".repeat(24));
+        assert_eq!(split_one("", "eeee", &tail, 20, &flush(), 0).1, vec![]);
+        assert_eq!(split_one("ab\n", "eeee", &tail, 20, &flush(), 0).1, vec![]);
+        // A one-word line wider than W is exempt.
+        assert_eq!(split_one("", &"z".repeat(25), "", 20, &flush(), 0).1, vec![]);
+        assert_eq!(split_one("p\n", &"z".repeat(25), "\nq", 20, &flush(), 0).1, vec![]);
+        // A line at W exactly is not over.
+        assert_eq!(split_one("aaaa bbbb cccc ", "dddd", "", 19, &flush(), 0).1, vec![]);
+        assert_eq!(split_one("aaaa bbbb cccc ", "dddd", "", 18, &flush(), 0).1.len(), 1);
+        // Only words of the edit's wrapped units are break points: a line of
+        // parent words alone is never read.
+        let doc = "aaaa bbbb cccc dddd eeee ffff\nzz";
+        let mut e = edit((30, 32), 10, &[], 0, &[]);
+        assert_eq!(split_document_lines(doc, &mut e), vec![]);
+        // nor are an edit's unwrapped units (no budget)
+        let doc = "aaaa bbbb cccc dddd eeee ffff";
+        let mut e = edit((20, 29), 10, &[], 0, &[]);
+        e.wrapped.clear();
+        assert_eq!(split_document_lines(doc, &mut e), vec![]);
+    }
+
+    #[test]
+    fn a38_the_rule_repeats_over_three_lines() {
+        // P(18) A(18) B(18) at W 20: the moved part from A does not fit, so
+        // B moves first; the shortened line is read again and A moves.
+        let (p, a, b) = ("p".repeat(18), "a".repeat(18), "b".repeat(18));
+        let (r, sp) = split_one(&format!("{p} "), &format!("{a} {b}"), "", 20, &flush(), 0);
+        assert_eq!(r, format!("\n{a}\n{b}"));
+        assert_eq!(sp.iter().map(|x| x.at).collect::<Vec<_>>(), vec![(18, 19), (0, 0)]);
+    }
+
+    #[test]
+    fn a38_leads_cycle_on_from_the_layouts_picks_and_an_empty_pool_is_counted() {
+        let leads = vec!["".to_string(), "    ".to_string()];
+        let (p, a, b) = ("p".repeat(18), "a".repeat(10), "b".repeat(10));
+        let (r, sp) = split_one(&format!("{p} "), &format!("{a} {b}"), "", 20, &leads, 1);
+        // cursor 1: the first split takes "    ", the second ""
+        assert_eq!(sp.iter().map(|x| x.lead.as_str()).collect::<Vec<_>>(), vec!["    ", ""]);
+        assert_eq!(r, format!("\n{a}\n    {b}"));
+        let (_, sp) = split_one("aaaa bbbb cccc dddd ", "eeee", "", 20, &[], 0);
+        assert_eq!(sp, vec![at((0, 0), "", true)]);
     }
 
     #[test]

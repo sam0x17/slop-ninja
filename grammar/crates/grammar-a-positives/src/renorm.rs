@@ -1190,6 +1190,18 @@ pub const RESUME_RULE: &str = "D4 resumes only the regenerate rows: generate --p
 /// `regeneration-plan-<batch>.jsonl`, the local batches' per-generator
 /// `regenerate-order-<generator>.txt` and `RENORM-<batch>.json`. Returns the
 /// summary. Outputs are deterministic for the same inputs.
+/// Amendment 38 item 38.1's applications in one request's profile record,
+/// counted once over an item: an item's last request is judged on the whole
+/// item (`profile::item_v2`, every sibling's edit in its `edits`), so only
+/// its own edit (`item_check.index`) is its count; every other record holds
+/// its request's edit alone.
+pub fn request_line_splits(rec: &Value) -> u64 {
+    match (rec["item_check"]["last"].as_bool(), rec["item_check"]["index"].as_u64()) {
+        (Some(true), Some(i)) => grammar_a_form::profile::edit_line_splits(rec, i as usize),
+        _ => grammar_a_form::profile::document_line_splits(rec),
+    }
+}
+
 pub fn run_batch(batch: &Batch, runs: &Path, out: &Path) -> Result<Value> {
     ensure!(is_r2_population(batch.form.population()), "population {} is not a round-2 population id", batch.form.population());
     ensure!(!refused_split(&batch.split), "split {} is refused (protocol A2 section 2.4; amendment 20)", batch.split);
@@ -1225,6 +1237,8 @@ pub fn run_batch(batch: &Batch, runs: &Path, out: &Path) -> Result<Value> {
     counts["superseded_accepted_responses"] = json!(superseded);
     counts["plan_lines_skipped_unparsed"] = json!(batch.skipped);
     counts["raw_body_check"] = json!(j.raw_body_checks);
+    // amendment 38 item 38.1's applications, each counted once: a request's own edit
+    counts["document_line_splits"] = json!(judged.records.iter().flat_map(|r| r["requests"].as_array().into_iter().flatten()).map(|q| request_line_splits(&q["profile_record"])).sum::<u64>());
     let summary = json!({"schema": RENORM_SCHEMA, "code": crate::CODE_ID, "plan_kind": batch.kind.id(), "batch": batch.name, "split": batch.split,
         "profile": batch.form.record(), "prior_sha256": batch.form.prior_sha256(), "model_calls": NO_MODEL_CALL,
         "inputs": batch.inputs, "runs": runs, "input_journals": input_journals,
@@ -1674,7 +1688,10 @@ pub fn renorm_rows(rows_path: &Path, donors_path: Option<&Path>, raid_docs: Opti
                         }
                     }
                 };
-                let sp = vec![(parent_span.0, parent_span.0 + ch.text.len())];
+                // the final span starts after a leading line break and lead
+                // (amendment 39 item 39.2, as an item's edit's does)
+                let lead = fprofile::replacement_lead(&ch.text).unwrap_or(0);
+                let sp = vec![(parent_span.0 + lead, parent_span.0 + ch.text.len())];
                 (reasons, rec, doc, sp, json!({"kind": source, "id": parent, "domain": domain, "parent_span": [parent_span.0, parent_span.1]}))
             }
             RowPlan::Donor { donor } => {
@@ -1736,7 +1753,8 @@ pub fn renorm_rows(rows_path: &Path, donors_path: Option<&Path>, raid_docs: Opti
             "raid_documents": raid_input},
         "counts": {"planned": reverdicts.len(), "kept": normalised.len(), "by_class_and_action": by_class, "drop_reasons": drop_reasons,
             "layout_sources_by_class": plan_sources, "non_human_rows_without_a_plan_by_source_kind": skipped_kinds, "parents": parents.len(),
-            "lines_skipped_unparsed": skipped},
+            "lines_skipped_unparsed": skipped,
+            "document_line_splits": reverdicts.iter().map(|r| grammar_a_form::profile::document_line_splits(&r["record"])).sum::<u64>()},
         "outputs": {"prior": prior_name, "reverdict": {"path": "rows-reverdict.jsonl", "sha256": rv_sha}, "normalised": {"path": "rows-normalised.jsonl", "sha256": nm_sha}},
         "consumer": ROWS_CONSUMER,
         "rules": {"raid_human": RAID_HUMAN_RULE, "stage3_parent": STAGE3_PARENT_RULE, "donor": DONOR_RULE, "splits": SPLIT_RULE,
@@ -2861,6 +2879,138 @@ mod tests {
     }
 
     const LEGACY: &str = "stage3_legacy_train";
+
+    /// A word longer than the budget left after any late column (amendment
+    /// 38's first-word case).
+    const LONG: &str = "Counterrevolutionaries";
+
+    /// Greedy hard wrap at `w` columns.
+    fn wrap_at(p: &str, w: usize) -> String {
+        let mut lines: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        for word in p.split_whitespace() {
+            if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > w {
+                lines.push(std::mem::take(&mut cur));
+            }
+            if !cur.is_empty() {
+                cur.push(' ');
+            }
+            cur.push_str(word);
+        }
+        lines.push(cur);
+        lines.join("\n")
+    }
+
+    /// P3: two paragraphs hard-wrapped at 48 columns, about 190 words.
+    fn p3() -> String {
+        format!("{}\n\n{}", wrap_at(&prose(&SYN, 101, 8, 12), 48), wrap_at(&prose(&SYN, 102, 8, 12), 48))
+    }
+
+    /// Sentences of `p` that start after some text on their line, late
+    /// enough that `LONG` has no room there, each on its own line.
+    fn late_sentences(p: &str) -> Vec<(usize, usize)> {
+        let mut out: Vec<(usize, usize)> = Vec::new();
+        for x in text::sentences(p) {
+            let ls = p[..x.start].rfind('\n').map_or(0, |k| k + 1);
+            let col = p[ls..x.start].chars().count();
+            if col > 0 && col + LONG.len() > 48 && out.last().is_none_or(|l| p[l.1..x.start].contains('\n')) {
+                out.push((x.start, x.end));
+            }
+        }
+        out
+    }
+
+    /// A replacement of `n` words whose first is `LONG`.
+    fn long_first(seed: u64, n: usize) -> String {
+        let t = prose(&ALT, seed, 1, n - 1);
+        format!("{LONG} {}{}", &t[..1].to_lowercase(), &t[1..])
+    }
+
+    #[test]
+    fn run_batch_counts_each_document_line_split_once() {
+        // Amendment 38 item 38.1's totals: an item of two spans whose edits
+        // each split a document line. The item's last request is judged on
+        // the whole item, so its record holds both edits; the summary counts
+        // each application once (the first request's own and the last's own).
+        let q3 = p3();
+        let ls = late_sentences(&q3);
+        assert!(ls.len() >= 2, "{ls:?}");
+        let (s_a, s_b) = (ls[0], ls[ls.len() - 1]);
+        let sw = |sp: (usize, usize)| text::words(&q3[sp.0..sp.1]);
+        let mut ps = parents();
+        ps.insert("p3".into(), q3.clone());
+        let mut off = ctx(None);
+        off.parents = ps.clone();
+        let vf = |r: &Request, parsed: &Value| generation::verdict(&off, r, 200, parsed);
+        let ma = request("r-z-a", "i-z", "p3", Some(s_a), sw(s_a));
+        let mb = request("r-z-b", "i-z", "p3", Some(s_b), sw(s_b));
+        let dir = tempfile::tempdir().unwrap();
+        let runs = dir.path().join("runs");
+        let mut g = lines_of(&ma, &[(0, &long_first(201, sw(s_a)))], &vf);
+        g.extend(lines_of(&mb, &[(0, &long_first(202, sw(s_b)))], &vf));
+        write_journal(&runs, "g", "journal-1-w0.jsonl", &g);
+        let tok = tokenizer();
+        let form = FormPost::new("train2", [("p1", "fiction", ps["p1"].as_str()), ("p2", "news", ps["p2"].as_str()), ("p3", "news", q3.as_str())]).unwrap();
+        let b = Batch {
+            kind: PlanKind::Local,
+            name: "split-train".into(),
+            form,
+            requests: [&ma, &mb].iter().map(|r| (r.request_id.clone(), (*r).clone())).collect(),
+            items: vec![ritem("i-z", "p3", "span", &[&ma, &mb])],
+            parents: ps,
+            tokenizer: Some(&tok),
+            inputs: json!({"fixture": true}),
+            split: "train".into(),
+            skipped: Skipped::new(),
+            records: None,
+        };
+        let out = dir.path().join("out");
+        let sum = run_batch(&b, &runs, &out).unwrap();
+        let recs = lines(&out.join("reverdict-split-train.jsonl"));
+        let q = &recs[0]["requests"];
+        let (first, last) = (&q[0]["profile_record"], &q[1]["profile_record"]);
+        assert_eq!((first["item_check"]["last"].as_bool(), last["item_check"]["last"].as_bool()), (Some(false), Some(true)), "{}", recs[0]);
+        let n = |r: &Value| r["transfer"]["document_line_splits"].as_u64().unwrap_or(0);
+        let own_first = n(&first["edits"][0]);
+        let (e0, e1) = (n(&last["edits"][0]), n(&last["edits"][1]));
+        assert!(own_first >= 1 && e1 >= 1, "both edits split: {own_first} {e1}");
+        assert_eq!(e0, own_first, "the last request's record repeats the earlier edit");
+        assert_eq!((request_line_splits(first), request_line_splits(last)), (own_first, e1));
+        assert_eq!(sum["counts"]["document_line_splits"].as_u64(), Some(own_first + e1));
+        assert_eq!(grammar_a_form::profile::document_line_splits(last), e0 + e1, "every edit of the whole-item record");
+    }
+
+    #[test]
+    fn rows_count_document_line_splits_and_start_spans_after_the_lead() {
+        // A stage-3 mixed row whose span starts late on a hard-wrapped line
+        // of its recorded human, with a first word that has no room there:
+        // amendment 38 breaks before it, the summary counts it, and the
+        // normalised AI span starts after the line break and lead (amendment
+        // 39 item 39.2), as an item's edit's final span does.
+        let q3 = p3();
+        let sp = late_sentences(&q3)[0];
+        let with = long_first(211, text::words(&q3[sp.0..sp.1]));
+        let t = format!("{}{}{}", &q3[..sp.0], with, &q3[sp.1..]);
+        let rs = (sp.0, sp.0 + with.len());
+        let rows_v = vec![row("stage3:h3", "stage3_legacy", LEGACY, "human_only", "g-3", "fiction", &q3), mixed_row("stage3:m3", "stage3_legacy", "g-3", "fiction", &t, rs)];
+        let dir = tempfile::tempdir().unwrap();
+        let rp = dir.path().join("rows.jsonl");
+        fs::write(&rp, jsonl_bytes(&rows_v).unwrap()).unwrap();
+        let sum = renorm_rows(&rp, None, None, "train2", &dir.path().join("o"), false).unwrap();
+        let rv = lines(&dir.path().join("o/rows-reverdict.jsonl"));
+        assert_eq!(rv.len(), 1);
+        let k = rv[0]["record"]["transfer"]["document_line_splits"].as_u64().unwrap_or(0);
+        assert!(k >= 1, "{}", rv[0]);
+        assert_eq!(sum["counts"]["document_line_splits"].as_u64(), Some(k));
+        assert_eq!(rv[0]["action"], "keep", "{}", rv[0]);
+        let nm = lines(&dir.path().join("o/rows-normalised.jsonl"));
+        let d = nm[0]["text"].as_str().unwrap();
+        let a = nm[0]["ai_byte_spans"][0][0].as_u64().unwrap() as usize;
+        let lead = &d[sp.0..a];
+        assert!(lead.starts_with('\n') && lead.trim().is_empty(), "{lead:?}");
+        assert!(d[a..].starts_with(LONG));
+        assert_eq!(&d[..sp.0], &q3[..sp.0]);
+    }
 
     #[test]
     fn the_renorm_path_holds_no_http_client() {

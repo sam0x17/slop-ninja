@@ -10,7 +10,7 @@
 //!   the excerpt layout, the paragraph screen and the length window, and a
 //!   document that fails any of them leaves the cohort whatever its class.
 //! * `cc_cohort_profile_v2` (protocol A2 §6.2, as amended by amendments 7,
-//!   10, 13, 29 and 30): v1 with the parent-conditioned layout transfer
+//!   10, 13, 29, 30 and 38): v1 with the parent-conditioned layout transfer
 //!   (`transfer::LAYOUT_TRANSFER_ID`, measured by `layout_measure_v2`) in place of v1's
 //!   layout step, the licence screen `cc_form_licence_screen_v1` on every
 //!   prose-path child (line-form children stay unscreened), the echo screen
@@ -39,7 +39,7 @@ use crate::layout::{EXCERPT_LAYOUT_ID, excerpt_layout};
 use crate::measure::{MEASURE_ID, Measure, escape_ws};
 use crate::screen::{FORM_LICENCE_SCREEN_ID, classify_all, paragraph_screen, v1_reason};
 use crate::text;
-use crate::transfer::{LAYOUT_TRANSFER_ID, Path as TransferPath, SourceLayout, Transferred, licensed_line_reasons, transfer};
+use crate::transfer::{LAYOUT_TRANSFER_ID, LineContext, Path as TransferPath, SourceLayout, Transferred, licensed_line_reasons, transfer};
 use crate::window::{self, LENGTH_WINDOW, LENGTH_WINDOW_ID};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -339,7 +339,9 @@ pub fn replacement_lead(r: &str) -> Option<usize> {
 
 /// `parent[..s] + rep + parent[e..]` under `generation::assemble`'s splice
 /// rules (a non-empty span on character and token boundaries, a non-empty
-/// trimmed replacement), with its error messages.
+/// trimmed replacement, except that it may begin with one line break and a
+/// lead: `replacement_lead`, amendment 29 item 29.1, which amendment 38 item
+/// 38.1 also gives a single edit), with its error messages.
 pub fn splice(parent: &str, (s, e): (usize, usize), rep: &str) -> Result<String, &'static str> {
     if s >= e || e > parent.len() {
         return Err("span order");
@@ -353,7 +355,7 @@ pub fn splice(parent: &str, (s, e): (usize, usize), rep: &str) -> Result<String,
     if !(e == parent.len() || parent[e..].starts_with(char::is_whitespace)) {
         return Err("right token boundary");
     }
-    if rep.is_empty() || rep.trim() != rep {
+    if rep.trim().is_empty() || rep.trim_end() != rep || replacement_lead(rep).is_none() {
         return Err("replacement layout");
     }
     Ok(format!("{}{rep}{}", &parent[..s], &parent[e..]))
@@ -829,10 +831,20 @@ pub struct LaidEdit {
 ///   two edits only; otherwise the parent text up to the line's body end,
 ///   unchanged.
 ///
+/// Each edit then takes amendment 38's split (item 38.1, as amendment 39
+/// item 39.1 reads it; `transfer`'s module notes): its document lines are
+/// read from the item assembled so far before it, the earlier edits'
+/// wrapped units with their W (`LineContext::widths`), and, when the next
+/// edit starts on its last line, the parent text up to that edit only, or,
+/// when the next edit is an insertion whose separator breaks the line, the
+/// parent text up to its point and the separator up to that break
+/// (`SourceLayout::line`), with break points in its own text. A later
+/// sibling, known or not, never changes an earlier edit's text.
+///
 /// Returns one entry per slot, in slot order: None for a slot with no raw
 /// text or a source outside the parent. Once an edit is outside the parent
 /// or out of order (assembly then fails), the later edits take their
-/// parent's columns.
+/// parent's columns and are split as each alone.
 pub fn lay_out_item(parent: &str, conv: &Conventions, slots: &[Slot]) -> Vec<Option<LaidEdit>> {
     let mut order: Vec<usize> = (0..slots.len()).collect();
     order.sort_by_key(|&i| slots[i].span);
@@ -842,6 +854,9 @@ pub fn lay_out_item(parent: &str, conv: &Conventions, slots: &[Slot]) -> Vec<Opt
     let mut doc = String::new();
     let mut cur = 0usize;
     let mut last_end: Option<usize> = None;
+    // the known edits' wrapped units in `doc`, each with its edit's W
+    // (amendment 38's W on a shared line, amendment 39 item 39.1)
+    let mut wrapped: Vec<((usize, usize), usize)> = Vec::new();
     let mut track = true;
     for (k, &i) in order.iter().enumerate() {
         let sl = slots[i];
@@ -856,8 +871,19 @@ pub fn lay_out_item(parent: &str, conv: &Conventions, slots: &[Slot]) -> Vec<Opt
             if let Some(&j) = order.get(k + 1) {
                 let (s2, e2) = slots[j].span;
                 let breaks = s2 == e2 && slots[j].insert_sep.is_some_and(|x| x.contains('\n'));
-                if let Some(between) = parent.get(e..s2).filter(|b| !breaks && !b.contains('\n')) {
-                    src.tail_column = between.chars().count();
+                if let Some(between) = parent.get(e..s2).filter(|b| !b.contains('\n')) {
+                    if !breaks {
+                        src.tail_column = between.chars().count();
+                    }
+                    // amendment 38's line after the edit is the assembled
+                    // line, read up to the next edit (amendment 39 item 39.1):
+                    // the parent text up to it, and for an insertion whose
+                    // separator breaks the line, the separator up to that
+                    // break (item 29.1's tail stays the parent's there)
+                    let sep = slots[j].insert_sep.filter(|_| breaks).map_or("", |x| &x[..x.find('\n').unwrap_or(x.len())]);
+                    if let Some(l) = src.line.as_mut() {
+                        l.after = format!("{between}{sep}");
+                    }
                 }
             }
             match parent.get(cur..s) {
@@ -870,6 +896,11 @@ pub fn lay_out_item(parent: &str, conv: &Conventions, slots: &[Slot]) -> Vec<Opt
                         let ls = doc.rfind('\n').map_or(0, |x| x + 1);
                         src.column = doc[ls..].chars().count();
                         src.sibling_column = true;
+                        // amendment 38: the document line before the edit,
+                        // earlier edits' laid-out text included
+                        let after = src.line.take().map(|l| l.after).unwrap_or_default();
+                        let widths = wrapped.iter().filter(|r| r.0.1 > ls).map(|&((a, b), w)| ((a.max(ls) - ls, b - ls), w)).collect();
+                        src.line = Some(LineContext { before: doc[ls..].to_string(), after, widths });
                     }
                 }
                 None => track = false,
@@ -877,6 +908,10 @@ pub fn lay_out_item(parent: &str, conv: &Conventions, slots: &[Slot]) -> Vec<Opt
         }
         let t = transfer(raw, conv, &src);
         if track {
+            if let Some(w) = src.width {
+                let at = doc.len();
+                wrapped.extend(t.paragraphs.iter().zip(&t.unit_wrapped).filter(|x| *x.1).map(|(&(a, b), _)| ((at + a, at + b), w)));
+            }
             doc.push_str(&t.text);
             last_end = Some(doc.len());
             cur = e;
@@ -884,6 +919,31 @@ pub fn lay_out_item(parent: &str, conv: &Conventions, slots: &[Slot]) -> Vec<Opt
         out[i] = Some(LaidEdit { src, transferred: t });
     }
     out
+}
+
+/// The applications of amendment 38's split recorded in a profile v2
+/// record (`child_v2`, `item_v2`, `edit_in_item_v2` or `donor_child_v2`):
+/// its `transfer.document_line_splits` and each of its `edits`'. This is
+/// every edit's count: an `item_v2` record over a whole item (an item's last
+/// request) holds its earlier siblings' edits too, so a summary over
+/// requests counts such a record's own edit only (`edit_line_splits`).
+pub fn document_line_splits(record: &Value) -> u64 {
+    one_line_splits(record) + record["edits"].as_array().map_or(0, |es| es.iter().map(one_line_splits).sum())
+}
+
+fn one_line_splits(r: &Value) -> u64 {
+    r["transfer"]["document_line_splits"].as_u64().unwrap_or(0)
+}
+
+/// The applications of amendment 38's split in one edit of a profile v2
+/// record: `edits[index]`'s, or, for a record with no `edits`, its own
+/// (`child_v2` or `donor_child_v2`). Each application is counted once when a
+/// summary adds this over an item's requests with each request's index.
+pub fn edit_line_splits(record: &Value, index: usize) -> u64 {
+    match record["edits"].as_array() {
+        Some(es) => es.get(index).map_or(0, one_line_splits),
+        None => one_line_splits(record),
+    }
 }
 
 /// The profile v2 step for a spliced item with any number of edits,

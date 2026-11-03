@@ -73,5 +73,33 @@ pub struct DryRunReport {
     pub ciphertext_randomized: bool,
     /// Observation only; never compared.
     pub observed_spec_version: u32,
+    /// The commit-reveal payload tag the commit carries: the stored
+    /// `CommitRevealWeightsVersion` rtao's scheduler would follow.
+    pub commit_reveal_version: u16,
+    /// The weights version key the commit carries (`weight_version`).
+    pub weight_version: u64,
+    /// `WeightsVersionKey(netuid)`: 0, or at most `weight_version` (a larger
+    /// one refuses the dry run, as rtao refuses it before signing).
+    pub required_version_key: u64,
+    /// `ValidatorPermit(netuid)` at the signing UID. The chain requires it of
+    /// this row at commit and again at reveal unless the signer is the owner
+    /// validator or the row is its lone self-weight under Yuma; a burn row
+    /// that would need it and lacks it is deferred (`burn_row_no_permit`)
+    /// before this report.
+    pub validator_permit: bool,
+    /// `SubnetEpochConsensus(netuid)` is `Null` (every signer needs a permit).
+    pub null_consensus: bool,
+    /// `MaxAllowedValidators(netuid)`, which bounds the permits; `None` when
+    /// the read failed.
+    pub max_allowed_validators: Option<u16>,
+    /// `StakeThreshold`, the chain's minimum stake weight for a validator
+    /// that is not the owner (`check_weights_min_stake`, again at reveal);
+    /// `None` when the read failed.
+    pub stake_threshold: Option<u64>,
+    /// `TotalHotkeyAlpha(hotkey, netuid)`: the hotkey's own alpha on the
+    /// subnet. The chain compares its stake weight, which also counts
+    /// inherited alpha and weighted TAO, so this is context for
+    /// `stake_threshold`, not the chain's figure. `None` when the read failed.
+    pub own_alpha_stake: Option<u64>,
     pub signed: bool,
 }

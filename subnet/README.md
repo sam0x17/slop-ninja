@@ -2,7 +2,8 @@
 
 This independent Rust crate integrates Slop Ninja's native weight-delivery path
 with `rtao` at
-[`b5553a76ff67f0f54350472ef0306f225e8a4c44`](https://github.com/sam0x17/rtao/tree/b5553a76ff67f0f54350472ef0306f225e8a4c44).
+[`0c12816009baa65eec3135bac9a9dbcc8eaba77d`](https://github.com/sam0x17/rtao/tree/0c12816009baa65eec3135bac9a9dbcc8eaba77d)
+(immutable tag `snapshot-2026-11-03.2`).
 It is a library, an offline journal-control CLI, and the native validator in
 [`crates/validator`](crates/validator/README.md). The validator verifies a
 coordinator-signed score package (testnet shortcut T12: a local bundle file),
@@ -119,33 +120,35 @@ call by name, re-encodes its arguments through `surface::encode` and requires
 identical bytes before the application guard runs. A refusal blocks that attempt
 only; rtao keeps the operation and a later attempt re-resolves it.
 
-Three upstream limits of the pinned rtao weight scheduler are recorded as
-deferrals rather than worked around. Each clears automatically when the live
-chain changes back or rtao gains a by-name path:
+rtao composes weight calls through its compiled descriptors while their live
+shape matches and by name against live metadata otherwise (D-088), and reads
+the storage and constants of its weight preflight, scheduler and reveal
+watcher the same way (D-089). Those fallbacks are recorded as adaptations
+(`UpstreamComposedByName`, `UpstreamReadByName`). What rtao itself still
+refuses is recorded as a deferral, which clears by itself when the live chain
+changes back or rtao gains support:
 
-- **`upstream_descriptor_refused`**: rtao composes weight calls through its
-  compiled descriptors, which refuse a moved index or any argument shape
-  change, and it offers no hook for an application encoder. Such a change
-  defers that call even where `surface::encode` has a safe encoding.
-- **`upstream_storage_refused`**: rtao's scheduler, weight preflight and
-  reveal watcher read 23 storage items (`surface::upstream_storage`, for
-  example `Uids`, `LastUpdate`, `MechanismCountCurrent`, `StakeThreshold`,
-  `SubnetOwnerHotkey`, `CommitRevealWeightsVersion`, `TimelockedWeightCommits`,
-  `SubnetEpochIndex`, `RevealPeriodEpochs`, `ValidatorPermit` and
-  `Drand.LastStoredRound`) through compiled typed descriptors. Its typed read
-  fails the whole read when any one item's shape changes, with no by-name
-  fallback. Then `recover_finalized` and `on_finalized` return errors, so
-  finalized observation, reveal tracking, recovery and both weight calls stop
-  together. The adapter checks these descriptors with rtao's own test and
-  defers `rtao.finalized_observation` and both calls, naming the items. At
-  startup a recovery error with this deferral is a classified retry
-  (exit 75), not a crash. The fix belongs upstream: rtao should read these
-  items by name, as the validator's `subnet_state` fallback already does for
-  its own reads.
-- **`commit_reveal_version_unsupported`**: rtao's timelock encoder produces
-  only `SUPPORTED_CR_VERSION` (4). If `CommitRevealWeightsVersion`, read by
-  name, differs, rtao refuses every commit attempt. A commit for an unknown
-  version has no correct encoding, so only the commit operation is deferred.
+- **`upstream_compose_refused`**: a weight call that neither rtao's compiled
+  descriptor nor its by-name composition can produce, with rtao's own verdict
+  (`ValidatorSurface`). Only that call waits.
+- **`upstream_storage_refused`**: a storage item or constant that rtao reads
+  neither through its compiled descriptor nor by name (`surface::upstream_storage`
+  is rtao's own list, so this check never drifts from what it reads). Then
+  `recover_finalized` and `on_finalized` return errors, so finalized
+  observation, reveal tracking, recovery and both weight calls stop together.
+  At startup a recovery error with this deferral is a classified retry
+  (exit 75), not a crash.
+- **`commit_reveal_version_unencodable`**: a stored `CommitRevealWeightsVersion`
+  that no `u16` commit tag can carry.
+
+Any other stored commit-reveal version than the payload version rtao encodes
+(`NATIVE_CR_PAYLOAD_VERSION`, 4) is an adaptation of the commit
+(`CommitRevealTagChanged`). rtao follows the stored tag under runtime code it
+reviewed or saw reveal one of its own commitments, and otherwise pauses
+timelocked commits for that mechanism and records the refusal as the
+attempt's outcome; it decides per attempt (D-086). The validator's dry run,
+which has no journal evidence, reports a tag it cannot follow as
+`commit_reveal_version_paused`.
 
 `dispatch_finalized` keeps in-process recovery after an rtao scheduler error
 only when that call signed nothing (no new attempt, none unresolved or
@@ -239,15 +242,15 @@ command that clears uncertainty.
 
 | Area | Integration boundary |
 | --- | --- |
-| Journaled MEV shield | Explicit/required shielding refuses. Upstream journaled shield dispatch is still refused at the pinned revision. Never retry without the journal to bypass this refusal. Ordinary weight commit/reveal follows the supported upstream path; the pilot still requires downstream testing on a live chain. |
-| Runtime upgrades | No spec gate. Every signed operation is resolved by name against live metadata and deferred alone when it has no type-correct encoding (above). At this pin rtao's weight scheduler still composes calls and reads its storage only through compiled descriptors, and its timelock encoder supports one commit-reveal version. These defer as `upstream_descriptor_refused`, `upstream_storage_refused` (which also stops rtao's finalized observation and recovery) and `commit_reveal_version_unsupported` until rtao composes and reads by name. The live spec 486 surface is in [the runtime 486 reference](../docs/subnet-runtime-486-diff.md). |
-| Application authority | The native validator verifies a T12 bundle (signed manifest, package, target and receipt index, every receipt object), reads its registration snapshot, derives the row with `testnet-reward-v0`, and its guard signs only that verified row as a timelocked commit while commit/reveal is enabled. The Workers coordinator verifies the same T12 bundle with the protocol crate and derives its own row from its own registration snapshot (M3). Per-tempo re-commit of the verified target is implemented natively (plan decision 12; each re-commit has its own protocol tempo identity) and ran live on 601. Both also verify `reward-v1` bundles (the launch burn row or a cohort target, with the recomputed outcome, closure and authorization) and commit per-tempo `WeightOperationV2` identities. The native validator also fetches the published records from the public status host, verifies them against its held target and supersedes its target natively: a renewal refreshes the authorization in place, and a successor is installed at its eligible boundary once no commitment of the old target is in flight, with the run continuing on it in the same process ([`crates/validator/README.md`](crates/validator/README.md#fetcher)). That path awaits the public host's deployment and the coordinator's storage of the authorizations and renewals it issues, which the publisher copies; until both exist the operator installs bundles (T12). Coordinator row consistency checks, authorization issue and renewal by the coordinator itself, and production empty-pool policy still need the production application. rtao holds (does not commit) a row whose positive entries are only the validator itself or the owner hotkey's UID, which includes the launch burn row; a native validator therefore defers each such tempo (`row_would_be_held`, exit 75), committing nothing while its previous weights stay on chain, until upstream offers an opt-in. Both sides check bundles against the target they hold active (recorded from checked closures), commit a `reward-v1` row in its max-upscaled form, and the native validator re-derives each tempo's row from a fresh finalized snapshot and retires superseded work that never landed. Elapsed time must not expire the cohort; no validator's delivery gates application progress. |
+| Journaled MEV shield | Explicit/required shielding refuses. The pinned revision supports journaled shield dispatch from per-runtime evidence; this adapter has not qualified it and submits unshielded only. Never retry without the journal to bypass a refusal. Ordinary weight commit/reveal follows the supported upstream path; the pilot still requires downstream testing on a live chain. |
+| Runtime upgrades | No spec gate. Every signed operation is resolved by name against live metadata and deferred alone when it has no type-correct encoding (above). rtao composes weight calls and reads its storage by name when its compiled descriptors no longer match, and follows a changed commit-reveal tag under reviewed or proven runtime code. What it still refuses defers as `upstream_compose_refused`, `upstream_storage_refused` (which also stops rtao's finalized observation and recovery) and `commit_reveal_version_unencodable`. rtao reads `Timestamp.Now` for its timelock clock without a by-name fallback; the validator's own by-name read of the same item keeps the clock anchored. The live spec 486 surface is in [the runtime 486 reference](../docs/subnet-runtime-486-diff.md). |
+| Application authority | The native validator verifies a T12 bundle (signed manifest, package, target and receipt index, every receipt object), reads its registration snapshot, derives the row with `testnet-reward-v0`, and its guard signs only that verified row as a timelocked commit while commit/reveal is enabled. The Workers coordinator verifies the same T12 bundle with the protocol crate and derives its own row from its own registration snapshot (M3). Per-tempo re-commit of the verified target is implemented natively (plan decision 12; each re-commit has its own protocol tempo identity) and ran live on 601. Both also verify `reward-v1` bundles (the launch burn row or a cohort target, with the recomputed outcome, closure and authorization) and commit per-tempo `WeightOperationV2` identities. The native validator also fetches the published records from the public status host, verifies them against its held target and supersedes its target natively: a renewal refreshes the authorization in place, and a successor is installed at its eligible boundary once no commitment of the old target is in flight, with the run continuing on it in the same process ([`crates/validator/README.md`](crates/validator/README.md#fetcher)). That path awaits the public host's deployment and the coordinator's storage of the authorizations and renewals it issues, which the publisher copies; until both exist the operator installs bundles (T12). Coordinator row consistency checks, authorization issue and renewal by the coordinator itself, and production empty-pool policy still need the production application. rtao holds (does not commit) a row whose positive entries are only the validator itself or the owner hotkey's UID unless the work is queued under its owner-row policy `Submit` (D-093), and then still holds self-only and self-plus-owner rows. A native validator queues a `reward-v1` owner burn row (the launch burn row under the launch authorization, or a verified target whose row pays only the owner UID) under `Submit`, journaled with the work, after checking `MinAllowedWeights` and `MaxWeightsLimit` by name; it queues every other row under `Hold` and defers a tempo whose row rtao would hold (`row_would_be_held`, exit 75), committing nothing while its previous weights stay on chain. Both sides check bundles against the target they hold active (recorded from checked closures), commit a `reward-v1` row in its max-upscaled form, and the native validator re-derives each tempo's row from a fresh finalized snapshot and retires superseded work that never landed. Elapsed time must not expire the cohort; no validator's delivery gates application progress. |
 | Automatic updates | Signed Rust supervisor, ordered resumable schema migrations, and post-migration recovery remain to be built. Updates must preserve journals and frozen work without waiting for other validators. |
 | Finalized failures and historical missed reveals | Require application adjudication; they are not successful work and cannot authorize blind replacement. There is no safe operator shortcut that deletes history or clears uncertainty. |
 | Durable evidence size | Native journal images are limited to 64 MiB and retain operation identities. A storage migration is needed before exhaustion. Completed reveal diagnostics retain a 256-outcome ring; cohort evidence requires separate durable retention. |
 | Workers coordinator | The service is also the lead validator. Workers-compatible RPC transport, canonical call encoding, hotkey signing, nonce/attempt journaling, finalized reconciliation, weight/reveal recovery, and a Durable Object journal backend remain to be integrated and qualified. The native synchronous file backend supplies none of that storage integration. |
 | Block webhooks | The rtao-rpc pilot is live for Finney and testnet. The testnet `coordinator/` implements its v1 contract and treats each finalized-block delivery as its heartbeat: it authenticates and persists the delivery before acknowledging, deduplicates by delivery ID and block hash, and advances a parent-linked finalized cursor anchored and audited through read-only RPC. Webhook-advanced blocks stay provisional until RPC confirms them, and scheduling judges due work at that RPC-confirmed watermark. It backfills gaps through bounded RPC and records conflicts as durable faults. A one-minute cron watchdog falls back to RPC after 300 s of webhook silence or when the cursor falls behind. It is deployed on testnet ([TESTNET.md](coordinator/TESTNET.md) records the measured delivery latency and fallback drill); launch lag remains unqualified. |
-| Full validator startup | Upstream `NeuronRuntime` unlocks the signer and starts application callbacks before its scheduler recovery. `slop_ninja_validator` instead opens the journal, records live-metadata readiness of signed operations (never halting on a runtime change; an upstream storage refusal during recovery is a recorded retry), recovers without a signer, checks at finalized state that the subnet exists, the hotkey is registered and commit/reveal is enabled, resumes explicitly, and verifies the package and refuses a row rtao would hold before enqueueing. The dry run never writes the journal's work; only `run --dispatch` enqueues and unlocks the hotkey. On 2026-10-30 the dry run and then live dispatch ran against testnet subnet 601: CRv4 commits from validator2 in epochs 7–11 and 14, each read back as one commit-queue entry and revealed as the exact row, through crash, kill, 429, failover and era-expiry drills with no duplicate commit. Measurements and the rtao limits they exposed (admission window, metagraph polling, reveal replay cost, terminal 429) are in [`crates/validator/TESTNET-M2.md`](crates/validator/TESTNET-M2.md). |
+| Full validator startup | Upstream `NeuronRuntime` unlocks the signer and starts application callbacks before its scheduler recovery. `slop_ninja_validator` instead opens the journal, records live-metadata readiness of signed operations (never halting on a runtime change; an upstream storage refusal during recovery is a recorded retry), recovers without a signer, checks at finalized state that the subnet exists, the hotkey is registered and commit/reveal is enabled, resumes explicitly, and verifies the package, chooses the row's owner-row policy and refuses a row rtao would hold under it before enqueueing. The dry run never writes the journal's work; only `run --dispatch` enqueues and unlocks the hotkey. On 2026-10-30 the dry run and then live dispatch ran against testnet subnet 601: CRv4 commits from validator2 in epochs 7–11 and 14, each read back as one commit-queue entry and revealed as the exact row, through crash, kill, 429, failover and era-expiry drills with no duplicate commit. Measurements and the rtao limits they exposed (admission window, metagraph polling, reveal replay cost, terminal 429) are in [`crates/validator/TESTNET-M2.md`](crates/validator/TESTNET-M2.md); rtao `0c128160` addresses them (D-094 to D-097), and the validator sizes the admission window from its signing budget, keeps its sessions through refused reconnects and follows only the newest finalized head ([`crates/validator/README.md`](crates/validator/README.md#paced-endpoints)). |
 | Testing | The offline tests cover local storage, adapter controls, journal migration, live-surface resolution against recorded and mutated metadata, package verification, restart at every application boundary, and a signed attempt whose response was lost. Downstream finalized-RPC/reveal recovery fixtures, the live drills in TESTNET-M2.md, a live runtime upgrade, target-Mac filesystem behavior, and hardware power-loss recovery remain untested. Upstream CI does not establish those properties for this application. |
 
 The native build carries the upstream `bittensor-core` and `w3f-bls` patches at
@@ -276,6 +279,23 @@ crate's 63 unit, 3 allocation and 6 whitepaper-number tests and 3 doctests
 passed with `--test-threads=1`; workspace Clippy passed with warnings denied,
 with and without the validator's `testnet-drills` feature.
 
+Re-pinned to rtao `0c128160` (2026-11-03, the development host, Linux x86_64,
+Rust 1.99.1): 46 adapter unit tests (including the journaled owner-row policy
+and its immutability, `unsigned_retry` checkpoints with and without an
+uncertain slot, the rollback check and a scan that no production code clears
+uncertainty by hand), the 2-test `no_runtime_gates` lint, 83 validator tests, the miner's 37 and the protocol crate's 82 unit, 3
+allocation and 6 whitepaper-number tests passed with `--test-threads=1`;
+workspace Clippy passed with warnings denied, with and without the
+validator's `testnet-drills` feature; and the protocol crate's `v1` and
+`reward-v1` reports were byte-identical on native, `wasm32-unknown-unknown`
+and their golden files. Existing journals written at `b5553a76`, including a
+live validator's (copied read-only, not checked in), opened and replayed with
+their work, effects bytes and checkpoints unchanged, and the rollback check
+found nothing in them that `b5553a76` would refuse. rtao's own weights suite
+at the pin passed (110 tests, among them the burn row's commit and reveal,
+restart mid-commit, the rejected-commitment re-prepare and a duplicate ID
+under another policy). No key was loaded and nothing was submitted.
+
 Run focused checks on the authorized compute host, not GitHub Actions. Set
 `SLOP_NINJA_TEST_TMPDIR` to an existing task-owned temporary root; the tests use
 it for disposable synthetic journals and remove their per-test directories.
@@ -285,6 +305,11 @@ cargo test --manifest-path subnet/Cargo.toml --locked -- --test-threads=1
 cargo clippy --manifest-path subnet/Cargo.toml --locked --all-targets -- -D warnings
 ```
 
+The coordinator and its parity checks are separate workspaces: run them from
+`subnet/coordinator` (and `subnet/coordinator/parity`), whose
+`.cargo/config.toml` sets `SLOP_NINJA_MEMORY_MODEL`; with `--manifest-path`
+from elsewhere the coordinator's memory-model assertion fails to compile.
+
 The `no_runtime_gates` integration test scans the subnet crates and the
 coordinator and fails if production code compares, allow-lists or branches on a
 runtime spec, transaction version, spec name or metadata hash, or reintroduces
@@ -292,17 +317,72 @@ a removed runtime gate.
 
 ## rtao pin
 
-[`b5553a76`](https://github.com/sam0x17/rtao/commit/b5553a76ff67f0f54350472ef0306f225e8a4c44)
-is rtao main as of October 30, 2026 (`git ls-remote`). It vendors Finney
-runtime 477–486 V15/V16 metadata; its testnet metadata pins stop at 481. The
-testnet 486 V15 snapshot recorded here
-([`fixtures/runtime-486`](fixtures/runtime-486/)) is byte-identical to rtao's
-Finney 486 V15 (sha256 `582b1d05…1a81`). It records no validated runtime range in
-[`COMPAT.md`](https://github.com/sam0x17/rtao/blob/b5553a76ff67f0f54350472ef0306f225e8a4c44/COMPAT.md),
+[`0c128160`](https://github.com/sam0x17/rtao/commit/0c12816009baa65eec3135bac9a9dbcc8eaba77d)
+is the immutable tag `snapshot-2026-11-03.2` (tag object `f38ab8ee`), rtao
+main on November 3, 2026 (UTC), resolved with `git ls-remote`. It is a snapshot,
+not a versioned release (the workspace stays 0.1.0), and a fast-forward of
+`snapshot-2026-11-03` (`3e936dae`). Every rtao dependency here (the adapter,
+the validator, the miner, the coordinator's `rtao-core` and its parity
+checks) is pinned to that full commit ID (`slop_ninja_subnet::RTAO_PIN`; a test
+checks every manifest against it). It vendors Finney runtime 477–486
+V15/V16 metadata; its testnet metadata pins stop at 481. The testnet 486 V15
+snapshot recorded here ([`fixtures/runtime-486`](fixtures/runtime-486/)) is
+byte-identical to rtao's Finney 486 V15 (sha256 `582b1d05…1a81`). It records
+no validated runtime range in
+[`COMPAT.md`](https://github.com/sam0x17/rtao/blob/0c12816009baa65eec3135bac9a9dbcc8eaba77d/COMPAT.md),
 and only logs, never refuses, when the connected runtime is outside its
 evidence. Its `[patch]` selectors (`bittensor-core` at `5f2477f5`, `w3f-bls`
 and `subtensor-macros` at `v478`) are mirrored at the root of this workspace;
-its `ruint` patch is outside this dependency graph.
+its `ruint` patch (for `rtao-arena`) is outside this dependency graph.
+
+What this pin adds over `b5553a76`, and how the adapter uses it:
+
+- **Owner-row policy (D-093).** `OwnerRowPolicy { Hold, Submit }`, journaled
+  with durable work: `Submit` work records `"owner_rows":"submit"` in its
+  effects, `Hold` work keeps the bytes earlier builds wrote, and the same
+  operation ID under another policy is refused like changed input.
+  `NativeWeightAdapter::enqueue_with_owner_rows` queues through rtao's
+  `enqueue_with_owner_rows`; `enqueue` is `Hold`. Held entries an earlier
+  build journaled keep holding; nothing retires them but this application's
+  own retirement of never-signed work.
+- **Rollback.** A build at `b5553a76` decodes the effects and attempt
+  material of every weight operation it has not handed back, and the weight
+  checkpoint, with `deny_unknown_fields`, so it refuses the whole scope when
+  it meets a field this pin added: `owner_rows` in pending `Submit` work (in
+  steady state the next tempo's burn row is almost always queued and not yet
+  attempted), `followed_cr` in a commit or pending reveal that followed a
+  non-native commit-reveal tag, or the watcher's `revealed_code`, retained
+  evidence once a reveal completed or missed under such a tag. Handed-back
+  and retired work blocks nothing. `JournalControls::rollback_blockers`
+  lists these fields and `retire_for_rollback` retires the blocking work
+  that never signed; the validator's `rollback-check --retire`, run with the
+  unit stopped, does both and exits 0 only when an older build can open the
+  journal. Work with a signed attempt or an unhanded landed commit settles
+  only under this build, and after rtao has followed a non-native tag the
+  rollback is roll-forward only. A test decodes journals with the strict
+  structures copied from `b5553a76`'s source and requires them to agree
+  with `rollback_blockers`. Restarting this build after a retirement queues
+  that tempo afresh under the next label, which then runs one epoch ahead
+  of its commit epoch (the lease's last epoch is deferred one tempo early).
+- **By-name reads and composition (D-088, D-089)** and **commit-reveal tag
+  following (D-086)**, recorded as described above.
+  `SUPPORTED_CR_VERSION` is a deprecated alias of `NATIVE_CR_PAYLOAD_VERSION`.
+  The two sides differ on a non-native tag: native validators follow a
+  stored tag under runtime code rtao has reviewed (or under which one of
+  their commitments revealed), while the coordinator encodes the native tag
+  4 and pauses its commits on any other stored tag. 601 stores 4. The
+  agreement that both of our validators commit the same row each cohort
+  (AR-2/AR-3) assumes tag 4: after a tag change, native validators could
+  keep committing while the coordinator pauses. Neither commits a wrong
+  row.
+- **Paced endpoints (D-094 to D-097).** The scheduler anchors its timelock
+  clock at each commit's preflight block; a dispatch that provably signed
+  nothing reports `Failed` and retries in the same epoch after a 1 to 32
+  block backoff, checkpointed as the slot's `unsigned_retry` (the adapter
+  never clears uncertainty by hand); the admission window is configurable
+  (`SchedulerConfig::submit_deadline`); a refused reconnect is retried within
+  the session; finalized heads follow a `Backfill` policy; the reveal
+  watcher and metagraph sync read less.
 
 Its `OperationJournal` uses schema 3. Opening a schema 1 or 2 journal migrates it
 in place: attempts gain stable IDs and roles, records gain an execution mode, and
@@ -312,11 +392,17 @@ collides with a schema-3 name, is refused the same way. Journals must be
 owner-only files (mode `0600`); wider permissions are refused with a clear error,
 never reset. [`fixtures/journal-schema2`](fixtures/journal-schema2/README.md)
 holds a journal written by this adapter at rtao `aa8627ba`; tests prove it
-migrates with its work, attempt and legacy extension intact.
+migrates with its work, attempt and legacy extension intact. A journal written
+at `b5553a76` opens unchanged: its work reads back as `Hold` with the same
+effects bytes, and its checkpoints load as written.
 
-Upstream refusals that remain at this pin: production journaled shield
-dispatch; composition of a weight call whose live indices or argument shape
-differ from rtao's compiled descriptor; typed reads of the 23 storage items
-its scheduler and reveal watcher use, which stop finalized observation and
-recovery when any one changes shape; and its single supported commit-reveal
-version (4). The last three are deferred here as described above.
+Not qualified here at this pin: journaled shield dispatch (rtao supports it
+from per-runtime evidence; this adapter submits unshielded only), the v482
+port (rtao's independent semantic review of it remains open) and any runtime
+range (rtao validates none). rtao's own residuals: `Timestamp.Now` has no
+by-name fallback; an unknown commit-reveal tag pauses commits under
+unreviewed, unproven runtime code; an endpoint without
+`author_pendingExtrinsics` falls back to the slower shield carrier re-seal;
+`on_finalized` can block for a long time (a lost watch's reconcile, an
+era-expiry scan); and a reveal period that churns to 0 and back within one
+skipped span could go unseen by the reveal watcher.

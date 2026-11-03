@@ -16,10 +16,10 @@ slop-ninja-coordinator = { path = ".." }
 
 [dev-dependencies]
 hex = "0.4"
-rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
-rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
-rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
-rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
+rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
+rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
+rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
 slop-ninja-protocol = { path = "../../crates/protocol" }
 
 # The same patches as the coordinator and subnet/Cargo.toml.

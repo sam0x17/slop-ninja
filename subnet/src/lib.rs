@@ -25,6 +25,9 @@ use rtao_neuron::{
     Clock, ClockGuard, Metrics, NeuronCx, VersionKey, WeightCadence, WeightPolicy, WeightScheduler,
     WeightsInput, WeightsProposal,
 };
+/// rtao's owner-row policy (D-093), re-exported so the application decides
+/// with the same predicate the scheduler applies.
+pub use rtao_neuron::weights::OwnerRowPolicy;
 use rtao_primitives::{AccountId, H256, MechId, NetUid, Uid};
 use rtao_runtime::RuntimeHandle;
 use rtao_signer::KeyView;
@@ -43,7 +46,8 @@ pub const READINESS_KEY: &str = "slopninja.operation-readiness.v1";
 /// next evaluation rewrites [`READINESS_KEY`]. Readiness never gates recovery.
 pub const READINESS_QUARANTINE_KEY: &str = "slopninja.operation-readiness.unreadable.v1";
 /// Readiness entry for rtao's finalized observation, reveal tracking and
-/// recovery, which read storage through compiled descriptors at this pin.
+/// recovery: its storage reads use compiled descriptors while their shape
+/// matches and resolve by name against live metadata otherwise.
 pub const OBSERVATION_ID: &str = "rtao.finalized_observation";
 /// Retained readiness transitions, oldest dropped first.
 const MAX_TRANSITIONS: usize = 64;
@@ -252,18 +256,24 @@ pub fn evaluate_operations(runtime: &RuntimeHandle) -> BTreeMap<String, Operatio
 
 /// [`evaluate_operations`] with chain facts read by name from live storage.
 ///
-/// Three upstream limits at this rtao pin are recorded here, each as a
-/// deferral that clears by itself when the live chain changes back or rtao
-/// gains a by-name path:
+/// rtao composes weight calls and reads its storage through compiled
+/// descriptors while their shape matches and by name against live metadata
+/// otherwise (D-088, D-089), recorded as adaptations. What is recorded as a
+/// deferral, which clears by itself when the live chain changes back or rtao
+/// gains support, is what rtao itself refuses:
 ///
-/// - a weight call whose live shape differs from rtao's compiled call
-///   descriptor (`upstream_descriptor_refused`);
-/// - a storage item rtao reads through a compiled descriptor that no longer
-///   matches (`upstream_storage_refused`); this stops finalized observation and
+/// - a weight call that neither rtao's compiled descriptor nor its by-name
+///   composition can produce (`upstream_compose_refused`);
+/// - a storage item or constant rtao reads that neither path accepts
+///   (`upstream_storage_refused`); this stops finalized observation and
 ///   recovery as well as both weight operations;
-/// - a commit-reveal version other than the one rtao's timelock encoder
-///   produces (`commit_reveal_version_unsupported`); a commit for an unknown
-///   version has no correct encoding, so only the commit operation waits.
+/// - a stored commit-reveal version that does not fit the call's `u16` tag
+///   (`commit_reveal_version_unencodable`).
+///
+/// Any other stored commit-reveal version is an adaptation of the commit
+/// ([`surface::Adaptation::CommitRevealTagChanged`]): rtao follows it under
+/// reviewed or proven runtime code and otherwise pauses timelocked commits
+/// per attempt, reported as that attempt's outcome.
 pub fn evaluate_operations_with(
     runtime: &RuntimeHandle,
     facts: &LiveFacts,
@@ -273,18 +283,21 @@ pub fn evaluate_operations_with(
         transaction_version: runtime.transaction_version(),
     };
     let storage = surface::evaluate_upstream_storage(runtime);
-    let commit_version = match facts.commit_reveal_version {
-        Some(version) if version != u128::from(rtao_neuron::weights::SUPPORTED_CR_VERSION) => {
-            Err(surface::Deferral::new(
-                "commit_reveal_version_unsupported",
-                format!(
-                    "the chain requires commit-reveal version {version}; the pinned rtao timelock encoder produces version {} only",
-                    rtao_neuron::weights::SUPPORTED_CR_VERSION
-                ),
-            ))
-        }
-        _ => Ok(()),
-    };
+    let native = u128::from(rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION);
+    let commit_version: std::result::Result<Option<surface::Adaptation>, surface::Deferral> =
+        match facts.commit_reveal_version {
+            None => Ok(None),
+            Some(version) if version == native => Ok(None),
+            Some(version) => match u16::try_from(version) {
+                Ok(stored) => Ok(Some(surface::Adaptation::CommitRevealTagChanged { stored })),
+                Err(_) => Err(surface::Deferral::new(
+                    "commit_reveal_version_unencodable",
+                    format!(
+                        "the chain stores commit-reveal version {version}, which no u16 commit tag can carry"
+                    ),
+                )),
+            },
+        };
     let state =
         |result: std::result::Result<Vec<surface::Adaptation>, surface::Deferral>| match result {
             Ok(adaptations) if adaptations.is_empty() => OperationReadiness {
@@ -313,19 +326,21 @@ pub fn evaluate_operations_with(
         .iter()
         .map(|operation| {
             let mut result = surface::evaluate(runtime, operation);
-            if result.is_ok() {
+            if let Ok(adaptations) = &mut result {
                 if let Err(deferral) = &storage {
                     result = Err(deferral.clone());
-                } else if operation.expected.call == COMMIT_CALL
-                    && let Err(deferral) = &commit_version
-                {
-                    result = Err(deferral.clone());
+                } else if operation.expected.call == COMMIT_CALL {
+                    match &commit_version {
+                        Ok(Some(adaptation)) => adaptations.push(adaptation.clone()),
+                        Ok(None) => {}
+                        Err(deferral) => result = Err(deferral.clone()),
+                    }
                 }
             }
             (operation.expected.id(), state(result))
         })
         .collect();
-    evaluated.insert(OBSERVATION_ID.into(), state(storage.map(|()| Vec::new())));
+    evaluated.insert(OBSERVATION_ID.into(), state(storage));
     evaluated
 }
 
@@ -524,6 +539,62 @@ impl PendingOperation {
 /// Journal extension recording why an operation was retired.
 pub const RETIRED_KEY: &str = "slop_ninja_retired";
 
+/// The rtao commit every crate here pins (a test checks each manifest).
+/// When it changes, set [`PREVIOUS_RTAO_PIN`] to the old value, re-derive
+/// the field lists below from that commit's source and update the copied
+/// structures in the rollback test to match.
+pub const RTAO_PIN: &str = "0c12816009baa65eec3135bac9a9dbcc8eaba77d";
+
+/// The rtao pin before the current one ([`RTAO_PIN`]), whose strict journal
+/// decoding [`JournalControls::rollback_blockers`] checks a journal against.
+pub const PREVIOUS_RTAO_PIN: &str = "b5553a76ff67f0f54350472ef0306f225e8a4c44";
+
+// Fields of the structures rtao `b5553a76` decodes with
+// `deny_unknown_fields` from a journal, from its source at that commit. A
+// test decodes journals with those structures, copied from that source, and
+// requires them to agree with `rollback_blockers`.
+const PREVIOUS_WORK_FIELDS: &[&str] = &["netuid", "mechanism", "input", "version_key"];
+const PREVIOUS_MATERIAL_FIELDS: &[&str] = &["row", "commit", "preparation"];
+const PREVIOUS_PREPARATION_FIELDS: &[&str] = &["prepared_block", "uid", "reveal_period", "schedule_fields"];
+const PREVIOUS_WATCHER_FIELDS: &[&str] = &["pending", "unlocated", "outcomes", "last_observed_block"];
+const PREVIOUS_PENDING_FIELDS: &[&str] = &[
+    "netuid",
+    "mechanism",
+    "hotkey",
+    "uid",
+    "uids",
+    "version_key",
+    "commit_epoch",
+    "reveal_epoch",
+    "predicted_first_block",
+    "round",
+    "ciphertext",
+    "inclusion_block",
+    "first_check",
+    "first_checked",
+    "first_reveal_hash",
+    "last_round",
+    "notices",
+    "warned_permit",
+    "ambiguous_reveal",
+];
+const PREVIOUS_UNLOCATED_FIELDS: &[&str] =
+    &["netuid", "mechanism", "hotkey", "row", "version_key", "state", "commit", "report"];
+
+/// A field a build at [`PREVIOUS_RTAO_PIN`] refuses to decode. Redacted: a
+/// field path and an operation ID only, no values.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct RollbackBlocker {
+    /// The pending operation holding the field; `None` for the weight checkpoint.
+    pub operation_id: Option<String>,
+    /// Path of the refused field, such as `effects.owner_rows` or
+    /// `checkpoint.reveals.revealed_code`.
+    pub field: String,
+    /// The operation never landed and no attempt awaits classification, so
+    /// [`JournalControls::retire_for_rollback`] can retire it.
+    pub retirable: bool,
+}
+
 /// This adapter has no durable shield carrier/inner recovery path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shielding {
@@ -542,6 +613,13 @@ pub struct SchedulerConfig {
     pub weight_version: u64,
     pub cadence: Option<WeightCadence>,
     pub shielding: Shielding,
+    /// Each weight transaction's admission window (signer resolution, nonce
+    /// lease, preparation, signing and the pool's acknowledgment), passed to
+    /// rtao's `WeightScheduler::with_submit_deadline` (D-097). `None` keeps
+    /// rtao's default, `DEFAULT_WEIGHT_SUBMIT_DEADLINE`. The caller sizes it
+    /// from the request budget of the transport that signs; rate-limiter
+    /// waits count toward it.
+    pub submit_deadline: Option<std::time::Duration>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -813,6 +891,121 @@ impl JournalControls {
         }))
     }
 
+    /// The owner-row policy a retained operation was queued under, read from
+    /// its journaled effects (absent `owner_rows` is `Hold`), if the journal
+    /// retains it. An unreadable value is an error, never a default.
+    pub fn owner_row_policy(&self, id: &str) -> Result<Option<OwnerRowPolicy>> {
+        let image = self.journal.snapshot()?;
+        let Some(record) = image.operations.get(id) else {
+            return Ok(None);
+        };
+        match record.intent.effects.get("owner_rows") {
+            None => Ok(Some(OwnerRowPolicy::Hold)),
+            Some(value) => Ok(Some(
+                serde_json::from_value(value.clone()).context("retained owner-row policy is unreadable")?,
+            )),
+        }
+    }
+
+    /// Fields in this journal that a build at [`PREVIOUS_RTAO_PIN`] refuses
+    /// to decode, so that build cannot open the journal's weight scope. That
+    /// rtao decodes these structures with `deny_unknown_fields`: the effects
+    /// (`Work`) and attempt material (`Material`, its `RevealPreparation`) of
+    /// every weight record it has not handed back, and the weight checkpoint
+    /// (`Checkpoint`, `RevealWatcher`, `Pending`, `Unlocated`). The current
+    /// pin adds `owner_rows` to `Submit` work, `call_encoder` to material an
+    /// application encoder composed, `followed_cr` to a preparation and a
+    /// pending reveal that followed a non-native commit-reveal tag, and
+    /// `revealed_code` to the watcher once a reveal completed, or was
+    /// missed, under one (retained evidence, never cleared).
+    /// Handed-back records are never decoded there, so finished or retired
+    /// work blocks nothing; the slot's `unsigned_retry` is accepted there.
+    /// Empty means a build at that pin can open the journal.
+    pub fn rollback_blockers(&self) -> Result<Vec<RollbackBlocker>> {
+        let image = self.journal.snapshot()?;
+        let mut found = Vec::new();
+        let mut unknown = |operation_id: Option<&str>, path: &str, value: &serde_json::Value, known: &[&str], retirable: bool| {
+            if let Some(object) = value.as_object() {
+                for key in object.keys().filter(|key| !known.contains(&key.as_str())) {
+                    found.push(RollbackBlocker {
+                        operation_id: operation_id.map(str::to_owned),
+                        field: format!("{path}{key}"),
+                        retirable,
+                    });
+                }
+            }
+        };
+        for record in image.operations.values() {
+            if !record.intent.scope.starts_with("weights:")
+                || record.extensions.get("scheduler_handed_off") == Some(&serde_json::Value::Bool(true))
+            {
+                continue;
+            }
+            let retirable = !record.attempts.iter().any(|a| {
+                matches!(a.outcome, AttemptOutcome::Unresolved | AttemptOutcome::Finalized { success: true, .. })
+            });
+            let id = Some(record.intent.id.as_str());
+            unknown(id, "effects.", &record.intent.effects, PREVIOUS_WORK_FIELDS, retirable);
+            for attempt in &record.attempts {
+                unknown(id, "attempt.material.", &attempt.material, PREVIOUS_MATERIAL_FIELDS, retirable);
+                if let Some(preparation) = attempt.material.get("preparation") {
+                    unknown(id, "attempt.material.preparation.", preparation, PREVIOUS_PREPARATION_FIELDS, retirable);
+                }
+            }
+        }
+        for (scope, checkpoint) in &image.checkpoints {
+            if !scope.starts_with("weights:") {
+                continue;
+            }
+            unknown(None, "checkpoint.", checkpoint, &["schema", "slots", "reveals"], false);
+            let Some(reveals) = checkpoint.get("reveals") else { continue };
+            unknown(None, "checkpoint.reveals.", reveals, PREVIOUS_WATCHER_FIELDS, false);
+            for pending in reveals.get("pending").and_then(serde_json::Value::as_array).into_iter().flatten() {
+                unknown(None, "checkpoint.reveals.pending.", pending, PREVIOUS_PENDING_FIELDS, false);
+            }
+            for unlocated in reveals.get("unlocated").and_then(serde_json::Value::as_array).into_iter().flatten() {
+                unknown(None, "checkpoint.reveals.unlocated.", unlocated, PREVIOUS_UNLOCATED_FIELDS, false);
+                if let Some(state) = unlocated.get("state") {
+                    unknown(None, "checkpoint.reveals.unlocated.state.", state, PREVIOUS_PREPARATION_FIELDS, false);
+                }
+            }
+        }
+        found.sort_by(|a, b| (&a.operation_id, &a.field).cmp(&(&b.operation_id, &b.field)));
+        found.dedup();
+        Ok(found)
+    }
+
+    /// Retires every weight operation that blocks a rollback
+    /// ([`Self::rollback_blockers`]) and can be retired
+    /// ([`Self::retire_superseded`], reason `rollback_prepared`): queued
+    /// work that never signed, such as the next tempo's `Submit` burn row
+    /// waiting for its epoch's offset. Run only with the validator stopped,
+    /// which the journal's lifetime lock enforces. A validator of this build
+    /// started again queues that tempo's work afresh under the next label,
+    /// since a retired label is never joined: the label moves one epoch
+    /// ahead of the epoch it commits in from then on, so the last epoch of
+    /// an authorization lease is deferred (`authorization_refused`) one tempo
+    /// early. Nothing is lost or committed twice. Returns the retired IDs.
+    /// Checkpoint fields, and work with an attempt awaiting recovery or a
+    /// landed commit not yet handed back, are left: they settle only by
+    /// running this build.
+    pub fn retire_for_rollback(&self) -> Result<Vec<String>> {
+        let mut ids: Vec<String> = self
+            .rollback_blockers()?
+            .into_iter()
+            .filter(|blocker| blocker.retirable)
+            .filter_map(|blocker| blocker.operation_id)
+            .collect();
+        ids.dedup();
+        let mut retired = Vec::new();
+        for id in ids {
+            if self.retire_superseded(&id, "rollback_prepared")? {
+                retired.push(id);
+            }
+        }
+        Ok(retired)
+    }
+
     /// Whether the operation was retired, and why.
     pub fn retired(&self, id: &str) -> Result<Option<String>> {
         let image = self.journal.snapshot()?;
@@ -996,6 +1189,11 @@ impl NativeWeightAdapter {
             clock,
             clock_guard,
         )?
+        .with_submit_deadline(
+            config
+                .submit_deadline
+                .unwrap_or(rtao_neuron::weights::DEFAULT_WEIGHT_SUBMIT_DEADLINE),
+        )?
         .with_journal(
             journal.clone(),
             identity.genesis,
@@ -1056,7 +1254,28 @@ impl NativeWeightAdapter {
     /// Persist already authenticated application output. Authentication and cohort
     /// evidence remain the caller's responsibility and are checked by its guard.
     /// A retry of completed work stays idempotent even with later work pending.
+    /// The work is prepared under [`OwnerRowPolicy::Hold`]; see
+    /// [`Self::enqueue_with_owner_rows`].
     pub fn enqueue(&mut self, work: &WeightWork, row: BTreeMap<Uid, f64>) -> Result<Enqueued> {
+        self.enqueue_with_owner_rows(work, row, OwnerRowPolicy::Hold)
+    }
+
+    /// [`Self::enqueue`] under an explicit owner-row policy, journaled with the
+    /// work through rtao's `enqueue_with_owner_rows`. `Submit` work records
+    /// `"owner_rows":"submit"` in its immutable effects; `Hold` work keeps the
+    /// exact bytes earlier builds wrote. Restart, recovery and the re-prepare
+    /// after a rejected commitment use the recorded policy. Retaining the same
+    /// ID under another policy is refused like changed input.
+    ///
+    /// Choose the policy with [`OwnerRowPolicy::holds`] first: rtao journals
+    /// work before its guard runs, so a row the policy holds would stay
+    /// pending and block the mechanism.
+    pub fn enqueue_with_owner_rows(
+        &mut self,
+        work: &WeightWork,
+        row: BTreeMap<Uid, f64>,
+        owner_rows: OwnerRowPolicy,
+    ) -> Result<Enqueued> {
         let id = work.operation_id(&self.config.identity)?;
         let row = canonical_row(row)?;
         let correlation = serde_json::to_string(&WeightCorrelation {
@@ -1066,6 +1285,12 @@ impl NativeWeightAdapter {
         })?;
         let input = WeightsInput::ByUid(row);
         let identity = &self.config.identity;
+        // This projection deliberately follows rtao's journaled `Work` at the
+        // exact pinned revision: `owner_rows` is omitted for `Hold`.
+        let mut effects = serde_json::json!({ "netuid": identity.netuid, "mechanism": work.mechanism, "input": input, "version_key": self.config.weight_version });
+        if owner_rows != OwnerRowPolicy::Hold {
+            effects["owner_rows"] = serde_json::to_value(owner_rows)?;
+        }
         let expected = OperationIntent {
             id: id.clone(),
             correlation_id: Some(correlation.clone()),
@@ -1077,8 +1302,7 @@ impl NativeWeightAdapter {
                 identity.netuid,
                 identity.hotkey
             ),
-            // This projection deliberately follows Work at the exact pinned revision.
-            effects: serde_json::json!({ "netuid": identity.netuid, "mechanism": work.mechanism, "input": input, "version_key": self.config.weight_version }),
+            effects,
             obligation: false,
             semantic_policy: Some(self.config.semantic_contract.clone()),
             extensions: BTreeMap::new(),
@@ -1086,12 +1310,17 @@ impl NativeWeightAdapter {
         if let Some(existing) = self.controls.journal.snapshot()?.operations.get(&id) {
             ensure!(
                 existing.intent == expected,
-                "operation identity or immutable row conflicts with retained work"
+                "operation identity, immutable row or owner-row policy conflicts with retained work"
             );
             return Ok(Enqueued::Existing(id));
         }
-        self.scheduler
-            .enqueue(id.clone(), Some(correlation), work.mechanism, input)?;
+        self.scheduler.enqueue_with_owner_rows(
+            id.clone(),
+            Some(correlation),
+            work.mechanism,
+            input,
+            owner_rows,
+        )?;
         Ok(Enqueued::Created(id))
     }
 
@@ -1246,9 +1475,13 @@ impl NativeWeightAdapter {
     /// deferred call does not stop finalized observation, reveal tracking or
     /// the other call; rtao refuses to compose it, the refusal is recorded, and
     /// the next block evaluates it again. An `upstream_storage_refused`
-    /// deferral is the exception: rtao's own typed storage reads fail, so its
-    /// recovery and both calls stop until rtao reads those items by name.
-    /// Nothing here compares spec numbers.
+    /// deferral is the exception: rtao reads that item neither through its
+    /// compiled descriptor nor by name, so its recovery and both calls stop
+    /// until rtao supports the live item. Nothing here compares spec numbers.
+    ///
+    /// The callback proposes `HoldPrevious` for every mechanism, so only
+    /// queued work is ever signed, each under the owner-row policy journaled
+    /// with it ([`Self::enqueue_with_owner_rows`]).
     pub async fn dispatch_finalized(
         &mut self,
         cx: &NeuronCx,

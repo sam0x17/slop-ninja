@@ -1,7 +1,8 @@
 # Native validator
 
 `slop_ninja_validator` is the native Slop Ninja validator. It builds on the
-journaled adapter in [`subnet/`](../../README.md) and rtao `b5553a76`. It
+journaled adapter in [`subnet/`](../../README.md) and rtao `0c128160`
+(tag `snapshot-2026-11-03.2`). It
 verifies the coordinator's signed score package, derives the native row with
 the shared [protocol crate](../protocol/README.md), and commits it as a
 timelocked weight commit through rtao's journaled scheduler. By default it
@@ -92,19 +93,78 @@ procedure for subnet 601 is [TESTNET-M2.md](TESTNET-M2.md).
    chain's reveal both keep. Each later tempo's re-commit derives its row
    afresh from a finalized snapshot and owner hotkey and checks the
    authorization again.
-9. Read `SubnetOwnerHotkey(netuid)` by name. A row whose positive entries all
-   belong to this validator's hotkey or the owner hotkey (the launch burn row,
-   or a target whose credited miners all left) is deferred
-   (`row_would_be_held`): rtao holds such a row (`HoldPrevious`) and never
-   commits it, so this validator commits nothing that tempo and its previous
-   weights stay on chain. A row that must burn while the owner hotkey holds no
+9. Read `SubnetOwnerHotkey(netuid)` by name and choose the row's owner-row
+   policy (rtao's `OwnerRowPolicy`, D-093). A `reward-v1` row whose every
+   positive entry goes to the UID the finalized owner hotkey holds is an
+   owner burn row: the launch burn row under the launch authorization, or a
+   verified cohort target whose row pays only the owner UID (its units burn,
+   or an entrant registered under the owner hotkey is paid there; the chain
+   receives the same row either way). It is queued under `Submit`,
+   which rtao journals with the work (`"owner_rows":"submit"`) and commits and
+   reveals like any row. Every other row, and every `testnet-reward-v0` row,
+   is queued under `Hold`, the default, whose journaled bytes are unchanged.
+   The hold decision is rtao's own predicate, `OwnerRowPolicy::holds`, under
+   that policy: this validator's UID is the owner's only when its own hotkey
+   is the owner hotkey, and any other UID is the owner's when the finalized
+   snapshot maps it to the owner hotkey. A row rtao would still hold (a
+   self-only or self-plus-owner row, or an all-zero row) is deferred
+   (`row_would_be_held`), so this validator commits nothing that tempo and
+   its previous weights stay on chain. Before a burn row is queued, rtao's
+   own weight preflight is read at the best head, where its preparation
+   reads it (`MinAllowedWeights`, `MaxWeightsLimit`, `SubnetworkN`,
+   `SubnetEpochConsensus` and `ValidatorPermit` among its fields; compiled
+   reads, by name when the shapes no longer match): a one-entry burn row
+   from a validator that is not the owner needs an effective
+   `MinAllowedWeights` (capped at the population) of 1
+   (`burn_row_min_allowed_weights` otherwise); under a `MaxWeightsLimit`
+   below 65535 the row must list only the owner UID
+   (`burn_row_weights_limit`; `reward-v1` rows list positive entries only, so
+   a burn row always does); and this validator needs a validator permit
+   wherever the chain's `check_validator_permit` requires one: under Yuma
+   unless it is the owner validator, and always under `Null` consensus
+   (`burn_row_no_permit`). rtao only warns about a missing permit, and the
+   chain applies that check, the length check and the stake check
+   (`StakeThreshold`, which is not checked here) again when it reveals a
+   timelocked commit, where a failure drops the row with no error. Each is
+   a deferral, never a queued operation that would stay pending.
+   `row_would_be_held` and every `burn_row_*` deferral are logged as
+   `tempo_deferred` with `alert = true`: each leaves this validator
+   committing nothing that tempo. A row that must burn while the owner hotkey holds no
    UID (`row_deferred`), and an authorization that does not cover the epoch
    (`authorization_refused`, until a renewal or a new bundle), defer the same
    way. A continuous dispatch run waits in the same process for the next
    epoch (with `[fetch]`, fetching every `poll_secs` and continuing at once
    when a renewal or successor is installed) and applies the bundle again;
    a dry run or bounded run exits 75. Inside the dispatch loop the tempo is
-   skipped and the next epoch is tried afresh.
+   skipped and the next epoch is tried afresh. The first commitment and each
+   per-tempo re-commit resolve the label against the journal the same way
+   (`app::derive_queueable`), looking up the label's retained operation
+   before reading the limits. One with the same row and policy is joined
+   whatever the limits read now, so a restart adopts its unresolved attempt
+   or reads its landed commit back; only a pending burn row that never
+   signed and that the limits now refuse is retired
+   (`burn_row_limits_changed`) and the tempo deferred. When the limits refuse
+   a new burn row, pending `Submit` work of the same row that never landed
+   is retired the same way. An operation of this tempo with the same row but
+   another policy (a burn row an earlier build queued under `Hold`) is
+   retired if it never landed (`owner_row_policy_changed`) and the next label
+   is used; rtao refuses the same operation ID under another policy. If the
+   limits change after a burn row is queued and before it signs, rtao's
+   preparation refuses the row before signing. The dispatch loop then
+   alerts (`weight_attempt_not_submitted`), re-reads the limits for each
+   distinct failure, at most once an epoch, and, if they now refuse the row,
+   retires it
+   (`burn_row_limits_changed`, `alert = true`) and ends the run
+   `tempo_deferred:<code>` (exit 75); the next start defers each tempo
+   under that code until the limits allow the row again. The limits and the
+   permit must also stay compatible from commit through reveal: the chain
+   checks them again when it reveals the commit, one or more epochs later,
+   and nothing here re-reads them in between. 601's owner sets
+   `MinAllowedWeights`; it must not be raised above 1 while the burn row is
+   committed. A row dropped at reveal shows up one reveal period later as
+   `weights_mismatch` (exit 3, halted), not as a silent continuation.
+   Rolling back to an older rtao build needs the
+   [rollback check](#rolling-back-past-this-rtao-pin).
 10. Without `--dispatch` (the dry run): the journal is not written. Compute
     the operation ID and report whether the journal already retains it
     (`retained`), read the weight preflight at the best block, require that
@@ -112,7 +172,15 @@ procedure for subnet 601 is [TESTNET-M2.md](TESTNET-M2.md).
     otherwise), encrypt it to the predicted reveal round, compose
     `commit_timelocked_mechanism_weights`, type-check it by name against live
     metadata, prepare the unsigned extrinsic for the public hotkey, and print
-    its signing-payload hash. No key is read.
+    its signing-payload hash. No key is read. A weights version key below
+    `WeightsVersionKey(netuid)` refuses the dry run
+    (`weights_version_key_refused`), as rtao refuses it before signing. The
+    report carries the inputs of the chain's checks at commit and reveal:
+    `required_version_key`, `validator_permit` and `null_consensus` from the
+    preflight, and `max_allowed_validators`, `stake_threshold` and the
+    hotkey's own alpha (`own_alpha_stake`, context only: the chain compares
+    its stake weight, which also counts inherited alpha and weighted TAO),
+    read by name.
 11. With `--dispatch`: enqueue the row as `WeightWork` (manifest digest,
     cohort label, revision, mechanism). The operation ID excludes the row, so
     a restart re-derives the same row and joins the retained operation, a
@@ -128,7 +196,11 @@ procedure for subnet 601 is [TESTNET-M2.md](TESTNET-M2.md).
     run (`pending_operation_unsettled`, exit 75) until recovery settles it.
     Then
     authorize the verified operation and row for the
-    signing guard, unlock `[dispatch] hotkey_file`, take one metagraph
+    signing guard, with the owner-row policy chosen for it (the guard
+    refuses an intent journaled under another policy,
+    `slop_ninja_owner_rows_mismatch`, and a `Submit` intent whose row pays
+    any UID but the owner UID recorded with the authorization,
+    `slop_ninja_owner_rows_unexpected`), unlock `[dispatch] hotkey_file`, take one metagraph
     snapshot, connect the signing transport (when configured) last, and for
     each finalized block run `dispatch_finalized` (with bounded recovery when an attempt
     needs reconciliation). Once the commit is finalized it reads back
@@ -164,7 +236,7 @@ exit, so the next run recovers first.
 | 1 | Error, such as an RPC failure | restarts |
 | 2 | Invalid configuration, missing journal, or `--dispatch` without `[package]` and `[dispatch]` | stays stopped |
 | 3 | Halted by a check: subnet or hotkey not registered, commit/reveal disabled, chain mismatch, recovery that needs review, a refused package or row, or chain weights that differ from the row of the operation that committed them | stays stopped |
-| 75 | Recovery still in progress after `recovery.max_rounds`, refused upstream (`upstream_storage_refused`), work awaiting recovery (`pending_operation_unsettled`); and, outside a continuous dispatch run, a deferred `reward-v1` tempo (`row_deferred`, `row_would_be_held`, `authorization_refused`, a dispatch run ending `tempo_deferred:*`) or no bundle installed (`bundle_unavailable`) | restarts |
+| 75 | Recovery still in progress after `recovery.max_rounds`, refused upstream (`upstream_storage_refused`), work awaiting recovery (`pending_operation_unsettled`); and, outside a continuous dispatch run, a deferred `reward-v1` tempo (`row_deferred`, `row_would_be_held`, `burn_row_min_allowed_weights`, `burn_row_weights_limit`, `burn_row_no_permit`, `authorization_refused`, a dispatch run ending `tempo_deferred:*`) or no bundle installed (`bundle_unavailable`) | restarts |
 
 ## Configuration
 
@@ -197,14 +269,83 @@ The process sends the configured `User-Agent` and shares one request budget
 (`max_requests_per_minute`, 15 by default). Public pools return 429 at about
 25 requests per minute from one address. Optional
 `signing_requests_per_minute` gives rtao's executor a second connection with
-its own budget, which is also its burst, because rtao's 30 s window from nonce
-lease to pool admission made 26 to 28 calls on testnet. That window alone puts
-a commit's minute above about 20 calls on public RPC, an rtao limit. The second
-connection makes about 16 calls at once, so it opens after every startup read,
-with `signing_connect_quiet_secs` (60 by default) on each side in which the
-read session makes no call. Until rtao-rpc serves testnet state,
+its own budget, which is also its burst: rtao's admission window, from nonce
+lease to pool admission, made 26 to 28 calls on testnet at rtao `b5553a76`,
+and each commit's minute reached more than about 20 calls on public RPC. The
+second connection makes about 16 calls at once, so it opens after every
+startup read, with `signing_connect_quiet_secs` (60 by default) on each side
+in which the read session makes no call. The admission window itself is
+sized from the signing budget ([Paced endpoints](#paced-endpoints)). Until rtao-rpc serves testnet state,
 the example lists the public OpenTensor testnet endpoints (testnet shortcut
 T3, removed by upstream item R-1).
+
+### Paced endpoints
+
+rtao `0c128160` (D-094 to D-097) changes how a validator that drives rtao's
+scheduler from its own loop behaves on an endpoint paced to a few requests a
+minute. The validator uses it this way:
+
+- **Admission window.** rtao's window for each weight transaction (signer
+  resolution, nonce lease, preparation, signing and the pool's
+  acknowledgment) is configurable, 30 s by default, and rate-limiter waits
+  count toward it. The validator sets it from the budget of the transport
+  that signs (`signing_requests_per_minute`, else `max_requests_per_minute`):
+  the 28 calls measured in the window on testnet at rtao `b5553a76`, plus an
+  allowance of 20 for the calls this pin can add inside it that the 28 do not
+  count (signer resolution, the timelock clock anchor, the commit-reveal
+  tag's runtime code and a by-name fallback, one each, and one reconnect of
+  about 16 calls), plus one interval for the pool's acknowledgment, paced
+  from an empty token bucket, and never under 30 s: 147 s at 20 a minute,
+  227 s at 13, 49 s at 60. Both testnet windows fit in the about 492 s
+  between a 320-block offset and the end of a 361-block epoch. The first
+  live burn-row commit at this pin (2026-11-03) made 21 calls in the
+  window, in 3.0 s and with no reconnect, so the 28 cover it and the
+  allowance stays for the paths it did not take
+  ([TESTNET-M2.md](TESTNET-M2.md#8-measured-limits-on-public-rpc)). A window
+  that proves too short only delays the commit: an attempt that signed
+  nothing is reported `Failed` and retried in the same epoch, which the
+  dispatch loop alerts on (below). The wait for inclusion is a whole
+  128-block era after the window, so a longer window never shortens it; a
+  commit that lands in the next epoch is followed there by the reveal
+  watcher.
+- **Unsigned failures.** An attempt that provably signed nothing, such as an
+  admission timeout, gives its epoch's cadence slot back and retries after 1
+  block, doubling to 32 while such failures repeat. rtao reports it as
+  `Failed`, so the validator does nothing to resolve it. rtao's scheduler
+  returns `Ok` whatever it recorded, so after each dispatch the loop reads
+  rtao's last outcome for the mechanism while the tracked operation waits to
+  be signed, and logs `weight_attempt_not_submitted` with `alert = true` once
+  per distinct outcome kind (`failed`, `refused:<check>`, `hold_previous`,
+  `paused_surface`, `skipped`), resetting when the work signs. It counts
+  unsigned failures (`unsigned_failures` in the run report), and when the
+  tracked operation has no new journal attempt two epochs (`Tempo + 1`
+  blocks each) after it was first seen waiting, by which time at least one
+  commit window has passed, it logs `commit_window_passed_without_attempt`
+  (`alert = true`; `windows_without_attempt` in the report).
+- **Refused reconnects.** rtao retries an HTTP 403/429 refusal of a
+  reconnect within the session, after the longer of its `Retry-After` (at
+  most 10 minutes) and a backoff doubling from 1 s to 60 s. Both sessions
+  set `retry_forever`, so neither a refusal nor a run of endpoint losses ends
+  a session; the validator no longer restarts on a refused reconnect. A
+  JSON-RPC policy error or a policy close (1008) still ends a session, and
+  the dispatch loop then exits (`transport_failed`, exit 1) so the unit
+  reconnects; nothing is lost, because the journal is the state.
+- **Finalized heads.** The dispatch loop follows only the newest finalized
+  head (`Backfill::Latest`), with no request for a skipped height. It needs
+  one head in each epoch's commit window, not every height: the
+  once-per-epoch cadence is ready at any head at or past the offset in an
+  epoch after the last attempt, and the reveal watcher and recovery follow
+  finalized history from their own cursors. Replaying a gap first
+  (`Complete` or `Bounded(n)`) would only delay the newest head: after an
+  hour-long call on testnet, about 400 heights at two requests each.
+- **Timelock clock.** rtao anchors its clock from `Timestamp.Now` at each
+  commit's preflight block. The validator still observes the best head's
+  `Timestamp.Now`, read by name, on every iteration (about two requests),
+  since rtao's own read has no by-name fallback.
+
+The metagraph worker is still stopped after its startup snapshot. rtao's
+sync now makes no request until a refresh is due, so running it again is
+possible but not yet qualified here.
 
 Logs are structured JSON on stderr, or text if configured. Events carry fixed
 names and counts. They omit addresses, paths, ciphertext, signed bytes and
@@ -385,6 +526,50 @@ the reveal ledger alone; the next dispatch run retires the old target's
 never-signed work as superseded. The next run needs the restarted chain's
 launch bundle, fetched or installed by the operator.
 
+### Rolling back past this rtao pin
+
+A build at rtao `b5553a76` (the previous pin) decodes three things in the
+journal strictly, and refuses the whole weight scope when it meets a field
+this pin added:
+
+- the effects of every weight operation rtao has not handed back: `Submit`
+  work carries `"owner_rows":"submit"`. In steady state the next tempo's burn
+  row is almost always queued and not yet attempted, waiting for its epoch's
+  offset, so this is the usual case;
+- the attempt material of such an operation (`followed_cr` in a commit that
+  followed a non-native commit-reveal tag, `call_encoder` from an
+  application call encoder, which this validator does not install);
+- the weight checkpoint's reveal watcher: `followed_cr` in a pending reveal
+  and `revealed_code`, which rtao keeps as evidence once a reveal completes,
+  or is missed, under a non-native commit-reveal tag.
+
+Handed-back and retired operations are never decoded there, so finished work
+blocks nothing; the slot's `unsigned_retry` is accepted there. To roll back:
+
+```sh
+systemctl --user stop slop_ninja_validator-dispatch@<name>
+slop_ninja_validator --config <config> rollback-check --retire
+# exit 0: install the older build, then start the unit
+```
+
+`rollback-check` holds the journal's lock (it refuses while a run holds the
+journal), reads no chain and loads no key. With `--retire` it first retires
+the blocking work that never signed (`rollback_prepared`), through the same
+journaled retirement as superseded work. It prints the remaining blockers and
+exits 0 when none remain, else 3. Work with a signed attempt awaiting
+recovery, or a landed commit not yet handed back, settles only by running
+this build: start it again and check later. Checkpoint state from a followed
+non-native tag never clears (`revealed_code` is retained evidence), so after
+rtao has followed one the rollback is roll-forward only. 601 uses the native
+tag 4 today. A validator of this build started again queues the retired
+tempo's work afresh under the next label, because a retired label is never
+joined. From then on each label is one epoch ahead of the epoch it commits
+in, so the last epoch of an authorization lease is deferred
+(`authorization_refused`) one tempo early. Nothing is lost or committed
+twice. The same shift follows any retirement of a label's never-signed
+work after which the validator restarts in the same epoch
+(`owner_row_policy_changed`, `burn_row_limits_changed`).
+
 ## Fixture packages (T12)
 
 ```sh
@@ -485,7 +670,9 @@ connection. They cover:
   subnet or chain, and malformed bundle is refused before a row exists;
 - row derivation, including UID reuse (credit to UID 0) and a foreign UID 0
   (no row);
-- the signing guard's verified-row, contract and timelocked-call checks;
+- the signing guard's verified-row, contract, owner-row-policy and
+  timelocked-call checks, including the policy of a real journaled `Submit`
+  intent;
 - restart at every application fault boundary, and a signed attempt whose
   response was lost, each yielding exactly one operation and no new attempt;
 - a dry run that leaves the journal unchanged, so a mistaken package never
@@ -570,3 +757,29 @@ a live public host, which is not yet deployed (the authorization pointer is
 not published), and no continuous run has crossed a cohort boundary on
 subnet 601 yet; the persistent unit's live runs are in
 [TESTNET-M2.md](TESTNET-M2.md#10-persistent-unit-2026-11-01).
+
+At rtao `0c128160`, 83 tests passed on 2026-11-03 on the development host,
+with workspace Clippy and the `testnet-drills` build clean under denied
+warnings. New: the burn row queued under `Submit` and recorded in the
+journal, burn rows the chain limits refuse deferred before the journal, a
+burn row an earlier build queued under `Hold` retired for `Submit`, a
+retained burn row joined (signed, or landed and handed back) or retired
+(never signed) after the limits changed, cohort targets whose row pays only
+the owner UID queued under `Submit` and ones paying this validator's own
+UID, alone or with the owner, deferred at the first commitment and at the
+per-tempo re-derive, the rollback check finding the queued burn row,
+rtao's hold predicate for self-only, self-plus-owner, all-zero and
+owner-validator rows, and three [paced-endpoint](#paced-endpoints) tests:
+the admission window's derivation, a refused reconnect kept within the
+session and a policy close ending it (against rtao-testkit's loopback fake
+node), and the newest finalized head after a long iteration (against its
+fake chain). No test runs a `Submit` row through rtao's real scheduler with
+this validator's guard and reveal ledger; the first live burn-row commit on
+601 is that check. A read-only dry run of this build against 601
+(2026-11-03, no key, a journal copy) built the launch burn row's commit,
+one entry at the owner UID under `Submit`, with the subnet's limits
+(`MinAllowedWeights` 1, `MaxWeightsLimit` 65535) read by name. On
+2026-11-03 validator2 (UID 2, not the owner), installed from this build,
+committed that row timelocked in block 8,362,443 and revealed it at
+8,362,485 with the reveal matching the journaled row; the chain then held
+UID 2's row as weight 1.0 on the owner UID 0 and nothing for any miner UID.

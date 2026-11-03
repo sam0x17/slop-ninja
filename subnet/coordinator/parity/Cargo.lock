@@ -1952,7 +1952,7 @@ dependencies = [
 [[package]]
 name = "rtao-core"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=b5553a76ff67f0f54350472ef0306f225e8a4c44#b5553a76ff67f0f54350472ef0306f225e8a4c44"
+source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
 dependencies = [
  "bittensor-core",
  "rtao-core-ext",
@@ -1964,7 +1964,7 @@ dependencies = [
 [[package]]
 name = "rtao-core-ext"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=b5553a76ff67f0f54350472ef0306f225e8a4c44#b5553a76ff67f0f54350472ef0306f225e8a4c44"
+source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
 dependencies = [
  "base64",
  "bittensor-core",
@@ -1982,7 +1982,7 @@ dependencies = [
 [[package]]
 name = "rtao-primitives"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=b5553a76ff67f0f54350472ef0306f225e8a4c44#b5553a76ff67f0f54350472ef0306f225e8a4c44"
+source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
 dependencies = [
  "chrono",
  "num-bigint",
@@ -2002,7 +2002,7 @@ dependencies = [
 [[package]]
 name = "rtao-runtime"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=b5553a76ff67f0f54350472ef0306f225e8a4c44#b5553a76ff67f0f54350472ef0306f225e8a4c44"
+source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
 dependencies = [
  "blake2",
  "bytes",
@@ -2018,7 +2018,7 @@ dependencies = [
 [[package]]
 name = "rtao-signer"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=b5553a76ff67f0f54350472ef0306f225e8a4c44#b5553a76ff67f0f54350472ef0306f225e8a4c44"
+source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
 dependencies = [
  "bitflags 2.13.2",
  "rtao-core",

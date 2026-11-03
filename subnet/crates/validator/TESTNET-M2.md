@@ -116,6 +116,9 @@ install -m 0755 $CT/debug/rtao ~/.local/bin/
 ```
 
 `git rev-parse HEAD` must print `b5553a76ff67f0f54350472ef0306f225e8a4c44`.
+That was the M2 runs' pin. The workspace now pins rtao
+`0c12816009baa65eec3135bac9a9dbcc8eaba77d` (tag `snapshot-2026-11-03.2`);
+build the CLI for a new run from a clone at that commit.
 
 The rtao commands below follow rtao's book at that revision. Before you sign
 anything, run each one with `--help` on the installed CLI and confirm the
@@ -500,16 +503,36 @@ journal: **no duplicate commit**, and each restart recovered from the journal.
 The 429 drill exposed an rtao behavior: a policy refusal (HTTP 403/429)
 received while reconnecting marks the session permanently failed. The
 signing transport never reconnected (rtao logged the stored 429 every 12 s
-for 17 minutes), so its next commit would have failed. The dispatch loop now
-checks both sessions before each block and exits with `transport_failed`, so
-the unit restarts with fresh connections (`43e1ee4b`). The same drill showed
+for 17 minutes), so its next commit would have failed. The dispatch loop then
+checked both sessions before each block and exited with `transport_failed`, so
+the unit restarted with fresh connections (`43e1ee4b`). From rtao `0c128160`
+(D-097) a refused reconnect is retried within the session and both sessions
+set `retry_forever`, so the exit remains only for what rtao still ends a
+session on: a JSON-RPC policy error or a policy close (1008). The same drill showed
 that the commit queue can drain before rtao's watcher reports the reveal; the
 read-back now reads it before the reveal (`43e1ee4b`).
 
 ## 8. Measured limits on public RPC
 
 Measured through the drill proxy on 2026-10-30 (validator read budget 13 per
-minute, signing transport 20 per minute):
+minute, signing transport 20 per minute), at rtao `b5553a76`. rtao `0c128160`
+addresses the admission window, the epoch lost to an unsigned failure, the
+reveal replay, the metagraph polling, the terminal 429 and the head backfill
+(D-094 to D-097; see the [README](README.md#paced-endpoints)). The admission
+window there is sized from these 28 calls plus an allowance of 20 for calls
+the pin can add inside it (147 s at the signing transport's 20 a minute).
+At the first burn-row commit at that pin (2026-11-03, validator2, finalized
+in block 8,362,443), counted through a tracing pass proxy, the signing
+transport made 21 calls from its first call of the attempt to the
+submission (20 reads and `author_submitAndWatchExtrinsic`, in 3.0 s, with
+no reconnect), the read session none in those seconds, and the watch 5
+more after inclusion. The other figures here have not been measured again
+at that pin.
+An overrun there is not a scheduler fault: one that signed nothing is
+rtao's `Failed` outcome with the slot's `unsigned_retry` checkpoint and a
+same-epoch retry (the validator logs `weight_attempt_not_submitted` and
+counts `unsigned_failures`); one that signed leaves the slot uncertain, and
+recovery classifies it from finalized history.
 
 - **Startup** to `resumed` takes about 2–4 minutes with no reveal pending
   (connection about 1 minute). The first dispatch iteration followed about

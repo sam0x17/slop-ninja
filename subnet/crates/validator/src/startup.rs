@@ -6,11 +6,11 @@
 //! refuses any journal write after the recovery that established it, and a
 //! first evaluation or a readiness change is such a write. Any refusal leaves
 //! the journal paused. A runtime upgrade is never a refusal: the live-surface
-//! stage records per-operation deferrals and continues. The one runtime change
-//! that does stop recovery is upstream: rtao's scheduler reads its storage
-//! through compiled descriptors, so a changed item makes recovery fail; startup
-//! has already recorded the `upstream_storage_refused` deferral and retries
-//! (exit 75).
+//! stage records per-operation deferrals and continues. rtao reads its storage
+//! through compiled descriptors while their shape matches and by name against
+//! live metadata otherwise; the one runtime change that stops recovery is an
+//! item it can read neither way. Startup has then already recorded the
+//! `upstream_storage_refused` deferral and retries (exit 75).
 
 use anyhow::{Context, Result};
 use rtao_primitives::H256;
@@ -18,7 +18,8 @@ use serde::Serialize;
 
 use crate::faults::{Faults, Phase};
 
-/// Readiness code for an rtao storage read that no longer matches live metadata.
+/// Readiness code for an rtao storage read that neither its compiled
+/// descriptor nor its by-name read accepts under live metadata.
 pub const UPSTREAM_STORAGE_REFUSED: &str = "upstream_storage_refused";
 
 /// One finalized block chosen for the whole startup sequence.
@@ -160,10 +161,11 @@ pub async fn start<P: StartupPorts>(
         let counts = match ports.recover_finalized(&head).await {
             Ok(counts) => counts,
             Err(error) => {
-                // When rtao's typed storage reads no longer match live
-                // metadata, the readiness just recorded says so, and recovery
-                // cannot succeed until upstream reads them by name: that is a
-                // classified retry with a durable alert, not a crash.
+                // When rtao can read a storage item neither through its
+                // compiled descriptor nor by name, the readiness just recorded
+                // says so, and recovery cannot succeed until upstream supports
+                // the live item: a classified retry with a durable alert, not
+                // a crash.
                 if surface.as_ref().is_some_and(|surface| {
                     surface
                         .deferred

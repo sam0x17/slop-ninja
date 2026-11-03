@@ -60,6 +60,20 @@ enum Command {
     /// journal. (A change of trust roots needs no reset: a record of another
     /// authority is set aside automatically.)
     ResetTarget,
+    /// Report whether a build at the previous rtao pin can open this
+    /// journal, and with `--retire` first retire the work that blocks it and
+    /// never signed (`rollback_prepared`). Run with the unit stopped (it
+    /// refuses while a run holds the journal), immediately before installing
+    /// the older build. Exits 0 when nothing blocks the rollback and 3 when
+    /// something still does: work with a signed attempt awaiting recovery or
+    /// a landed commit not yet handed back (run this build until it settles),
+    /// or checkpoint state from a followed non-native commit-reveal tag (no
+    /// rollback past this pin). Reads no chain and loads no key.
+    RollbackCheck {
+        /// Retire the retirable blocking work before checking.
+        #[arg(long)]
+        retire: bool,
+    },
     /// Read-only finalized observation: epoch state, this hotkey's
     /// `TimelockedWeightCommits` entries for recent epochs, its `Weights` row,
     /// and `Incentive` at the row's UIDs. Opens no journal or key.
@@ -96,6 +110,14 @@ fn main() -> ExitCode {
             tracing::info!(event = "target_reset");
             Ok(())
         })),
+        Command::RollbackCheck { retire } => match slop_ninja_validator::live::rollback_check(&config, retire) {
+            Ok((report, safe)) => {
+                println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+                tracing::info!(event = "rollback_check", safe);
+                Some(if safe { EXIT_OK } else { EXIT_HALTED })
+            }
+            Err(error) => report(Err(error)),
+        },
         Command::Observe { epochs, at } => {
             if !(1..=32).contains(&epochs) {
                 tracing::error!(event = "config_refused", error = "--epochs must be 1..=32");

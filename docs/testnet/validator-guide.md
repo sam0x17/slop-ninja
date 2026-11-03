@@ -41,7 +41,7 @@ evaluation is part of the protocol.
 | Published packages on the public status host | not yet live |
 | The package fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, which must also publish the current authorization (below) |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
-| Committing the launch burn row | not yet supported: the validator refuses it (`row_would_be_held`, below) |
+| Committing the launch burn row | built and tested offline (rtao's owner-row opt-in, below); not yet committed live on subnet 601 |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Signed release binaries | not yet live |
 
@@ -444,12 +444,34 @@ delayed, never skipped.
 ### The launch burn row
 
 Until some entrant beats the reference by the margin, the active target is the
-burn row: the whole pool goes to the subnet owner hotkey's UID. **Not yet
-supported:** the native validator refuses a row whose only positive entries are
-the owner hotkey or its own hotkey (`row_would_be_held`, exit 3), because rtao
-at the pinned revision holds such a row and never commits it, which would block
-later packages. Committing the burn row needs a change to rtao or the validator
-that has not been made yet.
+burn row: the whole pool goes to the subnet owner hotkey's UID. rtao holds a
+row whose only positive entries are the owner hotkey's UID or the validator's
+own unless the work opts in to submitting owner rows. The validator opts in
+only for the burn row under a valid launch authorization, or a verified target
+whose row pays only the owner UID, and records that choice in the journal with the work, so
+a restart commits and reveals the same row. Every other row keeps the default.
+A row rtao would still hold, such as one that pays only this validator's own
+UID, defers the tempo (`row_would_be_held`, exit 75 outside a continuous run),
+and the previous weights stay on chain.
+
+Before it queues the burn row, the validator reads the subnet's
+`MinAllowedWeights`, `MaxWeightsLimit` and validator permits. A validator
+that is not the owner can commit a one-entry row only while the effective
+`MinAllowedWeights` is 1; otherwise the tempo is deferred
+(`burn_row_min_allowed_weights`). Under a `MaxWeightsLimit` below 65535 the
+row may list only the owner UID (`burn_row_weights_limit` otherwise; burn
+rows list no other UID). A validator that is not the owner needs a validator
+permit (`burn_row_no_permit` otherwise). The chain checks these again when
+it reveals the commit, so they must not change between commit and reveal.
+Each of these deferrals is logged with `alert = true`.
+
+A build older than the one that queued burn-row work cannot open that
+journal, and in steady state the next tempo's burn row is almost always
+queued, so the work never simply finishes. To roll back, stop the unit, run
+`slop_ninja_validator --config <config> rollback-check --retire`, and install
+the older build only when it exits 0 (see the validator README,
+[Rolling back past this rtao pin](../../subnet/crates/validator/README.md#rolling-back-past-this-rtao-pin)).
+**Not yet live:** this has not yet committed the burn row on subnet 601.
 
 ## The journal
 

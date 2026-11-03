@@ -2,7 +2,7 @@
 
 `slop_ninja_miner` takes an *A* artifact from model files to an admitted
 entrant on testnet subnet 601. It is Rust on rtao at the workspace's pin
-(`b5553a76`), with no btcli or Python. It follows the admission contract in
+(`0c128160`), with no btcli or Python. It follows the admission contract in
 [`docs/testnet/admission-api.md`](../../../docs/testnet/admission-api.md),
 whose byte-level helpers live in [`wire/`](wire) (crate
 `slop-ninja-admission-wire`; no I/O, and its arena-safe items build for

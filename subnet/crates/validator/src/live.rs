@@ -11,14 +11,14 @@ use std::{path::Path, sync::Arc, time::Duration};
 use anyhow::{Context, Result, bail, ensure};
 use futures::{FutureExt as _, StreamExt as _};
 use rtao_client::{
-    BlockHeader, BlockRef, Client, ClientConfig, Finality, Mortality, Network,
-    PublicPrepareOptions, SubmitOptions, ViewExt,
+    Backfill, BlockHeader, BlockRef, BlockStream, Client, ClientConfig, Finality, Mortality,
+    Network, PublicPrepareOptions, SubmitOptions, ViewExt,
 };
 use rtao_core::codec::Value;
 use rtao_intents::weights::{
     CommitSizeLimit, ConformState, TimelockCommitRequest, TimelockCommitter, conform,
 };
-use rtao_neuron::weights::{SUPPORTED_CR_VERSION, WeightPreflight};
+use rtao_neuron::weights::{NATIVE_CR_PAYLOAD_VERSION, WeightPreflight};
 use rtao_neuron::{ChainClock, ClockGuard, EpochClock, EpochStatus, Metrics, NeuronCx};
 use rtao_primitives::{AccountId, H256, IntoCoreValue as _, NetUid, Uid};
 use rtao_rpc::{EndpointPool, RateLimit};
@@ -26,10 +26,11 @@ use rtao_runtime::storage::subtensor_module as st;
 use rtao_signer::KeyView as _;
 use slop_ninja_protocol::{ChainBinding, NeuronIdentity, RegistrationSnapshot, TrustedKeys};
 use slop_ninja_subnet::{
-    ChainIdentity, Enqueued, NativeWeightAdapter, SchedulerConfig, Shielding, WeightWork,
+    ChainIdentity, Enqueued, NativeWeightAdapter, OwnerRowPolicy, SchedulerConfig, Shielding,
+    WeightWork,
 };
 
-use crate::app::{AppPorts, CommitRecord, DispatchReport};
+use crate::app::{AppPorts, CommitRecord, DispatchReport, Mode, OwnerRowChoice, WeightLimits};
 use crate::config::{Recommit, ValidatorConfig};
 use crate::fetch::{BundleInfo, HttpTransport, Outcome, Session, Staged};
 use crate::reveals::{Check, Completed, OpState, RevealLedger};
@@ -137,9 +138,10 @@ pub fn chain_identity(config: &ValidatorConfig) -> Result<ChainIdentity> {
 
 /// Open the adapter with the package guard. Opening persists pause.
 ///
-/// `clock` is rtao's timelock clock. It starts unanchored, and rtao refuses
-/// to prepare a commit ("timelock clock has no verified time anchor") until
-/// the dispatch loop anchors it to a chain timestamp.
+/// `clock` is rtao's timelock clock. It starts unanchored. rtao's scheduler
+/// anchors it before each timelocked commit from `Timestamp.Now` at the
+/// commit's preflight block (D-094); the dispatch loop also observes the best
+/// head's timestamp on every iteration. The clock only moves forward.
 pub fn open_adapter(
     config: &ValidatorConfig,
     identity: ChainIdentity,
@@ -159,11 +161,87 @@ pub fn open_adapter(
                 .and_then(|dispatch| dispatch.epoch_offset_blocks)
                 .map(|offset_blocks| rtao_neuron::WeightCadence::OncePerEpoch { offset_blocks }),
             shielding: Shielding::Unshielded,
+            submit_deadline: Some(weight_submit_deadline(config)),
         },
         Arc::new(PackageGuard { authorized, netuid }),
         Arc::new(clock),
         ClockGuard::default(),
     )
+}
+
+/// Calls the signing transport made in rtao's admission window, the most
+/// measured on subnet 601 (TESTNET-M2.md section 8): 26 to 28 at the seven
+/// testnet commits at rtao `b5553a76` (2026-10-30), counted from the nonce
+/// lease with the signing guards' reads and the watch's reads after
+/// `author_submitAndWatchExtrinsic`, and 21 at the first burn-row commit at
+/// rtao `0c128160` (AR-3, 2026-11-03), counted from the signing transport's
+/// first call of the attempt to the submission (20 reads and the submission,
+/// in 3.0 s). The larger count is kept; [`UNCOUNTED_ADMISSION_CALLS`] covers
+/// paths neither measurement exercised.
+pub const MEASURED_ADMISSION_CALLS: u32 = 28;
+
+/// An allowance on top of [`MEASURED_ADMISSION_CALLS`] for calls a window at
+/// this pin can make beyond the measured ones: one each for signer
+/// resolution, the D-094 `Timestamp.Now` anchor read at the preflight block,
+/// the commit-reveal tag-following runtime-code read and a by-name fallback
+/// read under descriptor drift (4), and one reconnect inside the window,
+/// which rtao retries within the session under `retry_forever` and which
+/// makes about 16 calls at once on the signing connection. The first
+/// burn-row commit at rtao `0c128160` (AR-3, 2026-11-03) made 21 calls with
+/// no reconnect, under the 28 measured; the allowance is kept rather than
+/// cut to that count, because a reconnect or a fallback can still fall in
+/// any window.
+pub const UNCOUNTED_ADMISSION_CALLS: u32 = 4 + 16;
+
+/// rtao's weight admission window for this configuration (D-097).
+///
+/// The window's calls go through the transport that signs: the separate
+/// signing transport when `rpc.signing_requests_per_minute` is set, else the
+/// read session, whose budget it then has to itself because the dispatch loop
+/// makes no other call while rtao dispatches. In the worst case the window
+/// starts with an empty token bucket, which then admits one call every
+/// `60 / per_minute` seconds: the window needs one interval for each of the
+/// [`MEASURED_ADMISSION_CALLS`] and [`UNCOUNTED_ADMISSION_CALLS`] and one
+/// more for the pool's acknowledgment of the last (the measured responses
+/// took well under one interval at these budgets). rtao's 30 s default is the
+/// floor. At the testnet budgets, 20 calls a minute on the signing transport
+/// give 147 s, and 13 a minute on the read session alone 227 s; both fit in
+/// the about 492 s between a 320-block offset and the end of a 361-block
+/// epoch. A window that proves too short costs no journal state: an attempt
+/// that signed nothing is reported `Failed` and retried in the same epoch
+/// (D-095), which the dispatch loop alerts on, and one that signed goes
+/// uncertain and is recovered. A longer window never shortens the wait for
+/// inclusion (a 128-block era after the window); a commit that lands in the
+/// next epoch is followed there by rtao's reveal watcher.
+pub fn weight_submit_deadline(config: &ValidatorConfig) -> Duration {
+    let per_minute = config
+        .rpc
+        .signing_requests_per_minute
+        .unwrap_or(config.rpc.max_requests_per_minute)
+        .max(1);
+    let calls = u64::from(MEASURED_ADMISSION_CALLS + UNCOUNTED_ADMISSION_CALLS) + 1;
+    Duration::from_secs((calls * 60).div_ceil(u64::from(per_minute)))
+        .max(rtao_neuron::weights::DEFAULT_WEIGHT_SUBMIT_DEADLINE)
+}
+
+/// How the dispatch loop follows finalized heads: the newest head only
+/// (rtao D-096). The loop needs one finalized head in each epoch's commit
+/// window, not every height: rtao's `OncePerEpoch` cadence is ready at any
+/// head at or past the epoch's offset that is in a later epoch than the last
+/// attempt, and it reads the epoch from that head's state. The reveal
+/// watcher and finalized recovery follow history from their own cursors, so
+/// they see every block that can change a pending reveal whichever heads the
+/// loop is given. `Latest` delivers the newest head as soon as an iteration
+/// ends and makes no request for a skipped height, so it reaches each commit
+/// window at least as early as `Complete` or `Bounded(n)` would, which first
+/// replay the gap at two requests a height (an hour-long call left about 400
+/// heights, 25 minutes at the read budget, on testnet). An epoch's window is
+/// missed only if one iteration outlasts it, under any policy.
+pub const DISPATCH_BACKFILL: Backfill = Backfill::Latest;
+
+/// The dispatch loop's finalized-head stream ([`DISPATCH_BACKFILL`]).
+pub fn finalized_heads(client: &Client) -> Result<BlockStream> {
+    Ok(client.blocks_with(Finality::Finalized, DISPATCH_BACKFILL)?)
 }
 
 /// Create a new journal. Refuses an existing path so a typo never replaces history.
@@ -220,6 +298,9 @@ pub struct LivePorts {
     startup_wait: Option<(Box<Staged>, Decision, u64)>,
     /// The installed bundle in a dispatch run, for supersession decisions.
     loop_installed: Option<InstalledBundle>,
+    /// `Tempo(netuid)` read when the signing context was built (dispatch
+    /// only); sizes the missed-commit-window alert.
+    tempo: Option<u64>,
 }
 
 /// The installed bundle's facts in a dispatch run.
@@ -255,6 +336,7 @@ impl LivePorts {
             keep_cohorts: Arc::new(std::sync::Mutex::new(Vec::new())),
             startup_wait: None,
             loop_installed: None,
+            tempo: None,
         }
     }
 
@@ -332,7 +414,7 @@ impl LivePorts {
     }
 }
 
-fn client_config(config: &ValidatorConfig, track_heads: bool) -> Result<ClientConfig> {
+pub(crate) fn client_config(config: &ValidatorConfig, track_heads: bool) -> Result<ClientConfig> {
     let network = Network::resolve_with(config.network.rtao_label(), |_| None)?;
     let mut client = ClientConfig::new(network)?;
     let mut urls = config
@@ -344,6 +426,11 @@ fn client_config(config: &ValidatorConfig, track_heads: bool) -> Result<ClientCo
         .into_iter();
     let primary = urls.next().context("no RPC endpoint configured")?;
     client.session.pool = EndpointPool::new(primary).with_fallbacks(urls);
+    // Keep dialing through endpoint losses and through HTTP 403/429 refusals
+    // of a reconnect handshake, each after rtao's bounded wait (D-097): a
+    // validator's session must outlast a refusal of any length. Without it a
+    // refusal becomes terminal after `max_retries` further refusals.
+    client.session.retry_forever = true;
     client.session.rate_limit = Some(RateLimit {
         per_second: f64::from(config.rpc.max_requests_per_minute) / 60.0,
         burst: 3,
@@ -364,7 +451,7 @@ fn client_config(config: &ValidatorConfig, track_heads: bool) -> Result<ClientCo
 /// The separate signing transport: the same endpoints and headers with its
 /// own budget, burst equal to a minute of it, tracking heads so best and
 /// finalized reads inside the admission window come from its subscriptions.
-fn signing_client_config(config: &ValidatorConfig, per_minute: u32) -> Result<ClientConfig> {
+pub(crate) fn signing_client_config(config: &ValidatorConfig, per_minute: u32) -> Result<ClientConfig> {
     let mut client = client_config(config, true)?;
     client.session.rate_limit = Some(RateLimit {
         per_second: f64::from(per_minute) / 60.0,
@@ -661,6 +748,59 @@ impl StartupPorts for LivePorts {
     }
 }
 
+/// [`LivePorts::chain_check_inputs`].
+#[derive(Clone, Copy, Debug, Default)]
+struct ChainCheckInputs {
+    max_allowed_validators: Option<u16>,
+    stake_threshold: Option<u64>,
+    own_alpha_stake: Option<u64>,
+}
+
+impl LivePorts {
+    /// The inputs of the chain's stake and permit checks that the weight
+    /// preflight does not carry, read by name at the best head for the dry
+    /// run's report. Best effort: a failed read reports `None`.
+    async fn chain_check_inputs(&self) -> ChainCheckInputs {
+        use rtao_primitives::IntoCoreValue;
+        let Ok(client) = self.client() else { return ChainCheckInputs::default() };
+        let Ok(best) = client.at(BlockRef::Best).await else { return ChainCheckInputs::default() };
+        let read = |item: &'static str, key: Vec<rtao_core::codec::Value>| {
+            let best = &best;
+            async move {
+                let value = best.query_batch_dyn("SubtensorModule", item, vec![key]).await.ok()?.into_iter().next()?;
+                u128_of(&value, item).ok()
+            }
+        };
+        let netuid = self.identity.netuid;
+        ChainCheckInputs {
+            max_allowed_validators: read("MaxAllowedValidators", keys::subnet(netuid))
+                .await
+                .and_then(|value| u16::try_from(value).ok()),
+            stake_threshold: read("StakeThreshold", Vec::new()).await.and_then(|value| u64::try_from(value).ok()),
+            own_alpha_stake: read(
+                "TotalHotkeyAlpha",
+                vec![self.identity.hotkey.into_core_value(), netuid.into_core_value()],
+            )
+            .await
+            .and_then(|value| u64::try_from(value).ok()),
+        }
+    }
+}
+
+/// The [`WeightLimits`] of a weight preflight.
+pub fn limits_of(preflight: &WeightPreflight) -> WeightLimits {
+    WeightLimits {
+        min_allowed_weights: preflight.min_allowed_weights,
+        max_weights_limit: preflight.max_weights_limit,
+        population: preflight.population,
+        own_permit: preflight
+            .uid
+            .and_then(|uid| preflight.permits.get(usize::from(uid.0)).copied())
+            .unwrap_or(false),
+        null_consensus: preflight.null_consensus,
+    }
+}
+
 impl LivePorts {
     /// Read and conform the weight-commit inputs at the best head, exactly as
     /// rtao's scheduler would, and refuse a row the chain's limits would alter.
@@ -671,6 +811,8 @@ impl LivePorts {
         u16,
         (Vec<Uid>, Vec<u16>),
         rtao_intents::weights::PreparedWeightCommit,
+        u16,
+        WeightPreflight,
     )> {
         let client = self.client()?;
         let netuid = self.identity.netuid;
@@ -684,6 +826,34 @@ impl LivePorts {
         ensure!(
             preflight.commit_reveal,
             "commit_reveal_disabled: refusing to prepare direct weights"
+        );
+        // The commit tag rtao's scheduler would use (D-086): the stored tag
+        // when it is the native payload version or the live runtime code is
+        // one rtao reviewed. The scheduler also follows a tag under code that
+        // revealed one of its own commitments; that evidence lives in the
+        // dispatch journal, so the dry run reports it as a pause instead.
+        let tag = if preflight.commit_reveal_version == NATIVE_CR_PAYLOAD_VERSION {
+            NATIVE_CR_PAYLOAD_VERSION
+        } else if preflight
+            .runtime_code
+            .and_then(rtao_neuron::weights::reviewed_cr_runtime)
+            .is_some()
+        {
+            preflight.commit_reveal_version
+        } else {
+            bail!(
+                "commit_reveal_version_paused: the chain stores commit-reveal version {} under runtime code this rtao build has not reviewed; rtao's scheduler pauses timelocked commits unless one of its commitments revealed under this code",
+                preflight.commit_reveal_version
+            );
+        };
+        // rtao refuses a version key below the runtime's before signing
+        // (`check_except_cr`); the chain checks it again at reveal.
+        ensure!(
+            preflight.required_version_key == 0
+                || self.config.weight_version >= preflight.required_version_key,
+            "weights_version_key_refused: the subnet requires weights version key {} and this validator commits {}",
+            preflight.required_version_key,
+            self.config.weight_version
         );
         let (uids, weights): (Vec<Uid>, Vec<f64>) = derived
             .input
@@ -745,7 +915,7 @@ impl LivePorts {
                 block_time: slot as f64 / 1000.0,
             })
             .await?;
-        Ok((uid.0, expected, commit))
+        Ok((uid.0, expected, commit, tag, preflight))
     }
 
     /// `Weights(netuid, uid)` at `at`, read by name.
@@ -970,6 +1140,7 @@ impl LivePorts {
             tempo,
             epoch_offset_blocks = dispatch.epoch_offset_blocks
         );
+        self.tempo = Some(u64::from(tempo));
         // An epoch spans `Tempo + 1` blocks; a larger offset never falls due.
         if let Some(offset) = dispatch.epoch_offset_blocks
             && offset > u64::from(tempo)
@@ -1062,9 +1233,16 @@ impl LivePorts {
     }
 }
 
-/// The permanent failure of a client's native session, if any. No RPC call.
-async fn transport_failure(client: &Client) -> Option<String> {
+/// The error rtao ended a client's native session with, if it did: since
+/// D-097 only a JSON-RPC policy error, a policy close (1008) or a refused
+/// initial connect (the client's own connect error). No RPC call.
+async fn terminal_session_failure(client: &Client) -> Option<String> {
     let session = client.native_author_session().await.ok()?;
+    session_failure(&session)
+}
+
+/// [`terminal_session_failure`] for one session.
+pub fn session_failure(session: &rtao_rpc::Session) -> Option<String> {
     let state = session.state();
     match &*state.borrow() {
         rtao_rpc::SessionState::Failed { error } => Some(error.to_string()),
@@ -1189,13 +1367,34 @@ impl AppPorts for LivePorts {
         Ok(adapter.controls().operation(operation_id)?.is_some())
     }
 
-    fn enqueue(&mut self, work: &WeightWork, input: BTreeMap<Uid, f64>) -> Result<Enqueued> {
-        self.adapter_mut()?.enqueue(work, input)
+    async fn weight_limits(&mut self, mechanism: u8) -> Result<WeightLimits> {
+        // rtao's own weight preflight at the best head, where its
+        // preparation reads the same fields: one coalesced read, compiled
+        // where the shapes match and by name where they do not.
+        let best = self.client()?.at(BlockRef::Best).await?;
+        let preflight = WeightPreflight::fetch(
+            &best,
+            self.identity.netuid,
+            rtao_primitives::MechId(mechanism),
+            self.identity.hotkey,
+        )
+        .await
+        .context("weight preflight read failed")?;
+        Ok(limits_of(&preflight))
     }
 
-    fn authorize(&mut self, operation_id: &str, input: &BTreeMap<Uid, f64>) -> Result<()> {
+    fn enqueue(
+        &mut self,
+        work: &WeightWork,
+        input: BTreeMap<Uid, f64>,
+        owner_rows: OwnerRowPolicy,
+    ) -> Result<Enqueued> {
+        self.adapter_mut()?.enqueue_with_owner_rows(work, input, owner_rows)
+    }
+
+    fn authorize(&mut self, operation_id: &str, input: &BTreeMap<Uid, f64>, owner_rows: OwnerRowChoice) -> Result<()> {
         let hash = slop_ninja_subnet::weight_row_hash(input.clone())?;
-        self.authorized.insert(operation_id, &hash);
+        self.authorized.grant(operation_id, &hash, owner_rows);
         Ok(())
     }
 
@@ -1227,8 +1426,20 @@ impl AppPorts for LivePorts {
         adapter.controls().retained_row(operation_id)
     }
 
+    fn retained_policy(&self, operation_id: &str) -> Result<Option<OwnerRowPolicy>> {
+        let adapter = self.adapter.as_ref().context("journal is not open")?;
+        adapter.controls().owner_row_policy(operation_id)
+    }
+
+    fn retired(&self, operation_id: &str) -> Result<Option<String>> {
+        let adapter = self.adapter.as_ref().context("journal is not open")?;
+        adapter.controls().retired(operation_id)
+    }
+
     async fn dry_run(&mut self, operation_id: &str, derived: &Derived) -> Result<DryRunReport> {
-        let (signing_uid, _, commit) = self.prepare_commit(derived).await?;
+        let (signing_uid, _, commit, tag, preflight) = self.prepare_commit(derived).await?;
+        let limits = limits_of(&preflight);
+        let checks = self.chain_check_inputs().await;
         let client = self.client()?.clone();
         let runtime = client.refresh_runtime().await?;
         let call = payload::timelocked_commit_call(
@@ -1237,7 +1448,7 @@ impl AppPorts for LivePorts {
             derived.work.mechanism,
             commit.ciphertext.clone(),
             commit.reveal_round,
-            SUPPORTED_CR_VERSION,
+            tag,
         )?;
         let unsigned = client
             .prepare_public(
@@ -1269,6 +1480,14 @@ impl AppPorts for LivePorts {
             era_expiry: unsigned.expiry(),
             ciphertext_randomized: true,
             observed_spec_version: runtime.spec_version(),
+            commit_reveal_version: tag,
+            weight_version: self.config.weight_version,
+            required_version_key: preflight.required_version_key,
+            validator_permit: limits.own_permit,
+            null_consensus: limits.null_consensus,
+            max_allowed_validators: checks.max_allowed_validators,
+            stake_threshold: checks.stake_threshold,
+            own_alpha_stake: checks.own_alpha_stake,
             signed: false,
         })
     }
@@ -1333,9 +1552,22 @@ impl AppPorts for LivePorts {
         }
         let mut lease_paused = false;
         let mut last_decision_error: Option<String> = None;
+        // What rtao reported for the tracked operation while it waits to be
+        // signed: alerted once per distinct outcome kind ([`not_submitted`]).
+        let mut attempt_alert: Option<String> = None;
+        // The best height of the last unsigned failure counted, and the
+        // failure a Submit burn row's limits were last re-read for.
+        let mut counted_failure: Option<u64> = None;
+        let mut limits_checked_for: Option<(String, u64)> = None;
+        // The first head at which the tracked operation was seen waiting
+        // with its current journal attempt count, that count, and whether a
+        // passed commit window was alerted since.
+        let mut tracked_since: Option<u64> = None;
+        let mut tracked_attempts: Option<usize> = None;
+        let mut window_alerted = false;
         let cx = self.signing_context().await?;
         let client = cx.client.clone();
-        let mut heads = client.blocks(Finality::Finalized)?;
+        let mut heads = finalized_heads(&client)?;
         let mut report = DispatchReport {
             recommit: match settings.recommit {
                 Recommit::PerTempo => "per_tempo".into(),
@@ -1354,7 +1586,8 @@ impl AppPorts for LivePorts {
                     bail!("finalized head stream ended");
                 };
                 let mut header = next?;
-                // Coalesce a backlog: recovery cursors cover skipped blocks.
+                // `Latest` already coalesces; take any newer head that is
+                // ready. Recovery and reveal cursors cover skipped blocks.
                 while let Some(Some(Ok(newer))) = heads.next().now_or_never() {
                     header = newer;
                 }
@@ -1385,26 +1618,31 @@ impl AppPorts for LivePorts {
                     adapter.resume_after_recovery()?;
                     tracing::info!(event = "resumed_after_recovery", height = header.number);
                 }
-                // rtao treats an HTTP 403/429 refusal while reconnecting as a
-                // permanent session failure (seen in the 429 drill: the
-                // signing transport stayed failed for good). Exit instead, so
-                // the unit restarts with fresh connections; nothing is lost,
-                // because the journal is the state.
+                // rtao retries a refused (HTTP 403/429) reconnect within the
+                // session (D-097), and `retry_forever` keeps every loss
+                // retryable, so a refusal no longer ends a session. What rtao
+                // still ends a session on is a JSON-RPC policy error or a
+                // policy close (1008), after which it needs a new client. A
+                // failed signing session would otherwise fail every commit
+                // before signing; exit instead, so the unit restarts with fresh
+                // connections. Nothing is lost: the journal is the state.
                 let transports: Vec<(&str, Client)> = std::iter::once(("read", client.clone()))
                     .chain(self.signing_client.clone().map(|signing| ("signing", signing)))
                     .collect();
                 for (name, transport) in &transports {
-                    if let Some(error) = transport_failure(transport).await {
+                    if let Some(error) = terminal_session_failure(transport).await {
                         tracing::error!(event = "transport_failed", transport = name, error = %error);
                         bail!(
-                            "transport_failed: the {name} transport failed permanently ({error}); restart to reconnect"
+                            "transport_failed: rtao ended the {name} transport's session ({error}); restart to reconnect"
                         );
                     }
                 }
-                // Anchor rtao's timelock clock to the best head's
-                // `Timestamp.Now`, read by name, as rtao's own runtime does on
-                // every best head. A failed read keeps the last anchor; before
-                // the first one, rtao refuses to prepare a commit.
+                // Observe the best head's `Timestamp.Now`, read by name, on
+                // rtao's timelock clock. Since D-094 rtao's scheduler also
+                // anchors the clock itself at each commit's preflight block
+                // (its read uses a compiled descriptor, with no by-name
+                // fallback); this read keeps an anchor even if that one fails.
+                // A failed read keeps the last anchor.
                 match best_timestamp_ms(&client).await {
                     Ok(timestamp) => self.clock.observe(timestamp),
                     Err(error) => tracing::warn!(event = "clock_anchor_failed", error = %error),
@@ -1441,6 +1679,140 @@ impl AppPorts for LivePorts {
                 }
                 if let Some(code) = &status.semantic_refusal {
                     tracing::warn!(event = "guard_refused", code = %code);
+                }
+                // The tracked operation still waits to be signed: rtao
+                // returned `Ok` whatever it recorded, so its last outcome is
+                // read here. A pre-signing failure (D-095) adds no journal
+                // attempt and is retried on its own; without these alerts a
+                // validator that never commits would look healthy.
+                let waiting = status.finalized_success_block.is_none()
+                    && status.unresolved == 0
+                    && self
+                        .adapter
+                        .as_ref()
+                        .context("journal is not open")?
+                        .controls()
+                        .retained_row(&tracked.0)?
+                        .is_some_and(|(_, handed_off)| !handed_off);
+                if waiting {
+                    if tracked_attempts != Some(status.attempts) {
+                        tracked_attempts = Some(status.attempts);
+                        tracked_since = Some(header.number);
+                        window_alerted = false;
+                    }
+                    let since = tracked_since.unwrap_or(header.number);
+                    let last = self
+                        .adapter
+                        .as_ref()
+                        .context("journal is not open")?
+                        .last_attempt(mechanism)
+                        .cloned();
+                    if let Some(attempt) = &last {
+                        if let rtao_neuron::weights::WeightAttemptOutcome::Failed(_) = attempt.outcome
+                            && counted_failure != Some(attempt.best_block)
+                        {
+                            counted_failure = Some(attempt.best_block);
+                            report.unsigned_failures += 1;
+                        }
+                        match not_submitted(&attempt.outcome) {
+                            Some(kind) if attempt_alert.as_deref() != Some(kind.as_str()) => {
+                                tracing::warn!(
+                                    event = "weight_attempt_not_submitted",
+                                    operation_id = %tracked.0,
+                                    tempo = ?tracked.1,
+                                    outcome = %kind,
+                                    best_block = attempt.best_block,
+                                    alert = true
+                                );
+                                attempt_alert = Some(kind);
+                            }
+                            Some(_) => {}
+                            None => attempt_alert = None,
+                        }
+                        // A Submit burn row that rtao refuses before signing:
+                        // the chain limits or permit may have changed since
+                        // it was queued, which nothing else in this loop
+                        // re-reads. Re-read them for each distinct failure,
+                        // at most once an epoch (`Tempo + 1` blocks), so a
+                        // run of failures with changing text costs at most
+                        // one preflight read an epoch.
+                        let failure = match &attempt.outcome {
+                            rtao_neuron::weights::WeightAttemptOutcome::Failed(text) => Some(text.clone()),
+                            rtao_neuron::weights::WeightAttemptOutcome::Refused(refusal) => Some(refusal.name.to_owned()),
+                            _ => None,
+                        };
+                        if let (Some(failure), Some(crate::guard::Grant { owner_rows: OwnerRowChoice::Submit { owner_uid, owner_validator }, .. })) =
+                            (failure, self.authorized.get(&tracked.0))
+                            && limits_checked_for.as_ref().is_none_or(|(text, at)| {
+                                *text != failure
+                                    && header.number >= at.saturating_add(self.tempo.map_or(0, |tempo| tempo + 1))
+                            })
+                        {
+                            limits_checked_for = Some((failure, header.number));
+                            match AppPorts::weight_limits(self, mechanism.0).await {
+                                // A burn row lists only the owner UID, max-upscaled.
+                                Ok(limits) => {
+                                    if let Err(refusal) = crate::app::check_burn_limits(
+                                        &[(owner_uid, u16::MAX)],
+                                        Some(owner_uid),
+                                        owner_validator,
+                                        &limits,
+                                    ) {
+                                        let retired = self
+                                            .adapter
+                                            .as_ref()
+                                            .context("journal is not open")?
+                                            .controls()
+                                            .retire_superseded(&tracked.0, "burn_row_limits_changed")?;
+                                        tracing::warn!(
+                                            event = "burn_row_limits_changed",
+                                            operation_id = %tracked.0,
+                                            tempo = ?tracked.1,
+                                            code = refusal.code,
+                                            retired,
+                                            alert = true
+                                        );
+                                        if retired {
+                                            // The next start re-derives the
+                                            // tempo and defers it under the
+                                            // same code until the limits allow
+                                            // the row again (exit 75).
+                                            report.stop = format!("tempo_deferred:{}", refusal.code);
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                                Err(error) => tracing::warn!(
+                                    event = "weight_limits_unavailable",
+                                    error = %format!("{error:#}")
+                                ),
+                            }
+                        }
+                    }
+                    // Queued work is due at the first head past the offset of
+                    // an epoch after the last attempt, which is less than two
+                    // epochs (`Tempo + 1` blocks each) after it was queued or
+                    // its last signed attempt expired. Past that with no new
+                    // journal attempt, at least one commit window went by
+                    // unsigned.
+                    if let Some(tempo) = self.tempo
+                        && !window_alerted
+                        && header.number >= since.saturating_add(2 * (tempo + 1))
+                    {
+                        tracing::warn!(
+                            event = "commit_window_passed_without_attempt",
+                            operation_id = %tracked.0,
+                            tempo = ?tracked.1,
+                            waiting_since = since,
+                            height = header.number,
+                            unsigned_failures = report.unsigned_failures,
+                            alert = true
+                        );
+                        report.windows_without_attempt += 1;
+                        window_alerted = true;
+                    }
+                } else {
+                    attempt_alert = None;
                 }
                 let adapter = self.adapter.as_ref().context("journal is not open")?;
                 let outstanding: Vec<_> = adapter
@@ -1801,12 +2173,17 @@ impl AppPorts for LivePorts {
                             // against a finalized snapshot and owner hotkey,
                             // under the bundle's authorization checked again.
                             match self.rederive(derived, authority.clone(), &header, label).await? {
-                                Ok(next) => {
-                                    let id = match self.adapter_mut()?.enqueue(&next.work, next.input.clone())? {
+                                Ok((next, choice, label)) => {
+                                    let owner_rows = choice.policy();
+                                    let id = match self.adapter_mut()?.enqueue_with_owner_rows(
+                                        &next.work,
+                                        next.input.clone(),
+                                        owner_rows,
+                                    )? {
                                         Enqueued::Created(id) | Enqueued::Existing(id) => id,
                                     };
                                     let hash = slop_ninja_subnet::weight_row_hash(next.input.clone())?;
-                                    self.authorized.insert(&id, &hash);
+                                    self.authorized.grant(&id, &hash, choice);
                                     ledger.record(&id, &hash, next.chain_entries());
                                     ledger.persist()?;
                                     tracing::info!(
@@ -1815,7 +2192,8 @@ impl AppPorts for LivePorts {
                                         tempo = label,
                                         last_commit_epoch = last,
                                         registration_block = ?next.snapshot_block,
-                                        row_digest = %next.row_digest
+                                        row_digest = %next.row_digest,
+                                        owner_rows = ?owner_rows
                                     );
                                     report.tempo_enqueued.push((label, id.clone()));
                                     if report.tempo_enqueued.len() > crate::app::REPORT_RECENT {
@@ -1823,14 +2201,19 @@ impl AppPorts for LivePorts {
                                     }
                                     faults.hit(Phase::TempoEnqueued)?;
                                     tracked = (id, Some(label));
+                                    tracked_since = None;
+                                    tracked_attempts = None;
+                                    window_alerted = false;
+                                    attempt_alert = None;
+                                    limits_checked_for = None;
                                     read_back = false;
                                     retry_after_epoch = None;
                                     lease_paused = false;
                                 }
-                                Err(refusal) if matches!(refusal.code, "row_deferred" | "row_would_be_held") => {
+                                Err(refusal) if crate::app::is_row_deferral(refusal.code) => {
                                     // Nothing to commit this tempo; a later
                                     // snapshot is tried afresh next epoch.
-                                    tracing::info!(event = "tempo_deferred", tempo = label, code = refusal.code);
+                                    crate::app::log_tempo_deferred(Some(label), refusal.code);
                                     report.tempo_deferred.push((label, refusal.code.to_owned()));
                                     if report.tempo_deferred.len() > crate::app::REPORT_RECENT {
                                         report.tempo_deferred.remove(0);
@@ -1910,23 +2293,48 @@ impl AppPorts for LivePorts {
     }
 }
 
+/// The kind of an rtao outcome that leaves queued work unsigned and needs an
+/// operator's attention, or `None`: `failed` (RPC, preparation or an
+/// unsigned submission failure, including an admission-window overrun),
+/// `refused:<check>` (a certain chain rejection before signing),
+/// `hold_previous` (rtao's owner-row guard held the queued row),
+/// `paused_surface` and `skipped`. Scheduling waits, unresolved work (which
+/// recovery classifies) and submissions are `None`. Content-free: the
+/// failure text, which rtao logs itself, is not included.
+pub fn not_submitted(outcome: &rtao_neuron::weights::WeightAttemptOutcome) -> Option<String> {
+    use rtao_neuron::weights::WeightAttemptOutcome as O;
+    match outcome {
+        O::Failed(_) => Some("failed".into()),
+        O::Refused(refusal) => Some(format!("refused:{}", refusal.name)),
+        O::HoldPrevious => Some("hold_previous".into()),
+        O::PausedSurface { .. } => Some("paused_surface".into()),
+        O::Skipped(_) => Some("skipped".into()),
+        O::Scheduled | O::RateLimited { .. } | O::Unresolved(_) | O::Submitted { .. } => None,
+    }
+}
+
 impl LivePorts {
-    /// The next tempo's commitment: reward-v1 derives the row afresh against
-    /// the finalized registrations and owner hotkey at `header`, under the
-    /// bundle's authorization checked for `label`, and defers a row that must
-    /// burn while the owner hotkey holds no UID or that rtao would hold. A
-    /// `testnet-reward-v0` package keeps its one row.
+    /// The next tempo's commitment, its owner-row policy and its label:
+    /// reward-v1 derives the row afresh against the finalized registrations
+    /// and owner hotkey at `header`, under the bundle's authorization checked
+    /// for the label, and resolves it against the journal exactly as the
+    /// first commitment does ([`crate::app::derive_queueable`]): a row that
+    /// must burn while the owner hotkey holds no UID, that rtao would hold
+    /// under its policy, or a burn row the chain limits refuse is deferred; a
+    /// retained operation of the label is joined, or retired and the next
+    /// label used, never re-queued under another policy. A
+    /// `testnet-reward-v0` package keeps its one row under `Hold`.
     async fn rederive(
         &mut self,
         derived: &Derived,
         authority: Option<Arc<crate::package_v2::Authorized>>,
         header: &BlockHeader,
         label: u64,
-    ) -> Result<std::result::Result<Derived, Refusal>> {
+    ) -> Result<std::result::Result<(Derived, OwnerRowChoice, u64), Refusal>> {
         let Some(authorized) = authority else {
             return Ok(derived
                 .work_for_tempo(self.identity.hotkey.0, label)
-                .map(|work| Derived { work, ..derived.clone() }));
+                .map(|work| (Derived { work, ..derived.clone() }, OwnerRowChoice::Hold, label)));
         };
         let head = FinalizedHead {
             number: header.number,
@@ -1935,24 +2343,14 @@ impl LivePorts {
         let chain = authorized.verified.chain.clone();
         let v1 = self.registration_snapshot(&head, &chain).await?;
         let hold = self.hold_hotkeys(&head).await?;
-        let (Some(own), Some(owner)) = (hold.first().copied(), hold.get(1).copied()) else {
-            bail!("own or owner hotkey missing");
-        };
+        let (own, owner) = crate::app::own_and_owner(&hold)?;
         let snapshot = match crate::package_v2::snapshot(&v1, owner) {
             Ok(s) => s,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        let next = match crate::package_v2::derive(authorized, &snapshot, own, label) {
-            Ok(d) => d,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        if crate::app::row_would_be_held(&next.chain_entries(), &v1, &hold) {
-            return Ok(Err(Refusal::new(
-                "row_would_be_held",
-                "every positive entry is this validator's or the owner hotkey's UID",
-            )));
-        }
-        Ok(Ok(next))
+        Ok(crate::app::derive_queueable(self, authorized, &snapshot, &v1, own, owner, label, Mode::Dispatch)
+            .await?
+            .map(|(next, policy, label)| (next, OwnerRowChoice::of(policy, &v1, own, owner), label)))
     }
 
     fn status(&self, operation_id: &str) -> Result<slop_ninja_subnet::OperationStatus> {
@@ -1983,6 +2381,13 @@ impl LivePorts {
             .controls()
             .target_operations(&derived.work)?;
         let mut tracked = (operation_id.to_owned(), derived.work.tempo);
+        // Every retained operation of this target with the verified row has
+        // the same owner-row choice as the one the application authorized:
+        // the choice follows from the row, the target and the owner.
+        let owner_rows = self
+            .authorized
+            .get(operation_id)
+            .map_or(OwnerRowChoice::Hold, |grant| grant.owner_rows);
         for operation in &operations {
             if operation.row_hash != row_hash {
                 tracing::warn!(
@@ -1992,7 +2397,7 @@ impl LivePorts {
                 );
                 continue;
             }
-            self.authorized.insert(&operation.id, row_hash);
+            self.authorized.grant(&operation.id, row_hash, owner_rows);
         }
         let pending: Vec<_> = operations.iter().filter(|op| !op.handed_off).collect();
         // A retired operation (superseded before it signed) is never tracked:
@@ -2583,6 +2988,39 @@ pub fn reset_target(config: &ValidatorConfig) -> Result<serde_json::Value> {
     }))
 }
 
+/// The `rollback-check` command: with the unit stopped (the journal's
+/// lifetime lock refuses a held journal), optionally retires the work a
+/// build at the previous rtao pin would refuse and that never signed, then
+/// reports what still blocks that build from opening the journal
+/// ([`slop_ninja_subnet::JournalControls::rollback_blockers`]). Returns the
+/// redacted report and whether nothing blocks the rollback.
+pub fn rollback_check(config: &ValidatorConfig, retire: bool) -> Result<(serde_json::Value, bool)> {
+    let controls = slop_ninja_subnet::JournalControls::open_existing(&config.journal_path)
+        .context("the journal is held by a running validator, or missing; stop the unit first")?;
+    let retired = if retire { controls.retire_for_rollback()? } else { Vec::new() };
+    let blockers = controls.rollback_blockers()?;
+    let safe = blockers.is_empty();
+    let next = if safe {
+        "a build at the previous pin can open this journal; install it before starting the unit again"
+    } else if blockers.iter().any(|b| b.operation_id.is_none()) {
+        "the weight checkpoint holds state from a followed non-native commit-reveal tag: roll forward only"
+    } else if blockers.iter().any(|b| b.retirable) {
+        "run again with --retire"
+    } else {
+        "run this build until the listed work is handed back, then stop the unit and check again"
+    };
+    Ok((
+        serde_json::json!({
+            "previous_pin": slop_ninja_subnet::PREVIOUS_RTAO_PIN,
+            "retired": retired,
+            "blockers": blockers,
+            "rollback_safe": safe,
+            "next": next,
+        }),
+        safe,
+    ))
+}
+
 /// Read-only finalized observation for operators and drills: epoch state,
 /// this hotkey's entries in `TimelockedWeightCommits` for the last `epochs`
 /// epochs (and every hotkey's entry count), its `Weights` row, and the
@@ -2720,6 +3158,11 @@ impl LivePorts {
 
     pub(crate) fn controls_for_tests(&self) -> Option<slop_ninja_subnet::JournalControls> {
         self.adapter.as_ref().map(NativeWeightAdapter::controls)
+    }
+
+    /// The signing guard's authorizations in this process.
+    pub(crate) fn authorized_for_tests(&self) -> &Authorized {
+        &self.authorized
     }
 
     /// Explicit resume through the adapter's real recovery gate.

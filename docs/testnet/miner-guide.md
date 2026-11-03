@@ -102,7 +102,7 @@ command line tool at the same pin the client uses:
 
 ```sh
 cargo install --locked --git https://github.com/sam0x17/rtao \
-  --rev b5553a76ff67f0f54350472ef0306f225e8a4c44 rtao-cli
+  --rev 0c12816009baa65eec3135bac9a9dbcc8eaba77d rtao-cli
 rtao --version
 ```
 
@@ -575,10 +575,10 @@ at the batch size. At 1,000 documents under the whitepaper's 20/55/25 mix,
 remaining loss by about 7%. Each manifest freezes its exact value. The status
 snapshot's mode and notice say which regime is in force.
 
-**Not yet live: committing the burn row.** The native validator refuses that
-row today (`row_would_be_held`; see the
-[validator guide](validator-guide.md#the-launch-burn-row)), so Slop Ninja's
-validators do not yet commit it. Until they do, emissions follow the chain's own rules
+**Not yet live: committing the burn row.** The native validator can now
+commit that row (see the
+[validator guide](validator-guide.md#the-launch-burn-row)), but Slop Ninja's
+validators have not yet committed it on subnet 601. Until they do, emissions follow the chain's own rules
 applied to whatever weights are already on chain, and those weights reflect no
 cohort's scores. Expect no payout while the burn regime lasts.
 

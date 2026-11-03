@@ -1293,7 +1293,7 @@ fn a_switch_retires_never_signed_work_in_the_real_journal_and_a_dry_run_never_do
     let snapshot =
         crate::package_v2::snapshot(&rv1::snapshot(&specs), fx::owner_hotkey().0).unwrap();
     let derived = crate::package_v2::derive(authorized.clone(), &snapshot, validator, 80).unwrap();
-    let op = match live.enqueue(&derived.work, derived.input.clone())? {
+    let op = match live.enqueue(&derived.work, derived.input.clone(), slop_ninja_subnet::OwnerRowPolicy::Hold)? {
         slop_ninja_subnet::Enqueued::Created(id) => id,
         other => panic!("expected a new operation, got {other:?}"),
     };

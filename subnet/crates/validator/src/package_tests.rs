@@ -14,7 +14,7 @@ use rtao_primitives::{AccountId, H256, NetUid, Uid};
 use slop_ninja_protocol::{
     ChainBinding, NeuronIdentity, RegistrationSnapshot, SigningKey, TESTNET_GENESIS, TrustedKeys,
 };
-use slop_ninja_subnet::{ChainIdentity, Enqueued, WeightWork};
+use slop_ninja_subnet::{ChainIdentity, Enqueued, OwnerRowPolicy, WeightWork};
 
 use crate::app::{AppOutcome, AppPorts, DispatchReport, Mode, apply};
 use crate::config::ValidatorConfig;
@@ -343,6 +343,32 @@ fn guard_signs_only_verified_rows_as_timelocked_commits() {
         )),
         "slop_ninja_contract_mismatch"
     );
+    // The owner-row policy journaled with the work must be the one this
+    // process chose: a Submit intent authorized as Hold is refused, and so
+    // is a Hold intent authorized as Submit.
+    let submit = |row: serde_json::Value| {
+        let mut intent = intent("op", "h", PACKAGE_CONTRACT);
+        intent.effects = serde_json::json!({"input": {"ByUid": row}, "owner_rows": "submit"});
+        intent
+    };
+    let burn = submit(serde_json::json!({"0": 65535.0}));
+    assert_eq!(refusal(check_intent(&authorized, &burn)), "slop_ninja_owner_rows_mismatch");
+    let choice = crate::app::OwnerRowChoice::Submit { owner_uid: 0, owner_validator: false };
+    authorized.grant("op", "h", choice);
+    assert_eq!(
+        refusal(check_intent(&authorized, &intent("op", "h", PACKAGE_CONTRACT))),
+        "slop_ninja_owner_rows_mismatch"
+    );
+    assert!(check_intent(&authorized, &burn).is_ok());
+    // A zero entry elsewhere is not a payment.
+    assert!(check_intent(&authorized, &submit(serde_json::json!({"0": 65535.0, "2": 0.0}))).is_ok());
+    // A Submit row that pays any other UID is refused, whatever chose it.
+    for row in [serde_json::json!({"0": 65535.0, "2": 1.0}), serde_json::json!({"2": 65535.0}), serde_json::json!({"0": 0.0})] {
+        assert_eq!(refusal(check_intent(&authorized, &submit(row))), "slop_ninja_owner_rows_unexpected");
+    }
+    let mut unknown = burn.clone();
+    unknown.effects["owner_rows"] = serde_json::json!("sometimes");
+    assert_eq!(refusal(check_intent(&authorized, &unknown)), "slop_ninja_owner_rows_mismatch");
     let mut missing = intent("op", "h", PACKAGE_CONTRACT);
     missing.correlation_id = None;
     assert_eq!(
@@ -454,6 +480,9 @@ struct TestApp {
     served: ([u8; 32], u16),
     /// Trusted application keys, when not the dev keys.
     keys: Option<TrustedKeys>,
+    /// Weight limits `weight_limits` returns, and how often it was read.
+    limits: crate::app::WeightLimits,
+    limit_reads: usize,
 }
 
 impl TestApp {
@@ -472,6 +501,14 @@ impl TestApp {
             held: None,
             served: (TESTNET_GENESIS.0, NETUID),
             keys: None,
+            limits: crate::app::WeightLimits {
+                min_allowed_weights: 1,
+                max_weights_limit: u16::MAX,
+                population: 3,
+                own_permit: true,
+                null_consensus: false,
+            },
+            limit_reads: 0,
         })
     }
 
@@ -512,11 +549,25 @@ impl AppPorts for TestApp {
     fn retained(&self, operation_id: &str) -> Result<bool> {
         self.live.retained(operation_id)
     }
-    fn enqueue(&mut self, work: &WeightWork, input: BTreeMap<Uid, f64>) -> Result<Enqueued> {
-        self.live.enqueue(work, input)
+    async fn weight_limits(&mut self, _: u8) -> Result<crate::app::WeightLimits> {
+        self.limit_reads += 1;
+        Ok(self.limits)
     }
-    fn authorize(&mut self, operation_id: &str, input: &BTreeMap<Uid, f64>) -> Result<()> {
-        self.live.authorize(operation_id, input)
+    fn enqueue(
+        &mut self,
+        work: &WeightWork,
+        input: BTreeMap<Uid, f64>,
+        owner_rows: OwnerRowPolicy,
+    ) -> Result<Enqueued> {
+        self.live.enqueue(work, input, owner_rows)
+    }
+    fn authorize(
+        &mut self,
+        operation_id: &str,
+        input: &BTreeMap<Uid, f64>,
+        owner_rows: crate::app::OwnerRowChoice,
+    ) -> Result<()> {
+        self.live.authorize(operation_id, input, owner_rows)
     }
     fn held_target(&self) -> Result<Option<crate::package_v2::HeldTargetFile>> {
         Ok(self.held.clone())
@@ -533,6 +584,12 @@ impl AppPorts for TestApp {
     }
     fn retained_row(&self, operation_id: &str) -> Result<Option<(String, bool)>> {
         self.live.retained_row(operation_id)
+    }
+    fn retained_policy(&self, operation_id: &str) -> Result<Option<OwnerRowPolicy>> {
+        self.live.retained_policy(operation_id)
+    }
+    fn retired(&self, operation_id: &str) -> Result<Option<String>> {
+        self.live.retired(operation_id)
     }
     async fn dry_run(&mut self, operation_id: &str, derived: &Derived) -> Result<DryRunReport> {
         self.dry_runs += 1;
@@ -552,6 +609,14 @@ impl AppPorts for TestApp {
             era_expiry: None,
             ciphertext_randomized: true,
             observed_spec_version: 0,
+            commit_reveal_version: 4,
+            weight_version: 0,
+            required_version_key: 0,
+            validator_permit: true,
+            null_consensus: false,
+            max_allowed_validators: None,
+            stake_threshold: None,
+            own_alpha_stake: None,
             signed: false,
         })
     }
@@ -676,30 +741,88 @@ fn a_row_rtao_would_hold_is_refused_before_the_journal() -> Result<()> {
         assert_eq!(app.summary()?.operations, 0);
         assert_eq!((app.dry_runs, app.dispatches), (0, 0));
     }
+    // rtao's predicate, decided as its scheduler decides: this validator's
+    // own UID is the owner's only when its hotkey is the owner hotkey.
+    use crate::app::row_held;
+    use OwnerRowPolicy::{Hold, Submit};
     let snapshot = registered();
-    let hold = [validator2().hotkey.0, owner().hotkey.0];
-    assert!(crate::app::row_would_be_held(
-        &[(0, 65535)],
-        &snapshot,
-        &hold
-    ));
-    assert!(crate::app::row_would_be_held(
-        &[(1, 65535), (2, 0)],
-        &snapshot,
-        &hold
-    ));
-    assert!(!crate::app::row_would_be_held(
-        &[(0, 9), (2, 65535)],
-        &snapshot,
-        &hold
-    ));
+    let (own, owner_hotkey) = (validator2().hotkey.0, owner().hotkey.0);
+    let held = |policy, row: &[(u16, u16)]| row_held(policy, row, &snapshot, own, owner_hotkey);
+    assert!(held(Hold, &[(0, 65535)]));
+    assert!(held(Hold, &[(1, 65535), (2, 0)]));
+    assert!(!held(Hold, &[(0, 9), (2, 65535)]));
     // A UID outside the snapshot is not held here; prepare_commit refuses it.
-    assert!(!crate::app::row_would_be_held(
-        &[(7, 65535)],
-        &snapshot,
-        &hold
-    ));
+    assert!(!held(Hold, &[(7, 65535)]));
+    // Under Submit an owner-only burn row is submitted; self-only,
+    // self-plus-owner and all-zero rows keep holding.
+    assert!(!held(Submit, &[(0, 65535)]));
+    assert!(!held(Submit, &[(0, 65535), (2, 0)]));
+    assert!(held(Submit, &[(1, 65535)]));
+    assert!(held(Submit, &[(0, 1), (1, 1)]));
+    assert!(held(Submit, &[(0, 0)]));
+    assert!(held(Submit, &[]));
+    assert!(!held(Submit, &[(1, 1), (2, 1)]));
+    // An owner validator: its own UID is the owner's UID.
+    assert!(row_held(Hold, &[(0, 65535)], &snapshot, owner_hotkey, owner_hotkey));
+    assert!(!row_held(Submit, &[(0, 65535)], &snapshot, owner_hotkey, owner_hotkey));
+    // A hotkey without a UID in the snapshot has no own entry.
+    assert!(!row_held(Submit, &[(0, 65535)], &snapshot, [0x99; 32], owner_hotkey));
     Ok(())
+}
+
+#[test]
+fn burn_rows_meet_the_chain_limits_before_they_are_queued() {
+    use crate::app::{WeightLimits, check_burn_row};
+    let snapshot = registered();
+    let (own, owner_hotkey) = (validator2().hotkey.0, owner().hotkey.0);
+    let limits = |min_allowed_weights, max_weights_limit, population| WeightLimits {
+        min_allowed_weights,
+        max_weights_limit,
+        population,
+        own_permit: true,
+        null_consensus: false,
+    };
+    let burn = [(0, 65535)];
+    assert_eq!(check_burn_row(&burn, &snapshot, own, owner_hotkey, &limits(1, 65535, 3)), Ok(()));
+    // The effective minimum is capped at the population.
+    assert_eq!(check_burn_row(&burn, &snapshot, own, owner_hotkey, &limits(8, 65535, 1)), Ok(()));
+    for refused in [limits(2, 65535, 3), limits(8, 65535, 3)] {
+        assert_eq!(
+            check_burn_row(&burn, &snapshot, own, owner_hotkey, &refused).unwrap_err().code,
+            "burn_row_min_allowed_weights"
+        );
+    }
+    // An owner validator's burn row is a lone self-weight, which conform exempts.
+    assert_eq!(check_burn_row(&burn, &snapshot, owner_hotkey, owner_hotkey, &limits(8, 65535, 3)), Ok(()));
+    // Under a MaxWeightsLimit below 65535 only the owner UID may be listed.
+    assert_eq!(check_burn_row(&burn, &snapshot, own, owner_hotkey, &limits(1, 4096, 3)), Ok(()));
+    assert_eq!(
+        check_burn_row(&[(0, 65535), (2, 0)], &snapshot, own, owner_hotkey, &limits(1, 4096, 3)).unwrap_err().code,
+        "burn_row_weights_limit"
+    );
+    assert_eq!(check_burn_row(&[(0, 65535), (2, 0)], &snapshot, own, owner_hotkey, &limits(1, 65535, 3)), Ok(()));
+    // The chain's validator-permit check, applied again at reveal: a
+    // non-owner validator's burn row needs the permit under Yuma; the owner
+    // validator is exempt under Yuma; under Null consensus nobody is.
+    let no_permit = WeightLimits { own_permit: false, ..limits(1, 65535, 3) };
+    assert_eq!(
+        check_burn_row(&burn, &snapshot, own, owner_hotkey, &no_permit).unwrap_err().code,
+        "burn_row_no_permit"
+    );
+    assert_eq!(check_burn_row(&burn, &snapshot, owner_hotkey, owner_hotkey, &no_permit), Ok(()));
+    let null = WeightLimits { null_consensus: true, ..no_permit };
+    for signer in [own, owner_hotkey] {
+        assert_eq!(check_burn_row(&burn, &snapshot, signer, owner_hotkey, &null).unwrap_err().code, "burn_row_no_permit");
+    }
+    let null_permit = WeightLimits { own_permit: true, ..null };
+    assert_eq!(check_burn_row(&burn, &snapshot, own, owner_hotkey, &null_permit), Ok(()));
+    assert!(crate::app::is_row_deferral("burn_row_no_permit"));
+    for code in ["burn_row_no_permit", "burn_row_min_allowed_weights", "burn_row_weights_limit", "row_would_be_held"] {
+        assert!(crate::app::alerts_on_deferral(code), "{code}");
+    }
+    for code in ["row_deferred", "authorization_refused", "pending_operation_unsettled"] {
+        assert!(!crate::app::alerts_on_deferral(code), "{code}");
+    }
 }
 
 #[test]
@@ -920,25 +1043,203 @@ fn launch_bundle(issued_epoch: u64) -> Vec<u8> {
 }
 
 #[test]
-fn a_reward_v1_launch_bundle_derives_the_burn_row_and_rtao_would_hold_it() -> Result<()> {
+fn a_reward_v1_launch_bundle_queues_the_burn_row_under_submit() -> Result<()> {
     let root = scratch()?;
     let config = config(root.path())?;
     init_journal(&config, identity())?;
     let mut app = TestApp::open(&config, &bundle())?;
     app.bundle = launch_bundle(10);
     app.epoch = 12;
-    // The burn row: every unit at the owner hotkey's UID. rtao at this pin
-    // holds a row whose positive entries are only the owner's (or this
-    // validator's) UID, so it is refused before the journal.
-    // That is a per-tempo deferral (exit 75), not a halt.
-    for mode in [Mode::DryRun, Mode::Dispatch] {
-        let outcome = block_on(apply(&mut app, &head(), mode, &Faults::none()))?;
-        match &outcome {
-            AppOutcome::Deferred { code, .. } => assert_eq!(*code, "row_would_be_held"),
-            other => panic!("expected the held-row deferral, got {other:?}"),
+    // The burn row: every unit at the owner hotkey's UID, under the launch
+    // authorization. It is queued under OwnerRowPolicy::Submit, which rtao
+    // journals as "owner_rows":"submit" and commits.
+    match block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))? {
+        AppOutcome::DryRun { entries, retained, .. } => {
+            assert_eq!(entries, vec![(owner().uid, 65535)]);
+            assert!(!retained);
         }
+        other => panic!("expected a dry run, got {other:?}"),
     }
     assert_eq!(app.summary()?.operations, 0);
+    let outcome = block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?;
+    let (id, created) = enqueued(&outcome);
+    assert!(created);
+    assert_eq!(app.retained_policy(&id)?, Some(OwnerRowPolicy::Submit));
+    // The journal file itself records the policy in the work's effects.
+    let image: serde_json::Value = serde_json::from_slice(&std::fs::read(&config.journal_path)?)?;
+    assert_eq!(image["operations"][&id]["intent"]["effects"]["owner_rows"], serde_json::json!("submit"));
+    // The signing guard accepts the journaled intent under the choice the
+    // application recorded (Submit, paying the owner UID), and would refuse
+    // it under Hold.
+    let intent: rtao_client::journal::OperationIntent =
+        serde_json::from_value(image["operations"][&id]["intent"].clone())?;
+    let authorized = app.live.authorized_for_tests();
+    assert_eq!(
+        authorized.get(&id).map(|grant| grant.owner_rows),
+        Some(crate::app::OwnerRowChoice::Submit { owner_uid: owner().uid, owner_validator: false })
+    );
+    assert!(check_intent(authorized, &intent).is_ok());
+    let hold = Authorized::default();
+    hold.insert(&id, &authorized.row_hash(&id).context("authorized")?);
+    assert_eq!(check_intent(&hold, &intent).unwrap_err().code, "slop_ninja_owner_rows_mismatch");
+    // A retry joins the same operation under the same policy.
+    let (again, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert_eq!((again.as_str(), created), (id.as_str(), false));
+    assert_eq!(app.summary()?.operations, 1);
+    assert_eq!(app.limit_reads, 3);
+    Ok(())
+}
+
+#[test]
+fn a_burn_row_the_chain_limits_refuse_is_deferred_before_the_journal() -> Result<()> {
+    for (min_allowed_weights, max_weights_limit, code) in
+        [(2, u16::MAX, Some("burn_row_min_allowed_weights")), (1, 4096, None), (9, u16::MAX, Some("burn_row_min_allowed_weights"))]
+    {
+        let root = scratch()?;
+        let config = config(root.path())?;
+        init_journal(&config, identity())?;
+        let mut app = TestApp::open(&config, &bundle())?;
+        app.bundle = launch_bundle(10);
+        app.epoch = 12;
+        app.limits.min_allowed_weights = min_allowed_weights;
+        app.limits.max_weights_limit = max_weights_limit;
+        for mode in [Mode::DryRun, Mode::Dispatch] {
+            let outcome = block_on(apply(&mut app, &head(), mode, &Faults::none()))?;
+            match (code, &outcome) {
+                (Some(code), AppOutcome::Deferred { code: got, .. }) => assert_eq!(got, &code),
+                (None, AppOutcome::DryRun { .. } | AppOutcome::Enqueued { .. }) => {}
+                other => panic!("unexpected outcome {other:?}"),
+            }
+        }
+        assert_eq!(app.summary()?.operations, usize::from(code.is_none()));
+    }
+    Ok(())
+}
+
+#[test]
+fn a_burn_row_queued_under_hold_by_an_earlier_build_is_retired_for_submit() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let mut app = TestApp::open(&config, &bundle())?;
+    app.bundle = launch_bundle(10);
+    app.epoch = 12;
+    // An earlier build's held operation of this tempo, with the same row.
+    let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
+    let a = std::sync::Arc::new(
+        crate::package_v2::verify(&launch_bundle(10), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap(),
+    );
+    let snap = crate::package_v2::snapshot(&registered(), owner().hotkey.0).unwrap();
+    let d = crate::package_v2::derive(a, &snap, validator2().hotkey.0, 12).unwrap();
+    let Enqueued::Created(old) = app.enqueue(&d.work, d.input.clone(), OwnerRowPolicy::Hold)? else {
+        panic!("created")
+    };
+    assert_eq!(app.retained_policy(&old)?, Some(OwnerRowPolicy::Hold));
+    // The same ID under another policy is refused, like changed input.
+    assert!(app.enqueue(&d.work, d.input.clone(), OwnerRowPolicy::Submit).is_err());
+    let (id, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created);
+    assert_ne!(id, old);
+    assert_eq!(app.live.controls_for_tests().context("journal")?.retired(&old)?.as_deref(), Some("owner_row_policy_changed"));
+    assert_eq!(app.retained_policy(&id)?, Some(OwnerRowPolicy::Submit));
+    assert_eq!(app.summary()?.operations, 2);
+    Ok(())
+}
+
+/// A restart after the chain limits changed: an operation of this label
+/// with the same row and policy is joined whatever the limits read now when
+/// it has a signed attempt awaiting recovery or landed and was handed back
+/// (its recovery and read-back settle it), while one that never signed is
+/// retired (`burn_row_limits_changed`) rather than left to fail rtao's
+/// preparation on every attempt, and the tempo is deferred.
+#[test]
+fn a_retained_burn_row_is_joined_or_retired_when_the_limits_change() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let open = || -> Result<TestApp> {
+        let mut app = TestApp::open(&config, &bundle())?;
+        app.bundle = launch_bundle(10);
+        app.epoch = 12;
+        Ok(app)
+    };
+    let mut app = open()?;
+    let (never_signed, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created);
+    // MinAllowedWeights rose before it signed: retired, tempo deferred.
+    app.limits.min_allowed_weights = 2;
+    match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Deferred { code, .. } => assert_eq!(code, "burn_row_min_allowed_weights"),
+        other => panic!("expected the limits deferral, got {other:?}"),
+    }
+    assert_eq!(retired_reason(&app, &never_signed).as_deref(), Some("burn_row_limits_changed"));
+    assert!(app.live.pending_operations(0)?.is_empty());
+    // The limit returned: the retired label is skipped and the next queued.
+    app.limits.min_allowed_weights = 1;
+    let (signed, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created && signed != never_signed);
+    drop(app);
+    // It signed and its response was lost; then the limit rose again.
+    OperationJournal::open(&config.journal_path)?.update(|image| {
+        push_lost_response(image.operations.get_mut(&signed).expect("operation retained"));
+        Ok(())
+    })?;
+    let mut app = open()?;
+    app.limits.min_allowed_weights = 2;
+    assert_eq!(enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?), (signed.clone(), false));
+    assert_eq!(retired_reason(&app, &signed), None);
+    assert_eq!(app.summary()?.unresolved_attempts, 1);
+    drop(app);
+    // It landed and rtao handed it back: joined for read-back with no limits read.
+    OperationJournal::open(&config.journal_path)?.update(|image| {
+        let record = image.operations.get_mut(&signed).expect("operation retained");
+        record.extensions.insert("scheduler_handed_off".into(), serde_json::Value::Bool(true));
+        Ok(())
+    })?;
+    let mut app = open()?;
+    app.limits.min_allowed_weights = 2;
+    assert_eq!(enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?), (signed, false));
+    assert_eq!(app.limit_reads, 0);
+    assert_eq!(app.summary()?.operations, 2);
+    Ok(())
+}
+
+/// A rollback past this pin: the queued burn row (in steady state the next
+/// tempo's, waiting for its epoch's offset) blocks a build at the previous
+/// pin until it is retired for the rollback with the validator stopped.
+#[test]
+fn the_rollback_check_finds_the_queued_submit_burn_row() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let id = {
+        let mut app = TestApp::open(&config, &bundle())?;
+        app.bundle = launch_bundle(10);
+        app.epoch = 12;
+        enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?).0
+    };
+    let (report, safe) = crate::live::rollback_check(&config, false)?;
+    assert!(!safe);
+    assert_eq!(report["blockers"][0]["operation_id"], serde_json::json!(id));
+    assert_eq!(report["blockers"][0]["field"], serde_json::json!("effects.owner_rows"));
+    assert_eq!(report["next"], serde_json::json!("run again with --retire"));
+    let (report, safe) = crate::live::rollback_check(&config, true)?;
+    assert!(safe, "{report}");
+    assert_eq!(report["retired"], serde_json::json!([id]));
+    // A running validator holds the journal: the check refuses.
+    let app = TestApp::open(&config, &bundle())?;
+    assert!(crate::live::rollback_check(&config, false).is_err());
+    drop(app);
+    Ok(())
+}
+
+#[test]
+fn a_reward_v1_launch_bundle_checks_its_lease_and_derivation() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let mut app = TestApp::open(&config, &bundle())?;
+    app.bundle = launch_bundle(10);
     // A lease that does not cover the epoch defers too.
     app.epoch = 60;
     match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
@@ -1117,6 +1418,17 @@ pub(crate) mod rv1 {
         (first, second, specs)
     }
 
+    /// A first cohort with one credited entrant `tag` and no predecessor,
+    /// bound to receipts: its row pays only that entrant's UID.
+    pub fn single(tag: u8) -> (Cohort, Vec<Spec>) {
+        let specs = vec![Spec::new(tag, bp(9600))];
+        let manifest = fx::manifest(fx::chain(), 7, 1000, fx::sigma_permille(40), 0, &specs);
+        let (package, _) = fx::finalized(&manifest, bp(9100), None, &specs).unwrap();
+        let index = fx::default_index(&manifest.references);
+        let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
+        (bound(manifest, package, index, launch, &specs), specs)
+    }
+
     /// Every fixture entrant registered under its own generation, plus the
     /// owner hotkey at UID 2, as a v1 snapshot.
     pub fn snapshot(specs: &[Spec]) -> RegistrationSnapshot {
@@ -1144,6 +1456,14 @@ fn rv1_app(root: &Path) -> Result<TestApp> {
         held: None,
         served: (TESTNET_GENESIS.0, rv1::RV1_NETUID),
         keys: Some(slop_ninja_protocol::fixtures::trusted_keys()),
+        limits: crate::app::WeightLimits {
+            min_allowed_weights: 1,
+            max_weights_limit: u16::MAX,
+            population: 64,
+            own_permit: true,
+            null_consensus: false,
+        },
+        limit_reads: 0,
     })
 }
 
@@ -1289,4 +1609,149 @@ fn a_multi_uid_reward_v1_row_is_committed_in_its_max_upscaled_form() -> Result<(
         other => panic!("expected a dry run, got {other:?}"),
     }
     Ok(())
+}
+
+
+/// The owner-row policy of reward-v1 cohort targets, decided from the row at
+/// the first commitment ([`apply`]) and at the per-tempo re-derive
+/// ([`crate::app::derive_queueable`], which `LivePorts::rederive` calls after
+/// its snapshot reads): a target whose row pays only the owner UID (every
+/// entrant unregistered, so every unit burns) is queued under `Submit`; one
+/// paying this validator's own UID, alone or with the owner, is deferred as
+/// `row_would_be_held` and nothing is journaled.
+#[test]
+fn reward_v1_cohort_targets_choose_their_owner_row_policy_from_the_row() -> Result<()> {
+    use crate::app::derive_queueable;
+    let (first, _, specs) = rv1::cohorts();
+    let owner_hotkey = owner().hotkey.0;
+    let authorized = |bundle: &[u8]| {
+        let held = slop_ninja_protocol::ActiveTarget::launch(&slop_ninja_protocol::fixtures_reward_v1::chain()).unwrap();
+        std::sync::Arc::new(
+            crate::package_v2::verify(
+                bundle,
+                &slop_ninja_protocol::fixtures::trusted_keys(),
+                &TESTNET_GENESIS.0,
+                rv1::RV1_NETUID,
+                &held,
+            )
+            .unwrap(),
+        )
+    };
+    let rederive = |app: &mut TestApp, bundle: &[u8], own: [u8; 32], label: u64| {
+        let v1 = app.snapshot.clone();
+        let snap = crate::package_v2::snapshot(&v1, owner_hotkey).unwrap();
+        block_on(derive_queueable(app, authorized(bundle), &snap, &v1, own, owner_hotkey, label, Mode::Dispatch))
+    };
+
+    // Every entrant unregistered: every unit burns to the owner UID.
+    let root = scratch()?;
+    let mut app = rv1_app(root.path())?;
+    app.snapshot = rv1::snapshot(&[]);
+    app.bundle = rv1::bundle(&first);
+    app.epoch = 80;
+    match block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))? {
+        AppOutcome::DryRun { entries, owner_rows, .. } => {
+            assert_eq!(entries, vec![(2, 65535)]);
+            assert_eq!(owner_rows, OwnerRowPolicy::Submit);
+        }
+        other => panic!("expected a dry run, got {other:?}"),
+    }
+    let (id, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created);
+    assert_eq!(app.retained_policy(&id)?, Some(OwnerRowPolicy::Submit));
+    let image: serde_json::Value = serde_json::from_slice(&std::fs::read(root.path().join("journal.json"))?)?;
+    assert_eq!(image["operations"][&id]["intent"]["effects"]["owner_rows"], serde_json::json!("submit"));
+    // The next tempo's re-derive decides the same way.
+    let bundle = app.bundle.clone();
+    let (next, policy, label) = rederive(&mut app, &bundle, validator2().hotkey.0, 81)?.expect("queueable");
+    assert_eq!((policy, label), (OwnerRowPolicy::Submit, 81));
+    assert_eq!(next.entries(), vec![(2, 65535)]);
+
+    // One credited entrant registered, and it is this validator's hotkey:
+    // the row pays its own UID and the owner's.
+    let credited = first.package.entrants.iter().find(|e| e.units > 0).expect("a credited entrant").identity.hotkey;
+    let own_specs: Vec<_> =
+        specs.iter().filter(|s| slop_ninja_protocol::fixtures_reward_v1::hotkey(s.tag) == credited).cloned().collect();
+    assert_eq!(own_specs.len(), 1);
+    let root = scratch()?;
+    let mut app = rv1_app(root.path())?;
+    app.snapshot = rv1::snapshot(&own_specs);
+    app.hold = vec![credited.0, owner_hotkey];
+    app.bundle = rv1::bundle(&first);
+    app.epoch = 80;
+    let row = crate::package_v2::derive(
+        authorized(&app.bundle),
+        &crate::package_v2::snapshot(&app.snapshot, owner_hotkey).unwrap(),
+        credited.0,
+        80,
+    )
+    .unwrap()
+    .entries();
+    assert_eq!(row.iter().map(|e| e.0).collect::<Vec<_>>(), vec![2, u16::from(own_specs[0].tag)], "{row:?}");
+    for mode in [Mode::DryRun, Mode::Dispatch] {
+        match block_on(apply(&mut app, &head(), mode, &Faults::none()))? {
+            AppOutcome::Deferred { code, .. } => assert_eq!(code, "row_would_be_held", "{mode:?}"),
+            other => panic!("{mode:?}: expected row_would_be_held, got {other:?}"),
+        }
+    }
+    assert_eq!(app.summary()?.operations, 0);
+    let bundle = app.bundle.clone();
+    assert_eq!(rederive(&mut app, &bundle, credited.0, 81)?.unwrap_err().code, "row_would_be_held");
+    assert_eq!(app.summary()?.operations, 0);
+
+    // A target whose one credited entrant is this validator: own UID only.
+    let (single, single_specs) = rv1::single(0x44);
+    let own = slop_ninja_protocol::fixtures_reward_v1::hotkey(0x44).0;
+    let root = scratch()?;
+    let mut app = rv1_app(root.path())?;
+    app.snapshot = rv1::snapshot(&single_specs);
+    app.hold = vec![own, owner_hotkey];
+    app.bundle = rv1::bundle(&single);
+    let activated = authorized(&app.bundle).verified.active.activated_epoch().expect("activation epoch");
+    app.epoch = activated;
+    let row = crate::package_v2::derive(
+        authorized(&app.bundle),
+        &crate::package_v2::snapshot(&app.snapshot, owner_hotkey).unwrap(),
+        own,
+        activated,
+    )
+    .unwrap()
+    .entries();
+    assert_eq!(row, vec![(0x44, 65535)]);
+    for mode in [Mode::DryRun, Mode::Dispatch] {
+        match block_on(apply(&mut app, &head(), mode, &Faults::none()))? {
+            AppOutcome::Deferred { code, .. } => assert_eq!(code, "row_would_be_held", "{mode:?}"),
+            other => panic!("{mode:?}: expected row_would_be_held, got {other:?}"),
+        }
+    }
+    assert_eq!(app.summary()?.operations, 0);
+    let bundle = app.bundle.clone();
+    assert_eq!(rederive(&mut app, &bundle, own, activated + 1)?.unwrap_err().code, "row_would_be_held");
+    assert_eq!(app.summary()?.operations, 0);
+    Ok(())
+}
+
+/// The dispatch loop alerts on every rtao outcome that leaves queued work
+/// unsigned, and never on a scheduling wait, unresolved work or a submission.
+#[test]
+fn outcomes_that_leave_queued_work_unsigned_are_alerted() {
+    // `Refused` (reported as `refused:<check>`) needs rtao's catalog
+    // error code, which this crate does not depend on.
+    use crate::live::not_submitted;
+    use rtao_neuron::weights::WeightAttemptOutcome as O;
+    assert_eq!(not_submitted(&O::Failed("admission deadline".into())).as_deref(), Some("failed"));
+    assert_eq!(not_submitted(&O::HoldPrevious).as_deref(), Some("hold_previous"));
+    assert_eq!(
+        not_submitted(&O::PausedSurface { descriptor: String::new(), detail: String::new() }).as_deref(),
+        Some("paused_surface")
+    );
+    assert_eq!(not_submitted(&O::Skipped(String::new())).as_deref(), Some("skipped"));
+    for quiet in [
+        O::Scheduled,
+        O::RateLimited { retry_after_block: 1, remediation: String::new() },
+        O::Unresolved(String::new()),
+        O::Submitted { block_hash: H256([0; 32]), block_number: 1 },
+    ] {
+        assert_eq!(not_submitted(&quiet), None, "{quiet:?}");
+    }
 }

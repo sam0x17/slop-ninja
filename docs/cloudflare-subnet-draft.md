@@ -1150,15 +1150,25 @@ later packages without a cohort target carry forward the activated target.
 Limit: a package without a cohort target cannot yet authorize the burn row
 (its reward-intent authorization must name a cohort target), so a long launch
 regime relies on repeated launch authorizations within their 40-tempo leases.
-At the current rtao pin only the coordinator commits the burn row: rtao holds a
-row whose only positive entries are the owner's or the validator's own UID
-(`HoldPrevious`), so a native validator abstains while the row is all burn
-(the launch row, or a target whose credited miners all left), defers each such
-tempo (`row_would_be_held`, exit 75) and leaves its previous weights on chain.
-This abstention is a limitation of the pin, not the policy: once every credited
-miner has left, those weights can still pay a UID's new occupant, which the
-no-transfer rule forbids, so native commitment of the burn row is a launch
-requirement.
+rtao holds a row whose only positive entries are the owner's or the
+validator's own UID unless the work opts in to submitting owner rows. A native
+validator opts in only for a burn row (the launch row under a valid launch
+authorization, or a verified target whose row pays only the owner UID), journaled with the
+work so restart and recovery commit and reveal the same row; every other row
+keeps the default, and a row rtao would still hold (one paying the validator's
+own UID) defers that tempo (`row_would_be_held`, exit 75) and leaves its
+previous weights on chain. A validator that is not the owner commits the
+one-entry burn row only while the subnet's effective `MinAllowedWeights` is 1
+and it holds a validator permit, and lists only the owner UID under a
+`MaxWeightsLimit` below 65535; otherwise it defers the tempo, with an alert,
+rather than queue a row the chain would refuse. The chain checks the length,
+permit and stake again when it reveals a timelocked commit and drops a
+failing row without an error, so these limits must stay compatible from
+commit through reveal; a dropped row surfaces as a reveal mismatch. Native
+commitment of the burn row is a launch requirement: once every credited miner
+has left, weights left on chain can still pay a UID's new occupant, which the
+no-transfer rule forbids. On November 3, 2026 a native validator that is not
+the owner committed and revealed it on testnet subnet 601 at this pin.
 Each validator, the coordinator included, keeps its own durable record of the
 target it holds active (native: `<journal>.held-target.json`; coordinator:
 `sign_held_target`), written only forward from checked closures; a bundle must
@@ -1512,13 +1522,14 @@ finalization history. Pending commitments require their original reveal
 evidence. A spec version may be recorded as an observation, such as the spec at
 which a transaction was included; it is never compared for acceptance.
 
-The native adapter in this repository pins rtao main `b5553a76`, which has no
-fixed spec-number refusal; the adapter resolves every signed operation by name
-against live metadata. That revision's weight scheduler still composes its call
-through a compiled descriptor, and its scheduler and reveal watcher still read
-their 23 storage items only by type, so a changed item stops their finalized
-observation and recovery until upstream reads by name; the adapter records that
-as a deferral with an alert (see the [native adapter](../subnet/README.md)).
+The native adapter in this repository pins rtao `0c128160` (the immutable tag
+`snapshot-2026-11-03.2`), which has no fixed spec-number refusal; the adapter
+resolves every signed operation by name against live metadata. That revision's
+weight scheduler composes its call through a compiled descriptor while the live
+shape matches and by name otherwise, and its scheduler and reveal watcher read
+their storage the same way, so only an item neither path can read stops their
+finalized observation and recovery; the adapter records that as a deferral with
+an alert (see the [native adapter](../subnet/README.md)).
 
 Treat a chain operation as a durable intent with separately recorded signed
 attempts. Persist its cohort/result revision, hotkey, registration binding,
@@ -1534,7 +1545,7 @@ does not create another reward or justify repeating an effect already applied.
 Decode historical evidence with the metadata appropriate to its execution.
 
 The selected `rtao` revision now provides an
-[`OperationJournal` and persistent weight/reveal scheduling](https://github.com/sam0x17/rtao/blob/b5553a76ff67f0f54350472ef0306f225e8a4c44/docs/recovery/durable-work.md).
+[`OperationJournal` and persistent weight/reveal scheduling](https://github.com/sam0x17/rtao/blob/0c12816009baa65eec3135bac9a9dbcc8eaba77d/docs/recovery/durable-work.md).
 The native adapter must attach the journal explicitly, bind stable application
 operation IDs, reinstall the semantic guard on restart, and reconcile before
 new submission. `WeightScheduler::new` alone still creates an in-memory
@@ -1752,9 +1763,9 @@ validator holds its own hotkey: native participants locally, the coordinator
 within its serverless service. Its receipt and authorization keys have separate
 roles from its validator hotkey; its private chain journal is not public evidence.
 
-The adapter in this repository pins `rtao` main
-[`b5553a76`](https://github.com/sam0x17/rtao/tree/b5553a76ff67f0f54350472ef0306f225e8a4c44)
-(October 30, 2026). It provides miner/validator runtimes,
+The adapter in this repository pins `rtao`
+[`0c128160`](https://github.com/sam0x17/rtao/tree/0c12816009baa65eec3135bac9a9dbcc8eaba77d)
+(tag `snapshot-2026-11-03.2`, November 3, 2026). It provides miner/validator runtimes,
 finalized metagraph and epoch reads, on-chain commitment calls, direct or
 timelocked weight submission, durable submission/reveal recovery, semantic
 compatibility hooks, and persistent pause controls. The

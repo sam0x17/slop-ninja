@@ -33,6 +33,8 @@ mod fetch_tests;
 #[cfg(test)]
 mod package_tests;
 #[cfg(test)]
+mod paced_tests;
+#[cfg(test)]
 mod payload_tests;
 #[cfg(test)]
 mod storage_tests;

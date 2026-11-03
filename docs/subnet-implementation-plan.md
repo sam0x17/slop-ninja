@@ -100,17 +100,20 @@ Some issues require provider changes or additional evidence. In those cases,
 preserve the affected state, state the concrete blocker, and continue independent
 work without claiming the feature is ready.
 
-The [local adapter](../subnet/README.md) pins rtao main
-[`b5553a76`](https://github.com/sam0x17/rtao/commit/b5553a76ff67f0f54350472ef0306f225e8a4c44)
-(October 30), with runtime 486 metadata and schema-3 journal migration.
-Production journaled MEV shielding remains refused upstream, and rtao's weight
-scheduler still composes through compiled call descriptors, so a moved index or
-changed argument shape defers the weight operation until rtao composes by name.
-Ordinary weight commit/reveal is a separate supported path requiring downstream
-testing. A re-pin to newer rtao main waits until the rtao session finishes its
-bounded-memory, zero-copy rework; it then re-runs the subnet tests and the
-`no_runtime_gates` lint and re-checks the storage-item fallback and the
-shielded-nonce fix.
+The [local adapter](../subnet/README.md) pins rtao
+[`0c128160`](https://github.com/sam0x17/rtao/commit/0c12816009baa65eec3135bac9a9dbcc8eaba77d)
+(immutable tag `snapshot-2026-11-03.2`, November 3), with runtime 486 metadata
+and schema-3 journal migration. At that pin rtao composes weight calls and reads
+its validator storage by name when its compiled descriptors no longer match,
+follows a changed commit-reveal tag only under reviewed or proven runtime code,
+and lets work opt in to committing an owner burn row
+(`OwnerRowPolicy::Submit`). Journaled MEV-shield dispatch (supported upstream
+from per-runtime evidence) and the v482 port are not qualified here, and rtao
+declares no validated runtime range. Ordinary weight commit/reveal ran live on
+testnet subnet 601 at the previous pin, `b5553a76` (October 30); at this pin a
+native validator committed and revealed the burn row there on November 3. A later
+re-pin, such as one adopting rtao's bounded-memory, zero-copy rework, re-runs
+the subnet tests, the journal migration check and the `no_runtime_gates` lint.
 The Workers journal/transport composition remains implementation work. The
 provider's unbilled block webhooks are live: a Finney pilot at
 `https://finney.rtao.io/webhooks` and a separate testnet service with its own
@@ -528,9 +531,14 @@ registration.
    `target_bundle::verify` against their own held-target record, derive each
    tempo's row from a fresh finalized snapshot, and commit it max-upscaled
    under the authorization checked for that epoch. The native validator retires
-   superseded work that never landed and defers burn-only, deferred and
-   unauthorized tempos: rtao holds an all-burn row, so a native validator
-   abstains while the row is all burn and the coordinator commits it. Still
+   superseded work that never landed and commits an owner burn row (the launch
+   row, or a target whose row pays only the owner UID) under rtao's
+   `OwnerRowPolicy::Submit` when the chain limits allow it
+   (`MinAllowedWeights` of 1 for a validator that is not the owner, only the
+   owner UID listed under a `MaxWeightsLimit` below 65535). It defers a tempo
+   whose row rtao would still hold (self-only or self-plus-owner), a burn row
+   the limits refuse, and deferred and unauthorized tempos, leaving its
+   previous weights on chain. The coordinator commits burn rows too. Still
    open: per-tempo renewals, authorization of the burn row by a package without
    a cohort target, rebuilding the published index from closed cohorts instead
    of trusting the coordinator's, binding that index by digest (bundles embed

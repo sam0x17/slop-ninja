@@ -285,15 +285,11 @@ fn moved_pallet_and_call_indices_resolve_by_name() {
     let (pallet, call, _) = surface::decode_named(runtime.core(), &encoded.bytes).unwrap();
     assert_eq!((pallet.as_str(), call.as_str()), (PALLET, COMMIT));
 
-    // The pinned rtao weight path composes through its compiled descriptor and
-    // refuses moved indices. That refusal is reported for the operation alone,
-    // naming the upstream side, rather than halting anything.
+    // rtao composes a call whose live index moved but whose shape is
+    // unchanged through its compiled descriptor, so nothing waits.
     let readiness = evaluate_operations(&runtime);
-    assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Deferred);
-    assert_eq!(
-        readiness[COMMIT_ID].deferral.as_ref().unwrap().code,
-        "upstream_descriptor_refused"
-    );
+    assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Ready);
+    assert_eq!(readiness[SET_ID].state, ReadinessState::Ready);
 }
 
 #[test]
@@ -326,11 +322,14 @@ fn an_added_trailing_option_argument_is_encoded_as_none_and_recorded() {
         args.last().map(|(name, value)| (name.as_str(), value)),
         Some(("memo", &Value::Null))
     );
-    // Upstream rtao composes only its exact compiled shape at this pin.
+    // rtao's compiled shape no longer matches, and its name-resolved
+    // composition requires the live field names to equal the supplied ones,
+    // so rtao refuses this call: that is the deferral, for this call alone.
     let readiness = evaluate_operations(&runtime);
+    assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Deferred);
     assert_eq!(
         readiness[COMMIT_ID].deferral.as_ref().unwrap().code,
-        "upstream_descriptor_refused"
+        "upstream_compose_refused"
     );
     assert_eq!(readiness[SET_ID].state, ReadinessState::Ready);
 }
@@ -354,6 +353,15 @@ fn integer_widening_is_adapted_and_narrowing_defers() {
             from: "u64".into(),
             to: "u128".into()
         }]
+    );
+
+    // rtao's compiled shape no longer matches; its by-name composition
+    // accepts the wider integer, so the call is adapted, not deferred.
+    let readiness = evaluate_operations(&runtime);
+    assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Adapted);
+    assert_eq!(
+        readiness[COMMIT_ID].adaptations.last(),
+        Some(&Adaptation::UpstreamComposedByName)
     );
 
     let mut narrowed = metadata();
@@ -751,18 +759,19 @@ fn storage_entries<'a>(
 #[test]
 fn recorded_metadata_matches_every_storage_item_rtao_reads() {
     let runtime = handle(metadata());
-    assert_eq!(surface::evaluate_upstream_storage(&runtime), Ok(()));
+    assert_eq!(surface::evaluate_upstream_storage(&runtime), Ok(Vec::new()));
     assert_eq!(surface::upstream_storage().len(), 23);
     let readiness = evaluate_operations(&runtime);
     assert_eq!(readiness[OBSERVATION_ID].state, ReadinessState::Ready);
 }
 
 #[test]
-fn a_changed_storage_item_rtao_reads_defers_observation_and_both_operations() {
-    // Removed entry: rtao's preflight would fail its typed read.
+fn a_storage_item_rtao_cannot_read_by_name_defers_observation_and_both_operations() {
+    // Removed entry: neither rtao's typed read nor its by-name read finds it.
     let mut removed = metadata();
     storage_entries(&mut removed, PALLET).retain(|entry| entry.name != "StakeThreshold");
-    // Changed value type: the typed read refuses the shape.
+    // Narrowed value type: the typed read refuses the shape, and the by-name
+    // read refuses a value that no longer fits its class.
     let mut retyped = metadata();
     let narrow = primitive(&retyped, TypeDefPrimitive::U32);
     for entry in storage_entries(&mut retyped, "Drand") {
@@ -796,10 +805,38 @@ fn a_changed_storage_item_rtao_reads_defers_observation_and_both_operations() {
 }
 
 #[test]
-fn an_unsupported_commit_reveal_version_defers_only_the_commit() {
+fn a_widened_storage_item_is_read_by_name_and_nothing_waits() {
+    let mut widened = metadata();
+    let wide = primitive(&widened, TypeDefPrimitive::U64);
+    // Only the value type widens: a live type of any unsigned width fits the
+    // class rtao reads `Tempo` as, and each decoded value is range checked.
+    for entry in storage_entries(&mut widened, PALLET) {
+        if entry.name == "Tempo"
+            && let frame_metadata::v15::StorageEntryType::Map { value, .. } = &mut entry.ty
+        {
+            *value = wide.into();
+            // The same default value, in the wider little-endian encoding.
+            entry.default.resize(8, 0);
+        }
+    }
+    let runtime = handle_at(widened, 487);
+    assert_eq!(
+        surface::evaluate_upstream_storage(&runtime),
+        Ok(vec![Adaptation::UpstreamReadByName {
+            items: vec!["storage:SubtensorModule.Tempo".into()]
+        }])
+    );
+    let readiness = evaluate_operations(&runtime);
+    assert_eq!(readiness[OBSERVATION_ID].state, ReadinessState::Adapted);
+    assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Ready);
+    assert_eq!(readiness[SET_ID].state, ReadinessState::Ready);
+}
+
+#[test]
+fn a_changed_commit_reveal_version_is_recorded_on_the_commit_and_rtao_decides() {
     let runtime = handle(metadata());
-    let supported = u128::from(rtao_neuron::weights::SUPPORTED_CR_VERSION);
-    for version in [None, Some(supported)] {
+    let native = u128::from(rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION);
+    for version in [None, Some(native)] {
         let readiness = evaluate_operations_with(
             &runtime,
             &LiveFacts {
@@ -813,21 +850,39 @@ fn an_unsupported_commit_reveal_version_defers_only_the_commit() {
             "{version:?}"
         );
     }
-    for version in [supported + 1, 0, u128::from(u16::MAX) + 1] {
+    // rtao follows a changed tag under reviewed or proven runtime code and
+    // otherwise pauses timelocked commits per attempt; readiness records the
+    // change on the commit and defers nothing.
+    for stored in [native + 1, 0, u128::from(u16::MAX)] {
         let readiness = evaluate_operations_with(
             &runtime,
             &LiveFacts {
-                commit_reveal_version: Some(version),
+                commit_reveal_version: Some(stored),
             },
         );
-        assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Deferred);
+        assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Adapted);
         assert_eq!(
-            readiness[COMMIT_ID].deferral.as_ref().unwrap().code,
-            "commit_reveal_version_unsupported"
+            readiness[COMMIT_ID].adaptations,
+            [Adaptation::CommitRevealTagChanged {
+                stored: u16::try_from(stored).unwrap()
+            }]
         );
         assert_eq!(readiness[SET_ID].state, ReadinessState::Ready);
         assert_eq!(readiness[OBSERVATION_ID].state, ReadinessState::Ready);
     }
+    // A stored version no u16 tag can carry has no encoding.
+    let readiness = evaluate_operations_with(
+        &runtime,
+        &LiveFacts {
+            commit_reveal_version: Some(u128::from(u16::MAX) + 1),
+        },
+    );
+    assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Deferred);
+    assert_eq!(
+        readiness[COMMIT_ID].deferral.as_ref().unwrap().code,
+        "commit_reveal_version_unencodable"
+    );
+    assert_eq!(readiness[SET_ID].state, ReadinessState::Ready);
 }
 
 #[test]

@@ -22,7 +22,7 @@ use std::fmt;
 use rtao_core::codec::Value;
 use rtao_core::runtime::{Runtime, TypeSpec};
 use rtao_runtime::{
-    CallDescriptor, RuntimeHandle, StorageSurface, SurfaceClass, SurfaceDescriptor,
+    CallDescriptor, RuntimeHandle, StorageSurface,
 };
 use scale_info::{TypeDef, TypeDefPrimitive};
 use serde::{Deserialize, Serialize};
@@ -149,6 +149,18 @@ pub enum Adaptation {
     },
     /// A new trailing optional argument, encoded as `None`.
     TrailingOptionNone { argument: String },
+    /// rtao's compiled descriptor no longer matches this call, and rtao
+    /// composes it by name against live metadata instead (D-088).
+    UpstreamComposedByName,
+    /// rtao's compiled descriptors no longer match these storage items or
+    /// constants, and rtao reads them by name against live metadata (D-089).
+    UpstreamReadByName { items: Vec<String> },
+    /// The stored `CommitRevealWeightsVersion` differs from the payload
+    /// version rtao encodes. rtao follows the stored tag under runtime code it
+    /// reviewed or saw reveal its payload, and otherwise pauses timelocked
+    /// commits for the mechanism and records the refusal as the attempt's
+    /// outcome; either way it decides per attempt (D-086).
+    CommitRevealTagChanged { stored: u16 },
 }
 
 /// An argument the application supplies, with the type it was written for.
@@ -553,13 +565,13 @@ pub fn decode_named(
 }
 
 /// One signed operation this application performs, with rtao's compiled
-/// descriptor for the path that currently composes it.
+/// descriptor for the call (its preferred composer while the shape matches).
 pub struct Operation {
     pub expected: ExpectedCall,
-    /// The rtao descriptor its scheduler composes through at this pin.
+    /// The rtao descriptor its scheduler composes through while the live
+    /// shape matches; otherwise rtao composes the call by name.
     pub upstream: &'static CallDescriptor,
 }
-
 /// The weight calls the native adapter signs through rtao's scheduler.
 pub fn weight_operations() -> Vec<Operation> {
     use rtao_runtime::calls::subtensor_module as calls;
@@ -627,11 +639,12 @@ pub fn weight_operations() -> Vec<Operation> {
 
 /// Evaluate one operation against live metadata.
 ///
-/// `Ok` carries the adaptations it needs (empty when unchanged). The rtao path
-/// that composes weight calls at this pin uses its compiled descriptor, which
-/// refuses moved indices and any argument shape change; that refusal is
-/// reported as `upstream_descriptor_refused` after this module's own
-/// classification has passed, so the diagnostic says which side would refuse.
+/// `Ok` carries the adaptations it needs (empty when unchanged). This module's
+/// own by-name classification runs first. rtao then composes the call through
+/// its compiled descriptor while the live shape matches, and otherwise by name
+/// against live metadata ([`Adaptation::UpstreamComposedByName`]). Only a call
+/// that neither can compose is deferred, as `upstream_compose_refused`, with
+/// rtao's own verdict ([`rtao_neuron::weights::ValidatorSurface`]).
 pub fn evaluate(
     runtime: &RuntimeHandle,
     operation: &Operation,
@@ -644,91 +657,78 @@ pub fn evaluate(
         "call:{}.{}",
         operation.upstream.pallet, operation.upstream.name
     );
-    let report =
-        rtao_runtime::verify_surface_with(runtime, &[SurfaceDescriptor::Call(operation.upstream)]);
-    let breaking = report
-        .changes
+    let upstream = rtao_neuron::weights::ValidatorSurface::check(runtime);
+    let prefix = format!("{id}: ");
+    if let Some(line) = upstream
+        .incompatible
         .iter()
-        .find(|change| change.class == SurfaceClass::Breaking);
-    if breaking.is_some() || !report.shape_matches(&id) {
-        let detail = breaking.map_or_else(
-            || {
-                report
-                    .changes
-                    .iter()
-                    .map(|change| change.detail.as_str())
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            },
-            |change| change.detail.clone(),
-        );
+        .find(|line| line.starts_with(&prefix))
+    {
         return Err(Deferral::new(
-            "upstream_descriptor_refused",
+            "upstream_compose_refused",
             format!(
-                "live metadata is encodable by name, but the pinned rtao weight path composes only its compiled descriptor: {detail}"
+                "live metadata is encodable by name here, but rtao composes this call neither through its compiled descriptor nor by name: {}",
+                &line[prefix.len()..]
             ),
         ));
     }
-    Ok(resolution.adaptations)
-}
-
-/// Storage items rtao's weight scheduler, weight preflight and reveal watcher
-/// read through compiled typed descriptors at this pin. rtao's typed read
-/// refuses the whole read (`SurfaceChanged`) when any one of them no longer
-/// matches live metadata, with no by-name fallback, so finalized recovery,
-/// reveal tracking and every weight operation stop together.
-pub fn upstream_storage() -> Vec<StorageSurface> {
-    use rtao_runtime::storage::{drand, subtensor_module as st};
-    vec![
-        st::UIDS.surface(),
-        st::LAST_UPDATE.surface(),
-        st::WEIGHTS_SET_RATE_LIMIT.surface(),
-        st::COMMIT_REVEAL_WEIGHTS_ENABLED.surface(),
-        st::COMMIT_REVEAL_WEIGHTS_VERSION.surface(),
-        st::REVEAL_PERIOD_EPOCHS.surface(),
-        st::WEIGHTS_VERSION_KEY.surface(),
-        st::MIN_ALLOWED_WEIGHTS.surface(),
-        st::MAX_WEIGHTS_LIMIT.surface(),
-        st::SUBNETWORK_N.surface(),
-        st::SUBNET_EPOCH_CONSENSUS.surface(),
-        st::VALIDATOR_PERMIT.surface(),
-        st::TEMPO.surface(),
-        st::LAST_EPOCH_BLOCK.surface(),
-        st::PENDING_EPOCH_AT.surface(),
-        st::SUBNET_EPOCH_INDEX.surface(),
-        st::BLOCKS_SINCE_LAST_STEP.surface(),
-        st::MECHANISM_COUNT_CURRENT.surface(),
-        st::ACTIVITY_CUTOFF_FACTOR_MILLI.surface(),
-        st::STAKE_THRESHOLD.surface(),
-        st::SUBNET_OWNER_HOTKEY.surface(),
-        st::TIMELOCKED_WEIGHT_COMMITS.surface(),
-        drand::LAST_STORED_ROUND.surface(),
-    ]
-}
-
-/// Check rtao's compiled storage descriptors against live metadata with the
-/// same test its typed reads apply (`shape_matches`). A refusal names every
-/// item that no longer matches; it is reported as `upstream_storage_refused`.
-pub fn evaluate_upstream_storage(runtime: &RuntimeHandle) -> Result<(), Deferral> {
-    let surfaces = upstream_storage();
-    let descriptors: Vec<_> = surfaces
-        .iter()
-        .map(|surface| SurfaceDescriptor::Storage(*surface))
-        .collect();
-    let report = rtao_runtime::verify_surface_with(runtime, &descriptors);
-    let refused: Vec<String> = surfaces
-        .iter()
-        .map(|surface| format!("{}.{}", surface.pallet, surface.name))
-        .filter(|item| !report.shape_matches(&format!("storage:{item}")))
-        .collect();
-    if refused.is_empty() {
-        return Ok(());
+    let mut adaptations = resolution.adaptations;
+    if !runtime.surface_report().shape_matches(&id) {
+        adaptations.push(Adaptation::UpstreamComposedByName);
     }
-    Err(Deferral::new(
-        "upstream_storage_refused",
-        format!(
-            "the pinned rtao weight scheduler and reveal watcher read {} only through compiled descriptors that no longer match live metadata, so finalized recovery and weight preparation fail until rtao reads them by name",
-            refused.join(", ")
-        ),
-    ))
+    Ok(adaptations)
+}
+
+/// Storage items rtao's weight preflight, scheduler and reveal watcher read:
+/// rtao's own lists, so this check never drifts from what it reads. Each read
+/// uses the compiled descriptor while its shape matches and is otherwise
+/// resolved by name against live metadata, or refused for that item alone
+/// when its meaning changed (D-089).
+pub fn upstream_storage() -> Vec<StorageSurface> {
+    rtao_neuron::weights::PREFLIGHT_STORAGE
+        .iter()
+        .chain(&rtao_neuron::weights::RUN_PATH_STORAGE)
+        .copied()
+        .collect()
+}
+
+/// rtao's verdict on the storage and constants its validator run path reads.
+/// `Ok` lists the items it reads by name ([`Adaptation::UpstreamReadByName`],
+/// empty when every compiled descriptor matches). An item that neither the
+/// compiled descriptor nor the name-resolved read accepts is reported as
+/// `upstream_storage_refused`: rtao's finalized observation and recovery stop
+/// until it supports the item.
+pub fn evaluate_upstream_storage(runtime: &RuntimeHandle) -> Result<Vec<Adaptation>, Deferral> {
+    let upstream = rtao_neuron::weights::ValidatorSurface::check(runtime);
+    let refused: Vec<&str> = upstream
+        .incompatible
+        .iter()
+        .filter(|line| line.starts_with("storage:") || line.starts_with("constant:"))
+        .map(|line| line.split(": ").next().unwrap_or(line))
+        .collect();
+    if !refused.is_empty() {
+        return Err(Deferral::new(
+            "upstream_storage_refused",
+            format!(
+                "rtao reads {} neither through its compiled descriptor nor by name against live metadata, so finalized recovery and weight preparation stop until rtao supports the live item",
+                refused.join(", ")
+            ),
+        ));
+    }
+    let report = runtime.surface_report();
+    let items: Vec<String> = upstream_storage()
+        .iter()
+        .map(|surface| format!("storage:{}.{}", surface.pallet, surface.name))
+        .chain(
+            rtao_neuron::weights::RUN_PATH_CONSTANTS
+                .iter()
+                .map(|constant| format!("constant:{}.{}", constant.pallet, constant.name)),
+        )
+        .filter(|id| !report.shape_matches(id))
+        .collect();
+    Ok(if items.is_empty() {
+        Vec::new()
+    } else {
+        vec![Adaptation::UpstreamReadByName { items }]
+    })
 }

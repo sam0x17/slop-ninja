@@ -8,7 +8,7 @@
 //! are updated; nothing in production refuses that runtime.
 //!
 //! For every transaction Slop Ninja's owner, validators and miners send, the
-//! test checks that rtao `b5553a76`'s generated descriptor (pallet and call
+//! test checks that the pinned rtao revision's generated descriptor (pallet and call
 //! index, argument names, shape hash) matches the live metadata, that the
 //! indices match `docs/subnet-runtime-486-diff.md`, and that the generated
 //! bytes equal a by-name re-encoding through live metadata. The golden file
@@ -180,7 +180,7 @@ fn the_dry_run_commit_builder_matches_rtaos_scheduler_composition() {
         MechId(0),
         ciphertext(),
         REVEAL_ROUND,
-        rtao_neuron::weights::SUPPORTED_CR_VERSION,
+        rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION,
     )
     .expect("type-checks against live metadata");
     let rtao = transactions()[0].call.compose(&runtime).unwrap();

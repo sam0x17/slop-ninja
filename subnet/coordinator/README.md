@@ -19,7 +19,7 @@ the shared, wasm-clean [protocol crate](../crates/protocol/README.md) by path:
 the testnet genesis guard checks against its `TESTNET_GENESIS`, the T12
 target is verified and its row derived with it, and `src/wire.rs` adds only
 JSON encodings of chain identifiers. Chain encoding and cryptography come from
-rtao `b5553a76`'s portable core seam, `rtao-core` with default features off
+rtao `0c128160`'s portable core seam, `rtao-core` with default features off
 (upstream `bittensor-core` without `host`). All logic except `src/cf.rs` is
 plain Rust, tested natively against SQLite, which is the dialect Durable Object
 storage uses. `src/cf.rs` holds the Workers entry points, the Durable Objects
@@ -452,9 +452,12 @@ reveals it itself one epoch later.
 
 ### Wasm path
 
-Checked on 2026-10-30 against rtao `b5553a76` (the pin) and rtao `main` at
-`57191ba` (six commits later, none touching the core seam or Wasm support), with
-`cargo check --target wasm32-unknown-unknown`:
+Checked on 2026-10-30 against rtao `b5553a76` (then the pin) and rtao `main`
+at `57191ba` (six commits later, none touching the core seam or Wasm support),
+with `cargo check --target wasm32-unknown-unknown`. The pin is now `0c128160`
+(tag `snapshot-2026-11-03.2`); `rtao-core` and `rtao-core-ext` have no source
+change between the two, and the coordinator's wasm32 Clippy and `worker-build`
+passed there on 2026-11-03:
 
 | rtao crate | wasm32 | Why |
 | --- | --- | --- |
@@ -478,7 +481,16 @@ with the same parameters:
   hash capability;
 - the payload, the drand round (`reveal_round_at`, with rtao's three-block
   security offset) and the epoch prediction are rtao's `timelock_commit` and
-  `epoch_schedule`; encryption is upstream `encrypt_and_compress`.
+  `epoch_schedule`; encryption is upstream `encrypt_and_compress`;
+- the commit carries the native commit-reveal tag 4
+  (`signing::SUPPORTED_CR_VERSION`). On any other stored
+  `CommitRevealWeightsVersion` the coordinator defers its commit
+  (`commit_reveal_version`) and checks again, while native validators at
+  rtao `0c128160` follow a stored tag under runtime code rtao has reviewed.
+  601 stores 4. The agreement that both of our validators commit the same
+  row each cohort (AR-2/AR-3) assumes tag 4: after a tag change the native
+  validators could keep committing while the coordinator pauses, until the
+  coordinator gains tag following. Neither commits a wrong row.
 
 The same `[patch]` set as `subnet/Cargo.toml` pins `bittensor-core`, `w3f-bls`
 and `subtensor-macros`.
@@ -1700,11 +1712,14 @@ milestone M7.
   renewal names the active target, a holder that has not seen a newer bundle
   keeps its held target to the end of its lease.
 - **Native validators during the burn regime.** rtao holds a row whose
-  positive entries are only the owner hotkey's (or the validator's own) UID,
-  so a native validator commits nothing while the active row is all burn
-  (the launch row, or a target whose credited miners all left) and its
-  previous weights stay on chain; it defers each such tempo (exit 75) rather
-  than halting. The coordinator commits burn rows itself.
+  positive entries are only the owner hotkey's (or the validator's own) UID
+  unless the work opts in with `OwnerRowPolicy::Submit`. A native validator
+  opts in for an owner burn row (the launch row under a valid launch
+  authorization, or a verified target whose row pays only the owner UID) and
+  commits it while the chain limits allow (`MinAllowedWeights` of 1 for a
+  validator that is not the owner); it defers a tempo whose row rtao would
+  still hold, or a burn row the limits refuse (exit 75), and its previous
+  weights stay on chain. The coordinator commits burn rows itself.
 - **Lookup canary.** No anchors exist on testnet; the canary statistic is not
   computed and flags come only from the plan's drill list.
 - **Fan-out stage 2.** Job ledgers (one Durable Object per scored job) and a
@@ -1808,7 +1823,7 @@ routes are exempt until converted. The branch records follow.
   block-pinned reads, submission reply classification, signing configuration.
 
 **Parity: 4 tests passed** against rtao `b5553a76` natively (see
-[Wasm path](#wasm-path)).
+[Wasm path](#wasm-path)), and again against `0c128160` on 2026-11-03.
 
 **Wasm.** Clippy passed on both targets, with the panic lints denied.
 `worker-build` produced `index.js` 31.5 kB and `index_bg.wasm` 2,039,481 bytes

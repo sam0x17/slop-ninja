@@ -55,7 +55,9 @@
 //!     requests that passed as accepted (`FormPost::with_items`), so the
 //!     last one judged with every sibling accepted gets the item check
 //!     (`profile::item_v2` on the final document and its window) and earlier
-//!     ones their own edit's rules.
+//!     ones their own edit's rules, each laid out in its item with the raw
+//!     texts of the requests before it that passed
+//!     (`FormPost::set_layout_context`; amendment 29 item 29.1).
 //! * **Records** (`reverdict-<batch>.jsonl`, no text): per item and request,
 //!   the outcome and the full text-free profile record (`profile_record`:
 //!   `transfer`, `form_reasons`, `unlicensed_reasons`, `would_be_unlicensed`,
@@ -157,7 +159,7 @@ pub const LOCAL_RULE: &str = "FormPost's step on the raw child, then generation:
 /// The spliced re-verdict.
 pub const SPLICED_RULE: &str = "the original splice verdict (its raw-response checks) with FormPost's reasons, laid-out text and raw text merged in, as form_post::spliced_post does";
 /// The item rule.
-pub const ITEM_RULE: &str = "an item's requests are re-verdicted in item order; each sees the item's earlier requests that passed as accepted (FormPost::with_items), so the last one judged with every sibling accepted gets the item check and earlier ones their own edit's rules (form_post::ITEM_CHECK_RULE)";
+pub const ITEM_RULE: &str = "an item's requests are re-verdicted in item order; each sees the item's earlier requests that passed as accepted (FormPost::with_items), so the last one judged with every sibling accepted gets the item check and earlier ones their own edit's rules (form_post::ITEM_CHECK_RULE), each earlier one laid out in its item with the raw texts of the requests before it that passed (amendment 29 item 29.1)";
 /// The attempt rule of the regeneration plan.
 pub const ATTEMPT_RULE: &str = "attempts are counted per request from the first (r2 F19g; amendment 20): attempts_used is one more than the highest journaled attempt (intent or response) and attempts_remaining is the request's limit less that (Request::attempts: its attempt_limit when it carries one, B5b's regenerated mirrors; else generation::ATTEMPTS = 2, R0's limit for every planned request), reported as attempt_limit; an item with a rejected request that has no attempt left is dropped with a receipt (drop_out_of_attempts; refilled by section 6.4's rules); otherwise a mirror's rejected request is regenerated through B5b's new request with mirror_target_words_v2 and the remaining attempts (regenerate_mirror), and any other item's rejected requests resume under generate --profile (regenerate)";
 
@@ -889,8 +891,11 @@ fn accepted_state(attempt: u32, verdict: &Value) -> ReqState {
 /// give the sequential judgement exactly: (a) every accepted request with
 /// its item's other requests pending, which is each request's verdict when
 /// an earlier sibling of its item has not passed, and every earlier
-/// request's; (b) the last request of each item whose every request was
-/// accepted in the journals and whose earlier requests passed (a), with
+/// request's; each is laid out in its item with the raw texts of the
+/// requests before it (item order) that passed (a), as the sequential
+/// judgement lays it out (amendment 29 item 29.1; the records keep (a)'s
+/// pending siblings); (b) the last request of each item whose every request
+/// was accepted in the journals and whose earlier requests passed (a), with
 /// those siblings accepted, which is the item check.
 fn judge(batch: &Batch, j: &Journals) -> Result<Judged> {
     let specs: Vec<ItemSpec> = batch.items.iter().filter_map(|it| it.spec.clone()).collect();
@@ -902,9 +907,14 @@ fn judge(batch: &Batch, j: &Journals) -> Result<Judged> {
         let parent = parent_of(it)?;
         for rid in &it.requests {
             if let Some(acc) = acc_of(rid) {
-                verdicts.insert((rid.clone(), acc.attempt), reverdict(batch, &form_a, &batch.requests[rid], parent, acc)?);
+                let v = reverdict(batch, &form_a, &batch.requests[rid], parent, acc)?;
+                if it.spec.is_some() && v["accepted"] == true {
+                    form_a.set_layout_context(rid, v["raw_text"].as_str().unwrap_or(&acc.raw));
+                }
+                verdicts.insert((rid.clone(), acc.attempt), v);
             }
         }
+        form_a.clear_layout_context();
     }
     let mut siblings: HashMap<String, ReqState> = HashMap::new();
     let mut last: Vec<(&RItem, &String)> = Vec::new();

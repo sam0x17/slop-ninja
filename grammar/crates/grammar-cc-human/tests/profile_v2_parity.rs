@@ -22,7 +22,9 @@ fn boundaries(s: &str) -> Vec<usize> {
 #[test]
 fn assemble_item_matches_assemble_parts() {
     let parents = ["Alpha one. Beta two.\n\nGamma three.", "A \u{2014}b\u{a0}c. D\u{1c}e f.", "One. Two.  Three"];
-    let reps = ["New text.", " padded", "x", "two words", "", "tail \u{1f}", "\u{201C}q\u{201D}"];
+    // the last four: amendment 29 item 29.1's leading line break and lead
+    // (accepted), and leading whitespace of other forms (refused)
+    let reps = ["New text.", " padded", "x", "two words", "", "tail \u{1f}", "\u{201C}q\u{201D}", "\n  lead text.", "\n\tx", "\n\nnot one break", "\n \nnor this"];
     let seps = [None, Some(" "), Some("\n\n")];
     let mut cases = 0usize;
     let mut oks = 0usize;
@@ -61,6 +63,9 @@ fn assemble_item_matches_assemble_parts() {
     }
     assert_eq!(form("p", &[], &[]), positives("p", &[], &[]));
     assert!(cases > 10_000 && oks > 100, "{cases} cases, {oks} assembled");
+    // a leading line break and lead stay outside the final span
+    let (t, sp) = form("One. Two.", &[Part { span: (5, 9), insert_sep: None }], &["\n  Deux."]).unwrap();
+    assert_eq!((t.as_str(), &t[sp[0].0..sp[0].1]), ("One. \n  Deux.", "Deux."));
 }
 
 #[test]

@@ -583,7 +583,7 @@ mod tests {
             row("d", 0, "email", "enron", "The quick brown fox jumps over\nthe lazy dog. It ran.\nThen it slept under the old\noak tree for an hour."),
         ];
         let v = audit_rows(&rows);
-        assert_eq!((v["measure"].as_str(), v["transfer"].as_str()), (Some("layout_measure_v2"), Some("layout_transfer_v2")));
+        assert_eq!((v["measure"].as_str(), v["transfer"].as_str()), (Some("layout_measure_v2"), Some("layout_transfer_v4")));
         let raid = &v["by_block_domain_class"]["T|news|human_raid"];
         assert_eq!(raid["documents"], 1);
         assert_eq!(raid["lines"], 3);

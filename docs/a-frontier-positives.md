@@ -344,10 +344,20 @@ spliced and rows batches'.
   request ids are R0's, and every one must be counted.
 - Train only: each line's split is read from its bytes before any parse.
   The plan is refused unless every passage's `frozen_split` is `train` (the
-  prior is built from every passage). A request line is parsed only when its
-  `split` is `train` or it names none; every other request line (another
-  split such as `train_mining`, or several values) is skipped unparsed and
-  counted, and an R0 record whose request is such a line refuses the plan.
+  prior is built from every passage). A request line's split is its own
+  top-level `split` key (protocol A2 amendment 32 item 32.1,
+  `grammar_a_dryrun::request_split`). A `split` under `/voice/derived_from`
+  is the voice's provenance, so a `train` request whose voice derives from a
+  `train_mining` human is a Train line. A request line is parsed only when its
+  own split is `train` or it names none. A derived split other than `train` or
+  `train_mining` refuses the plan, and so does a derived split on such a line
+  that is not one plain value (repeated, with an escape or not a string),
+  because the guard cannot read which split the voice derives from. Every
+  other request line is skipped unparsed and counted: another split such as a
+  top-level `train_mining`, a repeated or unreadable top-level `split`, or a
+  `split` at any other path. A malformed
+  line is read as before, by every `split` key in its bytes. An R0 record
+  whose request is a skipped line refuses the plan.
   ROWS (refused unless its SHA-256 is the bound one given, before any line is
   read) is read for its Train lines and gives the R0 frontier request ids,
   with each child's class and domain.

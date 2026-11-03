@@ -40,7 +40,15 @@
 //!     never reopened, because the journal keeps an accepted response as
 //!     final. Each earlier request gets the rules that read only its own
 //!     edit: its layout transfer (line reasons and the empty check) and its
-//!     echo comparison. The paragraph screen and the window read the final
+//!     echo comparison. Its layout is taken in its item
+//!     (`profile::edit_in_item_v2`; amendment 29 item 29.1): the edits are
+//!     laid out in parent order, with the accepted siblings' raw texts and
+//!     every sibling's place, so its text is the one the item check lays
+//!     out whenever its parent-earlier siblings on its lines were accepted
+//!     before it. A sibling judged after a later edit on a line it shares
+//!     changes that edit's column, and the item check then rejects
+//!     (`item_sibling_text_mismatch`). The paragraph screen and the window
+//!     read the final
 //!     document, so they wait for the item; the partial document's paragraph
 //!     reasons are recorded as `deferred_reasons` and reject nothing. The
 //!     item's requests are judged one at a time (`Completion::gate`), so the
@@ -84,7 +92,7 @@ use crate::text;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use grammar_a_form::conventions::{Conventions, Counts, KEY_SCOPE, counts};
 use grammar_a_form::profile::{
-    self, EditV2, ItemV2, NORM_ID, PROFILE_V2, PriorV2, Profile, is_r2_population, norm_prior_seed, resolve_v2,
+    self, EditV2, ItemV2, NORM_ID, PROFILE_V2, PriorV2, Profile, Slot, is_r2_population, norm_prior_seed, resolve_v2,
 };
 use grammar_a_form::window::{LENGTH_WINDOW, LENGTH_WINDOW_ID};
 use serde_json::{Value, json};
@@ -158,6 +166,10 @@ pub struct Completion {
     /// Item id -> its requests and their parts, in item order.
     items: HashMap<String, Vec<(String, Part)>>,
     accepted: Mutex<HashMap<String, Accepted>>,
+    /// Raw texts of siblings that an earlier request's layout reads without
+    /// their being accepted here (`FormPost::set_layout_context`; renorm's
+    /// first binding judges each request with its siblings pending).
+    layout: Mutex<HashMap<String, String>>,
     gate: Mutex<()>,
 }
 
@@ -281,6 +293,26 @@ impl FormPost {
         &self.prior_sha256
     }
 
+    /// Makes `raw` the raw text that the layout of `request_id`'s later
+    /// siblings reads (amendment 29 item 29.1) while the request stays
+    /// pending for the item check: renorm's first binding judges every
+    /// request with its siblings pending, and calls this in item order for
+    /// each earlier request that passed, so each request is laid out as the
+    /// sequential judgement lays it out. A request outside the bound items
+    /// is ignored.
+    pub fn set_layout_context(&self, request_id: &str, raw: &str) {
+        if let Some(c) = self.completion.as_ref().filter(|c| c.member.contains_key(request_id)) {
+            c.layout.lock().unwrap_or_else(|e| e.into_inner()).insert(request_id.to_string(), raw.to_string());
+        }
+    }
+
+    /// Clears every layout context (`set_layout_context`).
+    pub fn clear_layout_context(&self) {
+        if let Some(c) = &self.completion {
+            c.layout.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        }
+    }
+
     /// The item check's counts (`Completion::record`), when items with
     /// several requests are bound.
     pub fn items_record(&self) -> Value {
@@ -381,9 +413,23 @@ impl FormPost {
         let pending: Vec<&str> = parts.iter().enumerate().filter(|(j, (rid, _))| *j != idx && !acc.contains_key(rid)).map(|(_, (rid, _))| rid.as_str()).collect();
         let missing: Vec<&str> =
             parts.iter().enumerate().filter(|(j, (rid, _))| *j != idx && acc.get(rid).is_some_and(|a| a.raw.is_none())).map(|(_, (rid, _))| rid.as_str()).collect();
-        let own = &parts[idx].1;
         if !pending.is_empty() || !missing.is_empty() {
-            let it = profile::item_v2(p, conv, &[EditV2 { span: own.span, insert_sep: own.insert_sep.as_deref(), raw: clean }]);
+            // the edit laid out in its item: the accepted siblings' raw
+            // texts (or a layout context's) and every sibling's place
+            let context: Vec<Option<String>> = {
+                let l = c.layout.lock().unwrap_or_else(|e| e.into_inner());
+                parts.iter().map(|(rid, _)| l.get(rid).cloned()).collect()
+            };
+            let slots: Vec<Slot> = parts
+                .iter()
+                .enumerate()
+                .map(|(j, (rid, part))| Slot {
+                    span: part.span,
+                    insert_sep: part.insert_sep.as_deref(),
+                    raw: if j == idx { Some(clean) } else { acc.get(rid).and_then(|a| a.raw.as_deref()).or(context[j].as_deref()) },
+                })
+                .collect();
+            let it = profile::edit_in_item_v2(p, conv, &slots, idx);
             let deferred = deferred_reasons(&it);
             let mut reasons: Vec<String> = it.reasons.iter().filter(|x| !deferred.contains(*x)).cloned().collect();
             if pending.is_empty() {
@@ -832,6 +878,103 @@ mod tests {
         assert_eq!((out.text.as_str(), out.reasons.clone()), (raw, vec!["form_parent_not_in_prior".to_string()]));
         let gone = fp.apply(&req("r4", "item-4", "p1", None), None, raw);
         assert_eq!(gone.reasons, vec!["form_parent_missing".to_string()]);
+    }
+
+    #[test]
+    fn an_items_edits_are_laid_out_in_parent_order_across_its_requests() {
+        // Amendment 29 item 29.1 in the generation path: a two-edit item in
+        // a hard-wrapped parent whose later edit's column holds the earlier
+        // edit's laid-out text. Judged in parent order, each request's text
+        // is the item check's; judged out of order, the later edit was laid
+        // out with the parent's column and the item check rejects.
+        let vocab = ["amber", "basalt", "cobalt", "delta", "ember", "fjord", "garnet", "harbor", "indigo", "juniper", "kestrel", "lantern"];
+        let alt = ["acorn", "bramble", "canyon", "dune", "estuary", "fern", "glacier", "heather", "inlet", "jasper", "knoll", "lichen"];
+        let sent = |v: &[&str], seed: u64, n: usize| -> String {
+            let mut st = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let ws: Vec<&str> = (0..n)
+                .map(|_| {
+                    st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    v[((st >> 33) as usize) % v.len()]
+                })
+                .collect();
+            let s = ws.join(" ");
+            format!("{}{}.", s[..1].to_uppercase(), &s[1..])
+        };
+        let mut found = None;
+        'seed: for seed in 0..400u64 {
+            let paras: Vec<String> = (0..2)
+                .map(|k| grammar_a_form::transfer::wrap(&(0..9).map(|j| sent(&vocab, seed * 100 + k * 10 + j, 5)).collect::<Vec<_>>().join(" "), 60, 0).join("\n"))
+                .collect();
+            let q = paras.join("\n\n");
+            let ss: Vec<(usize, usize)> = text::sentences(&q).iter().map(|s| (s.start, s.end)).collect();
+            let fp = FormPost::new("train2", [("p1", "fiction", q.as_str())]).unwrap();
+            let conv = fp.conventions("p1", &q, "it-1").unwrap().0;
+            let first_para = q.find("\n\n").unwrap();
+            for a in 0..ss.len() {
+                for b in a + 2..ss.len() {
+                    if q[ss[a].1..ss[b].0].contains('\n') || ss[b].1 > first_para {
+                        continue;
+                    }
+                    let (r1, r2) = (sent(&alt, seed + 1, 5), sent(&alt, seed + 2, 5));
+                    let e = [EditV2 { span: ss[a], insert_sep: None, raw: &r1 }, EditV2 { span: ss[b], insert_sep: None, raw: &r2 }];
+                    let it = profile::item_v2(&q, &conv, &e);
+                    if it.reasons.is_empty() && it.reps[1] != profile::item_v2(&q, &conv, &e[1..]).reps[0] {
+                        found = Some((q.clone(), ss[a], ss[b], r1, r2, it.reps.clone()));
+                        break 'seed;
+                    }
+                }
+            }
+        }
+        let (q, sa, sb, r1, r2, reps) = found.expect("a shared line whose later edit's column changes");
+        let spec = || vec![ItemSpec { item_id: "it-1".into(), parts: vec![("w1".into(), sa, None), ("w2".into(), sb, None)] }];
+        let edits: HashMap<String, splice::Edit> = HashMap::new();
+        let accepted = |text: &str, raw: &str| ReqState {
+            intents: vec![0],
+            responses: BTreeMap::from([(0, json!({"verdict": {"accepted": true, "text": text, "raw_text": raw}}))]),
+            limit: None,
+        };
+        let base = || FormPost::new("train2", [("p1", "fiction", q.as_str())]).unwrap().with_edits(&edits);
+        let mut fp = base();
+        fp.edits = [("w1".to_string(), Part { span: sa, insert_sep: None }), ("w2".to_string(), Part { span: sb, insert_sep: None })].into();
+        // the earlier request judged first: its text is the item's (its tail
+        // from the later edit's place)
+        let first = fp.clone().with_items(spec(), &HashMap::new()).unwrap();
+        assert_eq!(first.apply(&req("w1", "it-1", "p1", Some(sa)), Some(&q), &r1).text, reps[0]);
+        // then the later one, its sibling accepted: the item check, laid out in parent order
+        let states = HashMap::from([("w1".to_string(), accepted(&reps[0], &r1))]);
+        let last = fp.clone().with_items(spec(), &states).unwrap();
+        let o = last.apply(&req("w2", "it-1", "p1", Some(sb)), Some(&q), &r2);
+        assert_eq!(o.text, reps[1]);
+        assert!(!o.reasons.iter().any(|r| r == "item_sibling_text_mismatch"), "{:?}", o.reasons);
+        assert_eq!(o.record["item_check"]["last"], true);
+        // out of parent order: the later request judged first is laid out
+        // with the parent's column; the earlier one's item check then finds
+        // its sibling's text is not the item's
+        let early = first.apply(&req("w2", "it-1", "p1", Some(sb)), Some(&q), &r2);
+        assert_ne!(early.text, reps[1]);
+        let states = HashMap::from([("w2".to_string(), accepted(&early.text, &r2))]);
+        let late = fp.with_items(spec(), &states).unwrap().apply(&req("w1", "it-1", "p1", Some(sa)), Some(&q), &r1);
+        assert!(late.reasons.iter().any(|r| r == "item_sibling_text_mismatch"), "{:?}", late.reasons);
+        // with a third request pending, the second is laid out in its item
+        // from its accepted first sibling's raw text (not the item check)
+        let s3 = (q.rfind(". ").unwrap() + 2, q.len());
+        let spec3 = || vec![ItemSpec { item_id: "it-1".into(), parts: vec![("w1".into(), sa, None), ("w2".into(), sb, None), ("w3".into(), s3, None)] }];
+        let mut fp3 = base();
+        fp3.edits = [("w1".to_string(), Part { span: sa, insert_sep: None }), ("w2".to_string(), Part { span: sb, insert_sep: None }), ("w3".to_string(), Part { span: s3, insert_sep: None })].into();
+        let states = HashMap::from([("w1".to_string(), accepted(&reps[0], &r1))]);
+        let mid = fp3.with_items(spec3(), &states).unwrap().apply(&req("w2", "it-1", "p1", Some(sb)), Some(&q), &r2);
+        assert_eq!(mid.record["item_check"]["last"], false);
+        assert_eq!(mid.text, reps[1]);
+        // renorm's layout context lays the later request out as the item does
+        let mut ctx = base();
+        ctx.edits = [("w1".to_string(), Part { span: sa, insert_sep: None }), ("w2".to_string(), Part { span: sb, insert_sep: None })].into();
+        let ctx = ctx.with_items(spec(), &HashMap::new()).unwrap();
+        ctx.set_layout_context("w1", &r1);
+        let o = ctx.apply(&req("w2", "it-1", "p1", Some(sb)), Some(&q), &r2);
+        assert_eq!(o.text, reps[1]);
+        assert_eq!(o.record["item_check"]["pending"], json!(["w1"]), "the record keeps the sibling pending");
+        ctx.clear_layout_context();
+        assert_eq!(ctx.apply(&req("w2", "it-1", "p1", Some(sb)), Some(&q), &r2).text, early.text);
     }
 
     /// A prior over curly, ASCII and quote-less parents of one domain, and a

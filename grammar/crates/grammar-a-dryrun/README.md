@@ -9,7 +9,7 @@ plans); `grammar-a-positives dryrun-merge` merges their records.
 
 | Module | Holds |
 |---|---|
-| `engine` | The landed `grammar-a-form` and amendment 7's `grammar-a-form-a7` behind one interface (`Code`): the record's conventions read into each code's type and checked to round-trip, `child_v2`, `item_v2`, `donor_child_v2`, `splice`, the window, the frontier and rows verdict wiring (`simple_verdict`), the laid-out child and the landed transfer with its diagnostics. Every call is caught: amendment 7's code panics on some lines, and a panic keeps only its code location. |
+| `engine` | The landed `grammar-a-form` and amendment 7's `grammar-a-form-a7` behind one interface (`Code`): the record's conventions read into each code's type and checked to round-trip, `child_v2`, `item_v2`, `donor_child_v2`, `splice`, the window, the frontier and rows verdict wiring (`simple_verdict`), the laid-out child and the landed transfer with its diagnostics, an item's edit laid out in its item (`Source::InItem`, `edit_in_item_v2`; protocol A2 amendment 29 item 29.1). Every call is caught: amendment 7's code panics on some lines, and a panic keeps only its code location. |
 | `figures` | Count 2 (greeting and sign-off merges) and count 3 (list markers left mid-line) on one child under one code. |
 | `invariants` | Counts 4-6, the stop invariants, on one child's landed transfer. |
 | `tally` | One child at a time: the re-derivation identity, then the six counts into cells by source × class × domain, reasons by source × class, ids-only lines; totals, the gate and the merge. |
@@ -26,7 +26,14 @@ gate on their broadest reading, so no reading narrows item 14.1:
   document's (the parent words a span's first and last paragraphs join, as
   `place_breaks` counts them) beside.
 
+The crate root also holds the split readers: `line_split` (every value of
+a key, from a line's bytes) and `request_split`, a request line's own
+top-level `split` with `/voice/derived_from/split` beside it as provenance
+(amendment 32 item 32.1; `TRAIN_SIDE_DERIVED` is the guard's set). A derived
+split that is not one plain value (repeated, escaped or not a string) is
+`DerivedUnreadable`, and a caller refuses a Train line that holds one.
+
 `tests/counts.rs` pins each stop invariant's counted case and its near
-misses, counts 1-3 on a synthetic email whose verdict differs between the
+misses, item 32.2's request-split set, counts 1-3 on a synthetic email whose verdict differs between the
 codes, amendment 7's caught panic, the re-derivation identity, the ids-only
 lines and the merge, on synthetic text only.

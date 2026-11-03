@@ -125,9 +125,28 @@ pub enum Source<'a> {
     Insertion { parent: &'a str, at: usize, sep: &'a str },
     /// A parentless row laid out like its layout donor (§6.2).
     Donor { donor: &'a str },
+    /// Edit `index` of an item with several edits, laid out in its item
+    /// (`profile::lay_out_item` over `slots`: the item's every edit, with
+    /// the raw texts its layout read; amendment 29 item 29.1). Amendment 7's
+    /// code lays each edit out alone (`alone`).
+    InItem { parent: &'a str, slots: &'a [Slot<'a>], index: usize },
 }
 
-impl Source<'_> {
+/// One edit's slot in its item (`profile::Slot`): its splice (`s == e`
+/// for an insertion), an insertion's separator and, when the layout read
+/// it, the raw text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Slot<'a> {
+    pub span: (usize, usize),
+    pub insert_sep: Option<&'a str>,
+    pub raw: Option<&'a str>,
+}
+
+fn landed_slots<'a>(slots: &[Slot<'a>]) -> Vec<l::profile::Slot<'a>> {
+    slots.iter().map(|s| l::profile::Slot { span: s.span, insert_sep: s.insert_sep, raw: s.raw }).collect()
+}
+
+impl<'a> Source<'a> {
     /// The child kind (item 13.10 figure 1's kinds; a donor row is its own).
     pub fn kind(&self) -> &'static str {
         match self {
@@ -135,11 +154,29 @@ impl Source<'_> {
             Source::Span { .. } => "mixed",
             Source::Insertion { .. } => "insertion",
             Source::Donor { .. } => "donor",
+            Source::InItem { slots, index, .. } => {
+                if slots[*index].span.0 == slots[*index].span.1 {
+                    "insertion"
+                } else {
+                    "mixed"
+                }
+            }
         }
     }
     /// Whether the child is a whole text (a mirror or a donor row).
     pub fn whole(&self) -> bool {
         matches!(self, Source::Mirror { .. } | Source::Donor { .. })
+    }
+    /// The edit's source on its own: an item's edit as its span or
+    /// insertion; every other source as it is.
+    pub fn alone(&self) -> Source<'a> {
+        match *self {
+            Source::InItem { parent, slots, index } => {
+                let s = slots[index];
+                if s.span.0 == s.span.1 { Source::Insertion { parent, at: s.span.0, sep: s.insert_sep.unwrap_or("") } } else { Source::Span { parent, span: s.span } }
+            }
+            other => other,
+        }
     }
 }
 
@@ -283,6 +320,26 @@ pub fn item_v2(code: Code, parent: &str, conv: &Value, edits: &[Edit]) -> Result
     }
 }
 
+/// `profile::edit_in_item_v2` under `code`: edit `index` of an item judged
+/// with its siblings pending (`FormPost::of_item`'s earlier requests). The
+/// landed code lays it out in its item (`slots`, the raw texts known so far;
+/// amendment 29 item 29.1); amendment 7's code is `item_v2` over the edit
+/// alone.
+pub fn edit_in_item_v2(code: Code, parent: &str, conv: &Value, slots: &[Slot], index: usize) -> Result<ItemStep, Failure> {
+    let own = slots[index];
+    match code {
+        Code::Landed => {
+            let c = landed_conventions(conv)?;
+            let ss = landed_slots(slots);
+            guarded(|| {
+                let x = l::profile::edit_in_item_v2(parent, &c, &ss, index);
+                ItemStep { reps: x.reps, assembled: x.assembled.map(|a| (a.text, a.edit_spans)), reasons: x.reasons, record: x.record }
+            })
+        }
+        Code::A7 => item_v2(code, parent, conv, &[Edit { span: own.span, insert_sep: own.insert_sep, raw: own.raw.unwrap_or("") }]),
+    }
+}
+
 /// `profile::splice` under `code`.
 pub fn splice(code: Code, parent: &str, span: (usize, usize), rep: &str) -> Result<String, &'static str> {
     match code {
@@ -335,7 +392,7 @@ pub fn simple_verdict(code: Code, src: Source, conv: &Value, raw: &str) -> Resul
         Source::Mirror { parent } => child_v2(code, parent, None, conv, raw)?,
         Source::Span { parent, span } => child_v2(code, parent, Some(span), conv, raw)?,
         Source::Donor { donor } => donor_child_v2(code, donor, conv, raw)?,
-        Source::Insertion { .. } => return Err(Failure::Unsupported),
+        Source::Insertion { .. } | Source::InItem { .. } => return Err(Failure::Unsupported),
     };
     let mut reasons = step.reasons;
     let mut doc = None;
@@ -366,21 +423,34 @@ pub struct Laid {
     pub units: Vec<(usize, usize)>,
 }
 
-/// The landed source layout of `src`.
+/// The landed source layout of `src` on its own (an item's edit as its
+/// span or insertion: `Source::alone`).
 pub fn landed_source(src: Source) -> Result<l::transfer::SourceLayout, Failure> {
-    match src {
+    match src.alone() {
         Source::Mirror { parent } => Ok(l::transfer::SourceLayout::whole(parent)),
         Source::Donor { donor } => Ok(l::transfer::SourceLayout::whole(donor)),
         Source::Span { parent, span } => l::transfer::SourceLayout::span(parent, span.0, span.1).ok_or(Failure::Source),
         Source::Insertion { parent, at, sep } => l::transfer::SourceLayout::insertion(parent, at, sep).ok_or(Failure::Source),
+        Source::InItem { .. } => Err(Failure::Unsupported),
     }
 }
 
-/// The landed transfer of `raw` from `src` (`layout_transfer_v2`), with
-/// its source layout: the text `child_v2`, `item_v2` and `donor_child_v2`
-/// lay out, and its diagnostics.
+/// The landed transfer of `raw` from `src` (`layout_transfer_v4`), with
+/// its source layout: the text `child_v2`, `item_v2`, `edit_in_item_v2` and
+/// `donor_child_v2` lay out, and its diagnostics. An item's edit
+/// (`Source::InItem`) is laid out in its item (`profile::lay_out_item`,
+/// its own slot's raw text being `raw`), its source carrying the item's
+/// columns.
 pub fn landed_transfer(src: Source, conv: &Value, raw: &str) -> Result<(l::transfer::SourceLayout, l::transfer::Transferred), Failure> {
     let c = landed_conventions(conv)?;
+    if let Source::InItem { parent, slots, index } = src {
+        let mut ss = landed_slots(slots);
+        ss[index].raw = Some(raw);
+        return guarded(|| {
+            let mut laid = l::profile::lay_out_item(parent, &c, &ss);
+            laid[index].take().map(|x| (x.src, x.transferred)).ok_or(Failure::Source)
+        })?;
+    }
     guarded(|| landed_source(src).map(|s| {
         let t = l::transfer::transfer(raw, &c, &s);
         (s, t)
@@ -394,11 +464,12 @@ pub fn laid(code: Code, src: Source, conv: &Value, raw: &str) -> Result<Laid, Fa
         Code::A7 => {
             let c = a7_conventions(conv)?;
             guarded(|| {
-                let s = match src {
+                let s = match src.alone() {
                     Source::Mirror { parent } => Some(a::transfer::SourceLayout::whole(parent)),
                     Source::Donor { donor } => Some(a::transfer::SourceLayout::whole(donor)),
                     Source::Span { parent, span } => a::transfer::SourceLayout::span(parent, span.0, span.1),
                     Source::Insertion { parent, at, sep } => a::transfer::SourceLayout::insertion(parent, at, sep),
+                    Source::InItem { .. } => None,
                 };
                 s.map(|s| {
                     let t = a::transfer::transfer(raw, &c, &s);

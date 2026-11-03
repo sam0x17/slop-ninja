@@ -16,8 +16,8 @@ supply the parent, the span and the cleaned response, and keep the records.
 | `echo` | The echo screen `cc_echo_screen_v1` |
 | `window` | The final-document length window `cc_final_length_window_v1` |
 | `measure` | Layout measurement `layout_measure_v2`: content lines with their leading and trailing whitespace, gaps and their exact separator strings, sentence ends, column widths, first-pass hard-wrap evidence and its width W, unwrapped lines, lead changes, second-pass wraps, paragraph boundaries, paragraphs and their form-screen reasons, edge frames, paired emphasis, layout classes, text-free `LayoutCounts` and `MeasureDiag` (for profile v2, the layout audit and form-injection twins) |
-| `transfer` | The layout transfer `layout_transfer_v2` of profile v2: `SourceLayout` (a mirror's or donor's whole text, or a span's paragraphs and lines; properties only, no text: separators, frames, whitespace pools by role, wrap flags, licences) and `transfer` |
-| `profile` | The profile ids (`raw`, `cc_era_parent_norm_v1`, `cc_cohort_profile_v1`, `cc_cohort_profile_v2`), `Profile`, the every-class steps at assembly, profile v2's population x domain prior (`PriorV2`, `resolve_v2`), the closed population list `R2_POPULATIONS` and its per-child steps (`child_v2`, `item_v2`, `donor_child_v2`) |
+| `transfer` | The layout transfer `layout_transfer_v4` of profile v2: `SourceLayout` (a mirror's or donor's whole text, or a span's paragraphs and lines; properties only, no text: separators, frames, whitespace pools by role, wrap flags, licences) and `transfer` |
+| `profile` | The profile ids (`raw`, `cc_era_parent_norm_v1`, `cc_cohort_profile_v1`, `cc_cohort_profile_v2`), `Profile`, the every-class steps at assembly, profile v2's population x domain prior (`PriorV2`, `resolve_v2`), the closed population list `R2_POPULATIONS` and its per-child steps (`child_v2`, `item_v2`, `edit_in_item_v2`, `donor_child_v2`, with an item's layout in parent order, `lay_out_item`) |
 | `text`, `rank` | The prose screen, whitespace words and normalisation, `h64`, the sentence splitter `a_comp_sentences_v1`, and the seeded rank |
 
 ## Rules
@@ -68,13 +68,16 @@ supply the parent, the span and the cleaned response, and keep the records.
   acceptance and at assembly; reasons `final_document_below_150_words` and
   `final_document_above_450_words`.
 - **Profile v2** (`cc_cohort_profile_v2`, protocol A2 §6.2 as amended by
-  amendments 7, 10 and 13). Three entry points: `child_v2` (a mirror, or a mixed
+  amendments 7, 10, 13, 29 and 30). Four entry points: `child_v2` (a mirror, or a mixed
   child with one replaced span, spliced by `generation::assemble`'s rules),
   `item_v2` (a spliced item: any number of edits, insertions with their
-  separators included, assembled by `assemble_item`, the spliced generator's
-  `splice::assemble_parts` rules) and `donor_child_v2` (a parentless row laid
+  separators included, laid out in parent order and assembled by
+  `assemble_item`, the spliced generator's `splice::assemble_parts` rules),
+  `edit_in_item_v2` (one edit of such an item judged before its siblings:
+  `item_v2` over that edit, laid out in its item with the siblings' raw
+  texts known so far) and `donor_child_v2` (a parentless row laid
   out like a layout donor's `SourceLayout::whole`). Records name the
-  components: `layout_measure_v2`, `layout_transfer_v2` and
+  components: `layout_measure_v2`, `layout_transfer_v4` and
   `cc_form_licence_screen_v1`. Each runs:
   - **the measurement** (`measure`, `layout_measure_v2`). Lines split at
     `'\n'`, each content line's leading and trailing whitespace, each gap's
@@ -107,7 +110,7 @@ supply the parent, the span and the cleaned response, and keep the records.
     counts the candidate runs and their rejection causes, the second-pass
     wraps, lead changes, unwrapped lines, frames, retested runs, blocks
     whose widest line is outside the fit bound and inner `list_like` lines.
-  - **the layout transfer** (`transfer`, `layout_transfer_v2`). The source
+  - **the layout transfer** (`transfer`, `layout_transfer_v4`). The source
     is the whole parent for a mirror (or a layout donor) and the replaced
     span's paragraphs and lines for a mixed child (for an insertion, the
     paragraph and line holding its point). A prose child's frame lines (on
@@ -115,13 +118,26 @@ supply the parent, the span and the cleaned response, and keep the records.
     lines; its body is rebuilt by v1's step (`layout::rebuild_child`: paired
     emphasis kept only if the source uses it) at the source body's break
     fractions, except that, for licensed reasons only, list lines are kept as
-    their own paragraphs and an unpunctuated paragraph end closes its
-    paragraph, both as fixed boundaries. A body paragraph is greedy-wrapped
+    their own paragraphs and an unpunctuated paragraph of at least 8 words is
+    a closed paragraph, a kept unit of its own: both edges of each are fixed
+    boundaries, a break target on one or inside a kept unit is realised by
+    it, and the text between fixed boundaries is a segment of its own (one
+    under 8 words is one paragraph). A body paragraph is greedy-wrapped
     when the source paragraph at its midpoint word fraction is wrapped
     (hard-wrapped source, no unwrapped line): each line's budget is W less
     the lead it takes, a span's first line W less its column, and a span's
     last line fits with the parent text after the span on that line (its
-    maximal fitting suffix of words moves to a new line). The boundary
+    maximal fitting suffix of words moves to a new line). The edits of an
+    item are laid out one at a time in parent order (`lay_out_item`): a
+    later edit's column is the document line's text before it in the item
+    assembled so far, an earlier edit's tail counts only the parent text up
+    to the next edit when that edit starts on the same line (an insertion
+    whose separator holds a line break starts its text on a new line, so the
+    tail before it is the parent's to the line's body end, as for the edit
+    alone), and a later
+    edit whose first word has no room on the shared line starts on a new
+    line with a continuation lead (`sibling_column_wraps`; its replacement
+    then begins with that line break and lead, outside its final span). The boundary
     between a frame and the body takes the source's body-adjacent boundary
     on that side; frame-internal boundaries take the source's
     frame-internal ones from the frame's outer edge, body boundaries the
@@ -130,7 +146,8 @@ supply the parent, the span and the cleaned response, and keep the records.
     paragraph-first and continuation leads, wrap-followed and
     paragraph-final trails, frame lines the source frame lines'; a mirror
     takes the head and tail, and a span's first and last lines take none (the
-    parent's own bytes around the span supply them). A line-form source
+    parent's own bytes around the span supply them; the no-room line break
+    above is the one exception). A line-form source
     keeps the child's own lines: squashed and rendered, and every break
     between them takes the source's boundary separators in order (one
     newline when it has none, counted), with source line (j mod L)'s
@@ -255,7 +272,15 @@ re-exports this crate's splitter, and
   (mixed children and insertions in hard-wrapped parents), the fit bound,
   the list test, the greeting retest, W and unwrapped lines, a span's
   last-line budget, frame separators and the child frame rule, and exact
-  break targets.
+  break targets. `tests/a29_rules.rs` tests amendment 29 item 29.1 (an
+  item's edits laid out in parent order: shared lines on the assembled
+  document, count 4's three documents' structure, insertions, the no-room
+  case, its continuation lead and its assembly, the tail before an
+  insertion whose separator breaks the line, one-edit items and edits on
+  lines of their own unchanged, a long first word after the parent's column
+  standing alone) and `tests/a30_rules.rs` items 30.1 and 30.2 (a closed
+  paragraph with two fixed boundaries, targets inside it, short text
+  before it, its end and a closed first paragraph as before).
 - `tests/profile_v2.rs` runs profile v2 on the synthetic fixtures in
   `tests/fixtures/` (IRC, verse, transcript, list, talk page, a RAID-like
   human with trailing whitespace and single-newline paragraphs, the same

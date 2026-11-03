@@ -10,8 +10,8 @@
 //!   the excerpt layout, the paragraph screen and the length window, and a
 //!   document that fails any of them leaves the cohort whatever its class.
 //! * `cc_cohort_profile_v2` (protocol A2 §6.2, as amended by amendments 7,
-//!   10 and 13): v1 with the parent-conditioned layout transfer
-//!   `layout_transfer_v2` (measured by `layout_measure_v2`) in place of v1's
+//!   10, 13, 29 and 30): v1 with the parent-conditioned layout transfer
+//!   (`transfer::LAYOUT_TRANSFER_ID`, measured by `layout_measure_v2`) in place of v1's
 //!   layout step, the licence screen `cc_form_licence_screen_v1` on every
 //!   prose-path child (line-form children stay unscreened), the echo screen
 //!   `cc_echo_screen_v1` on every child with a parent, and keyed convention
@@ -20,7 +20,9 @@
 //!   (`norm_prior_seed`; population ids from the closed list
 //!   `R2_POPULATIONS`). Entry points: `child_v2` (a
 //!   mirror, or one replaced span), `item_v2` (a spliced item: any number of
-//!   edits, insertions included, screened on the assembled item) and
+//!   edits, insertions included, laid out in parent order and screened on the
+//!   assembled item; amendment 29 item 29.1), `edit_in_item_v2` (one edit of
+//!   such an item judged before its siblings, laid out in its item) and
 //!   `donor_child_v2` (a parentless row laid out like a layout donor). The
 //!   every-class step at assembly is v1's in the C block (`every_class`); in
 //!   the T block it is the length window alone (`every_class_t_block`), so
@@ -101,7 +103,7 @@ impl Profile {
     pub fn excludes(self) -> bool {
         matches!(self, Profile::CohortV1 | Profile::CohortV2)
     }
-    /// Whether the profile lays children out with `layout_transfer_v2`
+    /// Whether the profile lays children out with the layout transfer
     /// (`child_v2`) and draws conventions from a `PriorV2`.
     pub fn transfers(self) -> bool {
         self == Profile::CohortV2
@@ -325,6 +327,16 @@ fn sha256_hex(b: &[u8]) -> String {
     format!("{:x}", Sha256::digest(b))
 }
 
+/// The leading whitespace a replacement may hold (amendment 29 item 29.1):
+/// none, or one line break followed by a lead (no other line break), when
+/// a later edit of an item has no room on the line it shares with an
+/// earlier edit. Returns its byte length, or None when the replacement's
+/// leading whitespace is of any other form.
+pub fn replacement_lead(r: &str) -> Option<usize> {
+    let lead = r.len() - r.trim_start_matches(py_space).len();
+    (lead == 0 || (r.starts_with('\n') && !r[1..lead].contains('\n'))).then_some(lead)
+}
+
 /// `parent[..s] + rep + parent[e..]` under `generation::assemble`'s splice
 /// rules (a non-empty span on character and token boundaries, a non-empty
 /// trimmed replacement), with its error messages.
@@ -394,7 +406,9 @@ pub struct Assembled {
 /// error messages; a parity test in `grammar-cc-human` pins the two): edits
 /// disjoint in parent order; an insertion adds its separator before the new
 /// text; a replacement sits on whitespace boundaries; every replacement is
-/// non-empty and trimmed; the human characters, the final boundaries and the
+/// non-empty and trimmed, except that it may begin with one line break and
+/// a lead (`replacement_lead`; amendment 29 item 29.1), which belong to no
+/// edit's final span; the human characters, the final boundaries and the
 /// word accounting are verified.
 pub fn assemble_item(parent: &str, parts: &[Part], reps: &[&str]) -> Result<Assembled, &'static str> {
     if parts.len() != reps.len() || parts.is_empty() {
@@ -415,9 +429,9 @@ pub fn assemble_item(parent: &str, parts: &[Part], reps: &[&str]) -> Result<Asse
         if !parent.is_char_boundary(s) || !parent.is_char_boundary(e) {
             return Err("char boundary");
         }
-        if r.is_empty() || r.trim_matches(py_space) != r {
+        let Some(lead) = replacement_lead(r).filter(|_| !r.trim_matches(py_space).is_empty() && r.trim_end_matches(py_space) == r) else {
             return Err("replacement layout");
-        }
+        };
         let seg = &parent[cur..s];
         out.push_str(seg);
         human.push_str(seg);
@@ -431,7 +445,7 @@ pub fn assemble_item(parent: &str, parts: &[Part], reps: &[&str]) -> Result<Asse
                 return Err("right boundary");
             }
         }
-        let fs = out.len();
+        let fs = out.len() + lead;
         out.push_str(r);
         spans[i] = (fs, out.len());
         cur = e;
@@ -671,7 +685,7 @@ fn sorted(mut v: Vec<String>) -> Vec<String> {
     v
 }
 
-/// The profile v2 step for one generated child: `layout_transfer_v2` from
+/// The profile v2 step for one generated child: the layout transfer from
 /// its source (the whole parent for a mirror, `span = None`; the replaced
 /// span's paragraphs and lines for a mixed child, spliced by
 /// `generation::assemble`'s rules, `splice`), the licence screen on the
@@ -776,10 +790,103 @@ pub struct ItemV2 {
     pub record: Value,
 }
 
+/// One edit's slot in an item, for the layout in parent order (amendment 29
+/// item 29.1): its splice and, when known, its raw text. A slot with no raw
+/// text (a sibling not yet accepted) keeps the parent's text; its place
+/// still decides whether the edit before it shares a line with it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Slot<'a> {
+    pub span: (usize, usize),
+    pub insert_sep: Option<&'a str>,
+    pub raw: Option<&'a str>,
+}
+
+/// One edit laid out in its item: its source, with the columns of the item
+/// assembled so far, and its transfer.
+#[derive(Clone, Debug)]
+pub struct LaidEdit {
+    pub src: SourceLayout,
+    pub transferred: Transferred,
+}
+
+/// Lays out the known edits of an item one at a time in the order assembly
+/// places them in the parent (`assemble_item`'s order; amendment 29 item
+/// 29.1). Each edit takes its own source (`SourceLayout::span`, or
+/// `SourceLayout::insertion` at the point with its separator) with two
+/// columns measured on the item assembled so far:
+/// * **its first line's column**: the columns of the document line's text
+///   before it, when that line holds an earlier edit's laid-out text
+///   (`SourceLayout::sibling_column`; the transfer then starts a wrapped
+///   first unit on a new line when its first word has no room); otherwise
+///   the parent's column, unchanged;
+/// * **its last line's tail**: when the next edit (known or not) starts on
+///   the same document line, the columns of the parent text between the
+///   two edits only; otherwise the parent text up to the line's body end,
+///   unchanged.
+///
+/// Returns one entry per slot, in slot order: None for a slot with no raw
+/// text or a source outside the parent. Once an edit is outside the parent
+/// or out of order (assembly then fails), the later edits take their
+/// parent's columns.
+pub fn lay_out_item(parent: &str, conv: &Conventions, slots: &[Slot]) -> Vec<Option<LaidEdit>> {
+    let mut order: Vec<usize> = (0..slots.len()).collect();
+    order.sort_by_key(|&i| slots[i].span);
+    let mut out: Vec<Option<LaidEdit>> = vec![None; slots.len()];
+    // the item assembled so far (known edits only), the parent bytes it has
+    // consumed and where the last known edit's text ends in it
+    let mut doc = String::new();
+    let mut cur = 0usize;
+    let mut last_end: Option<usize> = None;
+    let mut track = true;
+    for (k, &i) in order.iter().enumerate() {
+        let sl = slots[i];
+        let Some(raw) = sl.raw else { continue };
+        let (s, e) = sl.span;
+        let src = if s == e { SourceLayout::insertion(parent, s, sl.insert_sep.unwrap_or("")) } else { SourceLayout::span(parent, s, e) };
+        let Some(mut src) = src.filter(|_| s <= e && parent.get(s..e).is_some()) else {
+            track = false;
+            continue;
+        };
+        if track {
+            if let Some(&j) = order.get(k + 1) {
+                let (s2, e2) = slots[j].span;
+                let breaks = s2 == e2 && slots[j].insert_sep.is_some_and(|x| x.contains('\n'));
+                if let Some(between) = parent.get(e..s2).filter(|b| !breaks && !b.contains('\n')) {
+                    src.tail_column = between.chars().count();
+                }
+            }
+            match parent.get(cur..s) {
+                Some(seg) => {
+                    doc.push_str(seg);
+                    if s == e {
+                        doc.push_str(sl.insert_sep.unwrap_or(""));
+                    }
+                    if last_end.is_some_and(|le| !doc[le..].contains('\n')) {
+                        let ls = doc.rfind('\n').map_or(0, |x| x + 1);
+                        src.column = doc[ls..].chars().count();
+                        src.sibling_column = true;
+                    }
+                }
+                None => track = false,
+            }
+        }
+        let t = transfer(raw, conv, &src);
+        if track {
+            doc.push_str(&t.text);
+            last_end = Some(doc.len());
+            cur = e;
+        }
+        out[i] = Some(LaidEdit { src, transferred: t });
+    }
+    out
+}
+
 /// The profile v2 step for a spliced item with any number of edits,
-/// insertions included (`EditV2`): each edit is laid out from its own source
+/// insertions included (`EditV2`): the edits are laid out in parent order
+/// (`lay_out_item`; amendment 29 item 29.1), each from its own source
 /// (`SourceLayout::span`, or `SourceLayout::insertion` at the point with its
-/// separator); the replacements are assembled by the spliced generator's
+/// separator) with the columns of the item assembled so far; the
+/// replacements are assembled by the spliced generator's
 /// rules (`assemble_item`); the licence screen applies to each prose-path
 /// edit with its own licence (amendment 7 item 7.9): its line reasons and
 /// `classify_all` on every paragraph of the assembled item holding its text,
@@ -788,6 +895,30 @@ pub struct ItemV2 {
 /// (`echo::screen_item`). An item with no edit fails closed
 /// (`echo_mixed_no_edits`).
 pub fn item_v2(parent: &str, conv: &Conventions, edits: &[EditV2]) -> ItemV2 {
+    let slots: Vec<Slot> = edits.iter().map(|e| Slot { span: e.span, insert_sep: e.insert_sep, raw: Some(e.raw) }).collect();
+    let laid = lay_out_item(parent, conv, &slots);
+    item_v2_laid(parent, conv, edits, laid)
+}
+
+/// The step for one edit of an item judged before its siblings
+/// (`FormPost::of_item`'s earlier requests): `item_v2` over that edit
+/// alone, its layout taken in its item (`lay_out_item` over `slots`, every
+/// edit of the item with the raw texts known so far). The edit at `index`
+/// must have its raw text; without one the edit is laid out from "".
+/// With no sibling known on its lines this is `item_v2` over the edit alone
+/// exactly.
+pub fn edit_in_item_v2(parent: &str, conv: &Conventions, slots: &[Slot], index: usize) -> ItemV2 {
+    let own = slots[index];
+    let mut slots = slots.to_vec();
+    slots[index].raw = Some(own.raw.unwrap_or(""));
+    let mut laid = lay_out_item(parent, conv, &slots);
+    let e = EditV2 { span: own.span, insert_sep: own.insert_sep, raw: own.raw.unwrap_or("") };
+    item_v2_laid(parent, conv, &[e], vec![laid[index].take()])
+}
+
+/// `item_v2`'s screens and assembly over edits already laid out (`laid`,
+/// one per edit: None when its source is outside the parent).
+fn item_v2_laid(parent: &str, conv: &Conventions, edits: &[EditV2], laid: Vec<Option<LaidEdit>>) -> ItemV2 {
     let echo_edits: Vec<echo::Edit> = edits.iter().map(|e| echo::Edit { span: e.span, raw: e.raw }).collect();
     let verdict = echo::screen_item(parent, conv, echo::Child::Mixed(&echo_edits));
     let mut form: Vec<String> = Vec::new();
@@ -796,11 +927,10 @@ pub fn item_v2(parent: &str, conv: &Conventions, edits: &[EditV2]) -> ItemV2 {
     let mut units: Vec<Vec<(usize, usize)>> = Vec::new();
     let mut recs: Vec<Value> = Vec::new();
     let mut outside = false;
-    for e in edits {
+    for (e, laid) in edits.iter().zip(laid) {
         let (s, t) = e.span;
-        let src = if s == t { SourceLayout::insertion(parent, s, e.insert_sep.unwrap_or("")) } else { SourceLayout::span(parent, s, t) };
         let mut rec = json!({"span": [s, t], "insertion": s == t, "insert_sep": e.insert_sep.map(escape_ws), "raw_response_sha256": sha256_hex(e.raw.as_bytes())});
-        let Some(src) = src.filter(|_| s <= t && parent.get(s..t).is_some()) else {
+        let Some(LaidEdit { src, transferred: tr }) = laid else {
             outside = true;
             form.push("form_span_outside_parent".into());
             rec["form_reasons"] = json!(["form_span_outside_parent"]);
@@ -810,7 +940,6 @@ pub fn item_v2(parent: &str, conv: &Conventions, edits: &[EditV2]) -> ItemV2 {
             recs.push(rec);
             continue;
         };
-        let tr = transfer(e.raw, conv, &src);
         let on = tr.record.path == TransferPath::Prose;
         let mut own: Vec<String> = if on { tr.line_reasons.clone() } else { Vec::new() };
         if tr.text.is_empty() {
@@ -841,13 +970,16 @@ pub fn item_v2(parent: &str, conv: &Conventions, edits: &[EditV2]) -> ItemV2 {
         let rs: Vec<&str> = reps.iter().map(String::as_str).collect();
         match assemble_item(parent, &parts, &rs) {
             Ok(a) => {
-                let placed: Vec<Placed> = (0..edits.len()).map(|i| Placed { span: edits[i].span, sep: edits[i].insert_sep, fin: a.edit_spans[i], units: &units[i] }).collect();
+                // each replacement's range in the document: its final span
+                // and a leading line break and lead (amendment 29 item 29.1)
+                let fins: Vec<(usize, usize)> = (0..edits.len()).map(|i| (a.edit_spans[i].0 - replacement_lead(&reps[i]).unwrap_or(0), a.edit_spans[i].1)).collect();
+                let placed: Vec<Placed> = (0..edits.len()).map(|i| Placed { span: edits[i].span, sep: edits[i].insert_sep, fin: fins[i], units: &units[i] }).collect();
                 let paras = constructed_paragraphs(parent, &a.text, &placed);
                 for (i, lic) in licences.iter().enumerate() {
                     if let Some(l) = lic {
-                        let own = overlapping(&paras, a.edit_spans[i]);
+                        let own = overlapping(&paras, fins[i]);
                         let (codes, unl) = licence_reasons(&a.text, &own, l);
-                        recs[i]["remeasure"] = remeasure(&a.text, &own, a.edit_spans[i], l);
+                        recs[i]["remeasure"] = remeasure(&a.text, &own, fins[i], l);
                         form.extend(codes);
                         if !unl.is_empty() {
                             let mut u: Vec<String> = serde_json::from_value(recs[i]["unlicensed_reasons"].clone()).unwrap_or_default();
@@ -872,7 +1004,7 @@ pub fn item_v2(parent: &str, conv: &Conventions, edits: &[EditV2]) -> ItemV2 {
 }
 
 /// The profile v2 step for a parentless row with a layout donor (§6.2:
-/// stage-3 legacy rows and captures): `layout_transfer_v2` from the donor's
+/// stage-3 legacy rows and captures): the layout transfer from the donor's
 /// layout (`SourceLayout::whole` of a keyed same-domain Train-2 human, plan
 /// key x = `"layout_donor"`; its properties only, frames included), then the
 /// licence screen on the prose path (the line reasons, `classify_all` on

@@ -14,7 +14,7 @@
 //! * `measure`: layout measurement `layout_measure_v2` (lines, gaps,
 //!   paragraphs, hard wrap, frames, counts) for profile v2 and the layout
 //!   audit;
-//! * `transfer`: the layout transfer `layout_transfer_v2` of profile v2;
+//! * `transfer`: the layout transfer of profile v2 (`LAYOUT_TRANSFER_ID`);
 //! * `profile`: the profile ids, `Profile`, the every-class steps, profile
 //!   v2's population x domain prior and its per-child step;
 //! * `text` and `rank`: the text rules and seeded rank they rest on.

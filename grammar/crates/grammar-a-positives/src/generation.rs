@@ -292,7 +292,10 @@ pub fn body(ctx: &Ctx, r: &Request, seed: u32) -> Value {
 }
 
 /// Splice replacement(s) into the source; returns final text, final byte
-/// spans of the replacements and the realised final-word share.
+/// spans of the replacements and the realised final-word share. A
+/// replacement is non-empty with no trailing whitespace, and leading
+/// whitespace only as one line break and a lead (protocol A2 amendment 29
+/// item 29.1), which its final span excludes.
 pub fn assemble(source: &str, spans: &[(usize, usize)], reps: &[&str]) -> Result<(String, Vec<(usize, usize)>, f64)> {
     ensure!(spans.len() == reps.len() && !spans.is_empty(), "span/replacement count");
     let mut out = String::new();
@@ -304,9 +307,12 @@ pub fn assemble(source: &str, spans: &[(usize, usize)], reps: &[&str]) -> Result
         ensure!(source.is_char_boundary(s) && source.is_char_boundary(e), "char boundary");
         ensure!(s == 0 || source[..s].ends_with(char::is_whitespace), "left token boundary");
         ensure!(e == source.len() || source[e..].starts_with(char::is_whitespace), "right token boundary");
-        ensure!(!r.is_empty() && r.trim() == *r, "replacement layout");
+        // a replacement may begin with one line break and a lead (protocol A2
+        // amendment 29 item 29.1), outside its final span
+        let lead = r.len() - r.trim_start().len();
+        ensure!(!r.trim().is_empty() && r.trim_end() == *r && (lead == 0 || (r.starts_with('\n') && !r[1..lead].contains('\n'))), "replacement layout");
         out.push_str(&source[cur..s]);
-        let fs = out.len();
+        let fs = out.len() + lead;
         out.push_str(r);
         fin.push((fs, out.len()));
         rw += text::words(r);

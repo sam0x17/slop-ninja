@@ -123,9 +123,9 @@ fn bump(m: &mut BTreeMap<String, u64>, k: &str, n: u64) {
 }
 
 /// The text the parent holds on the child's first line before it (a span's
-/// or an insertion's; empty for a whole text).
+/// or an insertion's, an item's edit's as its own; empty for a whole text).
 fn pre_line(src: Source) -> String {
-    match src {
+    match src.alone() {
         Source::Span { parent, span } => parent.get(..span.0).map(|p| p[p.rfind('\n').map_or(0, |i| i + 1)..].to_string()).unwrap_or_default(),
         Source::Insertion { parent, at, sep } => match sep.rfind('\n') {
             Some(k) => sep[k + 1..].to_string(),

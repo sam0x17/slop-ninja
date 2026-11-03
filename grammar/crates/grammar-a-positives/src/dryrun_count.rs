@@ -47,8 +47,9 @@ use crate::renorm::{self, Batch, LineSplit, line_split};
 use crate::splice;
 use crate::text;
 use anyhow::{Context, Result, bail, ensure};
-use grammar_a_dryrun::engine::{self, Code, Edit, Failure, Source};
+use grammar_a_dryrun::engine::{self, Code, Edit, Failure, Slot, Source};
 use grammar_a_dryrun::tally::{Case, Fin, Recorded, Tally};
+use grammar_a_form::profile::replacement_lead;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -309,14 +310,30 @@ fn single_step(code: Code, spliced: Option<&Part>, r: &Request, p: &str, conv: &
 
 /// `FormPost::of_item`'s step for request `idx` of an item under `code`.
 /// `siblings` is `None` while the item's other requests are pending (the
-/// own-edit rules; the deferred paragraph reasons reject nothing), else each
+/// own-edit rules; the deferred paragraph reasons reject nothing; the edit
+/// laid out in its item with the raw texts `context` gives, in item order,
+/// `idx`'s own entry unused: `engine::edit_in_item_v2`), else each
 /// sibling's (raw child, accepted laid-out text) in item order (`idx`'s own
 /// entry is unused): the item check.
 #[allow(clippy::too_many_arguments)]
-fn item_step(code: Code, spliced: bool, parts: &[Part], idx: usize, p: &str, conv: &Value, clean: &str, siblings: Option<&[(String, String)]>) -> Result<(String, Vec<String>), Failure> {
-    let own = &parts[idx];
+fn item_step(
+    code: Code,
+    spliced: bool,
+    parts: &[Part],
+    idx: usize,
+    p: &str,
+    conv: &Value,
+    clean: &str,
+    siblings: Option<&[(String, String)]>,
+    context: &[Option<&str>],
+) -> Result<(String, Vec<String>), Failure> {
     let Some(sib) = siblings else {
-        let it = engine::item_v2(code, p, conv, &[Edit { span: own.span, insert_sep: own.insert_sep.as_deref(), raw: clean }])?;
+        let slots: Vec<Slot> = parts
+            .iter()
+            .enumerate()
+            .map(|(j, part)| Slot { span: part.span, insert_sep: part.insert_sep.as_deref(), raw: if j == idx { Some(clean) } else { context.get(j).copied().flatten() } })
+            .collect();
+        let it = engine::edit_in_item_v2(code, p, conv, &slots, idx)?;
         let mut mine = BTreeSet::new();
         for e in it.record["edits"].as_array().into_iter().flatten() {
             mine.extend(strs(&e["form_reasons"]));
@@ -406,16 +423,23 @@ fn judge_code(code: Code, b: &Wired, children: &HashMap<String, Child>) -> Resul
             }
             Some(spec) => {
                 let parts: Vec<Part> = spec.parts.iter().map(|(rid, span, sep)| Part { request_id: rid.clone(), span: *span, insert_sep: sep.clone() }).collect();
-                // (a) each request with its siblings pending
+                // (a) each request with its siblings pending, laid out in its
+                // item with the raw texts of the requests before it that
+                // passed (renorm's layout context; amendment 29 item 29.1)
                 let mut first: HashMap<&str, CodeVerdict> = HashMap::new();
+                let mut context: Vec<Option<&str>> = vec![None; parts.len()];
                 for (idx, part) in parts.iter().enumerate() {
                     let Some(ch) = children.get(&part.request_id) else { continue };
                     let r = &b.batch.requests[&part.request_id];
-                    let res = item_step(code, b.spliced(), &parts, idx, parent, &ch.conv, &ch.raw, None);
-                    first.insert(part.request_id.as_str(), match res {
+                    let res = item_step(code, b.spliced(), &parts, idx, parent, &ch.conv, &ch.raw, None, &context);
+                    let v = match res {
                         Ok(step) => Ok(verdict_of(r, parent, ch, step)?),
                         Err(f) => Err(f),
-                    });
+                    };
+                    if matches!(v, Ok((true, _, _))) {
+                        context[idx] = Some(ch.raw.as_str());
+                    }
+                    first.insert(part.request_id.as_str(), v);
                 }
                 // (b) the last with every sibling accepted, when each earlier one passed (a)
                 let complete = parts.iter().all(|p| children.contains_key(&p.request_id));
@@ -430,7 +454,7 @@ fn judge_code(code: Code, b: &Wired, children: &HashMap<String, Child>) -> Resul
                     let lp = &parts[n - 1];
                     let ch = &children[&lp.request_id];
                     let r = &b.batch.requests[&lp.request_id];
-                    last = Some(match item_step(code, b.spliced(), &parts, n - 1, parent, &ch.conv, &ch.raw, Some(&sib)) {
+                    last = Some(match item_step(code, b.spliced(), &parts, n - 1, parent, &ch.conv, &ch.raw, Some(&sib), &[]) {
                         Ok(step) => Ok(verdict_of(r, parent, ch, step)?),
                         Err(f) => Err(f),
                     });
@@ -551,7 +575,27 @@ fn count_journal_batch(label: &str, out: &Path, summary: &Value, b: &Wired, r0: 
             (Some(spec), None) => spec.parts.iter().find(|x| x.0 == rid).map(|(_, s, sep)| Part { request_id: rid.to_string(), span: *s, insert_sep: sep.clone() }).context("item part")?,
             (None, None) => Part { request_id: rid.to_string(), span: r.source_span.unwrap_or((0, 0)), insert_sep: None },
         };
-        let src = if b.spliced() {
+        let item_parts: Vec<Part> = match &ri.spec {
+            Some(spec) => spec.parts.iter().map(|(rid, s, sep)| Part { request_id: rid.clone(), span: *s, insert_sep: sep.clone() }).collect(),
+            None => vec![part.clone()],
+        };
+        let k = item_parts.iter().position(|p| p.request_id == rid).unwrap_or(0);
+        // an item's edit is laid out in its item with the raw texts the
+        // verdict path's layout read: its own, and those of the requests
+        // before it (item order) that passed (amendment 29 item 29.1)
+        let passed = |p: &Part| matches!(landed.get(&p.request_id), Some(Ok((true, _, _))));
+        let slots: Vec<Slot> = item_parts
+            .iter()
+            .enumerate()
+            .map(|(j, p)| Slot {
+                span: p.span,
+                insert_sep: p.insert_sep.as_deref(),
+                raw: (j == k || (j < k && passed(p))).then(|| children.get(&p.request_id).map(|c| c.raw.as_str())).flatten(),
+            })
+            .collect();
+        let src = if ri.spec.is_some() {
+            Source::InItem { parent, slots: &slots, index: k }
+        } else if b.spliced() {
             if part.span.0 == part.span.1 { Source::Insertion { parent, at: part.span.0, sep: part.insert_sep.as_deref().unwrap_or("") } } else { Source::Span { parent, span: part.span } }
         } else {
             match r.source_span {
@@ -559,20 +603,16 @@ fn count_journal_batch(label: &str, out: &Path, summary: &Value, b: &Wired, r0: 
                 Some(span) => Source::Span { parent, span },
             }
         };
-        // the final document: the parent with every request's recorded text of the item
+        // the final document: the parent with every request's recorded text
+        // of the item; the child's range there is its replacement's, a
+        // leading line break and lead included (amendment 29 item 29.1)
         let mut doc: Option<(String, (usize, usize))> = None;
-        if !src.whole() {
-            let parts: Vec<Part> = match &ri.spec {
-                Some(spec) => spec.parts.iter().map(|(rid, s, sep)| Part { request_id: rid.clone(), span: *s, insert_sep: sep.clone() }).collect(),
-                None => vec![part.clone()],
-            };
-            if parts.iter().all(|p| children.contains_key(&p.request_id)) {
-                let reps: Vec<&str> = parts.iter().map(|p| children[&p.request_id].text.as_str()).collect();
-                let ps: Vec<&Part> = parts.iter().collect();
-                if let Ok((d, spans)) = assemble(b.spliced(), parent, &ps, &reps) {
-                    let k = parts.iter().position(|p| p.request_id == rid).unwrap_or(0);
-                    doc = Some((d, spans[k]));
-                }
+        if !src.whole() && item_parts.iter().all(|p| children.contains_key(&p.request_id)) {
+            let reps: Vec<&str> = item_parts.iter().map(|p| children[&p.request_id].text.as_str()).collect();
+            let ps: Vec<&Part> = item_parts.iter().collect();
+            if let Ok((d, spans)) = assemble(b.spliced(), parent, &ps, &reps) {
+                let lead = replacement_lead(reps[k]).unwrap_or(0);
+                doc = Some((d, (spans[k].0 - lead, spans[k].1)));
             }
         }
         let lv = landed.get(rid).cloned().unwrap_or(Err(Failure::Unsupported)).map(|x| (x.0, x.1));
@@ -1247,6 +1287,95 @@ mod tests {
         }
         fs::write(&sp, serde_json::to_vec_pretty(&s).unwrap()).unwrap();
         file_sha(&sp).unwrap()
+    }
+
+    #[test]
+    fn a_spliced_item_sharing_a_hard_wrapped_line_is_laid_out_in_parent_order_and_counted() {
+        // Amendment 29 item 29.1 through renorm and the count: the later
+        // edit's laid-out text is the item's (its column from the earlier
+        // edit's text), renorm records it in sequential judgement, and the
+        // count re-derives it identically (no mismatch).
+        use grammar_a_form::conventions::{Choice, Conventions};
+        use grammar_a_form::profile::{EditV2, item_v2};
+        engine::quiet_panics();
+        fn none() -> Conventions {
+            fn c<K>() -> Choice<K> {
+                Choice { value: None, source: "none" }
+            }
+            Conventions { double: c(), single: c(), dash: c(), range: c(), ellipsis: c() }
+        }
+        let mut found = None;
+        'seed: for seed in 0..400u64 {
+            let paras: Vec<String> = (0..4).map(|k| grammar_a_form::transfer::wrap(&prose(&SYN, seed * 10 + k, 9, 5), 60, 0).join("\n")).collect();
+            let q = paras.join("\n\n");
+            let ss: Vec<(usize, usize)> = text::sentences(&q).iter().map(|s| (s.start, s.end)).collect();
+            // a third edit in the last paragraph shares no line with them
+            let last_para = q.rfind("\n\n").unwrap();
+            let sc = *ss.last().unwrap();
+            for a in 0..ss.len() {
+                for b in a + 2..ss.len() {
+                    if q[ss[a].1..ss[b].0].contains('\n') || ss[b].1 > last_para {
+                        continue;
+                    }
+                    let (r1, r2, r3) = (prose(&ALT, seed * 10 + 5, 1, 5), prose(&ALT, seed * 10 + 6, 1, 5), prose(&ALT, seed * 10 + 7, 1, 5));
+                    let e = [EditV2 { span: ss[a], insert_sep: None, raw: &r1 }, EditV2 { span: ss[b], insert_sep: None, raw: &r2 }, EditV2 { span: sc, insert_sep: None, raw: &r3 }];
+                    let it = item_v2(&q, &none(), &e);
+                    if it.reasons.is_empty() && it.reps[1] != item_v2(&q, &none(), &e[1..2]).reps[0] {
+                        found = Some((q.clone(), [ss[a], ss[b], sc], [r1, r2, r3], it.reps.clone()));
+                        break 'seed;
+                    }
+                }
+            }
+        }
+        // three requests: the middle one is judged before the last, so its
+        // text comes from renorm's layout context, not the item check
+        let (q, spans, raws, reps) = found.expect("a shared line whose later edit's column changes");
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let p = sparent("p1", "fiction", &q);
+        let sw = |sp: (usize, usize)| text::words(&q[sp.0..sp.1]);
+        let item = sitem("s-wrap", &p, (0..3).map(|k| sedit(&format!("w{}", k + 1), "run", spans[k], None, sw(spans[k]))).collect());
+        let pdir = d.join("plan");
+        fs::create_dir_all(pdir.join("requests")).unwrap();
+        let ib = jsonl(&[serde_json::to_value(&item).unwrap()]).unwrap();
+        let pbytes = jsonl(&[serde_json::to_value(&p).unwrap()]).unwrap();
+        fs::write(pdir.join("items.jsonl"), &ib).unwrap();
+        fs::write(pdir.join("parents.jsonl"), &pbytes).unwrap();
+        let reqs: Vec<Request> = item.edits.iter().map(|e| request(&e.request_id, &item.item_id, "p1", Some(e.parent_span), e.target_words)).collect();
+        let rb = jsonl(&reqs.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()).unwrap();
+        fs::write(pdir.join("requests/g.jsonl"), &rb).unwrap();
+        fs::write(pdir.join("plan.json"), serde_json::to_vec(&json!({"schema": splice::PLAN_SCHEMA, "items": {"sha256": sha(&ib)}, "parents": {"sha256": sha(&pbytes)},
+            "request_files": {"g": {"sha256": sha(&rb)}}})).unwrap()).unwrap();
+        let ov = Overlap::new(PriorIndex::empty());
+        let mut lines = Vec::new();
+        for (r, (e, raw)) in reqs.iter().zip(item.edits.iter().zip(&raws)) {
+            let parsed = chat_body(raw);
+            let v = splice::verdict(e, &q, &ov, 200, &parsed);
+            assert_eq!(v["accepted"], true, "{}: {v}", r.request_id);
+            lines.push(json!({"kind":"intent","request_id":r.request_id,"item_id":r.item_id,"split":r.split,"generator":r.generator,"attempt":0,"seed":r.seed,"t":1,"body":{"prompt":r.prompt}}));
+            lines.push(json!({"kind":"response","request_id":r.request_id,"item_id":r.item_id,"split":r.split,"generator":r.generator,"attempt":0,"seed":r.seed,
+                "t_start":1,"t_end":2,"elapsed_ms":1,"status":200,"raw_body":serde_json::to_string(&parsed).unwrap(),"timings":{},"usage":{},"verdict":v}));
+        }
+        let runs = d.join("runs");
+        fs::create_dir_all(runs.join("g")).unwrap();
+        fs::write(runs.join("g/journal-1-w0.jsonl"), jsonl(&lines).unwrap()).unwrap();
+        let b = renorm::spliced_batch(&pdir, "train", POPULATION).unwrap();
+        let out = d.join("spliced-train");
+        renorm::run_batch(&b, &runs, &out).unwrap();
+        // renorm's records hold the item's layout for both requests
+        let rv: Value = serde_json::from_str(fs::read_to_string(out.join("reverdict-population-train.jsonl")).unwrap().lines().next().unwrap()).unwrap();
+        assert_eq!(rv["pass"], true, "{rv}");
+        for (k, q) in rv["requests"].as_array().unwrap().iter().enumerate() {
+            assert_eq!(q["text_sha256"], sha(reps[k].as_bytes()).as_str(), "request {k}");
+        }
+        let snap = d.join("snapshot.jsonl");
+        fs::write(&snap, jsonl(&[json!({"id": "s-wrap", "split": "train"})]).unwrap()).unwrap();
+        let h = file_sha(&out.join("RENORM-population-train.json")).unwrap();
+        let c = count_spliced("spliced-train", &out, &h, &snap, &file_sha(&snap).unwrap()).unwrap();
+        assert_eq!(c.tally.mismatched(), 0, "{:?}", c.tally.mismatches);
+        assert_eq!(c.children["children"], 3);
+        let j = c.tally.to_json();
+        assert_eq!(j["gate"]["count4_accepted_wrapped_lines_over_budget"]["gate"], 0, "{}", j["gate"]);
     }
 
     #[test]

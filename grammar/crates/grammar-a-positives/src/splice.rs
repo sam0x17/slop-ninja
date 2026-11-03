@@ -1604,7 +1604,20 @@ pub struct Part<'a> {
     pub insert_sep: Option<&'a str>,
 }
 
-/// `assemble` over parent spans and insertion separators.
+/// The byte length of a replacement's leading whitespace when it is of the
+/// one form assembly accepts: none, or one line break followed by a lead
+/// with no other line break (a profile v2 edit whose wrapped first line has
+/// no room on the line it shares with an earlier edit; protocol A2
+/// amendment 29 item 29.1, `grammar_a_form::profile::replacement_lead`).
+/// The line break and lead belong to no edit's final span.
+pub fn replacement_lead(r: &str) -> Option<usize> {
+    let lead = r.len() - r.trim_start_matches(py_space).len();
+    (lead == 0 || (r.starts_with('\n') && !r[1..lead].contains('\n'))).then_some(lead)
+}
+
+/// `assemble` over parent spans and insertion separators. A replacement is
+/// non-empty and has no trailing whitespace; its leading whitespace is
+/// `replacement_lead`'s, outside its final span.
 pub fn assemble_parts(parent: &str, edits: &[Part], reps: &[&str]) -> Result<Assembled> {
     ensure!(edits.len() == reps.len() && !edits.is_empty(), "edit/replacement count");
     let mut order: Vec<usize> = (0..edits.len()).collect();
@@ -1618,7 +1631,8 @@ pub fn assemble_parts(parent: &str, edits: &[Part], reps: &[&str]) -> Result<Ass
         let r = reps[i];
         ensure!(s >= cur && s <= e && e <= parent.len(), "edit order or overlap");
         ensure!(parent.is_char_boundary(s) && parent.is_char_boundary(e), "char boundary");
-        ensure!(!r.is_empty() && r.trim_matches(py_space) == r, "replacement layout");
+        let lead = replacement_lead(r).filter(|_| !r.trim_matches(py_space).is_empty() && r.trim_end_matches(py_space) == r);
+        ensure!(lead.is_some(), "replacement layout");
         let seg = &parent[cur..s];
         out.push_str(seg);
         human.push_str(seg);
@@ -1628,7 +1642,7 @@ pub fn assemble_parts(parent: &str, edits: &[Part], reps: &[&str]) -> Result<Ass
             ensure!(s == 0 || parent[..s].ends_with(py_space), "left boundary");
             ensure!(e == parent.len() || parent[e..].starts_with(py_space), "right boundary");
         }
-        let fs = out.len();
+        let fs = out.len() + lead.unwrap_or(0);
         out.push_str(r);
         spans[i] = (fs, out.len());
         cur = e;

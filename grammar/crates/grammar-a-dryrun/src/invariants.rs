@@ -9,10 +9,12 @@
 //!   body; trailing whitespace not counted) from the laid-out text itself. A
 //!   line's budget is W less its lead (item 10.1), so it is over when its
 //!   columns exceed W. A mixed child's or insertion's first line starts at
-//!   the source's `column` (the parent's lead and body before the span), and
-//!   its last line, when its last unit is wrapped, is measured with the
-//!   parent text after the span, the source's `tail_column` (item 13.7). A
-//!   one-word line is exempt. Two readings (BUILD-PLAN 12.3 open item (c)):
+//!   the source's `column` (the parent's lead and body before the span, or
+//!   in an item the document line's text before it; amendment 29 item
+//!   29.1), unless the replacement starts it on a new line (no room on a
+//!   shared line), and its last line, when its last unit is wrapped, is
+//!   measured with the parent text after the span, the source's
+//!   `tail_column` (item 13.7). A one-word line is exempt. Two readings (BUILD-PLAN 12.3 open item (c)):
 //!   - `over_budget`: on the replacement, with `column` and `tail_column`
 //!     (item 13.7's text);
 //!   - `over_budget_document`: in the final document, the whole document
@@ -114,7 +116,9 @@ pub fn invariants(src: &SourceLayout, t: &Transferred, fin: Option<Final>) -> In
                 at = pb + 1;
                 out.wrapped_lines += 1;
                 let mut c = cols(piece);
-                if src.mixed && u == 0 && i == 0 {
+                // a first line after the replacement's own line break
+                // (amendment 29 item 29.1) does not start at the column
+                if src.mixed && u == 0 && i == 0 && ls == 0 {
                     c += src.column;
                 }
                 let with_tail = src.mixed && u + 1 == n && i + 1 == pieces.len();

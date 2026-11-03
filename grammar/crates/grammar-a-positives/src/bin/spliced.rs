@@ -1035,6 +1035,8 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
     let mut accepted_train = 0usize;
     let mut last_train_order: Option<usize> = None;
     let mut noop = (0usize, 0usize);
+    // accepted replacements with a leading line break and lead (amendment 29 item 29.1)
+    let mut n_leads = 0usize;
     // R-form text digests -> the first document's id (amendment 19 item 19.6)
     let mut seen_rform: HashMap<String, String> = HashMap::new();
     let rc = RecCtx { reqs: &reqs, gens: &gens, plan_sha: &plan_sha };
@@ -1217,6 +1219,15 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
             dist.inc(pop, "documents_span_half", h);
         }
         q.inc(pop, "documents", "accepted");
+        // Amendment 29 item 29.1: replacements that begin with the no-room
+        // line break and lead, which lie outside every final span and are
+        // not parent bytes (counted only when present).
+        let leads = rr.iter().filter(|r| splice::replacement_lead(r).is_some_and(|l| l > 0)).count();
+        if leads > 0 {
+            q.add(pop, "replacement_leads", "replacements", leads as f64);
+            q.inc(pop, "replacement_leads", "documents");
+            n_leads += leads;
+        }
         // The raw twin (protocol A2 §7.2): the accepted raw responses spliced into the parent.
         if let Some(twin) = twin_record(&rc, it, parent, &states, &tok, &asm.text, &edit_hist)? {
             q.inc(pop, "rform_raw_twin", "emitted");
@@ -1267,9 +1278,16 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
     files.insert("records/pairs.jsonl".into(), json!({"rows":pairs.len(),"sha256":s}));
     let rdir = out.join("reports");
     sp(&rdir)?;
-    let quality = json!({"schema":"slop_ninja_a_spliced_quality_report_v1","label":label,"plan_sha256":plan_sha,"counts":q.0,
+    let mut quality = json!({"schema":"slop_ninja_a_spliced_quality_report_v1","label":label,"plan_sha256":plan_sha,"counts":q.0,
         "noop_splice_control":{"exact_reconstructions":noop.0,"mismatches":noop.1},
         "checks":{"assembly":"every accepted document: human characters outside spans byte-identical to the parent minus replaced spans; spans on Python-whitespace boundaries; no word straddles a span edge; share = words inside spans / words; <= 2048 A tokens"}});
+    if n_leads > 0 {
+        // the assembly check's exception, stated only when it occurs, so the
+        // report of every run without one keeps its bytes
+        quality["checks"]["replacement_leads"] = json!(format!(
+            "{n_leads} accepted replacements begin with one line break and a continuation lead (protocol A2 amendment 29 item 29.1: no room on the line shared with an earlier edit); that line break and lead lie outside every final span and are not parent bytes, so the characters outside spans are the parent minus replaced spans plus these leads, and the human check compares the parent segments between replacements"
+        ));
+    }
     let s = write_json(&rdir.join("quality.json"), &quality)?;
     sums.push((s.clone(), "reports/quality.json".into()));
     files.insert("reports/quality.json".into(), json!({"sha256":s}));
@@ -2158,7 +2176,10 @@ mod tests {
     /// profile v2, both recorded by these tests from the code before raw twins
     /// existed in the spliced finalize.
     const OFF_GOLDEN: &str = "4c0aa6753c72f489fc6cb34bc9de930b57f8377bb936550f23f5c4665c33446e";
-    const V2_N_FORM_GOLDEN: &str = "d95a7e6dea9e8897802b844f9f54bbbf0bdcd7b5bf3a0eccff330daec7938602";
+    // Re-pinned at B24 for the layout id alone (layout_transfer_v4): with the
+    // id set back to layout_transfer_v2 the earlier digest d95a7e6d... is
+    // reproduced.
+    const V2_N_FORM_GOLDEN: &str = "fbf9d7fbf35b56312eac8bedb88b3d83c24c6b525034a6ae8dbd7df8a1d5d759";
 
     #[test]
     fn spliced_finalize_profile_off_outputs_are_the_pre_twin_bytes() {

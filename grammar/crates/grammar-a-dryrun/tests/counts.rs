@@ -5,7 +5,7 @@
 use grammar_a_dryrun::engine::{self, Code, Failure, Source};
 use grammar_a_dryrun::invariants::{Final, invariants};
 use grammar_a_dryrun::tally::{self, Case, Fin, Recorded, Tally};
-use grammar_a_dryrun::{Split, line_split, sha_hex};
+use grammar_a_dryrun::{OwnSplit, Split, TRAIN_SIDE_DERIVED, line_split, request_split, sha_hex};
 use grammar_a_form::conventions::{Choice, Conventions, Dash};
 use grammar_a_form::layout::ParagraphSource;
 use grammar_a_form::transfer::{KeptKind, KeptUnit, SourceLayout, TransferDiag, Transferred, UnitDiag, UnitRole, transfer};
@@ -88,6 +88,56 @@ fn split_keys_are_read_from_the_bytes() {
     assert_eq!(line_split(br#"{"split":"train","y":{"split":"test"}}"#, "split"), Split::Unreadable);
     assert_eq!(line_split(br#"{"split":"tr\"ain"}"#, "split"), Split::Unreadable);
     assert_eq!(line_split(b"{\"split\":\"dev_select\",\x00 broken", "split"), Split::One("dev_select".into()));
+}
+
+#[test]
+fn a_request_lines_split_is_its_own_top_level_key() {
+    // Amendment 32 item 32.2's set, on synthetic lines.
+    let derived = br#"{"request_id":"r1","split":"train","voice":{"derived_from":{"split":"train_mining","id":"h1"},"text":"a \"quoted\" split"}}"#;
+    assert_eq!(request_split(derived), OwnSplit::One { split: "train".into(), derived: Some("train_mining".into()) });
+    // the old reader reads every split key and refuses this line
+    assert_eq!(line_split(derived, "split"), Split::Unreadable);
+    assert!(TRAIN_SIDE_DERIVED.contains(&"train_mining") && TRAIN_SIDE_DERIVED.contains(&"train") && TRAIN_SIDE_DERIVED.len() == 2);
+    // a derived dev_select is returned for the caller's guard (it refuses
+    // the plan; examples/a_frontier_positives/count.rs (omitted from the public copy))
+    let dev = br#"{"split":"train","voice":{"derived_from":{"split":"dev_select"}}}"#;
+    assert_eq!(request_split(dev), OwnSplit::One { split: "train".into(), derived: Some("dev_select".into()) });
+    assert!(!TRAIN_SIDE_DERIVED.contains(&"dev_select"));
+    // skipped unparsed: a top-level train_mining (its own split), a
+    // repeated top-level split, a split at another nested path, an escaped
+    // or non-string value
+    assert_eq!(request_split(br#"{"split":"train_mining"}"#), OwnSplit::One { split: "train_mining".into(), derived: None });
+    assert_eq!(request_split(br#"{"split":"train","split":"train"}"#), OwnSplit::Unreadable);
+    assert_eq!(request_split(br#"{"split":"train","meta":{"split":"train"}}"#), OwnSplit::Unreadable);
+    assert_eq!(request_split(br#"{"split":"train","voice":{"split":"train"}}"#), OwnSplit::Unreadable);
+    assert_eq!(request_split(br#"{"split":"train","voice":[{"derived_from":{"split":"train"}}]}"#), OwnSplit::Unreadable);
+    assert_eq!(request_split(br#"{"split":"tr\u0061in"}"#), OwnSplit::Unreadable);
+    assert_eq!(request_split(br#"{"split":1}"#), OwnSplit::Unreadable);
+    assert_eq!(request_split(br#"{"split":"train","voice":{"derived_from":{"split":null}}}"#), OwnSplit::DerivedUnreadable { split: Some("train".into()) });
+    assert_eq!(request_split(br#"{"split":"train","voice":{"derived_from":{"split":"dev\u005fselect"}}}"#), OwnSplit::DerivedUnreadable { split: Some("train".into()) });
+    assert_eq!(request_split(br#"{"voice":{"derived_from":{"split":"a","split":"b"}}}"#), OwnSplit::DerivedUnreadable { split: None });
+    assert_eq!(request_split(br#"{"split":"cal","voice":{"derived_from":{"split":1}}}"#), OwnSplit::DerivedUnreadable { split: Some("cal".into()) });
+    // an unreadable own split or a split at another path stays Unreadable
+    assert_eq!(request_split(br#"{"split":1,"voice":{"derived_from":{"split":null}}}"#), OwnSplit::Unreadable);
+    assert_eq!(request_split(br#"{"split":"train","meta":{"split":"x"},"voice":{"derived_from":{"split":null}}}"#), OwnSplit::Unreadable);
+    assert_eq!(request_split(br#"{"spl\u0069t":"train","split":"train"}"#), OwnSplit::Unreadable);
+    // a split word inside a string value is no key
+    assert_eq!(request_split(br#"{"x":"\"split\":\"test\"","split":"train"}"#), OwnSplit::One { split: "train".into(), derived: None });
+    assert_eq!(request_split(br#"{"x":1, "y":[true,null,{"z":"w"}]}"#), OwnSplit::Missing { derived: None });
+    assert_eq!(request_split(br#"{"voice":{"derived_from":{"split":"train_mining"}}}"#), OwnSplit::Missing { derived: Some("train_mining".into()) });
+    // a line that is not one JSON object is read as line_split reads it
+    // (every split key; a Train line then fails its parse)
+    for bad in [&br#"["split","train"]"#[..], br#"{"split":"train""#, br#"{"split":"train"} {}"#, b"", b"{\"split\":\"cal\",\x00", br#"{"split":"train","passage":{"split":"train_mining"}, broken"#] {
+        let want = match line_split(bad, "split") {
+            Split::One(split) => OwnSplit::One { split, derived: None },
+            Split::Missing => OwnSplit::Missing { derived: None },
+            Split::Unreadable => OwnSplit::Unreadable,
+        };
+        assert_eq!(request_split(bad), want, "{:?}", String::from_utf8_lossy(bad));
+    }
+    assert_eq!(request_split(br#"{"split":"train""#), OwnSplit::One { split: "train".into(), derived: None });
+    assert_eq!(request_split(b"{\"split\":\"cal\",\x00"), OwnSplit::One { split: "cal".into(), derived: None });
+    assert_eq!(request_split(b" {\"split\" : \"train\" }\r"), OwnSplit::One { split: "train".into(), derived: None });
 }
 
 // ------------------------------------------------------------------ count 4
@@ -204,6 +254,45 @@ fn count4_the_document_reading_measures_the_whole_document_line() {
 }
 
 #[test]
+fn count4_an_items_edits_are_re_derived_in_their_item_and_measured_there() {
+    // Amendment 29 item 29.1: an item's edit is re-derived in its item
+    // (`Source::InItem`), giving the item's text; a later edit with no room
+    // on its shared line starts on a new line, which is not measured from
+    // the column (count 4 reads no line over W).
+    use grammar_a_dryrun::engine::Slot;
+    use grammar_a_form::profile::{EditV2, item_v2, replacement_lead};
+    let conv = none_json();
+    let (mut seen, mut zero_room) = (0, 0);
+    for seed in 0..300u64 {
+        let paras: Vec<String> = (0..2).map(|k| grammar_a_form::transfer::wrap(&prose(&SYN, seed * 3 + k, 12, 4, true), 60, 0).join("\n")).collect();
+        let q = paras.join("\n\n");
+        let sents: Vec<(usize, usize)> = grammar_a_form::text::sentences(&q).iter().map(|s| (s.start, s.end)).collect();
+        let Some((a, b)) = (0..sents.len()).flat_map(|a| (a + 2..sents.len()).map(move |b| (a, b))).find(|&(a, b)| !q[sents[a].1..sents[b].0].contains('\n')) else { continue };
+        let (r1, r2) = (prose(&ALT, seed + 900, 1 + (seed % 3) as usize, 4, true), prose(&ALT, seed + 901, 1 + (seed % 2) as usize, 4, true));
+        let e = [EditV2 { span: sents[a], insert_sep: None, raw: &r1 }, EditV2 { span: sents[b], insert_sep: None, raw: &r2 }];
+        let it = item_v2(&q, &none(), &e);
+        let Some(asm) = &it.assembled else { continue };
+        seen += 1;
+        zero_room += it.record["edits"][1]["transfer"]["sibling_column_wraps"].as_u64().unwrap_or(0) as usize;
+        let slots = [Slot { span: sents[a], insert_sep: None, raw: Some(&r1) }, Slot { span: sents[b], insert_sep: None, raw: Some(&r2) }];
+        for (k, ek) in e.iter().enumerate() {
+            let src = Source::InItem { parent: &q, slots: &slots, index: k };
+            assert_eq!(src.kind(), "mixed");
+            let (sl, t) = engine::landed_transfer(src, &conv, ek.raw).unwrap();
+            assert_eq!(t.text, it.reps[k], "seed {seed} edit {k}");
+            let fin = (asm.edit_spans[k].0 - replacement_lead(&it.reps[k]).unwrap(), asm.edit_spans[k].1);
+            let inv = invariants(&sl, &t, Some(Final { doc: &asm.text, fin }));
+            assert!(inv.inconsistent.is_none());
+            assert!(inv.over_budget.is_empty() && inv.over_budget_document.is_empty(), "seed {seed} edit {k}: {inv:?}");
+        }
+        // amendment 7's code lays the edit out alone
+        let a7 = engine::laid(Code::A7, Source::InItem { parent: &q, slots: &slots, index: 1 }, &conv, &r2).unwrap();
+        assert_eq!(a7.text, engine::laid(Code::A7, Source::Span { parent: &q, span: sents[b] }, &conv, &r2).unwrap().text);
+    }
+    assert!(seen >= 100 && zero_room >= 1, "{seen} {zero_room}");
+}
+
+#[test]
 fn count4_real_transfers_obey_their_budgets() {
     // a hard-wrapped parent at W 40; its mirror and span children are wrapped within budget
     let mut lines = Vec::new();
@@ -241,17 +330,42 @@ fn closing_parent(a: usize, b: usize) -> String {
 
 #[test]
 fn count5_a_closed_unit_joined_into_a_paragraph_is_counted() {
-    // the break target (a quarter of the way) falls before the second
-    // paragraph, so the closed third paragraph shares its unit with it
+    // Count 5's shape (log index 101): the break target (a quarter of the
+    // way) falls before the second paragraph. Before amendment 30 the
+    // closed third paragraph shared its unit with the second; its start is
+    // now a fixed boundary (item 30.1), so the landed transfer keeps it
+    // its own unit.
     let parent = closing_parent(10, 30);
     let src = SourceLayout::whole(&parent);
     assert!(src.licence.iter().any(|r| r == "no_sentence_end") && !src.line_form, "{:?}", src.licence);
     let raw = format!("{}\n\n{}\n\n{}", prose(&ALT, 42, 1, 10, true), prose(&ALT, 43, 1, 10, true), prose(&ALT, 44, 1, 10, false));
-    let t = transfer(&raw, &none(), &src);
+    let mut t = transfer(&raw, &none(), &src);
     assert_eq!(t.record.closed_paragraphs, 1);
     let inv = invariants(&src, &t, None);
-    assert_eq!((inv.closed_units, inv.kept_shared.len()), (1, 1), "{:?}", t.diag);
-    assert_eq!(t.diag.kept[inv.kept_shared[0]].kind, KeptKind::Closed);
+    assert_eq!((inv.closed_units, inv.kept_shared.len(), inv.closed_split), (1, 0, 0), "{:?}", t.diag);
+    // the same child with the closed unit drawn into the unit before it
+    // (the layout before amendment 30) is counted
+    let k = t.diag.kept.iter().position(|k| k.kind == KeptKind::Closed).unwrap();
+    let kr = t.diag.kept[k].raw;
+    let u = t.diag.units.iter().position(|u| u.source.raw == kr).unwrap();
+    t.diag.units[u - 1].source.raw.1 = kr.1;
+    t.diag.units.remove(u);
+    t.paragraphs.remove(u);
+    let inv = invariants(&src, &t, None);
+    assert_eq!(inv.kept_shared, vec![k]);
+}
+
+#[test]
+fn count5_a_target_inside_a_closed_paragraph_places_no_break() {
+    // Item 30.3: closed_split is 0 by construction. The source's targets
+    // fall at a quarter (the closed start) and a half (inside it).
+    let parent = format!("{}\n\n{}\n\n{}", prose(&SYN, 46, 1, 10, true), prose(&SYN, 47, 1, 10, true), prose(&SYN, 48, 2, 10, false));
+    let src = SourceLayout::whole(&parent);
+    let raw = format!("{}\n\n{}", prose(&ALT, 49, 1, 10, true), prose(&ALT, 50, 3, 10, false));
+    let t = transfer(&raw, &none(), &src);
+    let inv = invariants(&src, &t, None);
+    assert_eq!((inv.closed_units, inv.kept_shared.len(), inv.closed_split), (1, 0, 0), "{:?}", t.diag);
+    assert_eq!(t.record.targets_on_fixed_boundaries, 2);
 }
 
 #[test]
@@ -482,21 +596,28 @@ fn a_recorded_child_whose_digest_is_altered_is_refused_and_nothing_is_counted() 
 
 #[test]
 fn the_ids_file_names_the_children_behind_a_non_zero_invariant_and_the_gate_reads_the_broadest_reading() {
-    let parent = closing_parent(10, 30);
-    let src = Source::Mirror { parent: &parent };
-    let raw = format!("{}\n\n{}\n\n{}", prose(&ALT, 42, 1, 10, true), prose(&ALT, 43, 1, 10, true), prose(&ALT, 44, 1, 10, false));
+    // count 6 on its own words (the gate before amendment 31's counting
+    // addition): a span child whose first paragraph is under 8 words alone
+    // (amendment 30 left no count-5 case of a real transfer to name here)
+    let p1 = format!("{} {}", prose(&SYN, 60, 1, 6, true), prose(&SYN, 61, 1, 4, true));
+    let parent = format!("{p1}\n\n{}\n\n{}", prose(&SYN, 62, 3, 10, true), prose(&SYN, 63, 2, 10, true));
+    let s = parent.find(&prose(&SYN, 61, 1, 4, true)).unwrap();
+    let src = Source::Span { parent: &parent, span: (s, parent.len()) };
+    let raw = format!("{} {} {}", prose(&ALT, 64, 1, 3, true), prose(&ALT, 65, 4, 10, true), prose(&ALT, 66, 2, 10, true));
     let conv = none_json();
     let l = engine::simple_verdict(Code::Landed, src, &conv, &raw).unwrap();
     let d = sha_hex(l.text.as_bytes());
     let mut t = Tally::default();
-    t.count(&case(src, &raw, &conv, Recorded { accepted: l.accepted, reasons: &l.reasons, text_sha256: &d }, Ok((l.accepted, l.reasons.clone())), Ok((l.accepted, l.reasons.clone()))));
+    let mut c = case(src, &raw, &conv, Recorded { accepted: l.accepted, reasons: &l.reasons, text_sha256: &d }, Ok((l.accepted, l.reasons.clone())), Ok((l.accepted, l.reasons.clone())));
+    c.fin = Fin::Splice { parent: &parent, span: (s, parent.len()), doc_sha256: None };
+    t.count(&c);
     assert_eq!(t.mismatched(), 0);
     let j = t.to_json();
-    assert_eq!(j["gate"]["count5_kept_unit_sharing_a_unit"]["gate"], 1, "{}", j["gate"]);
+    assert_eq!(j["gate"]["count6_placed_break_paragraph_under_8_words"]["gate"], 1, "{}", j["gate"]);
     assert_eq!(j["gate"]["all_zero"], false);
     assert_eq!(t.ids.len(), 1);
-    assert_eq!(t.ids[0]["what"], "count5_kept_unit_shares_a_unit");
-    assert_eq!(t.ids[0]["detail"]["kept_units"][0][1], "closed");
+    assert_eq!(t.ids[0]["what"], "count6_placed_break_paragraph_under_8_words");
+    assert_eq!(t.ids[0]["kind"], "mixed");
     // the ids hold no text
     let s = serde_json::to_string(&t.ids).unwrap();
     for w in raw.split_whitespace() {
@@ -506,7 +627,7 @@ fn the_ids_file_names_the_children_behind_a_non_zero_invariant_and_the_gate_read
     let b = grammar_a_dryrun::batch_record("b", &json!({}), &json!({}), &json!({}), &t, json!({}));
     let m = tally::merge(&[b.clone(), b]);
     assert_eq!(m["totals"]["all"]["children"], 2);
-    assert_eq!(m["gate"]["count5_kept_unit_sharing_a_unit"]["gate"], 2);
+    assert_eq!(m["gate"]["count6_placed_break_paragraph_under_8_words"]["gate"], 2);
 }
 
 /// A hard-wrapped parent at W 40 of `paras` paragraphs (4 sentences of 9

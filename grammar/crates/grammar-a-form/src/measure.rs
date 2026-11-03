@@ -1,6 +1,6 @@
 //! Layout measurement for `cc_cohort_profile_v2` (protocol A2 §6.2, as
 //! amended by amendments 7, 10 and 13): `layout_measure_v2`, the
-//! whitespace-layout properties `layout_transfer_v2` copies from a source,
+//! whitespace-layout properties the layout transfer copies from a source,
 //! and the counts the layout audit (`r2_layout_audit_v1`), the pilot gate
 //! and the form-injection twins read. Records built from it hold counts,
 //! widths, reason codes, escaped whitespace strings and digests, never text.

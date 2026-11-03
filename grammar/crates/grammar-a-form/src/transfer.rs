@@ -1,6 +1,6 @@
-//! The parent-conditioned layout transfer `layout_transfer_v2` of
-//! `cc_cohort_profile_v2` (protocol A2 §6.2, as amended by amendments 7, 10
-//! and 13).
+//! The parent-conditioned layout transfer `layout_transfer_v4` of
+//! `cc_cohort_profile_v2` (protocol A2 §6.2, as amended by amendments 7, 10,
+//! 13, 29 and 30; `layout_transfer_v3` was amendment 29's alone).
 //!
 //! A child takes every whitespace-layout property from its source, measured
 //! exactly (`measure`, `layout_measure_v2`). The source of a mirror is the
@@ -40,12 +40,16 @@
 //!    `quoted_line` in the licence, each raw child body paragraph holding a
 //!    line with that reason keeps its own lines, each its own paragraph;
 //!    with `no_sentence_end` in it, each raw child body paragraph of at least
-//!    `MIN_PARAGRAPH_WORDS` words whose end is unpunctuated closes its
-//!    paragraph there. Kept units are fixed boundaries: each break target
-//!    goes to the prose segment holding its fraction, where `place_breaks`
-//!    runs, and a target on a fixed boundary or inside a kept unit is
-//!    realised by it (counted; positions compared in exact integer
-//!    arithmetic).
+//!    `MIN_PARAGRAPH_WORDS` words whose end is unpunctuated is a closed
+//!    paragraph: a kept unit of its own, wrapped like other body paragraphs
+//!    and never merged, its start and its end both fixed boundaries
+//!    (amendment 30 item 30.1). Kept units are fixed boundaries: each break
+//!    target goes to the prose segment holding its fraction, where
+//!    `place_breaks` runs, and a target on a fixed boundary or inside a kept
+//!    unit is realised by it (counted; positions compared in exact integer
+//!    arithmetic). The text between two fixed boundaries is a prose segment
+//!    of its own; one under 8 words is one paragraph (amendment 30 item
+//!    30.2).
 //! 3. **Wrapping** (amendment 10 items 10.1 and 10.3). A child body
 //!    paragraph takes the wrap flag of the source body paragraph holding its
 //!    midpoint word fraction; a source body paragraph is wrapped when the
@@ -57,7 +61,16 @@
 //!    budget stands alone. A mixed child's last line shares its line with
 //!    the parent text after the span (`tail_column`): when the two would be
 //!    wider than W, the line's maximal suffix of words that fits with that
-//!    text moves to a new last line (amendment 13 item 13.7, counted).
+//!    text moves to a new last line (amendment 13 item 13.7, counted). In an
+//!    item with several edits (`profile::lay_out_item`, amendment 29 item
+//!    29.1) the column and `tail_column` are measured on the item assembled
+//!    so far: a later edit's column holds an earlier edit's laid-out text on
+//!    its line (`sibling_column`), and an earlier edit's tail counts only
+//!    the parent text up to the next edit on its line. When such a later
+//!    edit's first unit is wrapped and its first word does not fit in W
+//!    less its column, its text starts on a new line with a continuation
+//!    lead (`sibling_column_wraps`, counted): the replacement then begins
+//!    with that line break and lead.
 //! 4. **Separators** (amendment 10 item 10.4, as amended by amendment 13
 //!    item 13.8). The boundary between the head frame and the body takes the
 //!    source's last head-side boundary, and the one between the body and the
@@ -75,7 +88,9 @@
 //!    `""` (counted). A mirror also takes the parent's head and tail. A mixed
 //!    child's first line takes no leading and its last line no trailing
 //!    whitespace: the parent's own bytes around the span supply them, and the
-//!    splice needs a trimmed replacement (amendment 7 item 7.6).
+//!    splice needs a trimmed replacement (amendment 7 item 7.6). The one
+//!    exception is step 3's line break with no room on a shared line
+//!    (amendment 29 item 29.1), which the item's assembly accepts.
 //!
 //! **Line-form sources** (more than half of the source's lines in failing
 //! paragraphs that hold no wrap: IRC, verse, transcripts, lists): the child
@@ -108,7 +123,7 @@ use crate::text;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
-pub const LAYOUT_TRANSFER_ID: &str = "layout_transfer_v2";
+pub const LAYOUT_TRANSFER_ID: &str = "layout_transfer_v4";
 /// The separator between a line-form child's blocks when its source has no
 /// paragraph boundary (and so no blank line): one newline.
 pub const LINE_FORM_FALLBACK: &str = "\n";
@@ -186,8 +201,17 @@ pub struct SourceLayout {
     /// The columns of the parent text after a mixed child's span (or an
     /// insertion's point) on the same line, up to its body's end: the
     /// replacement's last line shares that line (amendment 13 item 13.7). 0
-    /// for a whole-text source.
+    /// for a whole-text source. In an item whose next edit starts on the
+    /// same document line, only the parent text between the two edits
+    /// (amendment 29 item 29.1; `profile::lay_out_item`).
     pub tail_column: usize,
+    /// `column` holds an earlier edit's laid-out text on the same document
+    /// line (amendment 29 item 29.1; set by `profile::lay_out_item` only):
+    /// a wrapped first unit whose first word does not fit in W less the
+    /// column starts on a new line with a continuation lead. Not a measured
+    /// property, so not serialised.
+    #[serde(skip_serializing)]
+    pub sibling_column: bool,
     /// The source body paragraphs in word order: their words and whether a
     /// child paragraph at their midpoint is wrapped (amendment 10 item
     /// 10.3).
@@ -304,6 +328,7 @@ impl SourceLayout {
             structure: Structure { fractions: fractions_of(&m.paragraphs[body.clone()].iter().map(|p| p.words).collect::<Vec<_>>()), pre_words: 0, post_words: 0 },
             column: 0,
             tail_column: 0,
+            sibling_column: false,
             body_wrap: body.clone().map(|k| (m.paragraphs[k].words, wrap_flag(&m, k))).collect(),
             pools: pools_of(&m, body_lines),
             frames,
@@ -358,6 +383,7 @@ impl SourceLayout {
             },
             column,
             tail_column,
+            sibling_column: false,
             body_wrap: seg_words.into_iter().zip(seg_wrap).collect(),
             pools: pools_of(&m, lines.iter().copied()),
             frames: SourceFrames::default(),
@@ -411,6 +437,7 @@ impl SourceLayout {
             },
             column,
             tail_column,
+            sibling_column: false,
             body_wrap: pi.map(|k| (m.paragraphs[k].words, wrap_flag(&m, k))).into_iter().collect(),
             pools: pools_of(&m, li.into_iter()),
             frames: SourceFrames::default(),
@@ -493,6 +520,16 @@ pub struct TransferRecord {
     /// A mixed child's last wrapped line split so that it and the parent
     /// text after the span fit within W (amendment 13 item 13.7).
     pub tail_budget_splits: usize,
+    /// An item edit whose wrapped first unit had no room on the line it
+    /// shares with an earlier edit, so its text starts on a new line with a
+    /// continuation lead (amendment 29 item 29.1). Recorded only when not 0,
+    /// so the records of every other child keep their fields.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub sibling_column_wraps: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// What kind of unit of a laid-out child a unit is (a diagnostic).
@@ -517,10 +554,11 @@ pub struct UnitDiag {
     pub role: UnitRole,
     /// A body paragraph that is wrapped (item 10.3).
     pub wrapped: bool,
-    /// For a body paragraph, the prose segment whose `place_breaks` made it:
-    /// two body paragraphs of one segment are separated by a placed break;
-    /// every other boundary is fixed (a frame edge, a kept unit's edge, a
-    /// closed paragraph's end; item 10.6(b)). `None` for other units.
+    /// For a body paragraph, the segment that made it: two body paragraphs
+    /// of one segment are separated by a placed break; every other boundary
+    /// is fixed (a frame edge, a kept unit's edge, a closed paragraph's start
+    /// and end; item 10.6(b), amendment 30 item 30.1). A closed paragraph is
+    /// a segment of its own. `None` for other units.
     pub segment: Option<usize>,
     /// Where the unit comes from in the raw child (byte offsets of `t`).
     pub source: ParagraphSource,
@@ -534,7 +572,20 @@ pub enum KeptKind {
     /// quoted line; each such line is its own unit.
     ListLine,
     /// A raw child body paragraph of at least `MIN_PARAGRAPH_WORDS` words
-    /// whose end is unpunctuated, closed where it ends.
+    /// whose end is unpunctuated: one unit, its start and end fixed
+    /// (amendment 30 item 30.1).
+    Closed,
+}
+
+/// A segment of a child body between fixed boundaries (item 10.6(b)).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Seg {
+    /// Prose, where `place_breaks` runs.
+    Prose,
+    /// A raw child body paragraph holding a licensed list line: each line
+    /// its own unit.
+    List,
+    /// A closed paragraph: one unit, never split or merged.
     Closed,
 }
 
@@ -753,8 +804,8 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
     let body = &t[a..b];
     let keep_list = src.licensed(LIST_MARKER) || src.licensed(QUOTED_LINE);
     let close = src.licensed(NO_SENTENCE_END);
-    // Segments over `t`: (start, end, words, kept list).
-    let mut segs: Vec<(usize, usize, usize, bool)> = Vec::new();
+    // Segments over `t`: (start, end, words, kind).
+    let mut segs: Vec<(usize, usize, usize, Seg)> = Vec::new();
     let mut closed = 0;
     let mut closed_units: Vec<KeptUnit> = Vec::new();
     if let Some((mc, paras)) = kept.filter(|_| keep_list || close) {
@@ -762,30 +813,33 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
         for k in paras {
             let p = &mc.paragraphs[k];
             let (pa, pb) = (mc.lines[p.lines.start].start, mc.lines[p.lines.end - 1].end);
-            if p.lines.clone().any(|i| list_reason(mc.body(i)).is_some_and(|r| src.licensed(r))) {
+            let list = p.lines.clone().any(|i| list_reason(mc.body(i)).is_some_and(|r| src.licensed(r)));
+            // Amendment 30 item 30.1: a closed paragraph is a kept unit of
+            // its own, both of its boundaries fixed; the text before it is a
+            // prose segment of its own (item 30.2).
+            let closes = !list && close && p.words >= MIN_PARAGRAPH_WORDS && !text::ends_sentence(&text::squash(&mc.text[p.range.0..p.range.1]));
+            if list || closes {
                 if let Some(c) = cur.take() {
-                    segs.push((c.0, c.1, c.2, false));
+                    segs.push((c.0, c.1, c.2, Seg::Prose));
                 }
-                segs.push((pa, pb, p.words, true));
+                if closes {
+                    closed += 1;
+                    closed_units.push(KeptUnit { kind: KeptKind::Closed, raw: (pa, pb) });
+                }
+                segs.push((pa, pb, p.words, if list { Seg::List } else { Seg::Closed }));
                 continue;
             }
             let c = cur.get_or_insert((pa, pb, 0));
             c.1 = pb;
             c.2 += p.words;
-            if close && p.words >= MIN_PARAGRAPH_WORDS && !text::ends_sentence(&text::squash(&mc.text[p.range.0..p.range.1])) {
-                closed += 1;
-                closed_units.push(KeptUnit { kind: KeptKind::Closed, raw: (pa, pb) });
-                let c = cur.take().expect("current segment");
-                segs.push((c.0, c.1, c.2, false));
-            }
         }
         if let Some(c) = cur.take() {
-            segs.push((c.0, c.1, c.2, false));
+            segs.push((c.0, c.1, c.2, Seg::Prose));
         }
     }
     let licensed_any = !src.licence.is_empty();
     let (filtered, line_unlicensed) = if licensed_any { licensed_line_reasons(body, conv, src) } else { (Vec::new(), Vec::new()) };
-    if !segs.iter().any(|s| s.3) && closed == 0 {
+    if !segs.iter().any(|s| s.3 == Seg::List) && closed == 0 {
         // (a) No kept unit: v1's rebuild exactly.
         let r = rebuild_child(body, conv, &src.structure, src.emphasis);
         let sources = offset_sources(&r, a, 0);
@@ -838,12 +892,12 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
             Some((cums, den)) => {
                 let (num, den) = (cums[x] as u128 * total as u128, *den as u128);
                 (0..segs.len())
-                    .find(|&j| !segs[j].3 && lo[j] as u128 * den < num && num < (lo[j] + segs[j].2) as u128 * den)
+                    .find(|&j| segs[j].3 == Seg::Prose && lo[j] as u128 * den < num && num < (lo[j] + segs[j].2) as u128 * den)
                     .map(|j| (j, (num - lo[j] as u128 * den) as f64 / (den * segs[j].2 as u128) as f64))
             }
             None => {
                 let pos = f * total as f64;
-                (0..segs.len()).find(|&j| !segs[j].3 && (lo[j] as f64) < pos && pos < (lo[j] + segs[j].2) as f64).map(|j| (j, (pos - lo[j] as f64) / segs[j].2 as f64))
+                (0..segs.len()).find(|&j| segs[j].3 == Seg::Prose && (lo[j] as f64) < pos && pos < (lo[j] + segs[j].2) as f64).map(|j| (j, (pos - lo[j] as f64) / segs[j].2 as f64))
             }
         };
         match hit {
@@ -867,13 +921,13 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
     let mut kept_units: Vec<KeptUnit> = Vec::new();
     let mut closed_iter = closed_units.into_iter().peekable();
     let last = segs.len() - 1;
-    for (j, &(sa, sb, _, is_list)) in segs.iter().enumerate() {
+    for (j, &(sa, sb, _, kind)) in segs.iter().enumerate() {
         let seg = &t[sa..sb];
         // the closed units inside this segment, in order (diagnostic)
         while let Some(k) = closed_iter.next_if(|k| k.raw.0 < sb) {
             kept_units.push(k);
         }
-        if is_list {
+        if kind == Seg::List {
             let mut at = sa;
             for l in seg.split('\n') {
                 let raw = (at, at + l.len());
@@ -889,8 +943,10 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
             }
             continue;
         }
+        // A closed paragraph takes no target (each was realised by its
+        // fixed boundaries), so it is rebuilt as one paragraph.
         let st = Structure {
-            fractions: targets[j].clone(),
+            fractions: if kind == Seg::Closed { Vec::new() } else { targets[j].clone() },
             pre_words: if j == 0 { src.structure.pre_words } else { 0 },
             post_words: if j == last { src.structure.post_words } else { 0 },
         };
@@ -1011,6 +1067,9 @@ fn lay_out_prose(units: &[(String, Role)], src: &SourceLayout, rec: &mut Transfe
         }
         // Lines and their whitespace.
         let mut lines: Vec<(String, String, String)> = Vec::new(); // (lead, line, trail)
+        // Amendment 29 item 29.1: the unit starts on a new line (no room on
+        // the line it shares with an earlier edit of its item).
+        let mut break_first = false;
         match *role {
             Role::Head(k) | Role::Tail(k) => {
                 let (pool, ix) = match *role {
@@ -1035,12 +1094,22 @@ fn lay_out_prose(units: &[(String, Role)], src: &SourceLayout, rec: &mut Transfe
             }
             Role::Body(true) => {
                 let first_line = lines_out == 0;
+                // Amendment 29 item 29.1: a later edit of an item whose first
+                // word does not fit in W less its column (which holds an
+                // earlier edit's text) starts on a new line with a
+                // continuation lead, its budget W less that lead.
+                break_first = first_line
+                    && src.mixed
+                    && src.sibling_column
+                    && w.is_some_and(|w| p.split_whitespace().next().is_some_and(|x| chars(x) > w.saturating_sub(src.column)));
+                rec.sibling_column_wraps += break_first as usize;
+                let at_column = first_line && src.mixed && !break_first;
                 let mut leads: Vec<String> = Vec::new();
                 let wl = wrap_with(p, |k| {
-                    let lead = if k == 0 { pick(&src.pools.first_leads, &mut fi, &mut fb) } else { pick(&src.pools.cont_leads, &mut ci, &mut fb) };
+                    let lead = if k == 0 && !break_first { pick(&src.pools.first_leads, &mut fi, &mut fb) } else { pick(&src.pools.cont_leads, &mut ci, &mut fb) };
                     leads.push(lead.to_string());
                     let w = w.unwrap_or(usize::MAX);
-                    if k == 0 && src.mixed && first_line { w.saturating_sub(src.column) } else { w.saturating_sub(chars(lead)) }
+                    if k == 0 && at_column { w.saturating_sub(src.column) } else { w.saturating_sub(chars(lead)) }
                 });
                 let mut wl = wl;
                 // Amendment 13 item 13.7: a mixed child's last line shares its
@@ -1050,7 +1119,7 @@ fn lay_out_prose(units: &[(String, Role)], src: &SourceLayout, rec: &mut Transfe
                 // its budget stands alone).
                 if let (Some(w), true) = (w, src.mixed && src.tail_column > 0 && u + 1 == total_units) {
                     let k = wl.len() - 1;
-                    let start = if k == 0 && first_line { src.column } else { chars(&leads[k]) };
+                    let start = if k == 0 && at_column { src.column } else { chars(&leads[k]) };
                     let words: Vec<&str> = wl[k].split(' ').collect();
                     if words.len() > 1 && start + chars(&wl[k]) + src.tail_column > w {
                         let lead = pick(&src.pools.cont_leads, &mut ci, &mut fb).to_string();
@@ -1076,10 +1145,10 @@ fn lay_out_prose(units: &[(String, Role)], src: &SourceLayout, rec: &mut Transfe
         let nl = lines.len();
         let mut start = 0;
         for (i, (lead, line, trail)) in lines.into_iter().enumerate() {
-            if i > 0 {
+            if i > 0 || break_first {
                 out.push('\n');
             }
-            let lead = if src.mixed && lines_out == 0 { "" } else { lead.as_str() };
+            let lead = if src.mixed && lines_out == 0 && !break_first { "" } else { lead.as_str() };
             let last_line = u + 1 == total_units && i + 1 == nl;
             let trail = if src.mixed && last_line { "" } else { trail.as_str() };
             out.push_str(lead);
@@ -1154,7 +1223,7 @@ fn lay_out_lines(blocks: &[String], src: &SourceLayout, rec: &mut TransferRecord
     (out, ranges)
 }
 
-/// `layout_transfer_v2`: the raw child `t` laid out like `src`, in the
+/// `layout_transfer_v4`: the raw child `t` laid out like `src`, in the
 /// conventions `conv` (see the module notes).
 pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred {
     let mut rec = TransferRecord {
@@ -1182,6 +1251,7 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
         ws_pool_fallbacks: 0,
         frame_internal_reused: 0,
         tail_budget_splits: 0,
+        sibling_column_wraps: 0,
     };
     if !src.line_form {
         let framed = !src.mixed && (src.frames.head || src.frames.tail);

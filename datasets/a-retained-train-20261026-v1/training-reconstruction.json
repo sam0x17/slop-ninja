@@ -1,0 +1,39 @@
+{
+  "by_published_file": {
+    "datasets/a-balanced-20261026-v1/train.jsonl": 215,
+    "datasets/a-encoder-20261026-v1/train.jsonl": 528,
+    "datasets/a-retained-train-20261026-v1/records.jsonl": 2365,
+    "datasets/a-train-augmentation-20261026-v1/records.jsonl": 1049
+  },
+  "complete": true,
+  "fitting_reexecuted": false,
+  "learned_inputs_include_metadata": false,
+  "matching": "exact text and normalized hashes, original fit order, source family, Train/query scope, origin, involvement, measured share/missingness, human/AI identity, involvement, known masks and target indices",
+  "original_fit_contract_sha256": "25ab2507718ab3ba3862e174458f13031020a46ee0bcf3c96387dc4740120042",
+  "original_fit_manifest_sha256": "c16669dde418797dfe4b2326589d4b6db362e5fcc7d91b66512d579511df3079",
+  "original_fit_train_sha256": "d26549d2063d0acedbf05f7aa53f95a03649369f6c1768ab6b25e2c833e14420",
+  "profile_vectors_or_weights_included": false,
+  "records": 4157,
+  "schema": "slop_ninja_fitted_training_publication_v1",
+  "source_families": 357,
+  "sources": [
+    {
+      "decoded_sha256": "081c0a0258f9d3df62657d83541a50f0435c2335610eb9ae1f6cda15362851a4",
+      "logical_path": "datasets/a-balanced-20261026-v1/train.jsonl"
+    },
+    {
+      "decoded_sha256": "24a768129905a23652eb82876c5f06f31756d6c79f238252e672bbe7a5893216",
+      "logical_path": "datasets/a-train-augmentation-20261026-v1/records.jsonl"
+    },
+    {
+      "decoded_sha256": "b5f6e71b48c32a95f6394d3f882afb90957c0f800131f6806c95bf4d8505624f",
+      "logical_path": "datasets/a-encoder-20261026-v1/train.jsonl"
+    },
+    {
+      "decoded_sha256": "1d23ea7deaa964ce6f4f59fbe77e5884e4604dda2d4b29a7122c6974b6f0e38f",
+      "logical_path": "datasets/a-retained-train-20261026-v1/records.jsonl"
+    }
+  ],
+  "target_contract_sha256": "5ab56a5f1cf9340feed0ba394bd60bdeaa85f5ba204ced00d7a330c3892a697c",
+  "training_membership_sha256": "19d64160a8323fabc954f2fe2f0fb271812454458a52fb65c6535c6c31e55f64"
+}

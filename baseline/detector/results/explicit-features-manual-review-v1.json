@@ -1,0 +1,76 @@
+{
+  "schema": "slop_ninja_explicit_feature_manual_review_v1",
+  "reviewer": "assistant",
+  "source_group": "wikipedia:page:1001127",
+  "split": "train",
+  "selection": "Lexicographically first ID per origin in the declared Train family; selected before this inspection.",
+  "complete_texts_read": 3,
+  "sentence_roots_inspected": 17,
+  "inspection_scope": "Read all three complete texts, all sentence boundaries and roots, and selected subject, object, clause, coordination and negation relations. Read the complete 128-token table for the model-only state. The other two complete token tables were not inspected.",
+  "prepared_review_texts": 12,
+  "remaining_prepared_texts_not_reviewed_here": 9,
+  "features_file_sha256": "ef6e1bfb1bf6ff5d5d486caa98430fb14504975cf07d0243c3f6d0dc653ddf39",
+  "annotations": [
+    {
+      "index": 0,
+      "origin": "human_only",
+      "annotation_sha256": "700ec2626228e69b163746a4c6b8f78df15c76b78bb9d580ca519954353fa3a5",
+      "features_match_cache": true,
+      "sentences": 6
+    },
+    {
+      "index": 1,
+      "origin": "model_only",
+      "annotation_sha256": "089e626cdcd4786b73628d99c32a7c107d53d73c47b5ba859d631538232b981a",
+      "features_match_cache": true,
+      "sentences": 7
+    },
+    {
+      "index": 2,
+      "origin": "mixed",
+      "annotation_sha256": "af62a5d93a656574cbb1bf6f27aca04f9c9dbd075b9be237216aea7809dfbbd7",
+      "features_match_cache": true,
+      "sentences": 4
+    }
+  ],
+  "findings": [
+    {
+      "annotation_index": 1,
+      "token_indices": [1, 5, 9, 13],
+      "status": "observed_error",
+      "kind": "coordination_attachment",
+      "observed": "The second contrasting predicate nominal is attached as a conjunct of the reporting verb.",
+      "expected": "Both contrasting predicate nominals belong to the embedded copular assertion, not a coordination with the reporting act."
+    },
+    {
+      "annotation_index": 1,
+      "token_indices": [73, 75, 77, 79, 81],
+      "status": "observed_error",
+      "kind": "free_relative_copular_clause",
+      "observed": "The finite verb inside a free-relative subject becomes the sentence root; the main copula becomes a passive auxiliary of a modifier inside the predicate noun phrase.",
+      "expected": "Retain the main copular clause and its free-relative subject, separating it from the noun phrase's participial modifier."
+    },
+    {
+      "annotation_index": 1,
+      "token_indices": [89, 90],
+      "status": "observed_error",
+      "kind": "negation_dependency",
+      "observed": "A separately tokenized contracted negation has dependency punct rather than neg, although its PART/RB tags remain.",
+      "expected": "Represent the contracted negation as negation of the copula. This can affect dependency-derived features even if lexical features still observe the token."
+    },
+    {
+      "annotation_index": 1,
+      "token_indices": [100, 114, 115],
+      "status": "observed_error",
+      "kind": "markup_and_dash_tokenization",
+      "observed": "A noun, closing Markdown emphasis marker, dash and following finite predicate are fused into token 115. The sentence subject noun becomes the root.",
+      "expected": "Separate the word, markup, punctuation and following predicate while preserving exact source offsets. The main finite predicate should remain available to the dependency analysis."
+    }
+  ],
+  "other_observations": "The source state contains awkward punctuation that should remain distinguishable from parser defects. Some inter-clause attachments in the generated and mixed states merit further review. No additional failure counts are inferred from those observations.",
+  "parser_changed": false,
+  "parse_accuracy": null,
+  "independent_human_annotation": false,
+  "detector_scoring": false,
+  "limitations": "A targeted three-state inspection of one Train family cannot estimate corpus accuracy or differences between origins. Successful feature replay establishes reproducibility, not linguistic correctness. Raw texts and full annotations remain outside the repository."
+}

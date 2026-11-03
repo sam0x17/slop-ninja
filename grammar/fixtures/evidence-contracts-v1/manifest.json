@@ -1,0 +1,1508 @@
+{
+  "case_count": 40,
+  "cases": [
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 35,
+          "expected": "the folio to me",
+          "replacement": "me the folio",
+          "start_byte": 20
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-me-prepositional",
+      "intended_recipient_bytes": "me",
+      "intended_theme_bytes": "the folio",
+      "inverse_case_id": "recipient-me-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 32,
+          "expected": "me the folio",
+          "replacement": "the folio to me",
+          "start_byte": 20
+        }
+      ],
+      "pair_id": "recipient-me",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The archivist loans the folio to me.",
+      "source_form": "prepositional",
+      "source_sha256": "83a27cf25f232c696215b03c2b8631d563952ccd2c1041e1d618b2466a61f906",
+      "target": "The archivist loans me the folio.",
+      "target_form": "double_object",
+      "target_sha256": "90e4c35b922b0d16ee0e4b782faffba18295b89f702723368776126dbf045b07",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The archivist loans ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 32,
+          "expected": "me the folio",
+          "replacement": "the folio to me",
+          "start_byte": 20
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-me-double_object",
+      "intended_recipient_bytes": "me",
+      "intended_theme_bytes": "the folio",
+      "inverse_case_id": "recipient-me-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 35,
+          "expected": "the folio to me",
+          "replacement": "me the folio",
+          "start_byte": 20
+        }
+      ],
+      "pair_id": "recipient-me",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The archivist loans me the folio.",
+      "source_form": "double_object",
+      "source_sha256": "90e4c35b922b0d16ee0e4b782faffba18295b89f702723368776126dbf045b07",
+      "target": "The archivist loans the folio to me.",
+      "target_form": "prepositional",
+      "target_sha256": "83a27cf25f232c696215b03c2b8631d563952ccd2c1041e1d618b2466a61f906",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The archivist loans ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 31,
+          "expected": "the chart to us",
+          "replacement": "us the chart",
+          "start_byte": 16
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-us-prepositional",
+      "intended_recipient_bytes": "us",
+      "intended_theme_bytes": "the chart",
+      "inverse_case_id": "recipient-us-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 28,
+          "expected": "us the chart",
+          "replacement": "the chart to us",
+          "start_byte": 16
+        }
+      ],
+      "pair_id": "recipient-us",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The guide lends the chart to us.",
+      "source_form": "prepositional",
+      "source_sha256": "d2f4b002a103712aa1171682f95c5ac81f4e6051ac98ba8d9b2eda202cabba55",
+      "target": "The guide lends us the chart.",
+      "target_form": "double_object",
+      "target_sha256": "eae046320a2eae435df0784548b19b6a26c7fc254508e35489b62a8c5b71ff16",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The guide lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 28,
+          "expected": "us the chart",
+          "replacement": "the chart to us",
+          "start_byte": 16
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-us-double_object",
+      "intended_recipient_bytes": "us",
+      "intended_theme_bytes": "the chart",
+      "inverse_case_id": "recipient-us-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 31,
+          "expected": "the chart to us",
+          "replacement": "us the chart",
+          "start_byte": 16
+        }
+      ],
+      "pair_id": "recipient-us",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The guide lends us the chart.",
+      "source_form": "double_object",
+      "source_sha256": "eae046320a2eae435df0784548b19b6a26c7fc254508e35489b62a8c5b71ff16",
+      "target": "The guide lends the chart to us.",
+      "target_form": "prepositional",
+      "target_sha256": "d2f4b002a103712aa1171682f95c5ac81f4e6051ac98ba8d9b2eda202cabba55",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The guide lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 36,
+          "expected": "the catalog to you",
+          "replacement": "you the catalog",
+          "start_byte": 18
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-you-prepositional",
+      "intended_recipient_bytes": "you",
+      "intended_theme_bytes": "the catalog",
+      "inverse_case_id": "recipient-you-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 33,
+          "expected": "you the catalog",
+          "replacement": "the catalog to you",
+          "start_byte": 18
+        }
+      ],
+      "pair_id": "recipient-you",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The curator gives the catalog to you.",
+      "source_form": "prepositional",
+      "source_sha256": "60080516cf26330dfbfcbd6ba662af4a23c5674c81f61356033ea837e80621dc",
+      "target": "The curator gives you the catalog.",
+      "target_form": "double_object",
+      "target_sha256": "2c3db1c744cccb600a8c46505187585d9cddf2b112a95106bc871194bf04b97f",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The curator gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 33,
+          "expected": "you the catalog",
+          "replacement": "the catalog to you",
+          "start_byte": 18
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-you-double_object",
+      "intended_recipient_bytes": "you",
+      "intended_theme_bytes": "the catalog",
+      "inverse_case_id": "recipient-you-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 36,
+          "expected": "the catalog to you",
+          "replacement": "you the catalog",
+          "start_byte": 18
+        }
+      ],
+      "pair_id": "recipient-you",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The curator gives you the catalog.",
+      "source_form": "double_object",
+      "source_sha256": "2c3db1c744cccb600a8c46505187585d9cddf2b112a95106bc871194bf04b97f",
+      "target": "The curator gives the catalog to you.",
+      "target_form": "prepositional",
+      "target_sha256": "60080516cf26330dfbfcbd6ba662af4a23c5674c81f61356033ea837e80621dc",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The curator gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 33,
+          "expected": "the ledger to him",
+          "replacement": "him the ledger",
+          "start_byte": 16
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-him-prepositional",
+      "intended_recipient_bytes": "him",
+      "intended_theme_bytes": "the ledger",
+      "inverse_case_id": "recipient-him-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 30,
+          "expected": "him the ledger",
+          "replacement": "the ledger to him",
+          "start_byte": 16
+        }
+      ],
+      "pair_id": "recipient-him",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The clerk lends the ledger to him.",
+      "source_form": "prepositional",
+      "source_sha256": "446469c1da93b040fd928306caecaae461780bd7abc947e8d778e49ad1656e0b",
+      "target": "The clerk lends him the ledger.",
+      "target_form": "double_object",
+      "target_sha256": "fb3fedf52172bfe7c63106171effcffb2486f8d1e81d5a45bfdaa4716ef83770",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The clerk lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 30,
+          "expected": "him the ledger",
+          "replacement": "the ledger to him",
+          "start_byte": 16
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-him-double_object",
+      "intended_recipient_bytes": "him",
+      "intended_theme_bytes": "the ledger",
+      "inverse_case_id": "recipient-him-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 33,
+          "expected": "the ledger to him",
+          "replacement": "him the ledger",
+          "start_byte": 16
+        }
+      ],
+      "pair_id": "recipient-him",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The clerk lends him the ledger.",
+      "source_form": "double_object",
+      "source_sha256": "fb3fedf52172bfe7c63106171effcffb2486f8d1e81d5a45bfdaa4716ef83770",
+      "target": "The clerk lends the ledger to him.",
+      "target_form": "prepositional",
+      "target_sha256": "446469c1da93b040fd928306caecaae461780bd7abc947e8d778e49ad1656e0b",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The clerk lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 33,
+          "expected": "the badge to her",
+          "replacement": "her the badge",
+          "start_byte": 17
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-her-prepositional",
+      "intended_recipient_bytes": "her",
+      "intended_theme_bytes": "the badge",
+      "inverse_case_id": "recipient-her-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 30,
+          "expected": "her the badge",
+          "replacement": "the badge to her",
+          "start_byte": 17
+        }
+      ],
+      "pair_id": "recipient-her",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The porter gives the badge to her.",
+      "source_form": "prepositional",
+      "source_sha256": "1569eec55f891e8d69cfc4d0630ee3acf0a05d6b53651c8c49449c2048aaa33b",
+      "target": "The porter gives her the badge.",
+      "target_form": "double_object",
+      "target_sha256": "2b2cb9f259daacb6da78d5eeb3569deda3ca3105da8accf2e2734bb1db51f485",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The porter gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 30,
+          "expected": "her the badge",
+          "replacement": "the badge to her",
+          "start_byte": 17
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-her-double_object",
+      "intended_recipient_bytes": "her",
+      "intended_theme_bytes": "the badge",
+      "inverse_case_id": "recipient-her-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 33,
+          "expected": "the badge to her",
+          "replacement": "her the badge",
+          "start_byte": 17
+        }
+      ],
+      "pair_id": "recipient-her",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The porter gives her the badge.",
+      "source_form": "double_object",
+      "source_sha256": "2b2cb9f259daacb6da78d5eeb3569deda3ca3105da8accf2e2734bb1db51f485",
+      "target": "The porter gives the badge to her.",
+      "target_form": "prepositional",
+      "target_sha256": "1569eec55f891e8d69cfc4d0630ee3acf0a05d6b53651c8c49449c2048aaa33b",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The porter gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 34,
+          "expected": "the ribbon to it",
+          "replacement": "it the ribbon",
+          "start_byte": 18
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-it-prepositional",
+      "intended_recipient_bytes": "it",
+      "intended_theme_bytes": "the ribbon",
+      "inverse_case_id": "recipient-it-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 31,
+          "expected": "it the ribbon",
+          "replacement": "the ribbon to it",
+          "start_byte": 18
+        }
+      ],
+      "pair_id": "recipient-it",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The trainer gives the ribbon to it.",
+      "source_form": "prepositional",
+      "source_sha256": "bf63410e6b6ffb94e22fe1afc2695cde7b85ac5c9f3a248d8d9cc4b8e6975040",
+      "target": "The trainer gives it the ribbon.",
+      "target_form": "double_object",
+      "target_sha256": "79dcc09e9ab87443fbfc3b2770005b7d32ba999f3545b16e1f336c803ac2ccee",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The trainer gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 31,
+          "expected": "it the ribbon",
+          "replacement": "the ribbon to it",
+          "start_byte": 18
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-it-double_object",
+      "intended_recipient_bytes": "it",
+      "intended_theme_bytes": "the ribbon",
+      "inverse_case_id": "recipient-it-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 34,
+          "expected": "the ribbon to it",
+          "replacement": "it the ribbon",
+          "start_byte": 18
+        }
+      ],
+      "pair_id": "recipient-it",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The trainer gives it the ribbon.",
+      "source_form": "double_object",
+      "source_sha256": "79dcc09e9ab87443fbfc3b2770005b7d32ba999f3545b16e1f336c803ac2ccee",
+      "target": "The trainer gives the ribbon to it.",
+      "target_form": "prepositional",
+      "target_sha256": "bf63410e6b6ffb94e22fe1afc2695cde7b85ac5c9f3a248d8d9cc4b8e6975040",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The trainer gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 33,
+          "expected": "the cooler to them",
+          "replacement": "them the cooler",
+          "start_byte": 15
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-them-prepositional",
+      "intended_recipient_bytes": "them",
+      "intended_theme_bytes": "the cooler",
+      "inverse_case_id": "recipient-them-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 30,
+          "expected": "them the cooler",
+          "replacement": "the cooler to them",
+          "start_byte": 15
+        }
+      ],
+      "pair_id": "recipient-them",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The host loans the cooler to them.",
+      "source_form": "prepositional",
+      "source_sha256": "59bae7343ac8448f8a1893846805765a6b25c2360755e2881065ee848a3bfeab",
+      "target": "The host loans them the cooler.",
+      "target_form": "double_object",
+      "target_sha256": "b508eb238ccd8233e30f05de4592e67f20fe809d49382ae41a7fe45c6cacf87b",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The host loans ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "oblique_recipient",
+      "edits": [
+        {
+          "end_byte": 30,
+          "expected": "them the cooler",
+          "replacement": "the cooler to them",
+          "start_byte": 15
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "recipient-them-double_object",
+      "intended_recipient_bytes": "them",
+      "intended_theme_bytes": "the cooler",
+      "inverse_case_id": "recipient-them-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 33,
+          "expected": "the cooler to them",
+          "replacement": "them the cooler",
+          "start_byte": 15
+        }
+      ],
+      "pair_id": "recipient-them",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The host loans them the cooler.",
+      "source_form": "double_object",
+      "source_sha256": "b508eb238ccd8233e30f05de4592e67f20fe809d49382ae41a7fe45c6cacf87b",
+      "target": "The host loans the cooler to them.",
+      "target_form": "prepositional",
+      "target_sha256": "59bae7343ac8448f8a1893846805765a6b25c2360755e2881065ee848a3bfeab",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The host loans ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "internal_abbreviation",
+      "edits": [
+        {
+          "end_byte": 44,
+          "expected": "the journal to Dr. Ellis",
+          "replacement": "Dr. Ellis the journal",
+          "start_byte": 20
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "internal-dr-prepositional",
+      "intended_recipient_bytes": "Dr. Ellis",
+      "intended_theme_bytes": "the journal",
+      "inverse_case_id": "internal-dr-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 41,
+          "expected": "Dr. Ellis the journal",
+          "replacement": "the journal to Dr. Ellis",
+          "start_byte": 20
+        }
+      ],
+      "pair_id": "internal-dr",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The librarian lends the journal to Dr. Ellis.",
+      "source_form": "prepositional",
+      "source_sha256": "b3af1a168734dbf3cf7c614c18f8d87ae99df9705189a0992a8933a6e70eac47",
+      "target": "The librarian lends Dr. Ellis the journal.",
+      "target_form": "double_object",
+      "target_sha256": "402f7e9f46323b175c9fe2cbe7aa9ca392dc99085f002c319e6ed9dc77da79bb",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The librarian lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "internal_abbreviation",
+      "edits": [
+        {
+          "end_byte": 41,
+          "expected": "Dr. Ellis the journal",
+          "replacement": "the journal to Dr. Ellis",
+          "start_byte": 20
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "internal-dr-double_object",
+      "intended_recipient_bytes": "Dr. Ellis",
+      "intended_theme_bytes": "the journal",
+      "inverse_case_id": "internal-dr-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 44,
+          "expected": "the journal to Dr. Ellis",
+          "replacement": "Dr. Ellis the journal",
+          "start_byte": 20
+        }
+      ],
+      "pair_id": "internal-dr",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The librarian lends Dr. Ellis the journal.",
+      "source_form": "double_object",
+      "source_sha256": "402f7e9f46323b175c9fe2cbe7aa9ca392dc99085f002c319e6ed9dc77da79bb",
+      "target": "The librarian lends the journal to Dr. Ellis.",
+      "target_form": "prepositional",
+      "target_sha256": "b3af1a168734dbf3cf7c614c18f8d87ae99df9705189a0992a8933a6e70eac47",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The librarian lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "internal_abbreviation",
+      "edits": [
+        {
+          "end_byte": 37,
+          "expected": "the ticket to Mr. Hsu",
+          "replacement": "Mr. Hsu the ticket",
+          "start_byte": 16
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "internal-mr-prepositional",
+      "intended_recipient_bytes": "Mr. Hsu",
+      "intended_theme_bytes": "the ticket",
+      "inverse_case_id": "internal-mr-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 34,
+          "expected": "Mr. Hsu the ticket",
+          "replacement": "the ticket to Mr. Hsu",
+          "start_byte": 16
+        }
+      ],
+      "pair_id": "internal-mr",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The valet gives the ticket to Mr. Hsu.",
+      "source_form": "prepositional",
+      "source_sha256": "6cde98a3afa2a779024a02bc7c5f241f1619d53b5e9dd0413fb7e5bf62554941",
+      "target": "The valet gives Mr. Hsu the ticket.",
+      "target_form": "double_object",
+      "target_sha256": "5a6167d9f4caa2d3d3c3260807ce9367a4b38413d6a89e48e3f89f41f13ee3ed",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The valet gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "internal_abbreviation",
+      "edits": [
+        {
+          "end_byte": 34,
+          "expected": "Mr. Hsu the ticket",
+          "replacement": "the ticket to Mr. Hsu",
+          "start_byte": 16
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "internal-mr-double_object",
+      "intended_recipient_bytes": "Mr. Hsu",
+      "intended_theme_bytes": "the ticket",
+      "inverse_case_id": "internal-mr-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 37,
+          "expected": "the ticket to Mr. Hsu",
+          "replacement": "Mr. Hsu the ticket",
+          "start_byte": 16
+        }
+      ],
+      "pair_id": "internal-mr",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The valet gives Mr. Hsu the ticket.",
+      "source_form": "double_object",
+      "source_sha256": "5a6167d9f4caa2d3d3c3260807ce9367a4b38413d6a89e48e3f89f41f13ee3ed",
+      "target": "The valet gives the ticket to Mr. Hsu.",
+      "target_form": "prepositional",
+      "target_sha256": "6cde98a3afa2a779024a02bc7c5f241f1619d53b5e9dd0413fb7e5bf62554941",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The valet gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "internal_abbreviation",
+      "edits": [
+        {
+          "end_byte": 71,
+          "expected": "the Martin Luther King Jr. biography to the researcher",
+          "replacement": "the researcher the Martin Luther King Jr. biography",
+          "start_byte": 17
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "internal-jr-prepositional",
+      "intended_recipient_bytes": "the researcher",
+      "intended_theme_bytes": "the Martin Luther King Jr. biography",
+      "inverse_case_id": "internal-jr-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 68,
+          "expected": "the researcher the Martin Luther King Jr. biography",
+          "replacement": "the Martin Luther King Jr. biography to the researcher",
+          "start_byte": 17
+        }
+      ],
+      "pair_id": "internal-jr",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The editor lends the Martin Luther King Jr. biography to the researcher.",
+      "source_form": "prepositional",
+      "source_sha256": "5ec34d4e0ec4bfbf88b3028c09374ab4434da62753aebee5740e900bc5b9428a",
+      "target": "The editor lends the researcher the Martin Luther King Jr. biography.",
+      "target_form": "double_object",
+      "target_sha256": "9915c106f32a013d4f959f1fd639f07eddf1c11cc9ed51914157a8d2a54b90b3",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The editor lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "internal_abbreviation",
+      "edits": [
+        {
+          "end_byte": 68,
+          "expected": "the researcher the Martin Luther King Jr. biography",
+          "replacement": "the Martin Luther King Jr. biography to the researcher",
+          "start_byte": 17
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "internal-jr-double_object",
+      "intended_recipient_bytes": "the researcher",
+      "intended_theme_bytes": "the Martin Luther King Jr. biography",
+      "inverse_case_id": "internal-jr-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 71,
+          "expected": "the Martin Luther King Jr. biography to the researcher",
+          "replacement": "the researcher the Martin Luther King Jr. biography",
+          "start_byte": 17
+        }
+      ],
+      "pair_id": "internal-jr",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The editor lends the researcher the Martin Luther King Jr. biography.",
+      "source_form": "double_object",
+      "source_sha256": "9915c106f32a013d4f959f1fd639f07eddf1c11cc9ed51914157a8d2a54b90b3",
+      "target": "The editor lends the Martin Luther King Jr. biography to the researcher.",
+      "target_form": "prepositional",
+      "target_sha256": "5ec34d4e0ec4bfbf88b3028c09374ab4434da62753aebee5740e900bc5b9428a",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The editor lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "separate_terminal_punctuation",
+      "edits": [
+        {
+          "end_byte": 45,
+          "expected": "the needle to the tailor",
+          "replacement": "the tailor the needle",
+          "start_byte": 21
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "terminal-period-prepositional",
+      "intended_recipient_bytes": "the tailor",
+      "intended_theme_bytes": "the needle",
+      "inverse_case_id": "terminal-period-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 42,
+          "expected": "the tailor the needle",
+          "replacement": "the needle to the tailor",
+          "start_byte": 21
+        }
+      ],
+      "pair_id": "terminal-period",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The seamstress lends the needle to the tailor.",
+      "source_form": "prepositional",
+      "source_sha256": "55e7f3294663040c8560be899ffd6104f196c418e9108c1344b4faa7fbc0681f",
+      "target": "The seamstress lends the tailor the needle.",
+      "target_form": "double_object",
+      "target_sha256": "db348fc0447818793c1ae3f026fe59464a975df51e946084b7251da5225cc563",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The seamstress lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "separate_terminal_punctuation",
+      "edits": [
+        {
+          "end_byte": 42,
+          "expected": "the tailor the needle",
+          "replacement": "the needle to the tailor",
+          "start_byte": 21
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "terminal-period-double_object",
+      "intended_recipient_bytes": "the tailor",
+      "intended_theme_bytes": "the needle",
+      "inverse_case_id": "terminal-period-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 45,
+          "expected": "the needle to the tailor",
+          "replacement": "the tailor the needle",
+          "start_byte": 21
+        }
+      ],
+      "pair_id": "terminal-period",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The seamstress lends the tailor the needle.",
+      "source_form": "double_object",
+      "source_sha256": "db348fc0447818793c1ae3f026fe59464a975df51e946084b7251da5225cc563",
+      "target": "The seamstress lends the needle to the tailor.",
+      "target_form": "prepositional",
+      "target_sha256": "55e7f3294663040c8560be899ffd6104f196c418e9108c1344b4faa7fbc0681f",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The seamstress lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "separate_terminal_punctuation",
+      "edits": [
+        {
+          "end_byte": 39,
+          "expected": "the apron to the helper",
+          "replacement": "the helper the apron",
+          "start_byte": 16
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "terminal-exclamation-prepositional",
+      "intended_recipient_bytes": "the helper",
+      "intended_theme_bytes": "the apron",
+      "inverse_case_id": "terminal-exclamation-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 36,
+          "expected": "the helper the apron",
+          "replacement": "the apron to the helper",
+          "start_byte": 16
+        }
+      ],
+      "pair_id": "terminal-exclamation",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The baker gives the apron to the helper!",
+      "source_form": "prepositional",
+      "source_sha256": "7645fdd9430cc4471e6fd1a1a94cdf8bede21dbd800c0b2e77a381e85fd1075c",
+      "target": "The baker gives the helper the apron!",
+      "target_form": "double_object",
+      "target_sha256": "d9dd71c74f0dbfc7374bcccd67c423bbc6e04a47708ffc8622db83d1cb92bcb9",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The baker gives ",
+      "unchanged_suffix": "!"
+    },
+    {
+      "category": "separate_terminal_punctuation",
+      "edits": [
+        {
+          "end_byte": 36,
+          "expected": "the helper the apron",
+          "replacement": "the apron to the helper",
+          "start_byte": 16
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "terminal-exclamation-double_object",
+      "intended_recipient_bytes": "the helper",
+      "intended_theme_bytes": "the apron",
+      "inverse_case_id": "terminal-exclamation-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 39,
+          "expected": "the apron to the helper",
+          "replacement": "the helper the apron",
+          "start_byte": 16
+        }
+      ],
+      "pair_id": "terminal-exclamation",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The baker gives the helper the apron!",
+      "source_form": "double_object",
+      "source_sha256": "d9dd71c74f0dbfc7374bcccd67c423bbc6e04a47708ffc8622db83d1cb92bcb9",
+      "target": "The baker gives the apron to the helper!",
+      "target_form": "prepositional",
+      "target_sha256": "7645fdd9430cc4471e6fd1a1a94cdf8bede21dbd800c0b2e77a381e85fd1075c",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The baker gives ",
+      "unchanged_suffix": "!"
+    },
+    {
+      "category": "separate_terminal_punctuation",
+      "edits": [
+        {
+          "end_byte": 46,
+          "expected": "the compass to the camper",
+          "replacement": "the camper the compass",
+          "start_byte": 21
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "terminal-question-prepositional",
+      "intended_recipient_bytes": "the camper",
+      "intended_theme_bytes": "the compass",
+      "inverse_case_id": "terminal-question-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 43,
+          "expected": "the camper the compass",
+          "replacement": "the compass to the camper",
+          "start_byte": 21
+        }
+      ],
+      "pair_id": "terminal-question",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "Does the ranger lend the compass to the camper?",
+      "source_form": "prepositional",
+      "source_sha256": "f64bda7320877b9127db7abd8adcc1b3b5d45b2d34e538044ca0f70f58a3ebf5",
+      "target": "Does the ranger lend the camper the compass?",
+      "target_form": "double_object",
+      "target_sha256": "8d78000aefdf8a66f46a0230f31bdc2f9b6d109f20436f13a747e05886d7e516",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "Does the ranger lend ",
+      "unchanged_suffix": "?"
+    },
+    {
+      "category": "separate_terminal_punctuation",
+      "edits": [
+        {
+          "end_byte": 43,
+          "expected": "the camper the compass",
+          "replacement": "the compass to the camper",
+          "start_byte": 21
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "terminal-question-double_object",
+      "intended_recipient_bytes": "the camper",
+      "intended_theme_bytes": "the compass",
+      "inverse_case_id": "terminal-question-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 46,
+          "expected": "the compass to the camper",
+          "replacement": "the camper the compass",
+          "start_byte": 21
+        }
+      ],
+      "pair_id": "terminal-question",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "Does the ranger lend the camper the compass?",
+      "source_form": "double_object",
+      "source_sha256": "8d78000aefdf8a66f46a0230f31bdc2f9b6d109f20436f13a747e05886d7e516",
+      "target": "Does the ranger lend the compass to the camper?",
+      "target_form": "prepositional",
+      "target_sha256": "f64bda7320877b9127db7abd8adcc1b3b5d45b2d34e538044ca0f70f58a3ebf5",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "Does the ranger lend ",
+      "unchanged_suffix": "?"
+    },
+    {
+      "category": "separate_terminal_punctuation",
+      "edits": [
+        {
+          "end_byte": 41,
+          "expected": "the crate to the vendor",
+          "replacement": "the vendor the crate",
+          "start_byte": 18
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "terminal-ellipsis-prepositional",
+      "intended_recipient_bytes": "the vendor",
+      "intended_theme_bytes": "the crate",
+      "inverse_case_id": "terminal-ellipsis-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 38,
+          "expected": "the vendor the crate",
+          "replacement": "the crate to the vendor",
+          "start_byte": 18
+        }
+      ],
+      "pair_id": "terminal-ellipsis",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The courier loans the crate to the vendor…",
+      "source_form": "prepositional",
+      "source_sha256": "4f1ddfefb1b89b68e299d7765e88998d73bf16455728bf34d48a38bdf2c6de31",
+      "target": "The courier loans the vendor the crate…",
+      "target_form": "double_object",
+      "target_sha256": "0189e2b89c610af4eef3030e049d86a04189df83d2961f0602e7264c61d338bb",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The courier loans ",
+      "unchanged_suffix": "…"
+    },
+    {
+      "category": "separate_terminal_punctuation",
+      "edits": [
+        {
+          "end_byte": 38,
+          "expected": "the vendor the crate",
+          "replacement": "the crate to the vendor",
+          "start_byte": 18
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "terminal-ellipsis-double_object",
+      "intended_recipient_bytes": "the vendor",
+      "intended_theme_bytes": "the crate",
+      "inverse_case_id": "terminal-ellipsis-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 41,
+          "expected": "the crate to the vendor",
+          "replacement": "the vendor the crate",
+          "start_byte": 18
+        }
+      ],
+      "pair_id": "terminal-ellipsis",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The courier loans the vendor the crate…",
+      "source_form": "double_object",
+      "source_sha256": "0189e2b89c610af4eef3030e049d86a04189df83d2961f0602e7264c61d338bb",
+      "target": "The courier loans the crate to the vendor…",
+      "target_form": "prepositional",
+      "target_sha256": "4f1ddfefb1b89b68e299d7765e88998d73bf16455728bf34d48a38bdf2c6de31",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The courier loans ",
+      "unchanged_suffix": "…"
+    },
+    {
+      "category": "unicode_proper_names",
+      "edits": [
+        {
+          "end_byte": 30,
+          "expected": "the sketch to René",
+          "replacement": "René the sketch",
+          "start_byte": 11
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "unicode-diaereses-prepositional",
+      "intended_recipient_bytes": "René",
+      "intended_theme_bytes": "the sketch",
+      "inverse_case_id": "unicode-diaereses-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 27,
+          "expected": "René the sketch",
+          "replacement": "the sketch to René",
+          "start_byte": 11
+        }
+      ],
+      "pair_id": "unicode-diaereses",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "Zoë gives the sketch to René.",
+      "source_form": "prepositional",
+      "source_sha256": "4bb22664c350ee1b6d0ddbd8d4791bd6ed5f780f1397b0c1ddd22d513d0aad89",
+      "target": "Zoë gives René the sketch.",
+      "target_form": "double_object",
+      "target_sha256": "6f267e52489dbaf4e1a108ac6bd4ae26f1716176b44b6363541340db6680e134",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "Zoë gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "unicode_proper_names",
+      "edits": [
+        {
+          "end_byte": 27,
+          "expected": "René the sketch",
+          "replacement": "the sketch to René",
+          "start_byte": 11
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "unicode-diaereses-double_object",
+      "intended_recipient_bytes": "René",
+      "intended_theme_bytes": "the sketch",
+      "inverse_case_id": "unicode-diaereses-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 30,
+          "expected": "the sketch to René",
+          "replacement": "René the sketch",
+          "start_byte": 11
+        }
+      ],
+      "pair_id": "unicode-diaereses",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "Zoë gives René the sketch.",
+      "source_form": "double_object",
+      "source_sha256": "6f267e52489dbaf4e1a108ac6bd4ae26f1716176b44b6363541340db6680e134",
+      "target": "Zoë gives the sketch to René.",
+      "target_form": "prepositional",
+      "target_sha256": "4bb22664c350ee1b6d0ddbd8d4791bd6ed5f780f1397b0c1ddd22d513d0aad89",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "Zoë gives ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "unicode_proper_names",
+      "edits": [
+        {
+          "end_byte": 31,
+          "expected": "the flute to Björn",
+          "replacement": "Björn the flute",
+          "start_byte": 12
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "unicode-dotted-i-prepositional",
+      "intended_recipient_bytes": "Björn",
+      "intended_theme_bytes": "the flute",
+      "inverse_case_id": "unicode-dotted-i-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 28,
+          "expected": "Björn the flute",
+          "replacement": "the flute to Björn",
+          "start_byte": 12
+        }
+      ],
+      "pair_id": "unicode-dotted-i",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "İpek lends the flute to Björn.",
+      "source_form": "prepositional",
+      "source_sha256": "2fba16b9a9b6170161867b8ae747234ce455736b56832f55de82a355b4e8997d",
+      "target": "İpek lends Björn the flute.",
+      "target_form": "double_object",
+      "target_sha256": "447104b640bac4a981f673c0501b6a3ea0372f17bacc25b15464fffccc514dd7",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "İpek lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "unicode_proper_names",
+      "edits": [
+        {
+          "end_byte": 28,
+          "expected": "Björn the flute",
+          "replacement": "the flute to Björn",
+          "start_byte": 12
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "unicode-dotted-i-double_object",
+      "intended_recipient_bytes": "Björn",
+      "intended_theme_bytes": "the flute",
+      "inverse_case_id": "unicode-dotted-i-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 31,
+          "expected": "the flute to Björn",
+          "replacement": "Björn the flute",
+          "start_byte": 12
+        }
+      ],
+      "pair_id": "unicode-dotted-i",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "İpek lends Björn the flute.",
+      "source_form": "double_object",
+      "source_sha256": "447104b640bac4a981f673c0501b6a3ea0372f17bacc25b15464fffccc514dd7",
+      "target": "İpek lends the flute to Björn.",
+      "target_form": "prepositional",
+      "target_sha256": "2fba16b9a9b6170161867b8ae747234ce455736b56832f55de82a355b4e8997d",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "İpek lends ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "modal",
+      "edits": [
+        {
+          "end_byte": 42,
+          "expected": "the torch to the scout",
+          "replacement": "the scout the torch",
+          "start_byte": 20
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "modal-can-prepositional",
+      "intended_recipient_bytes": "the scout",
+      "intended_theme_bytes": "the torch",
+      "inverse_case_id": "modal-can-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 39,
+          "expected": "the scout the torch",
+          "replacement": "the torch to the scout",
+          "start_byte": 20
+        }
+      ],
+      "pair_id": "modal-can",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The warden can lend the torch to the scout.",
+      "source_form": "prepositional",
+      "source_sha256": "509a3cac54252b38dc57140511101106618086f0a9a53d03ceab48ee5b5b2ded",
+      "target": "The warden can lend the scout the torch.",
+      "target_form": "double_object",
+      "target_sha256": "01fe6fd0e12c4515b7a6230779acc291c18ac4b63a6b83642aaf1b885e95be6f",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The warden can lend ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "modal",
+      "edits": [
+        {
+          "end_byte": 39,
+          "expected": "the scout the torch",
+          "replacement": "the torch to the scout",
+          "start_byte": 20
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "modal-can-double_object",
+      "intended_recipient_bytes": "the scout",
+      "intended_theme_bytes": "the torch",
+      "inverse_case_id": "modal-can-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 42,
+          "expected": "the torch to the scout",
+          "replacement": "the scout the torch",
+          "start_byte": 20
+        }
+      ],
+      "pair_id": "modal-can",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The warden can lend the scout the torch.",
+      "source_form": "double_object",
+      "source_sha256": "01fe6fd0e12c4515b7a6230779acc291c18ac4b63a6b83642aaf1b885e95be6f",
+      "target": "The warden can lend the torch to the scout.",
+      "target_form": "prepositional",
+      "target_sha256": "509a3cac54252b38dc57140511101106618086f0a9a53d03ceab48ee5b5b2ded",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The warden can lend ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "negation",
+      "edits": [
+        {
+          "end_byte": 53,
+          "expected": "the voucher to the attendant",
+          "replacement": "the attendant the voucher",
+          "start_byte": 25
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "negation-does-not-prepositional",
+      "intended_recipient_bytes": "the attendant",
+      "intended_theme_bytes": "the voucher",
+      "inverse_case_id": "negation-does-not-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 50,
+          "expected": "the attendant the voucher",
+          "replacement": "the voucher to the attendant",
+          "start_byte": 25
+        }
+      ],
+      "pair_id": "negation-does-not",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The patron does not give the voucher to the attendant.",
+      "source_form": "prepositional",
+      "source_sha256": "679f2d739a70db126541dfe9a6557f9409e815333181ec2e2ac550721ca46c58",
+      "target": "The patron does not give the attendant the voucher.",
+      "target_form": "double_object",
+      "target_sha256": "6a1d28161bb779afbdf8c7874b0608ae2626b4bf1444a9b414db25f9ca5847ae",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The patron does not give ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "negation",
+      "edits": [
+        {
+          "end_byte": 50,
+          "expected": "the attendant the voucher",
+          "replacement": "the voucher to the attendant",
+          "start_byte": 25
+        }
+      ],
+      "expectation": "positive_structural_pair",
+      "id": "negation-does-not-double_object",
+      "intended_recipient_bytes": "the attendant",
+      "intended_theme_bytes": "the voucher",
+      "inverse_case_id": "negation-does-not-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 53,
+          "expected": "the voucher to the attendant",
+          "replacement": "the attendant the voucher",
+          "start_byte": 25
+        }
+      ],
+      "pair_id": "negation-does-not",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The patron does not give the attendant the voucher.",
+      "source_form": "double_object",
+      "source_sha256": "6a1d28161bb779afbdf8c7874b0608ae2626b4bf1444a9b414db25f9ca5847ae",
+      "target": "The patron does not give the voucher to the attendant.",
+      "target_form": "prepositional",
+      "target_sha256": "679f2d739a70db126541dfe9a6557f9409e815333181ec2e2ac550721ca46c58",
+      "terminal_marker_deliberately_moves_with_recipient": false,
+      "unchanged_prefix": "The patron does not give ",
+      "unchanged_suffix": "."
+    },
+    {
+      "category": "fused_terminal_movement",
+      "edits": [
+        {
+          "end_byte": 34,
+          "expected": "the pass to I.",
+          "replacement": "I. the pass",
+          "start_byte": 20
+        }
+      ],
+      "expectation": "reject_terminal_movement",
+      "id": "fused-terminal-i-prepositional",
+      "intended_recipient_bytes": "I.",
+      "intended_theme_bytes": "the pass",
+      "inverse_case_id": "fused-terminal-i-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 31,
+          "expected": "I. the pass",
+          "replacement": "the pass to I.",
+          "start_byte": 20
+        }
+      ],
+      "pair_id": "fused-terminal-i",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The custodian gives the pass to I.",
+      "source_form": "prepositional",
+      "source_sha256": "5dff3723b6cd9a19b6a5857e30ff36f223dceb90f158f95c1d903597cf3db504",
+      "target": "The custodian gives I. the pass",
+      "target_form": "double_object",
+      "target_sha256": "73f3c42d3d723b0d7b4d45331312f5100f12761dc41359eb92ca23d2e66c97d7",
+      "terminal_marker_deliberately_moves_with_recipient": true,
+      "unchanged_prefix": "The custodian gives ",
+      "unchanged_suffix": ""
+    },
+    {
+      "category": "fused_terminal_movement",
+      "edits": [
+        {
+          "end_byte": 31,
+          "expected": "I. the pass",
+          "replacement": "the pass to I.",
+          "start_byte": 20
+        }
+      ],
+      "expectation": "reject_terminal_movement",
+      "id": "fused-terminal-i-double_object",
+      "intended_recipient_bytes": "I.",
+      "intended_theme_bytes": "the pass",
+      "inverse_case_id": "fused-terminal-i-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 34,
+          "expected": "the pass to I.",
+          "replacement": "I. the pass",
+          "start_byte": 20
+        }
+      ],
+      "pair_id": "fused-terminal-i",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The custodian gives I. the pass",
+      "source_form": "double_object",
+      "source_sha256": "73f3c42d3d723b0d7b4d45331312f5100f12761dc41359eb92ca23d2e66c97d7",
+      "target": "The custodian gives the pass to I.",
+      "target_form": "prepositional",
+      "target_sha256": "5dff3723b6cd9a19b6a5857e30ff36f223dceb90f158f95c1d903597cf3db504",
+      "terminal_marker_deliberately_moves_with_recipient": true,
+      "unchanged_prefix": "The custodian gives ",
+      "unchanged_suffix": ""
+    },
+    {
+      "category": "fused_terminal_movement",
+      "edits": [
+        {
+          "end_byte": 40,
+          "expected": "the helmet to R.",
+          "replacement": "R. the helmet",
+          "start_byte": 24
+        }
+      ],
+      "expectation": "reject_terminal_movement",
+      "id": "fused-terminal-initial-r-prepositional",
+      "intended_recipient_bytes": "R.",
+      "intended_theme_bytes": "the helmet",
+      "inverse_case_id": "fused-terminal-initial-r-double_object",
+      "inverse_edits": [
+        {
+          "end_byte": 37,
+          "expected": "R. the helmet",
+          "replacement": "the helmet to R.",
+          "start_byte": 24
+        }
+      ],
+      "pair_id": "fused-terminal-initial-r",
+      "production_word_delta_target_minus_source": {
+        "to": -1
+      },
+      "source": "The quartermaster loans the helmet to R.",
+      "source_form": "prepositional",
+      "source_sha256": "9b4adf86845a220a8ebd2aacc8fdff7fc32349052405cbc18acca3ac8abacdb3",
+      "target": "The quartermaster loans R. the helmet",
+      "target_form": "double_object",
+      "target_sha256": "35b05235087d91613318ca0aa660bdaedd73e4023350330ab42920d0bae7a396",
+      "terminal_marker_deliberately_moves_with_recipient": true,
+      "unchanged_prefix": "The quartermaster loans ",
+      "unchanged_suffix": ""
+    },
+    {
+      "category": "fused_terminal_movement",
+      "edits": [
+        {
+          "end_byte": 37,
+          "expected": "R. the helmet",
+          "replacement": "the helmet to R.",
+          "start_byte": 24
+        }
+      ],
+      "expectation": "reject_terminal_movement",
+      "id": "fused-terminal-initial-r-double_object",
+      "intended_recipient_bytes": "R.",
+      "intended_theme_bytes": "the helmet",
+      "inverse_case_id": "fused-terminal-initial-r-prepositional",
+      "inverse_edits": [
+        {
+          "end_byte": 40,
+          "expected": "the helmet to R.",
+          "replacement": "R. the helmet",
+          "start_byte": 24
+        }
+      ],
+      "pair_id": "fused-terminal-initial-r",
+      "production_word_delta_target_minus_source": {
+        "to": 1
+      },
+      "source": "The quartermaster loans R. the helmet",
+      "source_form": "double_object",
+      "source_sha256": "35b05235087d91613318ca0aa660bdaedd73e4023350330ab42920d0bae7a396",
+      "target": "The quartermaster loans the helmet to R.",
+      "target_form": "prepositional",
+      "target_sha256": "9b4adf86845a220a8ebd2aacc8fdff7fc32349052405cbc18acca3ac8abacdb3",
+      "terminal_marker_deliberately_moves_with_recipient": true,
+      "unchanged_prefix": "The quartermaster loans ",
+      "unchanged_suffix": ""
+    }
+  ],
+  "category_case_counts": {
+    "fused_terminal_movement": 4,
+    "internal_abbreviation": 6,
+    "modal": 2,
+    "negation": 2,
+    "oblique_recipient": 14,
+    "separate_terminal_punctuation": 8,
+    "unicode_proper_names": 4
+  },
+  "expectation_contract": {
+    "automatic_edit_license": false,
+    "directions": "Each pair has two explicit reciprocal rows; unique source texts are the same forty texts as the targets.",
+    "edits": "One exact object-region replacement, preserving the original Theme and Recipient byte strings; only the standalone to carrier is inserted or removed. Punctuation inventory is unchanged. The two negative pairs deliberately move the period with the Recipient bytes.",
+    "positive_structural_pair": "Intended simple dative alternative; parser, proposal and comparison failures remain recorded. This is not a required parser success or semantic-equivalence label.",
+    "reject_terminal_movement": "Deliberately moves a sentence-final period into or out of the object-region interior. Neither missing proposals nor unavailable comparisons count as a tested rejection.",
+    "semantic_equivalence_certified": false
+  },
+  "id": "evidence-contracts-v1",
+  "pair_count": 20,
+  "positive_pair_count": 18,
+  "provenance": "Fresh authored synthetic text; no parser calls, corpus reads, or fitted-model calls during construction.",
+  "schema": "slopninja-evidence-contract-fixtures-v1",
+  "terminal_movement_pair_count": 2
+}

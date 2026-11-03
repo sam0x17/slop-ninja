@@ -1,0 +1,47 @@
+{
+  "admission": "Staging only; historical summary matching, source notices and the ported US license require a source-specific admission extension.",
+  "attribution": "David Bamman and Noah Smith (2013), New Alignment Methods for Discriminative Book Summarization; Wikipedia contributors; aligned Freebase metadata.",
+  "captures": [
+    {
+      "body_sha256": "d3d98a18df61b1189298d34ca849df4529249155f6435589d2f4b869d76734bd",
+      "content_type": "text/html",
+      "final_url": "https://www.cs.cmu.edu/~dbamman/booksummaries.html",
+      "http_last_modified": null,
+      "raw_path": "raw/0712ac546966033d664563959274692a002fd729265eb24a249682aa52db433e.body",
+      "request_url": "https://www.cs.cmu.edu/~dbamman/booksummaries.html",
+      "retrieved_at": "2026-09-11T11:32:40.947560+00:00",
+      "status": 200
+    },
+    {
+      "body_sha256": "2693108e2c3e0183b2a5e2f33317fb828f1858474cbeef66552392dba2358108",
+      "content_type": "text/html",
+      "final_url": "https://creativecommons.org/licenses/by-sa/3.0/us/legalcode",
+      "http_last_modified": "Tue, 09 Jun 2026 14:26:11 GMT",
+      "raw_path": "raw/05e21018e59c2a69494b879d9d3376908e0d0b8436c63940ee7374c74f200428.body",
+      "request_url": "https://creativecommons.org/licenses/by-sa/3.0/us/legalcode",
+      "retrieved_at": "2026-09-11T11:32:41.510+00:00",
+      "status": 200
+    },
+    {
+      "body_sha256": "2593556158192774816102d1463565ad0e905e45f339976775fbc858ccf5e764",
+      "content_type": "application/x-gzip",
+      "final_url": "https://www.cs.cmu.edu/~dbamman/data/booksummaries.tar.gz",
+      "http_last_modified": "Sun, 02 Jun 2013 23:29:53 GMT",
+      "raw_path": "raw/0de15cec456f558e72ae0d5165c7272881235c43a10843d4081f6f6ddbfefc63.body",
+      "request_url": "https://www.cs.cmu.edu/~dbamman/data/booksummaries.tar.gz",
+      "retrieved_at": "2026-09-11T11:32:44.529022+00:00",
+      "status": 200
+    }
+  ],
+  "collection_license": "CC-BY-SA-3.0-US",
+  "empty_summaries": 5,
+  "origin_note": "Book publication date is not summary composition date. Book author is not summary author.",
+  "pangram_calls": 0,
+  "rows": 16559,
+  "rows_with_80_to_500_lexical_words": 9368,
+  "schema": "slop_ninja_cmu_books_staging_v1",
+  "text_bytes": 43461583,
+  "text_sha256": "94516c64d1b4ac6b8b397ef106ee598b43d0e5364ffd8305edc945dce04f4305",
+  "training_records": 0,
+  "unique_wikipedia_page_ids": 16559
+}

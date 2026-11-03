@@ -1,0 +1,290 @@
+{
+  "schema": "slop_ninja_public_generation_aggregate_v1",
+  "runtime_source_commit": "b3a5e6332300c60b52d75b90e72ab8825e9d662c",
+  "generator_source_commit": "631184809c241f79a3db9575db598f48169d492f",
+  "requirements_generator_lock_sha256": "5817c26f673383bd5c851a54e1dc1d116a7e8ae82f1245695b8bcbf90ac6bd3e",
+  "mistral_server_sha256": "f687e92e667cd49908ccedc8fc6a7968f83994585df9793625de2dbc128e87df",
+  "cohorts": [
+    {
+      "cohort_id": "qwen-native-v3",
+      "attempts": 320,
+      "accepted_generation_outputs": 318,
+      "rejected_generation_outputs": 2,
+      "rejection_counts": {
+        "draft_source_copy": 2
+      },
+      "excluded_source_families": 2,
+      "retained_source_families": 158,
+      "retained_rows": 474,
+      "retained_rows_by_origin": {
+        "human_only": 158,
+        "mixed": 158,
+        "model_only": 158
+      },
+      "retained_rows_by_split": {
+        "calibration": 48,
+        "development": 36,
+        "test": 57,
+        "train": 333
+      },
+      "retained_rows_by_collection": {
+        "plos_one": 237,
+        "wikinews": 237
+      },
+      "retained_rows_by_evidence": {
+        "historical_proxy": 158,
+        "model_edit_of_historical_proxy": 158,
+        "recorded_model_generation": 158
+      },
+      "model_spec_sha256": "041808cee1488847763fab6b70eb0336371bb54184c4a910120739b889165c30",
+      "run_sha256": "72808f7ef5914d0c93c8b7aa36ae19481e2e30c37f733473cc6add0038344388",
+      "summary_sha256": "1f0c1ddf648fbfe12734034efbe4438c0a2942f583b8388ebc9c9dea3c4d3d78",
+      "records_sha256": "bd7205cb901b16e521705a0b3ba9c580b2b323188058abc666531f494d8d0ca2",
+      "checkpoint": {
+        "repository": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit",
+        "revision": "e9675aa3ca5f900ccef55267914466d55ab325fa",
+        "license": "Apache-2.0",
+        "license_evidence_url": "https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507/resolve/0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe/LICENSE",
+        "license_evidence_sha256": "05cab46843576551502bfdf712f84e93e6e9590d9997306ed4f6635ef82811d9",
+        "quantization": {
+          "format": "MLX",
+          "bits": 4,
+          "group_size": 64
+        },
+        "runtime_files_manifest_sha256": "7a0b048169c41072305ee26b9843ed997b00caec8205206ceb6ede43e08f27b8",
+        "runtime_files": {
+          "added_tokens.json": {
+            "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680",
+            "size_bytes": 707
+          },
+          "chat_template.jinja": {
+            "sha256": "40c21f34cf67d8c760ef72f8ad3ae5afad514299d4b06e91dd9a8d705af7b541",
+            "size_bytes": 4040
+          },
+          "config.json": {
+            "sha256": "e1caf81b25b71686af871f1147290a81cbcb81283b638f98957293990e031417",
+            "size_bytes": 10866
+          },
+          "generation_config.json": {
+            "sha256": "19d306dd769db12a9d710b44cf7f83b635efbe5166b84fb4358a08fb7d88bb53",
+            "size_bytes": 239
+          },
+          "merges.txt": {
+            "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+            "size_bytes": 1671853
+          },
+          "model-00001-of-00004.safetensors": {
+            "sha256": "70919a0f0b7d86c3100e30dfc2c72eb29909b841f9414b9c5ae3e8673ec9ff8c",
+            "size_bytes": 5321473414
+          },
+          "model-00002-of-00004.safetensors": {
+            "sha256": "1a0387973b19b0bac1201358d1f56989deaf595da34f307ec29777fa6f8469b8",
+            "size_bytes": 5366644780
+          },
+          "model-00003-of-00004.safetensors": {
+            "sha256": "d1a627729b2791dba7db5cda5dd0d24ea4c44c5131981c258598d5d0c80e0df3",
+            "size_bytes": 5276887419
+          },
+          "model-00004-of-00004.safetensors": {
+            "sha256": "b02f0e9f626bd2f5bb41e057216c9d6f594ddeac91cc3f2161cc935d050a12c6",
+            "size_bytes": 1216066381
+          },
+          "model.safetensors.index.json": {
+            "sha256": "c100efb419233c6be585014ebd9f5a8c2a4fe9de63be6271172f0f70f1c315ea",
+            "size_bytes": 119598
+          },
+          "special_tokens_map.json": {
+            "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd",
+            "size_bytes": 613
+          },
+          "tokenizer.json": {
+            "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+            "size_bytes": 11422654
+          },
+          "tokenizer_config.json": {
+            "sha256": "355f2b4e5bad7b01f11ef6cb68ebc176f61b95c3276092ea225b1bea0e01e95c",
+            "size_bytes": 5404
+          },
+          "vocab.json": {
+            "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+            "size_bytes": 2776833
+          }
+        }
+      },
+      "runtime": {
+        "mlx_lm": "0.31.3",
+        "mlx": "0.32.2",
+        "mlx_metal": "0.32.2",
+        "python": "3.12.14",
+        "transformers": "5.17.0",
+        "tokenizers": "0.23.2",
+        "hardware": {
+          "chip": "Apple M5 Max",
+          "gpu_cores": 40,
+          "unified_memory_gib": 128,
+          "metal_architecture": "applegpu_g17s",
+          "os": "macOS 26.6.2"
+        },
+        "tokenizer_remote_code_enabled": false,
+        "mistral_regex_correction_enabled": false
+      },
+      "settings": {
+        "temperature": 0.7,
+        "max_output_tokens": 1800,
+        "seed": null,
+        "client_concurrency": 1,
+        "decode_concurrency": 1,
+        "prompt_concurrency": 1,
+        "prompt_cache_size": 0,
+        "input_truncation": false,
+        "prompt_version": "source-conditioned-draft-light-edit-v1",
+        "complete_families_only": true,
+        "checkpoint_context_limit": 262144,
+        "split_selector": null
+      },
+      "retained_generated_outputs": 316,
+      "accepted_generation_outputs_excluded_with_family": 2,
+      "generation_timing": {
+        "elapsed_seconds": 1336,
+        "duration_basis": "Producer start and final exit-status filesystem timestamps at integer-second precision; includes all 320 requests and final export.",
+        "attempts_per_minute": 14.37125748502994,
+        "completion_tokens": 113776,
+        "prompt_tokens": 160906,
+        "completion_tokens_per_wall_second": 85.16167664670658
+      }
+    },
+    {
+      "cohort_id": "mistral-native-v1",
+      "attempts": 38,
+      "accepted_generation_outputs": 37,
+      "rejected_generation_outputs": 1,
+      "rejection_counts": {
+        "draft_source_copy": 1
+      },
+      "excluded_source_families": 1,
+      "retained_source_families": 18,
+      "retained_rows": 54,
+      "retained_rows_by_origin": {
+        "human_only": 18,
+        "mixed": 18,
+        "model_only": 18
+      },
+      "retained_rows_by_split": {
+        "test": 54
+      },
+      "retained_rows_by_collection": {
+        "plos_one": 27,
+        "wikinews": 27
+      },
+      "retained_rows_by_evidence": {
+        "historical_proxy": 18,
+        "model_edit_of_historical_proxy": 18,
+        "recorded_model_generation": 18
+      },
+      "model_spec_sha256": "d2728a13c5347f9d518e9913e591b0b862235d46933ab9d9f134af117c02a76d",
+      "run_sha256": "28dd1785bcfd3662087892da9c59e50d57bfd96fe35bf96dbc2831053682eb7b",
+      "summary_sha256": "9d1b00f70a6a7c8bf8e57adf93a9d1eb7e847457dc0f68ab3bb0f0aeeab33a87",
+      "records_sha256": "237828d1406a161685cc011aa2b89aaef0e5b6a2e68ea5c79ad10e7eb1a260bb",
+      "checkpoint": {
+        "repository": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit",
+        "revision": "2a1d5eabfc504747bdc24178394821a1efc0edde",
+        "license": "Apache-2.0",
+        "license_evidence_url": "https://huggingface.co/mistralai/Mistral-Small-3.2-24B-Instruct-2506/resolve/95a6d26c4bfb886c58daf9d3f7332c857cb27b43/README.md",
+        "license_evidence_sha256": "48d492d5ded3dfb80ab53033391c7ada71f42037e442758d9eb29fdb08929edb",
+        "quantization": {
+          "format": "MLX",
+          "bits": 4,
+          "group_size": 64
+        },
+        "runtime_files_manifest_sha256": "1473d0676340694a109a83440a1a29b24be4af84cab43a090afa9bebd9ae7731",
+        "runtime_files": {
+          "chat_template.jinja": {
+            "sha256": "d99c0a28fd4eebd7ba2cc0309651f6d7c5486024989bc42f6bb4cc558d553689",
+            "size_bytes": 415
+          },
+          "config.json": {
+            "sha256": "0f9f2c41325bb88c630b49f754e7539a78a890e43709809b06f86b3726a962f2",
+            "size_bytes": 1081
+          },
+          "generation_config.json": {
+            "sha256": "ac52ac4e326beae33b9dd33f5fca0301fc563e34becfe98ee210ee2b853d93bb",
+            "size_bytes": 135
+          },
+          "model-00001-of-00003.safetensors": {
+            "sha256": "b14ef6edd1fab31b052054c71f7c3f41f387a43e02f1c3eb99a627f162f6bbb2",
+            "size_bytes": 5285177419
+          },
+          "model-00002-of-00003.safetensors": {
+            "sha256": "e61504f270c677da853c0b09e7a2d9745f8e964cc3bb12956732535d972db7b7",
+            "size_bytes": 5314713098
+          },
+          "model-00003-of-00003.safetensors": {
+            "sha256": "f01eb88b488cf2e2291b8e3ab116039ab13d35546c36c58196420fe9ed59c2be",
+            "size_bytes": 2660302214
+          },
+          "model.safetensors.index.json": {
+            "sha256": "8f585f22a31efe4c005dafc116b3905f3e52ed31c99598b23e8b242bfe736eca",
+            "size_bytes": 93273
+          },
+          "special_tokens_map.json": {
+            "sha256": "5bc5d1c106bf86895473568ef5211f3fde8415e6fdee039223d6db8ca52cbe01",
+            "size_bytes": 21311
+          },
+          "tokenizer.json": {
+            "sha256": "b76085f9923309d873994d444989f7eb6ec074b06f25b58f1e8d7b7741070949",
+            "size_bytes": 17078037
+          },
+          "tokenizer_config.json": {
+            "sha256": "70b26ab59c2c959a0dee2b0f6146a2e9d3c2b61b3995d6d584eb975f522b4c92",
+            "size_bytes": 198055
+          }
+        }
+      },
+      "runtime": {
+        "mlx_lm": "0.31.3",
+        "mlx": "0.32.2",
+        "mlx_metal": "0.32.2",
+        "python": "3.12.14",
+        "transformers": "5.17.0",
+        "tokenizers": "0.23.2",
+        "hardware": {
+          "chip": "Apple M5 Max",
+          "gpu_cores": 40,
+          "unified_memory_gib": 128,
+          "metal_architecture": "applegpu_g17s",
+          "os": "macOS 26.6.2"
+        },
+        "tokenizer_remote_code_enabled": false,
+        "mistral_regex_correction_enabled": true
+      },
+      "settings": {
+        "temperature": 0.7,
+        "max_output_tokens": 1800,
+        "seed": null,
+        "client_concurrency": 1,
+        "decode_concurrency": 1,
+        "prompt_concurrency": 1,
+        "prompt_cache_size": 0,
+        "input_truncation": false,
+        "prompt_version": "source-conditioned-draft-light-edit-v1",
+        "complete_families_only": true,
+        "checkpoint_context_limit": 131072,
+        "split_selector": "test"
+      },
+      "retained_generated_outputs": 36,
+      "accepted_generation_outputs_excluded_with_family": 1
+    }
+  ],
+  "notes": [
+    "Historical sources provide weak origin proxies. Recorded model generations do not certify factual or tonal fidelity.",
+    "Accepted generation counts precede complete-family exclusion. Final rows also include retained historical roots.",
+    "Qwen and Mistral used separate runs; discarded earlier runtime cohorts are not included.",
+    "This projection contains aggregate counts and hashes. ModelSpec and run files remain private provenance records; their contents are not reproduced here."
+  ],
+  "runtime_files_sha256": {
+    "requirements-generator.lock": "5817c26f673383bd5c851a54e1dc1d116a7e8ae82f1245695b8bcbf90ac6bd3e",
+    "mistral_server.py": "f687e92e667cd49908ccedc8fc6a7968f83994585df9793625de2dbc128e87df",
+    "mlx_lm/server.py": "cdfcb4ac848636f9927851a0ec7a951584526530cb7832ba58049e4a9144db8b",
+    "mlx_lm/generate.py": "270778ad53eaca55a8533d82e6752660fe5d2605c4aa0879b48a50a91f69345f"
+  }
+}

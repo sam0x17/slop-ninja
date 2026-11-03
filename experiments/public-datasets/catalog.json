@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "review_date": "2026-09-08",
+  "purpose": "dataset availability, temporal provenance, access format and reuse-scope inventory",
+  "pangram_sources": [
+    "https://www.pangram.com/research/model-card/pangram-4",
+    "https://pangram-public.s3.us-east-1.amazonaws.com/pdf/pangram_4_technical_report.pdf"
+  ],
+  "scope_note": "No Pangram training-data release, private evaluation manifest or current generation corpus was located in reviewed sources. Names of domains do not identify unique public datasets.",
+  "code_vs_data_vs_weights": "Code licenses, database licenses, underlying-content rights and model-weight terms are recorded separately.",
+  "api_documentation": [
+    "https://huggingface.co/docs/dataset-viewer/rows",
+    "https://huggingface.co/docs/dataset-viewer/parquet"
+  ],
+  "datasets": [
+    {
+      "id": "fineweb",
+      "relationship_to_pangram": "named public source; exact Pangram subset unavailable",
+      "publisher": "HuggingFaceFW",
+      "dataset_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb",
+      "hub_api_url": "https://huggingface.co/api/datasets/HuggingFaceFW/fineweb",
+      "revision": "9bb295ddab0e05d785b879661af7260fed5140fc",
+      "availability": "verified rows GET and native Parquet HEAD",
+      "format": [
+        "Parquet",
+        "dataset-server JSON rows"
+      ],
+      "config": "CC-MAIN-2021-43",
+      "split": "train",
+      "date_field": "date",
+      "date_semantics": "Common Crawl capture timestamp",
+      "selection_cutoff_exclusive": "2022-01-01T00:00:00Z",
+      "database_license": "ODC-By-1.0",
+      "database_license_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "additional_terms_url": "https://commoncrawl.org/terms-of-use",
+      "underlying_content_rights": "separate",
+      "rows_url": "https://datasets-server.huggingface.co/rows?dataset=HuggingFaceFW%2Ffineweb&config=CC-MAIN-2021-43&split=train&offset=0&length=100",
+      "parquet_listing_url": "https://datasets-server.huggingface.co/parquet?dataset=HuggingFaceFW%2Ffineweb&config=CC-MAIN-2021-43&split=train",
+      "native_parquet_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb/resolve/9bb295ddab0e05d785b879661af7260fed5140fc/data/CC-MAIN-2021-43/000_00000.parquet",
+      "native_parquet_head": {
+        "status": 200,
+        "content_length": 2148368462,
+        "accept_ranges": "bytes",
+        "full_file_downloaded": false
+      },
+      "recommendation": "first broad English reference pilot; not matched model training data",
+      "sample": {
+        "documents": 100,
+        "words": 93458,
+        "groups": 94,
+        "output_sha256": "b1ac5ba08e5cb637173759bec20577dcd96b192f482c8560ca83c523ebf0ca65",
+        "raw_response_sha256": "be2ec417a9bf79e76859d1f753dc76ab2d9661026f8cd308b55c88a2f19e7ee9",
+        "selection": "first 100 rows; all train; no detector-based selection",
+        "local_output": "data/public-datasets/fineweb-2021-43-pilot/human.jsonl",
+        "preview_metadata_file": "data/public-datasets/fineweb-2021-43-first10.metadata.json",
+        "preview_response_sha256": "2363ed4ca4b63d132fe0e728ba60f7ac9868158d820b0b55d0308eaec44e309d"
+      }
+    },
+    {
+      "id": "fineweb2",
+      "relationship_to_pangram": "named public source; exact Pangram subset unavailable",
+      "publisher": "HuggingFaceFW",
+      "dataset_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-2",
+      "revision": "af9c13333eb981300149d5ca60a8e9d659b276b9",
+      "availability": "Hub metadata and file listing verified",
+      "format": [
+        "Parquet"
+      ],
+      "language_scope": "non-English; original FineWeb supplies English",
+      "verified_example_config": "fra_Latn",
+      "verified_example_file": "data/fra_Latn/train/000_00000.parquet",
+      "date_field": "date",
+      "required_filter": "date before 2022; verify language and script per row",
+      "database_license": "ODC-By-1.0",
+      "database_license_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "additional_terms_url": "https://commoncrawl.org/terms-of-use",
+      "underlying_content_rights": "separate",
+      "recommendation": "later multilingual expansion"
+    },
+    {
+      "id": "plos-abstracts",
+      "relationship_to_pangram": "domain alternative; not an identified Pangram dataset release",
+      "publisher": "PLOS",
+      "dataset_url": "https://api.plos.org/solr/search-fields/",
+      "format": [
+        "publisher JATS XML",
+        "Solr JSON metadata"
+      ],
+      "availability": "12 publisher XML files verified and collected separately",
+      "license": "article-specific CC-BY-4.0 in current manifest",
+      "date_field": "front/article-meta/pub-date[@pub-type=epub]",
+      "date_semantics": "publication date",
+      "source_manifest": "experiments/matched-pilot-v1/human-source-manifest.json",
+      "recommendation": "retain matched scientific pilot"
+    },
+    {
+      "id": "imdb",
+      "relationship_to_pangram": "review-domain alternative; not named in reviewed Pangram 4 card",
+      "publisher": "Stanford NLP / Andrew Maas",
+      "dataset_url": "https://huggingface.co/datasets/stanfordnlp/imdb",
+      "original_source_url": "https://ai.stanford.edu/~amaas/data/sentiment/",
+      "revision": "e6281661ce1c48d982bc483cf8a173c1bbeb5d31",
+      "availability": "publisher download page and Hub Parquet listing verified",
+      "format": [
+        "tar.gz text archive",
+        "Parquet"
+      ],
+      "verified_file": "plain_text/train-00000-of-00001.parquet",
+      "date_evidence": "original benchmark published 2011; per-review date not in HF schema",
+      "license_status": "HF other",
+      "recommendation": "possible historical review reference; not admitted"
+    },
+    {
+      "id": "amazon-multilingual-reviews",
+      "relationship_to_pangram": "possible domain alternative; not identified as exact Pangram slice",
+      "publisher": "Amazon",
+      "dataset_url": "https://registry.opendata.aws/amazon-reviews-ml/",
+      "availability": "publisher marks deprecated, no longer hosted",
+      "format": [
+        "historical JSONL"
+      ],
+      "date_evidence": "publisher states collection 2015-11-01 through 2019-11-01",
+      "license": "custom academic-research-only; excludes commercial research and republication",
+      "license_url": "https://github.com/awslabs/open-data-docs/blob/main/docs/amazon-reviews-ml/license.txt",
+      "recommendation": "do not use for default commercial corpus"
+    },
+    {
+      "id": "detectionai",
+      "relationship_to_pangram": "cited third-party benchmark",
+      "publisher": "Brian Jabarian and Alex Imas",
+      "dataset_url": "https://github.com/brianjabarian/DetectionAI",
+      "availability": "original corpus JSON and generated-output files present; pinned raw HEAD200",
+      "revision": "5610637e3df52e107e642ed151e7f842b15f79d2",
+      "url": "https://raw.githubusercontent.com/brianjabarian/DetectionAI/5610637e3df52e107e642ed151e7f842b15f79d2/original_corpus/original_corpus.json",
+      "head_status": 200,
+      "content_type": "text/plain; charset=utf-8",
+      "file_format": "JSON",
+      "date_evidence": "authors describe human sources as pre-2020; per-document provenance still needs audit",
+      "project_license": "MIT",
+      "data_rights": "source-specific; admission needs a per-source licence record",
+      "recommendation": "independent benchmark candidate; admission needs provenance and per-source licence records"
+    },
+    {
+      "id": "detectrl",
+      "relationship_to_pangram": "cited third-party benchmark",
+      "publisher": "NLP2CT / Junchao Wu et al.",
+      "dataset_url": "https://github.com/NLP2CT/DetectRL",
+      "availability": "benchmark JSON files present; pinned raw HEAD200",
+      "revision": "3472f0ae3cc81133c821e901f6d5c8f79c60dd23",
+      "url": "https://raw.githubusercontent.com/NLP2CT/DetectRL/3472f0ae3cc81133c821e901f6d5c8f79c60dd23/Benchmark/Benchmark_Data/Direct_Prompt/direct_prompt_test.json",
+      "head_status": 200,
+      "content_type": "text/plain; charset=utf-8",
+      "file_format": "JSON",
+      "date_evidence": "benchmark released 2024; not a blanket pre2022 human corpus guarantee",
+      "license_status": "no repository-wide dataset license found in inspected tree",
+      "recommendation": "perturbation benchmark candidate; admission needs a data licence record"
+    },
+    {
+      "id": "pelic",
+      "relationship_to_pangram": "cited learner-language corpus",
+      "publisher": "Alan Juffs, Na-Rae Han, Ben Naismith",
+      "dataset_url": "https://github.com/ELI-Data-Mining-Group/PELIC-dataset",
+      "availability": "CSV through Git LFS; repository metadata verified",
+      "revision": "c4526baeb8fb5d69732f9e2a8e1430b41ed38c53",
+      "url": "https://raw.githubusercontent.com/ELI-Data-Mining-Group/PELIC-dataset/c4526baeb8fb5d69732f9e2a8e1430b41ed38c53/PELIC_compiled.csv",
+      "head_status": 200,
+      "content_type": "text/plain; charset=utf-8",
+      "file_format": "Git LFS pointer to CSV",
+      "date_evidence": "authors state collection2005–2012; semester field available",
+      "license": "CC-BY-NC-ND-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc-nd/4.0/",
+      "recommendation": "constrained learner-language reference; not unrestricted commercial rewriting data"
+    }
+  ]
+}

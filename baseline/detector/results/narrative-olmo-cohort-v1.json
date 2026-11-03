@@ -1,0 +1,641 @@
+{
+  "admitted": {
+    "collections": {
+      "cmu-books-historical": 747
+    },
+    "evidence": {
+      "historical_proxy": 249,
+      "model_edit_of_historical_proxy": 249,
+      "recorded_model_generation": 249
+    },
+    "licenses": {
+      "CC-BY-SA-3.0": 249,
+      "CC-BY-SA-4.0": 498
+    },
+    "origins": {
+      "human_only": 249,
+      "mixed": 249,
+      "model_only": 249
+    },
+    "records": 747,
+    "source_groups": 249,
+    "splits": {
+      "calibration": 87,
+      "development": 69,
+      "test": 57,
+      "train": 534
+    },
+    "words_max": 693,
+    "words_min": 82
+  },
+  "admitted_families_by_split_profile": [
+    {
+      "families": 5,
+      "profile": "anti-ai",
+      "split": "calibration"
+    },
+    {
+      "families": 4,
+      "profile": "direct",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "fix-slop",
+      "split": "calibration"
+    },
+    {
+      "families": 3,
+      "profile": "informal",
+      "split": "calibration"
+    },
+    {
+      "families": 5,
+      "profile": "plain",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "source-matched",
+      "split": "calibration"
+    },
+    {
+      "families": 4,
+      "profile": "anti-ai",
+      "split": "development"
+    },
+    {
+      "families": 5,
+      "profile": "direct",
+      "split": "development"
+    },
+    {
+      "families": 1,
+      "profile": "fix-slop",
+      "split": "development"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "plain",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "source-matched",
+      "split": "development"
+    },
+    {
+      "families": 2,
+      "profile": "anti-ai",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "direct",
+      "split": "test"
+    },
+    {
+      "families": 3,
+      "profile": "fix-slop",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "test"
+    },
+    {
+      "families": 2,
+      "profile": "plain",
+      "split": "test"
+    },
+    {
+      "families": 3,
+      "profile": "source-matched",
+      "split": "test"
+    },
+    {
+      "families": 30,
+      "profile": "anti-ai",
+      "split": "train"
+    },
+    {
+      "families": 28,
+      "profile": "direct",
+      "split": "train"
+    },
+    {
+      "families": 30,
+      "profile": "fix-slop",
+      "split": "train"
+    },
+    {
+      "families": 30,
+      "profile": "informal",
+      "split": "train"
+    },
+    {
+      "families": 29,
+      "profile": "plain",
+      "split": "train"
+    },
+    {
+      "families": 31,
+      "profile": "source-matched",
+      "split": "train"
+    }
+  ],
+  "complete_export_ready": true,
+  "detector_predictions_opened": false,
+  "excluded_root_count": 40,
+  "exclusion_reasons": {
+    "Output length outside declared 80–800 word admission bounds: 42": 1,
+    "Output length outside declared 80–800 word admission bounds: 52": 1,
+    "Output length outside declared 80–800 word admission bounds: 58": 2,
+    "Output length outside declared 80–800 word admission bounds: 59": 1,
+    "Output length outside declared 80–800 word admission bounds: 60": 2,
+    "Output length outside declared 80–800 word admission bounds: 61": 2,
+    "Output length outside declared 80–800 word admission bounds: 62": 3,
+    "Output length outside declared 80–800 word admission bounds: 63": 1,
+    "Output length outside declared 80–800 word admission bounds: 64": 2,
+    "Output length outside declared 80–800 word admission bounds: 65": 2,
+    "Output length outside declared 80–800 word admission bounds: 66": 3,
+    "Output length outside declared 80–800 word admission bounds: 67": 2,
+    "Output length outside declared 80–800 word admission bounds: 68": 8,
+    "Output length outside declared 80–800 word admission bounds: 69": 1,
+    "Output length outside declared 80–800 word admission bounds: 70": 2,
+    "Output length outside declared 80–800 word admission bounds: 71": 3,
+    "Output length outside declared 80–800 word admission bounds: 72": 6,
+    "Output length outside declared 80–800 word admission bounds: 73": 5,
+    "Output length outside declared 80–800 word admission bounds: 74": 3,
+    "Output length outside declared 80–800 word admission bounds: 75": 2,
+    "Output length outside declared 80–800 word admission bounds: 76": 1,
+    "Output length outside declared 80–800 word admission bounds: 77": 2,
+    "Output length outside declared 80–800 word admission bounds: 78": 2,
+    "Output length outside declared 80–800 word admission bounds: 79": 5,
+    "draft_source_copy": 1
+  },
+  "failed": 63,
+  "failed_operations": {
+    "draft": 26,
+    "edit": 37
+  },
+  "generation_summary_sha256": "179ef8c24f53bd602cc8b4f617801e464b1a361b305d743a455a6c0d31633ab1",
+  "individually_accepted": 515,
+  "limitations": [
+    "This corpus/token audit makes no detector predictions; the separately declared v4 Development evaluation is reported alongside it.",
+    "The pair rule excludes accepted siblings when the paired output fails; admission uses no detector scores.",
+    "Historical human proxies and source-conditioned generations, with unverified semantic fidelity."
+  ],
+  "pangram_calls": 0,
+  "planned_families_by_split_profile": [
+    {
+      "families": 6,
+      "profile": "anti-ai",
+      "split": "calibration"
+    },
+    {
+      "families": 5,
+      "profile": "direct",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "fix-slop",
+      "split": "calibration"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "plain",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "source-matched",
+      "split": "calibration"
+    },
+    {
+      "families": 4,
+      "profile": "anti-ai",
+      "split": "development"
+    },
+    {
+      "families": 5,
+      "profile": "direct",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "fix-slop",
+      "split": "development"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "plain",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "source-matched",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "anti-ai",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "direct",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "fix-slop",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "plain",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "source-matched",
+      "split": "test"
+    },
+    {
+      "families": 34,
+      "profile": "anti-ai",
+      "split": "train"
+    },
+    {
+      "families": 34,
+      "profile": "direct",
+      "split": "train"
+    },
+    {
+      "families": 34,
+      "profile": "fix-slop",
+      "split": "train"
+    },
+    {
+      "families": 34,
+      "profile": "informal",
+      "split": "train"
+    },
+    {
+      "families": 33,
+      "profile": "plain",
+      "split": "train"
+    },
+    {
+      "families": 33,
+      "profile": "source-matched",
+      "split": "train"
+    }
+  ],
+  "profile_plan_sha256": "d122a913ce616d63ab7270ac6f88d3c6ae1783825e1607cd3f9944fc738ca16f",
+  "provider": "olmo",
+  "records_sha256": "8556f95c7ed28e1ad71b2134de9e85d38fe6062a0dc37c03221f50fbedffd8af",
+  "requested": 578,
+  "schema": "slop_ninja_narrative_cohort_summary_v1",
+  "source_corpus_sha256": "6967c60542f60b22ccc55e748fbc3d3f7b487acfbc5b4ea0cc33ba304ef2d574",
+  "status": "complete",
+  "successful_drafts_excluded_by_pair_rule": 14,
+  "successful_edits_excluded_by_pair_rule": 3,
+  "token_audit": {
+    "fits_configured_token_limit": true,
+    "max_tokens": 1024,
+    "model_executed": false,
+    "records_dropped": 0,
+    "shards": {
+      "calibration": {
+        "class_counts": {
+          "human_only": 29,
+          "mixed": 29,
+          "model_only": 29
+        },
+        "class_source_group_counts": {
+          "human_only": 29,
+          "mixed": 29,
+          "model_only": 29
+        },
+        "evidence_counts": {
+          "historical_proxy": 29,
+          "model_edit_of_historical_proxy": 29,
+          "recorded_model_generation": 29
+        },
+        "over_limit_count": 0,
+        "over_limit_records": [],
+        "records": 87,
+        "sha256": "6d33a15917f76190ad48a04966b8f681c09cec4517281da6688e0a9748c1909a",
+        "source_groups": 29,
+        "token_lengths_by_class": {
+          "human_only": {
+            "max": 676,
+            "mean": 312.2068965517241,
+            "min": 132,
+            "nearest_rank_percentiles": {
+              "25": 173,
+              "50": 256,
+              "75": 416,
+              "90": 597,
+              "95": 637,
+              "99": 676
+            }
+          },
+          "mixed": {
+            "max": 683,
+            "mean": 289.1034482758621,
+            "min": 108,
+            "nearest_rank_percentiles": {
+              "25": 149,
+              "50": 218,
+              "75": 431,
+              "90": 489,
+              "95": 531,
+              "99": 683
+            }
+          },
+          "model_only": {
+            "max": 696,
+            "mean": 312.3103448275862,
+            "min": 116,
+            "nearest_rank_percentiles": {
+              "25": 158,
+              "50": 237,
+              "75": 460,
+              "90": 617,
+              "95": 695,
+              "99": 696
+            }
+          }
+        },
+        "token_lengths_including_special_tokens": {
+          "max": 696,
+          "mean": 304.5402298850575,
+          "min": 108,
+          "nearest_rank_percentiles": {
+            "25": 161,
+            "50": 237,
+            "75": 431,
+            "90": 545,
+            "95": 637,
+            "99": 696
+          }
+        }
+      },
+      "development": {
+        "class_counts": {
+          "human_only": 23,
+          "mixed": 23,
+          "model_only": 23
+        },
+        "class_source_group_counts": {
+          "human_only": 23,
+          "mixed": 23,
+          "model_only": 23
+        },
+        "evidence_counts": {
+          "historical_proxy": 23,
+          "model_edit_of_historical_proxy": 23,
+          "recorded_model_generation": 23
+        },
+        "over_limit_count": 0,
+        "over_limit_records": [],
+        "records": 69,
+        "sha256": "89aefc1245d198b28f7ed8b2afc54c387dcf92d194e6d052c7f290d75fd50bd3",
+        "source_groups": 23,
+        "token_lengths_by_class": {
+          "human_only": {
+            "max": 584,
+            "mean": 291.69565217391306,
+            "min": 132,
+            "nearest_rank_percentiles": {
+              "25": 158,
+              "50": 270,
+              "75": 357,
+              "90": 497,
+              "95": 563,
+              "99": 584
+            }
+          },
+          "mixed": {
+            "max": 567,
+            "mean": 274.1304347826087,
+            "min": 114,
+            "nearest_rank_percentiles": {
+              "25": 154,
+              "50": 256,
+              "75": 333,
+              "90": 524,
+              "95": 532,
+              "99": 567
+            }
+          },
+          "model_only": {
+            "max": 674,
+            "mean": 294.8695652173913,
+            "min": 131,
+            "nearest_rank_percentiles": {
+              "25": 155,
+              "50": 262,
+              "75": 361,
+              "90": 462,
+              "95": 639,
+              "99": 674
+            }
+          }
+        },
+        "token_lengths_including_special_tokens": {
+          "max": 674,
+          "mean": 286.8985507246377,
+          "min": 114,
+          "nearest_rank_percentiles": {
+            "25": 156,
+            "50": 262,
+            "75": 354,
+            "90": 524,
+            "95": 567,
+            "99": 674
+          }
+        }
+      },
+      "test": {
+        "class_counts": {
+          "human_only": 19,
+          "mixed": 19,
+          "model_only": 19
+        },
+        "class_source_group_counts": {
+          "human_only": 19,
+          "mixed": 19,
+          "model_only": 19
+        },
+        "evidence_counts": {
+          "historical_proxy": 19,
+          "model_edit_of_historical_proxy": 19,
+          "recorded_model_generation": 19
+        },
+        "over_limit_count": 0,
+        "over_limit_records": [],
+        "records": 57,
+        "sha256": "43207e15dcf4138a1efaac1e9833e2e1b5a750c5d424e09f7ecb3d8c0ef1f4be",
+        "source_groups": 19,
+        "token_lengths_by_class": {
+          "human_only": {
+            "max": 587,
+            "mean": 293.63157894736844,
+            "min": 134,
+            "nearest_rank_percentiles": {
+              "25": 183,
+              "50": 257,
+              "75": 420,
+              "90": 492,
+              "95": 587,
+              "99": 587
+            }
+          },
+          "mixed": {
+            "max": 553,
+            "mean": 272.63157894736844,
+            "min": 127,
+            "nearest_rank_percentiles": {
+              "25": 156,
+              "50": 261,
+              "75": 372,
+              "90": 480,
+              "95": 553,
+              "99": 553
+            }
+          },
+          "model_only": {
+            "max": 643,
+            "mean": 294.3157894736842,
+            "min": 122,
+            "nearest_rank_percentiles": {
+              "25": 174,
+              "50": 238,
+              "75": 426,
+              "90": 578,
+              "95": 643,
+              "99": 643
+            }
+          }
+        },
+        "token_lengths_including_special_tokens": {
+          "max": 643,
+          "mean": 286.859649122807,
+          "min": 122,
+          "nearest_rank_percentiles": {
+            "25": 175,
+            "50": 257,
+            "75": 406,
+            "90": 480,
+            "95": 578,
+            "99": 643
+          }
+        }
+      },
+      "train": {
+        "class_counts": {
+          "human_only": 178,
+          "mixed": 178,
+          "model_only": 178
+        },
+        "class_source_group_counts": {
+          "human_only": 178,
+          "mixed": 178,
+          "model_only": 178
+        },
+        "evidence_counts": {
+          "historical_proxy": 178,
+          "model_edit_of_historical_proxy": 178,
+          "recorded_model_generation": 178
+        },
+        "over_limit_count": 0,
+        "over_limit_records": [],
+        "records": 534,
+        "sha256": "3295d581d5e28b226c2e83195b57f111fa455a2209a14eb70cd54d835ea1b64a",
+        "source_groups": 178,
+        "token_lengths_by_class": {
+          "human_only": {
+            "max": 669,
+            "mean": 309.7247191011236,
+            "min": 118,
+            "nearest_rank_percentiles": {
+              "25": 181,
+              "50": 280,
+              "75": 422,
+              "90": 562,
+              "95": 597,
+              "99": 643
+            }
+          },
+          "mixed": {
+            "max": 700,
+            "mean": 291.7022471910112,
+            "min": 110,
+            "nearest_rank_percentiles": {
+              "25": 156,
+              "50": 236,
+              "75": 392,
+              "90": 544,
+              "95": 598,
+              "99": 681
+            }
+          },
+          "model_only": {
+            "max": 942,
+            "mean": 310.2584269662921,
+            "min": 111,
+            "nearest_rank_percentiles": {
+              "25": 172,
+              "50": 247,
+              "75": 410,
+              "90": 581,
+              "95": 677,
+              "99": 752
+            }
+          }
+        },
+        "token_lengths_including_special_tokens": {
+          "max": 942,
+          "mean": 303.8951310861423,
+          "min": 110,
+          "nearest_rank_percentiles": {
+            "25": 167,
+            "50": 260,
+            "75": 402,
+            "90": 560,
+            "95": 608,
+            "99": 687
+          }
+        }
+      }
+    }
+  },
+  "token_audit_sha256": "c04eb34753d58ddb009e176abf64806ebb44568eec4746ba5362d3f4248dba0d",
+  "unattempted_count": 0
+}

@@ -1,0 +1,681 @@
+{
+  "annotated_record_ids": 485,
+  "bindings": [
+    {
+      "kind": "shard",
+      "name": "train",
+      "records": 3833,
+      "sha256": "023d6e5428236502e877bac0afe0e9e9ee4aa9d10ab38eb940ca8e915cf7502e"
+    },
+    {
+      "kind": "shard",
+      "name": "development",
+      "records": 530,
+      "sha256": "c9ee825909a37b7aee0863c00437f2375d5569f702de80c12f515af1df29a78b"
+    },
+    {
+      "kind": "shard",
+      "name": "calibration",
+      "records": 540,
+      "sha256": "e26ed741c1fbe2d64dc7e8d49211573eaa44b11589524ce76f2b487a9b711031"
+    },
+    {
+      "kind": "shard",
+      "name": "test",
+      "records": 560,
+      "sha256": "9d49faf9f9415352d49f286c523f24af0677128ac149478d7e422190b5c896b4"
+    },
+    {
+      "kind": "annotations",
+      "name": "pilot",
+      "records": 120,
+      "sha256": "c1f2a085eea1585ae7e87d5d0ff5aa260c2474f5e0c5926d48ebaf0f503c4a05"
+    },
+    {
+      "kind": "annotations",
+      "name": "second",
+      "records": 96,
+      "sha256": "af164306133bb14fe2256c5bf9e7f185b353b303ada72ee819034f79f74dafa7"
+    },
+    {
+      "kind": "annotations",
+      "name": "third",
+      "records": 42,
+      "sha256": "8943a9abc1aee77537db67df85bb8a855c3c6d2ea1ee746bd812ba832a354d92"
+    },
+    {
+      "kind": "annotations",
+      "name": "fourth",
+      "records": 117,
+      "sha256": "f907378843135e871e9a596b8936f4f803957a9a1f6a5efb25ab4c4b51a62fcd"
+    },
+    {
+      "kind": "annotations",
+      "name": "fifth",
+      "records": 110,
+      "sha256": "475dc21c0b9bad4e0fd682183b0d4e9ee0164d5c2d7f90fc5c5dfbd376670aec"
+    }
+  ],
+  "data_or_models_changed": false,
+  "echo_counts": {
+    "exact": 174,
+    "source_soft_hyphens_removed": 1,
+    "whitespace_only": 310
+  },
+  "exact_hash_matches_by_split": {
+    "train": 485
+  },
+  "generator_identities": {
+    "080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3": {
+      "declared_revision": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+      "reported_model": "default_model",
+      "requested_model": "default_model"
+    },
+    "db3bea3eac9d3f5a4de9a5c6ce0779c3f33c4d414119653a56a74554d44cc336": {
+      "declared_revision": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde",
+      "reported_model": "default_model",
+      "requested_model": "default_model"
+    },
+    "f0365c2550560b06df084406258addf8639093e1e8ac2f6cff89e316a1ce632d": {
+      "declared_revision": "mlx-community/Olmo-3-7B-Instruct-4bit@d732c91ae02e90cd5d86e810fbeb9741794b4dd9",
+      "reported_model": "default_model",
+      "requested_model": "default_model"
+    }
+  },
+  "joined_sha256": "9224e694ea73faef0afdcc48ae6ae8d0de238a63d474c0d5ece3a422605fd923",
+  "limits": "Five adaptive local-generator Train cohorts only. Content fractions are not origin probabilities. Hosted, held-out and private observations are excluded. No independent performance or training-rights claim.",
+  "model_calls": 0,
+  "protocol_sha256": "3af8caa7f4c7b943b8ba2a4c4e84e410cc00beb62b9f3dd3e36cb3fb8bfd9adb",
+  "provider_calls": 0,
+  "provider_versions": [
+    "4.0"
+  ],
+  "schema": "slop_ninja_pangram_train_coverage_v1",
+  "slices": {
+    "final_generator": {
+      "080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3": {
+        "annotated_families": 77,
+        "annotated_records": 140,
+        "below_tenth": 1,
+        "combined_fraction_bins": {
+          "100": 114,
+          "60-70": 5,
+          "70-80": 4,
+          "80-90": 7,
+          "90-below-100": 6,
+          "below-60": 4
+        },
+        "exact_zero": 1,
+        "train_families": 471,
+        "train_records": 1296,
+        "unannotated_records": 1156
+      },
+      "db3bea3eac9d3f5a4de9a5c6ce0779c3f33c4d414119653a56a74554d44cc336": {
+        "annotated_families": 64,
+        "annotated_records": 94,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 77,
+          "70-80": 5,
+          "80-90": 5,
+          "below-60": 7
+        },
+        "exact_zero": 0,
+        "train_families": 470,
+        "train_records": 1228,
+        "unannotated_records": 1134
+      },
+      "f0365c2550560b06df084406258addf8639093e1e8ac2f6cff89e316a1ce632d": {
+        "annotated_families": 60,
+        "annotated_records": 120,
+        "below_tenth": 1,
+        "combined_fraction_bins": {
+          "100": 110,
+          "70-80": 4,
+          "80-90": 2,
+          "90-below-100": 3,
+          "below-60": 1
+        },
+        "exact_zero": 1,
+        "train_families": 419,
+        "train_records": 838,
+        "unannotated_records": 718
+      },
+      "human_root": {
+        "annotated_families": 131,
+        "annotated_records": 131,
+        "below_tenth": 131,
+        "combined_fraction_bins": {
+          "below-60": 131
+        },
+        "exact_zero": 131,
+        "train_families": 471,
+        "train_records": 471,
+        "unannotated_records": 340
+      }
+    },
+    "final_profile": {
+      "anti-ai": {
+        "annotated_families": 21,
+        "annotated_records": 42,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 36,
+          "70-80": 1,
+          "80-90": 3,
+          "90-below-100": 1,
+          "below-60": 1
+        },
+        "exact_zero": 0,
+        "train_families": 95,
+        "train_records": 420,
+        "unannotated_records": 378
+      },
+      "direct": {
+        "annotated_families": 24,
+        "annotated_records": 48,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 35,
+          "60-70": 2,
+          "70-80": 4,
+          "80-90": 4,
+          "90-below-100": 1,
+          "below-60": 2
+        },
+        "exact_zero": 0,
+        "train_families": 89,
+        "train_records": 396,
+        "unannotated_records": 348
+      },
+      "fix-slop": {
+        "annotated_families": 22,
+        "annotated_records": 44,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 32,
+          "60-70": 1,
+          "70-80": 2,
+          "80-90": 1,
+          "90-below-100": 3,
+          "below-60": 5
+        },
+        "exact_zero": 0,
+        "train_families": 90,
+        "train_records": 396,
+        "unannotated_records": 352
+      },
+      "human_root": {
+        "annotated_families": 131,
+        "annotated_records": 131,
+        "below_tenth": 131,
+        "combined_fraction_bins": {
+          "below-60": 131
+        },
+        "exact_zero": 131,
+        "train_families": 471,
+        "train_records": 471,
+        "unannotated_records": 340
+      },
+      "informal": {
+        "annotated_families": 25,
+        "annotated_records": 50,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 44,
+          "60-70": 1,
+          "70-80": 4,
+          "below-60": 1
+        },
+        "exact_zero": 0,
+        "train_families": 94,
+        "train_records": 428,
+        "unannotated_records": 378
+      },
+      "plain": {
+        "annotated_families": 20,
+        "annotated_records": 40,
+        "below_tenth": 1,
+        "combined_fraction_bins": {
+          "100": 29,
+          "60-70": 1,
+          "70-80": 2,
+          "80-90": 4,
+          "90-below-100": 2,
+          "below-60": 2
+        },
+        "exact_zero": 1,
+        "train_families": 90,
+        "train_records": 392,
+        "unannotated_records": 352
+      },
+      "source-matched": {
+        "annotated_families": 19,
+        "annotated_records": 38,
+        "below_tenth": 1,
+        "combined_fraction_bins": {
+          "100": 34,
+          "80-90": 1,
+          "90-below-100": 2,
+          "below-60": 1
+        },
+        "exact_zero": 1,
+        "train_families": 90,
+        "train_records": 422,
+        "unannotated_records": 384
+      },
+      "unrecorded": {
+        "annotated_families": 46,
+        "annotated_records": 92,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 91,
+          "80-90": 1
+        },
+        "exact_zero": 0,
+        "train_families": 454,
+        "train_records": 908,
+        "unannotated_records": 816
+      }
+    },
+    "generation_depth": {
+      "0": {
+        "annotated_families": 131,
+        "annotated_records": 131,
+        "below_tenth": 131,
+        "combined_fraction_bins": {
+          "below-60": 131
+        },
+        "exact_zero": 131,
+        "train_families": 471,
+        "train_records": 471,
+        "unannotated_records": 340
+      },
+      "1": {
+        "annotated_families": 131,
+        "annotated_records": 262,
+        "below_tenth": 2,
+        "combined_fraction_bins": {
+          "100": 210,
+          "60-70": 5,
+          "70-80": 13,
+          "80-90": 13,
+          "90-below-100": 9,
+          "below-60": 12
+        },
+        "exact_zero": 2,
+        "train_families": 471,
+        "train_records": 2454,
+        "unannotated_records": 2192
+      },
+      "2": {
+        "annotated_families": 46,
+        "annotated_records": 46,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 45,
+          "80-90": 1
+        },
+        "exact_zero": 0,
+        "train_families": 454,
+        "train_records": 454,
+        "unannotated_records": 408
+      },
+      "3": {
+        "annotated_families": 46,
+        "annotated_records": 46,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 46
+        },
+        "exact_zero": 0,
+        "train_families": 454,
+        "train_records": 454,
+        "unannotated_records": 408
+      }
+    },
+    "origin": {
+      "human_only": {
+        "annotated_families": 131,
+        "annotated_records": 131,
+        "below_tenth": 131,
+        "combined_fraction_bins": {
+          "below-60": 131
+        },
+        "exact_zero": 131,
+        "train_families": 471,
+        "train_records": 471,
+        "unannotated_records": 340
+      },
+      "mixed": {
+        "annotated_families": 131,
+        "annotated_records": 131,
+        "below_tenth": 2,
+        "combined_fraction_bins": {
+          "100": 98,
+          "60-70": 3,
+          "70-80": 7,
+          "80-90": 8,
+          "90-below-100": 5,
+          "below-60": 10
+        },
+        "exact_zero": 2,
+        "train_families": 471,
+        "train_records": 1227,
+        "unannotated_records": 1096
+      },
+      "model_only": {
+        "annotated_families": 131,
+        "annotated_records": 223,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 203,
+          "60-70": 2,
+          "70-80": 6,
+          "80-90": 6,
+          "90-below-100": 4,
+          "below-60": 2
+        },
+        "exact_zero": 0,
+        "train_families": 471,
+        "train_records": 2135,
+        "unannotated_records": 1912
+      }
+    },
+    "origin_and_depth": {
+      "human_only/0": {
+        "annotated_families": 131,
+        "annotated_records": 131,
+        "below_tenth": 131,
+        "combined_fraction_bins": {
+          "below-60": 131
+        },
+        "exact_zero": 131,
+        "train_families": 471,
+        "train_records": 471,
+        "unannotated_records": 340
+      },
+      "mixed/1": {
+        "annotated_families": 131,
+        "annotated_records": 131,
+        "below_tenth": 2,
+        "combined_fraction_bins": {
+          "100": 98,
+          "60-70": 3,
+          "70-80": 7,
+          "80-90": 8,
+          "90-below-100": 5,
+          "below-60": 10
+        },
+        "exact_zero": 2,
+        "train_families": 471,
+        "train_records": 1227,
+        "unannotated_records": 1096
+      },
+      "model_only/1": {
+        "annotated_families": 131,
+        "annotated_records": 131,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 112,
+          "60-70": 2,
+          "70-80": 6,
+          "80-90": 5,
+          "90-below-100": 4,
+          "below-60": 2
+        },
+        "exact_zero": 0,
+        "train_families": 471,
+        "train_records": 1227,
+        "unannotated_records": 1096
+      },
+      "model_only/2": {
+        "annotated_families": 46,
+        "annotated_records": 46,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 45,
+          "80-90": 1
+        },
+        "exact_zero": 0,
+        "train_families": 454,
+        "train_records": 454,
+        "unannotated_records": 408
+      },
+      "model_only/3": {
+        "annotated_families": 46,
+        "annotated_records": 46,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 46
+        },
+        "exact_zero": 0,
+        "train_families": 454,
+        "train_records": 454,
+        "unannotated_records": 408
+      }
+    },
+    "root_collection": {
+      "cmu-books-historical": {
+        "annotated_families": 60,
+        "annotated_records": 204,
+        "below_tenth": 62,
+        "combined_fraction_bins": {
+          "100": 116,
+          "60-70": 4,
+          "70-80": 4,
+          "80-90": 7,
+          "90-below-100": 6,
+          "below-60": 67
+        },
+        "exact_zero": 62,
+        "train_families": 196,
+        "train_records": 1676,
+        "unannotated_records": 1472
+      },
+      "hc3-wiki-historical": {
+        "annotated_families": 24,
+        "annotated_records": 96,
+        "below_tenth": 24,
+        "combined_fraction_bins": {
+          "100": 68,
+          "60-70": 1,
+          "80-90": 1,
+          "90-below-100": 1,
+          "below-60": 25
+        },
+        "exact_zero": 24,
+        "train_families": 178,
+        "train_records": 1482,
+        "unannotated_records": 1386
+      },
+      "plos_one": {
+        "annotated_families": 24,
+        "annotated_records": 92,
+        "below_tenth": 24,
+        "combined_fraction_bins": {
+          "100": 54,
+          "70-80": 8,
+          "80-90": 2,
+          "below-60": 28
+        },
+        "exact_zero": 24,
+        "train_families": 44,
+        "train_records": 304,
+        "unannotated_records": 212
+      },
+      "wikinews": {
+        "annotated_families": 23,
+        "annotated_records": 93,
+        "below_tenth": 23,
+        "combined_fraction_bins": {
+          "100": 63,
+          "70-80": 1,
+          "80-90": 4,
+          "90-below-100": 2,
+          "below-60": 23
+        },
+        "exact_zero": 23,
+        "train_families": 53,
+        "train_records": 371,
+        "unannotated_records": 278
+      }
+    },
+    "route": {
+      "080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3": {
+        "annotated_families": 47,
+        "annotated_records": 94,
+        "below_tenth": 1,
+        "combined_fraction_bins": {
+          "100": 69,
+          "60-70": 5,
+          "70-80": 4,
+          "80-90": 6,
+          "90-below-100": 6,
+          "below-60": 4
+        },
+        "exact_zero": 1,
+        "train_families": 421,
+        "train_records": 842,
+        "unannotated_records": 748
+      },
+      "080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3 -> 080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3": {
+        "annotated_families": 16,
+        "annotated_records": 16,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 16
+        },
+        "exact_zero": 0,
+        "train_families": 159,
+        "train_records": 159,
+        "unannotated_records": 143
+      },
+      "080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3 -> 080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3 -> db3bea3eac9d3f5a4de9a5c6ce0779c3f33c4d414119653a56a74554d44cc336": {
+        "annotated_families": 16,
+        "annotated_records": 16,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 16
+        },
+        "exact_zero": 0,
+        "train_families": 159,
+        "train_records": 159,
+        "unannotated_records": 143
+      },
+      "db3bea3eac9d3f5a4de9a5c6ce0779c3f33c4d414119653a56a74554d44cc336": {
+        "annotated_families": 24,
+        "annotated_records": 48,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 31,
+          "70-80": 5,
+          "80-90": 5,
+          "below-60": 7
+        },
+        "exact_zero": 0,
+        "train_families": 387,
+        "train_records": 774,
+        "unannotated_records": 726
+      },
+      "db3bea3eac9d3f5a4de9a5c6ce0779c3f33c4d414119653a56a74554d44cc336 -> 080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3": {
+        "annotated_families": 6,
+        "annotated_records": 6,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 6
+        },
+        "exact_zero": 0,
+        "train_families": 134,
+        "train_records": 134,
+        "unannotated_records": 128
+      },
+      "db3bea3eac9d3f5a4de9a5c6ce0779c3f33c4d414119653a56a74554d44cc336 -> 080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3 -> db3bea3eac9d3f5a4de9a5c6ce0779c3f33c4d414119653a56a74554d44cc336": {
+        "annotated_families": 6,
+        "annotated_records": 6,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 6
+        },
+        "exact_zero": 0,
+        "train_families": 134,
+        "train_records": 134,
+        "unannotated_records": 128
+      },
+      "f0365c2550560b06df084406258addf8639093e1e8ac2f6cff89e316a1ce632d": {
+        "annotated_families": 60,
+        "annotated_records": 120,
+        "below_tenth": 1,
+        "combined_fraction_bins": {
+          "100": 110,
+          "70-80": 4,
+          "80-90": 2,
+          "90-below-100": 3,
+          "below-60": 1
+        },
+        "exact_zero": 1,
+        "train_families": 419,
+        "train_records": 838,
+        "unannotated_records": 718
+      },
+      "f0365c2550560b06df084406258addf8639093e1e8ac2f6cff89e316a1ce632d -> 080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3": {
+        "annotated_families": 24,
+        "annotated_records": 24,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 23,
+          "80-90": 1
+        },
+        "exact_zero": 0,
+        "train_families": 161,
+        "train_records": 161,
+        "unannotated_records": 137
+      },
+      "f0365c2550560b06df084406258addf8639093e1e8ac2f6cff89e316a1ce632d -> 080f2be0793571b5a9848a7ae6f325503b573adc1adc2fef2174b1ad59f08ee3 -> db3bea3eac9d3f5a4de9a5c6ce0779c3f33c4d414119653a56a74554d44cc336": {
+        "annotated_families": 24,
+        "annotated_records": 24,
+        "below_tenth": 0,
+        "combined_fraction_bins": {
+          "100": 24
+        },
+        "exact_zero": 0,
+        "train_families": 161,
+        "train_records": 161,
+        "unannotated_records": 137
+      },
+      "human_root": {
+        "annotated_families": 131,
+        "annotated_records": 131,
+        "below_tenth": 131,
+        "combined_fraction_bins": {
+          "below-60": 131
+        },
+        "exact_zero": 131,
+        "train_families": 471,
+        "train_records": 471,
+        "unannotated_records": 340
+      }
+    }
+  },
+  "source_sha256": "881865089c295b1d58d19485a3abb7a99dc04b30802913e6709247e323a08695",
+  "status": "audited_not_fitted",
+  "teacher_supervised_training_performed": false,
+  "total": {
+    "annotated_families": 131,
+    "annotated_records": 485,
+    "below_tenth": 133,
+    "combined_fraction_bins": {
+      "100": 301,
+      "60-70": 5,
+      "70-80": 13,
+      "80-90": 14,
+      "90-below-100": 9,
+      "below-60": 143
+    },
+    "exact_zero": 133,
+    "train_families": 471,
+    "train_records": 3833,
+    "unannotated_records": 3348
+  },
+  "unique_annotated_texts": 485
+}

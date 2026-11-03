@@ -1,0 +1,28 @@
+[package]
+name = "slop-ninja-detector"
+version = "0.1.0"
+edition = "2024"
+description = "Reproducible Slop Ninja reference detector and corpus pipeline"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+grammar-core = { path = "../../grammar/crates/grammar-core" }
+grammar-spacy = { path = "../../grammar/crates/grammar-spacy" }
+hex = "0.4"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+roxmltree = "0.21"
+scraper = "0.27"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+tempfile = "3"
+
+[[bin]]
+name = "slop_ninja_detector"
+path = "src/main.rs"

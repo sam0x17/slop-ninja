@@ -1,0 +1,27 @@
+pg_id	author_key	author	catalog_author	expected_title	split	role	enrollment
+1342	jane_austen	Jane Austen	Austen, Jane	Pride and Prejudice	train_reference	reference	known
+161	jane_austen	Jane Austen	Austen, Jane	Sense and Sensibility	train	query	known
+158	jane_austen	Jane Austen	Austen, Jane	Emma	development	query	known
+141	jane_austen	Jane Austen	Austen, Jane	Mansfield Park	calibration	query	known
+105	jane_austen	Jane Austen	Austen, Jane	Persuasion	test	query	known
+98	charles_dickens	Charles Dickens	Dickens, Charles	A Tale of Two Cities	train_reference	reference	known
+1400	charles_dickens	Charles Dickens	Dickens, Charles	Great Expectations	train	query	known
+730	charles_dickens	Charles Dickens	Dickens, Charles	Oliver Twist	development	query	known
+766	charles_dickens	Charles Dickens	Dickens, Charles	David Copperfield	calibration	query	known
+1023	charles_dickens	Charles Dickens	Dickens, Charles	Bleak House	test	query	known
+74	mark_twain	Mark Twain	Twain, Mark	The Adventures of Tom Sawyer, Complete	train_reference	reference	known
+76	mark_twain	Mark Twain	Twain, Mark	Adventures of Huckleberry Finn	train	query	known
+86	mark_twain	Mark Twain	Twain, Mark	A Connecticut Yankee in King Arthur's Court	development	query	known
+1837	mark_twain	Mark Twain	Twain, Mark	The Prince and the Pauper	calibration	query	known
+3177	mark_twain	Mark Twain	Twain, Mark	Roughing It	test	query	known
+35	h_g_wells	H. G. Wells	Wells, H. G. (Herbert George)	The Time Machine	train_reference	reference	known
+36	h_g_wells	H. G. Wells	Wells, H. G. (Herbert George)	The war of the worlds	train	query	known
+5230	h_g_wells	H. G. Wells	Wells, H. G. (Herbert George)	The Invisible Man: A Grotesque Romance	development	query	known
+159	h_g_wells	H. G. Wells	Wells, H. G. (Herbert George)	The island of Doctor Moreau	calibration	query	known
+1013	h_g_wells	H. G. Wells	Wells, H. G. (Herbert George)	The First Men in the Moon	test	query	known
+244	arthur_conan_doyle	Arthur Conan Doyle	Doyle, Arthur Conan	A Study in Scarlet	development	query	withheld
+2097	arthur_conan_doyle	Arthur Conan Doyle	Doyle, Arthur Conan	The Sign of the Four	development	query	withheld
+120	r_l_stevenson	Robert Louis Stevenson	Stevenson, Robert Louis	Treasure Island	calibration	query	withheld
+43	r_l_stevenson	Robert Louis Stevenson	Stevenson, Robert Louis	The strange case of Dr. Jekyll and Mr. Hyde	calibration	query	withheld
+84	mary_shelley	Mary Shelley	Shelley, Mary Wollstonecraft	Frankenstein; or, The modern Prometheus	test	query	withheld
+18247	mary_shelley	Mary Shelley	Shelley, Mary Wollstonecraft	The Last Man	test	query	withheld

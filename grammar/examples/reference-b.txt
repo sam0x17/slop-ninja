@@ -1,0 +1,1 @@
+The service keeps records on two disks. One disk holds the original. The other holds a copy. Both disks need protection from fire.

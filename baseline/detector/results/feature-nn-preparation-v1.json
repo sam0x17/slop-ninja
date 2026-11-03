@@ -1,0 +1,53 @@
+{
+  "schema": "slop_ninja_feature_nn_preparation_v1",
+  "prepared_at": "2026-09-14T19:53:30Z",
+  "candidates": {
+    "word": [
+      0,
+      128,
+      256,
+      512,
+      1024
+    ],
+    "grammar": [
+      0,
+      128,
+      512
+    ],
+    "combined": [
+      0,
+      128,
+      512
+    ]
+  },
+  "candidate_count": 11,
+  "records": 4903,
+  "training_rows": 3833,
+  "development_selection_rows": 318,
+  "calibration_selection_rows": 324,
+  "epochs": 30,
+  "batch_size": 64,
+  "learning_rate": 0.0003,
+  "weight_decay": 0.001,
+  "seed": 17,
+  "device": "cpu",
+  "threads": 2,
+  "input_precision": "Rust f64 converted directly to torch float32",
+  "numerical_and_input_tests_passed": 3,
+  "raw_text_training": false,
+  "source_record_checks": true,
+  "provider_calls": false,
+  "classifier_fitted": false,
+  "bindings_sha256": "1f01b732c1b2412dff96222d7c7f9d2f0b8860dbd0fa20c04d2c9fb5281ab493",
+  "protocol_sha256": "d3c26a01ab9c62003f6ef038ab7e43c0bb0cbea50050ca0b4b94a58154c7f016",
+  "source_code_sha256": {
+    "checkpoints.py": "1918bd1a5727fc537c4d208f427e931b3fa707a3dceafa9bd26c4f3f89892745",
+    "common.py": "fd02ec4d13bde1dd4b78cef05082f6ba988bce04212468ce470b95a5791b83ef",
+    "feature_nn.py": "32e0ab43a8ed3d2775d2929b1f9a696f09d5ea2ec6c30cf6f700f09e78447a38",
+    "requirements.lock": "7abddfab826bd4ec669223c276b06449f07a159bcb542c412f5ac9aa0fd7ee24",
+    "test_feature_nn.py": "db7d13ef3165007cd9e59bbd356d141d9d9fec379650c7ce79f539cd500e8984",
+    "train.py": "e9ea24461ae60bd5ba96b8bd6fa1fc85dfe7b27a1a040f55ff473c3bcecb11e0",
+    "train_features.py": "af05ea8e6e68268ecc4d2111d4d9fbf89b21f04d493057cf70a3012081d3cd9d"
+  },
+  "bound_files": 32
+}

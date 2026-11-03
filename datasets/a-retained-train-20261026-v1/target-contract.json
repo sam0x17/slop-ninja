@@ -1,0 +1,31 @@
+{
+  "ai_profiles": [
+    "Qwen/Qwen3.6-35B-A3B:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+    "microsoft/Phi-4-mini-instruct:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2"
+  ],
+  "human_profiles": [
+    "anthony_trollope",
+    "arthur_benson",
+    "charles_harper",
+    "edith_wharton",
+    "george_eliot",
+    "gilbert_chesterton",
+    "henry_james",
+    "jack_london",
+    "jacob_abbott",
+    "john_burroughs",
+    "joseph_conrad",
+    "louisa_alcott",
+    "richard_jefferies",
+    "thomas_hardy"
+  ],
+  "missing_target": "null remains masked; conditional identity does not assert role involvement",
+  "origin_order": [
+    "human_only",
+    "model_only",
+    "mixed"
+  ],
+  "original_fit_contract_sha256": "25ab2507718ab3ba3862e174458f13031020a46ee0bcf3c96387dc4740120042",
+  "private_profile_vectors_included": false,
+  "schema": "slop_ninja_public_training_targets_v1"
+}

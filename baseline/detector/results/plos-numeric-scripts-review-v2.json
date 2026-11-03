@@ -1,0 +1,123 @@
+{
+  "schema": "slop_ninja.plos_numeric_scripts_review.v2",
+  "host": "mac_studio",
+  "reviewer": "Codex assistant",
+  "independent_human_review": false,
+  "preparation_sha256": "5f439e65b33faf4e0a1f6b3b059c0a55e6672df57e788fa010d5b14717f63a45",
+  "source_sha256": "a4cd9e35642582a2b99bddd56732248d408a233fa0b026b5c6fe400b3f618448",
+  "binary_sha256": "1784cd829a0ec32d650b2cf3cbe5942ac2c8bff1c5629f481bde1c187d439161",
+  "inventory_sha256": "b362b54f6f315e9b4666efe67ab82ac5c0042f806e9529524074d31ec3cc1862",
+  "projection_audit_sha256": "5efd7280cca6f4e1464b74e38e80c075992bfd61fa2fcec1185a651ba220c450",
+  "tokenizer_audit_sha256": "3dd098989b78320b62453b264846e17f92208941204718846eb3cd7fc0e75182",
+  "candidate_count": 33,
+  "prepared_before": 14,
+  "prepared_after": 18,
+  "unsupported_after": 15,
+  "old_v1_report_byte_replay_equal": true,
+  "prior_14_texts_unchanged": true,
+  "manual_review_scope": "Read the four complete rendered introductions, all credited author lists and captured permission notices, and the original XML snippets for all 49 notation elements. Independently reconstructed every complete paragraph from its original XML using Ruby REXML; compared all text and the inventory projection hashes, and verified 168 citation labels, target IDs and source-span hashes. This is extraction review, not grammatical annotation or scientific fact checking.",
+  "manual_rendering_reviews": [
+    {
+      "doi": "10.1371/journal.pone.0203566",
+      "complete_rendering_read": true,
+      "paragraphs": 5,
+      "text_sha256": "617bdb9785b552d6a01f78414373fbde315dcc367a1f09e0d5d675ee7030d7f8",
+      "a_tokens": 1198,
+      "notation_elements": 37,
+      "attributed_authors_checked": [
+        "Yu Fu",
+        "Barry Zorman",
+        "Pavel Sumazin",
+        "Pietro Paolo Sanna",
+        "Vez Repunte-Canonigo"
+      ],
+      "finding": "All superscript-six positions remain raised in the methylation notation. The complete introduction retains modifications, disease associations, viral-RNA discussion, the nonreplicating transgenic-rat model and its final reported observations. Those observations are source content and must not be removed by a later prompt that expects an introduction without findings. Existing grammar and cautious claims remain.",
+      "quotation_review": "Only short terminology labels were identified; no extended externally attributed passage in the complete introduction.",
+      "permission_notice": "Captured CC BY 4.0 notice with author/source credit; no item-specific exception identified in that notice.",
+      "related_work_review": "No related-item element in the captured metadata; corpus overlap review remains separate."
+    },
+    {
+      "doi": "10.1371/journal.pone.0203249",
+      "complete_rendering_read": true,
+      "paragraphs": 3,
+      "text_sha256": "27ccec51eba30701a125549ed284bf46bf1214ee04e92f0a9387350c90d69605",
+      "a_tokens": 1144,
+      "notation_elements": 6,
+      "attributed_authors_checked": [
+        "Jun-Lin Yin",
+        "Woon-Seng Wong"
+      ],
+      "finding": "Carbon-count subscripts remain lowered in all six occurrences. Pathways, enzymes, species, quantitative comparisons and the study results remain. The final claim concerns attracting aphids to a potential trap crop; it must not become a claim that these plants repel aphids. The source's punctuation before citation 14 and other language errors remain.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction.",
+      "permission_notice": "Captured CC BY 4.0 notice with author/source credit; no item-specific exception identified in that notice.",
+      "related_work_review": "No related-item element in the captured metadata; corpus overlap review remains separate."
+    },
+    {
+      "doi": "10.1371/journal.pone.0201509",
+      "complete_rendering_read": true,
+      "paragraphs": 4,
+      "text_sha256": "cdb8ce529a78caed9f2a8246a98e2229b409d50d5c792d31cd6521b91c914b7e",
+      "a_tokens": 1108,
+      "notation_elements": 5,
+      "attributed_authors_checked": [
+        "Melissa Bello-Perez",
+        "Alberto Falco",
+        "Beatriz Novoa",
+        "Luis Perez",
+        "Julio Coll"
+      ],
+      "finding": "Four double-positive calcium charges and one phospholipase subscript retain their placement and signs. The oligomer/monomer distinction, four conformations, human-versus-zebrafish uncertainty, concentration ranges and four final observations remain. Ca-independent binding in the final paragraph remains explicitly independent. Apparent source irregularities, including its final CRP-7 wording, were not corrected.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction.",
+      "permission_notice": "Captured CC BY 4.0 notice with author/source credit; no item-specific exception identified in that notice.",
+      "related_work_review": "No related-item element in the captured metadata; corpus overlap review remains separate."
+    },
+    {
+      "doi": "10.1371/journal.pone.0198056",
+      "complete_rendering_read": true,
+      "paragraphs": 7,
+      "text_sha256": "23be0650a1d4b528242e41703a2f4feec40916512de775f342b6e8b51e97a15e",
+      "a_tokens": 1412,
+      "notation_elements": 1,
+      "attributed_authors_checked": [
+        "Maja Kos Kramar",
+        "Tinkara Tinta",
+        "Davor Lučić",
+        "Alenka Malej",
+        "Valentina Turk"
+      ],
+      "finding": "The negative cubic-metre exponent retains both the minus sign and raised position. The complete text preserves uncertainty over long-term bloom trends, ecological roles, microbial colonization, mucus-related mechanisms, locality/taxonomy and all three study hypotheses. Hypotheses remain hypotheses, and source grammar is unchanged.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction.",
+      "permission_notice": "Captured CC BY 4.0 notice with author/source credit; no item-specific exception identified in that notice.",
+      "related_work_review": "No related-item element in the captured metadata; corpus overlap review remains separate."
+    }
+  ],
+  "manual_review_followups": {
+    "quotation_rights_pending_dois": [],
+    "overlap_review_complete": true
+  },
+  "overlap": {
+    "plan_sha256": "85859cc66c7615bf11704b23190bceae0bd5a61fa1c0bbb7be1d295ed51cc2fb",
+    "report_sha256": "dc95668265f3b13207249cc33d4f8f83d3870d6d045d0e2eb2a9ba8f51394da0",
+    "existing_unique_texts": 9265,
+    "historical_rows_recovered": 6847,
+    "supplemental_existing_scientific_texts": 22,
+    "new_candidates_with_flags": 0,
+    "maximum_shared_run_new_candidates": 6,
+    "scope": "The earlier bound corpora plus all 13 admitted introductions and the nine HTTP-200 generation responses present at snapshot enumeration, including rejected responses. Candidate-to-candidate comparisons include all 18 supported renderings. Later live generation responses are outside this frozen snapshot.",
+    "prior_source_flags": "The 13 flagged candidates are exactly the 13 previously admitted introductions now also included as existing sources. Their prior records remain unchanged and are not readmitted by this supplement.",
+    "corrected_preflight": "The initial supplemental JSONL omitted per-record text_sha256 and the screen stopped with Record text hash mismatch. The corrected plan adds hashes to the same frozen 22 rows; no text or membership changed. Both attempts remain recorded."
+  },
+  "validation": {
+    "cargo_fmt_check": "passed_on_studio",
+    "cargo_test_locked": "passed_on_studio",
+    "example_tests": "three_passed_including_one_new_numeric_notation_test",
+    "cargo_clippy_all_targets_deny_warnings": "passed_on_studio",
+    "whole_text_tokenizer": "all_four_new_renderings_supported_without_truncation",
+    "linux_execution": "unverified"
+  },
+  "admitted_records": 0,
+  "active_fits_changed": false,
+  "model_calls": 0,
+  "network_calls": 0,
+  "limitations": "Current publisher dates provide weak historical supervision, not verified historical byte identity or a documented human-only workflow. Numeric rendering support does not establish general mathematical support, parser correctness or detector improvement. Admission remains a separate operation after overlap review."
+}

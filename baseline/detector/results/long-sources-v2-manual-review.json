@@ -1,0 +1,70 @@
+{
+  "schema": "slop_ninja_long_source_manual_review_v2",
+  "reviewer": "Codex manual text and syntax inspection, 2026-09-14",
+  "protocol_sha256": "465875159e92b76a885936c35c5977bc1f729c59f1a5f30edef5a89334347cbe",
+  "inspection_sql_sha256": "86e389d082f81195f65ab5160ab89afd42751e19ea9eedfca5c4dd2a5b26ed63",
+  "coverage_summary_sha256": "9916f88e3566648e06cba374544cadfc2b0ab48a3812c3adc41efa7103f62412",
+  "corpus_sha256": "ecaad984a0dc5d9e9d6252cf795bff870c6b73ba5585b623652eec83953a6ebe",
+  "selection": "First three distinct admitted V2 texts in the original review order; no replacements or detector selection.",
+  "scope": "Read all three complete texts through source-preserving sentence spans and every sentence root, totaling 206 parser sentences. Inspected selected subject, clause, coordination and negation edges, with focused reads of the reported failures. This is a partial dependency review, not exhaustive annotation, independent human review or original-book fact checking.",
+  "complete_texts_read": 3,
+  "admitted_texts": 30,
+  "parser_sentences_read": 206,
+  "detector_observations_seen": false,
+  "parse_accuracy": null,
+  "correctness_certified": false,
+  "overall_judgment": "All three contain clear parse errors and source-level prose defects. Preserve the source texts and partial findings; successful annotation does not make these reliable automatic edit menus.",
+  "documents": [
+    {
+      "id": "cmu-books:2708729:851a89adef569928",
+      "text_sha256": "851a89adef569928097639efc6ac82e3294b05df06ed458cb4c53831bb04859d",
+      "annotation_sha256": "145bd0a7b6019507f74a31c4e75be720b7b15407ef0daa5ca89fdbbe278fa7a5",
+      "readable_inspection_sha256": "84e3ec8990e14e8aed1fa64b9aa3a7098caea0a4bfe680c02be5c15dfa8f6dd1",
+      "a_token_count": 1870,
+      "parser_sentences": 70,
+      "source_notes": "Complete account of a rural horror plot, with causal revelations and character references spanning many sentences. Sentence 12 is a source fragment without a main finite predicate; its nominal root is not by itself a parser error. Preserve the uncertainty in perceptions and apparent cures. The source is not an exemplary target-author sample.",
+      "findings": [
+        "Sentence 47 tags the main predicate dislikes (token 1071) as NOUN; sentence 62 similarly tags races (token 1449) as NOUN. Both are finite verbs in otherwise readable clauses.",
+        "Sentence 28 tags flees (token 743) as NOUN and coordinates it with corn rather than the predicate curses. This loses an action by the same subject.",
+        "Sentence 26 attaches the first independent assertion succeeds as ccomp of cure across a semicolon. Sentence 24 likewise puts grows under buried across a colon. These are separately asserted clauses, not those predicates' clausal complements.",
+        "Simple passive clauses and the explicit negation in sentence 64 have plausible displayed analyses; no general dependency-accuracy claim follows."
+      ]
+    },
+    {
+      "id": "cmu-books:26373459:b768ce14d5b2807e",
+      "text_sha256": "b768ce14d5b2807e202ef3573b68a034d4b5a4ccc243b98a59629db746f1c36e",
+      "annotation_sha256": "97bc6e0644580c7a26ef0dc2be639e14cac878bc6bc4bd080468f438ce04dd5f",
+      "readable_inspection_sha256": "5444d54fc4deb7207fee9d8579193c4bb710d20432f450b4a106e3640b29a9e7",
+      "a_token_count": 1653,
+      "parser_sentences": 65,
+      "source_notes": "Complete post-apocalyptic journey synopsis. The source contains tense errors, inconsistent capitalization/name spelling, awkward relatives and a rescue sentence whose surface subject conflicts with the likely intended victims. These are source defects, not automatically parser errors. A rewrite must not silently choose an interpretation and call it certified fidelity.",
+      "findings": [
+        "Sentence 6 promotes ends (token 124) in the initial When clause to ROOT and makes the main meets (token 126) its ccomp. The meeting is the main assertion; the shift ending supplies its time.",
+        "Sentence 47 promotes has (token 974) in the initial As clause, while the main predicate venture (token 981) is tagged NOUN and conjoined to Melnik. The source names two people who venture out.",
+        "Sentence 15 has a malformed semicolon/appositive in the source, but the ROOT is the preposition for (token 307), despite an explicit subject and finite arrives. Both the source defect and the clearly unsuitable root need retention.",
+        "Sentence 52's rescue-agent ambiguity originates in the source; do not claim its unusual coordination alone proves a new parsing defect."
+      ]
+    },
+    {
+      "id": "cmu-books:23563172:fbb39239ee9d854b",
+      "text_sha256": "fbb39239ee9d854b3a86cde957202ba1f4fa7c44eb33e7be317e51bdf173414e",
+      "annotation_sha256": "e26182998d1eab9a5dff3fe51f3ae3597c2b17a826b0a08f88e23bfa82ed50d0",
+      "readable_inspection_sha256": "a9a72ed30236f41788ba478174c05bb3d1c8536bad5fa36a8bca625927a00252",
+      "a_token_count": 1977,
+      "parser_sentences": 71,
+      "source_notes": "Complete fantasy synopsis that moves between a narrated past and present-day interludes. It includes typos, variable apostrophes, ambiguous pronoun references and long coordinate chains. Keep alternative interpretations, degrees of certainty, quoted term meanings and limits on the patronage grant when reviewing generated counterparts.",
+      "findings": [
+        "Sentence 29 tags both chases (token 594) and flee (token 600) as NOUN, although they are finite predicates of the main and temporal clauses.",
+        "Sentence 45 tags the main poisons (token 998) as NOUN while retaining kills as its verbal conjunct. The source has an explicit named subject performing both actions.",
+        "Sentence 64 tags part (token 1443) as NOUN, though the two is its subject and the following temporal clauses describe their departure.",
+        "The final interlude contains long coordination and an absolute-like accompaniment. Displayed edges need further review; this inspection does not certify all attachments or original-book factual accuracy."
+      ]
+    }
+  ],
+  "implications": [
+    "The observed noun/verb confusions affect even short, otherwise clear narrative clauses; length and complex punctuation are not sufficient explanations for every error.",
+    "Source prose quality can differ from generated prose quality. The upcoming A comparison needs that limitation and cannot equate detection gains with discovery of style-independent origin features.",
+    "The three texts belong to the six-source generation-QA pilot, outside the 71 confirmation families and both active detector fits. No generation or detector result is assessed by this review.",
+    "No parser changes or accuracy milestone follow from these observations."
+  ]
+}

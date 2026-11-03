@@ -1,0 +1,24 @@
+{
+  "detector_executable_sha256": "437a0a3dc9aa3dbc607e0d4d5f74c68e9d45442a17efff12bf34fd39677da0e2",
+  "feature_sha256": "e2ff10f9c53a81333e6227aafdda3a93b962ebb33a313e469827e91ed01aa33c",
+  "learning_rates": [
+    0.0003,
+    0.001
+  ],
+  "modes": [
+    "word",
+    "grammar",
+    "combined"
+  ],
+  "protocol_sha256": "0e1f02b6c6ab3fe533a2aa8438074d25e5b7149c05c7cabab2c4d0edfcfe5737",
+  "row_counts": {
+    "calibration": 42,
+    "development": 57,
+    "train": 291
+  },
+  "runner_executable_sha256": "47898bb4381d391093e608eaacfc0fa0185bd178c67e81d7ee0062520cb1651e",
+  "schema": "slop_ninja_linear_style_probe_v1",
+  "selection": "positive development recall in all classes and trained checkpoint, then development log loss; unrestricted winner also reported",
+  "source_commit": "6e71ae1ce386a25194b8322de7017450a04385ae",
+  "test_predictions_opened": false
+}

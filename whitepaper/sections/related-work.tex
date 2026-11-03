@@ -1,0 +1,79 @@
+\section{Related subnets, services, and research}\label{related-work}
+
+The comparisons below use project documentation and papers reviewed between
+September 9 and 17, 2026, except for Umi (SN78), whose source was reviewed on
+October 30, 2026. Subnet numbers and service descriptions are the
+projects' own claims; this survey is neither a current chain audit nor an
+independent performance evaluation.
+
+\subsection{Bittensor precedents}\label{related-subnets}
+
+It's AI describes SN32 as a human-versus-AI text-classification subnet, with
+miners answering detection requests. BitMind GAS describes detector and
+generator competition for images, video, and audio, including generation
+rewards for fooling detectors. These establish precedents for detection and
+adversarial incentives~\cite{itsai,itsaifaq,bitmindgas,gasgeneration}.
+Macrocosmos Finetuning's public model submissions provide a precedent for
+rewarding downloadable weights~\cite{finetuning}. Umi (SN78) scores hidden
+cohorts against an incumbent re-run on the same suite, pays geometric weights
+across score bands, and keeps its previous row live until a successor activates;
+the October source review found these mechanisms working, alongside
+exact runtime-version pins that held weight writes after at least one chain
+upgrade and were relaxed several times~\cite{umisn78}. Slop Ninja's \texttt{reward-v1} ports the band mechanism
+and avoids such pins. Its initial \textit{A} competition adds a shared
+origin-and-attribution contract with span outputs. Whether these choices
+improve detection remains an experimental question.
+
+\subsection{Serving and privacy}\label{related-confidential-inference}
+
+Chutes, Targon, and Privatemode document confidential-serving approaches based
+on encryption, attestation, and protected execution~\cite{chutes,chutesprivacy,
+targon,targonconfidential,privateattestation,privatecache}. Slop Ninja trusts
+Cloudflare and the coordinator to protect content.
+The later \textit{B} design seeks to keep request and response text from miners
+while keeping weights from the public. It does not promise secrecy from
+Cloudflare or the Slop Ninja operator. Provider access controls and the exact
+request path therefore need qualification; citing confidential infrastructure
+does not establish this boundary.
+
+\subsection{Existing writing services}\label{related-services}
+
+Pangram and GPTZero are relevant external origin comparators. Their output
+categories must be mapped to each test item's documented production history;
+neither agreement between detectors nor a low score establishes human
+authorship~\cite{pangramcard,gptzero}. Pangram remains the initial outside
+quality anchor. Price comparisons also require matched document sizes and
+request volumes.
+
+Grammarly's personal voice profiles, Wordtune's editorial controls, and
+QuillBot's paraphrase modes are comparators for later \textit{B} work
+~\cite{grammarlyvoice,wordtune,quillbot}. Undetectable AI advertises detector
+evasion~\cite{undetectable}. Those offerings establish product categories,
+not preservation or bypass performance on our material. Comparisons require
+the same authorized sources, briefs, and independent reader judgments.
+
+\subsection{Adoption and demand}\label{adoption-and-demand}
+
+Google's SynthID text watermarking, the Authors Guild's Human Authored
+certification, and Amazon KDP's distinction between generated and assisted
+content illustrate different approaches to origin disclosure
+~\cite{synthidtext,authorsguildhuman,amazonkdp}. Keyed watermark verification,
+production-origin inference, author attribution, and prose quality remain
+different claims. These developments motivate customer trials; they establish
+neither paid demand nor a sustainable price for Slop Ninja.
+
+\subsection{Research foundations}\label{related-research}
+
+Gero et al. use function-word frequencies and syntactic constructions for
+style control. StyleRemix supplies interpretable style axes and LoRA modules
+for authorship obfuscation~\cite{linguisticcontrols,styleremix}. PAN/ELOQUENT
+2024 joined detection with generation and obfuscation; DIPPER studied
+paraphrase attacks and retrieval-based defence~\cite{pan2024,dipper}.
+These results motivate source-family separation, evolving evaluation sets,
+and explicit preservation checks for any later rewriting service.
+
+The proposed contribution is a protocol combining published
+origin-and-attribution models, recoverable daily evaluation cohorts, a shared
+grammar, and separately activated grammar and transformation incentives. Each component has
+precedents. Neither their combination nor this survey establishes novelty,
+quality, or commercial viability without direct comparison.

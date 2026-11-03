@@ -1,0 +1,1668 @@
+{
+  "artifacts": {
+    "articles": {
+      "path": "slop_ninja/data/author-corpora/global-voices-v1/transfer-v1/articles.json",
+      "sha256": "f9df0f798bbc1d369ac4e6feac7af0b38874decfcc81511cd28e1647127ae46d"
+    },
+    "queries": {
+      "path": "slop_ninja/data/author-corpora/global-voices-v1/transfer-v1/queries.json",
+      "sha256": "707971db8e698300fef59354111582742859a9d53131e68ad08c096711e708a6"
+    },
+    "reference_profiles": {
+      "path": "slop_ninja/data/author-corpora/global-voices-v1/transfer-v1/reference-profiles.json",
+      "sha256": "81748b677e3462d92de966449018ae024f15ba16930b0ea201b96746f10bc5ec"
+    }
+  },
+  "coverage": {
+    "annotated_articles": 168,
+    "cache_hits": 0,
+    "cached_error_hits": 0,
+    "complete_full_reference_authors": 14,
+    "complete_word_reference_authors": 14,
+    "new_parser_processes": 6,
+    "newly_requested_annotations": 168,
+    "parse_errors": 0,
+    "requested_articles": 168,
+    "requested_authors": 14,
+    "requested_queries": 58,
+    "requested_references": 110
+  },
+  "decomposition": {
+    "absolute_tolerance": 1e-10,
+    "checked_query_target_seed_pairs": 2436,
+    "maximum_absolute_error": 2.842170943040401e-14
+  },
+  "full": {
+    "gallery_available": true,
+    "macro_author_seed_mean": {
+      "mrr": 0.8208427815570672,
+      "top1": 0.7380952380952381,
+      "top5": 0.9226190476190478
+    },
+    "seeds": [
+      {
+        "seed": 0,
+        "summary": {
+          "authors": [
+            {
+              "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+              "metrics": {
+                "mrr": 0.6190476190476191,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+              "metrics": {
+                "mrr": 0.8125,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/eduardo-avila/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/filip-noubel/",
+              "metrics": {
+                "mrr": 0.5370370370370371,
+                "top1": 0.3333333333333333,
+                "top5": 0.6666666666666666
+              },
+              "requested_queries": 6,
+              "scored_queries": 6
+            },
+            {
+              "author_id": "https://globalvoices.org/author/flora-thomas/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+              "metrics": {
+                "mrr": 0.5773809523809523,
+                "top1": 0.5,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/mong/",
+              "metrics": {
+                "mrr": 0.8,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+              "metrics": {
+                "mrr": 0.6875,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/psubhashish/",
+              "metrics": {
+                "mrr": 0.8333333333333334,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/rezwan/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/sydney-allen/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/umaimaahmed/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/zita-zage/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            }
+          ],
+          "macro_author": {
+            "mrr": 0.8208427815570672,
+            "top1": 0.7380952380952381,
+            "top5": 0.9226190476190477
+          },
+          "micro_query": {
+            "mrr": 0.8110563765736178,
+            "top1": 0.7241379310344828,
+            "top5": 0.9137931034482759
+          },
+          "scored_authors": 14,
+          "scored_queries": 58
+        }
+      },
+      {
+        "seed": 17,
+        "summary": {
+          "authors": [
+            {
+              "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+              "metrics": {
+                "mrr": 0.6190476190476191,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+              "metrics": {
+                "mrr": 0.8125,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/eduardo-avila/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/filip-noubel/",
+              "metrics": {
+                "mrr": 0.5370370370370371,
+                "top1": 0.3333333333333333,
+                "top5": 0.6666666666666666
+              },
+              "requested_queries": 6,
+              "scored_queries": 6
+            },
+            {
+              "author_id": "https://globalvoices.org/author/flora-thomas/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+              "metrics": {
+                "mrr": 0.5773809523809523,
+                "top1": 0.5,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/mong/",
+              "metrics": {
+                "mrr": 0.8,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+              "metrics": {
+                "mrr": 0.6875,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/psubhashish/",
+              "metrics": {
+                "mrr": 0.8333333333333334,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/rezwan/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/sydney-allen/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/umaimaahmed/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/zita-zage/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            }
+          ],
+          "macro_author": {
+            "mrr": 0.8208427815570672,
+            "top1": 0.7380952380952381,
+            "top5": 0.9226190476190477
+          },
+          "micro_query": {
+            "mrr": 0.8110563765736178,
+            "top1": 0.7241379310344828,
+            "top5": 0.9137931034482759
+          },
+          "scored_authors": 14,
+          "scored_queries": 58
+        }
+      },
+      {
+        "seed": 29,
+        "summary": {
+          "authors": [
+            {
+              "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+              "metrics": {
+                "mrr": 0.6190476190476191,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+              "metrics": {
+                "mrr": 0.8125,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/eduardo-avila/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/filip-noubel/",
+              "metrics": {
+                "mrr": 0.5370370370370371,
+                "top1": 0.3333333333333333,
+                "top5": 0.6666666666666666
+              },
+              "requested_queries": 6,
+              "scored_queries": 6
+            },
+            {
+              "author_id": "https://globalvoices.org/author/flora-thomas/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+              "metrics": {
+                "mrr": 0.5773809523809523,
+                "top1": 0.5,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/mong/",
+              "metrics": {
+                "mrr": 0.8,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+              "metrics": {
+                "mrr": 0.6875,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/psubhashish/",
+              "metrics": {
+                "mrr": 0.8333333333333334,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/rezwan/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/sydney-allen/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/umaimaahmed/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/zita-zage/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            }
+          ],
+          "macro_author": {
+            "mrr": 0.8208427815570672,
+            "top1": 0.7380952380952381,
+            "top5": 0.9226190476190477
+          },
+          "micro_query": {
+            "mrr": 0.8110563765736178,
+            "top1": 0.7241379310344828,
+            "top5": 0.9137931034482759
+          },
+          "scored_authors": 14,
+          "scored_queries": 58
+        }
+      }
+    ]
+  },
+  "grammar_family_only": {
+    "gallery_available": true,
+    "macro_author_seed_mean": {
+      "mrr": 0.5693172568172568,
+      "top1": 0.3988095238095237,
+      "top5": 0.8035714285714285
+    },
+    "seeds": [
+      {
+        "seed": 0,
+        "summary": {
+          "authors": [
+            {
+              "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+              "metrics": {
+                "mrr": 0.425,
+                "top1": 0.25,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+              "metrics": {
+                "mrr": 0.2986111111111111,
+                "top1": 0.0,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/eduardo-avila/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/filip-noubel/",
+              "metrics": {
+                "mrr": 0.30128205128205127,
+                "top1": 0.16666666666666666,
+                "top5": 0.3333333333333333
+              },
+              "requested_queries": 6,
+              "scored_queries": 6
+            },
+            {
+              "author_id": "https://globalvoices.org/author/flora-thomas/",
+              "metrics": {
+                "mrr": 0.5902777777777778,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+              "metrics": {
+                "mrr": 0.4444444444444445,
+                "top1": 0.25,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/mong/",
+              "metrics": {
+                "mrr": 0.7083333333333333,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+              "metrics": {
+                "mrr": 0.3194444444444444,
+                "top1": 0.0,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/psubhashish/",
+              "metrics": {
+                "mrr": 0.19423076923076923,
+                "top1": 0.0,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/rezwan/",
+              "metrics": {
+                "mrr": 0.7083333333333334,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/sydney-allen/",
+              "metrics": {
+                "mrr": 0.8333333333333334,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/umaimaahmed/",
+              "metrics": {
+                "mrr": 0.575,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/zita-zage/",
+              "metrics": {
+                "mrr": 0.75,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            }
+          ],
+          "macro_author": {
+            "mrr": 0.5730921855921854,
+            "top1": 0.4047619047619047,
+            "top5": 0.8095238095238095
+          },
+          "micro_query": {
+            "mrr": 0.563719422340112,
+            "top1": 0.39655172413793105,
+            "top5": 0.7931034482758621
+          },
+          "scored_authors": 14,
+          "scored_queries": 58
+        }
+      },
+      {
+        "seed": 17,
+        "summary": {
+          "authors": [
+            {
+              "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+              "metrics": {
+                "mrr": 0.425,
+                "top1": 0.25,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+              "metrics": {
+                "mrr": 0.297008547008547,
+                "top1": 0.0,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/eduardo-avila/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/filip-noubel/",
+              "metrics": {
+                "mrr": 0.30128205128205127,
+                "top1": 0.16666666666666666,
+                "top5": 0.3333333333333333
+              },
+              "requested_queries": 6,
+              "scored_queries": 6
+            },
+            {
+              "author_id": "https://globalvoices.org/author/flora-thomas/",
+              "metrics": {
+                "mrr": 0.5902777777777778,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+              "metrics": {
+                "mrr": 0.4027777777777778,
+                "top1": 0.25,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/mong/",
+              "metrics": {
+                "mrr": 0.7083333333333333,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+              "metrics": {
+                "mrr": 0.2986111111111111,
+                "top1": 0.0,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/psubhashish/",
+              "metrics": {
+                "mrr": 0.22756410256410253,
+                "top1": 0.0,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/rezwan/",
+              "metrics": {
+                "mrr": 0.7083333333333334,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/sydney-allen/",
+              "metrics": {
+                "mrr": 0.8333333333333334,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/umaimaahmed/",
+              "metrics": {
+                "mrr": 0.4527777777777778,
+                "top1": 0.25,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/zita-zage/",
+              "metrics": {
+                "mrr": 0.75,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            }
+          ],
+          "macro_author": {
+            "mrr": 0.5621642246642246,
+            "top1": 0.38690476190476186,
+            "top5": 0.8095238095238095
+          },
+          "micro_query": {
+            "mrr": 0.5531682876510463,
+            "top1": 0.3793103448275862,
+            "top5": 0.7931034482758621
+          },
+          "scored_authors": 14,
+          "scored_queries": 58
+        }
+      },
+      {
+        "seed": 29,
+        "summary": {
+          "authors": [
+            {
+              "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+              "metrics": {
+                "mrr": 0.425,
+                "top1": 0.25,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+              "metrics": {
+                "mrr": 0.2986111111111111,
+                "top1": 0.0,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/eduardo-avila/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/filip-noubel/",
+              "metrics": {
+                "mrr": 0.30128205128205127,
+                "top1": 0.16666666666666666,
+                "top5": 0.3333333333333333
+              },
+              "requested_queries": 6,
+              "scored_queries": 6
+            },
+            {
+              "author_id": "https://globalvoices.org/author/flora-thomas/",
+              "metrics": {
+                "mrr": 0.5902777777777778,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+              "metrics": {
+                "mrr": 0.4444444444444445,
+                "top1": 0.25,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/mong/",
+              "metrics": {
+                "mrr": 0.7083333333333333,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+              "metrics": {
+                "mrr": 0.3194444444444444,
+                "top1": 0.0,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/psubhashish/",
+              "metrics": {
+                "mrr": 0.1858974358974359,
+                "top1": 0.0,
+                "top5": 0.5
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/rezwan/",
+              "metrics": {
+                "mrr": 0.7083333333333334,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/sydney-allen/",
+              "metrics": {
+                "mrr": 0.8333333333333334,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/umaimaahmed/",
+              "metrics": {
+                "mrr": 0.5777777777777777,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/zita-zage/",
+              "metrics": {
+                "mrr": 0.75,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            }
+          ],
+          "macro_author": {
+            "mrr": 0.5726953601953602,
+            "top1": 0.4047619047619047,
+            "top5": 0.7916666666666667
+          },
+          "micro_query": {
+            "mrr": 0.5633362805776598,
+            "top1": 0.39655172413793105,
+            "top5": 0.7758620689655172
+          },
+          "scored_authors": 14,
+          "scored_queries": 58
+        }
+      }
+    ]
+  },
+  "lexical_family_only": {
+    "gallery_available": true,
+    "macro_author_seed_mean": {
+      "mrr": 0.84551917989418,
+      "top1": 0.7797619047619048,
+      "top5": 0.9384920634920634
+    },
+    "seeds": [
+      {
+        "seed": 0,
+        "summary": {
+          "authors": [
+            {
+              "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+              "metrics": {
+                "mrr": 0.6145833333333334,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+              "metrics": {
+                "mrr": 0.8125,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/eduardo-avila/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/filip-noubel/",
+              "metrics": {
+                "mrr": 0.7333333333333334,
+                "top1": 0.6666666666666666,
+                "top5": 1.0
+              },
+              "requested_queries": 6,
+              "scored_queries": 6
+            },
+            {
+              "author_id": "https://globalvoices.org/author/flora-thomas/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+              "metrics": {
+                "mrr": 0.6041666666666666,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/mong/",
+              "metrics": {
+                "mrr": 0.6666666666666666,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+              "metrics": {
+                "mrr": 0.6458333333333333,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/psubhashish/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/rezwan/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/sydney-allen/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/umaimaahmed/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/zita-zage/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            }
+          ],
+          "macro_author": {
+            "mrr": 0.8447916666666667,
+            "top1": 0.7797619047619048,
+            "top5": 0.9464285714285714
+          },
+          "micro_query": {
+            "mrr": 0.840948275862069,
+            "top1": 0.7758620689655172,
+            "top5": 0.9482758620689655
+          },
+          "scored_authors": 14,
+          "scored_queries": 58
+        }
+      },
+      {
+        "seed": 17,
+        "summary": {
+          "authors": [
+            {
+              "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+              "metrics": {
+                "mrr": 0.6145833333333334,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+              "metrics": {
+                "mrr": 0.8125,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/eduardo-avila/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/filip-noubel/",
+              "metrics": {
+                "mrr": 0.7277777777777779,
+                "top1": 0.6666666666666666,
+                "top5": 0.8333333333333334
+              },
+              "requested_queries": 6,
+              "scored_queries": 6
+            },
+            {
+              "author_id": "https://globalvoices.org/author/flora-thomas/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+              "metrics": {
+                "mrr": 0.6041666666666666,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/mong/",
+              "metrics": {
+                "mrr": 0.6666666666666666,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+              "metrics": {
+                "mrr": 0.6666666666666666,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/psubhashish/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/rezwan/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/sydney-allen/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/umaimaahmed/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/zita-zage/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            }
+          ],
+          "macro_author": {
+            "mrr": 0.8458829365079367,
+            "top1": 0.7797619047619048,
+            "top5": 0.9345238095238094
+          },
+          "micro_query": {
+            "mrr": 0.8418103448275861,
+            "top1": 0.7758620689655172,
+            "top5": 0.9310344827586207
+          },
+          "scored_authors": 14,
+          "scored_queries": 58
+        }
+      },
+      {
+        "seed": 29,
+        "summary": {
+          "authors": [
+            {
+              "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+              "metrics": {
+                "mrr": 0.6145833333333334,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+              "metrics": {
+                "mrr": 0.8125,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/eduardo-avila/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/filip-noubel/",
+              "metrics": {
+                "mrr": 0.7277777777777779,
+                "top1": 0.6666666666666666,
+                "top5": 0.8333333333333334
+              },
+              "requested_queries": 6,
+              "scored_queries": 6
+            },
+            {
+              "author_id": "https://globalvoices.org/author/flora-thomas/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+              "metrics": {
+                "mrr": 0.6041666666666666,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/mong/",
+              "metrics": {
+                "mrr": 0.6666666666666666,
+                "top1": 0.5,
+                "top5": 0.75
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+              "metrics": {
+                "mrr": 0.6666666666666666,
+                "top1": 0.5,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/psubhashish/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/rezwan/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/sydney-allen/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/umaimaahmed/",
+              "metrics": {
+                "mrr": 1.0,
+                "top1": 1.0,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            },
+            {
+              "author_id": "https://globalvoices.org/author/zita-zage/",
+              "metrics": {
+                "mrr": 0.875,
+                "top1": 0.75,
+                "top5": 1.0
+              },
+              "requested_queries": 4,
+              "scored_queries": 4
+            }
+          ],
+          "macro_author": {
+            "mrr": 0.8458829365079367,
+            "top1": 0.7797619047619048,
+            "top5": 0.9345238095238094
+          },
+          "micro_query": {
+            "mrr": 0.8418103448275861,
+            "top1": 0.7758620689655172,
+            "top5": 0.9310344827586207
+          },
+          "scored_authors": 14,
+          "scored_queries": 58
+        }
+      }
+    ]
+  },
+  "limits": [
+    "Frozen Blog-trained weights transferred without fitting; this is a separate corpus and gallery.",
+    "Input provenance/bylines and cross-work near-duplicate control require external collection review; only exact and whitespace-normalized duplicates are checked here.",
+    "Query metrics condition on available queries; null author rows and every requested input are retained.",
+    "No human authorship, AI-origin, meaning preservation, or writing quality conclusion follows from retrieval.",
+    "Unigram-only Hellinger is an untrained control; its available-query support must be compared explicitly with full-model support."
+  ],
+  "optimizer_steps": 0,
+  "plan": {
+    "path": "slop_ninja/data/author-corpora/global-voices-v1/transfer-v1/plan.json",
+    "sha256": "297e881ef1744bd2afab58b6ab97a1f31c81df64487056a3445c902a10da0468"
+  },
+  "schema": "slopninja-author-transfer-result-v1",
+  "word_only": {
+    "gallery_available": true,
+    "summary": {
+      "authors": [
+        {
+          "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+          "metrics": {
+            "mrr": 1.0,
+            "top1": 1.0,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+          "metrics": {
+            "mrr": 0.6190476190476191,
+            "top1": 0.5,
+            "top5": 0.75
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+          "metrics": {
+            "mrr": 0.8125,
+            "top1": 0.75,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/eduardo-avila/",
+          "metrics": {
+            "mrr": 1.0,
+            "top1": 1.0,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/filip-noubel/",
+          "metrics": {
+            "mrr": 0.5069444444444444,
+            "top1": 0.3333333333333333,
+            "top5": 0.6666666666666666
+          },
+          "requested_queries": 6,
+          "scored_queries": 6
+        },
+        {
+          "author_id": "https://globalvoices.org/author/flora-thomas/",
+          "metrics": {
+            "mrr": 1.0,
+            "top1": 1.0,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+          "metrics": {
+            "mrr": 0.5982142857142857,
+            "top1": 0.5,
+            "top5": 0.75
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/mong/",
+          "metrics": {
+            "mrr": 0.6607142857142857,
+            "top1": 0.5,
+            "top5": 0.75
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+          "metrics": {
+            "mrr": 0.5416666666666666,
+            "top1": 0.25,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/psubhashish/",
+          "metrics": {
+            "mrr": 0.875,
+            "top1": 0.75,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/rezwan/",
+          "metrics": {
+            "mrr": 0.875,
+            "top1": 0.75,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/sydney-allen/",
+          "metrics": {
+            "mrr": 0.875,
+            "top1": 0.75,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/umaimaahmed/",
+          "metrics": {
+            "mrr": 1.0,
+            "top1": 1.0,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        },
+        {
+          "author_id": "https://globalvoices.org/author/zita-zage/",
+          "metrics": {
+            "mrr": 1.0,
+            "top1": 1.0,
+            "top5": 1.0
+          },
+          "requested_queries": 4,
+          "scored_queries": 4
+        }
+      ],
+      "macro_author": {
+        "mrr": 0.8117205215419501,
+        "top1": 0.7202380952380952,
+        "top5": 0.9226190476190477
+      },
+      "micro_query": {
+        "mrr": 0.801211001642036,
+        "top1": 0.7068965517241379,
+        "top5": 0.9137931034482759
+      },
+      "scored_authors": 14,
+      "scored_queries": 58
+    }
+  }
+}

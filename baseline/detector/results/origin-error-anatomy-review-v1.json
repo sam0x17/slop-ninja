@@ -1,0 +1,74 @@
+{
+  "schema": "slop_ninja_origin_error_anatomy_review_v1",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "selection": "Five largest consistency-minus-V6 human log-loss increases in origin-error-anatomy-v1.json, selected before the full-text review.",
+  "read_scope": "All five scored texts in full and their stored source/evidence metadata, read from the frozen corpus on the Studio. No live historical archive audit was performed in this review.",
+  "training_admission": false,
+  "labels_changed": false,
+  "rows_removed": false,
+  "causal_feature_attribution": false,
+  "reviewed": [
+    {
+      "id": "wikinews:193342:4580640:01b6e22f648cec98",
+      "text_sha256": "01b6e22f648cec984705c1b3cb01ca08457fc2bcb5caa2a1d4a2d7d82a651e01",
+      "full_text_read": true,
+      "evidence": "historical_proxy",
+      "stored_revision_date": "2020-08-28T23:28:29Z",
+      "observations": [
+        "The prose attributes allegations to government and law-enforcement sources and describes charges, objectives and communication methods.",
+        "The opening refers to previously identified arrested people. The final paragraph explains a bullet list that is absent from the scored extract.",
+        "The extract is readable news prose with incomplete surrounding context. Missing context is a source-view concern; it does not by itself establish an incorrect origin label or explain the detector error."
+      ]
+    },
+    {
+      "id": "cmu-books:4634547:644376d0b9424367",
+      "text_sha256": "644376d0b9424367246dd5bfdec2c78e5983fae80e34374977dda7bebf07d7d0",
+      "full_text_read": true,
+      "evidence": "historical_proxy",
+      "stored_revision_date": "2012-06-16T16:32:56Z",
+      "observations": [
+        "A short narrative synopsis follows an attack survivor and then introduces a second character before describing the eventual convergence.",
+        "The closing evaluates the conclusion for its emotional effect without disclosing it. I read this as promotional synopsis register.",
+        "Formulaic promotional phrasing can occur in historical human prose; its presence does not justify relabeling this record."
+      ]
+    },
+    {
+      "id": "cmu-books:23096195:8417004846e9c42b",
+      "text_sha256": "8417004846e9c42bcda0cdd0c65f31d4a1532c40d1e83eca1e9dc1449de23f44",
+      "full_text_read": true,
+      "evidence": "historical_proxy",
+      "stored_revision_date": "2012-09-06T13:29:38Z",
+      "observations": [
+        "The narrative introduces a graduate student, a family house and discoveries that connect her to historical witch trials.",
+        "Suspenseful language and promises of hidden significance give it a promotional register.",
+        "The final comparison uses then where than is expected and includes spacing before the period. These are visible source defects, not proof of human authorship or a demonstrated cause of the score."
+      ]
+    },
+    {
+      "id": "cmu-books:11423191:8f2a894cfe0a1c3e",
+      "text_sha256": "8f2a894cfe0a1c3e3ef148b98e94f9ba65c38953dea25900a90d376b1e75fb11",
+      "full_text_read": true,
+      "evidence": "historical_proxy",
+      "stored_revision_date": "2012-11-01T00:54:50Z",
+      "observations": [
+        "A detailed plot account follows academic pressure, hospitalization, relationships, recovery and the narrator's final intentions.",
+        "It repeatedly names the protagonist and includes appositive descriptions, subordinate clauses and lists.",
+        "Unlike the two earlier promotional summaries, it discloses the resolution. The four selected summaries should not all be assigned an identical promotional subtype."
+      ]
+    },
+    {
+      "id": "cmu-books:4910784:34923ec271c31b61",
+      "text_sha256": "34923ec271c31b61e87dc270a4524d0eabe1e10fa807b215dc1908690267faab",
+      "full_text_read": true,
+      "evidence": "historical_proxy",
+      "stored_revision_date": "2012-07-05T20:01:07Z",
+      "observations": [
+        "The synopsis distinguishes two escaped creatures, introduces a second human protagonist and enumerates several sources of danger.",
+        "Participant descriptions use appositives and relative clauses; the final sentence combines multiple pursuit relationships.",
+        "It is intelligible narrative prose. This reading alone cannot determine which lexical or grammatical choices affected the score."
+      ]
+    }
+  ],
+  "limits": "Adaptive inspection of known Test examples. Historical provenance is weak human supervision. Stored book metadata does not identify the summary writer. No new origin gold label, parse-accuracy assessment, fresh confirmation, training admission or causal feature claim follows."
+}

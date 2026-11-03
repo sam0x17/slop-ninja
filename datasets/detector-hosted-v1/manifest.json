@@ -1,0 +1,58 @@
+{
+  "all_source_attribution_and_licenses_retained": true,
+  "all_text_and_request_hashes_checked": true,
+  "commercial_training_admitted": false,
+  "cumulative_train_annotated_texts": 471,
+  "cumulative_train_annotation_source_families": 133,
+  "data_files_bytes": 1989992,
+  "files": {
+    "capture-audit.json": {
+      "bytes": 3515,
+      "sha256": "c3e6ad49324a3f5af93f3c05f232b9ea764aadbd9b77f5bc812ea1172c22c7e5"
+    },
+    "requests.jsonl": {
+      "bytes": 1165820,
+      "sha256": "b046b69d96ce86722339e9f9633f61a328b846881da8ef267a04f04236976933"
+    },
+    "reviews.jsonl": {
+      "bytes": 729794,
+      "sha256": "a20b5987dc6d098efd0b5403d7de139cb3c996d897396e05aba7aa5fc5779a40"
+    },
+    "source-records.jsonl": {
+      "bytes": 90863,
+      "sha256": "110c8a9e8c9aa5990624c4988f55ef7bf7a7b1fd50e379bf47c92a5e2be8239f"
+    }
+  },
+  "generated_prose_bytes": 129060,
+  "generated_texts": 96,
+  "generated_whitespace_words": 19562,
+  "generator": "package.rs on Mac Studio; request JSON fields reserialized with original UTF-8 archived alongside for byte verification; reviews unmodified; select referenced human roots",
+  "models": {
+    "gpt-5.6-sol": 24,
+    "gpt-6-astra": 24,
+    "opus": 24,
+    "sonnet": 24
+  },
+  "new_annotation_family_overlap": 0,
+  "new_annotation_text_overlap": 0,
+  "old_train_annotations": {
+    "sha256": "b236599d1f9aa8283e16a5891d8f6a4f8535de6040a6b44189fc9136e401daee",
+    "source_families": 109,
+    "texts": 375
+  },
+  "original_72_seed_records_sha256": "a956aad4715d76975ec8e884475d8c396d44af3e490cc257902c5571410c3ddf",
+  "original_capture_reviews_sha256": "a20b5987dc6d098efd0b5403d7de139cb3c996d897396e05aba7aa5fc5779a40",
+  "pangram_per_text_annotations_included": false,
+  "profiles": {
+    "anti-ai": 16,
+    "direct": 16,
+    "fix-slop": 16,
+    "informal": 16,
+    "plain": 16,
+    "source-matched": 16
+  },
+  "published_at": "2026-09-12",
+  "schema": "slop_ninja_hosted_publication_v1",
+  "source_families": 24,
+  "supporting_human_roots": 24
+}

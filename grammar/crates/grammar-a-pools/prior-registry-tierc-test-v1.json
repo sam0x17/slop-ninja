@@ -1,0 +1,239 @@
+{
+  "schema": "slop_ninja_a_pool_prior_registry_v1",
+  "description": "Sealed-Test successor tierc-test-v1 (2026-10-29, branch a-comp-tierc-w1): every data4-v1 entry (prior snapshots, the base, v3 and blog Train-side pools including held rows, and every acquired Dev-iter, Dev-select and CAL candidate of all reservations; no amendment-2 evaluation split was ever acquired), plus what splits-v4/ACQUISITION.json test_acquisition_instructions require: the integ4 more-humans pool (integ4/dedup-v1/admitted.jsonl, 23 Train-side pools with held and evaluation-only rows) and the splits-v4 Train side (train and train-mining documents), plus the splits-v5 Train side, plus the rows of the scored release trainer bundle 18b3682973982a3f-rc, which hold the 10,549 RAID Train rows of the RAID acquisition screen (S3) and every other Train row of the release. Test candidates of all 18 domains are deduplicated together against this one index.",
+  "entries": [
+    {
+      "label": "published_datasets",
+      "scope": "published_snapshots_all_splits",
+      "path": "datasets",
+      "names": [
+        "*.jsonl.zst",
+        "*.json.zst",
+        "*.json"
+      ],
+      "exclude_names": [
+        "compression-manifest.json"
+      ]
+    },
+    {
+      "label": "stage1_a_baseline",
+      "scope": "stage1_populations_and_sources",
+      "path": "data/grammar-private/a-baseline-20261026",
+      "names": [
+        "*.jsonl",
+        "*.jsonl.zst",
+        "*.json",
+        "*.json.zst",
+        "pg*.txt"
+      ],
+      "exclude_dirs": [
+        "venv",
+        "worktree",
+        "*-target",
+        "target",
+        "paper-tools",
+        "paper",
+        "cache",
+        "fallback-measure-*",
+        "numeric*",
+        "export",
+        "export-*"
+      ],
+      "exclude_names": [
+        "*.windows.jsonl",
+        "*.receipt.json",
+        "*.transfer.json",
+        "*.headers",
+        "*.started-utc.txt"
+      ]
+    },
+    {
+      "label": "stage1_exports_prepared_rows",
+      "scope": "stage1_populations_and_sources",
+      "path": "data/grammar-private/a-baseline-20261026/export-v2/prepared/rows.jsonl"
+    },
+    {
+      "label": "stage2_parity",
+      "scope": "stage2_populations_including_consumed_final_test",
+      "path": "data/grammar-private/a-parity-stage2-20261026",
+      "names": [
+        "*.jsonl",
+        "*.jsonl.zst",
+        "*.json",
+        "*.json.zst",
+        "*.body"
+      ],
+      "exclude_dirs": [
+        "venv",
+        "worktree",
+        "*-target",
+        "target",
+        "runtime",
+        "paper",
+        "paper-v*",
+        "export-*",
+        "numeric*",
+        "embedding*",
+        "embeddings*",
+        "prefixes*",
+        "fit-curve-*",
+        "fits",
+        "rust-a",
+        "rust-v6",
+        "history"
+      ],
+      "exclude_names": [
+        "*.windows.jsonl",
+        "*.receipt.json"
+      ]
+    },
+    {
+      "label": "stage3_encoder",
+      "scope": "stage3_populations_including_consumed_final_test_style_and_cfg_archive_records",
+      "path": "data/grammar-private/a-encoder-stage3-20261026",
+      "names": [
+        "*.jsonl",
+        "*.jsonl.zst",
+        "*.json",
+        "*.json.zst",
+        "*.body"
+      ],
+      "exclude_dirs": [
+        "runtime-venv",
+        "r2-storage-v1",
+        "cfg-vectors-v1",
+        "parses",
+        "blobs",
+        "files",
+        "receipts",
+        "prefixes-v1",
+        "retained-train-prefixes-v1",
+        "catalog-inventory-v1",
+        "build-v*",
+        "rust-build-v*",
+        "replay-build-v*",
+        "assembly-build-v*",
+        "fit-prepare-build-v*",
+        "numerical-*",
+        "paper",
+        "paper-v*",
+        "export-*",
+        "export"
+      ],
+      "exclude_names": [
+        "*.windows.jsonl",
+        "*.receipt.json",
+        "profile.json",
+        "format.json"
+      ]
+    },
+    {
+      "label": "stage3_style_export_v1",
+      "scope": "style_exports",
+      "path": "data/grammar-private/a-encoder-stage3-20261026/style-corpus-v1/export-v1/records.jsonl"
+    },
+    {
+      "label": "stage3_style_export_v2",
+      "scope": "style_exports",
+      "path": "data/grammar-private/a-encoder-stage3-20261026/style-corpus-v1/export-v2/records.jsonl"
+    },
+    {
+      "label": "stage3_cfg_archive_records",
+      "scope": "cfg_archive",
+      "path": "data/grammar-private/a-encoder-stage3-20261026/cfg-archive-v1/records",
+      "names": [
+        "*.json.zst"
+      ]
+    },
+    {
+      "label": "a_competitive_train_side_pool_v2",
+      "scope": "train_side_pool_including_train_train_mining_and_held",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools-v2/dedup-v2/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_dev_iter_admitted",
+      "scope": "earlier_evaluation_split_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans/work/dedup/dev-iter/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_dev_select_admitted",
+      "scope": "earlier_evaluation_split_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans/work/dedup/dev-select/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_cal_admitted",
+      "scope": "earlier_evaluation_split_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans/work/dedup/cal/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_new_train_side_pool_v3",
+      "scope": "train_side_pool_including_train_train_mining_and_held",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/admitted-v3/dedup-v1/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_new_domain_dev_iter_admitted",
+      "scope": "earlier_evaluation_split_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-v2/work/dedup/dev-iter/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_new_domain_dev_select_admitted",
+      "scope": "earlier_evaluation_split_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-v2/work/dedup/dev-select/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_new_domain_cal_admitted",
+      "scope": "earlier_evaluation_split_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-v2/work/dedup/cal/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_fineweb_blogs_pool_v1",
+      "scope": "train_side_pool_including_train_train_mining_and_held",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/fineweb-blogs/dedup-v1/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_plos_blogs_candidates",
+      "scope": "train_side_pool_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/plos-blogs",
+      "names": [
+        "candidates.jsonl"
+      ],
+      "exclude_dirs": [
+        "raw",
+        "jobs",
+        "logs"
+      ]
+    },
+    {
+      "label": "a_competitive_more_humans_pool_v4",
+      "scope": "train_side_pool_including_train_train_mining_held_and_evaluation_only_rows",
+      "path": "data/grammar-private/a-competitive-20261027/data/integ4/dedup-v1/admitted.jsonl"
+    },
+    {
+      "label": "a_competitive_splits_v4_train",
+      "scope": "train_side_split_text",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v4/train/documents.jsonl"
+    },
+    {
+      "label": "a_competitive_splits_v4_train_mining",
+      "scope": "train_side_split_text",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v4/train-mining/documents.jsonl"
+    },
+    {
+      "label": "a_competitive_splits_v5_train",
+      "scope": "train_side_split_text",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/train/documents.jsonl"
+    },
+    {
+      "label": "a_competitive_splits_v5_train_mining",
+      "scope": "train_side_split_text",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/train-mining/documents.jsonl"
+    },
+    {
+      "label": "a_competitive_release_trainer_bundle_rows",
+      "scope": "scored_release_bundle_rows_including_raid_train_rows",
+      "path": "data/grammar-private/a-competitive-20261027/baseline-release/trainer-bundles/18b3682973982a3f-rc/rows.jsonl"
+    }
+  ],
+  "registry_version": "tierc-test-v1",
+  "supersedes": "prior-registry-data4-v1.json"
+}

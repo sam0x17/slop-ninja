@@ -1,0 +1,17 @@
+{
+  "schema":"slop_ninja_voice_probes_review_v1",
+  "reviewer":"Codex assistant; not independent human gold",
+  "full_human_roots_read":3,
+  "full_model_parents_read":3,
+  "full_candidates_read":3,
+  "new_scores_seen":false,
+  "previous_parent_scores_known":true,
+  "scope":"Compare each edit with its immediate model parent. All three parents retain previously documented factual omissions, additions or strengthening against their human roots. This review does not approve those older changes.",
+  "cases":[
+    {"id":"000","judgment":"admissible","meaning_preserved":true,"tone_preserved":true,"notes":"Economic hardship remains the cause, Nat the affected person, and the present-tense necessity covers leaving school and beginning the same indenture. The chandler description stays attached to the same phrase. Subject case changes from him to He are required by the recast. The narrative focus and reading difficulty remain comparable; the additional He opening is a minor cadence change."},
+    {"id":"001","judgment":"admissible","meaning_preserved":true,"tone_preserved":true,"notes":"The conditional design context, can modality, effectiveness claim, missing/unimplemented distinction and testing procedure survive. Both parent and candidate are dense technical sentences; the recast remains grammatical and comparably readable in context. It does not correct the parent's earlier strengthening of assessment to effective uncovering."},
+    {"id":"002","judgment":"quality_concern","meaning_preserved":true,"tone_preserved":true,"notes":"The same preliminary observations indicate the same potential correlation, with the caveat requiring further investigation retained. The original parent already introduced lower chick survival as the correlation direction. The recast preserves this claim, but its long fronted subject delays the predicate and is harder to process than the parent. Keep it separate from accepted editing results even if A decreases."}
+  ],
+  "retry_or_replacement_allowed":false,
+  "training_admission":false
+}

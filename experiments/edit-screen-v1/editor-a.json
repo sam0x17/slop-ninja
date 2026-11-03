@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "editor": "a",
+  "frozen_before_detector_scoring": true,
+  "scope": "train only",
+  "design": "Every candidate is applied independently to the unchanged model document. Two one-word substitutions and two one-sentence structural edits per document.",
+  "documents": [
+    {
+      "corpus": "codex-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0179877",
+      "baseline_sha256": "85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab",
+      "candidates": [
+        {
+          "id": "a-bvd-word-main",
+          "kind": "word",
+          "old": "principal",
+          "new": "main",
+          "occurrence": 1,
+          "rationale": "Test a common synonym in a fixed description of the analytical method.",
+          "preservation_notes": "Content analysis retains the same primary status; the cross-sectional independent measures design is unchanged."
+        },
+        {
+          "id": "a-bvd-word-still",
+          "kind": "word",
+          "old": "Nevertheless",
+          "new": "Still",
+          "occurrence": 1,
+          "rationale": "Test a shorter contrast marker while leaving the ranking-versus-behaviour claim intact.",
+          "preservation_notes": "Retains the contrast with the previous finding and the qualification did not appear; it does not assert that the rankings definitively failed to correspond."
+        },
+        {
+          "id": "a-bvd-structure-variables",
+          "kind": "sentence",
+          "old": "Farmer-level variables examined included the specific BVD control measures adopted, livestock disease priorities, reasons for scheme membership, wider knowledge acquisition, biosecurity practices and training course attendance.",
+          "new": "The study examined farmer-level variables including the specific BVD control measures adopted, livestock disease priorities, reasons for scheme membership, wider knowledge acquisition, biosecurity practices and training course attendance.",
+          "occurrence": 1,
+          "rationale": "Make examined the main verb, replacing the reduced relative clause before included.",
+          "preservation_notes": "Preserves farmer-level scope, the nonexhaustive including construction, every listed variable and the same study as the implied investigator; no first-person voice is introduced."
+        },
+        {
+          "id": "a-bvd-structure-concession",
+          "kind": "sentence",
+          "old": "The findings therefore indicate that disease control efforts, although necessary, are insufficient on their own.",
+          "new": "The findings therefore indicate that disease control efforts are insufficient on their own, although they are necessary.",
+          "occurrence": 1,
+          "rationale": "Move the concession out of the subject-predicate span, so the main conclusion is read continuously.",
+          "preservation_notes": "Preserves the evidential verb indicate, inferential therefore, necessity of disease control and its insufficiency when used alone."
+        }
+      ]
+    },
+    {
+      "corpus": "codex-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "baseline_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b",
+      "candidates": [
+        {
+          "id": "a-ecotourism-word-enough",
+          "kind": "word",
+          "old": "sufficient",
+          "new": "enough",
+          "occurrence": 1,
+          "rationale": "Test a common determiner in place of a formal adjective while keeping the sentence structure fixed.",
+          "preservation_notes": "Both forms require the same adequacy of evidence; the criticism, uncertainty, threat reduction and biodiversity outcomes remain unchanged."
+        },
+        {
+          "id": "a-ecotourism-word-usefulness",
+          "kind": "word",
+          "old": "utility",
+          "new": "usefulness",
+          "occurrence": 1,
+          "rationale": "Test an ordinary synonym for an abstract noun without changing its grammatical role.",
+          "preservation_notes": "The same approach remains under discussion, with the same purpose of protecting very rare species; no effectiveness claim is added."
+        },
+        {
+          "id": "a-ecotourism-structure-reduced-relative",
+          "kind": "sentence",
+          "old": "Projects that adopt this strategy are frequently criticized for failing to provide sufficient evidence that they have reduced threats or improved the status of the biodiversity they seek to protect.",
+          "new": "Projects adopting this strategy are frequently criticized for failing to provide sufficient evidence that they have reduced threats or improved the status of the biodiversity they seek to protect.",
+          "occurrence": 1,
+          "rationale": "Reduce the opening relative clause to a participial modifier; leave the evidence clause and every outcome unchanged.",
+          "preservation_notes": "The same projects remain the subject. Frequency of criticism, sufficiency of evidence, alternative conservation outcomes and intended protection are preserved."
+        },
+        {
+          "id": "a-ecotourism-structure-monitoring",
+          "kind": "sentence",
+          "old": "Over four years, we conducted monitoring guided by a theory of change to evaluate assumptions about the links between intermediate results and biological outcomes.",
+          "new": "Guided by a theory of change, we monitored for four years to evaluate assumptions about the links between intermediate results and biological outcomes.",
+          "occurrence": 1,
+          "rationale": "Use the verb monitored directly and move its methodological qualification to the front.",
+          "preservation_notes": "Preserves the authors as actors, four-year duration, theory-of-change guidance, evaluative purpose, assumptions and both levels of outcomes."
+        }
+      ]
+    },
+    {
+      "corpus": "codex-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "baseline_sha256": "a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7",
+      "candidates": [
+        {
+          "id": "a-sierra-word-remain",
+          "kind": "word",
+          "old": "persist",
+          "new": "remain",
+          "occurrence": 1,
+          "rationale": "Test a common continuation verb without changing the claim about rural-urban inequalities.",
+          "preservation_notes": "Both variants assert continuing inequalities in access to and use of health facilities; neither changes their scope or magnitude."
+        },
+        {
+          "id": "a-sierra-word-sufficient",
+          "kind": "word",
+          "old": "adequate",
+          "new": "sufficient",
+          "occurrence": 1,
+          "rationale": "Test a close scientific-register synonym while holding the recommendation and sentence structure fixed.",
+          "preservation_notes": "Retains the requirement for enough knowledge of structural constraints and health inequities; the target population, location and future initiatives remain identical."
+        },
+        {
+          "id": "a-sierra-structure-front-location",
+          "kind": "sentence",
+          "old": "This study explored the perceptions and decision-making processes of women and their communities during childbirth in rural Sierra Leone.",
+          "new": "In rural Sierra Leone, this study explored the perceptions and decision-making processes of women and their communities during childbirth.",
+          "occurrence": 1,
+          "rationale": "Put the study location first and shorten the sequence of modifiers at the sentence end.",
+          "preservation_notes": "Retains explored, both perceptions and decision-making processes, women and their communities, childbirth timing and the rural Sierra Leone setting."
+        },
+        {
+          "id": "a-sierra-structure-social-context",
+          "kind": "sentence",
+          "old": "The findings showed that decisions during childbirth emerge through dynamic, complex processes that must be understood within the wider social context in which they occur.",
+          "new": "The findings showed that decisions during childbirth emerge through dynamic, complex processes that must be understood in their wider social context.",
+          "occurrence": 1,
+          "rationale": "Replace the final embedded relative clause with a possessive context phrase to reduce nesting.",
+          "preservation_notes": "Retains the reported finding, childbirth timing, dynamic and complex processes, the necessity of understanding them contextually, and the wider social scope."
+        }
+      ]
+    }
+  ]
+}

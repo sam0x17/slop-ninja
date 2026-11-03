@@ -1,0 +1,43 @@
+# systemd user unit template for a continuous, dispatching Slop Ninja
+# validator. Instance %i selects ~/.config/slop_ninja_validator/%i.toml, which
+# must have [package] and [dispatch], and normally [fetch].
+#
+# Each start runs recovery, the commit/reveal check, a fetch from the public
+# status host, package verification and then journaled dispatch, re-committing
+# the active target once per tempo. With dispatch.max_finalized_blocks unset
+# the run is continuous: it continues on a fetched successor target in the
+# same process and waits out a deferred tempo without exiting, so it exits
+# only on an error (1), on recovery that cannot finish yet or work awaiting
+# recovery (75), or on a check (3). Exits 2 (configuration) and 3 (a check
+# halted the run) need the operator and are not restarted; after fixing the
+# cause, `systemctl --user reset-failed` and start the unit again. Install
+# with deploy/install.sh; lingering keeps the unit running without a login
+# session and starts it at boot.
+#
+# The restart delay is fixed. systemd's RestartSteps backoff never resets
+# while the unit keeps being restarted automatically (each restart, of any
+# exit code, counts), so it would leave every later restart at its maximum.
+
+[Unit]
+Description=Slop Ninja native validator dispatch (%i)
+# Validators retry indefinitely; a stalled dependency must not disable the unit.
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/slop_ninja_validator --config %h/.config/slop_ninja_validator/%i.toml run --dispatch
+Restart=always
+RestartSec=60
+# 2: invalid configuration. 3: a check halted the run (operator action).
+RestartPreventExitStatus=2 3
+# SIGTERM pauses the journal and exits; retained work survives the restart.
+KillSignal=SIGTERM
+TimeoutStopSec=90
+MemoryMax=1G
+MemorySwapMax=0
+UMask=0077
+NoNewPrivileges=yes
+Environment=RUST_BACKTRACE=0
+
+[Install]
+WantedBy=default.target

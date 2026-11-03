@@ -1,0 +1,107 @@
+{
+  "schema": "slop_ninja_gpt_oss_train_pilot_manual_review_v1",
+  "profile": "fix-slop",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "source_contract_sha256": "762c18847a9c8e476343199d47ac782791219198a2f6ad34d02f3f704511152e",
+  "planned_profile_requests": 4,
+  "reviewed_outputs": 4,
+  "profile_review_complete": true,
+  "read_scope": "Read all four saved final-channel bodies, including the incomplete body and the format-excluded complete body. Compared each against the previously fully read source and frozen obligations. Inspected channel transitions for the format failure. Full reasoning/draft traces were not read in this profile; no causal claim about its counting behavior.",
+  "rows": [
+    {
+      "task": "f82fc3ca6a27bff108402ccaf35f3ba1f6cfba4f6632a119f97f2f0aee0c434b",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "source_sha256": "b916dbe980cbb2b6c66a6b8d8351ac130deccafb8d2c0135843fd8eff40bb131",
+      "request_sha256": "97e0446338bee3e09a349a2f2d8765a62d3a53808ffae28d45749bc47729aa0f",
+      "response_sha256": "eaaef6462b9750a9ecba61a1261c3461cda164d940cdf440ea39afd94df2ea1f",
+      "record_sha256": "2b4206d24b595712377748174f5680664c3bcf23887d2885bd1507280a1c0b24",
+      "text_sha256": "aa267b91d5d60ed9a6dcad6519ba33627206365c7ffc61034e47d8458ccbd4bb",
+      "prompt_tokens": 909,
+      "completion_tokens": 3125,
+      "final_words_whitespace": 195,
+      "finish_reason": "stop",
+      "collector_status": "recorded",
+      "strict_fidelity": "fail",
+      "findings": [
+        "Preserves the named mates, original Morgra spelling, half-sister relationship, cave, unborn pups, rumored Sight and threatened enslavement.",
+        "Omits the Dragga/Drappa definitions. Adds betrayals, harsh winters, doubts and a culminating confrontation absent from the supplied summary.",
+        "Asserts the family remains united and perseveres, and adds repeated lineage, sovereignty and hopeful-freedom interpretations. These alter the source's unresolved rhetorical stance.",
+        "The requested Fix Slop profile does not produce reliably less formulaic prose: repeated threat/freedom statements and generic evaluative narration remain."
+      ]
+    },
+    {
+      "task": "91df8cac3adbbec77884b6e2669b2e92e719892e873fde01eb1e373763ee723c",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "source_sha256": "44a8481592c6470d36444a0dc85b56a3b11e738dc35c921db7ded6b1d92dc330",
+      "request_sha256": "201e9249caedb581caf3beacdeb01f24979f6384acb55be5f8af849adf09cce7",
+      "response_sha256": "dab157ddd8d75e508372a70796d62358563ac06858279e85b9bb18274094c760",
+      "record_sha256": "6bbfdd072d98b468913fd64f55c3eeb80a03294208d0484bd8ee8c2eed4b5ed9",
+      "text_sha256": "2e8385c9004c55ffc8a7812af747d7bed34bf34ad9681f9257156f4f49db8411",
+      "prompt_tokens": 924,
+      "completion_tokens": 1681,
+      "final_words_whitespace": 227,
+      "finish_reason": "stop",
+      "collector_status": "recorded",
+      "strict_fidelity": "fail",
+      "findings": [
+        "Preserves nonresponse, sensitive topics, longitudinal attrition, three research fields, investigator mistakes and the three missingness categories.",
+        "Narrows absent stored values to unrecorded measurements, and unavailable information to nonexistent data.",
+        "Adds an interpretation of censored observations and a mandatory recommendation about correction methods, replacing qualified descriptive comparison with advice.",
+        "The explanatory sequence is readable but does not preserve every qualification or the source's purely descriptive intent."
+      ]
+    },
+    {
+      "task": "43ade6b454e85280cbf2830ccfe3f3d1dd059db049359d2b94a57a0b3c8d14a3",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "source_sha256": "6571837bc8ea414c0b659bb8f78669f7dfa2889af57b7d098b390f40b279f510",
+      "request_sha256": "6285b1d29fbbf56d5fe01dc020c34ab7df801e692b6dcd36d5d7dc5d51bc5f2a",
+      "response_sha256": "1cccf23754df64c949bcbb4676322caa48300cd50e362391f41738c866d9a85e",
+      "record_sha256": null,
+      "text_sha256": "d875ea716a511aa0565aa079dbbe7a15f27516267d8a262e2084796ce0bf33dd",
+      "prompt_tokens": 1031,
+      "completion_tokens": 4096,
+      "final_words_whitespace": 80,
+      "finish_reason": "length",
+      "collector_status": "excluded_incomplete",
+      "collector_error": "Incomplete generation: \"length\"",
+      "strict_fidelity": "not_a_complete_output",
+      "findings": [
+        "The final body ends midphrase in the methods, without the experimental results or conclusion. Do not treat this as a completed short abstract.",
+        "Even the partial body moves the 14-day assessment timing to injection, adds adult mice, and changes a potentially lethal complication to the most common cause of death.",
+        "The 4,096-token completion budget was exhausted. No retry, completion repair or replacement record was made."
+      ]
+    },
+    {
+      "task": "64ee50de70349ba58e8f7d1e97a4bfe967914ca0ad76a6ac81f1b379f03d2b7b",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "source_sha256": "be240fa8a178127fadaebc802d140ab2af884174a472905a36f169b7030269a1",
+      "request_sha256": "db48b944857999b26df58da7aaeb30c5a4a34b14d562272e30814f1c954bde4a",
+      "response_sha256": "a654373ebb296608c9b2ccd8fcb72e66148348231569f90ac67a9dee9f636245",
+      "record_sha256": null,
+      "text_sha256": "8bfcc98cd17241cd25eff0b59e4b16b218fffdfeba2c958fa8b212b0b9079fde",
+      "prompt_tokens": 922,
+      "completion_tokens": 2648,
+      "final_words_whitespace": 186,
+      "finish_reason": "stop",
+      "collector_status": "excluded_response_format",
+      "collector_error": "Unexpected Harmony channel or control token",
+      "analysis_messages": 1,
+      "strict_fidelity": "fail",
+      "findings": [
+        "Preserves most event details, the Revenant's other awards, prior nominations, named winners, Mad Max counts/categories and song/film relationships.",
+        "Omits Vikander's Swedish nationality, The Weeknd's Canadian nationality and Earned It's Grammy-winning status.",
+        "Adds a vague evaluative sentence about musical acclaim. No source fact supports that additional interpretive conclusion.",
+        "An assistant commentary message intervenes between analysis and final. This differs from the anti-AI repeated-analysis case and remains unsupported by both V1 and the new V2 policy."
+      ]
+    }
+  ],
+  "collector_records": 2,
+  "format_exclusions": 1,
+  "incomplete_exclusions": 1,
+  "complete_final_passages": 3,
+  "complete_final_strict_fidelity_failures": 3,
+  "active_training_records_admitted": 0,
+  "detector_calls": 0,
+  "pangram_calls": 0
+}

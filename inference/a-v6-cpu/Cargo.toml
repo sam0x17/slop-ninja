@@ -1,0 +1,23 @@
+[package]
+name = "slop_ninja_a_v6_cpu"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[features]
+# Optional Linux CPU qualification profile; no default or Wasm dependency.
+mkl = ["candle/mkl", "candle-nn/mkl"]
+
+[dependencies]
+anyhow = "1"
+candle = { package = "candle-core", version = "=0.11.0", default-features = false }
+candle-nn = { version = "=0.11.0", default-features = false }
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+hex = "0.4"
+grammar-a-baseline = { path = "../../grammar/crates/grammar-a-baseline" }

@@ -1,0 +1,18 @@
+{
+  "compatibility_date": "2026-10-01",
+  "variants": ["default", "arena"],
+  "scenarios": [
+    { "name": "lane", "shapes": [1000], "invocations": 20 },
+    { "name": "abandon", "shapes": [1000], "invocations": 120,
+      "async": [
+        { "every": 10, "offset": 1, "fate": "abandon" },
+        { "every": 10, "offset": 4, "fate": "settle", "after": 40 },
+        { "every": 10, "offset": 7, "fate": "drop", "after": 40 },
+        { "every": 10, "offset": 9, "fate": "settle", "after": 3 }
+      ] },
+    { "name": "trap", "shapes": [1000], "invocations": 60, "trap_every": 50, "trap_offset": 25, "rerun_on_trap": true,
+      "async": [{ "every": 10, "offset": 3, "fate": "settle", "after": 5 }] },
+    { "name": "quarantine", "shapes": [12900], "flags": 2, "invocations": 60, "expect_refusals": true },
+    { "name": "jsenvelope", "shapes": [1000, 4000, 129000], "invocations": 6, "expect_refusals": true }
+  ]
+}

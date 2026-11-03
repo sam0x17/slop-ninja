@@ -1,0 +1,51 @@
+{
+  "schema": "slop_ninja_a_structural_parent_review_v1",
+  "selected_sha256": "f39b67eaa5e270c7758285b33bb3c15e21d47d3f28f2ed76c016d59ae961880d",
+  "reviewer": "Codex assistant; not independent human gold",
+  "complete_human_roots_and_model_parents_read": true,
+  "new_proposal_outputs_seen": false,
+  "new_detector_scores_seen": false,
+  "scope": "Earlier generation fidelity to the human root. Later edit fidelity must also be judged against its immediate model parent. No source reselection or training change follows these findings.",
+  "cases": [
+    {
+      "id": "000",
+      "strict_root_fidelity": "fail",
+      "notes": [
+        "The parent changes enjoying mathematics to excelling at it and adds quickly to the discovery of navigation errors.",
+        "It recasts the crew's slow understanding as resistance, especially from Lem Harvey; the root does not establish that resistance.",
+        "It calls Little Johnny a young sailor and attributes engagement and competence to the sextant experience without source support.",
+        "It adds a causal explanation linking dedication and precision to the honorary degree. The broad plot, institutions and nine-year apprenticeship remain."
+      ]
+    },
+    {
+      "id": "001",
+      "strict_root_fidelity": "fail",
+      "notes": [
+        "The parent omits the alternate names and the explicit internal-perspective test-design description, including expected outputs.",
+        "It broadens the electrical analogy from circuit nodes to each connection and node.",
+        "It strengthens assessment for missing or unimplemented requirements under design-driven methods to effectively uncovering them.",
+        "The parent adds an explanation of code-coverage measures to a root ending at the introduction of a list. Its internal-versus-external distinction and test levels otherwise remain recognizable."
+      ]
+    },
+    {
+      "id": "002",
+      "strict_root_fidelity": "fail",
+      "notes": [
+        "The parent strengthens the suggested sensitivity advantage of faecal samples to a demonstrated higher sensitivity, and sometimes describes detection of the virus where the root specifically reports DNA.",
+        "It changes nearby aviaries to co-housing and adds a limited-cross-species-transmission interpretation.",
+        "It gives the chick-survival correlation a lower-survival direction absent from the root.",
+        "It omits some geographic and recapture details. The bird counts, assay, shedding interval, adult comparison and unknown infection source are retained."
+      ]
+    },
+    {
+      "id": "003",
+      "strict_root_fidelity": "fail",
+      "notes": [
+        "The parent locates the party's confirmation in Brussels although the root locates Tshisekedi there, and omits Wednesday, the two-year medical stay and July return.",
+        "It changes elections failing to materialize to cancellation, and replaces four prime-minister appointments with several.",
+        "It changes the declared 2011 winner to an unqualified election victory.",
+        "It moves exile under Laurent Kabila to after the 2011 contest and adds that Kasai is near Kinshasa. It also loses part of the mythical-sphinx explanation of the nickname."
+      ]
+    }
+  ]
+}

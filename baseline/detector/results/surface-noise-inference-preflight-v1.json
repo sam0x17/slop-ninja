@@ -1,0 +1,121 @@
+{
+  "schema": "slop_ninja_surface_noise_inference_preflight_v1",
+  "at": "2026-09-15T15:34:24Z",
+  "ready": true,
+  "runner_sha256": "c818b39108aaf1ca790f25440c2ddb690ee5f2d40e3c86c7061a3e1c701cc583",
+  "source_sha256": "b77fe1c4e5bb1287db5a28471b6ca3e58e020ca0f5ab7587a82101ff19d071d9",
+  "preparation_sha256": "e167257243e780d610d3f3215beaed7334cfc1b05eab144371d35b2cff1eb89e",
+  "manual_review_sha256": "dfb5ee93c75211b1baee1b93bcfa574c4a75bb0845d73517f2c4275c6ba5f6c9",
+  "protocol_sha256": "208fafd527c02bed4997c04ad9518dfc7bca76799866ed105223a28a08537dc2",
+  "requests_sha256": "63c9e7653ddfd62cc883062a7e0e9d4f107ff5afda29c776af29a5cf8acf5df9",
+  "check_source_sha256": "bb0831587fb81d66188cf4665054bcfc5ef25f12e71fe5c391c99472ac6c3451",
+  "check_logs": {
+    "tests": {
+      "path": "~/slop_ninja_runs/a_robustness_v1/surface-noise-inference-tests-v1.log",
+      "sha256": "0a0b1e6e42196df92c031f241e37c2be910659e4e1ddc2c3d5589f589697fb6c"
+    },
+    "clippy": {
+      "path": "~/slop_ninja_runs/a_robustness_v1/surface-noise-inference-clippy-v1.log",
+      "sha256": "bc93e69910bca2c774f43b30b366a2ebd3f1e2f69947b37495e7b31825644791"
+    },
+    "build": {
+      "path": "~/slop_ninja_runs/a_robustness_v1/surface-noise-inference-build-v1.log",
+      "sha256": "da00b8e9ddbab84a26beed5985dd5f776882f887af9c176799826a45e490f872"
+    }
+  },
+  "checks": {
+    "fmt": "passed",
+    "all_target_tests": "passed",
+    "clippy": "passed with warnings denied",
+    "release_build": "passed"
+  },
+  "candidates": [
+    {
+      "role": "v6",
+      "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "temperature": 1.8776105792643432,
+      "thresholds": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.8436493155285434
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.4287369114260753
+        }
+      ],
+      "runtime": "cpu_float32_eager",
+      "probability_dtype": "float64",
+      "batch_size": 1,
+      "threads": 1
+    },
+    {
+      "role": "control",
+      "artifact_id": "74e59f3187fe0c05dddeb5dd4520d192474c027e90545b1085056a12260519d7",
+      "temperature": 1.5683121854901687,
+      "thresholds": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.936631839777329
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8629230174477677
+        }
+      ],
+      "runtime": "cpu_float32_eager",
+      "probability_dtype": "float64",
+      "batch_size": 1,
+      "threads": 1
+    },
+    {
+      "role": "consistency",
+      "artifact_id": "3aafef8aa796f16824d6429895122caf0025217b7e9fb272fc0b3eca86201756",
+      "temperature": 1.8404313987816374,
+      "thresholds": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9584060312166393
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8189382925777733
+        }
+      ],
+      "runtime": "cpu_float32_eager",
+      "probability_dtype": "float64",
+      "batch_size": 1,
+      "threads": 1
+    }
+  ],
+  "requests_per_model": 512,
+  "total_observations": 1536,
+  "interpretation_gate": "All three candidate runs complete before reading quality reports.",
+  "execution_host": "Mac Studio",
+  "linux_execution": "unverified",
+  "provider_calls": 0
+}

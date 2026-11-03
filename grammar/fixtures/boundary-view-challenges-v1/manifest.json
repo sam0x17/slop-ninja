@@ -1,0 +1,1483 @@
+{
+  "schema": "slopninja-boundary-view-fixtures-v1",
+  "id": "boundary-view-challenges-v1",
+  "description": "Synthetic structural and attribution challenges. Labels are engineering constraints; local tree agreement is not human semantic truth. All texts were fixed before new parser inference.",
+  "cases": [
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Retain each action and object; discourse equivalence remains unjudged.",
+      "pair_id": "parcels_labels",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "parcels_labels_semicolon_to_period",
+      "inverse_case_id": "parcels_labels_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The clerk counted the parcels; the driver checked the labels.",
+      "candidate_text": "The clerk counted the parcels. The driver checked the labels.",
+      "edits": [
+        {
+          "start_byte": 29,
+          "end_byte": 30,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 31,
+          "end_byte": 34,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Retain each action and object; discourse equivalence remains unjudged.",
+      "pair_id": "parcels_labels",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "parcels_labels_period_to_semicolon",
+      "inverse_case_id": "parcels_labels_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The clerk counted the parcels. The driver checked the labels.",
+      "candidate_text": "The clerk counted the parcels; the driver checked the labels.",
+      "edits": [
+        {
+          "start_byte": 29,
+          "end_byte": 30,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 31,
+          "end_byte": 34,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Retain both events and their subjects; a punctuation change may alter emphasis.",
+      "pair_id": "gate_light",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "gate_light_semicolon_to_period",
+      "inverse_case_id": "gate_light_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The gate opened; the light flashed.",
+      "candidate_text": "The gate opened. The light flashed.",
+      "edits": [
+        {
+          "start_byte": 15,
+          "end_byte": 16,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 17,
+          "end_byte": 20,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Retain both events and their subjects; a punctuation change may alter emphasis.",
+      "pair_id": "gate_light",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "gate_light_period_to_semicolon",
+      "inverse_case_id": "gate_light_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The gate opened. The light flashed.",
+      "candidate_text": "The gate opened; the light flashed.",
+      "edits": [
+        {
+          "start_byte": 15,
+          "end_byte": 16,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 17,
+          "end_byte": 20,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Preserve first-person reference and both actions.",
+      "pair_id": "pronoun_records",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "pronoun_records_semicolon_to_period",
+      "inverse_case_id": "pronoun_records_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The inspector checked the records; I signed the certificate.",
+      "candidate_text": "The inspector checked the records. I signed the certificate.",
+      "edits": [
+        {
+          "start_byte": 33,
+          "end_byte": 34,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 35,
+          "end_byte": 36,
+          "expected": "I",
+          "replacement": "I"
+        }
+      ]
+    },
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Preserve first-person reference and both actions.",
+      "pair_id": "pronoun_records",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "pronoun_records_period_to_semicolon",
+      "inverse_case_id": "pronoun_records_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The inspector checked the records. I signed the certificate.",
+      "candidate_text": "The inspector checked the records; I signed the certificate.",
+      "edits": [
+        {
+          "start_byte": 33,
+          "end_byte": 34,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 35,
+          "end_byte": 36,
+          "expected": "I",
+          "replacement": "I"
+        }
+      ]
+    },
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Preserve both predications and past tense.",
+      "pair_id": "past_copulas",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "past_copulas_semicolon_to_period",
+      "inverse_case_id": "past_copulas_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The cabinet was empty; the drawer was clean.",
+      "candidate_text": "The cabinet was empty. The drawer was clean.",
+      "edits": [
+        {
+          "start_byte": 21,
+          "end_byte": 22,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 23,
+          "end_byte": 26,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Preserve both predications and past tense.",
+      "pair_id": "past_copulas",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "past_copulas_period_to_semicolon",
+      "inverse_case_id": "past_copulas_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The cabinet was empty. The drawer was clean.",
+      "candidate_text": "The cabinet was empty; the drawer was clean.",
+      "edits": [
+        {
+          "start_byte": 21,
+          "end_byte": 22,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 23,
+          "end_byte": 26,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Keep the accented name and exact UTF-8 byte anchors.",
+      "pair_id": "unicode_name",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "unicode_name_semicolon_to_period",
+      "inverse_case_id": "unicode_name_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "René signed the form; the clerk filed the copy.",
+      "candidate_text": "René signed the form. The clerk filed the copy.",
+      "edits": [
+        {
+          "start_byte": 21,
+          "end_byte": 22,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 23,
+          "end_byte": 26,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "independent_action",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": false,
+      "risk": "Keep the accented name and exact UTF-8 byte anchors.",
+      "pair_id": "unicode_name",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "id": "unicode_name_period_to_semicolon",
+      "inverse_case_id": "unicode_name_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "René signed the form. The clerk filed the copy.",
+      "candidate_text": "René signed the form; the clerk filed the copy.",
+      "edits": [
+        {
+          "start_byte": 21,
+          "end_byte": 22,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 23,
+          "end_byte": 26,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "reporting_tail",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": false,
+      "risk": "A reporting tail can leave the first proposition attributed or discourse-dependent; local tree agreement cannot settle that interpretation.",
+      "pair_id": "said_tail",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "said_tail_semicolon_to_period",
+      "inverse_case_id": "said_tail_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The road was closed; the guard said.",
+      "candidate_text": "The road was closed. The guard said.",
+      "edits": [
+        {
+          "start_byte": 19,
+          "end_byte": 20,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 21,
+          "end_byte": 24,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "reporting_tail",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": false,
+      "risk": "A reporting tail can leave the first proposition attributed or discourse-dependent; local tree agreement cannot settle that interpretation.",
+      "pair_id": "said_tail",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "said_tail_period_to_semicolon",
+      "inverse_case_id": "said_tail_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The road was closed. The guard said.",
+      "candidate_text": "The road was closed; the guard said.",
+      "edits": [
+        {
+          "start_byte": 19,
+          "end_byte": 20,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 21,
+          "end_byte": 24,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "stance_tail",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": false,
+      "risk": "An implicit belief complement may refer to the preceding proposition; structural agreement does not establish independent assertions.",
+      "pair_id": "believed_tail",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "believed_tail_semicolon_to_period",
+      "inverse_case_id": "believed_tail_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The server stopped; the editor believed.",
+      "candidate_text": "The server stopped. The editor believed.",
+      "edits": [
+        {
+          "start_byte": 18,
+          "end_byte": 19,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 20,
+          "end_byte": 23,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "stance_tail",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": false,
+      "risk": "An implicit belief complement may refer to the preceding proposition; structural agreement does not establish independent assertions.",
+      "pair_id": "believed_tail",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "believed_tail_period_to_semicolon",
+      "inverse_case_id": "believed_tail_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The server stopped. The editor believed.",
+      "candidate_text": "The server stopped; the editor believed.",
+      "edits": [
+        {
+          "start_byte": 18,
+          "end_byte": 19,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 20,
+          "end_byte": 23,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "reporting_tail",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": false,
+      "risk": "Retain uncertainty about whether the first proposition is the content of the report.",
+      "pair_id": "reported_tail",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "reported_tail_semicolon_to_period",
+      "inverse_case_id": "reported_tail_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The engine failed; the mechanic reported.",
+      "candidate_text": "The engine failed. The mechanic reported.",
+      "edits": [
+        {
+          "start_byte": 17,
+          "end_byte": 18,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 19,
+          "end_byte": 22,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "reporting_tail",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": false,
+      "risk": "Retain uncertainty about whether the first proposition is the content of the report.",
+      "pair_id": "reported_tail",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "reported_tail_period_to_semicolon",
+      "inverse_case_id": "reported_tail_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The engine failed. The mechanic reported.",
+      "candidate_text": "The engine failed; the mechanic reported.",
+      "edits": [
+        {
+          "start_byte": 17,
+          "end_byte": 18,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 19,
+          "end_byte": 22,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "reporting_tail",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": false,
+      "risk": "Retain the distinction between an asserted arrival and an attributed claim.",
+      "pair_id": "claimed_tail",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "claimed_tail_semicolon_to_period",
+      "inverse_case_id": "claimed_tail_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The shipment arrived; the driver claimed.",
+      "candidate_text": "The shipment arrived. The driver claimed.",
+      "edits": [
+        {
+          "start_byte": 20,
+          "end_byte": 21,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 22,
+          "end_byte": 25,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "reporting_tail",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": false,
+      "risk": "Retain the distinction between an asserted arrival and an attributed claim.",
+      "pair_id": "claimed_tail",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "claimed_tail_period_to_semicolon",
+      "inverse_case_id": "claimed_tail_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The shipment arrived. The driver claimed.",
+      "candidate_text": "The shipment arrived; the driver claimed.",
+      "edits": [
+        {
+          "start_byte": 20,
+          "end_byte": 21,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 22,
+          "end_byte": 25,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "unsupported_delimiter",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": true,
+      "risk": "A reporting aside with a comma lies outside the literal period/semicolon representation.",
+      "pair_id": "reporting_comma",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "reporting_comma_comma_to_period",
+      "inverse_case_id": "reporting_comma_period_to_comma",
+      "observed_form": "comma",
+      "source_text": "The warehouse was empty, the guard said.",
+      "candidate_text": "The warehouse was empty. The guard said.",
+      "edits": [
+        {
+          "start_byte": 23,
+          "end_byte": 24,
+          "expected": ",",
+          "replacement": "."
+        },
+        {
+          "start_byte": 25,
+          "end_byte": 28,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "unsupported_delimiter",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": true,
+      "risk": "A reporting aside with a comma lies outside the literal period/semicolon representation.",
+      "pair_id": "reporting_comma",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "reporting_comma_period_to_comma",
+      "inverse_case_id": "reporting_comma_comma_to_period",
+      "observed_form": "period",
+      "source_text": "The warehouse was empty. The guard said.",
+      "candidate_text": "The warehouse was empty, the guard said.",
+      "edits": [
+        {
+          "start_byte": 23,
+          "end_byte": 24,
+          "expected": ".",
+          "replacement": ","
+        },
+        {
+          "start_byte": 25,
+          "end_byte": 28,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "complement_insertion",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": true,
+      "risk": "Inserting a semicolon into a reporting complement must not acquire a period-boundary witness.",
+      "pair_id": "complement_insertion",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "complement_insertion_semicolon_to_complement",
+      "inverse_case_id": "complement_insertion_complement_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The guard said; the road was closed.",
+      "candidate_text": "The guard said the road was closed.",
+      "edits": [
+        {
+          "start_byte": 10,
+          "end_byte": 15,
+          "expected": "said;",
+          "replacement": "said"
+        }
+      ]
+    },
+    {
+      "category": "complement_insertion",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": true,
+      "risk": "Inserting a semicolon into a reporting complement must not acquire a period-boundary witness.",
+      "pair_id": "complement_insertion",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "complement_insertion_complement_to_semicolon",
+      "inverse_case_id": "complement_insertion_semicolon_to_complement",
+      "observed_form": "complement",
+      "source_text": "The guard said the road was closed.",
+      "candidate_text": "The guard said; the road was closed.",
+      "edits": [
+        {
+          "start_byte": 10,
+          "end_byte": 14,
+          "expected": "said",
+          "replacement": "said;"
+        }
+      ]
+    },
+    {
+      "category": "embedded_complement",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": true,
+      "risk": "A genuine complement remains within the first clause and must not be erased by local root normalization.",
+      "pair_id": "embedded_complement",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "embedded_complement_semicolon_to_period",
+      "inverse_case_id": "embedded_complement_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The guard said that the road was closed; the clerk waited.",
+      "candidate_text": "The guard said that the road was closed. The clerk waited.",
+      "edits": [
+        {
+          "start_byte": 39,
+          "end_byte": 40,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 41,
+          "end_byte": 44,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "embedded_complement",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": true,
+      "risk": "A genuine complement remains within the first clause and must not be erased by local root normalization.",
+      "pair_id": "embedded_complement",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "embedded_complement_period_to_semicolon",
+      "inverse_case_id": "embedded_complement_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The guard said that the road was closed. The clerk waited.",
+      "candidate_text": "The guard said that the road was closed; the clerk waited.",
+      "edits": [
+        {
+          "start_byte": 39,
+          "end_byte": 40,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 41,
+          "end_byte": 44,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "quotation",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": true,
+      "risk": "The edit changes punctuation inside quoted content; retain the quotation exclusion.",
+      "pair_id": "quoted_boundary",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "quoted_boundary_semicolon_to_period",
+      "inverse_case_id": "quoted_boundary_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The note read, \"The motor stopped; the watcher waited.\"",
+      "candidate_text": "The note read, \"The motor stopped. The watcher waited.\"",
+      "edits": [
+        {
+          "start_byte": 33,
+          "end_byte": 34,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 35,
+          "end_byte": 38,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "quotation",
+      "attribution_sensitive": true,
+      "boundary_view_must_not_agree": true,
+      "risk": "The edit changes punctuation inside quoted content; retain the quotation exclusion.",
+      "pair_id": "quoted_boundary",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "quoted_boundary_period_to_semicolon",
+      "inverse_case_id": "quoted_boundary_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The note read, \"The motor stopped. The watcher waited.\"",
+      "candidate_text": "The note read, \"The motor stopped; the watcher waited.\"",
+      "edits": [
+        {
+          "start_byte": 33,
+          "end_byte": 34,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 35,
+          "end_byte": 38,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "conditional_scope",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The condition can change scope after a boundary edit; preserve the existing exclusion.",
+      "pair_id": "conditional_boundary",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "conditional_boundary_semicolon_to_period",
+      "inverse_case_id": "conditional_boundary_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "If the bin is full, the sorter stops; the counter resets.",
+      "candidate_text": "If the bin is full, the sorter stops. The counter resets.",
+      "edits": [
+        {
+          "start_byte": 36,
+          "end_byte": 37,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 38,
+          "end_byte": 41,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "conditional_scope",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The condition can change scope after a boundary edit; preserve the existing exclusion.",
+      "pair_id": "conditional_boundary",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "conditional_boundary_period_to_semicolon",
+      "inverse_case_id": "conditional_boundary_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "If the bin is full, the sorter stops. The counter resets.",
+      "candidate_text": "If the bin is full, the sorter stops; the counter resets.",
+      "edits": [
+        {
+          "start_byte": 36,
+          "end_byte": 37,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 38,
+          "end_byte": 41,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "temporal_scope",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "Preserve temporal attachment and the current scope exclusion.",
+      "pair_id": "temporal_boundary",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "temporal_boundary_semicolon_to_period",
+      "inverse_case_id": "temporal_boundary_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "When the bell rang, the porter opened the gate; the visitor entered.",
+      "candidate_text": "When the bell rang, the porter opened the gate. The visitor entered.",
+      "edits": [
+        {
+          "start_byte": 46,
+          "end_byte": 47,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 48,
+          "end_byte": 51,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "temporal_scope",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "Preserve temporal attachment and the current scope exclusion.",
+      "pair_id": "temporal_boundary",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "temporal_boundary_period_to_semicolon",
+      "inverse_case_id": "temporal_boundary_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "When the bell rang, the porter opened the gate. The visitor entered.",
+      "candidate_text": "When the bell rang, the porter opened the gate; the visitor entered.",
+      "edits": [
+        {
+          "start_byte": 46,
+          "end_byte": 47,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 48,
+          "end_byte": 51,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "argument_exchange",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The word inventory stays fixed while different people perform the two actions.",
+      "pair_id": "exchanged_subjects",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "exchanged_subjects_semicolon_to_period",
+      "inverse_case_id": "exchanged_subjects_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The driver counted the crates; the porter checked the seals.",
+      "candidate_text": "The porter counted the crates. The driver checked the seals.",
+      "edits": [
+        {
+          "start_byte": 4,
+          "end_byte": 10,
+          "expected": "driver",
+          "replacement": "porter"
+        },
+        {
+          "start_byte": 29,
+          "end_byte": 30,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 31,
+          "end_byte": 34,
+          "expected": "the",
+          "replacement": "The"
+        },
+        {
+          "start_byte": 35,
+          "end_byte": 41,
+          "expected": "porter",
+          "replacement": "driver"
+        }
+      ]
+    },
+    {
+      "category": "argument_exchange",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The word inventory stays fixed while different people perform the two actions.",
+      "pair_id": "exchanged_subjects",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "exchanged_subjects_period_to_semicolon",
+      "inverse_case_id": "exchanged_subjects_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The porter counted the crates. The driver checked the seals.",
+      "candidate_text": "The driver counted the crates; the porter checked the seals.",
+      "edits": [
+        {
+          "start_byte": 4,
+          "end_byte": 10,
+          "expected": "porter",
+          "replacement": "driver"
+        },
+        {
+          "start_byte": 29,
+          "end_byte": 30,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 31,
+          "end_byte": 34,
+          "expected": "The",
+          "replacement": "the"
+        },
+        {
+          "start_byte": 35,
+          "end_byte": 41,
+          "expected": "driver",
+          "replacement": "porter"
+        }
+      ]
+    },
+    {
+      "category": "argument_exchange",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The word inventory stays fixed while each action receives a different object.",
+      "pair_id": "exchanged_objects",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "exchanged_objects_semicolon_to_period",
+      "inverse_case_id": "exchanged_objects_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The clerk inspected the labels; the worker counted the parcels.",
+      "candidate_text": "The clerk inspected the parcels. The worker counted the labels.",
+      "edits": [
+        {
+          "start_byte": 24,
+          "end_byte": 30,
+          "expected": "labels",
+          "replacement": "parcels"
+        },
+        {
+          "start_byte": 30,
+          "end_byte": 31,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 32,
+          "end_byte": 35,
+          "expected": "the",
+          "replacement": "The"
+        },
+        {
+          "start_byte": 55,
+          "end_byte": 62,
+          "expected": "parcels",
+          "replacement": "labels"
+        }
+      ]
+    },
+    {
+      "category": "argument_exchange",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The word inventory stays fixed while each action receives a different object.",
+      "pair_id": "exchanged_objects",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "exchanged_objects_period_to_semicolon",
+      "inverse_case_id": "exchanged_objects_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The clerk inspected the parcels. The worker counted the labels.",
+      "candidate_text": "The clerk inspected the labels; the worker counted the parcels.",
+      "edits": [
+        {
+          "start_byte": 24,
+          "end_byte": 31,
+          "expected": "parcels",
+          "replacement": "labels"
+        },
+        {
+          "start_byte": 31,
+          "end_byte": 32,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 33,
+          "end_byte": 36,
+          "expected": "The",
+          "replacement": "the"
+        },
+        {
+          "start_byte": 56,
+          "end_byte": 62,
+          "expected": "labels",
+          "replacement": "parcels"
+        }
+      ]
+    },
+    {
+      "category": "operator_relocation",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "Repeated predicate lemmas must not obscure which claim has possibility versus obligation.",
+      "pair_id": "moved_modals_repeated_verb",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "moved_modals_repeated_verb_semicolon_to_period",
+      "inverse_case_id": "moved_modals_repeated_verb_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The clerk must inspect the parcels; the worker may inspect the labels.",
+      "candidate_text": "The clerk may inspect the parcels. The worker must inspect the labels.",
+      "edits": [
+        {
+          "start_byte": 10,
+          "end_byte": 14,
+          "expected": "must",
+          "replacement": "may"
+        },
+        {
+          "start_byte": 34,
+          "end_byte": 35,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 36,
+          "end_byte": 39,
+          "expected": "the",
+          "replacement": "The"
+        },
+        {
+          "start_byte": 47,
+          "end_byte": 50,
+          "expected": "may",
+          "replacement": "must"
+        }
+      ]
+    },
+    {
+      "category": "operator_relocation",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "Repeated predicate lemmas must not obscure which claim has possibility versus obligation.",
+      "pair_id": "moved_modals_repeated_verb",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "moved_modals_repeated_verb_period_to_semicolon",
+      "inverse_case_id": "moved_modals_repeated_verb_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The clerk may inspect the parcels. The worker must inspect the labels.",
+      "candidate_text": "The clerk must inspect the parcels; the worker may inspect the labels.",
+      "edits": [
+        {
+          "start_byte": 10,
+          "end_byte": 13,
+          "expected": "may",
+          "replacement": "must"
+        },
+        {
+          "start_byte": 33,
+          "end_byte": 34,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 35,
+          "end_byte": 38,
+          "expected": "The",
+          "replacement": "the"
+        },
+        {
+          "start_byte": 46,
+          "end_byte": 50,
+          "expected": "must",
+          "replacement": "may"
+        }
+      ]
+    },
+    {
+      "category": "operator_relocation",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The negation inventory stays fixed while negation moves to the other person's claim.",
+      "pair_id": "moved_negation_repeated_verb",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "moved_negation_repeated_verb_semicolon_to_period",
+      "inverse_case_id": "moved_negation_repeated_verb_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The clerk did inspect the parcels; the worker did not inspect the labels.",
+      "candidate_text": "The clerk did not inspect the parcels. The worker did inspect the labels.",
+      "edits": [
+        {
+          "start_byte": 10,
+          "end_byte": 33,
+          "expected": "did inspect the parcels",
+          "replacement": "did not inspect the parcels"
+        },
+        {
+          "start_byte": 33,
+          "end_byte": 34,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 35,
+          "end_byte": 38,
+          "expected": "the",
+          "replacement": "The"
+        },
+        {
+          "start_byte": 46,
+          "end_byte": 72,
+          "expected": "did not inspect the labels",
+          "replacement": "did inspect the labels"
+        }
+      ]
+    },
+    {
+      "category": "operator_relocation",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The negation inventory stays fixed while negation moves to the other person's claim.",
+      "pair_id": "moved_negation_repeated_verb",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "moved_negation_repeated_verb_period_to_semicolon",
+      "inverse_case_id": "moved_negation_repeated_verb_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The clerk did not inspect the parcels. The worker did inspect the labels.",
+      "candidate_text": "The clerk did inspect the parcels; the worker did not inspect the labels.",
+      "edits": [
+        {
+          "start_byte": 10,
+          "end_byte": 37,
+          "expected": "did not inspect the parcels",
+          "replacement": "did inspect the parcels"
+        },
+        {
+          "start_byte": 37,
+          "end_byte": 38,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 39,
+          "end_byte": 42,
+          "expected": "The",
+          "replacement": "the"
+        },
+        {
+          "start_byte": 50,
+          "end_byte": 72,
+          "expected": "did inspect the labels",
+          "replacement": "did not inspect the labels"
+        }
+      ]
+    },
+    {
+      "category": "unsupported_extent",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The first representation is restricted to complete two-clause texts; do not normalize a chosen subpart silently.",
+      "pair_id": "third_clause",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "third_clause_semicolon_to_period",
+      "inverse_case_id": "third_clause_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The pump stopped. The fan slowed; the meter reset.",
+      "candidate_text": "The pump stopped. The fan slowed. The meter reset.",
+      "edits": [
+        {
+          "start_byte": 32,
+          "end_byte": 33,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 34,
+          "end_byte": 37,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "unsupported_extent",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The first representation is restricted to complete two-clause texts; do not normalize a chosen subpart silently.",
+      "pair_id": "third_clause",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "third_clause_period_to_semicolon",
+      "inverse_case_id": "third_clause_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The pump stopped. The fan slowed. The meter reset.",
+      "candidate_text": "The pump stopped. The fan slowed; the meter reset.",
+      "edits": [
+        {
+          "start_byte": 32,
+          "end_byte": 33,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 34,
+          "end_byte": 37,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "unsupported_extent",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "Multiple semicolon boundaries require a different representation and remain unsupported here.",
+      "pair_id": "multiple_semicolons",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "multiple_semicolons_semicolon_to_period",
+      "inverse_case_id": "multiple_semicolons_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The lamp dimmed; the screen darkened; the alarm rang.",
+      "candidate_text": "The lamp dimmed; the screen darkened. The alarm rang.",
+      "edits": [
+        {
+          "start_byte": 36,
+          "end_byte": 37,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 38,
+          "end_byte": 41,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "unsupported_extent",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "Multiple semicolon boundaries require a different representation and remain unsupported here.",
+      "pair_id": "multiple_semicolons",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "multiple_semicolons_period_to_semicolon",
+      "inverse_case_id": "multiple_semicolons_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The lamp dimmed; the screen darkened. The alarm rang.",
+      "candidate_text": "The lamp dimmed; the screen darkened; the alarm rang.",
+      "edits": [
+        {
+          "start_byte": 36,
+          "end_byte": 37,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 38,
+          "end_byte": 41,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "paragraph_layout",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "A paragraph boundary fails the one-space punctuation requirement.",
+      "pair_id": "paragraph_break",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "paragraph_break_semicolon_to_period",
+      "inverse_case_id": "paragraph_break_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The packer sealed the crate;\n\nthe inspector checked the tag.",
+      "candidate_text": "The packer sealed the crate.\n\nThe inspector checked the tag.",
+      "edits": [
+        {
+          "start_byte": 27,
+          "end_byte": 28,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 30,
+          "end_byte": 33,
+          "expected": "the",
+          "replacement": "The"
+        }
+      ]
+    },
+    {
+      "category": "paragraph_layout",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "A paragraph boundary fails the one-space punctuation requirement.",
+      "pair_id": "paragraph_break",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "paragraph_break_period_to_semicolon",
+      "inverse_case_id": "paragraph_break_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The packer sealed the crate.\n\nThe inspector checked the tag.",
+      "candidate_text": "The packer sealed the crate;\n\nthe inspector checked the tag.",
+      "edits": [
+        {
+          "start_byte": 27,
+          "end_byte": 28,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 30,
+          "end_byte": 33,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "unsupported_capitalization",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The existing join rule does not license this lowercase sentence opener; do not infer a capitalization policy.",
+      "pair_id": "lowercase_sentence_opener",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "lowercase_sentence_opener_semicolon_to_period",
+      "inverse_case_id": "lowercase_sentence_opener_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The packer sealed the carton; the clerk checked the label.",
+      "candidate_text": "The packer sealed the carton. the clerk checked the label.",
+      "edits": [
+        {
+          "start_byte": 28,
+          "end_byte": 29,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 30,
+          "end_byte": 33,
+          "expected": "the",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "unsupported_capitalization",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "The existing join rule does not license this lowercase sentence opener; do not infer a capitalization policy.",
+      "pair_id": "lowercase_sentence_opener",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "lowercase_sentence_opener_period_to_semicolon",
+      "inverse_case_id": "lowercase_sentence_opener_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The packer sealed the carton. the clerk checked the label.",
+      "candidate_text": "The packer sealed the carton; the clerk checked the label.",
+      "edits": [
+        {
+          "start_byte": 28,
+          "end_byte": 29,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 30,
+          "end_byte": 33,
+          "expected": "the",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "category": "discourse_scope",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "A discourse connective and its attachment remain subject to the unchanged scope restrictions.",
+      "pair_id": "therefore_scope",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "therefore_scope_semicolon_to_period",
+      "inverse_case_id": "therefore_scope_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The conveyor stopped; therefore the technician waited.",
+      "candidate_text": "The conveyor stopped. Therefore the technician waited.",
+      "edits": [
+        {
+          "start_byte": 20,
+          "end_byte": 21,
+          "expected": ";",
+          "replacement": "."
+        },
+        {
+          "start_byte": 22,
+          "end_byte": 31,
+          "expected": "therefore",
+          "replacement": "Therefore"
+        }
+      ]
+    },
+    {
+      "category": "discourse_scope",
+      "attribution_sensitive": false,
+      "boundary_view_must_not_agree": true,
+      "risk": "A discourse connective and its attachment remain subject to the unchanged scope restrictions.",
+      "pair_id": "therefore_scope",
+      "semantic_equivalence_certified": false,
+      "expected_rule_candidate": null,
+      "guard_must_reject": true,
+      "id": "therefore_scope_period_to_semicolon",
+      "inverse_case_id": "therefore_scope_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The conveyor stopped. Therefore the technician waited.",
+      "candidate_text": "The conveyor stopped; therefore the technician waited.",
+      "edits": [
+        {
+          "start_byte": 20,
+          "end_byte": 21,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 22,
+          "end_byte": 31,
+          "expected": "Therefore",
+          "replacement": "therefore"
+        }
+      ]
+    }
+  ]
+}

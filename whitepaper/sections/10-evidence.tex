@@ -1,0 +1,488 @@
+\section{Existing evidence and implementation
+status}\label{existing-evidence-and-implementation-status}
+
+These dated checkpoints describe different experiments, each with its own
+Test population, identified below by date and size; Brier values from different
+populations are not directly comparable. The \textit{A} baseline release
+candidate is a package whose document model is the first reference
+\(R_0\), with a span head added later. \(R_0\) was noninferior
+to Pangram 4.1 on a sealed, pre-registered Test, but the pre-registered verdict
+failed for its three-seed recipe. No result below qualifies a live subnet. Most
+source reports and some underlying inputs are access-restricted during subnet
+preparation, so the results cannot be independently reproduced from this paper
+alone. Earlier research checkpoints, which gate nothing at launch, appear in
+Appendix~\ref{earlier-research-checkpoints}.
+
+\subsection{Current \textit{A} baseline}\label{current-a-baseline}
+
+\paragraph{Release candidate, October 28, 2026.}
+The document model \(R_0\) is a ModernBERT-base encoder fully fine-tuned from V6, the
+earlier raw-text detector of Appendix~\ref{earlier-research-checkpoints}, with a
+style adversary and a
+generator-contrastive head. It has origin, share, and conditional attribution
+heads, and its weights are seed 17 of the selected recipe. Train holds
+86,575 rows over 36 domains. Its positives come mostly from local open-weight
+generations, with hosted frontier generations, RAID paraphrase cohorts, and
+earlier positives. A single
+read of a selection split chose the recipe: its three-seed mean balanced
+involvement Brier was 0.0619 against 0.1820 for V6, uncalibrated. Calibration
+was fitted on 5,379 Calibration (CAL) documents only, as an origin temperature
+followed by a clipped isotonic map; the 1\% human false-positive operating point
+is a calibrated involvement of at least 0.9091. The Rust FP64 replay matches the
+reference outputs within \(7.3\times10^{-7}\). A mixed-int8 build failed its
+pre-registered no-quality-loss qualification, so serving uses f32~\cite{baselinerelease}.
+
+\paragraph{Span head, October 31, 2026.}\label{span-evidence}
+A pre-registered span protocol fitted four arms from the release lineage, with
+three seeds each: a token head on the frozen \(R_0\) encoder, trained with and
+without spliced partial rewrites, and a joint fine-tune of encoder, document
+heads, and token head, with and without them~\cite{spansresults}. The shipped
+configuration is \(R_0\) plus the token head trained with the spliced
+rewrites on the frozen seed-17 fit. Its document outputs are bit-identical to
+\(R_0\)'s on 227 replay requests, and its Rust FP64 replay matches the reference
+within \(6.1\times10^{-6}\) in token probability, against a \(10^{-5}\) bound,
+with every span offset equal. On the 823 held-out spliced rewrites of the report
+half, scored once after the decoder and calibration maps were frozen, the
+calibrated head reaches word Brier 0.128 and character F1 0.410, with precision 0.862 and recall 0.402;
+span-level F1 is 0.245 and mean span IoU 0.306, and it decodes no span in 346
+documents. Span metrics here are per-document means: F1 and recall count a
+document without a decoded span as zero, and precision covers only the 477
+documents with one, so F1 is not the harmonic mean of the reported precision
+and recall. Character F1 is about 0.85 when most of a
+document is rewritten, 0.60 for a paragraph, 0.17 for one sentence, and 0.05
+for a clause. These documents edit development humans that bounded the decoder's
+human limit, so the figures are somewhat optimistic. Retrospectively, on the
+consumed Test, character F1 is 0.478 on mixed documents and 0.021 on base-model
+continuations, and 156 of 6,132 humans carry a decoded span. The head adds about
+0.14 seconds to a 2,048-token request, against about 27 seconds for the encoder
+on one CPU thread. The protocol's selected arm, the joint fine-tune with spliced
+rewrites, reached character F1 0.560, but its uncalibrated human-only Brier rose
+from 0.061 to 0.093, and calibrated it flagged 6 Test humans at the 0.1\%
+operating point, where \(R_0\) flags none, so it was not adopted. The f32
+Container serving build does not yet carry the span head.
+
+\paragraph{Adopted span head S2c, November 1, 2026.}\label{s2c-evidence}
+A pre-registered follow-up fitted three arms from the same lineage and data,
+with three seeds each, to keep the joint fine-tune's span quality without its
+human-document shift~\cite{spansresults}. Two joint arms failed the human
+gates. The selected arm, S2c, freezes the encoder and document heads and feeds
+the token head through a trained copy of encoder layers 18--21 and the final
+norm, about 20 million parameters. Its document outputs are byte-identical
+to \(R_0\)'s at every seed. Its primary span metric, a tilted word Brier on
+2,011 development mixed documents, is 0.1295 over three seeds, against 0.1412
+for the shipped recipe and 0.1205 for the joint fine-tune: it beats the shipped
+recipe, by \(0.0118\) [\(0.0104\), \(0.0131\)], but not the joint fine-tune,
+so the pre-registered outcome is partial. No point of the original decoder grid
+met the 22-human limit; its declared extension chose a decoder that puts spans
+on 21 of 570 development humans at seed 17, and on 22 and 27 at seeds 29 and 41.
+On the 823 spliced rewrites of the report half, already scored for the other
+heads and evaluated once after the decoder and maps were frozen, seed 17
+without span calibration maps reaches character F1 0.519, recall 0.532, and
+span F1 0.485, against 0.410, 0.401, and 0.241 for the shipped head on that
+basis, and decodes no span in 288 documents. Retrospectively, on the
+consumed Test, its mixed-document character F1 is 0.535, against 0.478 for the
+shipped head, and 210 of 6,132 humans carry a span, against 156, so it does not
+hold the shipped head's human rate there. Its Rust FP64 replay matches the
+reference within \(4.4\times10^{-6}\) in token probability with every offset
+equal, against the same \(10^{-5}\) bound. The tower adds 18--20\% of encoder
+CPU time, 5.3 seconds at 2,048 tokens on one thread, and no calibrated package
+with it has been built or replayed. Its development human gates are optimistic,
+because the baseline's early stopping and the earlier decoder limit used those
+humans. Slop Ninja adopted S2c on November 1, 2026 as its span head
+for the first package that serves spans; until then the shipped configuration
+keeps the head above.
+
+\paragraph{Sealed competitive Test, October 30, 2026.}
+\(R_0\) and Pangram 4.1 were evaluated once on a sealed Test under a
+pre-registered protocol~\cite{competitiveprotocol}. The Test has 14,904 documents
+(10,495 primary) in 5,030 source groups, including 3,286 primary human documents
+and 826 positives from twelve hosted frontier models. \textit{A} scored every
+document with no execution failure. Pangram was observed on a pre-registered
+random subsample of 2,950 primary documents, one of them missing; the paired
+comparison uses a Horvitz--Thompson estimate of the full primary value. Both
+detectors' outputs map to involvement through the same CAL-only clipped
+isotonic method, so Pangram's mapped fraction is not its native confidence.
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\linewidth}{@{}Lll@{}}
+\toprule
+Measure & \textit{A} (\(R_0\)) & Pangram 4.1 \\
+\midrule
+Balanced involvement Brier [95\% CI] & 0.0518 [0.0491, 0.0545] & 0.0551 [0.0499, 0.0600] \\
+Paired difference, \textit{A} minus Pangram & \(-0.0049\) [\(-0.0103\), \(+0.0005\)] & \\
+Human FPR at its own CAL 1\% point & 1.31\% (43 of 3,286) & 2.35\% (35 of 1,490) \\
+TPR at that point & 0.861 & 0.801 \\
+Frontier slice, paired difference & \(-0.0039\) [\(-0.0134\), \(+0.0052\)] & \\
+OLMo-2 slice (Test-only generator) & \(-0.0042\) [\(-0.0137\), \(+0.0041\)] & \\
+Legal-opinions slice & \(+0.0247\) [\(-0.0009\), \(+0.0557\)] & \\
+\bottomrule
+\end{tabularx}
+\caption{Sealed Test, \(R_0\) (seed 17) against Pangram 4.1.
+\textit{A}'s Brier covers the full primary Test. Pangram's Brier and every
+paired difference are Horvitz--Thompson estimates from Pangram's subsample, so
+the paired row need not equal the difference of the two Brier values.
+Negative differences favor \textit{A}.}
+\label{tab:tier-c}
+\end{table}
+
+The pre-registered competitive criterion, called Tier C, required four
+conditions for both the three-seed recipe and the artifact \(R_0\): an upper
+95\% bound of at most 0.010 on the Brier difference; a one-sided 95\% upper bound
+of at most 2.5\% on human FPR at the CAL 1\% point for every seed; a gap of at most
+0.030 on every gated slice; and a completed result for every primary document.
+\(R_0\) passed all four on its own, with an upper bound of
+\(+0.0005\), at most 43 human flags against a limit of 67, a largest slice gap of
+0.0247, and no failures. The recipe's legal-opinions gap was 0.0324, so it
+missed the slice condition and the pre-registered verdict is \emph{fail}. Legal
+opinions are the weak slice; Wikipedia and Wikipedia talk favor \textit{A} by
+0.030 and 0.038. Against the frozen earlier adapted \textit{A}
+(Appendix~\ref{earlier-research-checkpoints}),
+\(R_0\)'s paired difference is \(-0.0734\) [\(-0.0765\), \(-0.0702\)],
+and its human FPR at the 0.5 cutoff falls from 21.9\% to 6.2\%; that separate
+improvement criterion passed.
+
+The result is noninferiority, not superiority: the Brier interval includes
+zero. At the diagnostic 0.5 cutoff \(R_0\) still flags 6.2\% of
+human documents. Its mixed-document share error is 15.5 percentage points,
+above the 10-point diagnostic target. AI attribution top-1 accuracy is 0.35
+overall and 0.16 on frontier voices held out from training. The Test is now
+consumed and cannot guide further fitting; the sizing, mix, and copy-policy
+analyses below use it for statistics only.
+
+\paragraph{Container serving, October 29, 2026.}
+f32 ONNX serving of \(R_0\) on Cloudflare Containers passed parity
+with \(R_0\)'s FP64 replay: the largest output difference was
+\(4.7\times10^{-6}\), confidence was identical, labels matched, and outputs were
+bitwise identical across three instance sizes, all within that replay
+gate. Warm 2,048-token latency inside the Container was 7.9, 4.7, and 3.2
+seconds at the median on the standard-2, -3, and -4 sizes; documents of about
+300 tokens took 0.40--0.90 seconds. From zero instances the model was ready
+after a median 9.4 seconds. Busy-time cost was \$0.23--\$0.34 per 1,000 documents
+at 2,048 tokens and \$0.027--\$0.050 at about 300 tokens; an idle instance costs
+\$0.057--\$0.113 per hour, and one session peaks at 0.8 GB. The test used
+synthetic text on one CPU model, and its synthetic inputs saturated the
+calibration map. Distributional parity on evaluation-like text inside the
+provider boundary remains to be checked. Workers AI cannot host this
+encoder~\cite{containerserving}.
+
+\paragraph{Cohort sizing, October 30, 2026.}
+A power and cost analysis for daily cohorts used the consumed Test for
+statistics only. Its paired standard errors appear in
+Section~\ref{cohort-batch}. Scoring costs about \(3.4\times10^{-5}\) dollars per
+document including model loads. On testnet, with 1,000 cases and 32 entrants,
+generation and scoring cost about \$57 for a month of daily cohorts, including
+fixed fees; 64 entrants cost about \$91. These figures exclude the canary's
+audits (Section~\ref{lookup-exposure}) and predate the fingerprint
+probe, which roughly doubles each executed entrant's scoring at 1,000 cases
+(Section~\ref{public-copies}). On mainnet, with 4,000 cases, one cohort of 20 to
+256 entrants costs about \$6.45--\$38.26 with batch-API generation, which does
+not yet fit the daily cadence (Section~\ref{cohorts}), or \$2.72 more at
+standard prices. Evaluation documents average 307 tokens and never exceed 751.
+On testnet on October 30, a scoring instance's cold path, including streaming
+the artifact from R2, chiefly its 601 MB graph file, took 26--41 seconds, and a 32-document request took
+7--10 seconds on the standard-4 size. Throughput beyond two parallel instances
+is unmeasured. Projected from those two instances, the fan-out lanes of
+Section~\ref{fan-out} would score a 1,000-case cohort in about 100 seconds for
+rosters of up to 75 artifacts, the most whose 200-document lanes fit the
+account's default limit of 1,500 concurrent vCPU, or 375 standard-4
+instances~\cite{cfcontainerlimits}, but the cold-start tail and aggregate R2 reads
+at hundreds of instances are unmeasured. The costs assume entrants the size of
+\(R_0\) and receipts written in chunks.
+
+\paragraph{Cohort mix and context bleed, October 30, 2026.}\label{cohort-mix-evidence}
+A design analysis compared batch mixes on the consumed Test, for statistics
+only, with 2,000 stratified bootstrap replicates over its 54
+domain\(\times\)origin cells. Under self-weighting, the seed-pair standard error
+of \(q\) is 3.50\% of headroom at 1,000 cases and 1.72\% at 4,000 for 20/55/25,
+against 3.58\% and 1.80\% for 40/40/20. Against \(R_0\), the paired standard
+errors of three seeds each of two other recipes, and of V6, are 12.8--18.9\% of
+headroom at 1,000 cases under 20/55/25. The reference's headroom is about 0.062
+under both mixes, but human-only documents carry 21\% of its loss under 20/55/25
+and 43\% under 40/40/20. An independent recomputation confirmed the standard
+errors and the false-promotion rate, and corrected the human false-positive rate
+at the frozen 1\% operating point to 1.33\%, domain-weighted. Context bleed was
+measured on a smoke-test span head, selected and measured on an exposed
+Development iteration before the shipped head existed. Identical human words score a
+mean AI probability of 0.098 alone and 0.259 inside their mixed child, a
+difference of \(+0.161\) [\(0.152\), \(0.170\)]; the token flag rate rises from 5.7\%
+to 20.0\%, and 93\% of segments score higher in the child. At sentence level,
+2.5\% of human sentences are flagged in pure-human documents against 16.6\% in
+mixed documents, and 33\% next to an AI sentence. The excess falls from
+\(+0.21\) within five tokens of an AI span to \(+0.06\) beyond 100 tokens, in all
+seven domains measured. These optimistic figures come from one head; evidence
+across models is missing.
+
+\paragraph{Copy-policy measurements, October 30, 2026.}\label{copy-evidence}
+Near-copy thresholds and prices were measured on the consumed Test, for
+statistics only, from the calibrated predictions of three recipes with three
+seeds each and of V6. On 2,000 random 40/40/20 batches at each of six sizes from
+256 to 4,000 documents, no independent pair fell within \(d=0.025\): the
+closest, two seeds of the weakest recipe, came no closer than 0.034 at 1,024
+documents, and seeds of the launch recipe no closer than 0.059. Temperature,
+bias, and the best affine recalibration of \(R_0\) sit at distance zero, and
+exact, recalibrated, and lightly perturbed copies all failed the gate. The
+cheapest escape, noise added to \(R_0\)'s ranking after its best recalibration,
+was measured twice, by the implementer and by an independent verifier, each over
+128 noise realizations with 200 batches per realization and size; the pooled
+figures appear in Section~\ref{reward-v1}. Fifty-fifty output averages of
+\(R_0\) with an independently trained seed scored 0.19 and 0.29 of a 1,000-case
+band above \(R_0\) and escaped every batch; such averages need two encoders and
+cannot be submitted. Weight soups, and the credit of copies degraded beyond the
+cheapest escape, were not measured. Protocol fixtures exercise these
+rules natively and on wasm32 with byte-identical golden reports.
+
+\paragraph{Public human stock, October 30, 2026.}\label{human-evaluation-stock}
+Counted from the sealed Test's reservation records, the unassigned
+evaluation-reserved human stock is about 240,000 expected documents under that
+Test's excerpt rules and per-group caps, all dated public text treated as
+historical-human proxies. About 175,000 lie in the eleven domains added for the
+sealed Test, 95\% of them in four conversational and blog domains; Wikipedia
+holds about 51,000, FineWeb about 10,000, and each other earlier source fewer
+than 1,200. Seven of the eighteen Test domains retain fewer than 350 documents,
+and five others between about 600 and 4,300. These are expected yields from
+reservation metadata; no live pool has been drawn or opened. The stock holds
+about 3.4 million sentences: a sentence Bloom filter of it at a 1\%
+false-positive rate takes 4.1 MB, 64-bit sentence hashes 27.5 MB, and its raw
+text 327 MB. On a 40/40/20 batch, recognizing all of one domain's human-only and
+mixed documents would gain 11.9\% of the reference's headroom for Wikipedia and
+6.6--9.0\% for each of six other domains.
+
+\paragraph{Common Crawl human pilot, October 30, 2026.}\label{cc-pilot-evidence}
+A pilot sampler downloaded 178 Common Crawl WET files, 24.45 GB holding
+8,245,186 records, from the pre-cutoff frame of 89 crawls and 237.84 billion
+captures~\cite{ccpilot}. It found no digest or parse errors, and 50 of 50
+byte-range re-fetches reproduced their records. After screens and deduplication
+against the existing corpus, 416,492 excerpts were admitted, 17,031 per GB, with
+a median of 204 words; pages carry 5.53 valid passages on average. Admitted
+yield per GB ranged from 3,601 for news and 2,816 for essays down to 37--39 for
+speech and fiction and 66 for email and business text, 84\% of which were press
+releases. \(R_0\) flagged 155 of 4,954 sampled documents at its 1\%
+Calibration operating point, 3.13\% [2.68, 3.65], or 2.20\% weighted to the
+pool, against 1.31\% of the sealed Test's humans. The rate shows no trend with
+crawl year (\(z=0.19\)); later crawls exceed the earliest by \(+0.47\) points
+[\(-0.51\), \(+1.52\)]. Fiction is flagged at 11.6\% in every year from 2013, a
+detector gap rather than contamination. Of 45 flagged documents reviewed, 38
+read as human-written, four were machine-made or machine-processed, one was a
+templated page, two were translated web novels, and none read like generated
+prose of the GPT-2 or GPT-3 era. Pangram 4.1 labelled all 302 documents it
+observed human, an upper bound of 1.25\%. Neither detector's sensitivity to
+machine text from 2019--2022 has been measured, so these rates bound only what
+they detect. A hashed n-gram probe trained on humans alone separates 2013--2016
+text from 2020--2022 text at AUC 0.688 [0.672, 0.703], or 0.672 with digits
+masked, through topical cues; on the Test it separates model-only documents
+from same-domain humans at AUC 0.72 and mixed documents at 0.56. \(R_0\)'s human
+scores show no drift with year (AUC 0.496) and no correlation with the probe
+(\(r=-0.01\)). Lookup measurements put the frame at about 64 billion first-seen
+URLs and give the capacity-bound gains and share caps of
+Section~\ref{lookup-exposure}; a 1,000-anchor canary detects a close fine-tune's
+lookup with 80\% power only at a gain of about 20--23\% of headroom. Data access
+costs nothing.
+
+\paragraph{Common Crawl stock qualification, October 31, 2026.}\label{cc-stock-evidence}
+Follow-up measurements on the pilot pool fixed the launch rules~\cite{ccpilot}.
+Three rounds of hand-labelled domain review, each a fresh draw of 450 documents
+that withheld those read before, raised pooled usable precision from 49\% under
+the first domain rules to 72\% [64, 79] under the third, both weighted by launch
+shares. By
+domain it ranges from 62\% for legal text to 84\% for speech and email, and
+machine text fell to 7 of 450. The density rule's caps on the third rules'
+frames set the launch shares of Section~\ref{human-stock}. Under the third
+rules speech yields about 24 excerpts per GB of WET text; at its 2.3\% share it
+is the scarcest domain, sets the volume, and the other domains fill from the
+same files. Even 584,000 documents a year, twice the human negatives that
+mainnet batches consume, then take about 0.56 TB of WET text at nominal counts,
+0.08\% of the frame's WET text, and about 0.67 TB as usable documents at
+speech's 84\% precision. The lookup canary's audit draws, about 7.3 million documents a year
+at one audit a day (Section~\ref{lookup-exposure}), would take about 7.0 TB at
+nominal counts and 8.4 TB at that precision, 1.0--1.2\% of the frame. A Common
+Crawl-parented mock cohort of 400 human-only, 947 mixed, and 480
+model-only documents from three local generators, reweighted to 20/55/25 and
+built under the cohort generation profile, passes both gates: the era-only
+adversary gains 2.9\% [1.5, 5.04] of the reference's headroom and the
+layout-and-typography adversary 1.6\% [0.3, 4.1]. As diagnostics, the
+character-class block gains 6.9\%, the era probe separates parents from dated
+mirrors at AUC 0.714, and mean word length alone gains 16.7\%, a lexical signal
+that the detector itself reads; the length window brings word count's own gain
+to 0.2\%. On this batch the headroom is 0.112, and the seed-pair standard error
+of \(q\) is 2.53\%, 1.79\%, and 1.26\% of headroom at 1,000, 2,000, and 4,000
+cases, giving \(\delta\) of 0.051, 0.036, and 0.025. On mixed documents whose
+response was only normalised, \(R_0\)'s Brier rose from 0.089 to 0.143: the
+reference leans on generator formatting, which is why the next training round
+retrains and recalibrates it on normalised, length-matched positives. A
+membership-twin set of 698 pages first captured after the cutoff, matched by
+host and month to 525 frame excerpts, shows no difference for \(R_0\) between
+the two arms (AUC 0.464). Three close honest models scored on it give an
+honest-model offset of 0.0073, with a systematic part of 0.0035, too imprecise
+to resolve the 0.0025 the canary design targets, so a 10,000-twin bank is being
+built. In the red team, two small encoders that share ModernBERT's tokenizer and
+pretraining data containing Common Crawl showed no membership signal in their
+masked-language-model loss, and a linear membership head on \(R_0\)'s encoder
+recovered 8.5--14.7\% of the pages it was trained on at a 0.1\% false-positive
+rate. The test on ModernBERT-base's own pretrained weights, the narrow strata at
+full size, and a stronger attacker remain.
+
+\paragraph{Writer profiles, October 31, 2026.}\label{writer-profile-evidence}
+A frozen protocol compared writer profiles from the native CFG exporter, from
+\(R_0\)'s encoder, and from a stylometric control of 203 function words and the
+2,000 most frequent character 3-grams, alone and in score fusions, on 630
+evaluation and 474 training writers from six public domains whose own documents
+neither system had seen~\cite{cfgvsencoder}. Profiles were unlearned: an average
+of normalized, standardized reference vectors, scored by cosine. With five
+references, pooled verification AUC was 0.743 for CFG, 0.778 for the encoder,
+0.828 for stylometry, and 0.846 for the encoder fused with stylometry. CFG fell
+below the encoder by \(-0.034\) [\(-0.047\), \(-0.022\)]. Fused with the encoder
+it added \(+0.027\) [\(+0.022\), \(+0.032\)], and added to the encoder plus
+stylometry, in a follow-up on the same writers, only \(+0.0015\) [\(+0.0004\),
+\(+0.0025\)]. Operating points were weak for every profile: the strongest still
+passed 42\% of impostor trials at 90\% of genuine ones, and no threshold fitted
+on training writers held its false-accept target on withheld writers. For author
+fit, the nearest available data were hosted-model rewrites in a voice derived
+from one passage of the target writer. Every profile ranked them near chance,
+with mean per-target AUC 0.53--0.55, and the kind of rewrite moved scores more
+than the target did. All profiles used unlearned matchers, so these tests do not
+measure the learned matcher the design requires.
+
+
+\subsection{Implementation status}\label{implementation-status}
+
+\paragraph{Implementation boundary.}\label{native-implementation-boundary}
+The native Rust adapter in this repository pins \texttt{rtao} main
+\texttt{b5553a76} (October 30, 2026)~\cite{nativeadapter}. It uses durable
+journals, signer-free restart reconciliation, persistent weight/reveal
+scheduling, semantic guards, and explicit pause/resume. Its journal uses schema
+3 and migrates schema-1 and schema-2 journals on open, refusing any it cannot
+carry over with the original bytes retained. Nothing compares a runtime spec or
+transaction version: signed operations resolve by name in live metadata, and
+only an operation without a type-correct encoding is deferred. That revision
+still refuses production journaled shield dispatch, and its compatibility record
+declares no validated runtime range, which no Slop Ninja component
+requires~\cite{rtaoshield,rtaocompat}. Adapter, validator, and protocol tests,
+including a journal-migration fixture, mutated-metadata cases, and metadata
+fuzzing, passed with Clippy on Linux on October 30 and 31, 2026, without keys or
+transactions, and the native validator's live testnet commitments ran at this
+pin (Sections~\ref{testnet-m2} and~\ref{testnet-reward-v1}). A later repin to newer \texttt{rtao} waits until
+upstream finishes its bounded-memory rework and then repeats these tests.
+
+At this pin the weight scheduler still composes through compiled call descriptors,
+so a moved call index or changed argument shape defers the weight operation
+until upstream composes by name. It also reads 23 storage items through
+compiled descriptors with no by-name fallback. If an upgrade changes any one of
+them, finalized observation, reveal tracking, and recovery stop along with both
+weight operations; the adapter records an alerted deferral and retries, but
+cannot observe or recover until upstream reads those items by name. Its
+timelock encoder supports a single commit--reveal version, so a different
+on-chain version defers commits~\cite{nativeadapter}. The production native
+validator and the serverless coordinator, which is itself the lead validator,
+remain unfinished, as does finalized-RPC recovery qualification. The shared
+protocol crate implements the \texttt{reward-v1} calculation, the public-copy
+gate and near-copy relation, private submission records, the launch and
+reward-intent leases, the cohort phase checks, and the check of a package
+against the target its holder has active, as exact computation that reproduces
+byte for byte on native and wasm32 targets~\cite{protocolcrate}. On testnet the
+coordinator's evaluation service runs \texttt{reward-v1} cohorts, building probe
+versions and fingerprints, keeping the published-artifact index, measuring the
+gates, and signing packages, and the coordinator and the native validator
+verify them and commit the resulting rows (Section~\ref{testnet-reward-v1}).
+Not yet implemented are signed corrections; the commitment call's chain
+encoding and on-chain admission, so the operator declares each roster; the
+lookup canary's statistic, since testnet has no anchors and its flags come
+only from drills; scoring audit draws for promotion candidates alone, since
+every executed entrant scores them; per-tempo authorization renewals;
+authorization of the burn row by a package without a cohort target; rebuilding the published-artifact
+index instead of trusting the coordinator's copy; binding that index by digest,
+since every active-target bundle embeds the whole index, which outgrows the
+coordinator's single stored value at about 5,000 published artifacts, about 130
+full testnet cohorts; detailed-receipt deletion; and span serving. Testnet
+cohorts still run in a separate evaluation service, and validators receive
+packages as operator-installed bundles rather than fetching them. Native
+signing, commit--reveal, and recovery were exercised on testnet
+(Section~\ref{testnet-m2}). The coordinator's own commit and reveal have also run
+live there through the Workers chain path, but its signing is not yet
+qualified.
+
+The coordinator additionally requires Workers-compatible transport, chain
+encoding and signing, a Durable Object intent/attempt journal, and recovery for
+its own commitments and reveals. Native \texttt{rtao} tests do not qualify those
+components or establish Wasm support. \texttt{rtao-rpc} block webhooks are live
+for Finney and testnet; the authenticated receiver, durable cursor recovery, and
+the watchdog's public-RPC fallback remain integration work. A subscription that
+the provider pauses after exhausting its retries leaves the coordinator in
+fallback, which the watchdog reports for an operator alert; it is not yet
+resumed automatically. Neither a qualified webhook receiver
+nor a serverless signing path is claimed as deployed evidence here.
+
+Research utilities include corpus/evaluation tools, a public Pangram-report
+reader, and an HPKE receipt prototype whose trusted assignments come from its
+caller. That prototype establishes neither a deployed key registry nor the
+customer protocol~\cite{receipts}. The reported \textit{B} experiment
+uses a host-side author-conditioned proposer; it establishes neither a trained
+CFG ranker nor independently validated joint preservation, author-fit, and
+evasion performance. A production origin service and a commercially validated
+transformation service both remain to be demonstrated.
+
+\paragraph{Testnet weight commitments, October 30, 2026.}\label{testnet-m2}
+On testnet subnet 601, the native validator signed timelocked weight
+commitments (commit--reveal version 4) with a registered validator hotkey, for a
+coordinator-signed fixture package derived under a testnet-only reward rule
+rather than \texttt{reward-v1}~\cite{testnetm2}. Commitments for epochs 7
+through 11 and 14 finalized, each re-commitment under its own per-tempo
+operation identity. The epoch-12 attempt was withheld by a drill, expired
+unexecuted, and was signed once more, with the same nonce, in epoch 14. After
+every reveal the validator's on-chain weights equalled the package's integer
+row. Fault drills crashed the process at each journal phase boundary, killed it
+after the node acknowledged a submission, dropped acknowledgments behind HTTP
+429 responses and behind a failed endpoint, and withheld a signed submission
+until its era expired. Every restart recovered from the journal, and finalized
+read-backs found no duplicate commitment; the journal ended with seven
+operations and seven attempts, none unresolved. An independent verification
+passed. The drills exposed \texttt{rtao} behaviors now reported upstream: a
+reconnection that meets an HTTP 429 leaves its session failed, so the
+application restarts with fresh connections, and each commitment makes 26 to 28
+requests within its 30-second window from nonce lease to pool admission, above
+the public endpoints' guidance of 20 requests a minute.
+Reveal tracking replays every finalized block at about 14 requests a block.
+Miner incentive and emissions were not part of this qualification.
+
+\paragraph{Testnet reward rehearsal, October 31 to November 1, 2026.}\label{testnet-reward-v1}
+Rehearsal cohorts on subnet 601 ran \texttt{reward-v1} end to end under signed
+manifests with \(K=4\) tempos, 1,000 cases mixed 20/55/25, \(\sigma=0.035\)
+and hence \(\delta=0.07\), one 1,024-document probe version, the rewrite-source
+limits of Section~\ref{cohort-batch}, and provisional gate
+thresholds~\cite{testnetrewardv1}. Human documents came only from exposed
+pools. The reference was \(R_0\) with its calibration flattened halfway to 0.5,
+a rank-preserving change that \(R_0\) itself could beat by the margin; this
+record is separate from the one testnet opens at \(R_0\)
+(Section~\ref{reference-model}). Entrants were variants of
+\(R_0\): exact copies, rank-preserving recalibrations, noise added to head
+weights, a soup of head weights, and artifacts that fail every document or
+never load. Generation took about 6.5 minutes a cohort, and scoring a cohort of
+seven entrants 4.6 minutes in 35 lanes; in one cohort 28 of 30 scorer starts failed
+once and were retried. With the reference alone, a cohort produced no target
+and the launch burn row stayed active. In a cohort of seven entrants,
+\(R_0\) cleared the margin as the only cluster head above the cutoff, a canary
+drill flagged it twice, so nobody was promoted, and its cluster received the
+whole row. Exact copies of published artifacts were never executed.
+Recalibrated copies and a head-weight soup within the near-copy distance failed
+the public-copy gate, on the batch or, against an earlier artifact's
+fingerprint, on the probe; a noisy variant that cleared the batch comparison
+failed against the reference's fingerprint on the probe; and artifacts without
+predictions scored zero and failed the share and loose false-positive gates.
+Two later cohorts, one after review fixes, produced no target and carried that
+target forward. An offline verifier checked every
+package and closure, and the native validator verified every bundle it used,
+including all 14,344 receipts of the seven-entrant cohort. The verifier also
+reproduced every row digest that the two signers reported, from the package and
+a registration snapshot at the same block. The coordinator committed the launch burn row at eight consecutive
+epochs and the cohort target from its activation, and the native validator,
+which abstains from all-burn rows, committed the target from activation and
+again under a carrying package's authorization; every reveal read back equal
+to the committed row. After the fixes both signers kept their own record of
+the active target, refused the launch authorization after activation, and
+re-derived each tempo's row from that tempo's snapshot, and a plan naming a
+fresh pool was refused. No live row has yet paid two UIDs, because no
+available artifact beats the reference by the margin while staying clear of
+every published one: the max-upscaled form of such a row, promotion, the
+fallback cutoff, and canary re-audits are covered by tests alone, and the
+fault drills of Section~\ref{testnet-m2} have not been repeated under
+\texttt{reward-v1}.

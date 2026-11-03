@@ -1,0 +1,1021 @@
+{
+  "artifact_id": "101445a73fa1e44b996a72e6536e8fa082f76ade415faf978c375b3c3f8429b7",
+  "declaration_sha256": "f4b7f5052ab8d81a3899c9b7fc502cd29a882b06184cf6b42cf7e63b24dd9b8c",
+  "final_test_opened": false,
+  "human_model": {
+    "accuracy_at_half": 0.7083333333333334,
+    "binary_brier": 0.2386871042789226,
+    "excluded_mixed_rows": 24,
+    "human_rows": 24,
+    "log_loss": 0.7728931952878465,
+    "model_rows": 24,
+    "rows": 48,
+    "source_groups": 24
+  },
+  "human_model_slices": {
+    "collection:cmu-books-historical": {
+      "accuracy_at_half": 0.7083333333333334,
+      "binary_brier": 0.2386871042789226,
+      "excluded_mixed_rows": 24,
+      "human_rows": 24,
+      "log_loss": 0.7728931952878465,
+      "model_rows": 24,
+      "rows": 48,
+      "source_groups": 24
+    },
+    "profile:anti-ai": {
+      "accuracy_at_half": 0.5,
+      "binary_brier": 0.37796784326718236,
+      "excluded_mixed_rows": 4,
+      "human_rows": 4,
+      "log_loss": 1.2970800125991617,
+      "model_rows": 4,
+      "rows": 8,
+      "source_groups": 4
+    },
+    "profile:direct": {
+      "accuracy_at_half": 0.8,
+      "binary_brier": 0.21976717454096723,
+      "excluded_mixed_rows": 5,
+      "human_rows": 5,
+      "log_loss": 0.7134029550492708,
+      "model_rows": 5,
+      "rows": 10,
+      "source_groups": 5
+    },
+    "profile:fix-slop": {
+      "accuracy_at_half": 0.5,
+      "binary_brier": 0.24260568549981426,
+      "excluded_mixed_rows": 2,
+      "human_rows": 2,
+      "log_loss": 0.659094812065903,
+      "model_rows": 2,
+      "rows": 4,
+      "source_groups": 2
+    },
+    "profile:informal": {
+      "accuracy_at_half": 0.8,
+      "binary_brier": 0.18079381805708636,
+      "excluded_mixed_rows": 5,
+      "human_rows": 5,
+      "log_loss": 0.6228252774806351,
+      "model_rows": 5,
+      "rows": 10,
+      "source_groups": 5
+    },
+    "profile:plain": {
+      "accuracy_at_half": 0.75,
+      "binary_brier": 0.22637426241179787,
+      "excluded_mixed_rows": 4,
+      "human_rows": 4,
+      "log_loss": 0.7333498483249271,
+      "model_rows": 4,
+      "rows": 8,
+      "source_groups": 4
+    },
+    "profile:source-matched": {
+      "accuracy_at_half": 0.75,
+      "binary_brier": 0.20577643649708102,
+      "excluded_mixed_rows": 4,
+      "human_rows": 4,
+      "log_loss": 0.6070966141076599,
+      "model_rows": 4,
+      "rows": 8,
+      "source_groups": 4
+    },
+    "provider-profile:mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde|anti-ai": {
+      "accuracy_at_half": 0.5,
+      "binary_brier": 0.37796784326718236,
+      "excluded_mixed_rows": 4,
+      "human_rows": 4,
+      "log_loss": 1.2970800125991617,
+      "model_rows": 4,
+      "rows": 8,
+      "source_groups": 4
+    },
+    "provider-profile:mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde|direct": {
+      "accuracy_at_half": 0.8,
+      "binary_brier": 0.21976717454096723,
+      "excluded_mixed_rows": 5,
+      "human_rows": 5,
+      "log_loss": 0.7134029550492708,
+      "model_rows": 5,
+      "rows": 10,
+      "source_groups": 5
+    },
+    "provider-profile:mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde|fix-slop": {
+      "accuracy_at_half": 0.5,
+      "binary_brier": 0.24260568549981426,
+      "excluded_mixed_rows": 2,
+      "human_rows": 2,
+      "log_loss": 0.659094812065903,
+      "model_rows": 2,
+      "rows": 4,
+      "source_groups": 2
+    },
+    "provider-profile:mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde|informal": {
+      "accuracy_at_half": 0.8,
+      "binary_brier": 0.18079381805708636,
+      "excluded_mixed_rows": 5,
+      "human_rows": 5,
+      "log_loss": 0.6228252774806351,
+      "model_rows": 5,
+      "rows": 10,
+      "source_groups": 5
+    },
+    "provider-profile:mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde|plain": {
+      "accuracy_at_half": 0.75,
+      "binary_brier": 0.22637426241179787,
+      "excluded_mixed_rows": 4,
+      "human_rows": 4,
+      "log_loss": 0.7333498483249271,
+      "model_rows": 4,
+      "rows": 8,
+      "source_groups": 4
+    },
+    "provider-profile:mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde|source-matched": {
+      "accuracy_at_half": 0.75,
+      "binary_brier": 0.20577643649708102,
+      "excluded_mixed_rows": 4,
+      "human_rows": 4,
+      "log_loss": 0.6070966141076599,
+      "model_rows": 4,
+      "rows": 8,
+      "source_groups": 4
+    },
+    "provider:mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde": {
+      "accuracy_at_half": 0.7083333333333334,
+      "binary_brier": 0.2386871042789226,
+      "excluded_mixed_rows": 24,
+      "human_rows": 24,
+      "log_loss": 0.7728931952878465,
+      "model_rows": 24,
+      "rows": 48,
+      "source_groups": 24
+    }
+  },
+  "notes": [
+    "Immutable v4 with original Calibration and thresholds; no v5 detector or Test prediction.",
+    "Provider cohorts share human source families; they are correlated observations, not independent human samples.",
+    "Profile counts reflect different roots and admission failures; no causal profile comparison."
+  ],
+  "operating_points": [
+    {
+      "calibration": {
+        "calibration_false_positives": 0,
+        "calibration_human_groups": 34,
+        "calibration_human_rows": 34,
+        "comparison": "strictly_greater_than",
+        "target_human_false_positive_rate": 0.01,
+        "threshold": 0.9055049212676647
+      },
+      "human_false_positive_rate": {
+        "bootstrap_replicates": 512,
+        "events": 9,
+        "group_bootstrap_percentile_95": [
+          0.20833333333333334,
+          0.5833333333333334
+        ],
+        "rate": 0.375,
+        "rows": 24,
+        "source_groups": 24,
+        "uncertainty_status": "group_bootstrap_percentile"
+      },
+      "mixed_sensitivity": {
+        "bootstrap_replicates": 512,
+        "events": 22,
+        "group_bootstrap_percentile_95": [
+          0.7916666666666666,
+          1.0
+        ],
+        "rate": 0.9166666666666666,
+        "rows": 24,
+        "source_groups": 24,
+        "uncertainty_status": "group_bootstrap_percentile"
+      },
+      "model_only_sensitivity": {
+        "bootstrap_replicates": 512,
+        "events": 23,
+        "group_bootstrap_percentile_95": [
+          0.875,
+          1.0
+        ],
+        "rate": 0.9583333333333334,
+        "rows": 24,
+        "source_groups": 24,
+        "uncertainty_status": "group_bootstrap_percentile"
+      },
+      "model_or_mixed_sensitivity": {
+        "bootstrap_replicates": 512,
+        "events": 45,
+        "group_bootstrap_percentile_95": [
+          0.8333333333333334,
+          1.0
+        ],
+        "rate": 0.9375,
+        "rows": 48,
+        "source_groups": 24,
+        "uncertainty_status": "group_bootstrap_percentile"
+      }
+    },
+    {
+      "calibration": {
+        "calibration_false_positives": 1,
+        "calibration_human_groups": 34,
+        "calibration_human_rows": 34,
+        "comparison": "strictly_greater_than",
+        "target_human_false_positive_rate": 0.05,
+        "threshold": 0.902395786182547
+      },
+      "human_false_positive_rate": {
+        "bootstrap_replicates": 512,
+        "events": 9,
+        "group_bootstrap_percentile_95": [
+          0.20833333333333334,
+          0.5833333333333334
+        ],
+        "rate": 0.375,
+        "rows": 24,
+        "source_groups": 24,
+        "uncertainty_status": "group_bootstrap_percentile"
+      },
+      "mixed_sensitivity": {
+        "bootstrap_replicates": 512,
+        "events": 22,
+        "group_bootstrap_percentile_95": [
+          0.7916666666666666,
+          1.0
+        ],
+        "rate": 0.9166666666666666,
+        "rows": 24,
+        "source_groups": 24,
+        "uncertainty_status": "group_bootstrap_percentile"
+      },
+      "model_only_sensitivity": {
+        "bootstrap_replicates": 512,
+        "events": 23,
+        "group_bootstrap_percentile_95": [
+          0.875,
+          1.0
+        ],
+        "rate": 0.9583333333333334,
+        "rows": 24,
+        "source_groups": 24,
+        "uncertainty_status": "group_bootstrap_percentile"
+      },
+      "model_or_mixed_sensitivity": {
+        "bootstrap_replicates": 512,
+        "events": 45,
+        "group_bootstrap_percentile_95": [
+          0.8333333333333334,
+          1.0
+        ],
+        "rate": 0.9375,
+        "rows": 48,
+        "source_groups": 24,
+        "uncertainty_status": "group_bootstrap_percentile"
+      }
+    }
+  ],
+  "profile_operating_points": {
+    "profile:anti-ai": [
+      {
+        "calibration": {
+          "calibration_false_positives": 0,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9055049212676647
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 3,
+          "group_bootstrap_percentile_95": [
+            0.25,
+            1.0
+          ],
+          "rate": 0.75,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 8,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 8,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        }
+      },
+      {
+        "calibration": {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.902395786182547
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 3,
+          "group_bootstrap_percentile_95": [
+            0.25,
+            1.0
+          ],
+          "rate": 0.75,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 8,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 8,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        }
+      }
+    ],
+    "profile:direct": [
+      {
+        "calibration": {
+          "calibration_false_positives": 0,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9055049212676647
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": [
+            0.0,
+            0.8
+          ],
+          "rate": 0.4,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 5,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 5,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 10,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 10,
+          "source_groups": 5,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        }
+      },
+      {
+        "calibration": {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.902395786182547
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": [
+            0.0,
+            0.8
+          ],
+          "rate": 0.4,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 5,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 5,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 10,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 10,
+          "source_groups": 5,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        }
+      }
+    ],
+    "profile:fix-slop": [
+      {
+        "calibration": {
+          "calibration_false_positives": 0,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9055049212676647
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 0,
+          "group_bootstrap_percentile_95": null,
+          "rate": 0.0,
+          "rows": 2,
+          "source_groups": 2,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 2,
+          "source_groups": 2,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 2,
+          "source_groups": 2,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 2,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        }
+      },
+      {
+        "calibration": {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.902395786182547
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 0,
+          "group_bootstrap_percentile_95": null,
+          "rate": 0.0,
+          "rows": 2,
+          "source_groups": 2,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 2,
+          "source_groups": 2,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 2,
+          "source_groups": 2,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 2,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        }
+      }
+    ],
+    "profile:informal": [
+      {
+        "calibration": {
+          "calibration_false_positives": 0,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9055049212676647
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": [
+            0.0,
+            0.8
+          ],
+          "rate": 0.4,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": [
+            0.4,
+            1.0
+          ],
+          "rate": 0.8,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 5,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 9,
+          "group_bootstrap_percentile_95": [
+            0.7,
+            1.0
+          ],
+          "rate": 0.9,
+          "rows": 10,
+          "source_groups": 5,
+          "uncertainty_status": "group_bootstrap_percentile"
+        }
+      },
+      {
+        "calibration": {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.902395786182547
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": [
+            0.0,
+            0.8
+          ],
+          "rate": 0.4,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": [
+            0.4,
+            1.0
+          ],
+          "rate": 0.8,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 5,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 5,
+          "source_groups": 5,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 9,
+          "group_bootstrap_percentile_95": [
+            0.7,
+            1.0
+          ],
+          "rate": 0.9,
+          "rows": 10,
+          "source_groups": 5,
+          "uncertainty_status": "group_bootstrap_percentile"
+        }
+      }
+    ],
+    "profile:plain": [
+      {
+        "calibration": {
+          "calibration_false_positives": 0,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9055049212676647
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": [
+            0.0,
+            1.0
+          ],
+          "rate": 0.5,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 8,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 8,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        }
+      },
+      {
+        "calibration": {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.902395786182547
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 2,
+          "group_bootstrap_percentile_95": [
+            0.0,
+            1.0
+          ],
+          "rate": 0.5,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 4,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 8,
+          "group_bootstrap_percentile_95": null,
+          "rate": 1.0,
+          "rows": 8,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        }
+      }
+    ],
+    "profile:source-matched": [
+      {
+        "calibration": {
+          "calibration_false_positives": 0,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9055049212676647
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 0,
+          "group_bootstrap_percentile_95": null,
+          "rate": 0.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 3,
+          "group_bootstrap_percentile_95": [
+            0.25,
+            1.0
+          ],
+          "rate": 0.75,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 3,
+          "group_bootstrap_percentile_95": [
+            0.25,
+            1.0
+          ],
+          "rate": 0.75,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 6,
+          "group_bootstrap_percentile_95": [
+            0.25,
+            1.0
+          ],
+          "rate": 0.75,
+          "rows": 8,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        }
+      },
+      {
+        "calibration": {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 34,
+          "calibration_human_rows": 34,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.902395786182547
+        },
+        "human_false_positive_rate": {
+          "bootstrap_replicates": 512,
+          "events": 0,
+          "group_bootstrap_percentile_95": null,
+          "rate": 0.0,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "degenerate_observed_outcomes"
+        },
+        "mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 3,
+          "group_bootstrap_percentile_95": [
+            0.25,
+            1.0
+          ],
+          "rate": 0.75,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "model_only_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 3,
+          "group_bootstrap_percentile_95": [
+            0.25,
+            1.0
+          ],
+          "rate": 0.75,
+          "rows": 4,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        },
+        "model_or_mixed_sensitivity": {
+          "bootstrap_replicates": 512,
+          "events": 6,
+          "group_bootstrap_percentile_95": [
+            0.25,
+            1.0
+          ],
+          "rate": 0.75,
+          "rows": 8,
+          "source_groups": 4,
+          "uncertainty_status": "group_bootstrap_percentile"
+        }
+      }
+    ]
+  },
+  "provider": "mistral",
+  "records_sha256": "94612b766953ecd9726d94f9753e881909673c903313264374a3cbf353f327db",
+  "schema": "slop_ninja_narrative_provider_development_v1",
+  "source_report_sha256": "b5109e1b5e169c634c2579f170af7687ba9ba4feb8a14aa5750494447d84d7ce",
+  "split": "development",
+  "three_class_model": {
+    "accuracy": 0.5555555555555556,
+    "calibration_bins": [
+      {
+        "accuracy": null,
+        "lower_inclusive": 0.0,
+        "mean_confidence": null,
+        "rows": 0,
+        "upper_inclusive_last_bin": 0.1
+      },
+      {
+        "accuracy": null,
+        "lower_inclusive": 0.1,
+        "mean_confidence": null,
+        "rows": 0,
+        "upper_inclusive_last_bin": 0.2
+      },
+      {
+        "accuracy": null,
+        "lower_inclusive": 0.2,
+        "mean_confidence": null,
+        "rows": 0,
+        "upper_inclusive_last_bin": 0.3
+      },
+      {
+        "accuracy": 1.0,
+        "lower_inclusive": 0.3,
+        "mean_confidence": 0.38667767658576724,
+        "rows": 1,
+        "upper_inclusive_last_bin": 0.4
+      },
+      {
+        "accuracy": 0.6363636363636364,
+        "lower_inclusive": 0.4,
+        "mean_confidence": 0.4723965082331832,
+        "rows": 11,
+        "upper_inclusive_last_bin": 0.5
+      },
+      {
+        "accuracy": 0.4,
+        "lower_inclusive": 0.5,
+        "mean_confidence": 0.5452857177869539,
+        "rows": 30,
+        "upper_inclusive_last_bin": 0.6
+      },
+      {
+        "accuracy": 0.6111111111111112,
+        "lower_inclusive": 0.6,
+        "mean_confidence": 0.634952482956252,
+        "rows": 18,
+        "upper_inclusive_last_bin": 0.7
+      },
+      {
+        "accuracy": 0.5,
+        "lower_inclusive": 0.7,
+        "mean_confidence": 0.7145773440858099,
+        "rows": 6,
+        "upper_inclusive_last_bin": 0.8
+      },
+      {
+        "accuracy": 1.0,
+        "lower_inclusive": 0.8,
+        "mean_confidence": 0.8875044380934696,
+        "rows": 1,
+        "upper_inclusive_last_bin": 0.9
+      },
+      {
+        "accuracy": 1.0,
+        "lower_inclusive": 0.9,
+        "mean_confidence": 0.9798886877877322,
+        "rows": 5,
+        "upper_inclusive_last_bin": 1.0
+      }
+    ],
+    "classes": [
+      {
+        "precision": 0.9230769230769231,
+        "recall": 0.5,
+        "support": 24
+      },
+      {
+        "precision": 0.44680851063829785,
+        "recall": 0.875,
+        "support": 24
+      },
+      {
+        "precision": 0.5833333333333334,
+        "recall": 0.2916666666666667,
+        "support": 24
+      }
+    ],
+    "confusion": [
+      [
+        12,
+        10,
+        2
+      ],
+      [
+        0,
+        21,
+        3
+      ],
+      [
+        1,
+        16,
+        7
+      ]
+    ],
+    "log_loss": 0.9943044681233228,
+    "mean_group_accuracy": 0.5555555555555555,
+    "multiclass_brier": 0.57974345298032,
+    "rows": 72,
+    "source_groups": 24,
+    "top_label_ece_10_bins": 0.12090546037712639
+  },
+  "thresholds_sha256": "bcfa1de781e4429c6bde194d30fadfc09449590c5cc2c104c65312b6bfdb6d5c"
+}

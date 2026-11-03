@@ -1,0 +1,272 @@
+{
+  "schema": "slop_ninja_surface_noise_panel_check_v1",
+  "at": "2026-09-15T15:16:40Z",
+  "preparation_sha256": "e167257243e780d610d3f3215beaed7334cfc1b05eab144371d35b2cff1eb89e",
+  "source_sha256": "68d64eb9a26cb4479e02673776ced3529e0a5288151c07f840f1c3ce4786ec8f",
+  "binary_sha256": "4180dd9ce3f2c66ae8b801d439c4c089a4180bd0850d4e2b9ad2ef1cedc25e42",
+  "protocol_sha256": "208fafd527c02bed4997c04ad9518dfc7bca76799866ed105223a28a08537dc2",
+  "requests_sha256": "63c9e7653ddfd62cc883062a7e0e9d4f107ff5afda29c776af29a5cf8acf5df9",
+  "review_contexts_sha256": "9a79369e27b683eca174118062a2b62a0dc3215bc9016d4c56219efd4119f19b",
+  "check_source_sha256": "3241991651362682a401552bbdb5136ebf8302902ef7fe553a02eb6b64c86e19",
+  "records": 126,
+  "families": 16,
+  "eligible_pairs": 386,
+  "ineligible": 118,
+  "requests_per_model": 512,
+  "eligible_counts": [
+    {
+      "kind": "internal-space",
+      "origin": "human_only",
+      "collection": "cmu-books-historical",
+      "count": 4
+    },
+    {
+      "kind": "internal-space",
+      "origin": "human_only",
+      "collection": "hc3-wiki-historical",
+      "count": 4
+    },
+    {
+      "kind": "internal-space",
+      "origin": "human_only",
+      "collection": "plos_one",
+      "count": 4
+    },
+    {
+      "kind": "internal-space",
+      "origin": "human_only",
+      "collection": "wikinews",
+      "count": 4
+    },
+    {
+      "kind": "internal-space",
+      "origin": "mixed",
+      "collection": "cmu-books-historical",
+      "count": 12
+    },
+    {
+      "kind": "internal-space",
+      "origin": "mixed",
+      "collection": "hc3-wiki-historical",
+      "count": 11
+    },
+    {
+      "kind": "internal-space",
+      "origin": "mixed",
+      "collection": "plos_one",
+      "count": 8
+    },
+    {
+      "kind": "internal-space",
+      "origin": "mixed",
+      "collection": "wikinews",
+      "count": 8
+    },
+    {
+      "kind": "internal-space",
+      "origin": "model_only",
+      "collection": "cmu-books-historical",
+      "count": 20
+    },
+    {
+      "kind": "internal-space",
+      "origin": "model_only",
+      "collection": "hc3-wiki-historical",
+      "count": 19
+    },
+    {
+      "kind": "internal-space",
+      "origin": "model_only",
+      "collection": "plos_one",
+      "count": 16
+    },
+    {
+      "kind": "internal-space",
+      "origin": "model_only",
+      "collection": "wikinews",
+      "count": 16
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "human_only",
+      "collection": "cmu-books-historical",
+      "count": 4
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "human_only",
+      "collection": "hc3-wiki-historical",
+      "count": 4
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "human_only",
+      "collection": "plos_one",
+      "count": 4
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "human_only",
+      "collection": "wikinews",
+      "count": 4
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "mixed",
+      "collection": "cmu-books-historical",
+      "count": 12
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "mixed",
+      "collection": "hc3-wiki-historical",
+      "count": 11
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "mixed",
+      "collection": "plos_one",
+      "count": 8
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "mixed",
+      "collection": "wikinews",
+      "count": 8
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "model_only",
+      "collection": "cmu-books-historical",
+      "count": 20
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "model_only",
+      "collection": "hc3-wiki-historical",
+      "count": 19
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "model_only",
+      "collection": "plos_one",
+      "count": 16
+    },
+    {
+      "kind": "repeated-determiner",
+      "origin": "model_only",
+      "collection": "wikinews",
+      "count": 16
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "human_only",
+      "collection": "cmu-books-historical",
+      "count": 4
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "human_only",
+      "collection": "hc3-wiki-historical",
+      "count": 4
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "human_only",
+      "collection": "plos_one",
+      "count": 4
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "human_only",
+      "collection": "wikinews",
+      "count": 4
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "mixed",
+      "collection": "cmu-books-historical",
+      "count": 12
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "mixed",
+      "collection": "hc3-wiki-historical",
+      "count": 11
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "mixed",
+      "collection": "plos_one",
+      "count": 8
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "mixed",
+      "collection": "wikinews",
+      "count": 8
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "model_only",
+      "collection": "cmu-books-historical",
+      "count": 20
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "model_only",
+      "collection": "hc3-wiki-historical",
+      "count": 19
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "model_only",
+      "collection": "plos_one",
+      "count": 16
+    },
+    {
+      "kind": "spelling-transposition",
+      "origin": "model_only",
+      "collection": "wikinews",
+      "count": 16
+    },
+    {
+      "kind": "terminal-repeat",
+      "origin": "human_only",
+      "collection": "cmu-books-historical",
+      "count": 1
+    },
+    {
+      "kind": "terminal-repeat",
+      "origin": "mixed",
+      "collection": "cmu-books-historical",
+      "count": 1
+    },
+    {
+      "kind": "terminal-repeat",
+      "origin": "model_only",
+      "collection": "cmu-books-historical",
+      "count": 5
+    },
+    {
+      "kind": "terminal-repeat",
+      "origin": "model_only",
+      "collection": "hc3-wiki-historical",
+      "count": 1
+    }
+  ],
+  "independent_rule_recalculation": true,
+  "exact_mutations_verified": true,
+  "manual_review": "pending",
+  "inference_started": false,
+  "detector_calls": 0,
+  "new_training_records": 0,
+  "checks": {
+    "fmt": "passed",
+    "all_target_tests": "passed",
+    "clippy": "passed with warnings denied",
+    "release_build": "passed"
+  },
+  "execution_host": "Mac Studio",
+  "linux_execution": "unverified"
+}

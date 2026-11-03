@@ -1,0 +1,57 @@
+{
+  "id": "cc_launch_shares_v4",
+  "status": "derived",
+  "note": "The same four-stratum cut with caps measured on the rules-v3 assignment. News stays at 27.5, above its rules-v3 share cap.",
+  "shares": {
+    "email": 0.6884,
+    "essays": 50.2516,
+    "fiction": 1.8,
+    "forum": 7.8,
+    "legal": 3.11,
+    "news": 27.5,
+    "reviews": 4.16,
+    "speech": 2.3,
+    "technical": 2.39
+  },
+  "email_split": {
+    "press_release": 0.65,
+    "list_mail": 0.0384
+  },
+  "derivation": {
+    "base": "cc_launch_shares_v2",
+    "caps_assignments_sha256": "54551d914e8a399e18cb0adc6f859ea7a12605f6f89c4212464317b77a739a3c",
+    "caps_rules": "cc_human_domain_rules_pilot_v3",
+    "caps_rules_sha256": "f50ce6e35c24a98ba8c2f8421b49ac1a473d022263c4208afe660a2460728c4b",
+    "cut": [
+      {
+        "base": 12.0,
+        "cap": 2.3932876260195908,
+        "new": 2.39,
+        "stratum": "technical"
+      },
+      {
+        "base": 5.4,
+        "cap": 3.111770747031138,
+        "new": 3.11,
+        "stratum": "legal"
+      },
+      {
+        "base": 6.5,
+        "cap": 4.165523268712263,
+        "new": 4.16,
+        "stratum": "reviews"
+      },
+      {
+        "base": 0.05,
+        "cap": 0.038479274727498035,
+        "new": 0.038400000000000004,
+        "stratum": "list_mail"
+      }
+    ],
+    "density_rule": "cc_density_rule_v1",
+    "freed": 14.2516,
+    "freed_to": "essays",
+    "method": "each cut stratum: min(base, cap floored to three significant figures); the freed points go to the receiver",
+    "rule": "cc_share_derivation_v1"
+  }
+}

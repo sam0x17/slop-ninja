@@ -1,0 +1,95 @@
+Slop Ninja
+Copyright (c) 2026 The Slop Ninja Authors
+
+Project code and documentation are licensed under the MIT License
+(LICENSE-MIT) or the Apache License, Version 2.0 (LICENSE-APACHE), at your
+option. Files, directories and datasets that carry their own licence or
+notice keep those terms; the Licence section of README.md lists them. Miner
+submissions and the reference model weights are licensed under the Creative
+Commons Attribution-ShareAlike 4.0 International licence (CC BY-SA 4.0,
+https://creativecommons.org/licenses/by-sa/4.0/). The Slop Ninja logo files in
+assets/brand/ are not covered by the code and documentation licences.
+
+Development moved to this repository on 2026-11-03. Its first commit imports
+the project from a private development repository. Commit ids, branch names
+(such as origin/...) and ignored data/ paths cited in evidence, receipts and
+documents written before then refer to that private history and its local
+inputs, which are not published. Execution hosts and home directories are named
+by placeholders (build-host, remote-host, workstation-host, /home/operator,
+and ~/ for a home directory). Where the import changed a file (host and path
+placeholders, resource names, links), digests cited for that file refer to its
+private bytes. The exception is the files whose home paths the import removed
+(pinned detector and experiment records, and the dataset record files and
+capture audit noted in datasets/README.md): their checksums, sizes and record
+digests were updated wherever they are cited, together with the digests of the
+files that cite them. Release bundles and model weights cited as releases are not part of
+this repository.
+
+Third-party notices
+===================
+
+Dataset snapshots under datasets/ carry their own NOTICE.md files, licence
+copies and per-row source attribution. This file lists notices that apply to
+material outside those per-snapshot notices, or across several of them.
+
+Dataset records
+---------------
+
+Tests that quote or adapt records of the dataset snapshots keep those
+records' licences and attribution: PLOS ONE articles CC BY 4.0
+(https://creativecommons.org/licenses/by/4.0/); Wikinews CC BY 2.5
+(https://creativecommons.org/licenses/by/2.5/); historical Wikipedia text and
+HC3 wiki_csai answers CC BY-SA 3.0
+(https://creativecommons.org/licenses/by-sa/3.0/); CMU Book Summaries
+CC BY-SA 3.0 United States (https://creativecommons.org/licenses/by-sa/3.0/us/),
+credit David Bamman and Noah Smith (2013). Such rows identify their record by
+source.dataset_path or source.path and record_id in datasets/, where the
+record's attribution is kept. Adaptations of CC BY-SA text are offered under
+CC BY-SA 4.0.
+
+Global Voices
+-------------
+
+Some dataset texts in this repository contain excerpts from articles
+published by Global Voices (https://globalvoices.org), or short passages that
+match them. Global Voices publishes its articles under the Creative Commons
+Attribution 3.0 licence by default (CC BY 3.0,
+https://creativecommons.org/licenses/by/3.0/); individual items can carry
+other terms.
+
+The repository's Global Voices collector records this publisher default from
+the attribution policy linked below.
+
+Credit: Global Voices and its contributing writers, including Zita Zage,
+Mong Palatino, R Umaima Ahmed, Filip Noubel and Eduardo Avila. Their articles
+are listed with their URL where the retained provenance has one, and the
+writer's author page otherwise:
+
+- https://globalvoices.org/2024/02/05/how-rwandas-literary-giants-promoted-their-countrys-rich-culture-through-their-work/
+  (Zita Zage)
+- https://globalvoices.org/2025/05/21/ai-impunity-and-authoritarian-media-control-in-southeast-asia/
+  (Mong Palatino)
+- https://globalvoices.org/author/umaimaahmed/ (two articles)
+- https://globalvoices.org/author/filip-noubel/
+- https://globalvoices.org/author/eduardo-avila/
+
+Excerpts were extracted from article paragraphs without markup. Any changes
+are ours and are not endorsed by Global Voices or the writers. See the
+publisher's attribution policy:
+https://globalvoices.org/about/global-voices-attribution-policy/
+
+Files:
+
+- datasets/a-encoder-20261026-v1/test.jsonl.zst
+- datasets/a-encoder-20261026-v1/sources/pg-2015.rdf
+- datasets/a-retained-train-20261026-v1/records.jsonl.zst
+- datasets/a-train-augmentation-20261026-v1/records.jsonl.zst
+- datasets/detector-origin-v1/train/third.jsonl.zst
+- datasets/detector-revisions-v1/train.jsonl.zst
+- datasets/detector-v5/train.jsonl.zst
+- datasets/detector-v6/calibration.jsonl.zst
+- datasets/detector-v6/train.jsonl.zst
+
+The dataset entries share only short runs of words with Global Voices
+articles, and some of those runs may be ordinary phrases. They are listed so
+that any quoted passage keeps its attribution. See also datasets/README.md.

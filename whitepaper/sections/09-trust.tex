@@ -1,0 +1,195 @@
+\section{Trust assumptions and adversarial
+behavior}\label{trust-assumptions-and-adversarial-behavior}
+
+The pilot's scoring authority is the Slop Ninja coordinator, the operator's
+lead validator implemented entirely as a serverless service. Held-out inputs,
+labels, and individual predictions stay in that service. Every validator
+independently calculates the native weight row from signed public score inputs
+and frozen rules, then uses native commit--reveal with its own key and journal.
+The coordinator later certifies its finalized row for audit;
+other validators do not wait for that certificate before committing. These
+checks establish agreement with the public calculation without reproducing
+hidden scoring or establishing the truth of its labels. A dishonest coordinator
+could fabricate results, omit a qualified entrant, leak a benchmark, or favor an owner.
+Models published after each cohort, committed populations, retained evidence,
+and signed corrections help detect some misconduct, but the pilot assumes honest scoring and curation.
+There is no validator-quorum security guarantee for those claims.
+The coordinator's validator hotkey and durable signing state are also within
+this serverless trust boundary. Other validators retain independent keys and
+recovery records.
+
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{\dimexpr0.40\linewidth-\tabcolsep\relax}>{\raggedright\arraybackslash}p{\dimexpr0.60\linewidth-\tabcolsep\relax}@{}}
+\caption{Pilot risks, controls, and remaining trust assumptions.}\label{tab:pilot-risks}\\
+\toprule
+Risk & Control and remaining limit \\
+\midrule
+\endfirsthead
+\toprule
+Risk & Control and remaining limit \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+Benchmark leakage or biased labels & Review provenance and overlaps, separate
+source families, restrict live labels, draw a fresh batch for every cohort,
+and score each passage of fresh stock as a pure-human negative at most once. Commit the
+population and policy before scoring. Per-miner scores still leak a little about the batch they describe,
+and coordinated probing across many UIDs remains possible. Secrecy and accurate
+curation remain assumptions. \\
+Memorized examples or hidden triggers & Qualify on held-out production workflows,
+writers, and generators, with targeted-trigger tests. Entrant weights published
+after each cohort permit inspection but do not prove the absence of a trigger. \\
+Recognition and lookup of human text & The human side is existing text, and a
+mixed document keeps its source's unreplaced words, so recognizing human text
+can separate origins without detecting AI involvement. Admission allows only
+the allow-listed graphs, of at most 160 million parameters, with the
+allow-listed tokenizer and schema-validated files, and excludes an explicit
+text index. On mainnet, sampling breadth over Common Crawl, keyed secret passage
+choice, and share caps hold the estimated gain to about 0.5\% of headroom, or
+about 1.1\% for an attacker who completes a capped stratum; pretraining exposure
+is untested, and a low-powered lookup canary audits promotions. These reduce
+lookup; none prevents it. On testnet the public stock is recognizable in full,
+and cohorts without a working outside entrant redraw documents already exposed,
+an accepted pilot limit (Sections~\ref{human-stock} and~\ref{lookup-exposure}).
+It reaches mainnet only through the reference testnet hands on, which mainnet
+scores on its own batches: a testnet lookup gain does not carry into mainnet's
+first bar, which can therefore sit lower than the testnet record suggests
+(Section~\ref{reference-model}). \\
+Copied models and common ownership & Keep artifacts private until their cohort
+ends. Copies of published artifacts earn nothing: exact copies fail by content
+digest, and near copies, recalibrated ones included, fail by aligned distance on
+the batch and on a private probe (Section~\ref{public-copies}). A copy perturbed
+with deliberate noise still escapes for about \(3.5\times10^{-4}\) to
+\(4.8\times10^{-4}\) of expected score, about a tenth of a band at 1,000 cases,
+and can earn a within-band slot in a fallback cohort. Because a band's share
+ignores how many clusters it holds, a copy degraded further, or an entrant's
+weaker variant of its own model, can land alone in a lower band and take up to
+45.9\% of the pool, more than each cluster in a crowded band above it; its
+expected credit is not yet measured (Section~\ref{reward-v1}).
+Weight soups of published artifacts are new models and earn normally. Within a
+cohort, near-duplicate entrants share one credit equally, but a party's portion
+of a shared cluster still grows with the hotkeys it registers. Registration cost
+and UID slots are the only brakes on either; different hashes and UIDs do not
+establish independent work or ownership. \\
+False reference advance & Eligibility and promotion use the same margin of
+about two paired standard errors of seed retrains. Ten entrants equal to the
+reference promote one in about 14\% of cohorts when they differ from it as seed
+retrains do, and in most cohorts when they differ from it as much as the other
+measured recipes do, each passing alone about a third of the time
+(Section~\ref{reference-model}). The
+same noise can promote a worse model: alone, a structurally different entrant a
+full margin below the reference clears it about a fifth of the time. Fresh
+re-measurement each cohort, the easier pass against a worse reference, and the
+displaced model's role as fallback anchor limit the drift, but no rule bounds
+it; it is measured before launch. Two lookup-canary flags, or a failed strict false-positive
+tier, pass the promotion to the next qualifying retained cluster head
+(Section~\ref{reference-model}). The one change outside that rule, a single
+replacement of the testnet's \(R_0\), announced in advance, by the next
+reference Slop Ninja trains, only if it passes every required gate, applies only
+to later cohorts, so it moves no earned credit; while the launch burn lasts, it
+can raise the bar that ends it. \\
+Prompt injection or malicious model data & Admit bounded data-driven models,
+validate formats, and deny executable plugins and generated tool calls.
+Untrusted documents cannot modify scoring rules or authorize disclosure. \\
+Resource exhaustion & Limit input profiles, parsing/resolution work, memory,
+candidate counts, and retries. Preserve the full assigned population when
+reporting failures; dropping expensive examples can inflate apparent quality. \\
+Miner access to customer content & Centrally execute \textit{A}; for later
+\textit{B}, use the qualified direct Cloudflare path without a miner endpoint
+or gateway selection. Provider and operator remain trusted with plaintext. \\
+Public access to private \textit{B} weights & Keep credentials and assets off
+public paths, and test unauthorized and unrelated-account access. Purchased
+outputs can still support imitation or extraction. \\
+Human misidentification, unwanted identity linkage, or impersonation & Keep
+personal samples and writer profiles private; record provenance and permitted
+uses for public or licensed gallery references. Bind revision jobs to their
+authorization records. A profile match indicates resemblance, not authenticated
+identity or authorship, and these controls cannot prevent every misuse. \\
+Account revocation or model replacement & Register versions, check identities
+and digests, and suspend drift or lost access. A response's adapter ID does not
+prove immutable historical weights or guaranteed capacity. \\
+Fabricated service or self-purchased traffic & Require linked delivery, burn,
+and attempt records; fix work-credit attribution and caps before activating
+paid-use emissions. Operator receipts remain operator assertions. \\
+Selective failure or retries & Keep all assigned outcomes and a frozen retry
+rule. Separate model failures from infrastructure incidents. A later success
+cannot erase an earlier recorded failure or select the best repeated result. \\
+Coordinator outage, censorship, or equivocation & Retain signed checkpoints and
+evidence, fence stale generations, and resume the same cohort after reconciliation.
+This preserves recoverable work but cannot force a withholding operator to
+resume or publish a truthful result. \\
+Lost or forged block notifications & Authenticate webhook ingress, persist
+reconciliation work, and verify finalized history through RPC. Deduplicate by
+block identity and backfill gaps through RPC; a one-minute watchdog polls
+public RPC when deliveries stall, including after the provider pauses a
+subscription, which an operator must resume. A webhook
+cannot authorize signing or establish finality; RPC availability and chain
+validation remain dependencies. \\
+Validators withhold or delay weight submission & Cohorts, service, updates, and
+recovery continue without their cooperation. Stale or missing rows can still
+distort native consensus and emissions. Record chain delivery separately;
+preserved scores do not guarantee later payment. \\
+Forged score package, certificate, or stale row & Verify coordinator authority,
+manifest bindings, receipt index, deterministic arithmetic, and registration
+identities before committing. Audit the coordinator's later certificate against its
+authority and finalized row. Another validator's mismatch does not gate local
+work unless it exposes a defect in the local target, authority, or context. \\
+Compromised release or interrupted migration & Verify signed release metadata
+and artifacts, fence old processes, and resume ordered migrations from durable
+checkpoints. The release authority remains trusted; a signature does not prove
+safe code. Preserve journals and reconcile before new signing. \\
+Colluding miners and validators & Test common-owner reward paths, duplicate
+entries, selective failures, and native consensus effects. Public scores make
+rows derivable before reveal; commit--reveal cannot prevent off-chain copying
+or force validators to calculate or submit the prescribed row. \\
+\end{longtable}
+
+Hidden labels describe production history under the declared policy. Neither
+an origin probability nor an attribution match establishes that history for a
+new document. Reference copying, topic overlap, and editing workflow can all
+produce apparent attribution quality without stable author identification.
+Independent reference/query works, withheld-identity cases, and source-family
+holdouts are therefore part of evaluation. Released benchmark examples retire
+from hidden testing; reuse permissions do not restore their secrecy.
+
+Published \textit{A} artifacts let an adversary optimize against the detector.
+Future \textit{B} development deliberately uses that feedback, while preserving
+separate meaning, readability, and authorization requirements. A low score
+cannot certify human authorship, faithful revision, or compliance with a
+publisher's rules. External detectors are comparisons with their own version
+and measurement limits. Changing a panel, source population, or rubric after
+seeing candidate outputs invalidates a shared comparison.
+
+Native consensus determines actual emissions from validator rows and chain
+state. Application records cannot force an atomic switch across validators,
+freeze native emissions during a coordinator pause, or reclaim rewards already
+distributed. Registration and hotkey identity must survive UID reuse in the
+off-chain ledger, so old credit never transfers to a new occupant. Deployment tests must cover stale weights, commit and reveal delays,
+finality, cohorts with no new target, zero-work usage pools, and common-owner miner/validator incentives. Timely
+submission of independently derived rows by other validators influences the
+native reward outcome. Their availability, acknowledgments, and
+software versions impose no application progress gate. Unallocated credit and
+the share of a departed hotkey burn through the owner hotkey's UID, and the
+chain shrinks the subnet's TAO-side emission share by the burned fraction of
+miner incentive (Section~\ref{unallocated-rewards}).
+
+Native commit windows and reveal obligations use the chain's clock, which
+continues through coordinator silence. Timelock auto-reveal cannot wait for a
+coordinator certificate or application acknowledgment. A missed commitment window
+moves eligible new delivery to a later valid window without deleting the scored
+cohort; existing obligations retain their original recovery rules and deadlines.
+
+Durable recovery also has limits. Persisted records require capacity planning,
+backups, and tested restoration. A missing result stays unresolved; a timeout
+does not establish failed execution or justify replacing the cohort. Chain
+runtime upgrades never invalidate a cohort; an operation that a new runtime
+leaves without a type-correct encoding waits alone until live metadata admits
+it. Operational upgrades may preserve the frozen evaluation semantics. New
+scoring semantics require a future comparison or an explicit
+correction decision that accounts for weights already submitted.
+
+Slop Ninja signatures attribute statements to the operator; they are not
+Cloudflare signatures, proofs of model execution, or confidentiality evidence.
+Customer content protection relies on the qualified serving configuration and
+the provider and operator's conduct. Those dependencies, together with honest
+curation and coordinator-led scoring, define the pilot's trust boundary.

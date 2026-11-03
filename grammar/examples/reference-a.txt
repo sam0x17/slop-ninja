@@ -1,0 +1,1 @@
+Keep a second copy on a separate disk. You can read that copy after the first disk fails. A fire can still destroy both disks.

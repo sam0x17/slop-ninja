@@ -1,0 +1,15 @@
+[package]
+name = "slop-ninja-protocol-check"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Compares protocol fixture output from native code and a wasm32 module"
+
+[[bin]]
+name = "slop_ninja_protocol_check"
+path = "src/main.rs"
+
+[dependencies]
+slop-ninja-protocol = { path = "../protocol", features = ["fixtures"] }
+wasmi = { version = "0.40", default-features = false, features = ["std"] }

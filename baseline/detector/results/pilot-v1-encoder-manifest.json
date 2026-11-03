@@ -1,0 +1,54 @@
+{
+  "artifact_id": "540db7bbeb8292aed4149261e2845a612ea825568e2a9f012198ead41608e971",
+  "files": {
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "MODEL_CARD.json": "d5d27d0db44ae8ff29f30855dea62cd98a82bb020d2e4a90e9153f6f56af8bdb",
+    "UPSTREAM_README.md": "40539466fa1117be4693b8f1fdfdac81fac3c5db472ff57bc05d013d48eafa82",
+    "calibration.json": "1a8287eefd366aff24380d481de8e4ee9de85dfc030d420e25e1c581f7e63c85",
+    "checkpoint.json": "57ca5bc56f8e89044216f3fba0172418bccebbf741b2145b17de7fe6da881757",
+    "classifier/config.json": "aa0bc1f9448c024aa2c3a84f51290a80f7cb7d065f76e8df778821369c8fa373",
+    "classifier/model.safetensors": "72555d064faf5fcc27476c14a7d622dbb8b8b7af2e0a4c5095619f4a1a99184b",
+    "classifier/special_tokens_map.json": "ea97ecdbcc73713039d8d64dbb05e3689495c96657fbd9a18f5bed381be81049",
+    "classifier/tokenizer.json": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
+    "classifier/tokenizer_config.json": "2966a59b9e9cf122279aec1249e22e5bc7ad8430c754e95031b13fd128d4e560",
+    "reference_vectors.json": "e18d8937a5e04ec240a50cc496dea57386828ffb70501134e573ae6044773cb5",
+    "runner/audit.py": "1662fd0ab7c2afb2182ab7b54eee79d64234eebcaba7a74df917e00ff61d08f2",
+    "runner/common.py": "8865b30d411d6de92084263f68e385bcc7cd92c5a6eb484445caa32f6e38e369",
+    "runner/evaluate.py": "c280e0472f3b24070c015afd145f4fe7c21b525bf7293e3d2476e8ddb980e03e",
+    "runner/fetch_checkpoint.py": "7b7bd4ddc78bb8c010a29ce158aa6113dd045bcd3ad5713c8f6206d317b1053e",
+    "runner/infer.py": "402c7f3f25ad40cf9c8b23073d98778c98d5fa4b9d09d90e7db204de8c806e49",
+    "runner/requirements.lock": "7abddfab826bd4ec669223c276b06449f07a159bcb542c412f5ac9aa0fd7ee24",
+    "runner/smoke.py": "2160728ce827ea1537d88dbe9554e1bb8f19b7220add936323c5b7d9a0eb7aba",
+    "runner/train.py": "e9f9707dadd302d2d55ac0d9506cc2eac3912df9db4bb9026544bdf6f6baff7f",
+    "training.json": "1c79ded7bee6f8b1a00074ec7622a89397cf083d99362c8f4370ebc222bbe938"
+  },
+  "labels": [
+    "human_only",
+    "model_only",
+    "mixed"
+  ],
+  "max_tokens": 2048,
+  "preprocessing": "exact_utf8_hf_tokenizer_no_truncation_v1",
+  "reference_runtime": {
+    "attention": "eager",
+    "boundary_rule": "use_cpu_reference_probabilities_no_threshold_in_runner",
+    "device": "cpu",
+    "dtype": "float32",
+    "packages": {
+      "numpy": "2.5.3",
+      "safetensors": "0.7.0",
+      "tokenizers": "0.22.2",
+      "torch": "2.14.0",
+      "transformers": "4.57.6"
+    },
+    "probability_absolute_tolerance": 1e-06,
+    "probability_dtype": "float64",
+    "python_major_minor": [
+      3,
+      12
+    ],
+    "request_batch_size": 1,
+    "threads": 1
+  },
+  "schema": "slop_ninja.encoder.v1"
+}

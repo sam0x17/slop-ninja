@@ -1,0 +1,521 @@
+{
+  "schema": "slopninja-assignment-gameability-summary-v1",
+  "service": [
+    {
+      "cartel_uids": 0,
+      "cartel_requester_slots": 0,
+      "mandatory_first_percent": null,
+      "menu_percent": null,
+      "capped_skip_delivered_percent": null,
+      "aggregate_only_interface_violations": 0,
+      "cartel_uid_epochs": 0,
+      "provider_failures": 0,
+      "recovered_tickets": 0,
+      "exhausted_tickets": 0,
+      "failures_left_if_incorrectly_erased": 0,
+      "correct_gate_passes_when_all_unfavorable_slots_abandoned": 0,
+      "incorrect_delivered_only_gate_passes": 0
+    },
+    {
+      "cartel_uids": 10,
+      "cartel_requester_slots": 3000,
+      "mandatory_first_percent": 9.366666666666667,
+      "menu_percent": 25.166666666666668,
+      "capped_skip_delivered_percent": 10.407407407407407,
+      "aggregate_only_interface_violations": 12,
+      "cartel_uid_epochs": 30,
+      "provider_failures": 283,
+      "recovered_tickets": 264,
+      "exhausted_tickets": 1,
+      "failures_left_if_incorrectly_erased": 3,
+      "correct_gate_passes_when_all_unfavorable_slots_abandoned": 0,
+      "incorrect_delivered_only_gate_passes": 30
+    },
+    {
+      "cartel_uids": 20,
+      "cartel_requester_slots": 6000,
+      "mandatory_first_percent": 18.8,
+      "menu_percent": 47.916666666666664,
+      "capped_skip_delivered_percent": 20.88888888888889,
+      "aggregate_only_interface_violations": 34,
+      "cartel_uid_epochs": 60,
+      "provider_failures": 553,
+      "recovered_tickets": 472,
+      "exhausted_tickets": 8,
+      "failures_left_if_incorrectly_erased": 24,
+      "correct_gate_passes_when_all_unfavorable_slots_abandoned": 0,
+      "incorrect_delivered_only_gate_passes": 60
+    },
+    {
+      "cartel_uids": 30,
+      "cartel_requester_slots": 9000,
+      "mandatory_first_percent": 29.744444444444444,
+      "menu_percent": 66.28888888888889,
+      "capped_skip_delivered_percent": 33.04938271604938,
+      "aggregate_only_interface_violations": 48,
+      "cartel_uid_epochs": 90,
+      "provider_failures": 829,
+      "recovered_tickets": 632,
+      "exhausted_tickets": 34,
+      "failures_left_if_incorrectly_erased": 102,
+      "correct_gate_passes_when_all_unfavorable_slots_abandoned": 0,
+      "incorrect_delivered_only_gate_passes": 90
+    },
+    {
+      "cartel_uids": 50,
+      "cartel_requester_slots": 15000,
+      "mandatory_first_percent": 49.82,
+      "menu_percent": 87.51333333333334,
+      "capped_skip_delivered_percent": 55.355555555555554,
+      "aggregate_only_interface_violations": 98,
+      "cartel_uid_epochs": 150,
+      "provider_failures": 1365,
+      "recovered_tickets": 792,
+      "exhausted_tickets": 132,
+      "failures_left_if_incorrectly_erased": 396,
+      "correct_gate_passes_when_all_unfavorable_slots_abandoned": 0,
+      "incorrect_delivered_only_gate_passes": 150
+    }
+  ],
+  "panels": [
+    {
+      "cartel_uids": 0,
+      "strongest_cartel": false,
+      "trials": 30000,
+      "panel_majority_percent": 0,
+      "panel_theory_percent": 0,
+      "joint_panel_and_cartel_batch_percent": 0,
+      "joint_theory_percent": 0,
+      "reviewer_majority_percent": 0,
+      "reviewer_theory_percent": 0,
+      "cartel_submitters": 0,
+      "targeted_bad_submissions": 0
+    },
+    {
+      "cartel_uids": 10,
+      "strongest_cartel": false,
+      "trials": 30000,
+      "panel_majority_percent": 0.9466666666666667,
+      "panel_theory_percent": 0.927643784786642,
+      "joint_panel_and_cartel_batch_percent": 0.52,
+      "joint_theory_percent": 0.5525714762101748,
+      "reviewer_majority_percent": 2.513333333333333,
+      "reviewer_theory_percent": 2.5788497217068644,
+      "cartel_submitters": 3004,
+      "targeted_bad_submissions": 68
+    },
+    {
+      "cartel_uids": 10,
+      "strongest_cartel": true,
+      "trials": 30000,
+      "panel_majority_percent": 16.933333333333334,
+      "panel_theory_percent": 17.439703153988866,
+      "joint_panel_and_cartel_batch_percent": 10.02,
+      "joint_theory_percent": 10.35083652189364,
+      "reviewer_majority_percent": 2.513333333333333,
+      "reviewer_theory_percent": 2.5788497217068644,
+      "cartel_submitters": 2727,
+      "targeted_bad_submissions": 62
+    },
+    {
+      "cartel_uids": 20,
+      "strongest_cartel": false,
+      "trials": 30000,
+      "panel_majority_percent": 3.93,
+      "panel_theory_percent": 3.9167182024324885,
+      "joint_panel_and_cartel_batch_percent": 3.45,
+      "joint_theory_percent": 3.4680438098658506,
+      "reviewer_majority_percent": 10.2,
+      "reviewer_theory_percent": 10.10513296227582,
+      "cartel_submitters": 6033,
+      "targeted_bad_submissions": 576
+    },
+    {
+      "cartel_uids": 20,
+      "strongest_cartel": true,
+      "trials": 30000,
+      "panel_majority_percent": 34.166666666666664,
+      "panel_theory_percent": 34.85879200164915,
+      "joint_panel_and_cartel_batch_percent": 30.176666666666666,
+      "joint_theory_percent": 30.807903200190363,
+      "reviewer_majority_percent": 10.2,
+      "reviewer_theory_percent": 10.10513296227582,
+      "cartel_submitters": 5721,
+      "targeted_bad_submissions": 552
+    },
+    {
+      "cartel_uids": 30,
+      "strongest_cartel": false,
+      "trials": 30000,
+      "panel_majority_percent": 8.913333333333334,
+      "panel_theory_percent": 8.967223252937538,
+      "joint_panel_and_cartel_batch_percent": 8.666666666666666,
+      "joint_theory_percent": 8.724774700010855,
+      "reviewer_majority_percent": 21.41,
+      "reviewer_theory_percent": 21.341991341991342,
+      "cartel_submitters": 9024,
+      "targeted_bad_submissions": 1965
+    },
+    {
+      "cartel_uids": 30,
+      "strongest_cartel": true,
+      "trials": 30000,
+      "panel_majority_percent": 49.763333333333335,
+      "panel_theory_percent": 50.21645021645021,
+      "joint_panel_and_cartel_batch_percent": 48.46,
+      "joint_theory_percent": 48.821024100716635,
+      "reviewer_majority_percent": 21.41,
+      "reviewer_theory_percent": 21.341991341991342,
+      "cartel_submitters": 8718,
+      "targeted_bad_submissions": 1911
+    },
+    {
+      "cartel_uids": 50,
+      "strongest_cartel": false,
+      "trials": 30000,
+      "panel_majority_percent": 25.003333333333334,
+      "panel_theory_percent": 25.252525252525253,
+      "joint_panel_and_cartel_batch_percent": 24.99,
+      "joint_theory_percent": 25.23602453526461,
+      "reviewer_majority_percent": 50.27,
+      "reviewer_theory_percent": 50,
+      "cartel_submitters": 15105,
+      "targeted_bad_submissions": 7599
+    },
+    {
+      "cartel_uids": 50,
+      "strongest_cartel": true,
+      "trials": 30000,
+      "panel_majority_percent": 74.53,
+      "panel_theory_percent": 74.74747474747475,
+      "joint_panel_and_cartel_batch_percent": 74.47333333333333,
+      "joint_theory_percent": 74.6946724522407,
+      "reviewer_majority_percent": 50.27,
+      "reviewer_theory_percent": 50,
+      "cartel_submitters": 14807,
+      "targeted_bad_submissions": 7471
+    }
+  ],
+  "panel_size_sensitivity_20_percent": [
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.039167182024324884,
+      "reviewer_majority_probability": 0.1010513296227582,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.34858792001649147,
+      "reviewer_majority_probability": 0.1010513296227582,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.025211349769523557,
+      "reviewer_majority_probability": 0.053202761892010786,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.1651684103819597,
+      "reviewer_majority_probability": 0.053202761892010786,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.014449440666812897,
+      "reviewer_majority_probability": 0.028126468837151003,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.08283458151850344,
+      "reviewer_majority_probability": 0.028126468837151003,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.007895465035865464,
+      "reviewer_majority_probability": 0.01469881144691724,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.041912197091124336,
+      "reviewer_majority_probability": 0.01469881144691724,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    }
+  ],
+  "accounting": {
+    "cliff_scope": "The final mandatory denominator is already fixed at 100, and 11 failures are irreversible. No future eligibility, probation/recovery benefit, customer fees, or penalties enter this toy payoff. Current emissions alone then favor abandoning remaining costly work.",
+    "dilution_examples": [
+      {
+        "aggregate_mandatory_gate": true,
+        "all_committed_interfaces_and_aggregate_gate": false,
+        "blended_a_gate": true,
+        "mandatory_interface_a_failures": 2,
+        "mandatory_interface_a_requests": 10,
+        "mandatory_interface_b_successes": 100,
+        "minimum_paid_successes_to_pass_blended_a": 10,
+        "separate_mandatory_a_gate": false
+      },
+      {
+        "aggregate_mandatory_gate": false,
+        "all_committed_interfaces_and_aggregate_gate": false,
+        "blended_a_gate": true,
+        "mandatory_interface_a_failures": 10,
+        "mandatory_interface_a_requests": 10,
+        "mandatory_interface_b_successes": 0,
+        "minimum_paid_successes_to_pass_blended_a": 90,
+        "separate_mandatory_a_gate": false
+      },
+      {
+        "aggregate_mandatory_gate": true,
+        "all_committed_interfaces_and_aggregate_gate": false,
+        "blended_a_gate": true,
+        "mandatory_interface_a_failures": 20,
+        "mandatory_interface_a_requests": 100,
+        "mandatory_interface_b_successes": 1000,
+        "minimum_paid_successes_to_pass_blended_a": 100,
+        "separate_mandatory_a_gate": false
+      }
+    ],
+    "exact_threshold": "N>0 and 10F<=N. Exactly 10% failure passes; N=0 supplies no availability evidence.",
+    "irrecoverable_cliff": [
+      {
+        "already_failed": 11,
+        "current_epoch_emission_credit": 0,
+        "final_failures": 100,
+        "fixed_total_obligations": 100,
+        "future_same_class_successes_needed_without_new_failures": 900,
+        "gate": false,
+        "payoff_from_current_emissions_minus_remaining_cost": 0,
+        "proposed_recovery_deficit": 900,
+        "remaining_completed": 0,
+        "remaining_obligations": 89,
+        "unit_service_cost": 1
+      },
+      {
+        "already_failed": 11,
+        "current_epoch_emission_credit": 0,
+        "final_failures": 12,
+        "fixed_total_obligations": 100,
+        "future_same_class_successes_needed_without_new_failures": 20,
+        "gate": false,
+        "payoff_from_current_emissions_minus_remaining_cost": -88,
+        "proposed_recovery_deficit": 20,
+        "remaining_completed": 88,
+        "remaining_obligations": 89,
+        "unit_service_cost": 1
+      },
+      {
+        "already_failed": 11,
+        "current_epoch_emission_credit": 0,
+        "final_failures": 11,
+        "fixed_total_obligations": 100,
+        "future_same_class_successes_needed_without_new_failures": 10,
+        "gate": false,
+        "payoff_from_current_emissions_minus_remaining_cost": -89,
+        "proposed_recovery_deficit": 10,
+        "remaining_completed": 89,
+        "remaining_obligations": 89,
+        "unit_service_cost": 1
+      }
+    ],
+    "low_task_counts": [
+      {
+        "maximum_failures_passing": null,
+        "one_failure_pass": false,
+        "requests": 0,
+        "two_failures_pass": false,
+        "zero_failures_pass": false
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 1,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 2,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 3,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 4,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 5,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 6,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 7,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 8,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 9,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 10,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 11,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 12,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 13,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 14,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 15,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 16,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 17,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 18,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 19,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 2,
+        "one_failure_pass": true,
+        "requests": 20,
+        "two_failures_pass": true,
+        "zero_failures_pass": true
+      }
+    ],
+    "minimum_paid_successes_formula": "max(0,10*mandatory_failures-mandatory_requests)",
+    "paid_successes_count_in_separate_mandatory_gate": false,
+    "recovery_proposal": {
+      "abandon_remaining_89_deficit": 900,
+      "after_healthy_epoch_then_11_of_100_failures": 10,
+      "after_nine_successes": 1,
+      "after_ten_subsequent_same_class_successes": 0,
+      "complete_remaining_89_deficit": 10,
+      "current_failed_epoch_credit_restored": false,
+      "healthy_epoch_does_not_bank_credit": 0,
+      "limit": "Continuing now reduces future recovery work if future eligibility has value and probation capacity is available. This is not an equilibrium guarantee; fresh identity/slot acquisition remains outside the model.",
+      "no_assigned_work_preserves_deficit": 10,
+      "paid_or_other_class_successes_reduce_deficit": false,
+      "recurrence": "D_e=max(0,D_previous+10F_e-N_e), separately per mandatory interface/class, initial zero; current availability and qualification gates remain separate."
+    },
+    "unavailable_committed_interface_policy": "No automatic pass from aggregate service on another interface."
+  },
+  "checks": {
+    "provider_and_requester_gates": true,
+    "panel_batch_exclusion": true,
+    "reviewer_exclusions": true,
+    "all_reviews_present": true
+  }
+}

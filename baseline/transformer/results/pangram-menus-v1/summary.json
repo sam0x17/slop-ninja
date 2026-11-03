@@ -1,0 +1,98 @@
+{
+  "schema": "slop_ninja_b_pangram_menu_summary_v1",
+  "source": "workshop synthetic MIT development fixture",
+  "generation": "Local source patches and clause/sentence permutations; no wholesale LLM rewriting and no trained B weights. Same root claims, requested tone, target references and immutable V6 A artifact throughout.",
+  "a_artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+  "execution_host": "Mac Studio for parsing, A scoring, Rust builds and tests; laptop only for lightweight coordination, HTTP and the original cumulative budget ledger.",
+  "rounds": [
+    {
+      "id": "pg1",
+      "report": "pg1.json",
+      "report_sha256": "284f0d12c1a17e059d0935fe2e8de3b15fd77d97a76331cbf697bb469fa576e8",
+      "plan_sha256": "6c438654adea34b308f7e5d6ffcfd8fc74a7ee3a5c09ed4df1ed368de9e5c9de",
+      "materialized_states": 7,
+      "rejected_states": 2,
+      "new_a_requests": 7,
+      "external_observations": 8,
+      "new_combination_reviews_a_blinded": true
+    },
+    {
+      "id": "pg2",
+      "report": "pg2.json",
+      "report_sha256": "ddab160273d6044c2ad4ce53d5e6f62d9584a535bc13097e0e6ae9f737f317ea",
+      "plan_sha256": "35645948cc10d24a18682657c41ded0ea1739d65a604954a1c7f613868b716b0",
+      "materialized_states": 59,
+      "rejected_states": 34,
+      "new_a_requests": 59,
+      "external_observations": 9,
+      "new_combination_reviews_a_blinded": true
+    },
+    {
+      "id": "pg3",
+      "report": "pg3.json",
+      "report_sha256": "24753746281da7fd45448c1ba688727cda46cd720c3db1d42cb05814e45cc68c",
+      "plan_sha256": "d37034241b4bdbd8a2eba10946ce2cabeefd0962ef3ece940613a256a4cb63eb",
+      "materialized_states": 8,
+      "rejected_states": 0,
+      "new_a_requests": 8,
+      "external_observations": 9,
+      "new_combination_reviews_a_blinded": true
+    },
+    {
+      "id": "pg4",
+      "report": "pg4.json",
+      "report_sha256": "c7afe27c572de44c44cb86fe628542de50987de9f0b862554d7198cb07e375c4",
+      "plan_sha256": "1234a57370833dd22f6b60ce907782fe34c970a7c025be613df6a0a30f4a229d",
+      "materialized_states": 45,
+      "rejected_states": 19,
+      "new_a_requests": 45,
+      "external_observations": 9,
+      "new_combination_reviews_a_blinded": true
+    },
+    {
+      "id": "pg5b",
+      "report": "pg5b.json",
+      "report_sha256": "2fda3b88b9498be2fe576d996f7e2fa00d798e1263711bb4e63570e89c416c2a",
+      "plan_sha256": "9675e0cc74fa27a1b0c98751f6a079298bf1a6fa5cc2c86de6f5a3feb93da749",
+      "materialized_states": 64,
+      "rejected_states": 0,
+      "new_a_requests": 64,
+      "external_observations": 9,
+      "new_combination_reviews_a_blinded": true
+    },
+    {
+      "id": "pg6",
+      "report": "pg6.json",
+      "report_sha256": "42ec4929442fc7e7e53517de53cf9fb76bee190702e6ff0734b90a9b36420d99",
+      "plan_sha256": "9675e0cc74fa27a1b0c98751f6a079298bf1a6fa5cc2c86de6f5a3feb93da749",
+      "materialized_states": 64,
+      "rejected_states": 0,
+      "new_a_requests": 0,
+      "external_observations": 9,
+      "new_combination_reviews_a_blinded": false
+    }
+  ],
+  "a_requests": 183,
+  "pangram_observations": 53,
+  "distinct_external_texts": 43,
+  "minimum_flagged_fraction": 1.0,
+  "maximum_human_fraction": 0.0,
+  "joint_detector_success_observations": 0,
+  "editorial_reviews": "Non-independent assistant judgments. Root and complete candidate reviewed each time. Earlier adaptive results known; new combination A scores also known for pg6. No independent preservation, preference or author-identification evaluation.",
+  "search_amendments": [
+    "0.40 to 0.75 before pg2, recording the same root and reason",
+    "0.75 to 1.0 before pg5b, recording the same root and reason; pg5 remained unscored with 41 states and 23 cumulative-distance exclusions",
+    "Moved trial purpose paired with explicit these arrangements before any pg5b scores to avoid an ambiguous pronoun"
+  ],
+  "budget": {
+    "ledger": "spend is recorded in the private ledger",
+    "billing_verified": false
+  },
+  "quality_policy": "Meaning and intended tone are hard constraints. Writing must not regress; final outputs need an explicit editorial improvement, separate from detector or vector scores. Neutral probes can inform search but do not establish a quality benefit.",
+  "limitations": [
+    "One familiar development notice, one target author represented by two imperfect excerpts",
+    "Every Pangram observation has zero human fraction; 0% fully AI can mean 100% AI-assisted",
+    "Count-vector invariance does not imply invariance of detectors or quality",
+    "No held-out result, no trained B model, no attestation, no whitepaper milestone"
+  ]
+}

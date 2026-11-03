@@ -1,0 +1,272 @@
+# Slop Ninja coordinator: Wrangler configuration (tracked).
+#
+# Deploy only the testnet environment. Every deployed name ends in -testnet:
+#
+#   WRANGLER_WRITE_LOGS=false wrangler deploy --env testnet \
+#     --tag testnet --message "slop-ninja coordinator testnet"
+#
+# No account ID belongs here: Wrangler resolves the account from the
+# operator's existing login (or CLOUDFLARE_ACCOUNT_ID in the shell). Secrets
+# are installed separately with `wrangler secret put --env testnet` (see
+# README.md); none of their values appear in tracked files.
+#
+# The top level is a local-only shell, not a deployment target: it has no
+# vars, bindings, triggers or workers.dev route, and its name still carries the
+# testnet marker, so an accidental default deploy cannot be mistaken for, or
+# overwrite, anything else.
+
+name = "slop-ninja-coordinator-local-testnet"
+main = "build/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+# Content logging stays off.
+[observability]
+enabled = false
+
+[triggers]
+crons = []
+
+# Durable Object classes (inherited by environments). The namespaces Cloudflare
+# creates are named after the Worker, so on testnet they are
+# slop-ninja-coordinator-testnet_ChainJournal and _EvalCohort.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChainJournal", "EvalCohort"]
+
+# ------------------------------------------------------------------ testnet
+
+[env.testnet]
+name = "slop-ninja-coordinator-testnet"
+workers_dev = true
+preview_urls = false
+
+[env.testnet.observability]
+enabled = false
+
+# The watchdog: the only timer. The webhook is the primary heartbeat.
+[env.testnet.triggers]
+crons = ["* * * * *"]
+
+[env.testnet.vars]
+# The build refuses any other value (config::NETWORK).
+NETWORK = "testnet"
+# Bittensor testnet genesis; the build refuses any other chain
+# (testnet_only_genesis, removed after M7 Finney qualification).
+CHAIN_GENESIS = "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+SUBNET_NETUID = "601"
+RTAO_WEBHOOK_KEY_ID = "pilot-v1"
+# Read-only public OpenTensor testnet RPC for anchoring, gap backfill, the
+# watchdog head read and fallback.
+RPC_URL = "https://test.finney.opentensor.ai"
+WATCHDOG_SILENCE_SECS = "300"
+WATCHDOG_BEHIND_BLOCKS = "25"
+RPC_CALLS_PER_MINUTE = "12"
+RPC_HASHES_PER_CALL = "32"
+# Signing journal (M3). The coordinator hotkey's PUBLIC address; its secret
+# is the Worker secret COORDINATOR_HOTKEY_SEED, installed from stdin.
+COORDINATOR_HOTKEY_SS58 = "5Hj59hQjQKVUp2NgzvZeNUQX8xoPotuqLGtg87UvNzSjFdRm"
+# Testnet shortcut T12: the public application keys the fixture package is
+# signed with (the same trust roots the native validator configures). Not
+# chain keys.
+PACKAGE_PUBLIC_KEY = "5005405e110f8d602efdc1839251443da5385f9ff3766b970d9c42e7686af90b"
+RECEIPT_PUBLIC_KEY = "6ecf3eadbae4eaaa139c04e2d8699ab976b1b873acf47a45301c9a2d01e4ffaa"
+AUTHORIZATION_PUBLIC_KEY = "6615d6c2dfddb125e94e2e7d3822a1a828654b3a9dd4663abbeae8c87db0b212"
+WEIGHTS_VERSION_KEY = "0"
+# Mortal era of each attempt (a power of two): an uncertain attempt's fate is
+# known at most this many blocks after the block that anchors it.
+SIGN_ERA_PERIOD = "64"
+# Blocks into an epoch before its commit is prepared.
+SIGN_COMMIT_OFFSET = "12"
+
+[[env.testnet.durable_objects.bindings]]
+name = "CHAIN_JOURNAL_TESTNET"
+class_name = "ChainJournal"
+
+[[env.testnet.durable_objects.bindings]]
+name = "EVAL_COHORT_TESTNET"
+class_name = "EvalCohort"
+
+# Private buckets (no public dev URL, no custom domain). Create them before
+# the first deploy; the coordinator does not read or write them yet.
+# Runtime metadata for signing is kept in the ChainJournal's own storage.
+[[env.testnet.r2_buckets]]
+binding = "RECEIPTS_TESTNET"
+bucket_name = "receipts-bucket-testnet"
+
+[[env.testnet.r2_buckets]]
+binding = "EVAL_TESTNET"
+bucket_name = "eval-bucket-testnet"
+
+# -------------------------------------------------------------- eval-testnet
+#
+# Hidden evaluation (M4) runs as a second testnet deployment of this same
+# crate, `slop-ninja-eval-testnet`, with its own chain journal, webhook
+# subscription and cron watchdog, so coordinator redeploys by parallel work
+# never interrupt a running cohort (testnet shortcut T13, removed when the
+# coordinator Worker hosts EvalCohort itself). `EVAL_ROLE = "eval"` turns on
+# the cohort authority; without it EvalCohort stays idle.
+#
+#   WRANGLER_WRITE_LOGS=false wrangler deploy --env eval-testnet \
+#     --tag testnet --message "slop-ninja eval testnet"
+#
+# The scorer image is built from scorer.Dockerfile with the ignored build
+# context inference/a-container-serve/container/build/ (ort/ and bin/; see the
+# a-container-serve README). Containers run on demand only, one per scoring
+# lane: a lane stops its instance when its job has no claimable chunk or the
+# cohort pauses, and AScorer's idle alarm stops it after IDLE_MS without use.
+#
+# Fan-out: every bulk step runs as lanes (Durable Objects with their own
+# alarms). A Queue carries content-free kicks; the cohort object's lane table
+# is authoritative and re-sends lost ones. `max_instances` rests at 64 and is
+# raised in steps (128, 256, 375) only before a wide run, then lowered again;
+# keep MAX_SCORE_LANES equal to it. Other Container applications on the
+# account share the 1,500 vCPU account limit.
+
+[env.eval-testnet]
+name = "slop-ninja-eval-testnet"
+workers_dev = true
+preview_urls = false
+
+[env.eval-testnet.observability]
+enabled = false
+
+[env.eval-testnet.limits]
+cpu_ms = 120000
+
+[env.eval-testnet.triggers]
+crons = ["* * * * *"]
+
+[env.eval-testnet.vars]
+NETWORK = "testnet"
+CHAIN_GENESIS = "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+SUBNET_NETUID = "601"
+RTAO_WEBHOOK_KEY_ID = "pilot-v1"
+RPC_URL = "https://test.finney.opentensor.ai"
+WATCHDOG_SILENCE_SECS = "300"
+WATCHDOG_BEHIND_BLOCKS = "25"
+RPC_CALLS_PER_MINUTE = "10"
+RPC_HASHES_PER_CALL = "32"
+EVAL_ROLE = "eval"
+# Testnet shortcut T12 trust roots (public Ed25519 application keys, never chain
+# keys): the keys the native validator and the coordinator are configured to
+# trust. The eval Worker refuses to sign unless EVAL_PACKAGE_SIGNING_KEY and
+# EVAL_RECEIPT_SIGNING_KEY derive exactly these. Pinned again in
+# testnet-trust.json, which the verification drill checks keys.json against.
+PACKAGE_PUBLIC_KEY = "5005405e110f8d602efdc1839251443da5385f9ff3766b970d9c42e7686af90b"
+RECEIPT_PUBLIC_KEY = "6ecf3eadbae4eaaa139c04e2d8699ab976b1b873acf47a45301c9a2d01e4ffaa"
+# Fan-out ceilings (deployment parameters; plans carry their own lane widths,
+# leases and budgets). MAX_SCORE_LANES must equal the Container max_instances.
+MAX_SCORE_LANES = "64"
+# Testnet roster cap for authoritative cohorts: the ceiling on every plan's
+# admission.roster_cap (the cohort's own cap, frozen in its plan; the standing
+# template is checked at it). The load instance may exceed it only to validate
+# scaling. Absent means no cap (mainnet).
+ROSTER_CAP = "40"
+LOAD_ROSTER_CAP = "128"
+# The shared Workers AI limiter: 290 a minute plus a burst of 10 never exceeds
+# the documented 300 in any 60 s window. The global bucket enforces the
+# stricter (account-wide) reading until the per-model reading is measured.
+GEN_GLOBAL_RPM = "290"
+GEN_MODEL_RPM = "290"
+GEN_BURST = "10"
+GEN_FLOOR_RPM = "10"
+GEN_RAISE_AFTER = "50"
+GEN_PENALTY_MS = "5000"
+# The spend ledger tracks: plans and admission runs record reservations and
+# measured spend per billing cycle, and nothing is refused or paused for
+# spend. BILLING_CYCLE_DAY = 1: calendar months (user decision, 2026-11-02).
+# The alert threshold is passed at deploy time from the private operator
+# configuration, never tracked here. Until the SpendLedger object (in
+# cf_lanes.rs) reads SPEND_ALERT_MICROUSD, deploys pass the threshold as
+# MONTHLY_CAP_MICROUSD, the only name it reads; without that var the ledger
+# answers monthly_cap_not_configured and records nothing.
+BILLING_CYCLE_DAY = "1"
+# Human pools already exposed on testnet (pool v1 and the public-candidate
+# refill): operator-only cohorts draw only these, and may draw a row again
+# under the rewrite-source reuse limits. Any other pool is fresh stock, which
+# is drawn only for a cohort with an admitted external entrant.
+EXPOSED_POOLS = "testnet-human-pool-v1,testnet-human-pool-pc1"
+# The public admission routes (/admission/v1/, contract slop_ninja.admission/v1).
+# "off" (also when absent): they do not exist. "hotkeys": served only to the
+# SS58 hotkeys ADMISSION_HOTKEYS lists (comma separated), for operator drills
+# before the public-access decision; set at deploy time for a drill. "open":
+# every hotkey, only after that decision.
+ADMISSION_ROUTES = "off"
+# Scorer build identity (S-1): lanes refuse an instance whose /healthz reports
+# other digests. ORT is the served profile's pin; the binary is the image's.
+SCORER_ORT_SHA256 = "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
+SCORER_BINARY_SHA256 = "d1224770ea6b4427699845159c941fba4c9df0fa68d59742f40e267aa3b0d433"
+# How long a lane waits for a fresh instance to answer before it destroys it
+# and backs off. Starts requested while the Container application is being
+# updated (an image or max_instances change) stayed unplaced until destroyed
+# on 2026-10-31; normal starts answered in seconds.
+SCORER_START_WAIT_MS = "60000"
+
+[env.eval-testnet.ai]
+binding = "AI"
+
+[[env.eval-testnet.durable_objects.bindings]]
+name = "CHAIN_JOURNAL_TESTNET"
+class_name = "ChainJournal"
+
+[[env.eval-testnet.durable_objects.bindings]]
+name = "EVAL_COHORT_TESTNET"
+class_name = "EvalCohort"
+
+[[env.eval-testnet.durable_objects.bindings]]
+name = "A_SCORER_TESTNET"
+class_name = "AScorer"
+
+[[env.eval-testnet.durable_objects.bindings]]
+name = "EVAL_LANE_TESTNET"
+class_name = "EvalLane"
+
+[[env.eval-testnet.durable_objects.bindings]]
+name = "GEN_LIMITER_TESTNET"
+class_name = "GenLimiter"
+
+[[env.eval-testnet.durable_objects.bindings]]
+name = "SPEND_LEDGER_TESTNET"
+class_name = "SpendLedger"
+
+[[env.eval-testnet.migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChainJournal", "EvalCohort", "AScorer"]
+
+[[env.eval-testnet.migrations]]
+tag = "v2"
+new_sqlite_classes = ["EvalLane", "GenLimiter", "SpendLedger"]
+
+# Lane wakeups: content-free kicks. Create the queue first:
+#   wrangler queues create eval-lanes-queue-testnet
+[[env.eval-testnet.queues.producers]]
+binding = "EVAL_LANES_TESTNET"
+queue = "eval-lanes-queue-testnet"
+
+# max_concurrency is left unset, as the Queues docs recommend.
+[[env.eval-testnet.queues.consumers]]
+queue = "eval-lanes-queue-testnet"
+max_batch_size = 100
+max_batch_timeout = 1
+max_retries = 10
+
+[[env.eval-testnet.containers]]
+class_name = "AScorer"
+name = "a-scorer-testnet"
+image = "../../inference/a-container-serve/container/scorer.Dockerfile"
+image_build_context = "../../inference/a-container-serve/container/build"
+instance_type = "standard-4"
+max_instances = 64
+
+[[env.eval-testnet.r2_buckets]]
+binding = "RECEIPTS_TESTNET"
+bucket_name = "receipts-bucket-testnet"
+
+[[env.eval-testnet.r2_buckets]]
+binding = "EVAL_TESTNET"
+bucket_name = "eval-bucket-testnet"

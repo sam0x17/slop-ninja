@@ -1,0 +1,422 @@
+{
+  "format": "edit-process-observation-audit-v1",
+  "date": "2026-09-08",
+  "scope": "Four frozen-process development outputs from two source families, with three full-input baseline/candidate repeats per output.",
+  "inputs": {
+    "evaluation_plan": "experiments/edit-process-v1/evaluation-plan.json",
+    "detector_report": "experiments/edit-process-v1/detector-report.json",
+    "quality_review": "experiments/edit-process-v1/quality-review.json",
+    "prior_task_inventory": "experiments/edit-screen-v1/observation-audit.json"
+  },
+  "counts": {
+    "planned_candidate_pairs": 4,
+    "source_families": 2,
+    "repeats_per_arm": 3,
+    "raw_records": 24,
+    "distinct_task_ids": 24,
+    "task_id_overlap_with_prior_screen_and_confirmations": 0,
+    "prior_screen_and_confirmation_distinct_tasks": 33,
+    "combined_distinct_tasks_for_both_phases": 57,
+    "baseline_detector_passes": 2,
+    "candidate_detector_passes": 2,
+    "new_detector_passes": 0,
+    "already_passing_baselines_stayed_passing": 2,
+    "pairs_worsened_on_all_three_repeats": 2,
+    "assistant_preservation_recommendations": 4,
+    "human_certified_passes": 0
+  },
+  "integrity": {
+    "all_plans_bindings_raw_text_hashes_and_review_hashes_match": true,
+    "all_three_repeats_present_per_arm": true,
+    "all_model_selectors": "pangram-4",
+    "all_returned_versions": "4.0",
+    "all_tasks_successful": true,
+    "all_fraction_values_valid": true,
+    "all_fraction_ai_zero": true,
+    "all_report_values_and_repeat_pair_deltas_match_raw_records": true,
+    "no_human_review_flags_set_true": true,
+    "all_tasks_disjoint_from_screen_and_confirmations": true
+  },
+  "candidate_observations": [
+    {
+      "id": "edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31",
+      "source_corpus": "codex-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0188551",
+      "source_sha256": "d5660ce4b4af7134dd525cff0fe4ae1d6a3c2f719671f89b3ed3bd5935024403",
+      "candidate_sha256": "362ca4b96e8ad7cb45b63c9ba1daa10ecad839153524a8c3f7409e14325a5c6a",
+      "arms": {
+        "baseline": {
+          "combined_scores": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "percentage_scores": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "all_three_strictly_below_10_percent": true,
+          "task_ids": [
+            "redacted-300dc6f1db2ce6bf",
+            "redacted-8d31bb5643890999",
+            "redacted-d769de8efab4ccf4"
+          ]
+        },
+        "candidate": {
+          "combined_scores": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "percentage_scores": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "all_three_strictly_below_10_percent": true,
+          "task_ids": [
+            "redacted-1b6c362c13a23f3c",
+            "redacted-a61985bfaa9472e0",
+            "redacted-1a7a6cfd8c323a6d"
+          ]
+        }
+      },
+      "paired_delta_percentage_points": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "new_detector_pass": false,
+      "already_passing_baseline_stayed_passing": true,
+      "worsened_on_all_three_pairs": false,
+      "quality_review_hashes_match": true,
+      "reviewer_type": "assistant",
+      "assistant_preservation_recommendation": true,
+      "human_quality_certified": false,
+      "joint_quality_and_detector_success": false
+    },
+    {
+      "id": "edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747",
+      "source_corpus": "codex-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0186226",
+      "source_sha256": "a386986cf0ea8375dd13586bead6e07defdfacfe5245dd992ab00fe7aeedc707",
+      "candidate_sha256": "62bec139062c35ef9e7edf5533282e3c3f6e478b61e3f380fc930c4bcc00dabc",
+      "arms": {
+        "baseline": {
+          "combined_scores": [
+            0.17297980189323425,
+            0.17297980189323425,
+            0.17297980189323425
+          ],
+          "percentage_scores": [
+            17.297980189323425,
+            17.297980189323425,
+            17.297980189323425
+          ],
+          "all_three_strictly_below_10_percent": false,
+          "task_ids": [
+            "redacted-d66c6008385c798a",
+            "redacted-e650dcd66d1ee784",
+            "redacted-80f6f24674f134a8"
+          ]
+        },
+        "candidate": {
+          "combined_scores": [
+            0.6504672765731812,
+            0.6504672765731812,
+            0.6504672765731812
+          ],
+          "percentage_scores": [
+            65.04672765731812,
+            65.04672765731812,
+            65.04672765731812
+          ],
+          "all_three_strictly_below_10_percent": false,
+          "task_ids": [
+            "redacted-00471568202bdedc",
+            "redacted-6b7434d9dc37a67d",
+            "redacted-9e07df35287fa8ea"
+          ]
+        }
+      },
+      "paired_delta_percentage_points": [
+        47.74874746799469,
+        47.74874746799469,
+        47.74874746799469
+      ],
+      "new_detector_pass": false,
+      "already_passing_baseline_stayed_passing": false,
+      "worsened_on_all_three_pairs": true,
+      "quality_review_hashes_match": true,
+      "reviewer_type": "assistant",
+      "assistant_preservation_recommendation": true,
+      "human_quality_certified": false,
+      "joint_quality_and_detector_success": false
+    },
+    {
+      "id": "edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a",
+      "source_corpus": "claude-opus-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0188551",
+      "source_sha256": "069b134ad8ae28688e90f1a70adc68ec82035f8f859a14a7f75a63b367a62963",
+      "candidate_sha256": "449df3a9fa81ae71ed9b06e5705defe44c4656f2595f7f3e4465077652833234",
+      "arms": {
+        "baseline": {
+          "combined_scores": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "percentage_scores": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "all_three_strictly_below_10_percent": true,
+          "task_ids": [
+            "redacted-b064b619163b57a1",
+            "redacted-e67bbdf127fe23e3",
+            "redacted-8a9f0c753b003f9e"
+          ]
+        },
+        "candidate": {
+          "combined_scores": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "percentage_scores": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "all_three_strictly_below_10_percent": true,
+          "task_ids": [
+            "redacted-fe1d32cb262a8726",
+            "redacted-95efe1b75864a433",
+            "redacted-b91984fa255b04ca"
+          ]
+        }
+      },
+      "paired_delta_percentage_points": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "new_detector_pass": false,
+      "already_passing_baseline_stayed_passing": true,
+      "worsened_on_all_three_pairs": false,
+      "quality_review_hashes_match": true,
+      "reviewer_type": "assistant",
+      "assistant_preservation_recommendation": true,
+      "human_quality_certified": false,
+      "joint_quality_and_detector_success": false
+    },
+    {
+      "id": "edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b",
+      "source_corpus": "claude-opus-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0186226",
+      "source_sha256": "f5081bb711a199ac9b580e0aebb79236897c14ad2cf244de3570172a02f49295",
+      "candidate_sha256": "a9cef15c3753cf23355e0148867e69e3a6e4e4118fbecd5248c94ef845416d44",
+      "arms": {
+        "baseline": {
+          "combined_scores": [
+            0.7084089517593384,
+            0.7084089517593384,
+            0.7084089517593384
+          ],
+          "percentage_scores": [
+            70.84089517593384,
+            70.84089517593384,
+            70.84089517593384
+          ],
+          "all_three_strictly_below_10_percent": false,
+          "task_ids": [
+            "redacted-de9500e5bd722fd2",
+            "redacted-e9ce4ebf003bd35a",
+            "redacted-51dacfb391db76c0"
+          ]
+        },
+        "candidate": {
+          "combined_scores": [
+            0.7956730723381042,
+            0.7956730723381042,
+            0.7956730723381042
+          ],
+          "percentage_scores": [
+            79.56730723381042,
+            79.56730723381042,
+            79.56730723381042
+          ],
+          "all_three_strictly_below_10_percent": false,
+          "task_ids": [
+            "redacted-8c1df330015df8b0",
+            "redacted-3f2c29f1ca3061b8",
+            "redacted-1f126097fbe1db53"
+          ]
+        }
+      },
+      "paired_delta_percentage_points": [
+        8.726412057876587,
+        8.726412057876587,
+        8.726412057876587
+      ],
+      "new_detector_pass": false,
+      "already_passing_baseline_stayed_passing": false,
+      "worsened_on_all_three_pairs": true,
+      "quality_review_hashes_match": true,
+      "reviewer_type": "assistant",
+      "assistant_preservation_recommendation": true,
+      "human_quality_certified": false,
+      "joint_quality_and_detector_success": false
+    }
+  ],
+  "task_inventory": [
+    {
+      "path": "data/edit-process-v1/pairs/edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31/study/01-baseline.json",
+      "task_id": "redacted-300dc6f1db2ce6bf",
+      "submitted_sha256": "d5660ce4b4af7134dd525cff0fe4ae1d6a3c2f719671f89b3ed3bd5935024403",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31/study/02-baseline.json",
+      "task_id": "redacted-8d31bb5643890999",
+      "submitted_sha256": "d5660ce4b4af7134dd525cff0fe4ae1d6a3c2f719671f89b3ed3bd5935024403",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31/study/03-baseline.json",
+      "task_id": "redacted-d769de8efab4ccf4",
+      "submitted_sha256": "d5660ce4b4af7134dd525cff0fe4ae1d6a3c2f719671f89b3ed3bd5935024403",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31/study/01-candidate.json",
+      "task_id": "redacted-1b6c362c13a23f3c",
+      "submitted_sha256": "362ca4b96e8ad7cb45b63c9ba1daa10ecad839153524a8c3f7409e14325a5c6a",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31/study/02-candidate.json",
+      "task_id": "redacted-a61985bfaa9472e0",
+      "submitted_sha256": "362ca4b96e8ad7cb45b63c9ba1daa10ecad839153524a8c3f7409e14325a5c6a",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31/study/03-candidate.json",
+      "task_id": "redacted-1a7a6cfd8c323a6d",
+      "submitted_sha256": "362ca4b96e8ad7cb45b63c9ba1daa10ecad839153524a8c3f7409e14325a5c6a",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747/study/01-baseline.json",
+      "task_id": "redacted-d66c6008385c798a",
+      "submitted_sha256": "a386986cf0ea8375dd13586bead6e07defdfacfe5245dd992ab00fe7aeedc707",
+      "combined_score": 0.17297980189323425
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747/study/02-baseline.json",
+      "task_id": "redacted-e650dcd66d1ee784",
+      "submitted_sha256": "a386986cf0ea8375dd13586bead6e07defdfacfe5245dd992ab00fe7aeedc707",
+      "combined_score": 0.17297980189323425
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747/study/03-baseline.json",
+      "task_id": "redacted-80f6f24674f134a8",
+      "submitted_sha256": "a386986cf0ea8375dd13586bead6e07defdfacfe5245dd992ab00fe7aeedc707",
+      "combined_score": 0.17297980189323425
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747/study/01-candidate.json",
+      "task_id": "redacted-00471568202bdedc",
+      "submitted_sha256": "62bec139062c35ef9e7edf5533282e3c3f6e478b61e3f380fc930c4bcc00dabc",
+      "combined_score": 0.6504672765731812
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747/study/02-candidate.json",
+      "task_id": "redacted-6b7434d9dc37a67d",
+      "submitted_sha256": "62bec139062c35ef9e7edf5533282e3c3f6e478b61e3f380fc930c4bcc00dabc",
+      "combined_score": 0.6504672765731812
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747/study/03-candidate.json",
+      "task_id": "redacted-9e07df35287fa8ea",
+      "submitted_sha256": "62bec139062c35ef9e7edf5533282e3c3f6e478b61e3f380fc930c4bcc00dabc",
+      "combined_score": 0.6504672765731812
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a/study/01-baseline.json",
+      "task_id": "redacted-b064b619163b57a1",
+      "submitted_sha256": "069b134ad8ae28688e90f1a70adc68ec82035f8f859a14a7f75a63b367a62963",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a/study/02-baseline.json",
+      "task_id": "redacted-e67bbdf127fe23e3",
+      "submitted_sha256": "069b134ad8ae28688e90f1a70adc68ec82035f8f859a14a7f75a63b367a62963",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a/study/03-baseline.json",
+      "task_id": "redacted-8a9f0c753b003f9e",
+      "submitted_sha256": "069b134ad8ae28688e90f1a70adc68ec82035f8f859a14a7f75a63b367a62963",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a/study/01-candidate.json",
+      "task_id": "redacted-fe1d32cb262a8726",
+      "submitted_sha256": "449df3a9fa81ae71ed9b06e5705defe44c4656f2595f7f3e4465077652833234",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a/study/02-candidate.json",
+      "task_id": "redacted-95efe1b75864a433",
+      "submitted_sha256": "449df3a9fa81ae71ed9b06e5705defe44c4656f2595f7f3e4465077652833234",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a/study/03-candidate.json",
+      "task_id": "redacted-b91984fa255b04ca",
+      "submitted_sha256": "449df3a9fa81ae71ed9b06e5705defe44c4656f2595f7f3e4465077652833234",
+      "combined_score": 0.0
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b/study/01-baseline.json",
+      "task_id": "redacted-de9500e5bd722fd2",
+      "submitted_sha256": "f5081bb711a199ac9b580e0aebb79236897c14ad2cf244de3570172a02f49295",
+      "combined_score": 0.7084089517593384
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b/study/02-baseline.json",
+      "task_id": "redacted-e9ce4ebf003bd35a",
+      "submitted_sha256": "f5081bb711a199ac9b580e0aebb79236897c14ad2cf244de3570172a02f49295",
+      "combined_score": 0.7084089517593384
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b/study/03-baseline.json",
+      "task_id": "redacted-51dacfb391db76c0",
+      "submitted_sha256": "f5081bb711a199ac9b580e0aebb79236897c14ad2cf244de3570172a02f49295",
+      "combined_score": 0.7084089517593384
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b/study/01-candidate.json",
+      "task_id": "redacted-8c1df330015df8b0",
+      "submitted_sha256": "a9cef15c3753cf23355e0148867e69e3a6e4e4118fbecd5248c94ef845416d44",
+      "combined_score": 0.7956730723381042
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b/study/02-candidate.json",
+      "task_id": "redacted-3f2c29f1ca3061b8",
+      "submitted_sha256": "a9cef15c3753cf23355e0148867e69e3a6e4e4118fbecd5248c94ef845416d44",
+      "combined_score": 0.7956730723381042
+    },
+    {
+      "path": "data/edit-process-v1/pairs/edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b/study/03-candidate.json",
+      "task_id": "redacted-1f126097fbe1db53",
+      "submitted_sha256": "a9cef15c3753cf23355e0148867e69e3a6e4e4118fbecd5248c94ef845416d44",
+      "combined_score": 0.7956730723381042
+    }
+  ],
+  "reliability_established": false,
+  "interpretation": "Two candidate outputs remain at zero combined AI+assisted, but their baselines were already zero. The other two outputs worsen on every repeat. There are zero new sub-10% detector passes among these four development outputs. Four assistant preservation recommendations do not constitute human quality certification; no joint human-quality-and-detector success is claimed. Four outputs represent only two source families."
+}

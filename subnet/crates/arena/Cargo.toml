@@ -1,0 +1,63 @@
+[package]
+name = "slop-ninja-arena"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Bounded per-invocation memory arenas for the Slop Ninja Workers"
+
+# Its own workspace, independent of the native `subnet/` workspace. The
+# Workers crate `subnet/coordinator` depends on it by path (the global
+# allocator of both Workers).
+[workspace]
+members = [".", "drill"]
+exclude = ["glue-probe"]
+resolver = "3"
+
+[features]
+default = ["sha2"]
+# Streaming SHA-256 sink in `io`.
+sha2 = ["dep:sha2"]
+# Allocator self-test cases, run natively by `tests/selftest.rs` and as
+# wasm32 in local workerd by the drill.
+selftest = ["sha2", "knobs"]
+# Test and drill knobs: `set_mode`, `set_page_limit`, `reset_latches`.
+# Production builds fix the mode by feature and the limit by the model.
+knobs = []
+# Start in `Mode::Strict` instead of `Mode::Enforce` (test and drill builds).
+strict = ["knobs"]
+# Start in `Mode::Observe` (migration step 1).
+observe = []
+# Transitional: glue segments the partition cannot hold go to free scope pages
+# (counted; never in `Strict` or on an armed thread), so the entry points of a
+# Worker not yet wrapped in scopes keep working during the migration.
+glue-spill = []
+# Accept a memory model whose JS reserve or glue costs are not yet measured
+# (measurement, unit-test and `Observe`-mode builds: `build.rs` refuses it
+# without `observe` or `knobs`, and refuses an unmeasured model otherwise).
+unmeasured-model = []
+
+[dependencies]
+# Exact pin: `pool.rs` relies on this version's segment, trim and `destroy`
+# behaviour and on its per-block overhead (see `BLOCK_OVERHEAD`).
+dlmalloc = "=0.2.12"
+sha2 = { version = "0.10", default-features = false, optional = true }
+
+[build-dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+slop-ninja-arena = { path = ".", features = ["selftest"] }
+
+[[test]]
+name = "observe_overflow"
+harness = false
+
+[[test]]
+name = "glue_spill"
+required-features = ["glue-spill"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

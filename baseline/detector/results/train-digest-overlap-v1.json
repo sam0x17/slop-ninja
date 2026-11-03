@@ -1,0 +1,452 @@
+{
+  "counts": {
+    "calibration": {
+      "origins": {
+        "human_only": 108,
+        "mixed": 108,
+        "model_only": 324
+      },
+      "records": 540,
+      "records_with_runs_at_least_8": 0,
+      "sha256": "e26ed741c1fbe2d64dc7e8d49211573eaa44b11589524ce76f2b487a9b711031"
+    },
+    "development": {
+      "origins": {
+        "human_only": 106,
+        "mixed": 106,
+        "model_only": 318
+      },
+      "records": 530,
+      "records_with_runs_at_least_8": 0,
+      "sha256": "c9ee825909a37b7aee0863c00437f2375d5569f702de80c12f515af1df29a78b"
+    },
+    "test": {
+      "origins": {
+        "human_only": 112,
+        "mixed": 112,
+        "model_only": 336
+      },
+      "records": 560,
+      "records_with_runs_at_least_8": 0,
+      "sha256": "9d49faf9f9415352d49f286c523f24af0677128ac149478d7e422190b5c896b4"
+    },
+    "train": {
+      "origins": {
+        "human_only": 471,
+        "mixed": 1227,
+        "model_only": 2135
+      },
+      "records": 3833,
+      "records_with_runs_at_least_8": 8,
+      "sha256": "023d6e5428236502e877bac0afe0e9e9ee4aa9d10ab38eb940ca8e915cf7502e"
+    }
+  },
+  "cross_family_matched_records": 1,
+  "cross_family_review_records": 0,
+  "data_changed": false,
+  "inference_calls": 0,
+  "limitation": "One digest and exact normalized contiguous runs only; no corpus-wide independence or semantic-overlap claim.",
+  "matched_records": 8,
+  "matches": [
+    {
+      "evidence": "historical_proxy",
+      "id": "wikinews:1445:1389307:c309c2f796c5a3d2",
+      "normalized_words": 465,
+      "origin": "human_only",
+      "review_at_least_20_words": true,
+      "runs": [
+        {
+          "digest_range": [
+            0,
+            465
+          ],
+          "record_range": [
+            0,
+            465
+          ],
+          "words": 465
+        }
+      ],
+      "same_family": true,
+      "source_group": "wikinews:1445",
+      "split": "train",
+      "text_sha256": "c309c2f796c5a3d2088487fe5735b12eb1a7d449818678217086ac94302183fa"
+    },
+    {
+      "evidence": "recorded_model_generation",
+      "id": "generation:83c8fe23157991aa754a9f7c579b67fa85e299cd9b4b0acfa9c43b273c3d35df",
+      "normalized_words": 436,
+      "origin": "model_only",
+      "review_at_least_20_words": false,
+      "runs": [
+        {
+          "digest_range": [
+            257,
+            269
+          ],
+          "record_range": [
+            186,
+            198
+          ],
+          "words": 12
+        },
+        {
+          "digest_range": [
+            309,
+            317
+          ],
+          "record_range": [
+            269,
+            277
+          ],
+          "words": 8
+        },
+        {
+          "digest_range": [
+            386,
+            395
+          ],
+          "record_range": [
+            338,
+            347
+          ],
+          "words": 9
+        }
+      ],
+      "same_family": true,
+      "source_group": "wikinews:1445",
+      "split": "train",
+      "text_sha256": "c0e91bcd0fb883237e32562a77c95fe17b2fa1ee91ef4bc45d9ebdc01b8635a1"
+    },
+    {
+      "evidence": "model_edit_of_historical_proxy",
+      "id": "generation:c409336321c1a6c3f9b408db830e94182021d0c4f5ea73d0a9c3d2ec5e2d7414",
+      "normalized_words": 491,
+      "origin": "mixed",
+      "review_at_least_20_words": true,
+      "runs": [
+        {
+          "digest_range": [
+            0,
+            29
+          ],
+          "record_range": [
+            0,
+            29
+          ],
+          "words": 29
+        },
+        {
+          "digest_range": [
+            48,
+            63
+          ],
+          "record_range": [
+            44,
+            59
+          ],
+          "words": 15
+        },
+        {
+          "digest_range": [
+            103,
+            123
+          ],
+          "record_range": [
+            97,
+            117
+          ],
+          "words": 20
+        },
+        {
+          "digest_range": [
+            149,
+            157
+          ],
+          "record_range": [
+            153,
+            161
+          ],
+          "words": 8
+        },
+        {
+          "digest_range": [
+            187,
+            195
+          ],
+          "record_range": [
+            199,
+            207
+          ],
+          "words": 8
+        },
+        {
+          "digest_range": [
+            247,
+            255
+          ],
+          "record_range": [
+            266,
+            274
+          ],
+          "words": 8
+        },
+        {
+          "digest_range": [
+            257,
+            271
+          ],
+          "record_range": [
+            274,
+            288
+          ],
+          "words": 14
+        },
+        {
+          "digest_range": [
+            280,
+            308
+          ],
+          "record_range": [
+            304,
+            332
+          ],
+          "words": 28
+        },
+        {
+          "digest_range": [
+            309,
+            318
+          ],
+          "record_range": [
+            333,
+            342
+          ],
+          "words": 9
+        },
+        {
+          "digest_range": [
+            328,
+            339
+          ],
+          "record_range": [
+            354,
+            365
+          ],
+          "words": 11
+        },
+        {
+          "digest_range": [
+            386,
+            395
+          ],
+          "record_range": [
+            411,
+            420
+          ],
+          "words": 9
+        },
+        {
+          "digest_range": [
+            419,
+            430
+          ],
+          "record_range": [
+            447,
+            458
+          ],
+          "words": 11
+        },
+        {
+          "digest_range": [
+            433,
+            441
+          ],
+          "record_range": [
+            480,
+            488
+          ],
+          "words": 8
+        }
+      ],
+      "same_family": true,
+      "source_group": "wikinews:1445",
+      "split": "train",
+      "text_sha256": "eaae4d58584dd26ec2c27bdc197c931541cd9740ca223fa9d969e978a9689924"
+    },
+    {
+      "evidence": "recorded_model_generation",
+      "id": "generation:57ae7413090e41830ea96792ad343f8c78464ec55893a1468a813e1999b35b08",
+      "normalized_words": 376,
+      "origin": "model_only",
+      "review_at_least_20_words": false,
+      "runs": [
+        {
+          "digest_range": [
+            300,
+            309
+          ],
+          "record_range": [
+            207,
+            216
+          ],
+          "words": 9
+        },
+        {
+          "digest_range": [
+            309,
+            317
+          ],
+          "record_range": [
+            221,
+            229
+          ],
+          "words": 8
+        },
+        {
+          "digest_range": [
+            386,
+            395
+          ],
+          "record_range": [
+            317,
+            326
+          ],
+          "words": 9
+        }
+      ],
+      "same_family": true,
+      "source_group": "wikinews:1445",
+      "split": "train",
+      "text_sha256": "6c36e579ba9a278e3feb5671d50de2099a4efa0f43cb04848c432ecf0cb34630"
+    },
+    {
+      "evidence": "model_edit_of_historical_proxy",
+      "id": "generation:7389bc6c98a76756744a3143e20fc4cd798405f190069af6d70a0c19e9487876",
+      "normalized_words": 293,
+      "origin": "mixed",
+      "review_at_least_20_words": false,
+      "runs": [
+        {
+          "digest_range": [
+            296,
+            309
+          ],
+          "record_range": [
+            164,
+            177
+          ],
+          "words": 13
+        },
+        {
+          "digest_range": [
+            309,
+            317
+          ],
+          "record_range": [
+            180,
+            188
+          ],
+          "words": 8
+        }
+      ],
+      "same_family": true,
+      "source_group": "wikinews:1445",
+      "split": "train",
+      "text_sha256": "e13be573bf4e97058ad38ca7a2e82696bfa848d70ec98fd8cd13fb57127ca8e4"
+    },
+    {
+      "evidence": "historical_proxy",
+      "id": "wikinews:1446:810579:340537544a228b59",
+      "normalized_words": 392,
+      "origin": "human_only",
+      "review_at_least_20_words": false,
+      "runs": [
+        {
+          "digest_range": [
+            103,
+            115
+          ],
+          "record_range": [
+            169,
+            181
+          ],
+          "words": 12
+        }
+      ],
+      "same_family": false,
+      "source_group": "wikinews:1446",
+      "split": "train",
+      "text_sha256": "340537544a228b59d10db0400994a6f20bf3423c0254557a38a7e3adde952456"
+    },
+    {
+      "evidence": "recorded_model_revision",
+      "id": "generation:20432e4a0d26f812efead84616d24eb4a7851fb508cae3df35bb1ade4480b863",
+      "normalized_words": 375,
+      "origin": "model_only",
+      "review_at_least_20_words": false,
+      "runs": [
+        {
+          "digest_range": [
+            309,
+            317
+          ],
+          "record_range": [
+            232,
+            240
+          ],
+          "words": 8
+        },
+        {
+          "digest_range": [
+            386,
+            395
+          ],
+          "record_range": [
+            300,
+            309
+          ],
+          "words": 9
+        }
+      ],
+      "same_family": true,
+      "source_group": "wikinews:1445",
+      "split": "train",
+      "text_sha256": "24570a406d8bc1ff17fff478dc269610d4d852b1364e0f9924a67b43dab804b9"
+    },
+    {
+      "evidence": "recorded_model_revision",
+      "id": "generation:b889b4eeb3a58263759ec0b0be8bb804c883efcfd0938c4ca5a6400e4d62a948",
+      "normalized_words": 301,
+      "origin": "model_only",
+      "review_at_least_20_words": false,
+      "runs": [
+        {
+          "digest_range": [
+            309,
+            317
+          ],
+          "record_range": [
+            186,
+            194
+          ],
+          "words": 8
+        }
+      ],
+      "same_family": true,
+      "source_group": "wikinews:1445",
+      "split": "train",
+      "text_sha256": "d68af4735cafd179bc20392efde154b8a50722b228b1160ca368e0539e780c84"
+    }
+  ],
+  "minimum_shared_normalized_words": 8,
+  "packet_sha256": "6d6542888c3a7eb3146e5e0de10518b144043a0efe9cf2b9f36c2230f4b6e15e",
+  "protocol_sha256": "52b63687f23fe54efddf3f1acb85ec3a2dfae38f9f3ed29af719a4d96f78868e",
+  "provider_calls": 0,
+  "review_contiguous_words": 20,
+  "schema": "slop_ninja_train_digest_overlap_v1",
+  "source_sha256": "50ed0c747f528fba7f9dc602c8f09798d6750bae3030a53e64804851c36b064b",
+  "target_id": "wikinews:1445:1389307:c309c2f796c5a3d2",
+  "target_normalized_words": 465,
+  "target_text_sha256": "c309c2f796c5a3d2088487fe5735b12eb1a7d449818678217086ac94302183fa"
+}

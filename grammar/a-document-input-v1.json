@@ -1,0 +1,25 @@
+{
+  "schema": "slop_ninja_a_document_input_v1",
+  "engine_identity": "slop_ninja_cfg_document_fallback_v1;sha256=3a7bf231485d60445db5fda466776c847eb3af2df70cbeaa7445951ee7e96e18",
+  "parser_identity": "native-prepared-prehead-v2;sha256=25c607904ebd77a0fea4e51189b561d1a9383651bac6bea2cab94642d5498251",
+  "policy": {
+    "chart": {
+      "max_alternatives": 200000,
+      "max_match_steps": 2000000,
+      "max_nodes": 50000,
+      "max_tokens": 96
+    },
+    "lexical_fallback": true,
+    "match_step_policy": "length_scaled_v1",
+    "max_chart_windows": 512,
+    "max_document_match_steps": 256000000,
+    "max_window_bytes": 16384
+  },
+  "feature_schema": "slop_ninja_cfg_forest_expectations_v1",
+  "resolver": "acyclic-uniform-derivations-max-covered-min-islands-v1",
+  "canonical_grammar": "a-canonical-v1.json",
+  "campaign_coverage_unchanged": true,
+  "native_chart_searches_per_window": 1,
+  "complete_syntax_guaranteed": false,
+  "total_source_accounting": true
+}

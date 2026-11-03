@@ -1,0 +1,206 @@
+\section{Participants and execution}\label{participants-and-the-two-kinds-of-work}
+
+An \textit{A} miner trains a versioned text model for origin, share, span, and
+attribution outputs. The artifact contains the weights, tokenizer, calibration,
+and execution contract needed to run every output it declares. The miner commits only its
+digest on chain and uploads the artifact privately to the coordinator, which
+publishes it once the cohort ends. A published artifact, the miner's own
+included, earns nothing when entered again, so a miner earns again only with a
+model that differs measurably from every published one or improves on its
+source by half the promotion margin (Section~\ref{public-copies}).
+Slop Ninja executes
+submitted artifacts for the pilot's hidden evaluations and published ones for
+customer requests. Neither step requires the miner to operate a serving
+endpoint or Cloudflare account.
+Miners pay for their training and development; the operator pays for centrally
+served \textit{A} inference. Benchmark rewards depend on measured performance,
+not a claim about training expenditure.
+
+Slop Ninja is the subnet \emph{operator}. The \emph{subnet owner} is the account
+recognized on chain; Slop Ninja may operate through ownership or a lease.
+A lease must secure an owner-authorized execution path for required
+hyperparameter changes, including enabling commit--reveal, and any owner-only
+burn operations. Operating the service alone grants neither those powers nor
+the owner's emission entitlement.
+
+One lead validator, operated by Slop Ninja, serves as the \emph{coordinator}.
+This validator is the serverless service: it administers the daily frozen
+evaluation cohorts, runs their models and the reference models, and
+publishes a signed package of per-miner scores and the public inputs needed
+to calculate rewards. It also calculates, signs, submits, and recovers its own
+native weight commitments, then certifies its finalized row. These tasks all
+run within the serverless deployment.
+Every validator verifies the package and its receipt index, independently
+applies the frozen reward rules, and derives the canonical
+native weight rows. The same package and registration bindings must produce
+identical integer UID/weight entries. Each validator uses its own key, nonce,
+and recovery journal to commit and reveal those rows in parallel with the
+others. No validator waits for the coordinator's reveal or finalized
+row before committing. Held-out documents, labels, individual predictions, customer text,
+and private model weights remain outside the public package. Other validators
+do not reproduce the coordinator's hidden model scoring.
+Section~\ref{cohorts} defines the package bindings, native submission rules,
+and per-validator recovery requirements.
+
+This pilot trusts the coordinator to execute and score honestly. Validator
+recomputation checks reward arithmetic over the published scores; it cannot
+establish that the reported predictions are real. After its own row finalizes,
+the coordinator publishes a certificate for audit against the same
+score package and derived row. Its certificate authenticates those bindings
+without creating a validator quorum or a submission prerequisite.
+The coordinator also decides when measured quality justifies offering paid
+inference, and which workloads the service may accept. Commercial activation
+does not revise a cohort's scores.
+
+Dependence on other validators is confined to their timely native weight
+delivery. Scoring, cohort advancement, and customer service require no validator
+quorum and do not depend on other validators' acknowledgments, availability,
+software updates, or migration completion. Each validator submits and recovers
+independently; delayed validator rows affect native reward allocation
+without holding evaluation or service work open. The coordinator's own chain
+delivery and certificate publication also do not gate cohorts or other validators.
+
+Curators maintain authorized evaluation collections, production histories,
+hidden labels, and source-group splits. Access to these materials follows the
+collection's permissions. Customers authorize processing of submitted documents
+and reference writing under their declared rights for a quoted job; buying inference gives no automatic
+permission to add either to training or benchmarks. Author references and
+derived profiles receive the same content protection as the query document.
+
+Later \textit{C} contributors submit public grammar and lexical improvements.
+Accepted contributions receive credit once under a separately activated
+contribution contract (Section~\ref{grammar-contributions}). Later \textit{B}
+miners register private transformation pipelines, with language-model adapters
+served by Cloudflare in their own accounts and numeric rankers executed by
+Slop Ninja. These miners maintain their delegated access, capacity, and billing,
+and pay for their model calls, including required evaluations. Customer
+payments follow the burn policy; no direct per-job reimbursement is promised.
+Neither \textit{B} service obligations nor \textit{C} rewards apply to the
+\textit{A}-only launch.
+
+\subsection{Rust applications and serverless execution}
+
+All Slop Ninja production application logic is written in Rust, including
+native miner and non-coordinator validator clients, update and migration tools,
+and the serverless coordinator, challenge, and inference logic. A \emph{challenge}
+is a coordinator-internal evaluation task, such as generating cohort documents
+or running an admitted artifact on them; no challenge is sent to a miner or
+validator. Native participants use
+\texttt{rtao} for chain integration~\cite{rtao}; Linux and macOS releases require
+explicit platform qualification. Research ML backends remain separate from
+this production contract. Native participants retain their own hotkeys.
+The coordinator's validator hotkey is controlled within the serverless service,
+with durable signing ownership and transaction recovery. Its authorization and
+receipt keys remain distinct from that hotkey; other validators' keys never
+enter the service.
+
+Miner and validator clients install signed updates automatically and
+independently. A participant that has missed several releases follows the
+supported sequence of resumable schema migrations before resuming its work.
+Updates preserve unfinished obligations and reconcile chain submissions before
+retrying them. No participant waits for another to update or migrate. The
+release, migration, and conditional rollback requirements appear in
+Section~\ref{cohorts}; automatic recovery must satisfy its compatibility and
+journal checks before new signing is allowed.
+
+The coordinator is entirely serverless on Cloudflare Workers and Durable
+Objects~\cite{cfworkers,cfdo}. Shared Rust code defines canonical messages,
+artifact identities, scoring, and state transitions; supported modules compile
+to Wasm with the required platform bindings and generated deployment glue.
+The full native \texttt{rtao} runtime is not assumed to compile into a Worker.
+Workers code follows a bounded-memory rule: it allocates only inside a fixed
+arena sized from measured peaks, checks every declared length against that
+budget before allocating, and streams large objects instead of buffering or
+re-reading them.
+The coordinator needs qualified Workers-compatible chain transport, encoding,
+signing, and durable reconciliation, including its validator commitments and
+reveal obligations. Both coordinator and native participants use the
+\texttt{rtao-rpc} service, which provides Slop Ninja RPC
+access at no service charge~\cite{rtaorpc}. Chain fees and execution costs remain
+separately funded.
+
+Live \texttt{rtao-rpc} webhooks, offered for both Finney and testnet, deliver
+every finalized block. That per-block delivery is the coordinator's primary
+heartbeat and clock, and each delivery is its own Worker invocation~\cite{cffetch}.
+Durable Objects retain the finalized block cursor, and RPC reads backfill gaps
+and resolve finality. A one-minute Cron Trigger~\cite{cfcron} is the only
+fallback: when deliveries stall, including after the provider pauses a
+subscription whose retries are exhausted, it processes blocks from public
+OpenTensor RPC through the same per-block path. No permanently running
+subscriber is required. A webhook is a notification, not evidence of finality or
+permission to sign. Section~\ref{block-notifications} specifies ingress, the
+cursor, fallback, and the operator-resumed pause, a stated limit; the webhook
+receiver and the serverless chain path remain integration work.
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Component & Responsibility \\
+\midrule
+API Workers & Enrollment, authenticated requests and block-webhook ingress,
+status, and result retrieval. \\
+Durable Objects & Authoritative cohort checkpoints, admission, reservations,
+accounting, finalized-block cursors, and the coordinator's chain journal and
+signing ownership. Each record has one transactional owner. \\
+Lane Durable Objects & Execute fan-out lanes of bulk evaluation work. Each lane
+claims tasks under the cohort object's durable leases, runs in its own
+invocation, drives its own Container instance for model runs, and persists
+outcomes before releasing its claim. \\
+Queues & Carry lane wakeups holding identifiers and generations only; durable
+lane records reconstruct any lost, duplicated, or expired message. \\
+R2 storage & Versioned artifacts, evidence, manifests, and encrypted private
+job objects, bound to their durable records by identity and digest. \\
+Cron watchdog & Detect stalled deliveries or cursor lag, then process
+finalized blocks from public RPC through the per-block path until webhooks
+resume. \\
+\bottomrule
+\end{tabularx}
+\caption{The serverless coordinator. Queue delivery, lane invocations, and
+wakeups do not own protocol state.}
+\end{table}
+
+Task identities and dispatch intent are persisted before queue delivery, and a
+lane's assignment is recorded in the cohort object before its wakeup is sent.
+Messages carry identifiers and checkpoint generations, never customer content
+or credentials. A lane checks the current authorization and claims the
+recorded task before acting. Duplicate delivery cannot create a second
+accounting outcome. External execution can still repeat after an uncertain
+timeout; bounded retries retain every attempt and apply a declared selection
+rule. Queue retention is finite, so durable records must reconstruct pending
+dispatches after a long pause~\cite{cfqueues}. Cross-object work uses persisted
+idempotent messages; a transaction in one Durable Object cannot atomically
+update another~\cite{cfdo}.
+
+All production inference, challenge generation and execution, and scoring run
+serverlessly. Parsing and model execution take place outside the objects that
+serialize admission and accounting. Bounded Rust/Wasm computation runs in
+Workers; a qualified Cloudflare serverless Container under Slop Ninja's control
+supplies bounded computation beyond their limits, including every \textit{A}
+model run. Workers AI supplies supported language-model and adapter formats; it
+cannot host the \textit{A} encoder
+(Section~\ref{existing-evidence-and-implementation-status}). Bulk evaluation
+work runs as fan-out jobs: the cohort's Durable Object divides challenge
+generation, paired scoring, receipt bundling, and per-model score summaries
+into lanes, at least one per scored artifact and more as the batch grows
+(Section~\ref{fan-out}). Each scoring lane drives its own Container instance,
+and generation lanes share one rate limiter. Lane count changes elapsed time and
+per-lane start cost, never a document's outcome. Every workload needs measured CPU, memory, bundle,
+and numerical-runtime limits before admission; these targets do not imply
+support for arbitrary uploaded architectures. Miner-supplied executable plugins
+are excluded. Coordinator state and scheduling remain in Workers and Durable
+Objects, and production serving never depends on a miner's or validator's local
+machine being online.
+
+The native adapter uses durable \texttt{rtao} journal and weight/reveal recovery
+APIs. It starts paused, reconciles finalized history, and requires explicit
+resumption with application compatibility checks. This is an integration
+component, not a deployed validator. Its tested scope and current limitations
+are recorded in the ``Implementation boundary'' paragraph in
+Section~\ref{native-implementation-boundary}; unsupported paths
+require completion and qualification before deployment. The coordinator's
+Durable Object journal must implement the same intent, attempt, and finalized
+recovery requirements as the native validators' local journals; the native
+file-backed implementation does not supply that storage adapter. The cohort
+recovery contract in Section~\ref{cohorts} applies to both deployments, including
+the evidence needed to resume after runtime upgrades or missed tempo boundaries.

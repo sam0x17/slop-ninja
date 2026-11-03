@@ -1,0 +1,132 @@
+# Slop Ninja publisher: Wrangler configuration (tracked).
+#
+# A separate cron Worker that reads the coordinator's private buckets and
+# status through bindings and writes static objects into a separate
+# public-candidate bucket. It has no request route: the public host serves the
+# bucket's objects directly, so traffic never runs Worker code.
+#
+# Deploy only the testnet environment, once decision D6 approves the
+# resources. Every deployed name ends in -testnet:
+#
+#   wrangler r2 bucket create public-bucket-testnet     # public access stays OFF
+#   WRANGLER_WRITE_LOGS=false wrangler deploy --env testnet \
+#     --tag testnet --message "slop-ninja publisher testnet"
+#
+# Public access to public-bucket-testnet (a custom domain, decision D5) is
+# turned on by the user at announce time, never by a deploy. The private
+# buckets are never made public.
+#
+# Secrets, installed by the operator with `wrangler secret put --env testnet`
+# (their values never appear in tracked files):
+#
+#   COORDINATOR_STATUS_TOKEN  the coordinator Worker's read-only status token
+#   EVAL_STATUS_TOKEN         the eval Worker's read-only status token (each
+#                             Worker checks its own; the values differ)
+#   ALERT_SINK_URL            the alert sink: a test sink until decision D18
+#   HEARTBEAT_URL             the external dead-man check; pinged only when
+#                             HEARTBEAT_ENABLED is "true"
+#
+# No account ID belongs here. The top level is a local-only shell with no
+# bindings, triggers or route.
+
+name = "slop-ninja-publisher-local-testnet"
+main = "build/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+[triggers]
+crons = []
+
+# ------------------------------------------------------------------ testnet
+
+[env.testnet]
+name = "slop-ninja-publisher-testnet"
+workers_dev = false
+preview_urls = false
+
+[env.testnet.observability]
+enabled = false
+
+# One run a minute: the status snapshot is at most one run old.
+[env.testnet.triggers]
+crons = ["* * * * *"]
+
+[env.testnet.vars]
+# The build refuses any other value.
+NETWORK = "testnet"
+# Must equal the netuid of the compiled testnet-trust.json.
+SUBNET_NETUID = "601"
+# Durations in tempos (fallback alert, publication-pending alert).
+TEMPO_BLOCKS = "360"
+BLOCK_SECS = "12"
+# The coordinator's watchdog silence; the stalled-watermark alert adds two
+# cron periods to it.
+WATCHDOG_SILENCE_SECS = "300"
+# Decision D7 (a): content-free receipt indexes and chunks are public.
+PUBLISH_RECEIPTS = "true"
+ALERT_SINK_FORMAT = "json"
+ALERT_RENOTIFY_SECS = "21600"
+HEARTBEAT_ENABLED = "false"
+# Wall time after which a run starts no new step (a cohort verification or an
+# artifact copy): one cron period. Each step renews the run's two-minute lease.
+RUN_WALL_BUDGET_MS = "60000"
+# Set at deploy, not here:
+#   PUBLISH_FROM_EPOCH    first chain epoch of the restarted public record: the
+#                         cohorts whose manifest opened at or after it; unset
+#                         publishes no cohort
+#   RECORD_LABEL_PREFIX   optional; labels without it are outside the record and
+#                         never read (rehearsal, load and rotated-root cohorts)
+#   PRIVATE_DIGESTS       comma-separated content digests and artifact SHA-256s
+#                         of the references (the initial reference and its
+#                         replacement); never published as entrant artifacts
+#                         (they are published as reference packages)
+#   OPERATOR_HOTKEYS      comma-separated 64-hex hotkeys whose artifacts are
+#                         never published (owner, our miners and validators,
+#                         synthetic identities)
+#   ARTIFACT_SOURCE_KEY   eval-bucket key of an admitted artifact object, with
+#                         {sha256}; unset leaves artifacts pending
+#   ADMISSION_RECORD_KEY  eval-bucket key of an admitted upload's
+#                         SubmissionUpload envelope, with {label} and {hotkey};
+#                         required with ARTIFACT_SOURCE_KEY, as are a non-empty
+#                         PRIVATE_DIGESTS and OPERATOR_HOTKEYS
+#   ADMISSION_ORIGIN      the admission origin the snapshot advertises
+#   NOTICE                extra operator text for the snapshot
+
+# Read: cohort objects (receipts) and artifact objects (eval). The publisher
+# writes only to the public-candidate bucket.
+[[env.testnet.r2_buckets]]
+binding = "RECEIPTS_TESTNET"
+bucket_name = "receipts-bucket-testnet"
+
+[[env.testnet.r2_buckets]]
+binding = "EVAL_TESTNET"
+bucket_name = "eval-bucket-testnet"
+
+[[env.testnet.r2_buckets]]
+binding = "PUBLIC_TESTNET"
+bucket_name = "public-bucket-testnet"
+
+# Status reads (GET /status and /eval/status, each with its Worker's token).
+[[env.testnet.services]]
+binding = "COORDINATOR_TESTNET"
+service = "slop-ninja-coordinator-testnet"
+
+[[env.testnet.services]]
+binding = "EVAL_WORKER_TESTNET"
+service = "slop-ninja-eval-testnet"
+
+# Alert state, the run lease and the before-record memo.
+[[env.testnet.durable_objects.bindings]]
+name = "PUBLISHER_STATE_TESTNET"
+class_name = "PublisherState"
+
+[[env.testnet.migrations]]
+tag = "v1"
+new_sqlite_classes = ["PublisherState"]

@@ -1,0 +1,271 @@
+[
+  {
+    "corpus": "codex-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0179877",
+    "baseline_sha256": "85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab",
+    "candidates": [
+      {
+        "id": "a-bvd-word-main",
+        "kind": "single_word",
+        "old": "principal",
+        "new": "main",
+        "occurrence": 1,
+        "rationale": "Test a common synonym in a fixed description of the analytical method.",
+        "preservation_notes": "Content analysis retains the same primary status; the cross-sectional independent measures design is unchanged."
+      },
+      {
+        "id": "a-bvd-word-still",
+        "kind": "single_word",
+        "old": "Nevertheless",
+        "new": "Still",
+        "occurrence": 1,
+        "rationale": "Test a shorter contrast marker while leaving the ranking-versus-behaviour claim intact.",
+        "preservation_notes": "Retains the contrast with the previous finding and the qualification did not appear; it does not assert that the rankings definitively failed to correspond."
+      },
+      {
+        "id": "a-bvd-structure-variables",
+        "kind": "sentence",
+        "old": "Farmer-level variables examined included the specific BVD control measures adopted, livestock disease priorities, reasons for scheme membership, wider knowledge acquisition, biosecurity practices and training course attendance.",
+        "new": "The study examined farmer-level variables including the specific BVD control measures adopted, livestock disease priorities, reasons for scheme membership, wider knowledge acquisition, biosecurity practices and training course attendance.",
+        "occurrence": 1,
+        "rationale": "Make examined the main verb, replacing the reduced relative clause before included.",
+        "preservation_notes": "Preserves farmer-level scope, the nonexhaustive including construction, every listed variable and the same study as the implied investigator; no first-person voice is introduced."
+      },
+      {
+        "id": "a-bvd-structure-concession",
+        "kind": "sentence",
+        "old": "The findings therefore indicate that disease control efforts, although necessary, are insufficient on their own.",
+        "new": "The findings therefore indicate that disease control efforts are insufficient on their own, although they are necessary.",
+        "occurrence": 1,
+        "rationale": "Move the concession out of the subject-predicate span, so the main conclusion is read continuously.",
+        "preservation_notes": "Preserves the evidential verb indicate, inferential therefore, necessity of disease control and its insufficiency when used alone."
+      }
+    ],
+    "source_path": "../../data/matched-pilot-v1/codex.jsonl"
+  },
+  {
+    "corpus": "codex-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0186133",
+    "baseline_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b",
+    "candidates": [
+      {
+        "id": "a-ecotourism-word-enough",
+        "kind": "single_word",
+        "old": "sufficient",
+        "new": "enough",
+        "occurrence": 1,
+        "rationale": "Test a common determiner in place of a formal adjective while keeping the sentence structure fixed.",
+        "preservation_notes": "Both forms require the same adequacy of evidence; the criticism, uncertainty, threat reduction and biodiversity outcomes remain unchanged."
+      },
+      {
+        "id": "a-ecotourism-word-usefulness",
+        "kind": "single_word",
+        "old": "utility",
+        "new": "usefulness",
+        "occurrence": 1,
+        "rationale": "Test an ordinary synonym for an abstract noun without changing its grammatical role.",
+        "preservation_notes": "The same approach remains under discussion, with the same purpose of protecting very rare species; no effectiveness claim is added."
+      },
+      {
+        "id": "a-ecotourism-structure-reduced-relative",
+        "kind": "sentence",
+        "old": "Projects that adopt this strategy are frequently criticized for failing to provide sufficient evidence that they have reduced threats or improved the status of the biodiversity they seek to protect.",
+        "new": "Projects adopting this strategy are frequently criticized for failing to provide sufficient evidence that they have reduced threats or improved the status of the biodiversity they seek to protect.",
+        "occurrence": 1,
+        "rationale": "Reduce the opening relative clause to a participial modifier; leave the evidence clause and every outcome unchanged.",
+        "preservation_notes": "The same projects remain the subject. Frequency of criticism, sufficiency of evidence, alternative conservation outcomes and intended protection are preserved."
+      },
+      {
+        "id": "a-ecotourism-structure-monitoring",
+        "kind": "sentence",
+        "old": "Over four years, we conducted monitoring guided by a theory of change to evaluate assumptions about the links between intermediate results and biological outcomes.",
+        "new": "Guided by a theory of change, we monitored for four years to evaluate assumptions about the links between intermediate results and biological outcomes.",
+        "occurrence": 1,
+        "rationale": "Use the verb monitored directly and move its methodological qualification to the front.",
+        "preservation_notes": "Preserves the authors as actors, four-year duration, theory-of-change guidance, evaluative purpose, assumptions and both levels of outcomes."
+      }
+    ],
+    "source_path": "../../data/matched-pilot-v1/codex.jsonl"
+  },
+  {
+    "corpus": "codex-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0188280",
+    "baseline_sha256": "a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7",
+    "candidates": [
+      {
+        "id": "a-sierra-word-remain",
+        "kind": "single_word",
+        "old": "persist",
+        "new": "remain",
+        "occurrence": 1,
+        "rationale": "Test a common continuation verb without changing the claim about rural-urban inequalities.",
+        "preservation_notes": "Both variants assert continuing inequalities in access to and use of health facilities; neither changes their scope or magnitude."
+      },
+      {
+        "id": "a-sierra-word-sufficient",
+        "kind": "single_word",
+        "old": "adequate",
+        "new": "sufficient",
+        "occurrence": 1,
+        "rationale": "Test a close scientific-register synonym while holding the recommendation and sentence structure fixed.",
+        "preservation_notes": "Retains the requirement for enough knowledge of structural constraints and health inequities; the target population, location and future initiatives remain identical."
+      },
+      {
+        "id": "a-sierra-structure-front-location",
+        "kind": "sentence",
+        "old": "This study explored the perceptions and decision-making processes of women and their communities during childbirth in rural Sierra Leone.",
+        "new": "In rural Sierra Leone, this study explored the perceptions and decision-making processes of women and their communities during childbirth.",
+        "occurrence": 1,
+        "rationale": "Put the study location first and shorten the sequence of modifiers at the sentence end.",
+        "preservation_notes": "Retains explored, both perceptions and decision-making processes, women and their communities, childbirth timing and the rural Sierra Leone setting."
+      },
+      {
+        "id": "a-sierra-structure-social-context",
+        "kind": "sentence",
+        "old": "The findings showed that decisions during childbirth emerge through dynamic, complex processes that must be understood within the wider social context in which they occur.",
+        "new": "The findings showed that decisions during childbirth emerge through dynamic, complex processes that must be understood in their wider social context.",
+        "occurrence": 1,
+        "rationale": "Replace the final embedded relative clause with a possessive context phrase to reduce nesting.",
+        "preservation_notes": "Retains the reported finding, childbirth timing, dynamic and complex processes, the necessity of understanding them contextually, and the wider social scope."
+      }
+    ],
+    "source_path": "../../data/matched-pilot-v1/codex.jsonl"
+  },
+  {
+    "corpus": "claude-opus-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0186133",
+    "source_path": "../../data/matched-pilot-v1/claude-opus.jsonl",
+    "candidates": [
+      {
+        "id": "editor-b-0186133-document-v2",
+        "kind": "document_revision",
+        "text": "Ecotourism is widely promoted for biodiversity conservation, yet conservation gains are often modest relative to the investment and revenue involved. Projects adopting ecotourism are frequently criticised for failing to demonstrate reductions in threats or improvements in the condition of the biodiversity they claim to protect. In Lao PDR, ecotourism revenue has not been directly linked to, or made conditional on, improvements in biodiversity. There is no evidence of conservation benefits from ecotourism enterprises there. Elsewhere in the developing world, direct payments for ecosystem services under explicit contracts have been proposed as a more cost-effective conservation mechanism. The impact of this approach still needs further study. To address this research need, we tested a new model in the Nam Et-Phou Louey National Protected Area (NPA) in Lao PDR, using direct payments through ecotourism to give villagers incentives to increase wildlife populations. Over four years, we monitored progress along a theory of change to test assumptions about the links between intermediate results and biological outcomes. Preliminary findings indicated a negative correlation between ecotourism benefits and hunting infractions in the targeted villages, no increase in hunting sign in the NPA's ecotourism sector compared with a three-fold increase across its non-tourism sectors, and an overall increase in wildlife sightings. The case offers important lessons for designing direct payments within an ecotourism strategy. These concern the joint use of threat monitoring and wildlife sighting data to assess effectiveness, the setting of rates for wildlife sightings and village fees, and the approach's potential usefulness for protecting very rare species.",
+        "rationale": "Replace nested clauses about project aims, payments, and findings with direct statements. Keep the technical study sequence and separate the Lao PDR evidence claim from the revenue condition. Retain necessary passive constructions and the methodological first person.",
+        "preservation_notes": [
+          "Retains the mismatch between widespread promotion and modest gains relative to investment and revenue, the criticism of unproven biodiversity outcomes, and both Lao PDR claims.",
+          "Retains explicit contracts, ecosystem services, the proposed comparative cost-effectiveness of direct payments, and the need for further impact study.",
+          "Retains the named protected area, the new model, incentives for villagers to increase wildlife populations, four years of monitoring, and the theory-of-change purpose.",
+          "Retains the preliminary status of the findings, negative correlation in targeted villages, no increase in tourism-sector hunting sign, the three-fold increase elsewhere in the NPA, and increased wildlife sightings overall.",
+          "Retains all three design lessons: joint monitoring evidence, rates and village fees, and possible usefulness for very rare species. No causal conservation benefit is asserted from the correlation."
+        ],
+        "pre_scan_corrections": [
+          {
+            "old": "Projects are frequently criticised",
+            "new": "Projects adopting ecotourism are frequently criticised"
+          },
+          {
+            "old": "the biodiversity they aim to protect",
+            "new": "the biodiversity they claim to protect"
+          },
+          {
+            "old": "has not been linked to, or made conditional on,",
+            "new": "has not been directly linked to, or made conditional on,"
+          },
+          {
+            "old": "We tested a new model in",
+            "new": "To address this research need, we tested a new model in"
+          },
+          {
+            "old": "Preliminary findings indicated a negative correlation between ecotourism benefits and hunting infractions in the targeted villages. Hunting sign did not increase in the NPA's ecotourism sector, compared with a three-fold increase across its non-tourism sectors, and wildlife sightings increased overall.",
+            "new": "Preliminary findings indicated a negative correlation between ecotourism benefits and hunting infractions in the targeted villages, no increase in hunting sign in the NPA's ecotourism sector compared with a three-fold increase across its non-tourism sectors, and an overall increase in wildlife sightings."
+          }
+        ],
+        "review_scope": "Writer saw only model text. Independent assistant checks also consulted original human abstract; corrections precede scoring. Not a human-certified audit."
+      }
+    ]
+  },
+  {
+    "corpus": "claude-opus-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0179877",
+    "source_path": "../../data/matched-pilot-v1/claude-opus.jsonl",
+    "candidates": [
+      {
+        "id": "editor-b-0179877-document-v2",
+        "kind": "document_revision",
+        "text": "We examined the influence of the Norfolk-Suffolk Bovine Viral Diarrhoea Disease (BVD) Eradication scheme on farmers' bio-security attitudes and behaviours. During 2010, we surveyed 100 cattle farmers living in the UK counties of Norfolk and Suffolk: 53 scheme members and 47 non-members. The study followed a cross-sectional independent measures design, with content analysis as the principal analytical method. Analysis at the individual farmer level covered the specific BVD control measures adopted, livestock disease priorities, reasons for scheme membership, broader knowledge acquisition, actual bio-security practices, and training course attendance. The results indicate that scheme participation enhanced farmers' perceptions of its benefits and increased participation in training courses. Scheme participation showed no association with livestock disease priorities, motivation for joining, or knowledge of the BVD bio-security measures in use. An equally important finding was that membership appeared to affect the importance farmers assigned to particular bio-security measures, but these rankings did not appear to match their actual practices. Disease control efforts are necessary but insufficient on their own. Improving farmers' bio-security behaviours requires substantial work on underlying attitudes towards the particular disease threat.",
+        "rationale": "Remove the opening reference to the paper, repeated framing around analytical variables, and rhetorical transitions between results. Express each reported association and the discrepancy between rankings and behaviour directly. Preserve the scientific register and qualified membership finding.",
+        "preservation_notes": [
+          "Retains the exact scheme name, disease abbreviation, year, counties, sample size, and member/non-member counts.",
+          "Retains the cross-sectional independent measures design and content analysis as the principal analytical method.",
+          "Retains all six variable categories and the individual-farmer level of analysis.",
+          "Retains the reported gains in perceived benefits and training attendance, all three null associations, the qualified effect on the importance assigned to measures, and the mismatch with actual behaviour.",
+          "Retains the conclusion that disease control is necessary but insufficient and that improving behaviour requires substantial work on attitudes towards the specific disease threat. The revision adds no causal inference beyond the supplied model text."
+        ],
+        "pre_scan_corrections": [
+          {
+            "old": "covered adopted BVD control measures",
+            "new": "covered the specific BVD control measures adopted"
+          },
+          {
+            "old": "increased attendance at training courses",
+            "new": "increased participation in training courses"
+          },
+          {
+            "old": "Membership also appeared to affect the importance farmers assigned to particular bio-security measures, but these rankings did not match their actual practices.",
+            "new": "An equally important finding was that membership appeared to affect the importance farmers assigned to particular bio-security measures, but these rankings did not appear to match their actual practices."
+          },
+          {
+            "old": "substantial work on attitudes",
+            "new": "substantial work on underlying attitudes"
+          },
+          {
+            "old": "Norfolk-Suffolk Bovine Viral Diarrhoea (BVD)",
+            "new": "Norfolk-Suffolk Bovine Viral Diarrhoea Disease (BVD)"
+          }
+        ],
+        "review_scope": "Writer saw only model text. Independent assistant checks also consulted original human abstract; corrections precede scoring. Not a human-certified audit."
+      }
+    ]
+  },
+  {
+    "corpus": "claude-opus-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0188280",
+    "source_path": "../../data/matched-pilot-v1/claude-opus.jsonl",
+    "candidates": [
+      {
+        "id": "editor-b-0188280-document-v2",
+        "kind": "document_revision",
+        "text": "Sierra Leone continues to have one of the world's highest maternal mortality ratios. Initiatives to address this burden have aimed to encourage women to give birth in health facilities. Many women still give birth at home despite the introduction of the free health care initiative for pregnant women, and few of these women have access to a skilled birth attendant. Inequalities between rural and urban populations in access to and use of health facilities also persist. A fuller understanding of how and why women make decisions about childbirth would help inform future plans and initiatives to improve maternal health in Sierra Leone. We explored the perceptions and decision-making processes of women and their communities during childbirth in rural Sierra Leone.\n\nData came from seven focus group discussions and 22 in-depth interviews with recently pregnant women and members of their communities in two rural villages. We analysed the material using systematic text condensation. The findings showed that decision-making during childbirth is dynamic and complex and must be interpreted within the wider social context. Distance, lack of transport, perceived negative behaviour by hospital staff, direct and indirect financial barriers, and women's position in society interact to influence both how decisions are made and what is decided.\n\nMultiple, interacting vulnerabilities shape pregnant women's decisions about seeking healthcare during pregnancy and childbirth. Initiatives to improve pregnant women's access to and use of safe healthcare services should be based on an adequate understanding of the structural constraints and health inequities affecting women in rural Sierra Leone.",
+        "rationale": "Shorten the introductory and findings sentences, make the study methods explicit, and replace nested relative clauses with direct descriptions of the interacting factors. Preserve the three-paragraph scientific abstract structure and both access and use as distinct concerns.",
+        "preservation_notes": [
+          "Retains the high maternal mortality ratio, facility-birth initiatives, free care for pregnant women, continued home births, scarce skilled attendance at those births, and persistent rural/urban inequalities in both access and use.",
+          "Retains the planning rationale and the aim to explore women and community perceptions and decision-making in rural Sierra Leone.",
+          "Retains seven focus groups, 22 in-depth interviews, recently pregnant women and community participants, two rural villages, and systematic text condensation.",
+          "Retains dynamic and complex decision-making, the need for its social interpretation, every listed barrier, their interaction, and their influence on both the process and the decisions reached.",
+          "Retains interacting vulnerabilities during pregnancy and childbirth, safe healthcare, and the recommendation to understand structural constraints and health inequities. Hospital staff behaviour remains explicitly perceived rather than established as fact."
+        ],
+        "pre_scan_corrections": [
+          {
+            "old": "and few of these home births involve a skilled birth attendant.",
+            "new": "and few of these women have access to a skilled birth attendant."
+          },
+          {
+            "old": "Rural and urban inequalities in access to and use of health facilities also persist.",
+            "new": "Inequalities between rural and urban populations in access to and use of health facilities also persist."
+          },
+          {
+            "old": "A fuller understanding of women's childbirth decisions and their reasons would help inform",
+            "new": "A fuller understanding of how and why women make decisions about childbirth would help inform"
+          },
+          {
+            "old": "We explored women's and communities' perceptions and decision-making processes around childbirth in rural Sierra Leone.",
+            "new": "We explored the perceptions and decision-making processes of women and their communities during childbirth in rural Sierra Leone."
+          },
+          {
+            "old": "with recently pregnant women and community members in two rural villages.",
+            "new": "with recently pregnant women and members of their communities in two rural villages."
+          },
+          {
+            "old": "decision-making during childbirth was dynamic and complex and required interpretation within the wider social context.",
+            "new": "decision-making during childbirth is dynamic and complex and must be interpreted within the wider social context."
+          },
+          {
+            "old": "society interacted to influence both how decisions were made and what was decided.",
+            "new": "society interact to influence both how decisions are made and what is decided."
+          }
+        ],
+        "review_scope": "Writer saw only model text. Independent assistant checks also consulted original human abstract; corrections precede scoring. Not a human-certified audit."
+      }
+    ]
+  }
+]

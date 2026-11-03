@@ -1,0 +1,160 @@
+{
+  "schema": "slop_ninja_gpt_oss_train_pilot_manual_review_v1",
+  "profile": "source-matched",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "source_contract_sha256": "762c18847a9c8e476343199d47ac782791219198a2f6ad34d02f3f704511152e",
+  "planned_profile_requests": 4,
+  "planned_whole_pilot_requests": 24,
+  "reviewed_outputs": 4,
+  "profile_review_complete": true,
+  "rows": [
+    {
+      "task": "3024817d6b22285ea2235f9f84a1422034afff7d7d0519627642039bd8da42a6",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "source_sha256": "6571837bc8ea414c0b659bb8f78669f7dfa2889af57b7d098b390f40b279f510",
+      "text_sha256": "d7b0a9f3ec5c347c6029e9b2c22a469c4fe59d5bb0dbc552eaf72eb4fcec409b",
+      "request_sha256": "267b08466719041a5015ab5657e83f90ba9b5c8ed92eed139c828c7f9cadf89f",
+      "response_sha256": "72e856592adbfbdf664ec8f818c112cd89eb466f9ad1d4ace8b1d3909c381532",
+      "record_sha256": "faa565c557ef5d6849f3dcb6632363b847e5fed2cd7201c3a32b5a5750c148cd",
+      "read_scope": "Read the complete source and metadata, the full raw response, and the complete final prose as stored in the collector record. Compared the final prose with every source obligation for this study.",
+      "finish_reason": "stop",
+      "prompt_tokens": 729,
+      "completion_tokens": 2456,
+      "final_words_whitespace": 245,
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "preserved": [
+        "The unresolved background question, splenic MNC study objective, named cell subpopulations and embryonic cardiomyocyte positive control remain recognizable.",
+        "The 30% and 94% VT results and p<0.01 are retained, as is the difference between general functional improvement and the arrhythmia benefit seen only with eCMs.",
+        "Border-zone conduction velocity, connexin 43, echocardiography and left-heart catheterization remain in the account."
+      ],
+      "timing_change": "The source assesses electrical vulnerability 14 days after injury and injection. The draft instead says that injections occurred 14 days after cryoinfarction and omits the original assessment timing.",
+      "unsupported_additions": [
+        "The mice are called adult; the supplied abstract does not specify their age.",
+        "The draft specifies electroanatomical mapping and transthoracic echocardiography, adding method qualifiers absent from the supplied text.",
+        "The draft names improvements in ejection fraction and end-diastolic volume. The source reports improved left-ventricular function without those endpoint claims.",
+        "The final sentence adds a mechanistic interpretation of arrhythmia suppression that the source does not state."
+      ],
+      "qualification_and_scope_changes": [
+        "The conclusion strengthens improved left-ventricular function to restored function.",
+        "The opening no longer explicitly attributes the possible transplantation benefit to both clinical and experimental evidence.",
+        "The initially broad uncertainty about mononuclear cells is narrowed to splenic MNCs. The source introduces the splenic scope when stating this study's objective."
+      ],
+      "register_and_tone": "The draft retains a scientific abstract register and adds inline section labels. Several choices are more formal than the source, and the concluding mechanistic claim makes the interpretation more assertive. The prose is fluent, but fluency does not resolve the factual changes.",
+      "word_count_observation": "The raw response shows extensive word counting and an added closing claim to approach the requested length. This identifies a possible failure mechanism in this attempt; it is not evidence of its prevalence or of the effect of any alternative prompt.",
+      "copying_limit": "The existing automated source-copy checks passed. This review does not establish zero reuse of shorter phrases or complete originality.",
+      "disposition": "Retain exact model-origin evidence and the fidelity defects. Exclude from a controlled same-meaning style comparison. No addition to the active Train archive or released corpus occurs here."
+    },
+    {
+      "task": "35246f61e4cbf9e03b0113294c31c5c4e8195b699282b199fbc7962adee668b3",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "source_sha256": "44a8481592c6470d36444a0dc85b56a3b11e738dc35c921db7ded6b1d92dc330",
+      "text_sha256": "29e28542992d0bfe8a235d1c0c072ae62d2487c7df5db54365800cd44bab57f4",
+      "request_sha256": "45b69b5b8f988846d447e7c99c54e57a7d6b06db3c7917acdfeb46c49f95be6f",
+      "response_sha256": "013c668a34b78db04dcdbe8174ffcc0a5092bf8c48aa4884d6c0719a32fbbbc4",
+      "record_sha256": "94b72a30a9addb69e776539dd3e8a382620cee7f736437bbe12196550bd1b5eb",
+      "read_scope": "Read the complete raw response and final prose, compared with the full Missing data source and every recorded source obligation. The final prose contains the model's new statements; they are not reasoning-channel leakage.",
+      "finish_reason": "stop",
+      "prompt_tokens": 622,
+      "completion_tokens": 1736,
+      "final_words_whitespace": 225,
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "preserved": [
+        "The definition, common occurrence and potential effect of missing data on conclusions remain recognizable.",
+        "Item and unit nonresponse, sensitive income questions, longitudinal attrition, institutional omissions and researcher collection or entry mistakes are retained.",
+        "The three missingness categories and the analogy with handling censored data are retained. Standard acronym expansions do not by themselves constitute a substantive change."
+      ],
+      "unsupported_additions": [
+        "Personal habits are added as another sensitive topic, and reluctance to disclose is supplied as a causal explanation.",
+        "The draft introduces imputation and model-based adjustments as examples of treatment methods. Neither appears in the supplied source.",
+        "The closing sentence adds biased estimates and reduced statistical power as consequences of inadequate handling. Those specific claims are absent from the source."
+      ],
+      "qualification_and_scope_changes": [
+        "The source allows information to be unavailable. The draft replaces that reason with required data not existing, a narrower condition.",
+        "The source says missing data can be handled similarly to censored data; the draft asserts that analysts often do so, adding a claim about practice."
+      ],
+      "register_and_tone": "The draft keeps an accessible, encyclopedic register and broadly follows the source's progression. It adds a concluding methodological warning, giving the passage more instructional emphasis than the source. No invented first-person voice appears.",
+      "word_count_observation": "The raw response again counts words and then adds a closing claim to approach the requested length. This is an observation about this attempt, not a measured effect of the approximate-length instruction.",
+      "copying_limit": "The existing automated checks passed. Technical phrases and shorter overlaps remain; this does not certify complete originality.",
+      "disposition": "Retain the model-origin record and mark additions and scope changes. This output does not qualify for a controlled same-meaning style comparison. The active training archive and release corpus remain unchanged."
+    },
+    {
+      "task": "5e229d3458cb6540446c0ef0d7b49fe91178868e0e048622f8fec69fc756a974",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "source_sha256": "b916dbe980cbb2b6c66a6b8d8351ac130deccafb8d2c0135843fd8eff40bb131",
+      "text_sha256": "62ad2439a58de468e62fd62f32f12fdff8d86ef1b7caa9873055ea5b23ff5967",
+      "request_sha256": "f5d5a1e6e5ea266a35696b2c2fef43295b80cd59ce4ae8338f1f12bd1fcb6345",
+      "response_sha256": "1d0330400706f3fa526d2975d95850085850f5489c613eaf0568771084b51a89",
+      "record_sha256": "e5d0e392e2eec3779db095e32905c63bdff47597b13485dbcfc6f6432029a3e9",
+      "read_scope": "Read the full raw response and final passage against the complete plot-summary source and its seven recorded obligations, including the damaged final question.",
+      "finish_reason": "stop",
+      "prompt_tokens": 607,
+      "completion_tokens": 2388,
+      "final_words_whitespace": 194,
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "preserved": [
+        "Huttser and Palla seek a mountain-side cave where Palla grew up, with unborn pups and Morgra as a threat.",
+        "Morgra remains Palla's malevolent half-sister. The Sight, humans as wolves' enemy, family hardship and the prophecy threatening enslavement remain in the summary.",
+        "The first paragraph retains an unanswered question about whether Morgra or the family prevails."
+      ],
+      "omissions": [
+        "The definitions of Dragga and Drappa as the dominant male and female pack roles are removed. The words remain unexplained.",
+        "The source explicitly calls Palla Huttser's mate and identifies the cave's nursing and secret-rearing purposes. The draft makes the relationship less explicit and reduces those purposes to sheltering the unborn pups."
+      ],
+      "unsupported_additions": [
+        "The legend is described as ancient, a qualification absent from the source.",
+        "The draft introduces Morgra's agents, betrayal and a need to protect the young from her wrath in the days that follow.",
+        "It asserts a journey with actual human encounters and tests of the legend's promise, beyond the source's statement that the legend brings wolves together with humans.",
+        "Each setback is said to strengthen family resolve, and sacrifice and courage are added as possible forces opposing Morgra. The source does not supply those developments."
+      ],
+      "qualification_and_scope_changes": [
+        "A rumor that Morgra is afflicted with the Sight becomes a rumor that she wields it, followed by an assertion that the power fuels her designs. This changes the relationship between the character and the feared power.",
+        "The draft adds persecution to the family's losses and makes deciding whether their bond can overcome fate an explicit task. Those details are not stated in the source."
+      ],
+      "register_and_tone": "The promotional, dramatic register survives, but the new final paragraph supplies events and a moral interpretation. Missing determiners in the references to the legend and the family's resolve make that paragraph awkward. The source's damaged closing question did not authorize these unrelated grammatical defects.",
+      "word_count_observation": "The raw response first drafts a shorter summary, then invents a paragraph and removes words to hit 194. The exact count is achieved at the expense of source information and grammatical naturalness. This is direct evidence about this attempt, not a population estimate or an alternate-prompt experiment.",
+      "copying_limit": "The existing automated copying checks passed. That does not establish semantic fidelity or absence of shorter copied phrases.",
+      "disposition": "Retain the model-origin record and all defects. Exclude it from a controlled same-meaning style comparison. No active training or release-corpus admission occurs."
+    },
+    {
+      "task": "75b8e760542dc1f8fa5cf55e2092d6d0f45f1ebae0f8fa8d12407c48a9a43bc8",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "source_sha256": "be240fa8a178127fadaebc802d140ab2af884174a472905a36f169b7030269a1",
+      "text_sha256": "255aee9057d4ea4e54828218d470f35e0740e32737023fb0da91fd6df99b3f89",
+      "request_sha256": "9207c3ac9f14217f7793da5731290bff7043f758bfce735633cef4179128b0fd",
+      "response_sha256": "6ab71fd40c4577844b3d2de8cf958c6715765f78a309613b205c70b168e34368",
+      "record_sha256": "de02cc8ee190bce30c0ea06049b852154de63fb581b263770aa0a1afb3a95608",
+      "read_scope": "Read the complete raw response and final passage against the complete awards report and all eight recorded source obligations.",
+      "finish_reason": "stop",
+      "prompt_tokens": 620,
+      "completion_tokens": 1350,
+      "final_words_whitespace": 195,
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "preserved": [
+        "The relative yesterday frame, 88th awards ceremony, 1993 nomination, sixth nomination and The Revenant awards remain.",
+        "The previous DiCaprio nomination titles/categories, Winslet/Vikander result, Larson win and Mad Max's ten nominations and six named wins are retained.",
+        "The Ex Machina and Spotlight wins and the two competing songs, including Earned It's Grammy qualification, remain."
+      ],
+      "omissions": [
+        "The Weeknd's Canadian nationality is omitted.",
+        "The source explicitly identifies the award as DiCaprio's first Oscar overall. The draft states his first Best Actor trophy, which is narrower."
+      ],
+      "unsupported_additions": [
+        "The draft names Hugh Glass as DiCaprio's role. The supplied report does not name the character; outside truth would not make this a source-preserving addition.",
+        "The new concluding sentence says the ceremony highlighted emerging filmmakers and celebrated diverse worldwide contributions to cinema. The source supplies no such characterization."
+      ],
+      "register_and_tone": "Most of the passage remains fluent awards reporting. It compresses the four source paragraphs into one and adds a generic celebratory conclusion, shifting the ending away from the original's factual report.",
+      "word_count_observation": "The raw response adds the final ceremony characterization after a manual word count. Its intended count and the observed whitespace count differ, partly because of unusual spacing. No text normalization or repair was applied to the retained output.",
+      "copying_limit": "The existing automated checks passed; shorter phrase reuse and factual title/category overlap remain. No complete-originality claim follows.",
+      "disposition": "Retain the exact model-origin record and its omissions/additions. Exclude it from a controlled same-meaning style comparison. No active training or release-corpus admission occurs."
+    }
+  ],
+  "limitations": "All four source-matched outputs were reviewed and all four failed strict source fidelity. The other 20 declared pilot requests remain unreviewed. These four cases do not estimate population quality or a prompt's causal effect. No detector was scored; historical source evidence and model provenance retain their separate limitations.",
+  "new_training_records_admitted": 0,
+  "detector_calls": 0,
+  "pangram_calls": 0
+}

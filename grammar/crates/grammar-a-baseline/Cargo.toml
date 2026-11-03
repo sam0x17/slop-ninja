@@ -1,0 +1,24 @@
+[package]
+name = "grammar-a-baseline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Frozen numeric-only starter origin baselines for Slop Ninja"
+
+[lib]
+name = "grammar_a_baseline"
+
+[[bin]]
+name = "slop_ninja_a_baseline"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

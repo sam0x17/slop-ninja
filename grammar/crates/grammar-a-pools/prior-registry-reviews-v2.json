@@ -1,0 +1,355 @@
+{
+ "schema": "slop_ninja_a_pool_prior_registry_v1",
+ "description": "Every prior corpus snapshot a new human pool must not overlap: published datasets (detector-v5, detector-v6, hosted, origin, revisions, a-supervised, a-balanced, a-encoder, a-retained-train, a-train-augmentation, grammar samples), stage-1/2/3 private populations (including both consumed final Tests and their generation records), style and hosted exports, the CFG parse archive records and the raw downloaded source books. Paths are relative to the repository root. Metadata-only candidate inventories that were never opened are deliberately not registered. Version 2 keeps the v1 paths and name patterns (except as noted below); it exists because v1 indexes were built with a name matcher that compared patterns with a star in the middle (pg*.txt, *vectors*.jsonl) as literal names, so the 26 raw stage-1 PG books were never indexed. Indexes built from v2 use the shell-glob matcher recorded as name_matcher in index.json. The *vectors*.jsonl exclusions are dropped so that v2 indexes at least every file v1 indexed (v1 never applied them). Evaluation successor v3 (2026-10-27) adds the admitted Train-side pool (pools-v2/dedup-v2/admitted.jsonl: Train, Train-mining and held documents) for Dev-iter acquisition. v4 adds every admitted Dev-iter candidate; v5 adds every admitted Dev-select candidate, for CAL acquisition. Acquisition successor acq3-v1 (2026-10-27, branch a-comp-data3) adds every admitted CAL candidate of the five base domains, for admitting the new Train-side sources (FineWeb, Global Voices, Stack Exchange re-admission, prose-licence PLOS) against all earlier material. Evaluation successor acq3-eval-v1 adds the new Train-side pool (pools/admitted-v3/dedup-v1/admitted.jsonl: FineWeb, Global Voices, Stack Exchange and prose-licence PLOS, including held rows) for new-domain Dev-iter acquisition. acq3-eval-v2 adds every admitted new-domain Dev-iter candidate, for Dev-select. acq3-eval-v3 adds every admitted new-domain Dev-select candidate, for CAL. Blog successor blogs-v1 (2026-10-27, branch a-comp-blogs) adds the concurrent new-source candidates (FineWeb pool v1, Global Voices, prose-licence PLOS, Stack Exchange v1 adapters), any admitted-v3 output, any new-domain evaluation humans and any splits-v3 text, for admitting the FineWeb blog and PLOS blog pools; entries whose paths did not exist when this registry was written are optional (required: false) and are reported under entries_without_files. Review successor reviews-v1 (2026-10-27, branch a-comp-reviews) adds every candidate, admitted or document file under the A pools directory and the source-adapter and wiki-review directories (FineWeb blogs, PLOS blogs, forums, essays, spoken and any other concurrent pool present when the index is built), excluding raw downloads, binaries, job logs, prior indexes and the review pools being admitted, for admitting the Amazon Reviews 2023 and Goodreads review pools. reviews-v2 additionally skips prior-snapshot link directories (their files are registered at their own paths) and marks the concurrent-pool entries optional, so a concurrent file that vanishes or dangles during the scan is recorded under files_vanished_during_scan instead of aborting.",
+ "entries": [
+  {
+   "label": "published_datasets",
+   "scope": "published_snapshots_all_splits",
+   "path": "datasets",
+   "names": [
+    "*.jsonl.zst",
+    "*.json.zst",
+    "*.json"
+   ],
+   "exclude_names": [
+    "compression-manifest.json"
+   ]
+  },
+  {
+   "label": "stage1_a_baseline",
+   "scope": "stage1_populations_and_sources",
+   "path": "data/grammar-private/a-baseline-20261026",
+   "names": [
+    "*.jsonl",
+    "*.jsonl.zst",
+    "*.json",
+    "*.json.zst",
+    "pg*.txt"
+   ],
+   "exclude_dirs": [
+    "venv",
+    "worktree",
+    "*-target",
+    "target",
+    "paper-tools",
+    "paper",
+    "cache",
+    "fallback-measure-*",
+    "numeric*",
+    "export",
+    "export-*"
+   ],
+   "exclude_names": [
+    "*.windows.jsonl",
+    "*.receipt.json",
+    "*.transfer.json",
+    "*.headers",
+    "*.started-utc.txt"
+   ]
+  },
+  {
+   "label": "stage1_exports_prepared_rows",
+   "scope": "stage1_populations_and_sources",
+   "path": "data/grammar-private/a-baseline-20261026/export-v2/prepared/rows.jsonl"
+  },
+  {
+   "label": "stage2_parity",
+   "scope": "stage2_populations_including_consumed_final_test",
+   "path": "data/grammar-private/a-parity-stage2-20261026",
+   "names": [
+    "*.jsonl",
+    "*.jsonl.zst",
+    "*.json",
+    "*.json.zst",
+    "*.body"
+   ],
+   "exclude_dirs": [
+    "venv",
+    "worktree",
+    "*-target",
+    "target",
+    "runtime",
+    "paper",
+    "paper-v*",
+    "export-*",
+    "numeric*",
+    "embedding*",
+    "embeddings*",
+    "prefixes*",
+    "fit-curve-*",
+    "fits",
+    "rust-a",
+    "rust-v6",
+    "history"
+   ],
+   "exclude_names": [
+    "*.windows.jsonl",
+    "*.receipt.json"
+   ]
+  },
+  {
+   "label": "stage3_encoder",
+   "scope": "stage3_populations_including_consumed_final_test_style_and_cfg_archive_records",
+   "path": "data/grammar-private/a-encoder-stage3-20261026",
+   "names": [
+    "*.jsonl",
+    "*.jsonl.zst",
+    "*.json",
+    "*.json.zst",
+    "*.body"
+   ],
+   "exclude_dirs": [
+    "runtime-venv",
+    "r2-storage-v1",
+    "cfg-vectors-v1",
+    "parses",
+    "blobs",
+    "files",
+    "receipts",
+    "prefixes-v1",
+    "retained-train-prefixes-v1",
+    "catalog-inventory-v1",
+    "build-v*",
+    "rust-build-v*",
+    "replay-build-v*",
+    "assembly-build-v*",
+    "fit-prepare-build-v*",
+    "numerical-*",
+    "paper",
+    "paper-v*",
+    "export-*",
+    "export"
+   ],
+   "exclude_names": [
+    "*.windows.jsonl",
+    "*.receipt.json",
+    "profile.json",
+    "format.json"
+   ]
+  },
+  {
+   "label": "stage3_style_export_v1",
+   "scope": "style_exports",
+   "path": "data/grammar-private/a-encoder-stage3-20261026/style-corpus-v1/export-v1/records.jsonl"
+  },
+  {
+   "label": "stage3_style_export_v2",
+   "scope": "style_exports",
+   "path": "data/grammar-private/a-encoder-stage3-20261026/style-corpus-v1/export-v2/records.jsonl"
+  },
+  {
+   "label": "stage3_cfg_archive_records",
+   "scope": "cfg_archive",
+   "path": "data/grammar-private/a-encoder-stage3-20261026/cfg-archive-v1/records",
+   "names": [
+    "*.json.zst"
+   ]
+  },
+  {
+   "label": "a_competitive_train_side_pool_v2",
+   "scope": "train_side_pool_including_train_train_mining_and_held",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools-v2/dedup-v2/admitted.jsonl"
+  },
+  {
+   "label": "a_competitive_dev_iter_admitted",
+   "scope": "earlier_evaluation_split_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/eval-humans/work/dedup/dev-iter/admitted.jsonl"
+  },
+  {
+   "label": "a_competitive_dev_select_admitted",
+   "scope": "earlier_evaluation_split_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/eval-humans/work/dedup/dev-select/admitted.jsonl"
+  },
+  {
+   "label": "a_competitive_cal_admitted",
+   "scope": "earlier_evaluation_split_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/eval-humans/work/dedup/cal/admitted.jsonl"
+  },
+  {
+   "label": "a_competitive_new_train_side_pool_v3",
+   "scope": "train_side_pool_including_train_train_mining_and_held",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/admitted-v3/dedup-v1/admitted.jsonl",
+   "required": false
+  },
+  {
+   "label": "a_competitive_new_domain_dev_iter_admitted",
+   "scope": "earlier_evaluation_split_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-v2/work/dedup/dev-iter/admitted.jsonl",
+   "required": false
+  },
+  {
+   "label": "a_competitive_new_domain_dev_select_admitted",
+   "scope": "earlier_evaluation_split_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-v2/work/dedup/dev-select/admitted.jsonl",
+   "required": false
+  },
+  {
+   "label": "a_competitive_fineweb_pool_v1_candidates",
+   "scope": "concurrent_train_side_and_smoke_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/fineweb-v1",
+   "names": [
+    "candidates.jsonl"
+   ]
+  },
+  {
+   "label": "a_competitive_global_voices_pool_v1_candidates",
+   "scope": "concurrent_train_side_and_smoke_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/global-voices-v1",
+   "names": [
+    "candidates.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "a_competitive_plos_prose_v1_candidates",
+   "scope": "concurrent_train_side_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/plos-prose-v1",
+   "names": [
+    "candidates.jsonl"
+   ]
+  },
+  {
+   "label": "a_competitive_stackexchange_v1_candidates",
+   "scope": "concurrent_train_side_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/sources/stackexchange-v1",
+   "names": [
+    "candidates.jsonl"
+   ]
+  },
+  {
+   "label": "a_competitive_admitted_v3_all",
+   "scope": "concurrent_admission_outputs",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/admitted-v3",
+   "names": [
+    "admitted.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "a_competitive_new_domain_eval_humans_v2",
+   "scope": "earlier_evaluation_split_candidates",
+   "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-v2",
+   "names": [
+    "admitted.jsonl",
+    "documents.jsonl",
+    "candidates.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "a_competitive_splits_v3_text",
+   "scope": "concurrent_split_extension",
+   "path": "data/grammar-private/a-competitive-20261027/data/splits-v3",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "a_competitive_all_pools_reviews_v1",
+   "scope": "concurrent_and_admitted_human_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools",
+   "names": [
+    "candidates.jsonl",
+    "admitted.jsonl",
+    "documents.jsonl",
+    "excluded-records.jsonl"
+   ],
+   "exclude_dirs": [
+    "raw",
+    "bin",
+    "jobs",
+    "logs",
+    "prior-index-*",
+    "registries",
+    "reviews-work",
+    "amazon-reviews-2023",
+    "goodreads-reviews",
+    "smoke-input",
+    "trials",
+    "prior-snapshot-*",
+    "links"
+   ],
+   "required": false
+  },
+  {
+   "label": "a_competitive_source_adapter_outputs",
+   "scope": "concurrent_and_admitted_human_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/sources",
+   "names": [
+    "candidates.jsonl",
+    "admitted.jsonl",
+    "documents.jsonl"
+   ],
+   "exclude_dirs": [
+    "raw",
+    "bin",
+    "jobs",
+    "logs",
+    "prior-index-*",
+    "registries",
+    "reviews-work",
+    "amazon-reviews-2023",
+    "goodreads-reviews",
+    "smoke-input",
+    "trials",
+    "prior-snapshot-*",
+    "links"
+   ],
+   "required": false
+  },
+  {
+   "label": "a_competitive_wikis_review",
+   "scope": "concurrent_and_admitted_human_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/wikis-review",
+   "names": [
+    "candidates.jsonl",
+    "admitted.jsonl",
+    "documents.jsonl"
+   ],
+   "exclude_dirs": [
+    "raw",
+    "bin",
+    "jobs",
+    "logs",
+    "prior-index-*",
+    "registries",
+    "reviews-work",
+    "amazon-reviews-2023",
+    "goodreads-reviews",
+    "smoke-input",
+    "trials",
+    "prior-snapshot-*",
+    "links"
+   ],
+   "required": false
+  },
+  {
+   "label": "a_competitive_eval_humans_all",
+   "scope": "evaluation_humans",
+   "path": "data/grammar-private/a-competitive-20261027/data/eval-humans",
+   "names": [
+    "admitted.jsonl",
+    "documents.jsonl"
+   ],
+   "exclude_dirs": [
+    "raw",
+    "bin",
+    "jobs",
+    "logs",
+    "prior-index-*",
+    "registries",
+    "reviews-work",
+    "amazon-reviews-2023",
+    "goodreads-reviews",
+    "smoke-input",
+    "trials",
+    "prior-snapshot-*",
+    "links"
+   ],
+   "required": false
+  }
+ ],
+ "registry_version": 10,
+ "supersedes": "prior-registry-acq3-eval-v3.json"
+}

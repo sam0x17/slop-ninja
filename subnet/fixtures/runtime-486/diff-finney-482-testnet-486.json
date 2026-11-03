@@ -1,0 +1,167 @@
+{
+  "schema": "slop_ninja.runtime_surface_diff.v1",
+  "old": {
+    "label": "finney-482-rtao-main",
+    "metadata": {
+      "v15_sha256": "e1104feeb153ca201da1d1e88174c4c6d52d9d9e12e54e463778900136afb1fc",
+      "v15_blake2b_256": "d31d5ed4b70b1cafc38b313c43ef6189e2b6c33ba77ed4f5c94e37d15dffa545",
+      "v15_bytes": 411511,
+      "v16_sha256": "6d662b835afe9c02132cff8fe46c24d9cc93d3bcc5d77c039a99384cf18e88fb",
+      "v16_blake2b_256": "3c982165f0a3ca4f1df12bce8807c265ae37a1228c88c907e063eabc85f0a468",
+      "v16_bytes": 415559
+    }
+  },
+  "new": {
+    "label": "testnet-486",
+    "metadata": {
+      "v15_sha256": "582b1d0568a4c1a4c5e9ab2b0038ea4c0f8c61f4972ce1af91fa6dfb0ab01a81",
+      "v15_blake2b_256": "9a0a99c8d7a561d76053a64774849c90e6c0faff4f0c3d03c2e7b393767fbf92",
+      "v15_bytes": 411830,
+      "v16_sha256": "e96a429def2d05791ac2bbf57f9f5287d6fb07c44900d71353c2697d8a7b6da4",
+      "v16_blake2b_256": "e99c3ada56326acf0cbe93bc15e8ad779006e60b5b31465b4b4b583d4f5bba92",
+      "v16_bytes": 415879
+    }
+  },
+  "needed": {
+    "call SubtensorModule.commit_timelocked_weights": "unchanged",
+    "call SubtensorModule.commit_timelocked_mechanism_weights": "unchanged",
+    "call SubtensorModule.commit_crv3_weights": "absent",
+    "call SubtensorModule.set_weights": "unchanged",
+    "call SubtensorModule.set_mechanism_weights": "unchanged",
+    "call SubtensorModule.commit_weights": "unchanged",
+    "call SubtensorModule.reveal_weights": "unchanged",
+    "call SubtensorModule.register": "unchanged",
+    "call SubtensorModule.pow_register": "unchanged",
+    "call SubtensorModule.burned_register": "unchanged",
+    "call SubtensorModule.register_network": "unchanged",
+    "call SubtensorModule.register_network_with_identity": "unchanged",
+    "call SubtensorModule.start_call": "unchanged",
+    "call SubtensorModule.serve_axon": "unchanged",
+    "call SubtensorModule.serve_axon_tls": "unchanged",
+    "call SubtensorModule.add_stake": "unchanged",
+    "call AdminUtils.sudo_set_commit_reveal_weights_enabled": "unchanged",
+    "call AdminUtils.sudo_set_commit_reveal_weights_interval": "unchanged",
+    "call AdminUtils.sudo_set_weights_version_key": "unchanged",
+    "call AdminUtils.sudo_set_activity_cutoff": "unchanged",
+    "call AdminUtils.sudo_set_tempo": "unchanged",
+    "call AdminUtils.sudo_set_commit_reveal_version": "unchanged",
+    "call AdminUtils.sudo_set_weights_set_rate_limit": "unchanged",
+    "call AdminUtils.sudo_set_network_registration_allowed": "unchanged",
+    "call AdminUtils.sudo_set_network_pow_registration_allowed": "unchanged",
+    "call AdminUtils.sudo_set_epoch_consensus": "unchanged",
+    "call Commitments.set_commitment": "unchanged",
+    "storage SubtensorModule.TimelockedWeightCommits": "unchanged",
+    "storage SubtensorModule.CRV3WeightCommitsV2": "unchanged",
+    "storage SubtensorModule.WeightCommits": "unchanged",
+    "storage SubtensorModule.RevealPeriodEpochs": "unchanged",
+    "storage SubtensorModule.CommitRevealWeightsEnabled": "unchanged",
+    "storage SubtensorModule.CommitRevealWeightsVersion": "unchanged",
+    "storage SubtensorModule.Tempo": "unchanged",
+    "storage SubtensorModule.Weights": "unchanged",
+    "storage SubtensorModule.WeightsSetRateLimit": "unchanged",
+    "storage SubtensorModule.WeightsVersionKey": "unchanged",
+    "storage SubtensorModule.LastUpdate": "unchanged",
+    "storage SubtensorModule.Uids": "unchanged",
+    "storage SubtensorModule.Keys": "unchanged",
+    "storage SubtensorModule.BlockAtRegistration": "unchanged",
+    "storage SubtensorModule.Incentive": "unchanged",
+    "storage SubtensorModule.ActivityCutoff": "unchanged",
+    "storage SubtensorModule.SubnetOwner": "unchanged",
+    "storage SubtensorModule.SubnetOwnerHotkey": "unchanged",
+    "storage SubtensorModule.FirstEmissionBlockNumber": "unchanged",
+    "storage SubtensorModule.NetworkRegistrationAllowed": "unchanged",
+    "storage SubtensorModule.NetworkPowRegistrationAllowed": "unchanged",
+    "storage SubtensorModule.SubnetEpochConsensus": "unchanged",
+    "storage SubtensorModule.Axons": "unchanged",
+    "storage SubtensorModule.MechanismCountCurrent": "unchanged",
+    "storage SubtensorModule.LastMechansimStepBlock": "unchanged",
+    "storage SubtensorModule.TransactionKeyLastBlock": "unchanged",
+    "storage Commitments.CommitmentOf": "unchanged",
+    "storage Commitments.LastCommitment": "unchanged",
+    "storage Commitments.MaxSpace": "unchanged",
+    "storage Commitments.UsedSpaceOf": "unchanged",
+    "storage Drand.LastStoredRound": "unchanged",
+    "storage Drand.Pulses": "unchanged",
+    "event SubtensorModule.TimelockedWeightsCommitted": "unchanged",
+    "event SubtensorModule.TimelockedWeightsRevealed": "unchanged",
+    "event SubtensorModule.CRV3WeightsCommitted": "unchanged",
+    "event SubtensorModule.CRV3WeightsRevealed": "unchanged",
+    "event SubtensorModule.WeightsSet": "unchanged",
+    "event SubtensorModule.NeuronRegistered": "unchanged",
+    "event SubtensorModule.BulkNeuronsRegistered": "unchanged",
+    "event SubtensorModule.NetworkAdded": "unchanged",
+    "event SubtensorModule.FirstEmissionBlockNumberSet": "unchanged",
+    "event SubtensorModule.AxonServed": "unchanged",
+    "event SubtensorModule.CommitRevealEnabled": "unchanged",
+    "event SubtensorModule.CommitRevealPeriodsSet": "unchanged",
+    "event Commitments.Commitment": "unchanged"
+  },
+  "sections": {
+    "pallets": {
+      "added": [],
+      "removed": [],
+      "changed": {}
+    },
+    "calls": {
+      "added": [],
+      "removed": [],
+      "changed": {}
+    },
+    "storage": {
+      "added": [],
+      "removed": [],
+      "changed": {}
+    },
+    "storage_digests": {
+      "added": [
+        "SubtensorModule.SubnetState"
+      ],
+      "removed": [],
+      "changed": {}
+    },
+    "events": {
+      "added": [],
+      "removed": [],
+      "changed": {}
+    },
+    "event_digests": {
+      "added": [],
+      "removed": [],
+      "changed": {}
+    },
+    "errors": {
+      "added": [],
+      "removed": [],
+      "changed": {}
+    },
+    "constants": {
+      "added": [],
+      "removed": [],
+      "changed": {
+        "System.Version": {
+          "old": {
+            "type": "RuntimeVersion",
+            "value_sha256_16": "171961b488ec622e"
+          },
+          "new": {
+            "type": "RuntimeVersion",
+            "value_sha256_16": "2c6d195bef21d656"
+          }
+        }
+      }
+    },
+    "runtime_apis": {
+      "added": [],
+      "removed": [],
+      "changed": {}
+    },
+    "transaction_extensions_by_version": {
+      "added": [],
+      "removed": [],
+      "changed": {}
+    },
+    "extrinsic": "unchanged",
+    "signed_extensions": "unchanged",
+    "transaction_extensions": "unchanged"
+  }
+}

@@ -1,0 +1,3925 @@
+{
+  "attestation": "research_only_unattested",
+  "contextual_edit_effects": [
+    {
+      "a_reduction": 0.6885681384912552,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-03",
+        "proposal-08"
+      ],
+      "from": "7c157f7d56254b7fa63a4d9b7c7e518cd0893db66afd724481d4923bc64d834c",
+      "style_reduction": 0.005377634829102584,
+      "to": "61537719e8bfe704af7ce0ce16cd020194bde8420744406ea564b42c882daf1e"
+    },
+    {
+      "a_reduction": 0.5921165980884094,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-03",
+        "proposal-07"
+      ],
+      "from": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80",
+      "style_reduction": -0.000607750846852273,
+      "to": "61537719e8bfe704af7ce0ce16cd020194bde8420744406ea564b42c882daf1e"
+    },
+    {
+      "a_reduction": 0.49811640216308684,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-01",
+        "proposal-08"
+      ],
+      "from": "d06ee5a4740983a31223780ff95ed2c46d2eac17de45adda34eb5163573f8067",
+      "style_reduction": 0.005640133412828652,
+      "to": "e686a248c5784153344e2a7454377790f0795ee059aea4ee11efb00fe23df0cb"
+    },
+    {
+      "a_reduction": 0.48218626847125745,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-01",
+        "proposal-07"
+      ],
+      "from": "d6c9013931290894d894a3f66615d8c1f31e2a04edcd14701820cd959afd37bf",
+      "style_reduction": -0.0010341121794499308,
+      "to": "e686a248c5784153344e2a7454377790f0795ee059aea4ee11efb00fe23df0cb"
+    },
+    {
+      "a_reduction": 0.4799363007027203,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-08"
+      ],
+      "from": "e4f52e700484bb91ea2b47bf632e6242246e2118c9f0f2561ad31c73618e1f84",
+      "style_reduction": 0.0053153976076951714,
+      "to": "b08c081b965b81ffeeb1697f950af971c91de48509b9e0d624c9c9121102726d"
+    },
+    {
+      "a_reduction": 0.46220813808821626,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-07"
+      ],
+      "from": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336",
+      "style_reduction": -0.0010556189133432703,
+      "to": "b08c081b965b81ffeeb1697f950af971c91de48509b9e0d624c9c9121102726d"
+    },
+    {
+      "a_reduction": 0.46188993701285797,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-02",
+        "proposal-08"
+      ],
+      "from": "6b1ae80824e38f36ed94dc12dd09c2a7f3fe25ac922198ad360355580238141d",
+      "style_reduction": 0.0053153976076951714,
+      "to": "28041114c73822350c2454c5e68e5a660373c1904dee6b9ba78e86e7bc5a1e16"
+    },
+    {
+      "a_reduction": 0.4529969274731382,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-05",
+        "proposal-08"
+      ],
+      "from": "145416859bbb2eb036320ab8e379c98ff986bfe558ae3f6a70537acc3bb3b18f",
+      "style_reduction": 0.005315300249426391,
+      "to": "77136baa0e26ab6e4659783ebc01a01ff4913f544a76cb79aaa7bea5c1d18daa"
+    },
+    {
+      "a_reduction": 0.445703361018876,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-02",
+        "proposal-07"
+      ],
+      "from": "d7ea36adc88babc23de366d0ebf07e77f6eb297bd6e7a0834e7e17a171779333",
+      "style_reduction": -0.0010556189133432703,
+      "to": "28041114c73822350c2454c5e68e5a660373c1904dee6b9ba78e86e7bc5a1e16"
+    },
+    {
+      "a_reduction": 0.43868706995858114,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-05",
+        "proposal-07"
+      ],
+      "from": "a36d8bb8405abb2ac783852d8b64087acdd53b72443324f0a3efdbb52cdb0aba",
+      "style_reduction": -0.0010555492013666345,
+      "to": "77136baa0e26ab6e4659783ebc01a01ff4913f544a76cb79aaa7bea5c1d18daa"
+    },
+    {
+      "a_reduction": 0.40744052440449585,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-07",
+        "proposal-08"
+      ],
+      "from": "b08c081b965b81ffeeb1697f950af971c91de48509b9e0d624c9c9121102726d",
+      "style_reduction": 0.02572182939810208,
+      "to": "61537719e8bfe704af7ce0ce16cd020194bde8420744406ea564b42c882daf1e"
+    },
+    {
+      "a_reduction": 0.3845862954709204,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-06",
+        "proposal-08"
+      ],
+      "from": "4afc6b99bd0a7cdd99c7961bf5f0d6cc1a686aa4ce886026fa7fc8f9cbc29a4a",
+      "style_reduction": 0.005315300249426391,
+      "to": "c53fb24fbfea6220a1a94ccdcd04e6c847b454dd382f2a635977b2db5208f332"
+    },
+    {
+      "a_reduction": 0.3657993204663853,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-06",
+        "proposal-07"
+      ],
+      "from": "f566aa51e877664b245ab5616b8092eea317b6a93d1db1f03681bfa749269b50",
+      "style_reduction": -0.0010555492013666345,
+      "to": "c53fb24fbfea6220a1a94ccdcd04e6c847b454dd382f2a635977b2db5208f332"
+    },
+    {
+      "a_reduction": 0.3068221449848275,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-01",
+        "proposal-07"
+      ],
+      "from": "d6c9013931290894d894a3f66615d8c1f31e2a04edcd14701820cd959afd37bf",
+      "style_reduction": 0.025159921770856686,
+      "to": "daaadc69e3654791f17e441f22dd9a8e5fee690badb4bd09cdf6ae2f7b617006"
+    },
+    {
+      "a_reduction": 0.29536686944715795,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-01",
+        "proposal-03"
+      ],
+      "from": "cc62398d2dd1a3fe6acf34023759ecedf152a5412bd007757325f4dd8041b30a",
+      "style_reduction": 0.006288986686256992,
+      "to": "daaadc69e3654791f17e441f22dd9a8e5fee690badb4bd09cdf6ae2f7b617006"
+    },
+    {
+      "a_reduction": 0.27753206440430267,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-07"
+      ],
+      "from": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336",
+      "style_reduction": 0.025273961331611083,
+      "to": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80"
+    },
+    {
+      "a_reduction": 0.2704662350881333,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-03"
+      ],
+      "from": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0",
+      "style_reduction": 0.0059367636127201084,
+      "to": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80"
+    },
+    {
+      "a_reduction": 0.25835636447443266,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-05",
+        "proposal-07"
+      ],
+      "from": "a36d8bb8405abb2ac783852d8b64087acdd53b72443324f0a3efdbb52cdb0aba",
+      "style_reduction": 0.025272512441847583,
+      "to": "40583cd392498cfa65cb8665bb903d7e4e85136768d7aa24b3c6e067b71ad3ab"
+    },
+    {
+      "a_reduction": 0.2499552338687625,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-03",
+        "proposal-05"
+      ],
+      "from": "a24264feaf380dcef7b3fe6cb16bb522c71fc0aa8ea0d623257fd0c98fdec26e",
+      "style_reduction": 0.005936612880074632,
+      "to": "40583cd392498cfa65cb8665bb903d7e4e85136768d7aa24b3c6e067b71ad3ab"
+    },
+    {
+      "a_reduction": 0.2411057916521182,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-02",
+        "proposal-07"
+      ],
+      "from": "d7ea36adc88babc23de366d0ebf07e77f6eb297bd6e7a0834e7e17a171779333",
+      "style_reduction": 0.025273961331611083,
+      "to": "5ec9d5f61f6341ca0ea275aee7a834225dfc2800d10a19deb42c089a5f2fe8fb"
+    },
+    {
+      "a_reduction": 0.23712885634005065,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-02",
+        "proposal-03"
+      ],
+      "from": "d431ba441f20ab974e023ee76d5d17ec8639519d3266eea8fda158ff877d1af8",
+      "style_reduction": 0.0059367636127201084,
+      "to": "5ec9d5f61f6341ca0ea275aee7a834225dfc2800d10a19deb42c089a5f2fe8fb"
+    },
+    {
+      "a_reduction": 0.2292307654265051,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-01",
+        "proposal-08"
+      ],
+      "from": "d06ee5a4740983a31223780ff95ed2c46d2eac17de45adda34eb5163573f8067",
+      "style_reduction": 0.025533022177565368,
+      "to": "3142ce97601a9109f9c7180fc42425e52e49bbd4db519ead8d8860139a11cacc"
+    },
+    {
+      "a_reduction": 0.20792006302531418,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-06",
+        "proposal-07"
+      ],
+      "from": "f566aa51e877664b245ab5616b8092eea317b6a93d1db1f03681bfa749269b50",
+      "style_reduction": 0.025272512441847583,
+      "to": "1e76e93399aa22a59683489f0441cf30ce744d024296d902a3ff128c2e87e6da"
+    },
+    {
+      "a_reduction": 0.20525631121475885,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-03",
+        "proposal-06"
+      ],
+      "from": "6c036dda14c24fb3e2863834dd6c2541e8078737492e0f91d8d216a6400407d5",
+      "style_reduction": 0.005936612880074632,
+      "to": "1e76e93399aa22a59683489f0441cf30ce744d024296d902a3ff128c2e87e6da"
+    },
+    {
+      "a_reduction": 0.20184535619700616,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-01",
+        "proposal-03"
+      ],
+      "from": "cc62398d2dd1a3fe6acf34023759ecedf152a5412bd007757325f4dd8041b30a",
+      "style_reduction": -1.2158499312908688e-05,
+      "to": "3142ce97601a9109f9c7180fc42425e52e49bbd4db519ead8d8860139a11cacc"
+    },
+    {
+      "a_reduction": 0.19880868661596096,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-08"
+      ],
+      "from": "e4f52e700484bb91ea2b47bf632e6242246e2118c9f0f2561ad31c73618e1f84",
+      "style_reduction": 0.025659592176694668,
+      "to": "7c157f7d56254b7fa63a4d9b7c7e518cd0893db66afd724481d4923bc64d834c"
+    },
+    {
+      "a_reduction": 0.19622596926893776,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-05",
+        "proposal-08"
+      ],
+      "from": "145416859bbb2eb036320ab8e379c98ff986bfe558ae3f6a70537acc3bb3b18f",
+      "style_reduction": 0.025658130264587076,
+      "to": "2b4a95a84dc88be918c5e55d11fe7ec0ee70f245590b479ec2412432050a46b6"
+    },
+    {
+      "a_reduction": 0.18555389126734045,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-04",
+        "proposal-08"
+      ],
+      "from": "f8b94805e0cbb826a7f3cbe05daf9d49ac9a544b6a8b249103803662b316f808",
+      "style_reduction": 0.00561339590311194,
+      "to": "005ec0ac1d2447b823fe9d511694d208c4d11683843eec8561959b7d15fb774f"
+    },
+    {
+      "a_reduction": 0.17401469468528752,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-03"
+      ],
+      "from": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0",
+      "style_reduction": -4.8622063234748936e-05,
+      "to": "7c157f7d56254b7fa63a4d9b7c7e518cd0893db66afd724481d4923bc64d834c"
+    },
+    {
+      "a_reduction": 0.17351498114871056,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-03",
+        "proposal-05"
+      ],
+      "from": "a24264feaf380dcef7b3fe6cb16bb522c71fc0aa8ea0d623257fd0c98fdec26e",
+      "style_reduction": -4.861874797890131e-05,
+      "to": "2b4a95a84dc88be918c5e55d11fe7ec0ee70f245590b479ec2412432050a46b6"
+    },
+    {
+      "a_reduction": 0.1732377928961092,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-02",
+        "proposal-08"
+      ],
+      "from": "6b1ae80824e38f36ed94dc12dd09c2a7f3fe25ac922198ad360355580238141d",
+      "style_reduction": 0.025659592176694668,
+      "to": "054f3a0ec5abfe5c35def6197233f9dedf4a1ec1a4f2d0828aa2ce959b4753ab"
+    },
+    {
+      "a_reduction": 0.17169962316891918,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-04",
+        "proposal-07"
+      ],
+      "from": "48b3a3fbe45d47501efa8466ff6e35bef5d0e4d8ed1c768302fbc4273ef53999",
+      "style_reduction": -0.00025901197552813393,
+      "to": "005ec0ac1d2447b823fe9d511694d208c4d11683843eec8561959b7d15fb774f"
+    },
+    {
+      "a_reduction": 0.15307428159005965,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-02",
+        "proposal-03"
+      ],
+      "from": "d431ba441f20ab974e023ee76d5d17ec8639519d3266eea8fda158ff877d1af8",
+      "style_reduction": -4.8622063234748936e-05,
+      "to": "054f3a0ec5abfe5c35def6197233f9dedf4a1ec1a4f2d0828aa2ce959b4753ab"
+    },
+    {
+      "a_reduction": 0.13128003868000038,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-06",
+        "proposal-08"
+      ],
+      "from": "4afc6b99bd0a7cdd99c7961bf5f0d6cc1a686aa4ce886026fa7fc8f9cbc29a4a",
+      "style_reduction": 0.025658130264587076,
+      "to": "2db9d9a28bca0719d9424b45748f5633ff1c57f66d87334cd6fd7c3c476494ae"
+    },
+    {
+      "a_reduction": 0.1163268981577702,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-03",
+        "proposal-04"
+      ],
+      "from": "f3bc31bc32f2e54acc6a6fd6615e558fd982bae9682136e16f17a39877628464",
+      "style_reduction": 0.006991387366538815,
+      "to": "022e739e3e9e47ea85599ece14c1f92113c2d35c9ac1de9617689cb0f0166000"
+    },
+    {
+      "a_reduction": 0.11341970523361844,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-04",
+        "proposal-07"
+      ],
+      "from": "48b3a3fbe45d47501efa8466ff6e35bef5d0e4d8ed1c768302fbc4273ef53999",
+      "style_reduction": 0.025200032097309144,
+      "to": "022e739e3e9e47ea85599ece14c1f92113c2d35c9ac1de9617689cb0f0166000"
+    },
+    {
+      "a_reduction": 0.10982931186490996,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-03",
+        "proposal-06"
+      ],
+      "from": "6c036dda14c24fb3e2863834dd6c2541e8078737492e0f91d8d216a6400407d5",
+      "style_reduction": -4.861874797890131e-05,
+      "to": "2db9d9a28bca0719d9424b45748f5633ff1c57f66d87334cd6fd7c3c476494ae"
+    },
+    {
+      "a_reduction": 0.07684875480562403,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-04",
+        "proposal-08"
+      ],
+      "from": "f8b94805e0cbb826a7f3cbe05daf9d49ac9a544b6a8b249103803662b316f808",
+      "style_reduction": 0.025399224178153768,
+      "to": "11a6148467588728b9094ed7f11d87ae2bb818a7de4833eee2eac41c97a5ff1a"
+    },
+    {
+      "a_reduction": 0.06590167963135452,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-03",
+        "proposal-04"
+      ],
+      "from": "f3bc31bc32f2e54acc6a6fd6615e558fd982bae9682136e16f17a39877628464",
+      "style_reduction": 0.0013181715687433648,
+      "to": "11a6148467588728b9094ed7f11d87ae2bb818a7de4833eee2eac41c97a5ff1a"
+    },
+    {
+      "a_reduction": 0.061019455669266476,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-01",
+        "proposal-05"
+      ],
+      "from": "a08a4d575d9d7a038870793c4af2f66e8e376ba2a817d064ef8713d2ea1bd643",
+      "style_reduction": 0.025290605797366306,
+      "to": "341fcafa8961cb937c2e37b871febf5c5702f13656c21da57b78eceae9ed5ac4"
+    },
+    {
+      "a_reduction": 0.0603059561890007,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-01"
+      ],
+      "from": "c46e3dafcf672ef97f477cb791e2623e8896deb816a686b316adcb7c29ab6ff5",
+      "style_reduction": 0.02529204164301313,
+      "to": "cc62398d2dd1a3fe6acf34023759ecedf152a5412bd007757325f4dd8041b30a"
+    },
+    {
+      "a_reduction": 0.05707156933295332,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-01",
+        "proposal-02"
+      ],
+      "from": "4322e722d3ca598dd793914b08535ca3320bcb6770a1678544fac8bf57435ede",
+      "style_reduction": 0.02529204164301313,
+      "to": "f90ddfa6102860632f6002d531b024da2acab44db98da867a1ebfd576e2642f6"
+    },
+    {
+      "a_reduction": 0.05672536063992184,
+      "added_choice": "proposal-03",
+      "context_choices": [],
+      "from": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "style_reduction": 0.025418276551766317,
+      "to": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0"
+    },
+    {
+      "a_reduction": 0.056239829092947224,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-05"
+      ],
+      "from": "a59f5d1c32f83dd81e6352fd31a7b1093c11f011c75de1f7707403731b8cc2c5",
+      "style_reduction": 0.025416830356479236,
+      "to": "a24264feaf380dcef7b3fe6cb16bb522c71fc0aa8ea0d623257fd0c98fdec26e"
+    },
+    {
+      "a_reduction": 0.05121570223677341,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-02",
+        "proposal-05"
+      ],
+      "from": "d69bb4dbcd86ab5990b01b61aa281a5ae070fcc43317878801759817fb27e90f",
+      "style_reduction": 0.025416830356479236,
+      "to": "21071f2e2cc1283b6de45e7ef1a3e7f846533d552de4a4c36cc7be868d47f9c4"
+    },
+    {
+      "a_reduction": 0.05111166801816758,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-02"
+      ],
+      "from": "e319f7f72716725ce200aa74cb5a15a9fa5cb4ab0669e7046cddf0fe2748bd4c",
+      "style_reduction": 0.025418276551766317,
+      "to": "d431ba441f20ab974e023ee76d5d17ec8639519d3266eea8fda158ff877d1af8"
+    },
+    {
+      "a_reduction": 0.04965953132375245,
+      "added_choice": "proposal-07",
+      "context_choices": [],
+      "from": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "style_reduction": 0.006081078832875342,
+      "to": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336"
+    },
+    {
+      "a_reduction": 0.048850680651331135,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-01"
+      ],
+      "from": "c46e3dafcf672ef97f477cb791e2623e8896deb816a686b316adcb7c29ab6ff5",
+      "style_reduction": 0.006421106558413436,
+      "to": "d6c9013931290894d894a3f66615d8c1f31e2a04edcd14701820cd959afd37bf"
+    },
+    {
+      "a_reduction": 0.0480282718337931,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-01",
+        "proposal-05"
+      ],
+      "from": "a08a4d575d9d7a038870793c4af2f66e8e376ba2a817d064ef8713d2ea1bd643",
+      "style_reduction": 0.0064209348226103025,
+      "to": "adf4df2175cb993edfb37f235d1df0d543cf19f00b41343b3ff2c63d67f11730"
+    },
+    {
+      "a_reduction": 0.047838698487277065,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-05"
+      ],
+      "from": "a59f5d1c32f83dd81e6352fd31a7b1093c11f011c75de1f7707403731b8cc2c5",
+      "style_reduction": 0.006080930794706285,
+      "to": "a36d8bb8405abb2ac783852d8b64087acdd53b72443324f0a3efdbb52cdb0aba"
+    },
+    {
+      "a_reduction": 0.04771107905926042,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-01",
+        "proposal-06"
+      ],
+      "from": "f62c311dcd7b8c8cf5fb61427071a3a4816df5850a75b528375c55b83f1277db",
+      "style_reduction": 0.025290605797366306,
+      "to": "67f216283f0eb847a566cdabf0b20091fa03bc4de45aad255e6815084e924911"
+    },
+    {
+      "a_reduction": 0.047397007483325204,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-01",
+        "proposal-02"
+      ],
+      "from": "4322e722d3ca598dd793914b08535ca3320bcb6770a1678544fac8bf57435ede",
+      "style_reduction": 0.006421106558413436,
+      "to": "be01cd9b18379e959c21433aea68f507a057b7a215421785e0845f0108486499"
+    },
+    {
+      "a_reduction": 0.047134732706100024,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-02"
+      ],
+      "from": "e319f7f72716725ce200aa74cb5a15a9fa5cb4ab0669e7046cddf0fe2748bd4c",
+      "style_reduction": 0.006081078832875342,
+      "to": "d7ea36adc88babc23de366d0ebf07e77f6eb297bd6e7a0834e7e17a171779333"
+    },
+    {
+      "a_reduction": 0.04579581511012043,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-02",
+        "proposal-05"
+      ],
+      "from": "d69bb4dbcd86ab5990b01b61aa281a5ae070fcc43317878801759817fb27e90f",
+      "style_reduction": 0.006080930794706285,
+      "to": "fad993482a06fd08a40600e2cc6bcf1f494dc15cc2a1f4ca84787d8fde82ad78"
+    },
+    {
+      "a_reduction": 0.04483586234199877,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-06"
+      ],
+      "from": "4ff60bf7384cae6f5619529969701fbe708f183438f9c5e20b00fec7c81afe7a",
+      "style_reduction": 0.025416830356479236,
+      "to": "6c036dda14c24fb3e2863834dd6c2541e8078737492e0f91d8d216a6400407d5"
+    },
+    {
+      "a_reduction": 0.044781938228417584,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-05",
+        "proposal-06"
+      ],
+      "from": "46483790b7b655159e98636bdfa2eafefbccc90dab26f54f14b7d25d328e4de8",
+      "style_reduction": 0.02541538446851188,
+      "to": "127e954595e460e392cc29a8172b2b539a13f8cc7f62ac6a8a3aca3b24d3d997"
+    },
+    {
+      "a_reduction": 0.04217211053144343,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-06"
+      ],
+      "from": "4ff60bf7384cae6f5619529969701fbe708f183438f9c5e20b00fec7c81afe7a",
+      "style_reduction": 0.006080930794706285,
+      "to": "f566aa51e877664b245ab5616b8092eea317b6a93d1db1f03681bfa749269b50"
+    },
+    {
+      "a_reduction": 0.041466131576582965,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-02",
+        "proposal-06"
+      ],
+      "from": "ea388f23f567e195c58a6d12193f5be1e786ba4bf72ec3276a0551fd75bc44ea",
+      "style_reduction": 0.025416830356479236,
+      "to": "8b286c566efd0a3d9023e5d910588900a57f405980b5002ad73cc8dcfcbe7199"
+    },
+    {
+      "a_reduction": 0.041416981764198724,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-05",
+        "proposal-06"
+      ],
+      "from": "46483790b7b655159e98636bdfa2eafefbccc90dab26f54f14b7d25d328e4de8",
+      "style_reduction": 0.0060807828024243005,
+      "to": "23360038c2181f0982b23d1da6a1ddb04f2329f9ea182e7a1ee0adf97352c1e0"
+    },
+    {
+      "a_reduction": 0.04102860217221427,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-01",
+        "proposal-06"
+      ],
+      "from": "f62c311dcd7b8c8cf5fb61427071a3a4816df5850a75b528375c55b83f1277db",
+      "style_reduction": 0.0064209348226103025,
+      "to": "ff700a79605310f2d3b74200a35f5a630e0f30badaa144e6a790327f65bb5610"
+    },
+    {
+      "a_reduction": 0.041009062663534546,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-02",
+        "proposal-06"
+      ],
+      "from": "ea388f23f567e195c58a6d12193f5be1e786ba4bf72ec3276a0551fd75bc44ea",
+      "style_reduction": 0.006080930794706285,
+      "to": "786fef85880656c6afd3796c107ffdd9ec0c512ea22ba0a25e9e8ac54d266647"
+    },
+    {
+      "a_reduction": 0.035098893917857366,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-01",
+        "proposal-05"
+      ],
+      "from": "a08a4d575d9d7a038870793c4af2f66e8e376ba2a817d064ef8713d2ea1bd643",
+      "style_reduction": -0.00025312245611952555,
+      "to": "11b78c3d6873866ac305ba241fcc9f4e61f4dd53eba39b300f36393754e5b9bd"
+    },
+    {
+      "a_reduction": 0.034114874950421425,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-04"
+      ],
+      "from": "e9214cd2ff4fb347097a365a7b02997b168d4c3fb89a7dbc29cfbce9878e6b1b",
+      "style_reduction": 0.007121395764705607,
+      "to": "48b3a3fbe45d47501efa8466ff6e35bef5d0e4d8ed1c768302fbc4273ef53999"
+    },
+    {
+      "a_reduction": 0.03352884097272002,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-05"
+      ],
+      "from": "a59f5d1c32f83dd81e6352fd31a7b1093c11f011c75de1f7707403731b8cc2c5",
+      "style_reduction": -0.0002899186560867406,
+      "to": "145416859bbb2eb036320ab8e379c98ff986bfe558ae3f6a70537acc3bb3b18f"
+    },
+    {
+      "a_reduction": 0.03297083766196374,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-01",
+        "proposal-04"
+      ],
+      "from": "e4b5d86abc844c5ba7d680def45e12b21d222be7bcb834aed329507d8cbfbc89",
+      "style_reduction": 0.007640849672800432,
+      "to": "873bb86506119201e68843b1930d02cab1bce94b5ea1779a77afeea103f71dfe"
+    },
+    {
+      "a_reduction": 0.032965247875832215,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-04",
+        "proposal-05"
+      ],
+      "from": "35c151977e8bff8cc61ddabd99c551da559624e1cf185ddd44df13e0b5cf9573",
+      "style_reduction": 0.007121182213962074,
+      "to": "9bc831005eb430dfcf755ab0a13c59267475d1f349e9a14a3bfa4ff49051dd66"
+    },
+    {
+      "a_reduction": 0.03292054695950175,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-01"
+      ],
+      "from": "c46e3dafcf672ef97f477cb791e2623e8896deb816a686b316adcb7c29ab6ff5",
+      "style_reduction": -0.00025313903386514625,
+      "to": "d06ee5a4740983a31223780ff95ed2c46d2eac17de45adda34eb5163573f8067"
+    },
+    {
+      "a_reduction": 0.032613940376255424,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-03",
+        "proposal-08"
+      ],
+      "from": "7c157f7d56254b7fa63a4d9b7c7e518cd0893db66afd724481d4923bc64d834c",
+      "style_reduction": 0.00034447203833076756,
+      "to": "3142ce97601a9109f9c7180fc42425e52e49bbd4db519ead8d8860139a11cacc"
+    },
+    {
+      "a_reduction": 0.03241693904270082,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-02",
+        "proposal-04"
+      ],
+      "from": "fd02f1d3c549d83d3d9e2f4c341a397a4f6f91eed599601706dee660ad4d05a3",
+      "style_reduction": 0.007121395764705607,
+      "to": "a5ed286767f87bef6652548558fd3381b79ae0687eb6f954164c93dd053d6201"
+    },
+    {
+      "a_reduction": 0.032406912003969945,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-02",
+        "proposal-05"
+      ],
+      "from": "d69bb4dbcd86ab5990b01b61aa281a5ae070fcc43317878801759817fb27e90f",
+      "style_reduction": -0.0002899186560867406,
+      "to": "bfcd939c2c8f04411d79d07f980ba1aadee7c46c26b4f860c0811b24202a4b58"
+    },
+    {
+      "a_reduction": 0.0319313687092484,
+      "added_choice": "proposal-08",
+      "context_choices": [],
+      "from": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "style_reduction": -0.00028993768816309995,
+      "to": "e4f52e700484bb91ea2b47bf632e6242246e2118c9f0f2561ad31c73618e1f84"
+    },
+    {
+      "a_reduction": 0.03180663588699095,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-01",
+        "proposal-02"
+      ],
+      "from": "4322e722d3ca598dd793914b08535ca3320bcb6770a1678544fac8bf57435ede",
+      "style_reduction": -0.00025313903386514625,
+      "to": "d90873af18982e26fc24cd13f6458a2bf68d614360fa613604c23f0cd4d2e6db"
+    },
+    {
+      "a_reduction": 0.031207682026269667,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-04"
+      ],
+      "from": "e9214cd2ff4fb347097a365a7b02997b168d4c3fb89a7dbc29cfbce9878e6b1b",
+      "style_reduction": 0.025330040495475936,
+      "to": "f3bc31bc32f2e54acc6a6fd6615e558fd982bae9682136e16f17a39877628464"
+    },
+    {
+      "a_reduction": 0.031189164736757036,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-04",
+        "proposal-05"
+      ],
+      "from": "35c151977e8bff8cc61ddabd99c551da559624e1cf185ddd44df13e0b5cf9573",
+      "style_reduction": 0.025328601500639314,
+      "to": "d110c11d2841fbcba07baff5d6425be95874eaa86dc90f4fa448efd44458a98d"
+    },
+    {
+      "a_reduction": 0.030948156712118036,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-02"
+      ],
+      "from": "e319f7f72716725ce200aa74cb5a15a9fa5cb4ab0669e7046cddf0fe2748bd4c",
+      "style_reduction": -0.00028993768816309995,
+      "to": "6b1ae80824e38f36ed94dc12dd09c2a7f3fe25ac922198ad360355580238141d"
+    },
+    {
+      "a_reduction": 0.029947967964916167,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-01",
+        "proposal-04"
+      ],
+      "from": "e4b5d86abc844c5ba7d680def45e12b21d222be7bcb834aed329507d8cbfbc89",
+      "style_reduction": 0.025199443434041013,
+      "to": "06d3ccd7a1bb9a0b7947ff5e12b141f473adcaedd076de368491136c55748160"
+    },
+    {
+      "a_reduction": 0.02990925762367913,
+      "added_choice": "proposal-07",
+      "context_choices": [
+        "proposal-04",
+        "proposal-06"
+      ],
+      "from": "5a1396d220516ec1c8b3789c82401a5e36d2338bc3235044c16848a1b75cf93a",
+      "style_reduction": 0.007121182213962074,
+      "to": "8ffa56713753d01463640280903616e43839694ab946c927b36836d02221a2a2"
+    },
+    {
+      "a_reduction": 0.029683913223561453,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-03",
+        "proposal-07"
+      ],
+      "from": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80",
+      "style_reduction": 0.000660231547945811,
+      "to": "daaadc69e3654791f17e441f22dd9a8e5fee690badb4bd09cdf6ae2f7b617006"
+    },
+    {
+      "a_reduction": 0.02910163251331943,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-02",
+        "proposal-04"
+      ],
+      "from": "fd02f1d3c549d83d3d9e2f4c341a397a4f6f91eed599601706dee660ad4d05a3",
+      "style_reduction": 0.025330040495475936,
+      "to": "020b3fbf18b8e7848c6327570437511551b29a9b9d44da26ec08b181dc0458ee"
+    },
+    {
+      "a_reduction": 0.025562334017573907,
+      "added_choice": "proposal-03",
+      "context_choices": [
+        "proposal-04",
+        "proposal-06"
+      ],
+      "from": "5a1396d220516ec1c8b3789c82401a5e36d2338bc3235044c16848a1b75cf93a",
+      "style_reduction": 0.025328601500639314,
+      "to": "8106c29b21f3d52a20b2971f7ec0adecd26812448d587bbe2ec5e7dfb68e8291"
+    },
+    {
+      "a_reduction": 0.024800314916705868,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-05",
+        "proposal-06"
+      ],
+      "from": "46483790b7b655159e98636bdfa2eafefbccc90dab26f54f14b7d25d328e4de8",
+      "style_reduction": -0.00028989962775827216,
+      "to": "2725c9c49b8fcbaa3f5811687cb8796ecc9642a20a1b8d3a2ffa082aa59ed584"
+    },
+    {
+      "a_reduction": 0.024260100587096045,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-01",
+        "proposal-06"
+      ],
+      "from": "f62c311dcd7b8c8cf5fb61427071a3a4816df5850a75b528375c55b83f1277db",
+      "style_reduction": -0.00025312245611952555,
+      "to": "9916fd109c55a6e2a16507932e4e115d84cffa85a969140f16272d008e60715d"
+    },
+    {
+      "a_reduction": 0.02338513552690835,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-06"
+      ],
+      "from": "4ff60bf7384cae6f5619529969701fbe708f183438f9c5e20b00fec7c81afe7a",
+      "style_reduction": -0.0002899186560867406,
+      "to": "4afc6b99bd0a7cdd99c7961bf5f0d6cc1a686aa4ce886026fa7fc8f9cbc29a4a"
+    },
+    {
+      "a_reduction": 0.02307061153336698,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-02",
+        "proposal-06"
+      ],
+      "from": "ea388f23f567e195c58a6d12193f5be1e786ba4bf72ec3276a0551fd75bc44ea",
+      "style_reduction": -0.0002899186560867406,
+      "to": "66acd853caafe9128d9d7c2e3ed3ea42533d50125200de226d160a17341e9443"
+    },
+    {
+      "a_reduction": 0.021263961227433903,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-04",
+        "proposal-05"
+      ],
+      "from": "35c151977e8bff8cc61ddabd99c551da559624e1cf185ddd44df13e0b5cf9573",
+      "style_reduction": 0.0012489056497055895,
+      "to": "401542d5c4ee5b37c39a66c92d7d200d60d1da332de4a6386ab78d1b4eb1b791"
+    },
+    {
+      "a_reduction": 0.0203719630260778,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-07",
+        "proposal-08"
+      ],
+      "from": "b08c081b965b81ffeeb1697f950af971c91de48509b9e0d624c9c9121102726d",
+      "style_reduction": 0.000795777842593548,
+      "to": "e686a248c5784153344e2a7454377790f0795ee059aea4ee11efb00fe23df0cb"
+    },
+    {
+      "a_reduction": 0.02026060685200015,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-04"
+      ],
+      "from": "e9214cd2ff4fb347097a365a7b02997b168d4c3fb89a7dbc29cfbce9878e6b1b",
+      "style_reduction": 0.0012489878860655335,
+      "to": "f8b94805e0cbb826a7f3cbe05daf9d49ac9a544b6a8b249103803662b316f808"
+    },
+    {
+      "a_reduction": 0.019582060296777004,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-02",
+        "proposal-04"
+      ],
+      "from": "fd02f1d3c549d83d3d9e2f4c341a397a4f6f91eed599601706dee660ad4d05a3",
+      "style_reduction": 0.0012489878860655335,
+      "to": "8d1ebc56bab5dd11132afa9f7a836f5e5d98f596babe8db36a88731e30449537"
+    },
+    {
+      "a_reduction": 0.019212012017317148,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-01",
+        "proposal-04"
+      ],
+      "from": "e4b5d86abc844c5ba7d680def45e12b21d222be7bcb834aed329507d8cbfbc89",
+      "style_reduction": 0.0014623984720707472,
+      "to": "3483267e03765a70d2a810456e5747ddc498e4b2dcd0825d79bc483adbf1d9bc"
+    },
+    {
+      "a_reduction": 0.015436337232721864,
+      "added_choice": "proposal-08",
+      "context_choices": [
+        "proposal-04",
+        "proposal-06"
+      ],
+      "from": "5a1396d220516ec1c8b3789c82401a5e36d2338bc3235044c16848a1b75cf93a",
+      "style_reduction": 0.0012489056497055895,
+      "to": "51f4ee1dc417a5714263e03595740b371ab6f7c1c29840e2f40c0d17af6f2008"
+    },
+    {
+      "a_reduction": 0.0073437665867684965,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-02",
+        "proposal-03"
+      ],
+      "from": "d431ba441f20ab974e023ee76d5d17ec8639519d3266eea8fda158ff877d1af8",
+      "style_reduction": 0.0003080084744089273,
+      "to": "f90ddfa6102860632f6002d531b024da2acab44db98da867a1ebfd576e2642f6"
+    },
+    {
+      "a_reduction": 0.006232392883073978,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-03",
+        "proposal-05"
+      ],
+      "from": "a24264feaf380dcef7b3fe6cb16bb522c71fc0aa8ea0d623257fd0c98fdec26e",
+      "style_reduction": 0.0003082423342610774,
+      "to": "341fcafa8961cb937c2e37b871febf5c5702f13656c21da57b78eceae9ed5ac4"
+    },
+    {
+      "a_reduction": 0.004783278864536777,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-03"
+      ],
+      "from": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0",
+      "style_reduction": 0.0003080084744089273,
+      "to": "cc62398d2dd1a3fe6acf34023759ecedf152a5412bd007757325f4dd8041b30a"
+    },
+    {
+      "a_reduction": 0.004363653995393624,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-03",
+        "proposal-06"
+      ],
+      "from": "6c036dda14c24fb3e2863834dd6c2541e8078737492e0f91d8d216a6400407d5",
+      "style_reduction": 0.0003082423342610774,
+      "to": "67f216283f0eb847a566cdabf0b20091fa03bc4de45aad255e6815084e924911"
+    },
+    {
+      "a_reduction": 0.0031520319983405765,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-01",
+        "proposal-08"
+      ],
+      "from": "d06ee5a4740983a31223780ff95ed2c46d2eac17de45adda34eb5163573f8067",
+      "style_reduction": -8.227412825800862e-05,
+      "to": "11b78c3d6873866ac305ba241fcc9f4e61f4dd53eba39b300f36393754e5b9bd"
+    },
+    {
+      "a_reduction": 0.0030228192518920727,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-05",
+        "proposal-08"
+      ],
+      "from": "145416859bbb2eb036320ab8e379c98ff986bfe558ae3f6a70537acc3bb3b18f",
+      "style_reduction": 0.0004712630933412232,
+      "to": "11b78c3d6873866ac305ba241fcc9f4e61f4dd53eba39b300f36393754e5b9bd"
+    },
+    {
+      "a_reduction": 0.002566061950393328,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-02",
+        "proposal-08"
+      ],
+      "from": "6b1ae80824e38f36ed94dc12dd09c2a7f3fe25ac922198ad360355580238141d",
+      "style_reduction": -8.249518413916412e-05,
+      "to": "bfcd939c2c8f04411d79d07f980ba1aadee7c46c26b4f860c0811b24202a4b58"
+    },
+    {
+      "a_reduction": 0.0023634023383196645,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-06",
+        "proposal-08"
+      ],
+      "from": "4afc6b99bd0a7cdd99c7961bf5f0d6cc1a686aa4ce886026fa7fc8f9cbc29a4a",
+      "style_reduction": 0.0004712630933412232,
+      "to": "9916fd109c55a6e2a16507932e4e115d84cffa85a969140f16272d008e60715d"
+    },
+    {
+      "a_reduction": 0.002329255085720461,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-06",
+        "proposal-08"
+      ],
+      "from": "4afc6b99bd0a7cdd99c7961bf5f0d6cc1a686aa4ce886026fa7fc8f9cbc29a4a",
+      "style_reduction": -8.248977059865936e-05,
+      "to": "2725c9c49b8fcbaa3f5811687cb8796ecc9642a20a1b8d3a2ffa082aa59ed584"
+    },
+    {
+      "a_reduction": 0.0023210743121597766,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-08"
+      ],
+      "from": "e4f52e700484bb91ea2b47bf632e6242246e2118c9f0f2561ad31c73618e1f84",
+      "style_reduction": -8.249518413916412e-05,
+      "to": "145416859bbb2eb036320ab8e379c98ff986bfe558ae3f6a70537acc3bb3b18f"
+    },
+    {
+      "a_reduction": 0.002242344446855671,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-02",
+        "proposal-08"
+      ],
+      "from": "6b1ae80824e38f36ed94dc12dd09c2a7f3fe25ac922198ad360355580238141d",
+      "style_reduction": 0.0004710420374600677,
+      "to": "d90873af18982e26fc24cd13f6458a2bf68d614360fa613604c23f0cd4d2e6db"
+    },
+    {
+      "a_reduction": 0.0021918615657112728,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-08"
+      ],
+      "from": "e4f52e700484bb91ea2b47bf632e6242246e2118c9f0f2561ad31c73618e1f84",
+      "style_reduction": 0.0004710420374600677,
+      "to": "d06ee5a4740983a31223780ff95ed2c46d2eac17de45adda34eb5163573f8067"
+    },
+    {
+      "a_reduction": 0.0016871845202507396,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-01",
+        "proposal-03"
+      ],
+      "from": "cc62398d2dd1a3fe6acf34023759ecedf152a5412bd007757325f4dd8041b30a",
+      "style_reduction": -8.372655165045373e-05,
+      "to": "341fcafa8961cb937c2e37b871febf5c5702f13656c21da57b78eceae9ed5ac4"
+    },
+    {
+      "a_reduction": 0.0016461400492079337,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-02",
+        "proposal-07"
+      ],
+      "from": "d7ea36adc88babc23de366d0ebf07e77f6eb297bd6e7a0834e7e17a171779333",
+      "style_reduction": 0.0007742711087002085,
+      "to": "be01cd9b18379e959c21433aea68f507a057b7a215421785e0845f0108486499"
+    },
+    {
+      "a_reduction": 0.0016423396532707635,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-05",
+        "proposal-07"
+      ],
+      "from": "a36d8bb8405abb2ac783852d8b64087acdd53b72443324f0a3efdbb52cdb0aba",
+      "style_reduction": 0.0007744709212780254,
+      "to": "adf4df2175cb993edfb37f235d1df0d543cf19f00b41343b3ff2c63d67f11730"
+    },
+    {
+      "a_reduction": 0.001624524956498563,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-05",
+        "proposal-06"
+      ],
+      "from": "46483790b7b655159e98636bdfa2eafefbccc90dab26f54f14b7d25d328e4de8",
+      "style_reduction": 0.00043469037614141115,
+      "to": "8b307c00795748512d115565d0384a8d41374167ceb41e7f1f0364f6fbfc60f0"
+    },
+    {
+      "a_reduction": 0.001563384149360525,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-02",
+        "proposal-06"
+      ],
+      "from": "ea388f23f567e195c58a6d12193f5be1e786ba4bf72ec3276a0551fd75bc44ea",
+      "style_reduction": 0.0004344668933740081,
+      "to": "05d4ce182ac9778b55b4c41f7fede74a33cb8f30e0bfaec921dfe9f5b0060adc"
+    },
+    {
+      "a_reduction": 0.0015141305859194265,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-02",
+        "proposal-05"
+      ],
+      "from": "d69bb4dbcd86ab5990b01b61aa281a5ae070fcc43317878801759817fb27e90f",
+      "style_reduction": 0.0004344668933740081,
+      "to": "06b17ce74318946b8f1210f6bf846ff74b994bbf493e59e732f7b105709a72e7"
+    },
+    {
+      "a_reduction": 0.001488437278131971,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-06"
+      ],
+      "from": "4ff60bf7384cae6f5619529969701fbe708f183438f9c5e20b00fec7c81afe7a",
+      "style_reduction": 0.0004344668933740081,
+      "to": "f62c311dcd7b8c8cf5fb61427071a3a4816df5850a75b528375c55b83f1277db"
+    },
+    {
+      "a_reduction": 0.001452766306754727,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-05"
+      ],
+      "from": "a59f5d1c32f83dd81e6352fd31a7b1093c11f011c75de1f7707403731b8cc2c5",
+      "style_reduction": 0.0004344668933740081,
+      "to": "a08a4d575d9d7a038870793c4af2f66e8e376ba2a817d064ef8713d2ea1bd643"
+    },
+    {
+      "a_reduction": 0.0013838652719827538,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-02"
+      ],
+      "from": "e319f7f72716725ce200aa74cb5a15a9fa5cb4ab0669e7046cddf0fe2748bd4c",
+      "style_reduction": 0.00043424338316211397,
+      "to": "4322e722d3ca598dd793914b08535ca3320bcb6770a1678544fac8bf57435ede"
+    },
+    {
+      "a_reduction": 0.001237571972478091,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-01",
+        "proposal-02"
+      ],
+      "from": "4322e722d3ca598dd793914b08535ca3320bcb6770a1678544fac8bf57435ede",
+      "style_reduction": -8.229070600362931e-05,
+      "to": "06b17ce74318946b8f1210f6bf846ff74b994bbf493e59e732f7b105709a72e7"
+    },
+    {
+      "a_reduction": 0.0012302428302404245,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-04",
+        "proposal-08"
+      ],
+      "from": "f8b94805e0cbb826a7f3cbe05daf9d49ac9a544b6a8b249103803662b316f808",
+      "style_reduction": -8.292713571966814e-05,
+      "to": "401542d5c4ee5b37c39a66c92d7d200d60d1da332de4a6386ab78d1b4eb1b791"
+    },
+    {
+      "a_reduction": 0.001211340877147249,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-02",
+        "proposal-03"
+      ],
+      "from": "d431ba441f20ab974e023ee76d5d17ec8639519d3266eea8fda158ff877d1af8",
+      "style_reduction": -8.39604115026038e-05,
+      "to": "21071f2e2cc1283b6de45e7ef1a3e7f846533d552de4a4c36cc7be868d47f9c4"
+    },
+    {
+      "a_reduction": 0.0012026833154579197,
+      "added_choice": "proposal-01",
+      "context_choices": [],
+      "from": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "style_reduction": 0.00043424338316211397,
+      "to": "c46e3dafcf672ef97f477cb791e2623e8896deb816a686b316adcb7c29ab6ff5"
+    },
+    {
+      "a_reduction": 0.0011856435219090855,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-02",
+        "proposal-06"
+      ],
+      "from": "ea388f23f567e195c58a6d12193f5be1e786ba4bf72ec3276a0551fd75bc44ea",
+      "style_reduction": -8.250879892712781e-05,
+      "to": "b9c79540ffaaf79bae64cd9dce8131a49675a32c4a85d5208b5fbdc83d031959"
+    },
+    {
+      "a_reduction": 0.0011073066585414182,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-02"
+      ],
+      "from": "e319f7f72716725ce200aa74cb5a15a9fa5cb4ab0669e7046cddf0fe2748bd4c",
+      "style_reduction": -8.251421621552346e-05,
+      "to": "d69bb4dbcd86ab5990b01b61aa281a5ae070fcc43317878801759817fb27e90f"
+    },
+    {
+      "a_reduction": 0.0010501633742895367,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-01",
+        "proposal-06"
+      ],
+      "from": "f62c311dcd7b8c8cf5fb61427071a3a4816df5850a75b528375c55b83f1277db",
+      "style_reduction": -8.228531615972479e-05,
+      "to": "8b307c00795748512d115565d0384a8d41374167ceb41e7f1f0364f6fbfc60f0"
+    },
+    {
+      "a_reduction": 0.0009736850399849617,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-01"
+      ],
+      "from": "c46e3dafcf672ef97f477cb791e2623e8896deb816a686b316adcb7c29ab6ff5",
+      "style_reduction": -8.229070600362931e-05,
+      "to": "a08a4d575d9d7a038870793c4af2f66e8e376ba2a817d064ef8713d2ea1bd643"
+    },
+    {
+      "a_reduction": 0.0009140756959229446,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-06"
+      ],
+      "from": "4ff60bf7384cae6f5619529969701fbe708f183438f9c5e20b00fec7c81afe7a",
+      "style_reduction": -8.250879892712781e-05,
+      "to": "46483790b7b655159e98636bdfa2eafefbccc90dab26f54f14b7d25d328e4de8"
+    },
+    {
+      "a_reduction": 0.0008601515823417616,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-03",
+        "proposal-06"
+      ],
+      "from": "6c036dda14c24fb3e2863834dd6c2541e8078737492e0f91d8d216a6400407d5",
+      "style_reduction": -8.395468689448293e-05,
+      "to": "127e954595e460e392cc29a8172b2b539a13f8cc7f62ac6a8a3aca3b24d3d997"
+    },
+    {
+      "a_reduction": 0.0007236020486881545,
+      "added_choice": "proposal-05",
+      "context_choices": [],
+      "from": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "style_reduction": -8.251421621552346e-05,
+      "to": "a59f5d1c32f83dd81e6352fd31a7b1093c11f011c75de1f7707403731b8cc2c5"
+    },
+    {
+      "a_reduction": 0.0005097421430926286,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-01",
+        "proposal-04"
+      ],
+      "from": "e4b5d86abc844c5ba7d680def45e12b21d222be7bcb834aed329507d8cbfbc89",
+      "style_reduction": -8.260396501436063e-05,
+      "to": "45b793b99bc89dfbe3b234c7df6d67b47469607318a5e9940667e636b304fef0"
+    },
+    {
+      "a_reduction": 0.0003938326430366068,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-07"
+      ],
+      "from": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336",
+      "style_reduction": 0.0007742711087002085,
+      "to": "d6c9013931290894d894a3f66615d8c1f31e2a04edcd14701820cd959afd37bf"
+    },
+    {
+      "a_reduction": 0.0003449289189028093,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-06",
+        "proposal-07"
+      ],
+      "from": "f566aa51e877664b245ab5616b8092eea317b6a93d1db1f03681bfa749269b50",
+      "style_reduction": 0.0007744709212780254,
+      "to": "ff700a79605310f2d3b74200a35f5a630e0f30badaa144e6a790327f65bb5610"
+    },
+    {
+      "a_reduction": 0.0003003363603671927,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-04",
+        "proposal-06"
+      ],
+      "from": "5a1396d220516ec1c8b3789c82401a5e36d2338bc3235044c16848a1b75cf93a",
+      "style_reduction": -8.283945042020235e-05,
+      "to": "aac22205ab7a555e50addc385a06a8985c9af531938cb0c990c57c8a190c91b2"
+    },
+    {
+      "a_reduction": 0.00029717745716539845,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-02",
+        "proposal-04"
+      ],
+      "from": "fd02f1d3c549d83d3d9e2f4c341a397a4f6f91eed599601706dee660ad4d05a3",
+      "style_reduction": -8.284489935972417e-05,
+      "to": "15c17c0d2ef463eeb297d5388f3a148ccca3ebdd7486be9c74c2d3973881dee3"
+    },
+    {
+      "a_reduction": 0.00023807050171353872,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-03"
+      ],
+      "from": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0",
+      "style_reduction": -8.39604115026038e-05,
+      "to": "a24264feaf380dcef7b3fe6cb16bb522c71fc0aa8ea0d623257fd0c98fdec26e"
+    },
+    {
+      "a_reduction": 0.00022688845480667297,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-04"
+      ],
+      "from": "e9214cd2ff4fb347097a365a7b02997b168d4c3fb89a7dbc29cfbce9878e6b1b",
+      "style_reduction": -8.284489935972417e-05,
+      "to": "35c151977e8bff8cc61ddabd99c551da559624e1cf185ddd44df13e0b5cf9573"
+    },
+    {
+      "a_reduction": 0.0002083711652940412,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-03",
+        "proposal-04"
+      ],
+      "from": "f3bc31bc32f2e54acc6a6fd6615e558fd982bae9682136e16f17a39877628464",
+      "style_reduction": -8.428389419634641e-05,
+      "to": "d110c11d2841fbcba07baff5d6425be95874eaa86dc90f4fa448efd44458a98d"
+    },
+    {
+      "a_reduction": 0.0001822708104057824,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-04",
+        "proposal-05"
+      ],
+      "from": "35c151977e8bff8cc61ddabd99c551da559624e1cf185ddd44df13e0b5cf9573",
+      "style_reduction": 0.00023119334466703556,
+      "to": "45b793b99bc89dfbe3b234c7df6d67b47469607318a5e9940667e636b304fef0"
+    },
+    {
+      "a_reduction": 0.00015894692867823856,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-06",
+        "proposal-07"
+      ],
+      "from": "f566aa51e877664b245ab5616b8092eea317b6a93d1db1f03681bfa749269b50",
+      "style_reduction": -8.265679120911251e-05,
+      "to": "23360038c2181f0982b23d1da6a1ddb04f2329f9ea182e7a1ee0adf97352c1e0"
+    },
+    {
+      "a_reduction": 0.00015127622244692773,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-01",
+        "proposal-07"
+      ],
+      "from": "d6c9013931290894d894a3f66615d8c1f31e2a04edcd14701820cd959afd37bf",
+      "style_reduction": -8.246244180676321e-05,
+      "to": "adf4df2175cb993edfb37f235d1df0d543cf19f00b41343b3ff2c63d67f11730"
+    },
+    {
+      "a_reduction": -0.00010058287788017317,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-04"
+      ],
+      "from": "e9214cd2ff4fb347097a365a7b02997b168d4c3fb89a7dbc29cfbce9878e6b1b",
+      "style_reduction": 0.00023095241032167202,
+      "to": "e4b5d86abc844c5ba7d680def45e12b21d222be7bcb834aed329507d8cbfbc89"
+    },
+    {
+      "a_reduction": -0.00023161093743817585,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-02",
+        "proposal-07"
+      ],
+      "from": "d7ea36adc88babc23de366d0ebf07e77f6eb297bd6e7a0834e7e17a171779333",
+      "style_reduction": -8.266225438458008e-05,
+      "to": "fad993482a06fd08a40600e2cc6bcf1f494dc15cc2a1f4ca84787d8fde82ad78"
+    },
+    {
+      "a_reduction": -0.00026164303486342355,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-03",
+        "proposal-08"
+      ],
+      "from": "7c157f7d56254b7fa63a4d9b7c7e518cd0893db66afd724481d4923bc64d834c",
+      "style_reduction": -8.395709624675618e-05,
+      "to": "2b4a95a84dc88be918c5e55d11fe7ec0ee70f245590b479ec2412432050a46b6"
+    },
+    {
+      "a_reduction": -0.00029482264693103666,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-05",
+        "proposal-06"
+      ],
+      "from": "46483790b7b655159e98636bdfa2eafefbccc90dab26f54f14b7d25d328e4de8",
+      "style_reduction": 0.0,
+      "to": "b9c79540ffaaf79bae64cd9dce8131a49675a32c4a85d5208b5fbdc83d031959"
+    },
+    {
+      "a_reduction": -0.00038444713084928583,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-04",
+        "proposal-06"
+      ],
+      "from": "5a1396d220516ec1c8b3789c82401a5e36d2338bc3235044c16848a1b75cf93a",
+      "style_reduction": 0.00023119334466703556,
+      "to": "5138b4780e261593b48803742587bb42365c26ee6cc7e5be792897a83c1c0df5"
+    },
+    {
+      "a_reduction": -0.0004070775053091058,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-02",
+        "proposal-04"
+      ],
+      "from": "fd02f1d3c549d83d3d9e2f4c341a397a4f6f91eed599601706dee660ad4d05a3",
+      "style_reduction": 0.00023095241032167202,
+      "to": "f88c065908ff194f1ba3d2d954f2d47f8391c234551b0aec264df2d207aaa4c7"
+    },
+    {
+      "a_reduction": -0.00044145527463668177,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-04",
+        "proposal-06"
+      ],
+      "from": "5a1396d220516ec1c8b3789c82401a5e36d2338bc3235044c16848a1b75cf93a",
+      "style_reduction": 0.0,
+      "to": "1eecef20505bb81279e31aaf76dc4f20b2344fa01c83c4ba62c00ddd68257e02"
+    },
+    {
+      "a_reduction": -0.00045343419996457524,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-04",
+        "proposal-05"
+      ],
+      "from": "35c151977e8bff8cc61ddabd99c551da559624e1cf185ddd44df13e0b5cf9573",
+      "style_reduction": 0.0,
+      "to": "15c17c0d2ef463eeb297d5388f3a148ccca3ebdd7486be9c74c2d3973881dee3"
+    },
+    {
+      "a_reduction": -0.0004898441026480738,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-01",
+        "proposal-05"
+      ],
+      "from": "a08a4d575d9d7a038870793c4af2f66e8e376ba2a817d064ef8713d2ea1bd643",
+      "style_reduction": 0.0,
+      "to": "06b17ce74318946b8f1210f6bf846ff74b994bbf493e59e732f7b105709a72e7"
+    },
+    {
+      "a_reduction": -0.0004914436016886237,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-01",
+        "proposal-06"
+      ],
+      "from": "f62c311dcd7b8c8cf5fb61427071a3a4816df5850a75b528375c55b83f1277db",
+      "style_reduction": 0.0,
+      "to": "05d4ce182ac9778b55b4c41f7fede74a33cb8f30e0bfaec921dfe9f5b0060adc"
+    },
+    {
+      "a_reduction": -0.0005237232023233007,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-04"
+      ],
+      "from": "e9214cd2ff4fb347097a365a7b02997b168d4c3fb89a7dbc29cfbce9878e6b1b",
+      "style_reduction": 0.0,
+      "to": "fd02f1d3c549d83d3d9e2f4c341a397a4f6f91eed599601706dee660ad4d05a3"
+    },
+    {
+      "a_reduction": -0.0005512083818127733,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-05"
+      ],
+      "from": "a59f5d1c32f83dd81e6352fd31a7b1093c11f011c75de1f7707403731b8cc2c5",
+      "style_reduction": 0.0,
+      "to": "d69bb4dbcd86ab5990b01b61aa281a5ae070fcc43317878801759817fb27e90f"
+    },
+    {
+      "a_reduction": -0.0005663904729171776,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-06"
+      ],
+      "from": "4ff60bf7384cae6f5619529969701fbe708f183438f9c5e20b00fec7c81afe7a",
+      "style_reduction": 0.0,
+      "to": "ea388f23f567e195c58a6d12193f5be1e786ba4bf72ec3276a0551fd75bc44ea"
+    },
+    {
+      "a_reduction": -0.000753731035141203,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-01"
+      ],
+      "from": "c46e3dafcf672ef97f477cb791e2623e8896deb816a686b316adcb7c29ab6ff5",
+      "style_reduction": 0.0,
+      "to": "4322e722d3ca598dd793914b08535ca3320bcb6770a1678544fac8bf57435ede"
+    },
+    {
+      "a_reduction": -0.0008302178297522333,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-01",
+        "proposal-04"
+      ],
+      "from": "e4b5d86abc844c5ba7d680def45e12b21d222be7bcb834aed329507d8cbfbc89",
+      "style_reduction": 0.0,
+      "to": "f88c065908ff194f1ba3d2d954f2d47f8391c234551b0aec264df2d207aaa4c7"
+    },
+    {
+      "a_reduction": -0.0008809144664585489,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-06",
+        "proposal-08"
+      ],
+      "from": "4afc6b99bd0a7cdd99c7961bf5f0d6cc1a686aa4ce886026fa7fc8f9cbc29a4a",
+      "style_reduction": 0.0,
+      "to": "66acd853caafe9128d9d7c2e3ed3ea42533d50125200de226d160a17341e9443"
+    },
+    {
+      "a_reduction": -0.0009227386197825371,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-04",
+        "proposal-07"
+      ],
+      "from": "48b3a3fbe45d47501efa8466ff6e35bef5d0e4d8ed1c768302fbc4273ef53999",
+      "style_reduction": -8.305845010325719e-05,
+      "to": "9bc831005eb430dfcf755ab0a13c59267475d1f349e9a14a3bfa4ff49051dd66"
+    },
+    {
+      "a_reduction": -0.000934912991666037,
+      "added_choice": "proposal-02",
+      "context_choices": [],
+      "from": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "style_reduction": 0.0,
+      "to": "e319f7f72716725ce200aa74cb5a15a9fa5cb4ab0669e7046cddf0fe2748bd4c"
+    },
+    {
+      "a_reduction": -0.001097230787787229,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-07"
+      ],
+      "from": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336",
+      "style_reduction": -8.266225438458008e-05,
+      "to": "a36d8bb8405abb2ac783852d8b64087acdd53b72443324f0a3efdbb52cdb0aba"
+    },
+    {
+      "a_reduction": -0.0011491777125631764,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-04",
+        "proposal-08"
+      ],
+      "from": "f8b94805e0cbb826a7f3cbe05daf9d49ac9a544b6a8b249103803662b316f808",
+      "style_reduction": 0.0004443629963268858,
+      "to": "3483267e03765a70d2a810456e5747ddc498e4b2dcd0825d79bc483adbf1d9bc"
+    },
+    {
+      "a_reduction": -0.001202269757546448,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-04",
+        "proposal-08"
+      ],
+      "from": "f8b94805e0cbb826a7f3cbe05daf9d49ac9a544b6a8b249103803662b316f808",
+      "style_reduction": 0.0,
+      "to": "8d1ebc56bab5dd11132afa9f7a836f5e5d98f596babe8db36a88731e30449537"
+    },
+    {
+      "a_reduction": -0.001244620166337862,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-04",
+        "proposal-07"
+      ],
+      "from": "48b3a3fbe45d47501efa8466ff6e35bef5d0e4d8ed1c768302fbc4273ef53999",
+      "style_reduction": 0.0007504063184164966,
+      "to": "873bb86506119201e68843b1930d02cab1bce94b5ea1779a77afeea103f71dfe"
+    },
+    {
+      "a_reduction": -0.001360296939233674,
+      "added_choice": "proposal-01",
+      "context_choices": [
+        "proposal-03",
+        "proposal-04"
+      ],
+      "from": "f3bc31bc32f2e54acc6a6fd6615e558fd982bae9682136e16f17a39877628464",
+      "style_reduction": 0.00010035534888674924,
+      "to": "06d3ccd7a1bb9a0b7947ff5e12b141f473adcaedd076de368491136c55748160"
+    },
+    {
+      "a_reduction": -0.0016731373505628477,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-05",
+        "proposal-08"
+      ],
+      "from": "145416859bbb2eb036320ab8e379c98ff986bfe558ae3f6a70537acc3bb3b18f",
+      "style_reduction": 0.0,
+      "to": "bfcd939c2c8f04411d79d07f980ba1aadee7c46c26b4f860c0811b24202a4b58"
+    },
+    {
+      "a_reduction": -0.0017294383408260616,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-06",
+        "proposal-07"
+      ],
+      "from": "f566aa51e877664b245ab5616b8092eea317b6a93d1db1f03681bfa749269b50",
+      "style_reduction": 0.0,
+      "to": "786fef85880656c6afd3796c107ffdd9ec0c512ea22ba0a25e9e8ac54d266647"
+    },
+    {
+      "a_reduction": -0.0018676421076520011,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-01",
+        "proposal-08"
+      ],
+      "from": "d06ee5a4740983a31223780ff95ed2c46d2eac17de45adda34eb5163573f8067",
+      "style_reduction": 0.0,
+      "to": "d90873af18982e26fc24cd13f6458a2bf68d614360fa613604c23f0cd4d2e6db"
+    },
+    {
+      "a_reduction": -0.0019181249887963991,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-08"
+      ],
+      "from": "e4f52e700484bb91ea2b47bf632e6242246e2118c9f0f2561ad31c73618e1f84",
+      "style_reduction": 0.0,
+      "to": "6b1ae80824e38f36ed94dc12dd09c2a7f3fe25ac922198ad360355580238141d"
+    },
+    {
+      "a_reduction": -0.002207404203147134,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-01",
+        "proposal-07"
+      ],
+      "from": "d6c9013931290894d894a3f66615d8c1f31e2a04edcd14701820cd959afd37bf",
+      "style_reduction": 0.0,
+      "to": "be01cd9b18379e959c21433aea68f507a057b7a215421785e0845f0108486499"
+    },
+    {
+      "a_reduction": -0.0022216591100439054,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-04",
+        "proposal-07"
+      ],
+      "from": "48b3a3fbe45d47501efa8466ff6e35bef5d0e4d8ed1c768302fbc4273ef53999",
+      "style_reduction": 0.0,
+      "to": "a5ed286767f87bef6652548558fd3381b79ae0687eb6f954164c93dd053d6201"
+    },
+    {
+      "a_reduction": -0.00253448627144659,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-02",
+        "proposal-04"
+      ],
+      "from": "fd02f1d3c549d83d3d9e2f4c341a397a4f6f91eed599601706dee660ad4d05a3",
+      "style_reduction": -8.284489935972417e-05,
+      "to": "1eecef20505bb81279e31aaf76dc4f20b2344fa01c83c4ba62c00ddd68257e02"
+    },
+    {
+      "a_reduction": -0.002543306293572689,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-04",
+        "proposal-05"
+      ],
+      "from": "35c151977e8bff8cc61ddabd99c551da559624e1cf185ddd44df13e0b5cf9573",
+      "style_reduction": -8.283945042020235e-05,
+      "to": "aac22205ab7a555e50addc385a06a8985c9af531938cb0c990c57c8a190c91b2"
+    },
+    {
+      "a_reduction": -0.002594091758969408,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-05",
+        "proposal-07"
+      ],
+      "from": "a36d8bb8405abb2ac783852d8b64087acdd53b72443324f0a3efdbb52cdb0aba",
+      "style_reduction": 0.0,
+      "to": "fad993482a06fd08a40600e2cc6bcf1f494dc15cc2a1f4ca84787d8fde82ad78"
+    },
+    {
+      "a_reduction": -0.002616754199133209,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-04"
+      ],
+      "from": "e9214cd2ff4fb347097a365a7b02997b168d4c3fb89a7dbc29cfbce9878e6b1b",
+      "style_reduction": -8.284489935972417e-05,
+      "to": "5a1396d220516ec1c8b3789c82401a5e36d2338bc3235044c16848a1b75cf93a"
+    },
+    {
+      "a_reduction": -0.0026297727152735373,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-03",
+        "proposal-04"
+      ],
+      "from": "f3bc31bc32f2e54acc6a6fd6615e558fd982bae9682136e16f17a39877628464",
+      "style_reduction": 0.0,
+      "to": "020b3fbf18b8e7848c6327570437511551b29a9b9d44da26ec08b181dc0458ee"
+    },
+    {
+      "a_reduction": -0.0029006184521023215,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-01",
+        "proposal-04"
+      ],
+      "from": "e4b5d86abc844c5ba7d680def45e12b21d222be7bcb834aed329507d8cbfbc89",
+      "style_reduction": -8.260396501436063e-05,
+      "to": "5138b4780e261593b48803742587bb42365c26ee6cc7e5be792897a83c1c0df5"
+    },
+    {
+      "a_reduction": -0.003459711609318461,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-07"
+      ],
+      "from": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336",
+      "style_reduction": 0.0,
+      "to": "d7ea36adc88babc23de366d0ebf07e77f6eb297bd6e7a0834e7e17a171779333"
+    },
+    {
+      "a_reduction": -0.003936121238332979,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-03",
+        "proposal-06"
+      ],
+      "from": "6c036dda14c24fb3e2863834dd6c2541e8078737492e0f91d8d216a6400407d5",
+      "style_reduction": 0.0,
+      "to": "8b286c566efd0a3d9023e5d910588900a57f405980b5002ad73cc8dcfcbe7199"
+    },
+    {
+      "a_reduction": -0.003988117891188581,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-01",
+        "proposal-03"
+      ],
+      "from": "cc62398d2dd1a3fe6acf34023759ecedf152a5412bd007757325f4dd8041b30a",
+      "style_reduction": 0.0,
+      "to": "f90ddfa6102860632f6002d531b024da2acab44db98da867a1ebfd576e2642f6"
+    },
+    {
+      "a_reduction": -0.004275302204228226,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-01",
+        "proposal-02"
+      ],
+      "from": "4322e722d3ca598dd793914b08535ca3320bcb6770a1678544fac8bf57435ede",
+      "style_reduction": -8.229070600362931e-05,
+      "to": "05d4ce182ac9778b55b4c41f7fede74a33cb8f30e0bfaec921dfe9f5b0060adc"
+    },
+    {
+      "a_reduction": -0.00437648421823833,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-02",
+        "proposal-05"
+      ],
+      "from": "d69bb4dbcd86ab5990b01b61aa281a5ae070fcc43317878801759817fb27e90f",
+      "style_reduction": -8.250879892712781e-05,
+      "to": "b9c79540ffaaf79bae64cd9dce8131a49675a32c4a85d5208b5fbdc83d031959"
+    },
+    {
+      "a_reduction": -0.0044548210816059974,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-02"
+      ],
+      "from": "e319f7f72716725ce200aa74cb5a15a9fa5cb4ab0669e7046cddf0fe2748bd4c",
+      "style_reduction": -8.251421621552346e-05,
+      "to": "ea388f23f567e195c58a6d12193f5be1e786ba4bf72ec3276a0551fd75bc44ea"
+    },
+    {
+      "a_reduction": -0.004461111303376231,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-01",
+        "proposal-05"
+      ],
+      "from": "a08a4d575d9d7a038870793c4af2f66e8e376ba2a817d064ef8713d2ea1bd643",
+      "style_reduction": -8.228531615972479e-05,
+      "to": "8b307c00795748512d115565d0384a8d41374167ceb41e7f1f0364f6fbfc60f0"
+    },
+    {
+      "a_reduction": -0.004537589637680806,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-01"
+      ],
+      "from": "c46e3dafcf672ef97f477cb791e2623e8896deb816a686b316adcb7c29ab6ff5",
+      "style_reduction": -8.229070600362931e-05,
+      "to": "f62c311dcd7b8c8cf5fb61427071a3a4816df5850a75b528375c55b83f1277db"
+    },
+    {
+      "a_reduction": -0.004632869953120067,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-05"
+      ],
+      "from": "a59f5d1c32f83dd81e6352fd31a7b1093c11f011c75de1f7707403731b8cc2c5",
+      "style_reduction": -8.250879892712781e-05,
+      "to": "46483790b7b655159e98636bdfa2eafefbccc90dab26f54f14b7d25d328e4de8"
+    },
+    {
+      "a_reduction": -0.004823343600354857,
+      "added_choice": "proposal-06",
+      "context_choices": [],
+      "from": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "style_reduction": -8.251421621552346e-05,
+      "to": "4ff60bf7384cae6f5619529969701fbe708f183438f9c5e20b00fec7c81afe7a"
+    },
+    {
+      "a_reduction": -0.0055753352379865895,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-03",
+        "proposal-05"
+      ],
+      "from": "a24264feaf380dcef7b3fe6cb16bb522c71fc0aa8ea0d623257fd0c98fdec26e",
+      "style_reduction": 0.0,
+      "to": "21071f2e2cc1283b6de45e7ef1a3e7f846533d552de4a4c36cc7be868d47f9c4"
+    },
+    {
+      "a_reduction": -0.0065486056134203,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-03"
+      ],
+      "from": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0",
+      "style_reduction": 0.0,
+      "to": "d431ba441f20ab974e023ee76d5d17ec8639519d3266eea8fda158ff877d1af8"
+    },
+    {
+      "a_reduction": -0.0068223715258755036,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-04",
+        "proposal-07"
+      ],
+      "from": "48b3a3fbe45d47501efa8466ff6e35bef5d0e4d8ed1c768302fbc4273ef53999",
+      "style_reduction": -8.305845010325719e-05,
+      "to": "8ffa56713753d01463640280903616e43839694ab946c927b36836d02221a2a2"
+    },
+    {
+      "a_reduction": -0.007441023818411496,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-04",
+        "proposal-08"
+      ],
+      "from": "f8b94805e0cbb826a7f3cbe05daf9d49ac9a544b6a8b249103803662b316f808",
+      "style_reduction": -8.292713571966814e-05,
+      "to": "51f4ee1dc417a5714263e03595740b371ab6f7c1c29840e2f40c0d17af6f2008"
+    },
+    {
+      "a_reduction": -0.00826210220782897,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-03",
+        "proposal-04"
+      ],
+      "from": "f3bc31bc32f2e54acc6a6fd6615e558fd982bae9682136e16f17a39877628464",
+      "style_reduction": -8.428389419634641e-05,
+      "to": "8106c29b21f3d52a20b2971f7ec0adecd26812448d587bbe2ec5e7dfb68e8291"
+    },
+    {
+      "a_reduction": -0.010580491124171476,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-02",
+        "proposal-07"
+      ],
+      "from": "d7ea36adc88babc23de366d0ebf07e77f6eb297bd6e7a0834e7e17a171779333",
+      "style_reduction": -8.266225438458008e-05,
+      "to": "786fef85880656c6afd3796c107ffdd9ec0c512ea22ba0a25e9e8ac54d266647"
+    },
+    {
+      "a_reduction": -0.011054586676198408,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-05",
+        "proposal-07"
+      ],
+      "from": "a36d8bb8405abb2ac783852d8b64087acdd53b72443324f0a3efdbb52cdb0aba",
+      "style_reduction": -8.265679120911251e-05,
+      "to": "23360038c2181f0982b23d1da6a1ddb04f2329f9ea182e7a1ee0adf97352c1e0"
+    },
+    {
+      "a_reduction": -0.012310764392663875,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-07"
+      ],
+      "from": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336",
+      "style_reduction": -8.266225438458008e-05,
+      "to": "f566aa51e877664b245ab5616b8092eea317b6a93d1db1f03681bfa749269b50"
+    },
+    {
+      "a_reduction": -0.012332366260357053,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-02",
+        "proposal-08"
+      ],
+      "from": "6b1ae80824e38f36ed94dc12dd09c2a7f3fe25ac922198ad360355580238141d",
+      "style_reduction": -8.249518413916412e-05,
+      "to": "66acd853caafe9128d9d7c2e3ed3ea42533d50125200de226d160a17341e9443"
+    },
+    {
+      "a_reduction": -0.012359668116797673,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-01",
+        "proposal-07"
+      ],
+      "from": "d6c9013931290894d894a3f66615d8c1f31e2a04edcd14701820cd959afd37bf",
+      "style_reduction": -8.246244180676321e-05,
+      "to": "ff700a79605310f2d3b74200a35f5a630e0f30badaa144e6a790327f65bb5610"
+    },
+    {
+      "a_reduction": -0.013198036010086511,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-01",
+        "proposal-08"
+      ],
+      "from": "d06ee5a4740983a31223780ff95ed2c46d2eac17de45adda34eb5163573f8067",
+      "style_reduction": -8.227412825800862e-05,
+      "to": "9916fd109c55a6e2a16507932e4e115d84cffa85a969140f16272d008e60715d"
+    },
+    {
+      "a_reduction": -0.013214050817074163,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-02",
+        "proposal-06"
+      ],
+      "from": "ea388f23f567e195c58a6d12193f5be1e786ba4bf72ec3276a0551fd75bc44ea",
+      "style_reduction": -0.002734375743207451,
+      "to": "1eecef20505bb81279e31aaf76dc4f20b2344fa01c83c4ba62c00ddd68257e02"
+    },
+    {
+      "a_reduction": -0.013338986015354659,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-06"
+      ],
+      "from": "4ff60bf7384cae6f5619529969701fbe708f183438f9c5e20b00fec7c81afe7a",
+      "style_reduction": -0.002734375743207451,
+      "to": "5a1396d220516ec1c8b3789c82401a5e36d2338bc3235044c16848a1b75cf93a"
+    },
+    {
+      "a_reduction": -0.013361396009134219,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-05",
+        "proposal-08"
+      ],
+      "from": "145416859bbb2eb036320ab8e379c98ff986bfe558ae3f6a70537acc3bb3b18f",
+      "style_reduction": -8.248977059865936e-05,
+      "to": "2725c9c49b8fcbaa3f5811687cb8796ecc9642a20a1b8d3a2ffa082aa59ed584"
+    },
+    {
+      "a_reduction": -0.013369576782694903,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-08"
+      ],
+      "from": "e4f52e700484bb91ea2b47bf632e6242246e2118c9f0f2561ad31c73618e1f84",
+      "style_reduction": -8.249518413916412e-05,
+      "to": "4afc6b99bd0a7cdd99c7961bf5f0d6cc1a686aa4ce886026fa7fc8f9cbc29a4a"
+    },
+    {
+      "a_reduction": -0.013952725350910411,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-05",
+        "proposal-06"
+      ],
+      "from": "46483790b7b655159e98636bdfa2eafefbccc90dab26f54f14b7d25d328e4de8",
+      "style_reduction": -0.0027347063947005257,
+      "to": "aac22205ab7a555e50addc385a06a8985c9af531938cb0c990c57c8a190c91b2"
+    },
+    {
+      "a_reduction": -0.01410035752319061,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-02",
+        "proposal-03"
+      ],
+      "from": "d431ba441f20ab974e023ee76d5d17ec8639519d3266eea8fda158ff877d1af8",
+      "style_reduction": -8.39604115026038e-05,
+      "to": "8b286c566efd0a3d9023e5d910588900a57f405980b5002ad73cc8dcfcbe7199"
+    },
+    {
+      "a_reduction": -0.01513438562723357,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-02"
+      ],
+      "from": "e319f7f72716725ce200aa74cb5a15a9fa5cb4ab0669e7046cddf0fe2748bd4c",
+      "style_reduction": -0.0027340450600632504,
+      "to": "fd02f1d3c549d83d3d9e2f4c341a397a4f6f91eed599601706dee660ad4d05a3"
+    },
+    {
+      "a_reduction": -0.015211870424335916,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-01",
+        "proposal-06"
+      ],
+      "from": "f62c311dcd7b8c8cf5fb61427071a3a4816df5850a75b528375c55b83f1277db",
+      "style_reduction": -0.0029376492919144237,
+      "to": "5138b4780e261593b48803742587bb42365c26ee6cc7e5be792897a83c1c0df5"
+    },
+    {
+      "a_reduction": -0.015545575416576307,
+      "added_choice": "proposal-04",
+      "context_choices": [],
+      "from": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "style_reduction": -0.0027340450600632504,
+      "to": "e9214cd2ff4fb347097a365a7b02997b168d4c3fb89a7dbc29cfbce9878e6b1b"
+    },
+    {
+      "a_reduction": -0.01594451482860959,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-02",
+        "proposal-05"
+      ],
+      "from": "d69bb4dbcd86ab5990b01b61aa281a5ae070fcc43317878801759817fb27e90f",
+      "style_reduction": -0.002734375743207451,
+      "to": "15c17c0d2ef463eeb297d5388f3a148ccca3ebdd7486be9c74c2d3973881dee3"
+    },
+    {
+      "a_reduction": -0.01604228901045779,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-05"
+      ],
+      "from": "a59f5d1c32f83dd81e6352fd31a7b1093c11f011c75de1f7707403731b8cc2c5",
+      "style_reduction": -0.002734375743207451,
+      "to": "35c151977e8bff8cc61ddabd99c551da559624e1cf185ddd44df13e0b5cf9573"
+    },
+    {
+      "a_reduction": -0.016090760817649707,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-03",
+        "proposal-05"
+      ],
+      "from": "a24264feaf380dcef7b3fe6cb16bb522c71fc0aa8ea0d623257fd0c98fdec26e",
+      "style_reduction": -8.395468689448293e-05,
+      "to": "127e954595e460e392cc29a8172b2b539a13f8cc7f62ac6a8a3aca3b24d3d997"
+    },
+    {
+      "a_reduction": -0.01671284189827793,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-03"
+      ],
+      "from": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0",
+      "style_reduction": -8.39604115026038e-05,
+      "to": "6c036dda14c24fb3e2863834dd6c2541e8078737492e0f91d8d216a6400407d5"
+    },
+    {
+      "a_reduction": -0.0168488416099144,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-01"
+      ],
+      "from": "c46e3dafcf672ef97f477cb791e2623e8896deb816a686b316adcb7c29ab6ff5",
+      "style_reduction": -0.0029373360329036924,
+      "to": "e4b5d86abc844c5ba7d680def45e12b21d222be7bcb834aed329507d8cbfbc89"
+    },
+    {
+      "a_reduction": -0.01692532840452543,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-01",
+        "proposal-02"
+      ],
+      "from": "4322e722d3ca598dd793914b08535ca3320bcb6770a1678544fac8bf57435ede",
+      "style_reduction": -0.0029373360329036924,
+      "to": "f88c065908ff194f1ba3d2d954f2d47f8391c234551b0aec264df2d207aaa4c7"
+    },
+    {
+      "a_reduction": -0.017132466767421084,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-01",
+        "proposal-03"
+      ],
+      "from": "cc62398d2dd1a3fe6acf34023759ecedf152a5412bd007757325f4dd8041b30a",
+      "style_reduction": -8.372655165045373e-05,
+      "to": "67f216283f0eb847a566cdabf0b20091fa03bc4de45aad255e6815084e924911"
+    },
+    {
+      "a_reduction": -0.017312784506806733,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-01",
+        "proposal-05"
+      ],
+      "from": "a08a4d575d9d7a038870793c4af2f66e8e376ba2a817d064ef8713d2ea1bd643",
+      "style_reduction": -0.0029376492919144237,
+      "to": "45b793b99bc89dfbe3b234c7df6d67b47469607318a5e9940667e636b304fef0"
+    },
+    {
+      "a_reduction": -0.019964488678658743,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-07",
+        "proposal-08"
+      ],
+      "from": "b08c081b965b81ffeeb1697f950af971c91de48509b9e0d624c9c9121102726d",
+      "style_reduction": 0.0,
+      "to": "28041114c73822350c2454c5e68e5a660373c1904dee6b9ba78e86e7bc5a1e16"
+    },
+    {
+      "a_reduction": -0.020272930717657234,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-03",
+        "proposal-07"
+      ],
+      "from": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80",
+      "style_reduction": -8.411114414808019e-05,
+      "to": "40583cd392498cfa65cb8665bb903d7e4e85136768d7aa24b3c6e067b71ad3ab"
+    },
+    {
+      "a_reduction": -0.021287784309541147,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-06",
+        "proposal-08"
+      ],
+      "from": "4afc6b99bd0a7cdd99c7961bf5f0d6cc1a686aa4ce886026fa7fc8f9cbc29a4a",
+      "style_reduction": -0.001195551437415121,
+      "to": "51f4ee1dc417a5714263e03595740b371ab6f7c1c29840e2f40c0d17af6f2008"
+    },
+    {
+      "a_reduction": -0.024618298917422343,
+      "added_choice": "proposal-05",
+      "context_choices": [
+        "proposal-07",
+        "proposal-08"
+      ],
+      "from": "b08c081b965b81ffeeb1697f950af971c91de48509b9e0d624c9c9121102726d",
+      "style_reduction": -8.259254240794434e-05,
+      "to": "77136baa0e26ab6e4659783ebc01a01ff4913f544a76cb79aaa7bea5c1d18daa"
+    },
+    {
+      "a_reduction": -0.025601838923118958,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-06",
+        "proposal-07"
+      ],
+      "from": "f566aa51e877664b245ab5616b8092eea317b6a93d1db1f03681bfa749269b50",
+      "style_reduction": -0.0016941243239516623,
+      "to": "8ffa56713753d01463640280903616e43839694ab946c927b36836d02221a2a2"
+    },
+    {
+      "a_reduction": -0.026500482042574602,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-02",
+        "proposal-08"
+      ],
+      "from": "6b1ae80824e38f36ed94dc12dd09c2a7f3fe25ac922198ad360355580238141d",
+      "style_reduction": -0.001195119485834617,
+      "to": "8d1ebc56bab5dd11132afa9f7a836f5e5d98f596babe8db36a88731e30449537"
+    },
+    {
+      "a_reduction": -0.027216337273824553,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-08"
+      ],
+      "from": "e4f52e700484bb91ea2b47bf632e6242246e2118c9f0f2561ad31c73618e1f84",
+      "style_reduction": -0.001195119485834617,
+      "to": "f8b94805e0cbb826a7f3cbe05daf9d49ac9a544b6a8b249103803662b316f808"
+    },
+    {
+      "a_reduction": -0.027489018708648172,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-03",
+        "proposal-08"
+      ],
+      "from": "7c157f7d56254b7fa63a4d9b7c7e518cd0893db66afd724481d4923bc64d834c",
+      "style_reduction": 0.0,
+      "to": "054f3a0ec5abfe5c35def6197233f9dedf4a1ec1a4f2d0828aa2ce959b4753ab"
+    },
+    {
+      "a_reduction": -0.028307168755743906,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-05",
+        "proposal-08"
+      ],
+      "from": "145416859bbb2eb036320ab8e379c98ff986bfe558ae3f6a70537acc3bb3b18f",
+      "style_reduction": -0.001195551437415121,
+      "to": "401542d5c4ee5b37c39a66c92d7d200d60d1da332de4a6386ab78d1b4eb1b791"
+    },
+    {
+      "a_reduction": -0.029852179290632774,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-02",
+        "proposal-07"
+      ],
+      "from": "d7ea36adc88babc23de366d0ebf07e77f6eb297bd6e7a0834e7e17a171779333",
+      "style_reduction": -0.0016937281282329852,
+      "to": "a5ed286767f87bef6652548558fd3381b79ae0687eb6f954164c93dd053d6201"
+    },
+    {
+      "a_reduction": -0.030557376552099003,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-01",
+        "proposal-08"
+      ],
+      "from": "d06ee5a4740983a31223780ff95ed2c46d2eac17de45adda34eb5163573f8067",
+      "style_reduction": -0.001221798526967799,
+      "to": "3483267e03765a70d2a810456e5747ddc498e4b2dcd0825d79bc483adbf1d9bc"
+    },
+    {
+      "a_reduction": -0.030915739621902638,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-05",
+        "proposal-07"
+      ],
+      "from": "a36d8bb8405abb2ac783852d8b64087acdd53b72443324f0a3efdbb52cdb0aba",
+      "style_reduction": -0.0016941243239516623,
+      "to": "9bc831005eb430dfcf755ab0a13c59267475d1f349e9a14a3bfa4ff49051dd66"
+    },
+    {
+      "a_reduction": -0.03109023178990733,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-07"
+      ],
+      "from": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336",
+      "style_reduction": -0.0016937281282329852,
+      "to": "48b3a3fbe45d47501efa8466ff6e35bef5d0e4d8ed1c768302fbc4273ef53999"
+    },
+    {
+      "a_reduction": -0.03261251433977952,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-03",
+        "proposal-06"
+      ],
+      "from": "6c036dda14c24fb3e2863834dd6c2541e8078737492e0f91d8d216a6400407d5",
+      "style_reduction": -0.0028226045990473736,
+      "to": "8106c29b21f3d52a20b2971f7ec0adecd26812448d587bbe2ec5e7dfb68e8291"
+    },
+    {
+      "a_reduction": -0.0327286845992818,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-01",
+        "proposal-07"
+      ],
+      "from": "d6c9013931290894d894a3f66615d8c1f31e2a04edcd14701820cd959afd37bf",
+      "style_reduction": -0.0017175929185166972,
+      "to": "873bb86506119201e68843b1930d02cab1bce94b5ea1779a77afeea103f71dfe"
+    },
+    {
+      "a_reduction": -0.03714442113208172,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-02",
+        "proposal-03"
+      ],
+      "from": "d431ba441f20ab974e023ee76d5d17ec8639519d3266eea8fda158ff877d1af8",
+      "style_reduction": -0.002822281116353631,
+      "to": "020b3fbf18b8e7848c6327570437511551b29a9b9d44da26ec08b181dc0458ee"
+    },
+    {
+      "a_reduction": -0.039885984361502924,
+      "added_choice": "proposal-02",
+      "context_choices": [
+        "proposal-03",
+        "proposal-07"
+      ],
+      "from": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80",
+      "style_reduction": 0.0,
+      "to": "5ec9d5f61f6341ca0ea275aee7a834225dfc2800d10a19deb42c089a5f2fe8fb"
+    },
+    {
+      "a_reduction": -0.04106325403022848,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-03"
+      ],
+      "from": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0",
+      "style_reduction": -0.002822281116353631,
+      "to": "f3bc31bc32f2e54acc6a6fd6615e558fd982bae9682136e16f17a39877628464"
+    },
+    {
+      "a_reduction": -0.04109295336664798,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-03",
+        "proposal-05"
+      ],
+      "from": "a24264feaf380dcef7b3fe6cb16bb522c71fc0aa8ea0d623257fd0c98fdec26e",
+      "style_reduction": -0.0028226045990473736,
+      "to": "d110c11d2841fbcba07baff5d6425be95874eaa86dc90f4fa448efd44458a98d"
+    },
+    {
+      "a_reduction": -0.04720682983399893,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-01",
+        "proposal-03"
+      ],
+      "from": "cc62398d2dd1a3fe6acf34023759ecedf152a5412bd007757325f4dd8041b30a",
+      "style_reduction": -0.003029934241875809,
+      "to": "06d3ccd7a1bb9a0b7947ff5e12b141f473adcaedd076de368491136c55748160"
+    },
+    {
+      "a_reduction": -0.08089822471865549,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-03",
+        "proposal-08"
+      ],
+      "from": "7c157f7d56254b7fa63a4d9b7c7e518cd0893db66afd724481d4923bc64d834c",
+      "style_reduction": -8.395709624675618e-05,
+      "to": "2db9d9a28bca0719d9424b45748f5633ff1c57f66d87334cd6fd7c3c476494ae"
+    },
+    {
+      "a_reduction": -0.08192276577165236,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-03",
+        "proposal-07"
+      ],
+      "from": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80",
+      "style_reduction": -8.411114414808019e-05,
+      "to": "1e76e93399aa22a59683489f0441cf30ce744d024296d902a3ff128c2e87e6da"
+    },
+    {
+      "a_reduction": -0.10871958201449483,
+      "added_choice": "proposal-06",
+      "context_choices": [
+        "proposal-07",
+        "proposal-08"
+      ],
+      "from": "b08c081b965b81ffeeb1697f950af971c91de48509b9e0d624c9c9121102726d",
+      "style_reduction": -8.259254240794434e-05,
+      "to": "c53fb24fbfea6220a1a94ccdcd04e6c847b454dd382f2a635977b2db5208f332"
+    },
+    {
+      "a_reduction": -0.14917626908416148,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-03",
+        "proposal-08"
+      ],
+      "from": "7c157f7d56254b7fa63a4d9b7c7e518cd0893db66afd724481d4923bc64d834c",
+      "style_reduction": -0.0014554874843755172,
+      "to": "11a6148467588728b9094ed7f11d87ae2bb818a7de4833eee2eac41c97a5ff1a"
+    },
+    {
+      "a_reduction": -0.19520259096059156,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-03",
+        "proposal-07"
+      ],
+      "from": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80",
+      "style_reduction": -0.0017676573625349246,
+      "to": "022e739e3e9e47ea85599ece14c1f92113c2d35c9ac1de9617689cb0f0166000"
+    },
+    {
+      "a_reduction": -0.3215987467092044,
+      "added_choice": "proposal-04",
+      "context_choices": [
+        "proposal-07",
+        "proposal-08"
+      ],
+      "from": "b08c081b965b81ffeeb1697f950af971c91de48509b9e0d624c9c9121102726d",
+      "style_reduction": -0.0008971211904178489,
+      "to": "005ec0ac1d2447b823fe9d511694d208c4d11683843eec8561959b7d15fb774f"
+    }
+  ],
+  "pangram_status": "not_measured",
+  "plan_sha256": "1b1b001b8e0f95771595bc96ff4266419efad70c1b1f8221f9c05a1b3721cbff",
+  "ranked_states": [
+    {
+      "a_probability": 0.029159395555859016,
+      "a_reduction": 0.9193081938164646,
+      "choices": [
+        "proposal-03",
+        "proposal-07",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.102082366119085,
+      "function_grammar_distance": 1.2259150205263287,
+      "id": "61537719e8bfe704af7ce0ce16cd020194bde8420744406ea564b42c882daf1e",
+      "nonadditive_a_effect": -0.7809919331435419,
+      "style_reduction": 0.030747289317634152
+    },
+    {
+      "a_probability": 0.41622795693427705,
+      "a_reduction": 0.5322396324380465,
+      "choices": [
+        "proposal-01",
+        "proposal-07",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1168294201553521,
+      "function_grammar_distance": 1.2508410720818373,
+      "id": "e686a248c5784153344e2a7454377790f0795ee059aea4ee11efb00fe23df0cb",
+      "nonadditive_a_effect": -0.44944604908958774,
+      "style_reduction": 0.0058212377621256195
+    },
+    {
+      "a_probability": 0.43659991996035485,
+      "a_reduction": 0.5118676694119687,
+      "choices": [
+        "proposal-07",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1181421659560247,
+      "function_grammar_distance": 1.2516368499244308,
+      "id": "b08c081b965b81ffeeb1697f950af971c91de48509b9e0d624c9c9121102726d",
+      "nonadditive_a_effect": -0.43027676937896786,
+      "style_reduction": 0.0050254599195320715
+    },
+    {
+      "a_probability": 0.4565644086390136,
+      "a_reduction": 0.49190318073330996,
+      "choices": [
+        "proposal-02",
+        "proposal-07",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1181421659560247,
+      "function_grammar_distance": 1.2516368499244308,
+      "id": "28041114c73822350c2454c5e68e5a660373c1904dee6b9ba78e86e7bc5a1e16",
+      "nonadditive_a_effect": -0.41124719369197515,
+      "style_reduction": 0.0050254599195320715
+    },
+    {
+      "a_probability": 0.4612182188777772,
+      "a_reduction": 0.48724937049454636,
+      "choices": [
+        "proposal-05",
+        "proposal-07",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1184426085460264,
+      "function_grammar_distance": 1.2517194424668387,
+      "id": "77136baa0e26ab6e4659783ebc01a01ff4913f544a76cb79aaa7bea5c1d18daa",
+      "nonadditive_a_effect": -0.40493486841285736,
+      "style_reduction": 0.004942867377124127
+    },
+    {
+      "a_probability": 0.5453195019748497,
+      "a_reduction": 0.4031480873974739,
+      "choices": [
+        "proposal-06",
+        "proposal-07",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1184426085460264,
+      "function_grammar_distance": 1.2517194424668387,
+      "id": "c53fb24fbfea6220a1a94ccdcd04e6c847b454dd382f2a635977b2db5208f332",
+      "nonadditive_a_effect": -0.3263805309648279,
+      "style_reduction": 0.004942867377124127
+    },
+    {
+      "a_probability": 0.591592080420707,
+      "a_reduction": 0.35687550895161657,
+      "choices": [
+        "proposal-01",
+        "proposal-03",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1017309708824874,
+      "function_grammar_distance": 1.2246470381315306,
+      "id": "daaadc69e3654791f17e441f22dd9a8e5fee690badb4bd09cdf6ae2f7b617006",
+      "nonadditive_a_effect": -0.24928793367248436,
+      "style_reduction": 0.032015271712432236
+    },
+    {
+      "a_probability": 0.6212759936442684,
+      "a_reduction": 0.3271915957280551,
+      "choices": [
+        "proposal-03",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1029566715642813,
+      "function_grammar_distance": 1.2253072696794765,
+      "id": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80",
+      "nonadditive_a_effect": -0.22080670376438083,
+      "style_reduction": 0.031355040164486425
+    },
+    {
+      "a_probability": 0.6415489243619257,
+      "a_reduction": 0.3069186650103979,
+      "choices": [
+        "proposal-03",
+        "proposal-05",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1032603252711437,
+      "function_grammar_distance": 1.2253913808236245,
+      "id": "40583cd392498cfa65cb8665bb903d7e4e85136768d7aa24b3c6e067b71ad3ab",
+      "nonadditive_a_effect": -0.19981017099803544,
+      "style_reduction": 0.031270929020338345
+    },
+    {
+      "a_probability": 0.6611619780057714,
+      "a_reduction": 0.2873056113665522,
+      "choices": [
+        "proposal-02",
+        "proposal-03",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1029566715642813,
+      "function_grammar_distance": 1.2253072696794765,
+      "id": "5ec9d5f61f6341ca0ea275aee7a834225dfc2800d10a19deb42c089a5f2fe8fb",
+      "nonadditive_a_effect": -0.18185563239454394,
+      "style_reduction": 0.031355040164486425
+    },
+    {
+      "a_probability": 0.6851135936708588,
+      "a_reduction": 0.2633539957014648,
+      "choices": [
+        "proposal-01",
+        "proposal-03",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1049694785448567,
+      "function_grammar_distance": 1.2309481833171005,
+      "id": "3142ce97601a9109f9c7180fc42425e52e49bbd4db519ead8d8860139a11cacc",
+      "nonadditive_a_effect": -0.17349458303683662,
+      "style_reduction": 0.025714126526862335
+    },
+    {
+      "a_probability": 0.7031987594159208,
+      "a_reduction": 0.24526882995640276,
+      "choices": [
+        "proposal-03",
+        "proposal-06",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1032603252711437,
+      "function_grammar_distance": 1.2253913808236245,
+      "id": "1e76e93399aa22a59683489f0441cf30ce744d024296d902a3ff128c2e87e6da",
+      "nonadditive_a_effect": -0.14370728159308332,
+      "style_reduction": 0.031270929020338345
+    },
+    {
+      "a_probability": 0.7177275340471142,
+      "a_reduction": 0.23074005532520936,
+      "choices": [
+        "proposal-03",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1060169954356598,
+      "function_grammar_distance": 1.2312926553554313,
+      "id": "7c157f7d56254b7fa63a4d9b7c7e518cd0893db66afd724481d4923bc64d834c",
+      "nonadditive_a_effect": -0.14208332597603912,
+      "style_reduction": 0.025369654488531568
+    },
+    {
+      "a_probability": 0.7179891770819776,
+      "a_reduction": 0.23047841229034594,
+      "choices": [
+        "proposal-03",
+        "proposal-05",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1063207308529175,
+      "function_grammar_distance": 1.231376612451678,
+      "id": "2b4a95a84dc88be918c5e55d11fe7ec0ee70f245590b479ec2412432050a46b6",
+      "nonadditive_a_effect": -0.14109808089248754,
+      "style_reduction": 0.02528569739228481
+    },
+    {
+      "a_probability": 0.7452165527557624,
+      "a_reduction": 0.2032510366165612,
+      "choices": [
+        "proposal-02",
+        "proposal-03",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1060169954356598,
+      "function_grammar_distance": 1.2312926553554313,
+      "id": "054f3a0ec5abfe5c35def6197233f9dedf4a1ec1a4f2d0828aa2ce959b4753ab",
+      "nonadditive_a_effect": -0.11552922025905699,
+      "style_reduction": 0.025369654488531568
+    },
+    {
+      "a_probability": 0.7581986666695593,
+      "a_reduction": 0.1902689227027643,
+      "choices": [
+        "proposal-04",
+        "proposal-07",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1193262669779982,
+      "function_grammar_distance": 1.2525339711148487,
+      "id": "005ec0ac1d2447b823fe9d511694d208c4d11683843eec8561959b7d15fb774f",
+      "nonadditive_a_effect": -0.12422359808633976,
+      "style_reduction": 0.004128338729114223
+    },
+    {
+      "a_probability": 0.7986257587657697,
+      "a_reduction": 0.14984183060655387,
+      "choices": [
+        "proposal-03",
+        "proposal-06",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1063207308529175,
+      "function_grammar_distance": 1.231376612451678,
+      "id": "2db9d9a28bca0719d9424b45748f5633ff1c57f66d87334cd6fd7c3c476494ae",
+      "nonadditive_a_effect": -0.06600844485773849,
+      "style_reduction": 0.02528569739228481
+    },
+    {
+      "a_probability": 0.81647858460486,
+      "a_reduction": 0.13198900476746356,
+      "choices": [
+        "proposal-03",
+        "proposal-04",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1048862774131092,
+      "function_grammar_distance": 1.2270749270420114,
+      "id": "022e739e3e9e47ea85599ece14c1f92113c2d35c9ac1de9617689cb0f0166000",
+      "nonadditive_a_effect": -0.04114968822036558,
+      "style_reduction": 0.0295873828019515
+    },
+    {
+      "a_probability": 0.8669038031312757,
+      "a_reduction": 0.08156378624104788,
+      "choices": [
+        "proposal-03",
+        "proposal-04",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1077640623019154,
+      "function_grammar_distance": 1.2327481428398068,
+      "id": "11a6148467588728b9094ed7f11d87ae2bb818a7de4833eee2eac41c97a5ff1a",
+      "nonadditive_a_effect": -0.008452632308453945,
+      "style_reduction": 0.02391416700415605
+    },
+    {
+      "a_probability": 0.8852717653476142,
+      "a_reduction": 0.06319582402470936,
+      "choices": [
+        "proposal-01",
+        "proposal-03",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1067481530401313,
+      "function_grammar_distance": 1.231019751369438,
+      "id": "341fcafa8961cb937c2e37b871febf5c5702f13656c21da57b78eceae9ed5ac4",
+      "nonadditive_a_effect": -0.004544178020641443,
+      "style_reduction": 0.02564255847452479
+    },
+    {
+      "a_probability": 0.8869589498678649,
+      "a_reduction": 0.06150863950445862,
+      "choices": [
+        "proposal-01",
+        "proposal-03"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1064454565357076,
+      "function_grammar_distance": 1.2309360248177876,
+      "id": "cc62398d2dd1a3fe6acf34023759ecedf152a5412bd007757325f4dd8041b30a",
+      "nonadditive_a_effect": -0.0035805955490788577,
+      "style_reduction": 0.025726285026175244
+    },
+    {
+      "a_probability": 0.8909470677590535,
+      "a_reduction": 0.05752052161327004,
+      "choices": [
+        "proposal-01",
+        "proposal-02",
+        "proposal-03"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1064454565357076,
+      "function_grammar_distance": 1.2309360248177876,
+      "id": "f90ddfa6102860632f6002d531b024da2acab44db98da867a1ebfd576e2642f6",
+      "nonadditive_a_effect": -0.0005273906495563141,
+      "style_reduction": 0.025726285026175244
+    },
+    {
+      "a_probability": 0.8915041582306882,
+      "a_reduction": 0.05696343114163538,
+      "choices": [
+        "proposal-03",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1077645285822981,
+      "function_grammar_distance": 1.2313279937036992,
+      "id": "a24264feaf380dcef7b3fe6cb16bb522c71fc0aa8ea0d623257fd0c98fdec26e",
+      "nonadditive_a_effect": 0.00048553154697461576,
+      "style_reduction": 0.025334316140263713
+    },
+    {
+      "a_probability": 0.8917422287324017,
+      "a_reduction": 0.05672536063992184,
+      "choices": [
+        "proposal-03"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1074611891451327,
+      "function_grammar_distance": 1.2312440332921966,
+      "id": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0",
+      "nonadditive_a_effect": 0.0,
+      "style_reduction": 0.025418276551766317
+    },
+    {
+      "a_probability": 0.8970794934686748,
+      "a_reduction": 0.05138809590364879,
+      "choices": [
+        "proposal-02",
+        "proposal-03",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1077645285822981,
+      "function_grammar_distance": 1.2313279937036992,
+      "id": "21071f2e2cc1283b6de45e7ef1a3e7f846533d552de4a4c36cc7be868d47f9c4",
+      "nonadditive_a_effect": 0.005125953793295168,
+      "style_reduction": 0.025334316140263713
+    },
+    {
+      "a_probability": 0.8982629491830876,
+      "a_reduction": 0.05020464018923598,
+      "choices": [
+        "proposal-01",
+        "proposal-05",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.117694511114157,
+      "function_grammar_distance": 1.249889422344194,
+      "id": "adf4df2175cb993edfb37f235d1df0d543cf19f00b41343b3ff2c63d67f11730",
+      "nonadditive_a_effect": 0.0013811764986625397,
+      "style_reduction": 0.006772887499768787
+    },
+    {
+      "a_probability": 0.898290834345822,
+      "a_reduction": 0.05017675502650154,
+      "choices": [
+        "proposal-02",
+        "proposal-03"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1074611891451327,
+      "function_grammar_distance": 1.2312440332921966,
+      "id": "d431ba441f20ab974e023ee76d5d17ec8639519d3266eea8fda158ff877d1af8",
+      "nonadditive_a_effect": 0.005613692621754263,
+      "style_reduction": 0.025418276551766317
+    },
+    {
+      "a_probability": 0.8984142254055345,
+      "a_reduction": 0.050053363966789055,
+      "choices": [
+        "proposal-01",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1173947799258248,
+      "function_grammar_distance": 1.2498069599023873,
+      "id": "d6c9013931290894d894a3f66615d8c1f31e2a04edcd14701820cd959afd37bf",
+      "nonadditive_a_effect": 0.0008088506724213129,
+      "style_reduction": 0.00685534994157555
+    },
+    {
+      "a_probability": 0.8988080580485711,
+      "a_reduction": 0.04965953132375245,
+      "choices": [
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1186842375710182,
+      "function_grammar_distance": 1.2505812310110875,
+      "id": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336",
+      "nonadditive_a_effect": 0.0,
+      "style_reduction": 0.006081078832875342
+    },
+    {
+      "a_probability": 0.8999052888363583,
+      "a_reduction": 0.04856230053596522,
+      "choices": [
+        "proposal-05",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1189845346171052,
+      "function_grammar_distance": 1.2506638932654721,
+      "id": "a36d8bb8405abb2ac783852d8b64087acdd53b72443324f0a3efdbb52cdb0aba",
+      "nonadditive_a_effect": 0.0018208328364753834,
+      "style_reduction": 0.005998416578490762
+    },
+    {
+      "a_probability": 0.9006216296086816,
+      "a_reduction": 0.04784595976364192,
+      "choices": [
+        "proposal-01",
+        "proposal-02",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1173947799258248,
+      "function_grammar_distance": 1.2498069599023873,
+      "id": "be01cd9b18379e959c21433aea68f507a057b7a215421785e0845f0108486499",
+      "nonadditive_a_effect": 0.00208134188390241,
+      "style_reduction": 0.00685534994157555
+    },
+    {
+      "a_probability": 0.9022677696578896,
+      "a_reduction": 0.04619981971443399,
+      "choices": [
+        "proposal-02",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1186842375710182,
+      "function_grammar_distance": 1.2505812310110875,
+      "id": "d7ea36adc88babc23de366d0ebf07e77f6eb297bd6e7a0834e7e17a171779333",
+      "nonadditive_a_effect": 0.002524798617652424,
+      "style_reduction": 0.006081078832875342
+    },
+    {
+      "a_probability": 0.9024993805953277,
+      "a_reduction": 0.04596820877699581,
+      "choices": [
+        "proposal-02",
+        "proposal-05",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1189845346171052,
+      "function_grammar_distance": 1.2506638932654721,
+      "id": "fad993482a06fd08a40600e2cc6bcf1f494dc15cc2a1f4ca84787d8fde82ad78",
+      "nonadditive_a_effect": 0.0034800116037787543,
+      "style_reduction": 0.005998416578490762
+    },
+    {
+      "a_probability": 0.904091416635286,
+      "a_reduction": 0.044376172737037534,
+      "choices": [
+        "proposal-01",
+        "proposal-03",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1067481530401313,
+      "function_grammar_distance": 1.231019751369438,
+      "id": "67f216283f0eb847a566cdabf0b20091fa03bc4de45aad255e6815084e924911",
+      "nonadditive_a_effect": 0.00872852761798737,
+      "style_reduction": 0.02564255847452479
+    },
+    {
+      "a_probability": 0.9075949190483379,
+      "a_reduction": 0.04087267032398567,
+      "choices": [
+        "proposal-03",
+        "proposal-05",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1080677849786855,
+      "function_grammar_distance": 1.2314119483905936,
+      "id": "127e954595e460e392cc29a8172b2b539a13f8cc7f62ac6a8a3aca3b24d3d997",
+      "nonadditive_a_effect": 0.011752948764269466,
+      "style_reduction": 0.02525036145336923
+    },
+    {
+      "a_probability": 0.9084550706306797,
+      "a_reduction": 0.04001251874164391,
+      "choices": [
+        "proposal-03",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1077645285822981,
+      "function_grammar_distance": 1.2313279937036992,
+      "id": "6c036dda14c24fb3e2863834dd6c2541e8078737492e0f91d8d216a6400407d5",
+      "nonadditive_a_effect": 0.011889498297923073,
+      "style_reduction": 0.025334316140263713
+    },
+    {
+      "a_probability": 0.9107738935223322,
+      "a_reduction": 0.03769369584999138,
+      "choices": [
+        "proposal-01",
+        "proposal-06",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.117694511114157,
+      "function_grammar_distance": 1.249889422344194,
+      "id": "ff700a79605310f2d3b74200a35f5a630e0f30badaa144e6a790327f65bb5610",
+      "nonadditive_a_effect": 0.008345175188864129,
+      "style_reduction": 0.006772887499768787
+    },
+    {
+      "a_probability": 0.9109598755125567,
+      "a_reduction": 0.03750771385976681,
+      "choices": [
+        "proposal-05",
+        "proposal-06",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1192847510953898,
+      "function_grammar_distance": 1.2507465500566812,
+      "id": "23360038c2181f0982b23d1da6a1ddb04f2329f9ea182e7a1ee0adf97352c1e0",
+      "nonadditive_a_effect": 0.008052075912318934,
+      "style_reduction": 0.005915759787281649
+    },
+    {
+      "a_probability": 0.911118822441235,
+      "a_reduction": 0.03734876693108857,
+      "choices": [
+        "proposal-06",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1189845346171052,
+      "function_grammar_distance": 1.2506638932654721,
+      "id": "f566aa51e877664b245ab5616b8092eea317b6a93d1db1f03681bfa749269b50",
+      "nonadditive_a_effect": 0.007487420792309019,
+      "style_reduction": 0.005998416578490762
+    },
+    {
+      "a_probability": 0.9111923270990233,
+      "a_reduction": 0.03727526227330025,
+      "choices": [
+        "proposal-01",
+        "proposal-05",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1212349822629306,
+      "function_grammar_distance": 1.256563479622924,
+      "id": "11b78c3d6873866ac305ba241fcc9f4e61f4dd53eba39b300f36393754e5b9bd",
+      "nonadditive_a_effect": -0.003417608199905775,
+      "style_reduction": 9.883022103895911e-05
+    },
+    {
+      "a_probability": 0.9123911918690126,
+      "a_reduction": 0.03607639750331093,
+      "choices": [
+        "proposal-02",
+        "proposal-03",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1077645285822981,
+      "function_grammar_distance": 1.2313279937036992,
+      "id": "8b286c566efd0a3d9023e5d910588900a57f405980b5002ad73cc8dcfcbe7199",
+      "nonadditive_a_effect": 0.014890706544590016,
+      "style_reduction": 0.025334316140263713
+    },
+    {
+      "a_probability": 0.912848260782061,
+      "a_reduction": 0.03561932859026251,
+      "choices": [
+        "proposal-02",
+        "proposal-06",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1189845346171052,
+      "function_grammar_distance": 1.2506638932654721,
+      "id": "786fef85880656c6afd3796c107ffdd9ec0c512ea22ba0a25e9e8ac54d266647",
+      "nonadditive_a_effect": 0.008281946141469043,
+      "style_reduction": 0.005998416578490762
+    },
+    {
+      "a_probability": 0.9142151463509154,
+      "a_reduction": 0.034252443021408174,
+      "choices": [
+        "proposal-05",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1223532630476087,
+      "function_grammar_distance": 1.2570347427162651,
+      "id": "145416859bbb2eb036320ab8e379c98ff986bfe558ae3f6a70537acc3bb3b18f",
+      "nonadditive_a_effect": -0.001597472263471622,
+      "style_reduction": -0.0003724328723022641
+    },
+    {
+      "a_probability": 0.9143443590973639,
+      "a_reduction": 0.03412323027495967,
+      "choices": [
+        "proposal-01",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1209352881088832,
+      "function_grammar_distance": 1.256481205494666,
+      "id": "d06ee5a4740983a31223780ff95ed2c46d2eac17de45adda34eb5163573f8067",
+      "nonadditive_a_effect": -0.000989178250253353,
+      "style_reduction": 0.00018110434929696773
+    },
+    {
+      "a_probability": 0.9158882837014782,
+      "a_reduction": 0.03257930567084533,
+      "choices": [
+        "proposal-02",
+        "proposal-05",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1223532630476087,
+      "function_grammar_distance": 1.2570347427162651,
+      "id": "bfcd939c2c8f04411d79d07f980ba1aadee7c46c26b4f860c0811b24202a4b58",
+      "nonadditive_a_effect": -0.0008592479045748114,
+      "style_reduction": -0.0003724328723022641
+    },
+    {
+      "a_probability": 0.9162120012050159,
+      "a_reduction": 0.03225558816730767,
+      "choices": [
+        "proposal-01",
+        "proposal-02",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1209352881088832,
+      "function_grammar_distance": 1.256481205494666,
+      "id": "d90873af18982e26fc24cd13f6458a2bf68d614360fa613604c23f0cd4d2e6db",
+      "nonadditive_a_effect": -5.6449134267388956e-05,
+      "style_reduction": 0.00018110434929696773
+    },
+    {
+      "a_probability": 0.9165362206630752,
+      "a_reduction": 0.0319313687092484,
+      "choices": [
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1220529504705385,
+      "function_grammar_distance": 1.256952247532126,
+      "id": "e4f52e700484bb91ea2b47bf632e6242246e2118c9f0f2561ad31c73618e1f84",
+      "nonadditive_a_effect": 0.0,
+      "style_reduction": -0.00028993768816309995
+    },
+    {
+      "a_probability": 0.9184543456518716,
+      "a_reduction": 0.030013243720452,
+      "choices": [
+        "proposal-02",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1220529504705385,
+      "function_grammar_distance": 1.256952247532126,
+      "id": "6b1ae80824e38f36ed94dc12dd09c2a7f3fe25ac922198ad360355580238141d",
+      "nonadditive_a_effect": 0.0009832119971303621,
+      "style_reduction": -0.00028993768816309995
+    },
+    {
+      "a_probability": 0.9275423951074504,
+      "a_reduction": 0.02092519426487316,
+      "choices": [
+        "proposal-01",
+        "proposal-06",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1212349822629306,
+      "function_grammar_distance": 1.256563479622924,
+      "id": "9916fd109c55a6e2a16507932e4e115d84cffa85a969140f16272d008e60715d",
+      "nonadditive_a_effect": 0.007385514159478301,
+      "style_reduction": 9.883022103895911e-05
+    },
+    {
+      "a_probability": 0.9275765423600496,
+      "a_reduction": 0.020891047012273956,
+      "choices": [
+        "proposal-05",
+        "proposal-06",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1226534952903273,
+      "function_grammar_distance": 1.2571172324868638,
+      "id": "2725c9c49b8fcbaa3f5811687cb8796ecc9642a20a1b8d3a2ffa082aa59ed584",
+      "nonadditive_a_effect": 0.00694058014530774,
+      "style_reduction": -0.00045492264290092344
+    },
+    {
+      "a_probability": 0.9298982898384784,
+      "a_reduction": 0.01856929953384512,
+      "choices": [
+        "proposal-04",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1205771812889473,
+      "function_grammar_distance": 1.2522749591393205,
+      "id": "48b3a3fbe45d47501efa8466ff6e35bef5d0e4d8ed1c768302fbc4273ef53999",
+      "nonadditive_a_effect": 0.015544656373331023,
+      "style_reduction": 0.0043873507046423565
+    },
+    {
+      "a_probability": 0.9299057974457701,
+      "a_reduction": 0.018561791926553495,
+      "choices": [
+        "proposal-06",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1223532630476087,
+      "function_grammar_distance": 1.2570347427162651,
+      "id": "4afc6b99bd0a7cdd99c7961bf5f0d6cc1a686aa4ce886026fa7fc8f9cbc29a4a",
+      "nonadditive_a_effect": 0.008546233182340046,
+      "style_reduction": -0.0003724328723022641
+    },
+    {
+      "a_probability": 0.9307867119122286,
+      "a_reduction": 0.017680877460094946,
+      "choices": [
+        "proposal-02",
+        "proposal-06",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1223532630476087,
+      "function_grammar_distance": 1.2570347427162651,
+      "id": "66acd853caafe9128d9d7c2e3ed3ea42533d50125200de226d160a17341e9443",
+      "nonadditive_a_effect": 0.008492234657132558,
+      "style_reduction": -0.0003724328723022641
+    },
+    {
+      "a_probability": 0.930821028458261,
+      "a_reduction": 0.01764656091406258,
+      "choices": [
+        "proposal-04",
+        "proposal-05",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1208788158218252,
+      "function_grammar_distance": 1.2523580175894238,
+      "id": "9bc831005eb430dfcf755ab0a13c59267475d1f349e9a14a3bfa4ff49051dd66",
+      "nonadditive_a_effect": 0.017190997041801714,
+      "style_reduction": 0.004304292254539099
+    },
+    {
+      "a_probability": 0.9311429100048163,
+      "a_reduction": 0.017324679367507256,
+      "choices": [
+        "proposal-01",
+        "proposal-04",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1192960717643003,
+      "function_grammar_distance": 1.251524552820904,
+      "id": "873bb86506119201e68843b1930d02cab1bce94b5ea1779a77afeea103f71dfe",
+      "nonadditive_a_effect": 0.017991959855126805,
+      "style_reduction": 0.005137757023058853
+    },
+    {
+      "a_probability": 0.9321199489485223,
+      "a_reduction": 0.016347640423801213,
+      "choices": [
+        "proposal-02",
+        "proposal-04",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1205771812889473,
+      "function_grammar_distance": 1.2522749591393205,
+      "id": "a5ed286767f87bef6652548558fd3381b79ae0687eb6f954164c93dd053d6201",
+      "nonadditive_a_effect": 0.01683140249170889,
+      "style_reduction": 0.0043873507046423565
+    },
+    {
+      "a_probability": 0.9325971115973362,
+      "a_reduction": 0.0158704777749874,
+      "choices": [
+        "proposal-03",
+        "proposal-04",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1117618029437055,
+      "function_grammar_distance": 1.2341505983027465,
+      "id": "d110c11d2841fbcba07baff5d6425be95874eaa86dc90f4fa448efd44458a98d",
+      "nonadditive_a_effect": 0.026032909497046286,
+      "style_reduction": 0.02251171154121634
+    },
+    {
+      "a_probability": 0.9328054827626302,
+      "a_reduction": 0.01566210660969336,
+      "choices": [
+        "proposal-03",
+        "proposal-04"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1114576941800276,
+      "function_grammar_distance": 1.2340663144085502,
+      "id": "f3bc31bc32f2e54acc6a6fd6615e558fd982bae9682136e16f17a39877628464",
+      "nonadditive_a_effect": 0.025517678613652173,
+      "style_reduction": 0.022595995435412686
+    },
+    {
+      "a_probability": 0.9341657797018639,
+      "a_reduction": 0.014301809670459686,
+      "choices": [
+        "proposal-01",
+        "proposal-03",
+        "proposal-04"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1105579308235076,
+      "function_grammar_distance": 1.2339659590596634,
+      "id": "06d3ccd7a1bb9a0b7947ff5e12b141f473adcaedd076de368491136c55748160",
+      "nonadditive_a_effect": 0.028080658868343766,
+      "style_reduction": 0.022696350784299435
+    },
+    {
+      "a_probability": 0.9354352554779037,
+      "a_reduction": 0.013032333894419823,
+      "choices": [
+        "proposal-02",
+        "proposal-03",
+        "proposal-04"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1114576941800276,
+      "function_grammar_distance": 1.2340663144085502,
+      "id": "020b3fbf18b8e7848c6327570437511551b29a9b9d44da26ec08b181dc0458ee",
+      "nonadditive_a_effect": 0.027212538337259673,
+      "style_reduction": 0.022595995435412686
+    },
+    {
+      "a_probability": 0.936720661364354,
+      "a_reduction": 0.011746928007969615,
+      "choices": [
+        "proposal-04",
+        "proposal-06",
+        "proposal-07"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.120878815821825,
+      "function_grammar_distance": 1.2523580175894238,
+      "id": "8ffa56713753d01463640280903616e43839694ab946c927b36836d02221a2a2",
+      "nonadditive_a_effect": 0.01754368429885167,
+      "style_reduction": 0.004304292254539099
+    },
+    {
+      "a_probability": 0.9410675849704592,
+      "a_reduction": 0.007400004401864391,
+      "choices": [
+        "proposal-03",
+        "proposal-04",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1117618029437055,
+      "function_grammar_distance": 1.2341505983027465,
+      "id": "8106c29b21f3d52a20b2971f7ec0adecd26812448d587bbe2ec5e7dfb68e8291",
+      "nonadditive_a_effect": 0.028956437221126285,
+      "style_reduction": 0.02251171154121634
+    },
+    {
+      "a_probability": 0.9425223151066593,
+      "a_reduction": 0.005945274265664269,
+      "choices": [
+        "proposal-04",
+        "proposal-05",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1239564284327297,
+      "function_grammar_distance": 1.2582302941536803,
+      "id": "401542d5c4ee5b37c39a66c92d7d200d60d1da332de4a6386ab78d1b4eb1b791",
+      "nonadditive_a_effect": 0.011164121075695976,
+      "style_reduction": -0.0015679843097173851
+    },
+    {
+      "a_probability": 0.9437525579368997,
+      "a_reduction": 0.004715031435423844,
+      "choices": [
+        "proposal-04",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.123654687189001,
+      "function_grammar_distance": 1.2581473670179606,
+      "id": "f8b94805e0cbb826a7f3cbe05daf9d49ac9a544b6a8b249103803662b316f808",
+      "nonadditive_a_effect": 0.011670761857248246,
+      "style_reduction": -0.001485057173997717
+    },
+    {
+      "a_probability": 0.9449017356494629,
+      "a_reduction": 0.003565853722860668,
+      "choices": [
+        "proposal-01",
+        "proposal-04",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.12254675152179,
+      "function_grammar_distance": 1.2577030040216337,
+      "id": "3483267e03765a70d2a810456e5747ddc498e4b2dcd0825d79bc483adbf1d9bc",
+      "nonadditive_a_effect": 0.014022622885269342,
+      "style_reduction": -0.0010406941776708312
+    },
+    {
+      "a_probability": 0.9449548276944462,
+      "a_reduction": 0.0035127616778773962,
+      "choices": [
+        "proposal-02",
+        "proposal-04",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.123654687189001,
+      "function_grammar_distance": 1.2581473670179606,
+      "id": "8d1ebc56bab5dd11132afa9f7a836f5e5d98f596babe8db36a88731e30449537",
+      "nonadditive_a_effect": 0.011938118623128657,
+      "style_reduction": -0.001485057173997717
+    },
+    {
+      "a_probability": 0.9462912210168807,
+      "a_reduction": 0.0021763683554428814,
+      "choices": [
+        "proposal-01",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.122503331408175,
+      "function_grammar_distance": 1.2563103571668044,
+      "id": "a08a4d575d9d7a038870793c4af2f66e8e376ba2a817d064ef8713d2ea1bd643",
+      "nonadditive_a_effect": -0.0002500829912968072,
+      "style_reduction": 0.00035195267715848466
+    },
+    {
+      "a_probability": 0.9467810651195288,
+      "a_reduction": 0.0016865242527948077,
+      "choices": [
+        "proposal-01",
+        "proposal-02",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.122503331408175,
+      "function_grammar_distance": 1.2563103571668044,
+      "id": "06b17ce74318946b8f1210f6bf846ff74b994bbf493e59e732f7b105709a72e7",
+      "nonadditive_a_effect": -0.0006951518803147705,
+      "style_reduction": 0.00035195267715848466
+    },
+    {
+      "a_probability": 0.9472649060568656,
+      "a_reduction": 0.0012026833154579197,
+      "choices": [
+        "proposal-01"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.122203975977648,
+      "function_grammar_distance": 1.2562280664608008,
+      "id": "c46e3dafcf672ef97f477cb791e2623e8896deb816a686b316adcb7c29ab6ff5",
+      "nonadditive_a_effect": 0.0,
+      "style_reduction": 0.00043424338316211397
+    },
+    {
+      "a_probability": 0.9477439873236354,
+      "a_reduction": 0.0007236020486881545,
+      "choices": [
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1235895605550414,
+      "function_grammar_distance": 1.2567448240601784,
+      "id": "a59f5d1c32f83dd81e6352fd31a7b1093c11f011c75de1f7707403731b8cc2c5",
+      "nonadditive_a_effect": 0.0,
+      "style_reduction": -8.251421621552346e-05
+    },
+    {
+      "a_probability": 0.9480186370920068,
+      "a_reduction": 0.00044895228031671675,
+      "choices": [
+        "proposal-01",
+        "proposal-02"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.122203975977648,
+      "function_grammar_distance": 1.2562280664608008,
+      "id": "4322e722d3ca598dd793914b08535ca3320bcb6770a1678544fac8bf57435ede",
+      "nonadditive_a_effect": -0.00018118195652483404,
+      "style_reduction": 0.00043424338316211397
+    },
+    {
+      "a_probability": 0.9482951957054482,
+      "a_reduction": 0.00017239366687538116,
+      "choices": [
+        "proposal-02",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1235895605550414,
+      "function_grammar_distance": 1.2567448240601784,
+      "id": "d69bb4dbcd86ab5990b01b61aa281a5ae070fcc43317878801759817fb27e90f",
+      "nonadditive_a_effect": -0.0003837046098532637,
+      "style_reduction": -8.251421621552346e-05
+    },
+    {
+      "a_probability": 0.9484675893723236,
+      "a_reduction": 0.0,
+      "choices": [],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1232895785033783,
+      "function_grammar_distance": 1.2566623098439629,
+      "id": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "nonadditive_a_effect": 0.0,
+      "style_reduction": 0.0
+    },
+    {
+      "a_probability": 0.9494025023639896,
+      "a_reduction": -0.000934912991666037,
+      "choices": [
+        "proposal-02"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1232895785033783,
+      "function_grammar_distance": 1.2566623098439629,
+      "id": "e319f7f72716725ce200aa74cb5a15a9fa5cb4ab0669e7046cddf0fe2748bd4c",
+      "nonadditive_a_effect": 0.0,
+      "style_reduction": 0.0
+    },
+    {
+      "a_probability": 0.9507523323202569,
+      "a_reduction": -0.002284742947933349,
+      "choices": [
+        "proposal-01",
+        "proposal-05",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1228026070262132,
+      "function_grammar_distance": 1.2563926424829641,
+      "id": "8b307c00795748512d115565d0384a8d41374167ceb41e7f1f0364f6fbfc60f0",
+      "nonadditive_a_effect": -0.0006123152882754335,
+      "style_reduction": 0.0002696673609987599
+    },
+    {
+      "a_probability": 0.9511935817553112,
+      "a_reduction": -0.002725992382987652,
+      "choices": [
+        "proposal-04",
+        "proposal-06",
+        "proposal-08"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1239564284327297,
+      "function_grammar_distance": 1.2582302941536803,
+      "id": "51f4ee1dc417a5714263e03595740b371ab6f7c1c29840e2f40c0d17af6f2008",
+      "nonadditive_a_effect": 0.014288442075304886,
+      "style_reduction": -0.0015679843097173851
+    },
+    {
+      "a_probability": 0.9518024956945464,
+      "a_reduction": -0.003334906322222886,
+      "choices": [
+        "proposal-01",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.122503331408175,
+      "function_grammar_distance": 1.2563103571668044,
+      "id": "f62c311dcd7b8c8cf5fb61427071a3a4816df5850a75b528375c55b83f1277db",
+      "nonadditive_a_effect": -0.0002857539626740513,
+      "style_reduction": 0.00035195267715848466
+    },
+    {
+      "a_probability": 0.9522939392962351,
+      "a_reduction": -0.0038263499239115095,
+      "choices": [
+        "proposal-01",
+        "proposal-02",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.122503331408175,
+      "function_grammar_distance": 1.2563103571668044,
+      "id": "05d4ce182ac9778b55b4c41f7fede74a33cb8f30e0bfaec921dfe9f5b0060adc",
+      "nonadditive_a_effect": -0.0007292233526514647,
+      "style_reduction": 0.00035195267715848466
+    },
+    {
+      "a_probability": 0.9523768572767555,
+      "a_reduction": -0.003909267904431912,
+      "choices": [
+        "proposal-05",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1238894625372398,
+      "function_grammar_distance": 1.2568273328591055,
+      "id": "46483790b7b655159e98636bdfa2eafefbccc90dab26f54f14b7d25d328e4de8",
+      "nonadditive_a_effect": -0.0001904736472347901,
+      "style_reduction": -0.00016502301514265127
+    },
+    {
+      "a_probability": 0.9526716799236865,
+      "a_reduction": -0.004204090551362949,
+      "choices": [
+        "proposal-02",
+        "proposal-05",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1238894625372398,
+      "function_grammar_distance": 1.2568273328591055,
+      "id": "b9c79540ffaaf79bae64cd9dce8131a49675a32c4a85d5208b5fbdc83d031959",
+      "nonadditive_a_effect": -0.0008305639919697905,
+      "style_reduction": -0.00016502301514265127
+    },
+    {
+      "a_probability": 0.9532909329726784,
+      "a_reduction": -0.004823343600354857,
+      "choices": [
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1235895605550414,
+      "function_grammar_distance": 1.2567448240601784,
+      "id": "4ff60bf7384cae6f5619529969701fbe708f183438f9c5e20b00fec7c81afe7a",
+      "nonadditive_a_effect": 0.0,
+      "style_reduction": -8.251421621552346e-05
+    },
+    {
+      "a_probability": 0.9538573234455956,
+      "a_reduction": -0.0053897340732720345,
+      "choices": [
+        "proposal-02",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1235895605550414,
+      "function_grammar_distance": 1.2567448240601784,
+      "id": "ea388f23f567e195c58a6d12193f5be1e786ba4bf72ec3276a0551fd75bc44ea",
+      "nonadditive_a_effect": -0.00036852251874885944,
+      "style_reduction": -8.251421621552346e-05
+    },
+    {
+      "a_probability": 0.9636040055236874,
+      "a_reduction": -0.015136416151363852,
+      "choices": [
+        "proposal-01",
+        "proposal-04",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.126557770061371,
+      "function_grammar_distance": 1.2592480064587188,
+      "id": "45b793b99bc89dfbe3b234c7df6d67b47469607318a5e9940667e636b304fef0",
+      "nonadditive_a_effect": 0.0015171260989336188,
+      "style_reduction": -0.002585696614755939
+    },
+    {
+      "a_probability": 0.9637862763340932,
+      "a_reduction": -0.015318686961769634,
+      "choices": [
+        "proposal-04",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1275299415354725,
+      "function_grammar_distance": 1.2594791998033859,
+      "id": "35c151977e8bff8cc61ddabd99c551da559624e1cf185ddd44df13e0b5cf9573",
+      "nonadditive_a_effect": 0.0004967135938814815,
+      "style_reduction": -0.0028168899594229746
+    },
+    {
+      "a_probability": 0.9640131647888999,
+      "a_reduction": -0.015545575416576307,
+      "choices": [
+        "proposal-04"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1272291568645392,
+      "function_grammar_distance": 1.2593963549040261,
+      "id": "e9214cd2ff4fb347097a365a7b02997b168d4c3fb89a7dbc29cfbce9878e6b1b",
+      "nonadditive_a_effect": 0.0,
+      "style_reduction": -0.0027340450600632504
+    },
+    {
+      "a_probability": 0.96411374766678,
+      "a_reduction": -0.01564615829445648,
+      "choices": [
+        "proposal-01",
+        "proposal-04"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.12625765646809,
+      "function_grammar_distance": 1.2591654024937045,
+      "id": "e4b5d86abc844c5ba7d680def45e12b21d222be7bcb834aed329507d8cbfbc89",
+      "nonadditive_a_effect": 0.001303266193338093,
+      "style_reduction": -0.0025030926497415784
+    },
+    {
+      "a_probability": 0.9642397105340578,
+      "a_reduction": -0.01577212116173421,
+      "choices": [
+        "proposal-02",
+        "proposal-04",
+        "proposal-05"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1275299415354725,
+      "function_grammar_distance": 1.2594791998033859,
+      "id": "15c17c0d2ef463eeb297d5388f3a148ccca3ebdd7486be9c74c2d3973881dee3",
+      "nonadditive_a_effect": 1.5234802180019713e-05,
+      "style_reduction": -0.0028168899594229746
+    },
+    {
+      "a_probability": 0.9645368879912232,
+      "a_reduction": -0.016069298618899608,
+      "choices": [
+        "proposal-02",
+        "proposal-04"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1272291568645392,
+      "function_grammar_distance": 1.2593963549040261,
+      "id": "fd02f1d3c549d83d3d9e2f4c341a397a4f6f91eed599601706dee660ad4d05a3",
+      "nonadditive_a_effect": -0.0004111897893427363,
+      "style_reduction": -0.0027340450600632504
+    },
+    {
+      "a_probability": 0.9649439654965323,
+      "a_reduction": -0.016476376124208714,
+      "choices": [
+        "proposal-01",
+        "proposal-02",
+        "proposal-04"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.12625765646809,
+      "function_grammar_distance": 1.2591654024937045,
+      "id": "f88c065908ff194f1ba3d2d954f2d47f8391c234551b0aec264df2d207aaa4c7",
+      "nonadditive_a_effect": 0.0011985710314242892,
+      "style_reduction": -0.0025030926497415784
+    },
+    {
+      "a_probability": 0.9663295826276659,
+      "a_reduction": -0.017861993255342323,
+      "choices": [
+        "proposal-04",
+        "proposal-05",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1278306459892071,
+      "function_grammar_distance": 1.259562039253806,
+      "id": "aac22205ab7a555e50addc385a06a8985c9af531938cb0c990c57c8a190c91b2",
+      "nonadditive_a_effect": -0.0017833237129006863,
+      "style_reduction": -0.002899729409843177
+    },
+    {
+      "a_probability": 0.9666299189880331,
+      "a_reduction": -0.018162329615709516,
+      "choices": [
+        "proposal-04",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1275299415354725,
+      "function_grammar_distance": 1.2594791998033859,
+      "id": "5a1396d220516ec1c8b3789c82401a5e36d2338bc3235044c16848a1b75cf93a",
+      "nonadditive_a_effect": -0.002206589401221648,
+      "style_reduction": -0.0028168899594229746
+    },
+    {
+      "a_probability": 0.9670143661188824,
+      "a_reduction": -0.018546776746558802,
+      "choices": [
+        "proposal-01",
+        "proposal-04",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.126557770061371,
+      "function_grammar_distance": 1.2592480064587188,
+      "id": "5138b4780e261593b48803742587bb42365c26ee6cc7e5be792897a83c1c0df5",
+      "nonadditive_a_effect": -0.0006194589549144425,
+      "style_reduction": -0.002585696614755939
+    },
+    {
+      "a_probability": 0.9670713742626698,
+      "a_reduction": -0.018603784890346198,
+      "choices": [
+        "proposal-02",
+        "proposal-04",
+        "proposal-06"
+      ],
+      "editorial_status": "unreviewed",
+      "eligible_output": false,
+      "full_word_grammar_distance": 1.1275299415354725,
+      "function_grammar_distance": 1.2594791998033859,
+      "id": "1eecef20505bb81279e31aaf76dc4f20b2344fa01c83c4ba62c00ddd68257e02",
+      "nonadditive_a_effect": -0.0027000471182510033,
+      "style_reduction": -0.0028168899594229746
+    }
+  ],
+  "schema": "slop_ninja_b_edit_menu_ranking_v1",
+  "scope": "Exhaustive only within this finite menu and declared depth. No global attribution or independent validation. Every revision requires full-text editorial review; no greedy single-edit pruning.",
+  "scores_sha256": "81911ad0dbf051a0a87bd58f2649e93188e02a257971d97a4d9997b146abf50c",
+  "source_a_probability": 0.9484675893723236
+}

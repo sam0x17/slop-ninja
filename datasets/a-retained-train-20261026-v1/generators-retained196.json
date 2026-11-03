@@ -1,0 +1,110 @@
+{
+  "generators": [
+    {
+      "configuration": {
+        "alias": "a-train-scale-a-fresh-known_model_1",
+        "allowed_splits": [
+          "train"
+        ],
+        "filename": "Qwen3.6-35B-A3B-UD-IQ4_XS.gguf",
+        "identity": "Qwen/Qwen3.6-35B-A3B:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+        "original_revision_is_proven_quantization_input": false,
+        "repo": "unsloth/Qwen3.6-35B-A3B-GGUF",
+        "revision": "a483e9e6cbd595906af30beda3187c2663a1118c",
+        "rights": {
+          "generation_permitted": true,
+          "model_license": "Apache-2.0",
+          "model_weights_redistributed": false
+        },
+        "runtime_libraries": [
+          {
+            "filename": "libllama-server-impl.so",
+            "sha256": "3317ec52867322cb95462653b71208f8af82daf9a6c6bb26740e62bb8df8dd54"
+          }
+        ],
+        "runtime_sha256": "462ea7f6a2e2266ac4e2356dfa367453b2f4632fc382b8180c7a5f41227df5c6",
+        "schema": "slop_ninja_local_generator_v1",
+        "sha256": "649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+        "size_bytes": 17730509792
+      },
+      "model": {
+        "advertised_context_tokens": 262144,
+        "architecture": "qwen35moe",
+        "download_url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/a483e9e6cbd595906af30beda3187c2663a1118c/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf",
+        "filename": "Qwen3.6-35B-A3B-UD-IQ4_XS.gguf",
+        "git_pointer_blob_sha1": "af3d6c1271ef693c3c16fff4f3c94384796b184a",
+        "lfs_oid": "sha256:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+        "original_gated": false,
+        "original_license": "Apache-2.0",
+        "original_metadata_revision": "995ad96eacd98c81ed38be0c5b274b04031597b0",
+        "original_model_repo": "Qwen/Qwen3.6-35B-A3B",
+        "original_revision_is_proven_quantization_input": false,
+        "quantization": "UD-IQ4_XS",
+        "quantization_gated": false,
+        "quantized_repo": "unsloth/Qwen3.6-35B-A3B-GGUF",
+        "quantizer_card_license": "Apache-2.0",
+        "revision": "a483e9e6cbd595906af30beda3187c2663a1118c",
+        "role": "known_model_1",
+        "sha256": "649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+        "size_bytes": 17730509792
+      },
+      "original_binding_sha256": "e683194d7b5db844e2da107aeb1714fb7847eb4bdd2d2c8645dedd5d42a9ed88",
+      "original_config_sha256": "fc3f44298af6443f1de0ef031a55270caec98272a06d776faeee21c8d18e7d5d",
+      "slot": "known_model_1"
+    },
+    {
+      "configuration": {
+        "alias": "a-train-scale-a-fresh-known_model_2",
+        "allowed_splits": [
+          "train"
+        ],
+        "filename": "microsoft_Phi-4-mini-instruct-Q4_K_M.gguf",
+        "identity": "microsoft/Phi-4-mini-instruct:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2",
+        "original_revision_is_proven_quantization_input": false,
+        "repo": "bartowski/microsoft_Phi-4-mini-instruct-GGUF",
+        "revision": "7ff82c2aaa4dde30121698a973765f39be5288c0",
+        "rights": {
+          "generation_permitted": true,
+          "model_license": "MIT",
+          "model_weights_redistributed": false
+        },
+        "runtime_libraries": [
+          {
+            "filename": "libllama-server-impl.so",
+            "sha256": "3317ec52867322cb95462653b71208f8af82daf9a6c6bb26740e62bb8df8dd54"
+          }
+        ],
+        "runtime_sha256": "462ea7f6a2e2266ac4e2356dfa367453b2f4632fc382b8180c7a5f41227df5c6",
+        "schema": "slop_ninja_local_generator_v1",
+        "sha256": "01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2",
+        "size_bytes": 2491874688
+      },
+      "model": {
+        "advertised_context_tokens": 131072,
+        "architecture": "phi3",
+        "download_url": "https://huggingface.co/bartowski/microsoft_Phi-4-mini-instruct-GGUF/resolve/7ff82c2aaa4dde30121698a973765f39be5288c0/microsoft_Phi-4-mini-instruct-Q4_K_M.gguf",
+        "filename": "microsoft_Phi-4-mini-instruct-Q4_K_M.gguf",
+        "git_pointer_blob_sha1": "4620e1647f692a2dc7136004a0cf1dee7c269e63",
+        "lfs_oid": "sha256:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2",
+        "original_gated": false,
+        "original_license": "MIT",
+        "original_metadata_revision": "cfbefacb99257ffa30c83adab238a50856ac3083",
+        "original_model_repo": "microsoft/Phi-4-mini-instruct",
+        "original_revision_is_proven_quantization_input": false,
+        "quantization": "Q4_K_M",
+        "quantization_gated": false,
+        "quantized_repo": "bartowski/microsoft_Phi-4-mini-instruct-GGUF",
+        "quantizer_card_license": null,
+        "revision": "7ff82c2aaa4dde30121698a973765f39be5288c0",
+        "role": "known_model_2",
+        "sha256": "01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2",
+        "size_bytes": 2491874688
+      },
+      "original_binding_sha256": "97b6f013030a6d8d8ad6530145ae68b6ede7249bdaad382e713a67d2dfaa9c1b",
+      "original_config_sha256": "3fc69820a9a81998b5f11b8a275819a6cd534536009e0cdb9d10f01b77e98109",
+      "slot": "known_model_2"
+    }
+  ],
+  "original_registry_sha256": "2b5fc26d0de6593745f1eb7e4cac4e611173107a7dc2c0bbd0bb0ef0416b5daa",
+  "weights_included": false
+}

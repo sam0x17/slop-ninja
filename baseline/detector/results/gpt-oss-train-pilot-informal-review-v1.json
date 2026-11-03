@@ -1,0 +1,136 @@
+{
+  "schema": "slop_ninja_gpt_oss_train_pilot_manual_review_v1",
+  "profile": "informal",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "source_contract_sha256": "762c18847a9c8e476343199d47ac782791219198a2f6ad34d02f3f704511152e",
+  "planned_profile_requests": 4,
+  "planned_whole_pilot_requests": 24,
+  "reviewed_outputs": 4,
+  "profile_review_complete": true,
+  "rows": [
+    {
+      "task": "be1a5c8724eaac5e0ed908cca5a37904968dc10c69a832f934bad2d6dde5aad5",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "source_sha256": "b916dbe980cbb2b6c66a6b8d8351ac130deccafb8d2c0135843fd8eff40bb131",
+      "text_sha256": "9f4037ca515185a6c0cfd5c69f7c6b602037a153f157e31384a4d5c0d03adaeb",
+      "request_sha256": "f7fdf9b215d9e418b3d4b6e73acdbdee5ccbb63986daf1c34281f0f9969f1ee8",
+      "response_sha256": "48509149872c9e37827aa8825f5f7a2b0262244b136f29e1bb748c2513c86fd4",
+      "record_sha256": "469ea4669c32b5c7752f6308049162588a19d43f10316d9ddf8d76162349ec43",
+      "prompt_tokens": 619,
+      "completion_tokens": 1282,
+      "final_words_whitespace": 224,
+      "preserved": [
+        "The pack leaders' names and mate relationship, pregnancy, secrecy from the evil half-sister, rumored Sight, feared human enemy, hardships, prophecy and unresolved outcome remain recognizable."
+      ],
+      "omissions_and_relationship_changes": [
+        "Dragga and Drappa remain as unexplained terms; their dominant-male and dominant-female definitions are missing.",
+        "Palla's childhood location becomes the mountain rather than clearly the specific cave. Seeking a place to nurse and raise cubs becomes a prediction that the cave will shelter unborn pups.",
+        "Added claims include the pups symbolizing hope, an emotional trek, challenges to Huttser's leadership, his balancing protection with secrecy, and Palla's maternal drive to safeguard a lineage. These psychological and thematic interpretations are not supplied by the source."
+      ],
+      "register_and_tone": "The dramatic summary remains readable but gains repetitive thematic conclusions and more authorial interpretation. The requested conversational register is weakly realized; the final contains no contractions. This does not establish population-level style compliance.",
+      "word_count_observation": "The raw response counts an initial draft, then explicitly adds character psychology and thematic claims to extend it. The final has 224 Unicode-whitespace words against an approximate target of 194. The prompt did not require an exact count; no causal prompt comparison was performed.",
+      "read_scope": "Read the complete saved source and writing instructions, full raw response and final passage against the frozen source obligations.",
+      "finish_reason": "stop",
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "disposition": "Retain exact model-origin evidence and fidelity defects. No controlled same-meaning style comparison, active training admission or released-corpus admission."
+    },
+    {
+      "task": "2df67f3756b9439bb67fe0a0b399a7236d9062c3761b87c4f9e0d13d87d31599",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "source_sha256": "44a8481592c6470d36444a0dc85b56a3b11e738dc35c921db7ded6b1d92dc330",
+      "text_sha256": "e3903696d73b1200d978f1ca4311e9d04d5bad383a14b1e23ad982e23baf6413",
+      "request_sha256": "e76b9d2bd74b6ae84dc87da55c915bd24d44b4bd756a7619fd2685e7762abc95",
+      "response_sha256": "4857e704891391708aa294d6d9e7432a9742244697850c311727f2d461817a29",
+      "record_sha256": "0deb3d8d5c6eff38532dbe31a715526ad004da43c254ba2eebf670c0dc1f581e",
+      "prompt_tokens": 634,
+      "completion_tokens": 1854,
+      "final_words_whitespace": 222,
+      "preserved": [
+        "Missing observations, possible effects on conclusions, attrition and later absent measurements, income-related nonresponse, data-entry errors, three named missingness types and the censoring analogy remain."
+      ],
+      "omissions_and_relationship_changes": [
+        "A missing value is narrowed to a missing number.",
+        "The item-versus-whole-subject distinction, the three named research fields, government's and private entities' failure to report or lack of information, and improper collection are omitted or collapsed into institutions withholding data.",
+        "Longitudinal research loses its explicit explanation as repeated measurement over time, although later measurements partly imply that relationship."
+      ],
+      "unsupported_additions": [
+        "Definitions of MCAR, MAR and MNAR, claims about bias and efficiency, multiple imputation, maximum likelihood and sensitivity analysis are supplied despite being absent from the source.",
+        "The final paragraph adds mandatory methodological advice and policy consequences. The draft devotes most of its text to analysis prescriptions instead of the source's explanations of missingness. External technical correctness was not adjudicated."
+      ],
+      "register_and_tone": "No clear conversational shift is realized. Acronym definitions, technical methods and mandatory advice make the output more specialized and prescriptive than the supplied general explanation.",
+      "word_count_observation": "The raw response counts individual words and adds treatment and policy claims to reach its chosen exact 222-word target. That is observed generation behavior under an approximate-length prompt, not evidence from a randomized prompt comparison.",
+      "read_scope": "Read the complete saved source and writing instructions, full raw response and final passage against the frozen source obligations.",
+      "finish_reason": "stop",
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "disposition": "Retain exact model-origin evidence and fidelity defects. No controlled same-meaning style comparison, active training admission or released-corpus admission."
+    },
+    {
+      "task": "f6d74d76d63081bd60a5fd8a83a589c5215ab9853f1c5cf7250f013b51cba1a7",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "source_sha256": "6571837bc8ea414c0b659bb8f78669f7dfa2889af57b7d098b390f40b279f510",
+      "text_sha256": "28818719fcfe4aa392dd4a3dec2d785cc5c34e9a75d734e0d6f1eea3ec020692",
+      "request_sha256": "63cd4745d4536f0b26231cd77571231e04048e98cccc5952648ef2ffae786d1d",
+      "response_sha256": "8e9924920d8cc2d710c290e16dd7c534f120d372e4d139091165f11384e432a2",
+      "record_sha256": "b4a512d1d512854a06a8c189e427209b67e901fc275f54f46c504a850976a2da",
+      "prompt_tokens": 741,
+      "completion_tokens": 671,
+      "final_words_whitespace": 242,
+      "preserved": [
+        "The three MNC populations, eCM control, mapping and cardiac measurements, 30% and 94% pacing outcomes, p<0.01, connexin 43 observation and broadly similar functional improvements remain."
+      ],
+      "omissions_and_relationship_changes": [
+        "The 14-day interval again moves from assessment after injury and injection to injection after injury. The assessment time is no longer given.",
+        "The source's most frequent and potentially lethal complication becomes the most common lethal complication, dropping a qualification and altering the comparison class.",
+        "Clinical and experimental evidence of possible benefit becomes an unspecified proposal. The results initially retain prevention of VT, then describe reduced inducible arrhythmias and mitigating risk instead."
+      ],
+      "unsupported_additions": [
+        "Male mice are specified despite the source not specifying sex.",
+        "The concluding sentence suggests different mechanisms of functional recovery across cell populations. The supplied abstract does not establish this mechanistic interpretation."
+      ],
+      "register_and_tone": "The final is a conventional labeled scientific abstract with technical vocabulary. The conversational request is not clearly realized; the added mechanistic conclusion goes beyond a change of register.",
+      "word_count_observation": "The short raw response approximates length without an extended word-by-word counting trace. The repeated timing defect therefore also appears without that observed behavior.",
+      "read_scope": "Read the complete saved source and writing instructions, full raw response and final passage against the frozen source obligations.",
+      "finish_reason": "stop",
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "disposition": "Retain exact model-origin evidence and fidelity defects. No controlled same-meaning style comparison, active training admission or released-corpus admission."
+    },
+    {
+      "task": "f8dc75dc3b3ee2179fe9d1fc2354df574ac9a65a5a60df7e790f9399995ef254",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "source_sha256": "be240fa8a178127fadaebc802d140ab2af884174a472905a36f169b7030269a1",
+      "text_sha256": "d2a0b4fa1c58d407a2e61a2ed4946f6fc75b4f7460ebe13e4d5e7616b2ab596a",
+      "request_sha256": "b669f38a21fc50456582b170e10feea15287e435f148a8385e5efddd267a86ad",
+      "response_sha256": "3daf65263d5a9158a997656d0a9d4c6634264e3866faf2eac3f30bdfd30a0fc3",
+      "record_sha256": "d3eeb6ac3bfa55e9c7b27e2d209dd76be297421292fd06b16b4842eba8370133",
+      "prompt_tokens": 632,
+      "completion_tokens": 1774,
+      "final_words_whitespace": 198,
+      "preserved": [
+        "The source-relative yesterday, first Oscar/sixth nomination/1993 relationship, most award categories and titles, winners and song/film associations remain."
+      ],
+      "omissions_and_relationship_changes": [
+        "The Wolf of Wall Street's Best Picture nomination and The Weeknd's Canadian nationality are omitted.",
+        "Saying Mad Max led the pack with ten nominations adds a comparative ranking absent from the source."
+      ],
+      "unsupported_additions": [
+        "The final sentence invents an industry-shift interpretation, several first-time winners and an emphasis on documentary storytelling.",
+        "The same added sentence appends 2026, which is absent from the supplied source. A fixed current-date template does not preserve the source's temporal frame automatically."
+      ],
+      "register_and_tone": "Conversational reporting phrases are present, but the added concluding interpretation weakens factual-news fidelity. Markdown title emphasis is also new.",
+      "word_count_observation": "The full raw response counts a 179-word draft, adds the unsupported ceremony interpretation, then explicitly appends the two-word year phrase to reach its chosen 198-word count. This is direct evidence about that attempt; it is not a causal prompt comparison.",
+      "read_scope": "Read the complete saved source and writing instructions, full raw response and final passage against the frozen source obligations.",
+      "finish_reason": "stop",
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "disposition": "Retain exact model-origin evidence and fidelity defects. No controlled same-meaning style comparison, active training admission or released-corpus admission."
+    }
+  ],
+  "limitations": "All four informal outputs reviewed; 12 of 24 planned outputs reviewed across three profiles. The informal collector admitted four records, all with strict-fidelity failures. Requested style is not a reliable realized-style label. These small source-conditioned attempts provide no population estimate, paired causal style-effect estimate or detector result.",
+  "new_training_records_admitted": 0,
+  "detector_calls": 0,
+  "pangram_calls": 0
+}

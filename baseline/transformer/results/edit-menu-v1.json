@@ -1,0 +1,511 @@
+{
+  "schema": "slop_ninja_b_menu_development_v1",
+  "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+  "code_commit": "c885dd4",
+  "research_only": true,
+  "independent_editorial_validation": false,
+  "held_out_evaluation": false,
+  "pangram_status": "complete_for_sources_and_all_selected_checkpoints",
+  "reference_ids": [
+    "gv:572191",
+    "gv:589277"
+  ],
+  "rows": [
+    {
+      "task": "workshop",
+      "round": "v1",
+      "input_sha256": "3d88b5393cf311d5e7ef6dff93659ceb378e09c4b758454defa789a69684d8f1",
+      "plan_sha256": "c3dc0c8d9c54b7f95aac065fd0c691891cc0a2694ebe21412a801237f7111ae9",
+      "scores_sha256": "7ad4d7e29f8ced428be9ce35809eb6dd77ab4130cccd84438fc390a2a915d2df",
+      "ranking_sha256": "50a1cb8aa9fb940e09a4d62b50ce4b02ea64fc0e0f8dfca26c24e3dfb6dde749",
+      "state_count": 176,
+      "unique_scored_texts": 176,
+      "rejected_states": 0,
+      "source_a_probability": 0.7284791436419755,
+      "source_function_grammar_distance": 1.2587192013877704,
+      "lowest_a_state": {
+        "a_probability": 0.4510344065770034,
+        "a_reduction": 0.27744473706497214,
+        "choices": [
+          "book",
+          "possible",
+          "trying"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.1263524510428842,
+        "function_grammar_distance": 1.2647114138701063,
+        "id": "1d3e5543fed99aa8adcf49a15338de8a8b41f5595499aaeb1f4ee17e999adb60",
+        "nonadditive_a_effect": -0.05423799544749258,
+        "style_reduction": -0.005992212482335946
+      },
+      "selected": true,
+      "selection_sha256": "54d92985ed0dc46217da81e1b651dc2ff7e6cef74bb12835cf2166f2e2e17ca7",
+      "contextual_sign_reversals": {
+        "cancel": {
+          "min_a_reduction": -0.009842479265451454,
+          "max_a_reduction": 0.09718648808162078
+        }
+      }
+    },
+    {
+      "task": "workshop",
+      "round": "v2",
+      "input_sha256": "9fccae27d8347dfb8d66f4d68a0facda60586e96ad4904f58c8506d4f74f3ffa",
+      "plan_sha256": "b21cddadbf83fcac7f7d0cd3e4a50d283b26b81023bfb37c398fe7ebc6334774",
+      "scores_sha256": "5b1a059c94e1c4dda2d8ed3f7017333985df0622ba54103b656aa73d5a20ca2e",
+      "ranking_sha256": "6a2af18ec37eef19983d35dd6d880d30c6ede4c23ada00ef1cb9e39d5bd508d3",
+      "state_count": 93,
+      "unique_scored_texts": 93,
+      "rejected_states": 0,
+      "source_a_probability": 0.4510344065770034,
+      "source_function_grammar_distance": 1.2647114138701063,
+      "lowest_a_state": {
+        "a_probability": 0.15962873070514488,
+        "a_reduction": 0.2914056758718585,
+        "choices": [
+          "induction",
+          "exclusion",
+          "safety"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.1190303005541524,
+        "function_grammar_distance": 1.2520615408888989,
+        "id": "478155121f518ae697347f0cc38ba9a8786c12cad48c7bc8a86d5f7ef524c4c6",
+        "nonadditive_a_effect": -0.06772894508012683,
+        "style_reduction": 0.012649872981207455
+      },
+      "selected": true,
+      "selection_sha256": "d9e9017cab3af026090ef35592b9a1afe978db424c03ff3c3f4b49a6603d8efc",
+      "contextual_sign_reversals": {
+        "induction": {
+          "min_a_reduction": -0.008375698596413517,
+          "max_a_reduction": 0.0862069154302113
+        },
+        "exclusion": {
+          "min_a_reduction": -0.07117406734201293,
+          "max_a_reduction": 0.06086596319068138
+        },
+        "reason": {
+          "min_a_reduction": -0.04231305539670943,
+          "max_a_reduction": 0.031297522350406504
+        }
+      }
+    },
+    {
+      "task": "workshop",
+      "round": "v3",
+      "input_sha256": "a8fae1af8a4d299af03a13a48e954437e49359740eff5a562c422195fbe82993",
+      "plan_sha256": "419b743665301447aa6e01334c62799b6dae7c8c5bcb1442b433ced83574b6b8",
+      "scores_sha256": "6e9459d3d4f9d202b720cc8fdc47f3ba3d62f098fea7048772b3f625b3d37e6f",
+      "ranking_sha256": "b727d9c212db80a4723fe0defbb41b2820a47e6d60e5bd59163138ca5df8f7d3",
+      "state_count": 93,
+      "unique_scored_texts": 93,
+      "rejected_states": 0,
+      "source_a_probability": 0.15962873070514488,
+      "source_function_grammar_distance": 1.2520615408888989,
+      "lowest_a_state": {
+        "a_probability": 0.04139120162134324,
+        "a_reduction": 0.11823752908380164,
+        "choices": [
+          "keep",
+          "late-order",
+          "ahead"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.1179244614854555,
+        "function_grammar_distance": 1.2506739570245948,
+        "id": "032e923b64d0fcb9fb98790530bd2b486822d1e390ab2cd5dbb04f2480c7f0a2",
+        "nonadditive_a_effect": 0.02885584891096843,
+        "style_reduction": 0.0013875838643040428
+      },
+      "selected": true,
+      "selection_sha256": "1b7494d04b4b6c6e4af89fa0007519dfaa55746df188f0cf8d7f62dcf92de8f9",
+      "contextual_sign_reversals": {
+        "keep": {
+          "min_a_reduction": -0.0005696347336461294,
+          "max_a_reduction": 0.026112220956374
+        }
+      }
+    },
+    {
+      "task": "offline-notes",
+      "round": "v1",
+      "input_sha256": "f477cb94776078a4fac2c06d818d7b48840e64e706458f77b64efbdd881d5e85",
+      "plan_sha256": "4dc4b30e0ce9353c17e47bcc949c3cffaf44a39317e4c47bd27e9d0a56215ca4",
+      "scores_sha256": "8c9b0f6cbc676a196518c9d5d58fba4491a6c9e670f486d33cf61d1433343058",
+      "ranking_sha256": "04b9386249b0aa4160ee1ef4ae5fcc4072aa29869be9a7f1e04d74342f19dac6",
+      "state_count": 130,
+      "unique_scored_texts": 130,
+      "rejected_states": 0,
+      "source_a_probability": 0.8506386324808787,
+      "source_function_grammar_distance": 1.2004352403068879,
+      "lowest_a_state": {
+        "a_probability": 0.7680142832829528,
+        "a_reduction": 0.08262434919792583,
+        "choices": [
+          "saved",
+          "if",
+          "check"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.1164475945077963,
+        "function_grammar_distance": 1.240909354518231,
+        "id": "1cba1ba580204468d7021603657739bebf5b8a3dcdf752d7c7570b126667f447",
+        "nonadditive_a_effect": -0.002831066853344555,
+        "style_reduction": -0.04047411421134317
+      },
+      "selected": true,
+      "selection_sha256": "4fc7a81262ef1c260da2081bffe5297eb22abd0a867a07cb2c233d0cc859a580",
+      "contextual_sign_reversals": {
+        "saved": {
+          "min_a_reduction": -0.002321596998239972,
+          "max_a_reduction": 0.005682685848866775
+        },
+        "recovery": {
+          "min_a_reduction": -0.048623063341194483,
+          "max_a_reduction": 0.001549048759785232
+        },
+        "before": {
+          "min_a_reduction": -0.006259565320667848,
+          "max_a_reduction": 0.0005488367703991859
+        }
+      }
+    },
+    {
+      "task": "offline-notes",
+      "round": "v2",
+      "input_sha256": "362148f92215633a7fd2b2dacd621f30ad442223d541457b7d78e5cdcf49f6a4",
+      "plan_sha256": "b4a4d49bce30c1cc351fb9ed2f7731c7c245bc5356a20e09c993c4a5f42cb0a8",
+      "scores_sha256": "7e4a999d5c818395d7e57b570b8fe11e0d3b40dd7061dabdc065b582032727fd",
+      "ranking_sha256": "abf99d944c51ace98c12b144056f1996f784292e27bb3968486bcc5d631a9fa6",
+      "state_count": 93,
+      "unique_scored_texts": 93,
+      "rejected_states": 0,
+      "source_a_probability": 0.7680142832829528,
+      "source_function_grammar_distance": 1.240909354518231,
+      "lowest_a_state": {
+        "a_probability": 0.16555656787325246,
+        "a_reduction": 0.6024577154097004,
+        "choices": [
+          "logout",
+          "recovery-v2",
+          "other-notes"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.0688026445969674,
+        "function_grammar_distance": 1.1599101416147077,
+        "id": "e9109e3c27b16befacb01381dfd6dc75b6215e48c7f950ebcd952e9b9b62dae4",
+        "nonadditive_a_effect": -0.236261992234158,
+        "style_reduction": 0.0809992129035233
+      },
+      "selected": false,
+      "selection_sha256": null,
+      "contextual_sign_reversals": {
+        "attachments": {
+          "min_a_reduction": -0.013079625383354498,
+          "max_a_reduction": 0.1088378953339375
+        },
+        "mobile": {
+          "min_a_reduction": -0.03937033388256328,
+          "max_a_reduction": 0.06953146986361858
+        },
+        "desktop": {
+          "min_a_reduction": -0.001164672685348478,
+          "max_a_reduction": 0.03425904807482283
+        },
+        "users": {
+          "min_a_reduction": -0.11363602007010831,
+          "max_a_reduction": 0.007193652850606913
+        }
+      }
+    },
+    {
+      "task": "offline-notes",
+      "round": "v2b",
+      "input_sha256": "e4bbd3f63c24cc27053b39d0caecf3abd2321769967aa78476999eae7c15e92d",
+      "plan_sha256": "d3909b40e7514167249af61f70618da59908f087aec3e4a67789d618cd5ede21",
+      "scores_sha256": "5de4f131ba67adf1e8789a0320a63d6859a89c62a4caafb48446160646616e59",
+      "ranking_sha256": "0c50c1941f317cfae82ad473303ffd360729d1c2a2792e7149fa02bec1a2fb49",
+      "state_count": 93,
+      "unique_scored_texts": 93,
+      "rejected_states": 0,
+      "source_a_probability": 0.7680142832829528,
+      "source_function_grammar_distance": 1.240909354518231,
+      "lowest_a_state": {
+        "a_probability": 0.12449025787225071,
+        "a_reduction": 0.6435240254107022,
+        "choices": [
+          "logout-repaired",
+          "recovery-v2",
+          "other-notes"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.0688085142094192,
+        "function_grammar_distance": 1.1600003752538515,
+        "id": "a837fa1b4721d6eaa1e0b6517aac0afdd802ab3334660e801a634de5b8f6b195",
+        "nonadditive_a_effect": -0.24373018176546313,
+        "style_reduction": 0.08090897926437957
+      },
+      "selected": true,
+      "selection_sha256": "326467407ee7235db137f73774de29abe7ea4133926082399a703902e723b819",
+      "contextual_sign_reversals": {
+        "attachments": {
+          "min_a_reduction": -0.015500445582252276,
+          "max_a_reduction": 0.1088378953339375
+        },
+        "mobile": {
+          "min_a_reduction": -0.03937033388256328,
+          "max_a_reduction": 0.06953146986361858
+        },
+        "desktop": {
+          "min_a_reduction": -0.001164672685348478,
+          "max_a_reduction": 0.03425904807482283
+        },
+        "users": {
+          "min_a_reduction": -0.11363602007010831,
+          "max_a_reduction": 0.016980320256783504
+        }
+      }
+    },
+    {
+      "task": "offline-notes",
+      "round": "v3",
+      "input_sha256": "ddc35fd344e905386cd1f4246eb098e1f3acac35b6eb4e55c11c2c6785715fb1",
+      "plan_sha256": "6f7ad87be9a683bfec7419dfedcec95a8784f58e4543ab3021ddc9683e355822",
+      "scores_sha256": "15747f51e935663f2daf7d1240c267f4f504e55718638bc3ef3d23ead061c408",
+      "ranking_sha256": "1011ce03587e5f4bbe714184a47722f285ff0769328773aab50b74a57c12fee7",
+      "state_count": 93,
+      "unique_scored_texts": 93,
+      "rejected_states": 0,
+      "source_a_probability": 0.12449025787225071,
+      "source_function_grammar_distance": 1.1600003752538515,
+      "lowest_a_state": {
+        "a_probability": 0.06904826074151794,
+        "a_reduction": 0.055441997130732765,
+        "choices": [
+          "signout",
+          "internet",
+          "beforehand"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.0663721561800057,
+        "function_grammar_distance": 1.1579514091829284,
+        "id": "95e84177f9193c414c4c6a5707808aec31ef4078004bacf2746c5a3a947d24d0",
+        "nonadditive_a_effect": 0.014462608337901278,
+        "style_reduction": 0.002048966070923086
+      },
+      "selected": true,
+      "selection_sha256": "2347f73b2ac4bdcbfbbed24ccbd028c562c3acdb66bf297a855a83725c7b2f4c",
+      "contextual_sign_reversals": {}
+    }
+  ],
+  "limitations": [
+    "Adaptive assistant-proposed finite menus on two familiar synthetic notices; no learned proposal distribution or trained B weights.",
+    "Self-review after seeing scores, not independent assessment or proof of preserved meaning or author identity.",
+    "Nonadditive probability effects can include calibration/saturation; they do not identify detector internals.",
+    "The 16.56% offline-notes candidate was not selected because it introduced repetition; its repaired alternative is 12.45%.",
+    "Raw texts, reference excerpts and B outputs remain ignored; this aggregate is not a detector-training dataset.",
+    "Pangram still reports 100% AI for both final candidates. Window soft scores are separate from content fractions and varied on a repeated source; they require direct, repeated measurement before ranking small effects."
+  ],
+  "pangram": {
+    "observations": [
+      {
+        "state": "workshop-v3",
+        "submitted_text_sha256": "032e923b64d0fcb9fb98790530bd2b486822d1e390ab2cd5dbb04f2480c7f0a2",
+        "returned_text_sha256": "b992b606a3600261a93048e4706114c52d5392ca12a7455063d8214f7816a2ba",
+        "echo_match": "whitespace_only",
+        "bulk_id": "redacted-239a1986d914c7b1",
+        "version": "4.0",
+        "fraction_ai": 1.0,
+        "fraction_ai_assisted": 0.0,
+        "fraction_human": 0.0,
+        "windows": [
+          {
+            "label": "AI-Generated",
+            "ai_assistance_score": 0.9946033954620361,
+            "humanizer_score": 0.11084530502557755,
+            "word_count": 169,
+            "confidence": "High"
+          }
+        ]
+      },
+      {
+        "state": "offline-notes-v1",
+        "submitted_text_sha256": "1cba1ba580204468d7021603657739bebf5b8a3dcdf752d7c7570b126667f447",
+        "returned_text_sha256": "3982caa6fa25ce07c9378ede0e5389ba0b245e7f1c9d89c014079ac9b9f8e3ee",
+        "echo_match": "whitespace_only",
+        "bulk_id": "redacted-239a1986d914c7b1",
+        "version": "4.0",
+        "fraction_ai": 1.0,
+        "fraction_ai_assisted": 0.0,
+        "fraction_human": 0.0,
+        "windows": [
+          {
+            "label": "AI-Generated",
+            "ai_assistance_score": 0.997644305229187,
+            "humanizer_score": 0.04116588085889816,
+            "word_count": 177,
+            "confidence": "High"
+          }
+        ]
+      },
+      {
+        "state": "workshop-v1",
+        "submitted_text_sha256": "1d3e5543fed99aa8adcf49a15338de8a8b41f5595499aaeb1f4ee17e999adb60",
+        "returned_text_sha256": "24390c422eef66dbafde0def48c57795f23e8d903b410ed0a71f4c843f60ab11",
+        "echo_match": "whitespace_only",
+        "bulk_id": "redacted-239a1986d914c7b1",
+        "version": "4.0",
+        "fraction_ai": 1.0,
+        "fraction_ai_assisted": 0.0,
+        "fraction_human": 0.0,
+        "windows": [
+          {
+            "label": "AI-Generated",
+            "ai_assistance_score": 0.999053955078125,
+            "humanizer_score": 0.02218995802104473,
+            "word_count": 171,
+            "confidence": "High"
+          }
+        ]
+      },
+      {
+        "state": "workshop-v2",
+        "submitted_text_sha256": "478155121f518ae697347f0cc38ba9a8786c12cad48c7bc8a86d5f7ef524c4c6",
+        "returned_text_sha256": "733447869664c9ca3ee129aa06077ab0aaf19a8c4379fd59cd90b1a639911e8e",
+        "echo_match": "whitespace_only",
+        "bulk_id": "redacted-239a1986d914c7b1",
+        "version": "4.0",
+        "fraction_ai": 1.0,
+        "fraction_ai_assisted": 0.0,
+        "fraction_human": 0.0,
+        "windows": [
+          {
+            "label": "AI-Generated",
+            "ai_assistance_score": 0.9986046552658081,
+            "humanizer_score": 0.03925250098109245,
+            "word_count": 167,
+            "confidence": "High"
+          }
+        ]
+      },
+      {
+        "state": "workshop-root",
+        "submitted_text_sha256": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+        "returned_text_sha256": "8d34b8eef2fd69d1ec58cd811fca2a345b771e0c8e6705e063191093f3fd7c78",
+        "echo_match": "whitespace_only",
+        "bulk_id": "redacted-239a1986d914c7b1",
+        "version": "4.0",
+        "fraction_ai": 1.0,
+        "fraction_ai_assisted": 0.0,
+        "fraction_human": 0.0,
+        "windows": [
+          {
+            "label": "AI-Generated",
+            "ai_assistance_score": 0.9987776279449463,
+            "humanizer_score": 0.020116113126277924,
+            "word_count": 174,
+            "confidence": "High"
+          }
+        ]
+      },
+      {
+        "state": "offline-notes-root",
+        "submitted_text_sha256": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+        "returned_text_sha256": "f8003c82eb90030488ca013a37eceafa9d67ab883632b955bd4cf7e6e3d2a9aa",
+        "echo_match": "whitespace_only",
+        "bulk_id": "redacted-239a1986d914c7b1",
+        "version": "4.0",
+        "fraction_ai": 1.0,
+        "fraction_ai_assisted": 0.0,
+        "fraction_human": 0.0,
+        "windows": [
+          {
+            "label": "AI-Generated",
+            "ai_assistance_score": 0.9985639452934265,
+            "humanizer_score": 0.04021129757165909,
+            "word_count": 178,
+            "confidence": "High"
+          }
+        ]
+      },
+      {
+        "state": "offline-notes-v2b",
+        "submitted_text_sha256": "a837fa1b4721d6eaa1e0b6517aac0afdd802ab3334660e801a634de5b8f6b195",
+        "returned_text_sha256": "8d473dfcd07541070749ed4e31c985e5162401e780c705e276aa49daf2aa58cc",
+        "echo_match": "whitespace_only",
+        "bulk_id": "redacted-239a1986d914c7b1",
+        "version": "4.0",
+        "fraction_ai": 1.0,
+        "fraction_ai_assisted": 0.0,
+        "fraction_human": 0.0,
+        "windows": [
+          {
+            "label": "AI-Generated",
+            "ai_assistance_score": 0.9937418699264526,
+            "humanizer_score": 0.0576210655272007,
+            "word_count": 178,
+            "confidence": "High"
+          }
+        ]
+      },
+      {
+        "state": "offline-notes-root",
+        "submitted_text_sha256": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+        "returned_text_sha256": "f8003c82eb90030488ca013a37eceafa9d67ab883632b955bd4cf7e6e3d2a9aa",
+        "echo_match": "whitespace_only",
+        "bulk_id": "redacted-78585e9e7aa9212e",
+        "version": "4.0",
+        "fraction_ai": 1.0,
+        "fraction_ai_assisted": 0.0,
+        "fraction_human": 0.0,
+        "windows": [
+          {
+            "label": "AI-Generated",
+            "ai_assistance_score": 0.9980936646461487,
+            "humanizer_score": 0.0423237606883049,
+            "word_count": 178,
+            "confidence": "High"
+          }
+        ]
+      },
+      {
+        "state": "offline-notes-v3",
+        "submitted_text_sha256": "95e84177f9193c414c4c6a5707808aec31ef4078004bacf2746c5a3a947d24d0",
+        "returned_text_sha256": "18b5f2ee6e56bb5b701cebac4aaf5f83ca4ff735959cf21c1fd9555bed12358a",
+        "echo_match": "whitespace_only",
+        "bulk_id": "redacted-78585e9e7aa9212e",
+        "version": "4.0",
+        "fraction_ai": 1.0,
+        "fraction_ai_assisted": 0.0,
+        "fraction_human": 0.0,
+        "windows": [
+          {
+            "label": "AI-Generated",
+            "ai_assistance_score": 0.9976843595504761,
+            "humanizer_score": 0.10800601541996002,
+            "word_count": 180,
+            "confidence": "High"
+          }
+        ]
+      }
+    ],
+    "collection_annotations_sha256": [
+      "0b366f2d54e3660065042f2f53cac3566edf2b1e8a3f48268dd2fad92947db84",
+      "4704c7ca4cb04d01d09b5ff6270676bf9da30b3bc477c22ffa323b34e99c0658"
+    ],
+    "ledger": "spend is recorded in the private ledger",
+    "billing_verified": false,
+    "first_exact_echo_collection_failed": true,
+    "echo_resolution": "Every returned text differed only in whitespace; reran GET-only collection with explicit whitespace allowance, preserving both exact hashes and the initial failure. No submission retry."
+  },
+  "joint_success_count": 0,
+  "reviewed_final_candidates": 2
+}

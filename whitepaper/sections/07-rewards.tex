@@ -1,0 +1,876 @@
+\section{Benchmark scoring and native rewards}\label{benchmark-scoring-and-mechanism-mapping}
+
+The launch rewards submitted \textit{A} artifacts under coordinator-led
+scoring. Slop Ninja runs each artifact and two reference models on the
+same fresh hidden batch, retains every prediction and failure, and signs the
+result package. Every validator checks the published score components,
+independently derives the canonical native row under the frozen
+\texttt{reward-v1} rules below, and submits it through its own journaled
+commit--reveal, in parallel with the other validators (Section~\ref{cohorts}).
+Held-out documents, labels, and individual predictions remain inside the
+coordinator's evaluation service. Other validators trust the coordinator's
+execution and labels while checking the reward calculation themselves. Native
+consensus determines the eventual payouts~\cite{btchainconsensus,btemissions}.
+
+\texttt{reward-v1} ports the band mechanism of Bittensor subnet 78
+(Umi)~\cite{umisn78}: geometric weights across score bands and within each band,
+a baseline that ratchets only on improvement, and a largest-remainder integer
+row. Its principal departures are these: artifacts stay private until the
+cohort ends; eligibility requires a margin over the reference rather than
+subnet 78's 1\% grace below the incumbent; a fallback cutoff, a Slop Ninja rule
+with no subnet 78 counterpart, keeps rewards flowing when nobody reaches that
+margin; an entrant too close to any published artifact earns nothing, and
+near-duplicate entrants share one credit equally; and no record, identity, or
+gate carries a chain runtime version. The shared protocol crate implements
+these rules as exact computation~\cite{protocolcrate}.
+
+\subsection{Freeze the comparison before execution}
+
+A cohort manifest binds its roster of artifact commitments, the raw-text input
+profile and output contract, the reference gallery, the reference models, the
+batch design, the human pool, qualification gates, numerical tolerances, the
+artifact cap and compute limits (Section~\ref{a-artifact-execution}), retry
+policy, the cohort schedule (Section~\ref{cohorts}), and the \texttt{reward-v1}
+parameters. The batch design fixes \(n\), the mix, the domain\(\times\)origin
+strata, and the sealed batch digest. The human pool enters through its frozen
+pool manifest and, for the mainnet stock, its stratum share caps and a
+commitment to its secret sampling key (Section~\ref{human-stock}). The manifest also binds the index of
+published artifacts and the fingerprint probe versions in use
+(Section~\ref{public-copies}). Every model in the comparison, including both
+references, receives the same canonical text for each document. Hidden labels
+remain outside model inputs.
+
+One model version per miner enters a cohort. On-chain digest commitments and
+private uploads have an admission cutoff (Section~\ref{a-artifact-execution});
+accepted cohorts have no completion expiry. The credited identity is the
+original hotkey and its registration generation, which survives UID changes.
+Renaming metadata cannot create new inference content.
+
+The coordinator caches admitted artifacts and the cohort batch before
+execution. Runs have no online learning, network access, or undeclared mutable
+state, and each document is scored independently of the others in its batch.
+Every assigned item receives an outcome record. Infrastructure errors, model
+errors, invalid outputs, and unsupported inputs remain distinguishable. The
+comparison cannot select the easiest successful subset for each entrant or its
+best answer across retries.
+
+\subsection{The cohort batch}\label{cohort-batch}
+
+Each cohort draws a fresh hidden batch, and every entrant and both reference
+models score the same documents, so every comparison is paired. The batch has
+about 1,000 cases on testnet and 4,000 on mainnet, with 2,000 as the mainnet
+floor. Its mix is 20\% human-only, 55\% mixed, and 25\% model-only documents.
+Fresh AI-side text, both partial rewrites and model-only mirrors, is generated
+for each cohort on serverless services such as Workers AI or hosted model APIs,
+under a per-cohort budget, by parallel generation lanes that share the
+providers' published rate limits~\cite{cfailimits} (Section~\ref{fan-out}).
+
+Whole source groups are sampled, and the design is self-weighting over
+domain\(\times\)origin cells: every document carries equal weight, and no Kish
+design loss arises. The mix is therefore part of the estimand. Under 20/55/25,
+human-only documents carry about 21\% of the reference's Brier loss, against
+43\% under a 40/40/20 mix, so the human share sets the reward's weight on human
+false positives. Holding a class-balanced estimand fixed at this human share
+would instead raise the paired standard error by 17--21\%. A model's
+\emph{headroom} is one minus its score, its remaining Brier loss
+(Section~\ref{detection}); margins, band widths, and gains are stated as
+fractions of the reference's headroom. Three headroom
+figures appear in this paper, each a different estimand computed from the same
+\(R_0\) predictions on the consumed Test: 0.0518 is its balanced involvement
+Brier under the Test's own pre-registered document weights
+(Table~\ref{tab:tier-c}); about 0.053 weights documents equally within each
+domain\(\times\)origin cell at the Test's origin mass of about 34/34/32; and
+about 0.062 is the self-weighting estimand of a launch batch, under 20/55/25 as
+under 40/40/20. Over the eighteen domains of the consumed Test and the testnet
+stock, a 1,000-case batch holds six to ten human-only documents per domain,
+minimum to median, so per-domain slices serve as diagnostics.
+
+About 200 human-only documents in a 1,000-case batch measure a human
+false-positive rate at the frozen 1\% operating point only to about \(\pm1.6\)
+points (95\%). The separate pure-human false-positive gate therefore has two
+tiers. Every entrant must pass a loose threshold on its own cohort's human-only
+documents. A candidate for promotion to reference must also pass a strict
+threshold measured on the thousands of human documents in the lookup canary's
+fresh Common Crawl draw, which is scored for every such candidate anyway
+(Section~\ref{lookup-exposure}). Testnet has neither Common Crawl stock nor
+canary anchors, so there the strict tier is measured on the canary's first audit
+draw: separate human documents drawn from the same pools as the cohort's
+(Section~\ref{human-stock}), at least as many as its human-only documents, and
+at that size no more precise than the loose tier. Rates pooled over seven cohorts, about
+\(\pm0.6\) points at 1,000 cases and \(\pm0.3\) at 4,000, are reported for
+monitoring. Human spans inside mixed documents cannot stand in for these documents:
+identical human words score higher inside a mixed document than alone
+(Section~\ref{cohort-mix-evidence}), so their in-context false-positive rate is
+a separate span measurement (Section~\ref{span-outputs}).
+
+A passage of fresh stock is scored as a pure-human negative at most once. It may also
+serve as the source of model rewrites, in its own cohort or later ones, at most
+four times and with uses at least seven cohorts apart, with a fresh generator,
+seed, voice, and editing operation each time; a use in its own cohort counts
+toward the four. A rewrite ledger records each use's generator, voice, and
+operation, and the signed manifest binds the use limit, the gap, which counts
+cohorts that drew human text, and the set of voices and operations. A mixed document repeats its
+source's unreplaced words byte for byte, so a passage is no longer unseen once
+used. In steady state only pure-human negatives consume the human stock, about
+\(0.2n\) per cohort: 73,000 documents a year at 1,000 cases and 292,000 at
+4,000; before then, rewrite sources come from fresh stock or from the same
+cohort's negatives. Each document is scored independently, and qualification
+requires a document's outputs to be identical whether it is scored alone or
+among its batch, so an artifact cannot link a passage to its other appearances,
+in the same batch or earlier ones. The dependence that reuse adds between
+cohorts is negligible: the within-group correlation is about \(-0.03\).
+
+At 1,000 cases the standard error of a paired score difference between two
+independently retrained models is about 3.5\% of the reference's headroom under
+20/55/25; it is 2.5\% at 2,000 and 1.7\% at 4,000. These figures were measured
+on self-weighting batches drawn from the consumed Test. Separating two models
+that differ by 1\% of headroom, the measured training-seed noise floor, would
+need about 126,000 documents under the sealed Test's design, where the same
+standard error is about 4.0\% of headroom at 1,000 cases, for a two-sided 5\%
+test at 80\% power. \texttt{reward-v1} therefore sets its eligibility margin and
+band width at about two standard errors; within a band, rank order still sets
+the geometric split, so differences below the noise still change pay, and
+across a band boundary they can reverse its order (Section~\ref{reward-v1}). Container scoring costs about \$0.03--\$0.34 per
+1,000 documents, depending on length and instance size
+(Section~\ref{existing-evidence-and-implementation-status}).
+
+\subsection{Human stock}\label{human-stock}
+
+The mainnet human stock is pre-cutoff Common Crawl~\cite{commoncrawl}: pages
+from crawls CC-MAIN-2013-20 through CC-MAIN-2022-49 captured before November 30,
+2022, the public release of ChatGPT. These pages form a historical-human proxy
+stratum, not documented human-only work. The mainnet estimand is therefore
+historical human writing against current model output. Pages pass the date
+gate, rights exclusions, quality rules, and versioned machine-text screens.
+No detector filters individual documents: at least 10\% of each quarterly pool
+is scored with \(R_0\) and two earlier detectors, and a domain and capture-era
+cell is capped or excluded when the upper 95\% bound of the excess of its later
+crawls' flag rate over its earliest crawls' exceeds two points on two of the
+three detectors or on the screen counts. Pilot measurements appear in
+Section~\ref{cc-pilot-evidence}.
+
+A frozen quarterly pool manifest governs each draw. A secret 256-bit key ranks
+WET files, source groups, and the passage taken from each page; the manifest
+records the key's SHA-256, and the key is revealed when the pool retires. Random
+WET files fill every domain, and draws approximate uniform sampling over unique
+documents by weighting each crawl by its new URLs and down-weighting repeated
+captures. Versioned domain rules assign each excerpt its cohort domain. A fresh
+hand-labelled draw under the current rules found 72\% [64, 79] of documents
+usable at the launch shares, with no domain reaching 90\%; the rest are human
+text under the wrong domain or register. Domain precision is therefore a stated
+limit that sizes the pool, not a launch requirement
+(Section~\ref{cc-stock-evidence}). Launch shares of human parents follow
+per-domain caps derived from each domain's measured frame: essays 51.25\%, news
+26.5\%, forums 7.8\%, reviews 4.16\%, legal text 3.11\%, technical text 2.39\%,
+speech 2.3\%, fiction 1.8\%, and email 0.69\%, almost all press releases. Each
+capped domain sits under its cap, and essays receive the freed points. A larger
+share for business prose needs its own measured frame outside guessable press
+hosts. The caps bound lookup in small domains (Section~\ref{lookup-exposure}).
+
+Recency and formatting are shortcuts. Text from 2020--2022 differs in topic from
+text from 2013--2016, model-only mirrors are newer still, and generated text
+carries typography and layout that human excerpts lack. Uniform sampling over
+unique documents puts about 44\% of the mass in 2020--2022, and each model-only
+mirror is conditioned on its parent's topic and on what existed by the parent's
+capture date. A versioned cohort generation profile then puts each generated
+child into its parent's form: a parent-conditioned normaliser applies the
+parent's quote, dash, range, and ellipsis conventions and paragraph structure, a
+form screen rejects children whose text fails the human excerpts' prose screen,
+and one window of 150 to 450 words, the human excerpts' own bound, applies to
+the final documents of every class. Two gates are measured on a Common
+Crawl-parented mock batch, each passing on its point estimate with its bootstrap
+upper bound reported: an era-only adversary and a layout-and-typography
+adversary must each gain at most 5\% of the reference's headroom.
+Character-class shares, such as case, digits, non-ASCII characters, and emoji,
+and an era probe's ability to tell parents from mirrors are reported as
+diagnostics, not gated. Both gates pass on the mock batch, but the era-only
+gate's upper bound reaches 5.04\% (Section~\ref{cc-stock-evidence}). It is
+accepted on its point estimate for the testnet phase and re-measured before
+mainnet live rewards on normalised, length-matched positives from the next
+training round, with a cohort large enough to bring the upper bound below 5\%;
+until then the bound is a stated limit. \(\sigma\), \(\delta\), \(w\), and the
+headroom are re-derived on Common Crawl-parented batches. Common Crawl text is
+evaluated privately and never redistributed. As project policy it may be sent to
+hosted model APIs to generate mixed rewrites.
+
+Testnet cohorts use a separate public stock: the unassigned remainder of the
+evaluation-reserved ranges behind the sealed Test, about 240,000 dated public
+documents ranging from Wikipedia and PLOS articles to forum and blog text, all
+historical-human proxies (Section~\ref{human-evaluation-stock}). At 1,000
+cases it lasts about three years ignoring domain balance, but seven of its
+eighteen domains hold fewer than 350 documents, so domains bind first. When a
+domain cannot fill its share, a later manifest reweights or retires it and
+records the changed estimand; \(\sigma\), \(\delta\), and \(w\) are then
+re-derived. When a stock cannot fill a batch, or the mainnet floor, no new
+cohort opens and the last target stays live, paying the same clusters, until new
+stock arrives. Every text in the public stock can be recognized
+(Section~\ref{lookup-exposure}); this is an accepted pilot limit of testnet,
+which reaches mainnet only through the reference testnet hands on
+(Section~\ref{reference-model}).
+
+Testnet keeps fresh stock for cohorts with outside entrants. A cohort whose
+roster has no admitted outside entrant with a working artifact, such as a
+rehearsal with only operator or synthetic entrants, draws its human documents
+from already-exposed pools alone: 570 development human documents, 4,593 public
+documents whose only earlier roles were the consumed Test, held-out, or
+diagnostic sets, and any document an earlier testnet cohort drew. These may be
+scored again as pure-human negatives without limit, never-drawn documents first
+and none twice in one cohort, while their uses as rewrite sources keep the
+limits above. Fresh stock is drawn only for a cohort with such an entrant. The
+coordinator enforces the rule: it draws only from pools on its exposed list and
+refuses any plan that names another. On-chain admission is not yet wired into
+cohorts, so every testnet cohort so far has drawn exposed documents only. A
+score on reused documents shows that an artifact runs and is scored, not how it
+performs on unseen text.
+
+\subsection{Lookup exposure and the canary}\label{lookup-exposure}
+
+The human side of a batch is existing text, and a mixed document keeps the
+unreplaced parts of its source byte for byte. An artifact that memorized human
+text could look a passage up and compare it with the query, labelling
+recognized text human and altered text AI, without detecting AI involvement.
+Its gain is the covered documents' share of the reference's loss, roughly
+coverage times headroom, and more where it targets domains the reference
+handles worst. Admission rejects an explicit text index
+(Section~\ref{a-artifact-execution}); an artifact later found to carry one has
+invalid scores, and their signed correction must also address any promotion
+they produced. Recognition stored in the parameters, including through
+pretraining exposure, cannot be excluded. The protocol reduces lookup; it does
+not prevent it.
+
+On testnet the exposure is large. The whole public stock fits in a 4.1 MB
+sentence Bloom filter, and its raw text in 327 MB, far below any artifact cap.
+Recognizing one domain's documents alone, such as Wikipedia, would gain about
+12\% of the reference's headroom on a 40/40/20 batch, more than the 1,000-case
+margin. On mainnet the frame is web-scale, about 64 billion first-seen URLs, while an artifact at
+the cap holds an estimated 40--72 MB of learned capacity: 160 million parameters
+at the 2 to 3.6 bits per parameter that language models have been measured to
+store~\cite{allenzhuknowledge,morrismemorize}. Against that capacity,
+estimated gains are at most about 0.09\% of headroom under uniform sampling over
+unique documents, 0.31--0.46\% if sampling followed captures, and 2.3--3.4\% if
+every domain had an equal share. The share caps hold the total to about 0.5\%
+against an attacker whose coverage of each stratum stays partial; one who
+completes a capped stratum can reach about 1.1\%. These estimates can
+understate coverage by up to 1.44 times, and the frame size is known only to
+within a factor of two. Encoders pretrained on web text may already recognize
+Common Crawl pages. A first red team found no membership signal in the
+masked-language-model loss of two small encoders pretrained on data containing
+Common Crawl, and a recognizer fine-tuned from \(R_0\)'s encoder recovered
+8.5--14.7\% of the pages it was trained on at a 0.1\% false-positive rate, far
+below the ideal index that the caps price; the test on ModernBERT-base's own
+pretrained weights is still owed (Section~\ref{cc-stock-evidence}).
+
+The defences are the artifact cap; breadth of sampling; keyed, secret passage
+choice, which multiplies the keys an attacker must store by about 5.5, the
+average number of valid passages per page; share caps for small or guessable
+domains; text first published after a manifest freezes, such as new
+parliamentary records or court opinions, as an option, which counts as unseen
+once only; and a lookup canary.
+
+The canary uses about 1,000 freshly written anchor documents a year, produced by
+paid writers on a keystroke-logged editor, plus about \$1,000 a year of
+US-government court filings bought from PACER that are not already in free
+public archives. Anchors stay private, form one source group per writer, are
+reused across audits, and are never scored in a cohort. They cost about \$8,900
+a year, which keeps the human-data budget under \$10,000 a year. Every
+candidate for promotion to reference (Section~\ref{reference-model}) is
+audited: its mean paired utility difference against a frozen \(R_0\) on a fresh
+20,000-document Common Crawl draw, minus the same difference on the anchors and
+their rewrites, is flagged when it exceeds an honest-model offset by 3.09
+standard errors. A first flag triggers an immediate re-audit in the same cohort
+on a fresh, independent Common Crawl draw. A cohort's candidates share one
+draw, so only a re-audit adds a second. At one audit a day, the draws take
+about 7.3 million fresh documents a year, 25 times the human negatives of
+4,000-case batches and about 1\% of the frame's WET text
+(Section~\ref{cc-stock-evidence}), and scoring one model on a draw costs about
+\$0.70. A single flag is only reported in the signed package. Two flags block the candidate's promotion, with no automatic
+reward penalty: the next cluster head in rank order that survives the near-equal
+drop (Section~\ref{reward-v1}) and passes the canary and
+every other promotion condition is promoted instead, and credits are paid as
+usual. A signed operator review may later clear a blocked candidate; clearing
+does not change a past promotion. The canary has little power: with 1,000 anchors, a
+close fine-tune of \(R_0\) needs a lookup gain of about 20--23\% of headroom to
+be flagged with 80\% probability, and no achievable lookup by a very different
+model is flagged. Honest models are falsely flagged in about 0.3--0.6\% of
+audits. Prevention therefore does most of the work.
+
+\subsection{AI detection quality}\label{detection}
+
+Let \(a_i(t)\) be model \(i\)'s predicted AI-involvement probability for document
+\(t\), its displayed AI confidence divided by 100 and the sum of its model-only
+and mixed probabilities. The independent label \(y_t\) is one for either
+model-only or mixed production and zero for documented human-only work under
+the frozen labeling policy. Binary Brier utility is
+\begin{equation}\label{eq:brier-utility}
+ u_i(t)=1-(a_i(t)-y_t)^2.
+\end{equation}
+For \(G\) source groups, let \(\lambda_g\geq0\) sum to one and let within-group
+weights \(\omega_{t\mid g}\geq0\) also sum to one. The self-weighting batch makes
+these weights equal per document. The cohort score and its improvement over the
+reference \(R_k\) in force are
+\begin{equation}\label{eq:a-quality}
+ S_i=\sum_{g=1}^{G}\lambda_g\sum_{t\in g}\omega_{t\mid g}u_i(t),
+ \qquad
+ q_i=\frac{S_i-S_{R_k}}{1-S_{R_k}},\quad S_{R_k}<1,
+\end{equation}
+where \(S_{R_k}\) is the reference's score on the same batch under the same
+outcome rules. Improvement is divided by the reference's remaining headroom;
+negative examples are not individually clipped away. Involvement probabilities
+enter in parts per billion, so each utility is exact in units of \(10^{-18}\),
+and a score is the floor of the batch mean on that grid. Cutoffs, bands, and the
+near-equal test then compare these integers as exact rationals without further
+rounding.
+
+AI-involvement Brier is the only reward quantity. Share, attribution, span, and
+the pure-human false-positive gates decide eligibility or promotion and carry
+no reward weight. Evaluate share against measured fractional labels with source-balanced
+absolute and squared error, coverage, and slices by rewrite size and procedure.
+A mixed-history label does not imply 50\% AI share, and a fractional share target
+cannot replace \(y_t\) in Equation~\ref{eq:brier-utility} while preserving its
+involvement meaning. Span outputs are measured as described in
+Section~\ref{span-outputs}.
+
+Report three-class origin Brier, calibration, sensitivity at fixed human
+false-positive rates, and population slices separately. Attribution reports
+include retrieval accuracy, reciprocal rank, open-set rejection, and performance
+on withheld writers and generators. Rejection means declining named attribution
+as defined in Section~\ref{author-and-origin-detection}, including
+\emph{Other human} and \emph{Other AI}. These comparisons use independent
+reference and query works. A profile match cannot override the origin output,
+and mixed work need not have one attributable author. Measure \emph{Other AI} on
+documented generator roles and \emph{Other human} on documented human roles,
+including both roles in mixed work. Neither fallback earns named-identity credit.
+Both outputs are conditional, so a fallback for an absent role is not itself a
+false attribution; mistaken involvement probabilities are scored through origin
+measurements. Low predicted role probability never removes a documented
+contributor from the attribution denominator. Gate thresholds, including both
+false-positive tiers, are fixed on development evidence before the cohort.
+Because the gates carry no reward weight, they are floors against unusable
+outputs rather than improvement targets. That evidence includes \(R_0\)'s own
+mixed-document share error of 15.5 points and attribution top-1 accuracy of
+0.35 (Section~\ref{current-a-baseline}); the thresholds themselves are not yet
+chosen (Section~\ref{development-and-launch-criteria}).
+
+\subsection{The reference model}\label{reference-model}
+
+The reward baseline is the current reference model \(R_k\). The sequence
+starts at \(R_0\), the document model of the \textit{A} baseline release
+candidate described in Section~\ref{existing-evidence-and-implementation-status},
+published like every reference (Section~\ref{model-interfaces-and-starter-architectures}). Each cohort re-runs
+\(R_k\), and its predecessor \(R_{k-1}\) when one exists, on that cohort's batch.
+When a cohort's top-ranked eligible entrant, the head of its top cluster below,
+improves on \(R_k\) by the margin \(\delta\), passes the strict false-positive
+tier (Section~\ref{cohort-batch}), and is not blocked by the lookup canary
+(Section~\ref{lookup-exposure}), that entrant becomes \(R_{k+1}\): the baseline
+for the next cohort and the new reference, published with its cohort's
+artifacts when the cohort ends. When it fails either check, the next retained cluster head in rank order that
+passes every promotion condition is promoted instead, and credits are paid as
+usual; a cluster removed by the near-equal drop is never a candidate.
+Otherwise the reference does not change.
+Promotion uses the same margin as eligibility, with no larger promotion
+threshold. Because the margin uses the pooled standard error of seed retrains,
+how often it promotes an equally good model depends on how entrants differ from
+\(R_k\) (Table~\ref{tab:promotion-rates}). Entrants that differ from it as seed
+retrains do share \(R_k\)'s scoring noise, which lowers the chance that one of
+several clears the margin. A structurally different model has a much
+larger paired standard error against \(R_k\): those of the other two measured
+recipes and of V6 against \(R_0\) are about 13--19\% of headroom at 1,000 cases,
+3.7 to 5.4 times \(\sigma\) (Section~\ref{cohort-mix-evidence}). Those models
+are much weaker than \(R_0\), so they supply only this scale, and the table's
+figures for structurally different entrants, taken at its midpoint of about
+\(4.6\sigma\) under a normal approximation, are illustrative. Which kind of
+roster the subnet will see is not yet measured. Once independently trained
+models of equal quality compete, promotion rather than fallback is the expected
+case, and the reference changes hands among equally good models. The same noise
+can promote a worse model; the strict false-positive tier and the canary bound
+human false positives and lookup, not quality.
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\linewidth}{@{}llL@{}}
+\toprule
+Entrants & Quality against \(R_k\) & Chance that one clears the margin \\
+\midrule
+Ten, differing as seed retrains & equal & about 14\%; 21\% if their
+differences were independent \\
+One, structurally different & equal & about a third (0.29--0.36 across the
+measured range) \\
+Ten, structurally different & equal & about 80\% if they share \(R_k\)'s noise
+as seed retrains do; 98\% if they share none \\
+One, structurally different & half a margin below & about a quarter \\
+One, structurally different & one margin below & about a fifth \\
+One, structurally different & two margins below & about a tenth \\
+\bottomrule
+\end{tabularx}
+\caption{Chance per cohort that the shared margin promotes an entrant no better
+than \(R_k\).}
+\label{tab:promotion-rates}
+\end{table}
+
+No rule bounds the resulting drift in the
+reference's true quality, but four properties limit it. The promoted model is
+the top-ranked entrant that passes every promotion condition, so a worse entrant
+is promoted only when it outscores every better qualifying entrant on that
+batch. Each cohort re-runs the reference on a fresh batch, so a winning draw
+does not carry forward. A worse reference is easier to pass: against one a full
+margin below the model it displaced, a structurally different entrant as good as
+that model clears the margin about half the time rather than a third. And the
+displaced model becomes \(R_{k-1}\), so a fallback cohort pays only entrants that
+outscore it. False promotion and the drift it allows are stated limits of the
+shared margin; their size on simulated rosters is measured before launch
+(Section~\ref{protocol-checks-before-launch}).
+
+Testnet opens a fresh record of cohorts and references, with \(R_0\) as its
+first reference and no predecessor. One change there falls outside the promotion
+rule: \(R_0\) may be replaced once by the next reference Slop Ninja trains,
+retrained and recalibrated on normalised, length-matched positives
+(Section~\ref{human-stock}), and only if that model passes every required
+gate. The status page announces the replacement in advance. The
+replacement takes \(R_0\)'s position, with no predecessor, and appears in the
+next signed manifest, so the sequence of signed manifests is its record. Credit
+is bound to its own cohort's package and target (Section~\ref{lagged-payout}),
+so the replacement moves no earned reward. It sets the margin for later cohorts
+and, while the launch burn lasts, the bar that ends it. A span package,
+whether the release package or the first one that serves spans, has different
+inference content from \(R_0\), so naming it as the reference would itself use
+that one replacement, although its document outputs are identical; no span
+package is named \(R_0\), and the replacement stays available. Mainnet opens
+its own fresh record, whose first reference is the one testnet holds at that
+time, with no predecessor and no separate one-time replacement. A testnet
+promotion can rest partly on lookup, since testnet's stock is recognizable in
+full, its strict tier is drawn from the same pools, and its canary has no
+anchors. Mainnet scores that reference only on its own batches, where
+recognizing testnet text gains nothing, so mainnet's first bar is the
+reference's measured mainnet quality, not its testnet record. An inflated record
+therefore leaves that bar lower than the record suggests: mainnet's launch burn
+can end, and its first promotion occur, against a weaker model, which once
+displaced anchors the fallback cutoffs until the next promotion. Before
+mainnet, that reference is measured on Common Crawl and the anchors, and the
+results are reported (Section~\ref{development-and-launch-criteria}).
+
+Every entrant artifact is published after its cohort ends, and a copy of a
+published artifact earns nothing. An entrant whose inference content equals that of any
+published artifact is not executed. An executed entrant within the near-copy
+distance of a published artifact (Section~\ref{reward-v1}) fails the public-copy
+gate unless it scores more than half a band above that artifact. This applies to
+\(R_k\) and \(R_{k-1}\), including \(R_0\) before its package is published, and to every
+earlier entrant's artifact, the author's own included. A miner therefore earns again only with a model that differs
+measurably from everything already published, such as an independent retrain or
+a weight soup of published models, or that improves on its source by half the
+promotion margin. The gate removes exact and recalibrated copies; it sets a
+minimum price on a copy perturbed with deliberate noise, but cannot prevent one
+or bound what it earns (Section~\ref{reward-v1}).
+
+\subsection{From scores to credits}\label{reward-v1}
+
+An entrant is \emph{gated} when its artifact qualification, its public-copy
+gate, its share and attribution gates, and the per-entrant tier of its
+pure-human false-positive gate pass, together with the span gate once a
+manifest enforces it. Gate failures
+earn no credit. The margin is
+\[
+ \delta=\max\bigl(0.01,\;2\sigma\bigr),
+\]
+where \(\sigma\) is the pooled paired standard error of \(q\) at the manifest's
+batch size, frozen in the manifest. Under 20/55/25, \(\delta\) is about 0.070 at
+1,000 cases and 0.034 at 4,000. Each manifest re-derives \(\sigma\) from current
+measurements. One frozen \(\sigma\) is used rather than each entrant's own
+paired standard error because it also sets the cohort's single band width, and
+because it fixes every entrant's bar before any score is seen instead of making
+the bar depend on how closely an entrant tracks \(R_k\)'s predictions.
+
+Table~\ref{tab:reward-v1-parameters} lists the remaining parameters and their
+translation from subnet 78. Subnet 78 states its band width and duplicate
+tolerance in points of a normalized score. A literal 2.5-point band would span
+about 40--48\% of the reference's headroom here, depending on the estimand, and
+put almost every entrant in one band. \texttt{reward-v1} therefore keeps the
+mechanism and the ratios between its parameters, and sets the band width from
+the measured standard error.
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\linewidth}{@{}lLL@{}}
+\toprule
+Parameter & Subnet 78 & \texttt{reward-v1} \\
+\midrule
+Band width \(w\) & 2.5 points of score & \(2\sigma(1-S_{R_k})\) in score units:
+7\% of headroom at 1,000 cases (about 0.0044 at 0.062 headroom), 3.4\% at 4,000 \\
+Near-equal tolerance \(\varepsilon\) & 1 basis point, \(w/250\) & \(w/250\), inclusive \\
+Decay \(r\), across and within bands & 0.85 & 0.85 \\
+Eligibility & \(S\geq0.99\,S_{\mathrm{inc}}\), the incumbent's score & gated and \(q\geq\delta\) \\
+Duplicates & identical content credited to the first acceptance & copies of
+published artifacts earn nothing; near-duplicate entrants share one credit
+equally \\
+Near-copy distance \(d\) & --- & 0.025 after isotonic recalibration, with a
+\(w/2\) improvement exception \\
+Native row & largest-remainder split of 65,535 & the same \\
+\bottomrule
+\end{tabularx}
+\caption{Frozen \texttt{reward-v1} parameters, signed in each cohort manifest.}
+\label{tab:reward-v1-parameters}
+\end{table}
+
+Two models are within the \emph{near-copy distance} when, after the best
+rank-preserving recalibration, their involvement probabilities still differ by
+a root-mean-square of at most \(d\), and the first does not score more than
+\(w/2\) above the second, where \(w\) is the cohort's band width. The recalibration is fitted both ways by isotonic
+regression over the documents on which both models returned a prediction, and
+the smaller residual counts; two models with no common prediction are not near.
+A temperature, bias, or any other change that preserves a model's ranking of
+documents is therefore at distance zero, however far it moves the
+probabilities. The manifest freezes \(d=0.025\). On 2,000 random 1,024-document
+40/40/20 batches drawn from the consumed Test, two training seeds of one recipe
+never came closer than 0.034, and seeds of the launch recipe never closer than
+0.059.
+A model built on a published one stays eligible when it beats it by more than
+\(w/2\), which is half the promotion margin while \(2\sigma\geq0.01\).
+
+The calculation proceeds in seven steps. Entrants are ordered by score, then by
+finalized commitment block and extrinsic index, then by hotkey bytes; this
+\emph{rank order} breaks every tie below.
+\begin{enumerate}\tightlist
+\item \emph{Cutoff.} If any gated entrant has \(q_i\geq\delta\), the cutoff is
+\(T=S_{R_k}+\delta(1-S_{R_k})\). Otherwise, when \(R_{k-1}\) exists and some gated
+entrant scores strictly above \(S_{R_{k-1}}\), the cohort is scored against the
+fallback cutoff
+\[
+ C_N=S_{R_{k-1}}+0.15\,\bigl(\max_N-S_{R_{k-1}}\bigr),
+\]
+where \(\max_N\) is the top gated score in cohort \(N\). The fallback removes the
+bottom 15\% of the score range that would earn against the previous reference,
+so rewards keep flowing to the current cohort; the reference does not advance.
+The anchor is \(R_{k-1}\) rather than \(R_k\) because no entrant has passed
+\(R_k\) by the margin, so none is measurably different from it, and a cutoff at
+\(S_{R_k}\) would admit or exclude entrants equal to it by batch noise. Anchoring
+on the last reference the subnet passed by the margin lets independent models as
+good as \(R_k\), including new models from \(R_k\)'s author, earn in a fallback
+cohort, while copies of \(R_k\) fail the public-copy gate
+(Section~\ref{reference-model}). For example, if \(R_{k-1}\) scores 0.9400 on
+the batch and the top entrant 0.9500, the cutoff is 0.9415. An entrant just
+short of the margin therefore earns in a fallback cohort but not when another
+entrant passes it. In any other
+case, including \(S_{R_k}=1\), where the band width is zero even when \(R_{k-1}\)
+exists, the cohort produces no new target: the previous target stays live, and
+if there has never been one the row sends the whole pool to the owner hotkey's
+UID, which burns it.
+\item \emph{Clusters.} Walk the gated entrants at or above the cutoff in rank
+order. The first entrant not yet assigned heads a cluster that also contains
+every later unassigned entrant with identical inference content or within the
+near-copy distance of the head on the batch. The cluster takes its head's score
+and position; there is no chaining through other members.
+\item \emph{Near-equal drop.} Walk the cluster heads in rank order and drop a
+cluster whose score is at most \(\varepsilon\) below the last retained head's
+score; of two independent clusters with exactly equal scores, the later in rank
+order is therefore dropped. Comparison is always with the last retained head,
+never with a dropped one, and happens before banding. A dropped cluster earns
+nothing.
+\item \emph{Bands.} Place each retained cluster in band
+\(b=\min(\lfloor S/w\rfloor,\lceil 1/w\rceil-1)\) on the absolute score grid.
+Rank occupied bands \(\kappa=0,\dots,B-1\) from the top, and rank the clusters
+within band \(\kappa\) as \(\mu=0,\dots,n_\kappa-1\) in rank order.
+\item \emph{Credit.} A cluster earns
+\[
+ c=\frac{r^{\kappa}}{\sum_{j<B}r^{j}}\cdot\frac{r^{\mu}}{\sum_{j<n_\kappa}r^{j}},
+\]
+so the credits sum to one.
+\item \emph{Equal split.} Each of a cluster's \(m\) members receives \(c/m\).
+\item \emph{Row.} Apportion 65,535 units across members by largest remainder:
+each takes the integer part of its share, and leftover units go to the largest
+fractional remainders, with ties in rank order. At each tempo, map each member's
+hotkey and registration generation to its current UID in the validator's
+finalized registration snapshot. Units of a hotkey that is no longer registered
+under that generation go to the UID of the subnet owner hotkey in the same
+snapshot, which burns them (Section~\ref{unallocated-rewards}). The chain stores
+a weight row scaled so that its largest entry is 65,535, so validators commit,
+and compare each reveal with, the row in that form, computed exactly with ties
+rounded half to even; the canonical row and its digest remain the audited
+record.
+\end{enumerate}
+
+Because an entrant short of the margin earns only in a fallback cohort, how
+often an equally good entrant earns depends on the roster. With ten entrants
+equal to \(R_k\) that resemble its seed retrains, 79--86\% of cohorts fall back,
+and in those an entrant earns whenever it reaches \(C_N\). Among ten
+structurally different equal entrants, each earns only when it clears the margin
+itself, about a third of the time, or in the 2--20\% of cohorts that fall back:
+in a third to at most a half of cohorts, chosen by batch noise.
+A copy of a published artifact earns nothing, so each artifact takes that draw
+once, and equally good entrants earn equally only in expectation over many
+artifacts.
+
+With \(r=0.85\), a lone cluster receives the whole pool, and two clusters receive
+54.1\% and 45.9\% whether they share a band or not, which the row encodes as
+35,424 and 30,111 of its 65,535 units. A crowded band divides its
+share: with two clusters in the top band and one below, they receive 29.2\%,
+24.8\%, and 45.9\%. With \(r=17/20\), each credit is already a fraction in lowest
+terms, and the package publishes every retained cluster's exact credit in that
+form. All arithmetic uses exact integers and rationals, so every validator
+derives byte-identical rows. A roster holds at most 256 entrants, the subnet's
+UID limit, and because \(\varepsilon=w/250\), at most 250 retained clusters fit
+in one band.
+
+A band's share depends on its rank among occupied bands, not on how many
+clusters it holds, so credit is not monotone in score across a band boundary. A
+cluster alone in the lower of two occupied bands receives 45.9\% however many
+clusters share the band above, 2.2 times the best of three there and 3.1 times
+the best of five; alone in the third of three bands, it receives 28.1\%. Subnet
+78's 2.5-point bands seldom divide a roster, so its experience does not cover
+this case. A band of two standard errors often does: the paired difference
+between two equally good entrants has a standard error of half a band, and the
+grid is fixed in absolute score, so where a roster divides depends on the batch. A score
+difference below the noise can therefore reverse the order of pay. The split is
+kept from the ported mechanism, and what it buys is the same property: a band's
+share does not shrink as other bands fill, so a crowd of entries in one band,
+such as variants just beyond the near-copy distance, cannot dilute or push down
+the pay of entrants in other bands, as it would under a geometric split by rank
+alone. Its non-monotonicity is a stated limit; the strategy it opens is
+described below.
+
+The near-equal drop is kept from subnet 78, where it removes near-equal
+duplicate entries. Here the content check, the public-copy gate, and
+clustering remove copies before it runs. Its remaining benefits are fidelity to
+the ported mechanism and a partial backstop against an entrant that escapes the
+near-copy distance yet scores within \(\varepsilon\) of a retained head: the
+drop cannot tell a copy from an original and removes whichever ranks lower. Its
+main effect falls on independent entrants whose scores tie a retained head by
+chance. Because
+\(\varepsilon\) is \(1/125\) of the paired standard error at every batch size,
+two equally good independent retrains fall within it in about 0.6\% of cohorts,
+and among ten such entrants above the cutoff some cluster is dropped in about a
+quarter of cohorts. That cost is a stated limit, like the false-promotion rate.
+
+The near-copy distance removes exact and recalibrated copies and sets a minimum
+price on a perturbed copy; it neither prevents one nor bounds what one earns. To
+clear distance \(d\), a copy must add
+variation that no rank-preserving recalibration explains. Variation of that size
+that carries no label information costs about \(d^2\approx6\times10^{-4}\) of
+expected score, less any gain also available by recalibrating the reference,
+about \(3.7\times10^{-4}\) for \(R_0\), so the guaranteed floor is about
+\(2.6\times10^{-4}\). The cheapest perturbed copy of \(R_0\), standing in for any
+published reference, found on the consumed Test adds noise to \(R_0\)'s ranking
+of documents after its best recalibration.
+Pooling two independent measurements of 128 noise realizations each, on
+40/40/20 batches, it cleared the gate on the batch and against \(R_0\)'s probe
+fingerprint together in about 89\% to 99\% of 1,000-case cohorts, for an
+average of about \(3.5\times10^{-4}\) to \(4.8\times10^{-4}\) of expected score:
+0.6\% to 0.8\% of the reference's headroom, or 0.07 to 0.10 of a band at that
+measurement's \(\sigma=0.040\), about a tenth of a band. At 4,000
+cases the batch comparison alone is cleared nearer the floor, but the
+1,024-document probe comparison with \(R_k\)'s fingerprint
+(Section~\ref{public-copies}) then binds: clearing both in about 99\% of cohorts
+costs about \(4.7\times10^{-4}\), about a fifth of a band. That cheapest copy
+stays in the reference's band, takes a within-band slot in a fallback cohort, and
+must be rebuilt each cohort because its own artifact is published. Once a
+predecessor exists, fallback is the expected case while entrants
+resemble seed retrains of the reference: ten such entrants equal to \(R_k\)
+promote none about 86\% of the time, although structurally different equal
+entrants usually promote one (Section~\ref{reference-model}). A tolerance
+large enough to price an escape at a full band would be
+about 0.07, near the distance between independent retrains of the launch
+recipe, so no prediction tolerance can price it. With \(r=0.85\), an honest
+cluster that shares a band with one such copy receives 54.1\% of the band's
+share. Clustering uses the same distance, so a sybil variant of an entrant
+costs the same to separate from its cluster.
+
+Adding more noise escapes just as surely and lowers a copy's score by any chosen amount,
+and because pay is not monotone across bands, a lower score can pay more. A
+fallback cohort admits scores down to \(C_N\), 85\% of the way from the top
+score to \(S_{R_{k-1}}\). When \(R_k\) genuinely improved on \(R_{k-1}\) by the
+margin, about a band in score units, that range reaches most of a band below the
+entrants near \(S_{R_k}\). A copy of \(R_k\) degraded into it, with noise well
+beyond \(d\), can land alone in a band below theirs and take 45.9\% of the pool
+if they occupy one band, or 28.1\% if they occupy two. In a promotion cohort, an
+entrant whose model clears the margin by more than a band can do the same with a
+weaker variant under a second hotkey, and any entrant can submit less than its
+best model. Such an entry aims blind: the batch, the grid's position, and the
+cutoff are unknown at commitment, and a miss earns nothing below the cutoff or a
+low slot in a crowded band. Its expected credit against realistic rosters has
+not been measured, and that measurement precedes launch
+(Section~\ref{protocol-checks-before-launch}). Where it lands alone, it can earn
+more than each honest cluster above it; this is a stated limit of the ported
+split.
+
+Weight soups of published artifacts are new models. A soup that is not within
+the near-copy distance of a published artifact earns normally, and the protocol
+does not look for one: averaging the weights of fine-tunes of one base, like
+further training of a published model, is legitimate work. A submission must
+still be one allow-listed graph, so an average of two separate encoders' outputs
+cannot be submitted. Such an output average is the only blend measured: on the
+consumed Test, a 50/50 average of two published seeds' outputs scored about 0.2
+to 0.3 of a band above \(R_0\) at 1,000 cases and cleared the gate against both
+sources, on the batch and on the probe, in every batch measured. A soup earns in
+a fallback cohort like any model at its score, and one that beats \(R_k\) by the
+margin can be promoted.
+
+\subsection{Published artifacts and the fingerprint probe}\label{public-copies}
+
+Exact copies are found by inference-content digest against every artifact ever
+published, a check every validator repeats from the published packages: an
+entrant fails the content check exactly when its digest equals that of a
+published artifact, and such an entrant is never executed. Re-running every
+earlier artifact on each batch would grow without bound, so near copies are also
+measured on a fixed private probe of 1,024 documents, drawn and generated like a
+batch. Near copies of \(R_k\) and \(R_{k-1}\) are measured on the cohort batch,
+where both references already run, and on the probe against their
+fingerprints. Near copies of every earlier artifact are measured on the probe.
+A near copy of \(R_k\) is recorded before one of \(R_{k-1}\), and either before a
+probe match.
+
+Every executed entrant also runs on the probe once, whatever its score and other
+gates. No score in an entrant's own cohort bounds what a copy of it can earn:
+\(R_{k-1}\) can outscore \(R_k\) on a batch, and a copy meets new documents in a
+later cohort. The entrant's probe predictions are compared with the recorded
+probe predictions of every earlier published artifact, \(R_k\) and \(R_{k-1}\)
+included, and become its own fingerprint once its artifact is published. Each
+package publishes every entrant's exact comparisons with both references'
+fingerprints, and validators check that a near one fails the gate, so a copy of
+a reference must escape both the batch and the probe. When entrants with
+identical inference content return different probe predictions, the
+earliest-committed entrant's become the fingerprint. Each artifact therefore
+runs on the probe only in its own cohort. An artifact that was never executed
+carries no fingerprint and is protected by its content digest alone.
+
+The probe carries no reward weight. Its labels serve only the \(w/2\) exception
+against fingerprinted artifacts. Its human texts are withdrawn from the hidden
+stock and never scored. The probe and the fingerprints stay private, and each
+manifest binds at least one probe version, of at most 65,536 documents, by
+version and digest. A model that could recognize probe documents could look
+different there alone, so the probe follows the batch design. A new version is
+drawn when that design changes materially or the probe may have been disclosed.
+A replaced version stays in use, and entrants run on it too, while it holds the
+fingerprint of any artifact not fingerprinted again on a later version. Both
+references are fingerprinted on every version in use. A disclosed version
+leaves use at once, and earlier artifacts recorded only on it keep exact-digest
+protection only.
+
+The probe adds 1,024 inferences per executed entrant and probe version in use.
+That roughly doubles an entrant's scoring at 1,000 cases and adds a quarter at
+4,000. Each package also reports, as exact integers, the smallest distance
+between two cluster heads, between \(R_k\) and any gated entrant on the batch, and
+between any gated entrant and any fingerprinted artifact on the probe, so a
+later manifest can lower \(d\) before independent models approach it.
+
+\subsection{Failures and the result package}\label{aggregation-and-failure-policy}
+
+An attributable failed or missing model result has zero utility and retains its
+assignment weight. A Container crash or out-of-memory failure is an
+infrastructure error until it reproduces on a fresh instance, in
+single-document isolation, under the frozen resource limits; a crash that
+reproduces counts against the artifact, and those documents score zero utility
+for that entrant only. A task whose every attempt ended in an infrastructure
+error blocks the package: the cohort pauses for reconciliation under the same
+manifest, and the previous target stays live. Operator downtime never becomes a
+miner failure. If either reference model fails to return a prediction, the
+package is held for a signed correction rather than scored against a damaged
+baseline. Documents outside the input profile never enter the batch, so no
+entrant can gain from a smaller successful subset. Later \textit{B}
+training-service obligations are absent from an \textit{A}-only launch; no
+fictitious requests or \textit{B} availability score is needed to make an
+\textit{A} entrant eligible.
+
+The signed result package binds the cohort and revision, the commitments with
+their finalized block and extrinsic index, the artifact digests, credited
+hotkeys and registration generations, coverage and outcome accounting, each
+failed gate with its reason code, exact per-miner scores, the reference scores
+\(S_{R_k}\) and \(S_{R_{k-1}}\), the cluster assignments, each scored entrant's
+public-copy result, with its exact near-copy statistics against \(R_k\) and
+\(R_{k-1}\) on the batch and against their fingerprints on the probe, and the
+matched published artifact of any failure, the statistics behind each
+distance-based cluster membership, the published-artifact index root and count,
+the distance monitor, every \texttt{reward-v1} parameter, the cutoff mode, each
+retained cluster's exact credit, and every member's integer units. A gate with
+no recorded failure passed, and no gate measurement is published. An entrant
+that fails artifact qualification is never executed and carries no score. After
+the cohort closes the coordinator also publishes the artifacts and their
+commitment openings. The package binds the R2 receipt index's root and count
+before validators commit. Validators verify the full retained index, counts,
+and receipt digests as specified in Section~\ref{cohorts}. Compact numerical
+inputs and calculated rows survive the detailed receipts' retention window.
+
+The frozen calculation specifies exact arithmetic, operation order,
+tie-breaking, rounding, normalization, and integer chain encoding. It binds the
+registration identities used to map earned credit to UIDs; no chain runtime
+version is an input. Identical inputs must produce identical canonical rows on
+Linux and macOS; implementation-dependent floating-point drift is not an
+accepted tolerance. A registration change that requires a different conversion
+needs an authenticated compatible delivery revision; a chain runtime upgrade
+never does. Neither can silently change the scores or let a validator improvise
+its own normalization.
+
+Published score components are aggregate numerical inputs, never individual
+document predictions or hidden labels. Cluster assignments and near-copy
+statistics are coordinator measurements on hidden predictions, which validators
+trust like the scores. Validators check that each recorded gate and cluster
+decision follows from them and from the published scores, that every entrant's
+probe comparison includes both references, that an entrant fails the content
+check exactly when its content digest equals that of a published artifact, and
+that each closed cohort adds one fingerprint for every executed entrant. They
+recompute each credit and every member's units and refuse any difference.
+Retain private evidence under access controls sufficient for authorized audit;
+public record verification does not prove that the coordinator executed the
+evaluation honestly. Corrections retain the original record and account for
+already-submitted commitments and weights. The public inputs also make the row
+derivable before reveal. Native commit--reveal therefore supplies the chain's
+submission protocol without preventing off-chain copying or proving that each
+validator did the calculation.
+
+\subsection{Mechanism mapping and unallocated rewards}\label{unallocated-rewards}
+
+The documented chain supports at most two native mechanisms with a shared UID
+space, and under Yuma Consensus the UID limit times the mechanism count may not
+exceed 256~\cite{mechanisms}. Launch uses one for \textit{A}. If \textit{C} later
+activates, a candidate mapping uses native mechanism 0 for \textit{A} quality
+and any paid-use credit, and mechanism 1 for grammar contributions, which
+halves the subnet's UID slots to 128. \textit{B} needs a revised mapping before
+activation; three logical workstreams do not create a third native slot.
+
+Let \(c\) be the fraction of total miner emissions assigned to \textit{C} and
+\(f\) the total fraction assigned to paid \textit{A} use, with
+\(0\leq c<1\), \(f\geq0\), and \(c+f\leq1\). For separately normalized
+quality, usage, and new grammar-credit distributions \(Q_i,I_i,K_i\), the
+intended allocations before reward caps and the handling of zero-work usage
+pools are
+\begin{align}\label{eq:mechanism-allocation}
+ W^A_i&=(1-c-f)Q_i+fI_i,\\
+ W^C_i&=cK_i.
+\end{align}
+Here \(Q_i\) is the \texttt{reward-v1} credit. The native \textit{A} mechanism has
+share \(1-c\); its submitted distribution divides \(W^A_i\) by \(1-c\). Launch
+sets \(c=0\) and \(f=0\). A nonzero \(f\) requires the attribution and abuse
+controls in Section~\ref{paid-asynchronous-jobs-and-on-chain-coordination}.
+
+Unallocated credit goes to the UID of the subnet owner hotkey, which the chain
+burns. Every validator reads the owner hotkey and its UID from the finalized
+snapshot it uses for registrations, at every tempo, and records that hotkey in
+the row. No manifest, package, or target names the owner hotkey, so an
+owner-hotkey rotation moves the burn destination at the next tempo without a
+new target or authorization. If units must burn while the finalized owner
+hotkey holds no UID, that tempo's row is deferred rather than sent to any other
+UID; a row with nothing to burn is still derived.
+
+The burn has a documented native cost: before normalizing across subnets and
+applying its emission gate, the chain multiplies each subnet's TAO-side emission
+share by one minus the fraction of the last tempo's miner incentive that went to
+owner hotkeys, recycled or burned~\cite{btemissions}. A partial burn, such as a
+departed hotkey's units, shrinks the share accordingly. While the row sends the
+whole pool to the owner hotkey's UID, as at launch, the subnet receives no
+TAO-side emission and hence no TAO or alpha pool injection. Under the same
+documented rules its participant-side alpha emission continues to accrue and is
+divided by the emission weight vector described below: the miner slot follows
+the row to the owner hotkey's UID and burns, while the validator and owner
+slots are paid as configured. The burn regime therefore removes miner pay and
+the TAO-side share, not validator or owner alpha. The native-chain rehearsal
+(Section~\ref{protocol-checks-before-launch}) must confirm these effects.
+Off-chain allocations cannot guarantee precise realized payouts, freeze native
+emissions, or claw back rewards already distributed.
+
+The split of subnet emissions among owner, validators, and miners is the
+subnet's emission weight vector. The subnet owner may change it at most once a
+week, and root at any time, through the chain's subnet-emission-weights call,
+within chain bounds: the owner slot at most 33\% (and at least 18\% for a
+subnet created through the chain's lease mechanism), the miner slot at least 33\%, and the
+validator slot at most 50\% and above root stakers' baseline
+share~\cite{btemissionweights}. The mainnet split is not selected. The
+testnet subnet (netuid 601) uses an operator configuration that places the
+validator share just above that baseline, its chain minimum, to exercise the
+owner's path; it implies nothing about mainnet.

@@ -1,0 +1,733 @@
+//! The coordinator's status, read through bindings, and the redacted public
+//! snapshot built from it.
+//!
+//! Three status documents are read each run, each behind its Worker's status
+//! token:
+//! the coordinator Worker's `/status` (heartbeat, journal and signing), the
+//! eval Worker's `/status` (its own heartbeat and journal) and its
+//! `/eval/status` (cohorts, the reward regime and the ledger). [`Observed`]
+//! keeps only the typed fields the snapshot and the alert rules use; the
+//! snapshot is then built from those fields alone, so nothing in a status
+//! response reaches the public side unless named here. In particular the
+//! snapshot never carries spend, generation, model, lane, job or document
+//! data, fault details, or the ledger: faults are one boolean.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use slop_ninja_admission_wire::json::{Chain, NextCohort};
+use slop_ninja_protocol::ChainBinding;
+
+pub const STATUS_SCHEMA: &str = "slop_ninja.public.status/v1";
+
+/// One Worker's `/status`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WorkerView {
+    /// `primary` or `fallback`.
+    pub mode: Option<String>,
+    pub mode_age_ms: Option<u64>,
+    pub confirmed_block: Option<u64>,
+    pub confirmed_age_ms: Option<u64>,
+    /// The active durable journal fault's kind.
+    pub fault: Option<String>,
+    pub signing: Option<SigningView>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SigningView {
+    pub state: String,
+    pub reason: Option<String>,
+    pub ops: Vec<OpView>,
+}
+
+/// One weight-commit operation of the coordinator's signing journal.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OpView {
+    pub epoch: u64,
+    pub state: String,
+    pub commit_block: Option<u64>,
+    pub reveal_weights_match: Option<bool>,
+}
+
+/// One cohort of `/eval/status`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CohortView {
+    pub cohort: u64,
+    pub label: String,
+    pub phase: String,
+    pub fault: Option<String>,
+    pub opened_epoch: Option<u64>,
+    pub k_tempos: Option<u64>,
+    pub admission_tempos: Option<u64>,
+    pub transition_tempos: Option<u64>,
+    pub load: bool,
+}
+
+impl CohortView {
+    /// Opened and not yet closed or abandoned.
+    pub fn active(&self) -> bool {
+        !self.load && !matches!(self.phase.as_str(), "queued" | "closed" | "abandoned")
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RewardView {
+    pub active_target: Option<String>,
+    pub launch_burn: Option<bool>,
+    pub reference_index: Option<u64>,
+    pub current_content: Option<String>,
+}
+
+/// `/eval/status`. The ledger enters only as a per-mille ratio for the alert
+/// rule, never as an amount.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EvalView {
+    pub confirmed_block: Option<u64>,
+    pub epoch: Option<u64>,
+    pub cohorts: Vec<CohortView>,
+    pub reward: Option<RewardView>,
+    pub ledger_permille: Option<u64>,
+}
+
+impl EvalView {
+    /// The main instance's active cohort.
+    pub fn active(&self) -> Option<&CohortView> {
+        self.cohorts.iter().find(|c| c.active())
+    }
+}
+
+/// Everything read this run; `None` where a source did not answer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Observed {
+    pub coordinator: Option<WorkerView>,
+    pub eval_worker: Option<WorkerView>,
+    pub eval: Option<EvalView>,
+}
+
+// The status documents as typed views: only the fields named here are
+// parsed; every other field is skipped without building a JSON tree, so a
+// status body's memory is its own bytes (see `arena::status_body_bound`).
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ServiceJson {
+    chain_journal: ChainJournalJson,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ChainJournalJson {
+    mode: Option<String>,
+    mode_age_ms: Option<u64>,
+    journal: JournalJson,
+    signing: Option<SigningJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct JournalJson {
+    confirmed: Option<BlockJson>,
+    confirmed_age_ms: Option<u64>,
+    fault: Option<FaultJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct BlockJson {
+    number: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct FaultJson {
+    kind: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct SigningJson {
+    state: Option<String>,
+    reason: Option<String>,
+    ops: Vec<OpJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct OpJson {
+    epoch: Option<u64>,
+    state: Option<String>,
+    commit_block: Option<u64>,
+    reveal_weights_match: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct EvalJson {
+    observed: ObservedJson,
+    cohorts: Vec<CohortJson>,
+    reward: Option<RewardJson>,
+    ledger: LedgerJson,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ObservedJson {
+    confirmed: Option<BlockJson>,
+    epoch: Option<EpochJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct EpochJson {
+    index: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct CohortJson {
+    cohort: Option<u64>,
+    label: Option<String>,
+    phase: Option<String>,
+    fault: Option<String>,
+    opened_epoch: Option<u64>,
+    k_tempos: Option<u64>,
+    admission_tempos: Option<u64>,
+    transition_tempos: Option<u64>,
+    load: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RewardJson {
+    active_target: Option<String>,
+    launch_burn: Option<bool>,
+    references: ReferencesJson,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ReferencesJson {
+    k: Option<u64>,
+    current_content: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct LedgerJson {
+    standing: StandingJson,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct StandingJson {
+    cap_microusd: Option<u64>,
+    spent_microusd: Option<u64>,
+    reserved_microusd: Option<u64>,
+}
+
+fn worker_view(j: ServiceJson) -> WorkerView {
+    let c = j.chain_journal;
+    WorkerView {
+        mode: c.mode,
+        mode_age_ms: c.mode_age_ms,
+        confirmed_block: c.journal.confirmed.and_then(|b| b.number),
+        confirmed_age_ms: c.journal.confirmed_age_ms,
+        fault: c
+            .journal
+            .fault
+            .map(|f| f.kind.unwrap_or_else(|| "fault".into())),
+        signing: c.signing.and_then(|s| {
+            Some(SigningView {
+                state: s.state?,
+                reason: s.reason,
+                ops: s
+                    .ops
+                    .into_iter()
+                    .filter_map(|o| {
+                        Some(OpView {
+                            epoch: o.epoch?,
+                            state: o.state.unwrap_or_default(),
+                            commit_block: o.commit_block,
+                            reveal_weights_match: o.reveal_weights_match,
+                        })
+                    })
+                    .collect(),
+            })
+        }),
+    }
+}
+
+fn eval_view(j: EvalJson) -> EvalView {
+    let cohorts = j
+        .cohorts
+        .into_iter()
+        .filter_map(|c| {
+            Some(CohortView {
+                cohort: c.cohort?,
+                label: c.label?,
+                phase: c.phase?,
+                fault: c.fault,
+                opened_epoch: c.opened_epoch,
+                k_tempos: c.k_tempos,
+                admission_tempos: c.admission_tempos,
+                transition_tempos: c.transition_tempos,
+                load: c.load.unwrap_or(false),
+            })
+        })
+        .collect();
+    let s = j.ledger.standing;
+    let ledger_permille = match (s.cap_microusd, s.spent_microusd) {
+        (Some(cap), Some(spent)) if cap > 0 => {
+            let reserved = s.reserved_microusd.unwrap_or(0);
+            Some((u128::from(spent) + u128::from(reserved)).saturating_mul(1000) as u64 / cap)
+        }
+        _ => None,
+    };
+    EvalView {
+        confirmed_block: j.observed.confirmed.and_then(|b| b.number),
+        epoch: j.observed.epoch.and_then(|e| e.index),
+        cohorts,
+        reward: j.reward.map(|r| RewardView {
+            active_target: r.active_target,
+            launch_burn: r.launch_burn,
+            reference_index: r.references.k,
+            current_content: r.references.current_content,
+        }),
+        ledger_permille,
+    }
+}
+
+/// Parses a Worker's `/status` (`ServiceStatus`) body; `None` when it is not
+/// the expected shape.
+pub fn parse_worker_bytes(body: &[u8]) -> Option<WorkerView> {
+    serde_json::from_slice(body).ok().map(worker_view)
+}
+
+/// Parses an `/eval/status` body.
+pub fn parse_eval_bytes(body: &[u8]) -> Option<EvalView> {
+    serde_json::from_slice(body).ok().map(eval_view)
+}
+
+/// [`parse_worker_bytes`] over a JSON value (tests and tools).
+pub fn parse_worker(v: &Value) -> WorkerView {
+    serde_json::from_value(v.clone())
+        .map(worker_view)
+        .unwrap_or_default()
+}
+
+/// [`parse_eval_bytes`] over a JSON value (tests and tools).
+pub fn parse_eval(v: &Value) -> EvalView {
+    serde_json::from_value(v.clone())
+        .map(eval_view)
+        .unwrap_or_default()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Confirmed {
+    pub block: u64,
+    pub epoch: Option<u64>,
+    pub age_secs: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Admitting {
+    pub cohort: u64,
+    pub label: Option<String>,
+    pub opened_epoch: u64,
+    pub planned_cutoff_epoch: u64,
+}
+
+/// Which status sources answered this run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sources {
+    pub coordinator: bool,
+    pub eval: bool,
+}
+
+/// The public snapshot (`v1/status.json`), the shape the admission contract
+/// documents (`docs/testnet/admission-api.md`, section 10) plus fields the
+/// miner client ignores.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicStatus {
+    pub schema: String,
+    pub network: String,
+    pub chain: Chain,
+    pub confirmed: Option<Confirmed>,
+    pub phase: Option<String>,
+    /// `burn` while the launch burn row is the active target, else `target`.
+    pub mode: Option<String>,
+    pub fault: bool,
+    pub notice: Option<String>,
+    pub admitting: Option<Admitting>,
+    pub next: Option<NextCohort>,
+    pub coordinator: Option<String>,
+    pub active_target: Option<String>,
+    /// The current reference `R_k`'s inference-content digest.
+    pub reference: Option<String>,
+    pub reference_index: Option<u64>,
+    pub generated_at: u64,
+    pub sources: Sources,
+    pub last_published_cohort: Option<u64>,
+}
+
+pub const BURN_NOTICE: &str = "Launch burn: every unit of the weight row goes to the subnet owner's UID until an \
+    entrant beats the reference R_k by the margin delta and its cohort's target activates at the cohort's close.";
+pub const TARGET_NOTICE: &str = "A cohort target is active: validators pay its credited clusters every tempo; \
+    units of a hotkey that is no longer registered under the same registration go to the owner's UID.";
+pub const TESTNET_NOTICE: &str = "Testnet: scores test the evaluation plumbing. Evaluation documents may be reused \
+    across cohorts and may be exposed; testnet scores say nothing about quality on unseen text.";
+pub const CONFIG_NOTICE: &str = "The publisher's configuration was refused; publication is paused until the \
+    operator fixes it.";
+pub const UNREACHABLE_NOTICE: &str = "The publisher could not read the coordinator's status this run; the fields \
+    below may be missing until it can.";
+
+fn hex_digest(s: &Option<String>) -> Option<String> {
+    s.as_ref()
+        .map(|d| d.trim_start_matches("0x").to_owned())
+        .filter(|d| {
+            d.len() == 64
+                && d.bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        })
+}
+
+pub struct SnapshotInputs<'a> {
+    pub chain: &'a ChainBinding,
+    pub observed: &'a Observed,
+    pub admission_origin: Option<&'a str>,
+    pub operator_notice: Option<&'a str>,
+    pub last_published_cohort: Option<u64>,
+    pub now_ms: u64,
+}
+
+/// Builds the snapshot from typed fields only.
+pub fn snapshot(i: &SnapshotInputs<'_>) -> PublicStatus {
+    let o = i.observed;
+    let eval = o.eval.as_ref();
+    let worker = o.eval_worker.as_ref();
+    let active = eval.and_then(EvalView::active);
+    let confirmed = eval.and_then(|e| e.confirmed_block).map(|block| Confirmed {
+        block,
+        epoch: eval.and_then(|e| e.epoch),
+        age_secs: worker.and_then(|w| w.confirmed_age_ms).map(|ms| ms / 1000),
+    });
+    let fault = [o.coordinator.as_ref(), worker]
+        .into_iter()
+        .flatten()
+        .any(|w| w.fault.is_some() || w.signing.as_ref().is_some_and(|s| s.state == "fault"))
+        || active.is_some_and(|c| c.fault.is_some())
+        || o.eval.is_none()
+        || o.coordinator.is_none();
+    let admitting = active.filter(|c| c.phase == "admission").and_then(|c| {
+        let opened = c.opened_epoch?;
+        Some(Admitting {
+            cohort: c.cohort,
+            label: Some(c.label.clone()),
+            opened_epoch: opened,
+            planned_cutoff_epoch: opened + c.admission_tempos?,
+        })
+    });
+    let next = eval.and_then(|e| {
+        let queued = e
+            .cohorts
+            .iter()
+            .filter(|c| !c.load && c.phase == "queued")
+            .min_by_key(|c| c.cohort)?;
+        let earliest = match active {
+            Some(a) => a.opened_epoch.zip(a.k_tempos).map(|(o, k)| o + k),
+            None => e.epoch.map(|x| x + 1),
+        };
+        Some(NextCohort {
+            cohort: queued.cohort,
+            earliest_open_epoch: earliest,
+        })
+    });
+    let reward = eval.and_then(|e| e.reward.as_ref());
+    let launch_burn = reward.and_then(|r| r.launch_burn);
+    let mut notice = vec![];
+    if o.eval.is_none() || o.coordinator.is_none() {
+        notice.push(UNREACHABLE_NOTICE);
+    }
+    match launch_burn {
+        Some(true) => notice.push(BURN_NOTICE),
+        Some(false) => notice.push(TARGET_NOTICE),
+        None => {}
+    }
+    notice.push(TESTNET_NOTICE);
+    if let Some(extra) = i.operator_notice {
+        notice.push(extra);
+    }
+    PublicStatus {
+        schema: STATUS_SCHEMA.into(),
+        network: "testnet".into(),
+        chain: Chain::from_binding(i.chain),
+        confirmed,
+        phase: Some(match (active, eval) {
+            (Some(c), _) => c.phase.clone(),
+            (None, Some(e)) if e.cohorts.iter().any(|c| !c.load && c.phase == "queued") => {
+                "queued".into()
+            }
+            (None, Some(_)) => "idle".into(),
+            (None, None) => "unknown".into(),
+        }),
+        mode: launch_burn.map(|b| if b { "burn" } else { "target" }.to_owned()),
+        fault,
+        notice: Some(notice.join(" ")),
+        admitting,
+        next,
+        coordinator: i.admission_origin.map(str::to_owned),
+        active_target: reward.and_then(|r| hex_digest(&r.active_target)),
+        reference: reward.and_then(|r| hex_digest(&r.current_content)),
+        reference_index: reward.and_then(|r| r.reference_index),
+        generated_at: i.now_ms / 1000,
+        sources: Sources {
+            coordinator: o.coordinator.is_some(),
+            eval: o.eval.is_some() && o.eval_worker.is_some(),
+        },
+        last_published_cohort: i.last_published_cohort,
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use serde_json::json;
+
+    pub const SECRET_MARKERS: &[&str] = &[
+        "PRIVATE-DOCUMENT-TEXT",
+        "cost_microusd",
+        "budget_microusd",
+        "spent_microusd",
+        "@cf/",
+        "prompt_tokens",
+        "extrinsic_hash",
+        "fault-detail-hash",
+        "rejects",
+        "pool_rows_used",
+    ];
+
+    /// Status documents shaped like the coordinator's, with private fields a
+    /// pass-through would leak.
+    pub fn eval_status(phase: &str) -> Value {
+        json!({
+            "observed": {"confirmed": {"number": 8_340_012, "hash": "0xab"}, "epoch": {"index": 23_170, "block": {"number": 8_340_000}}},
+            "kick_age_ms": 4000,
+            "pool_rows_used": 500,
+            "cohorts": [
+                {"cohort": 6, "label": "testnet-c6", "phase": "closed", "fault": null, "opened_epoch": 23_150,
+                 "k_tempos": 20, "admission_tempos": 1, "transition_tempos": 2, "load": false},
+                {"cohort": 7, "label": "testnet-c7", "phase": phase, "fault": null, "opened_epoch": 23_169,
+                 "k_tempos": 20, "admission_tempos": 1, "transition_tempos": 2, "load": false,
+                 "generation": [{"model": "@cf/x", "cost_microusd": 123, "prompt_tokens": 9}],
+                 "budget_microusd": 99, "rejects": {"PRIVATE-DOCUMENT-TEXT": 1},
+                 "docs": [{"kind": "mixed", "status": "ready", "count": 3}]},
+                {"cohort": 8, "label": "testnet-c8", "phase": "queued", "load": false},
+                {"cohort": 900, "label": "load-x", "phase": "scoring", "load": true}
+            ],
+            "reward": {"rule": "reward-v1", "active_target": "11".repeat(32), "launch_burn": true,
+                       "references": {"k": 0, "current_content": "22".repeat(32), "predecessor_content": null},
+                       "note": "PRIVATE-DOCUMENT-TEXT"},
+            "ledger": {"standing": {"cycle": "2026-11-01", "cap_microusd": 1000, "spent_microusd": 700, "reserved_microusd": 150}},
+        })
+    }
+
+    pub fn worker_status(mode: &str, fault: bool) -> Value {
+        json!({
+            "service": "slop-ninja-coordinator", "version": "0.1.0", "deployment": "testnet",
+            "config": {"rpc_host": "rpc.example.invalid"},
+            "chain_journal": {
+                "mode": mode, "mode_age_ms": 1000,
+                "journal": {"confirmed": {"number": 8_340_010, "hash": "0xcd"}, "confirmed_age_ms": 40_000,
+                            "fault": if fault { json!({"id": 1, "kind": "parent_conflict", "expected_hash": "fault-detail-hash"}) } else { Value::Null }},
+                "signing": {"state": "active", "reason": null, "ops": [
+                    {"epoch": 23_169, "state": "committed", "commit_block": 8_339_800, "reveal_weights_match": true,
+                     "attempts": [{"extrinsic_hash": "0xextrinsic_hash"}]}
+                ]}
+            }
+        })
+    }
+
+    fn observed(phase: &str) -> Observed {
+        Observed {
+            coordinator: Some(parse_worker(&worker_status("primary", false))),
+            eval_worker: Some(parse_worker(&worker_status("primary", false))),
+            eval: Some(parse_eval(&eval_status(phase))),
+        }
+    }
+
+    fn chain() -> ChainBinding {
+        ChainBinding {
+            genesis: slop_ninja_protocol::TESTNET_GENESIS,
+            netuid: 601,
+            mechanism: 0,
+        }
+    }
+
+    #[test]
+    fn admission_snapshot_matches_the_contract() {
+        let o = observed("admission");
+        let snap = snapshot(&SnapshotInputs {
+            chain: &chain(),
+            observed: &o,
+            admission_origin: Some("https://admission.example.invalid"),
+            operator_notice: None,
+            last_published_cohort: Some(6),
+            now_ms: 1_793_500_000_000,
+        });
+        assert_eq!(snap.schema, STATUS_SCHEMA);
+        assert_eq!(snap.phase.as_deref(), Some("admission"));
+        assert_eq!(snap.mode.as_deref(), Some("burn"));
+        assert!(!snap.fault);
+        assert_eq!(
+            snap.admitting,
+            Some(Admitting {
+                cohort: 7,
+                label: Some("testnet-c7".into()),
+                opened_epoch: 23_169,
+                planned_cutoff_epoch: 23_170
+            })
+        );
+        assert_eq!(
+            snap.next,
+            Some(NextCohort {
+                cohort: 8,
+                earliest_open_epoch: Some(23_189)
+            })
+        );
+        assert_eq!(
+            snap.confirmed,
+            Some(Confirmed {
+                block: 8_340_012,
+                epoch: Some(23_170),
+                age_secs: Some(40)
+            })
+        );
+        assert_eq!(snap.reference.as_deref(), Some("22".repeat(32).as_str()));
+        // The client's documented fields parse (admission-api.md section 10).
+        let text = serde_json::to_string(&snap).unwrap();
+        let v: Value = serde_json::from_str(&text).unwrap();
+        for field in [
+            "schema",
+            "network",
+            "chain",
+            "confirmed",
+            "phase",
+            "mode",
+            "fault",
+            "notice",
+            "admitting",
+            "next",
+            "coordinator",
+            "active_target",
+            "reference",
+        ] {
+            assert!(v.get(field).is_some(), "{field}");
+        }
+        let chain: Chain = serde_json::from_value(v["chain"].clone()).unwrap();
+        assert_eq!(chain.netuid, 601);
+    }
+
+    /// The snapshot carries none of the private fields in the status it was
+    /// built from: no spend, generation, document, ledger or fault detail.
+    #[test]
+    fn snapshot_is_redacted() {
+        let o = observed("scoring");
+        let snap = snapshot(&SnapshotInputs {
+            chain: &chain(),
+            observed: &o,
+            admission_origin: None,
+            operator_notice: Some("Maintenance tonight."),
+            last_published_cohort: None,
+            now_ms: 0,
+        });
+        let text = serde_json::to_string(&snap).unwrap();
+        for marker in SECRET_MARKERS {
+            assert!(!text.contains(marker), "{marker} leaked: {text}");
+        }
+        assert!(
+            !text.contains("850") && !text.contains("1000\""),
+            "no ledger figure"
+        );
+        crate::redact::scan_json(text.as_bytes()).unwrap();
+        assert_eq!(o.eval.as_ref().unwrap().ledger_permille, Some(850));
+    }
+
+    /// A reference or target in the status that is not a 64-hex digest never
+    /// reaches the snapshot.
+    #[test]
+    fn non_digest_references_are_dropped() {
+        let mut v = eval_status("admission");
+        v["reward"]["references"]["current_content"] = json!("PRIVATE-DOCUMENT-TEXT");
+        v["reward"]["active_target"] = json!("0x".to_owned() + &"AB".repeat(32));
+        let o = Observed {
+            eval: Some(parse_eval(&v)),
+            ..observed("admission")
+        };
+        let snap = snapshot(&SnapshotInputs {
+            chain: &chain(),
+            observed: &o,
+            admission_origin: None,
+            operator_notice: None,
+            last_published_cohort: None,
+            now_ms: 0,
+        });
+        assert_eq!(snap.reference, None);
+        assert_eq!(snap.active_target, None, "uppercase hex is not a digest");
+        assert!(!serde_json::to_string(&snap).unwrap().contains("PRIVATE"));
+    }
+
+    /// The typed parse reads the same fields from bytes as from a value, and
+    /// an unexpected shape is no status at all.
+    #[test]
+    fn typed_parse_from_bytes() {
+        let bytes = serde_json::to_vec(&eval_status("scoring")).unwrap();
+        assert_eq!(
+            parse_eval_bytes(&bytes),
+            Some(parse_eval(&eval_status("scoring")))
+        );
+        let w = serde_json::to_vec(&worker_status("primary", true)).unwrap();
+        let view = parse_worker_bytes(&w).unwrap();
+        assert_eq!(view.fault.as_deref(), Some("parent_conflict"));
+        assert_eq!(view.signing.as_ref().unwrap().ops.len(), 1);
+        assert_eq!(parse_eval_bytes(b"[1, 2]"), None);
+        assert_eq!(parse_worker_bytes(b"not json"), None);
+    }
+
+    #[test]
+    fn faults_and_unreachable_sources() {
+        let mut o = observed("scoring");
+        o.coordinator = Some(parse_worker(&worker_status("fallback", true)));
+        let snap = snapshot(&SnapshotInputs {
+            chain: &chain(),
+            observed: &o,
+            admission_origin: None,
+            operator_notice: None,
+            last_published_cohort: None,
+            now_ms: 0,
+        });
+        assert!(snap.fault);
+        assert!(
+            !serde_json::to_string(&snap)
+                .unwrap()
+                .contains("parent_conflict")
+        );
+        let none = Observed::default();
+        let snap = snapshot(&SnapshotInputs {
+            chain: &chain(),
+            observed: &none,
+            admission_origin: None,
+            operator_notice: None,
+            last_published_cohort: None,
+            now_ms: 0,
+        });
+        assert!(snap.fault);
+        assert_eq!(snap.phase.as_deref(), Some("unknown"));
+        assert!(snap.notice.unwrap().starts_with(UNREACHABLE_NOTICE));
+        assert_eq!(
+            snap.sources,
+            Sources {
+                coordinator: false,
+                eval: false
+            }
+        );
+    }
+}

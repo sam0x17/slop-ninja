@@ -1,0 +1,35 @@
+[package]
+name = "grammar-a-positives"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Positive generation for the competitive A protocol: mechanical request plans, resumable local generation with exact replacement spans, and assembly"
+
+[lib]
+name = "grammar_a_positives"
+
+[[bin]]
+name = "slop_ninja_a_positives"
+path = "src/main.rs"
+
+[[bin]]
+name = "slop_ninja_a_spliced"
+path = "src/bin/spliced.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+grammar-a-form = { path = "../grammar-a-form" }
+grammar-a-pools = { path = "../grammar-a-pools" }
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
+
+[dev-dependencies]
+grammar-a-baseline = { path = "../grammar-a-baseline" }
+tempfile.workspace = true
+unicode-normalization.workspace = true

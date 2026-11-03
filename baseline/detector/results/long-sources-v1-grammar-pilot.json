@@ -1,0 +1,33 @@
+{
+  "binding": {
+    "audit_code_sha256": "99fcd5ad6b39d0c89855b801f5e432e20721cd6b1e370d11905c12ade786faa5",
+    "catalog": "grammar-rules-v4",
+    "converters": null,
+    "features": "grammar-features-v1;nfc-lowercase-letter-apostrophe-v1;alphabetic-parse-token-v1;syntax-families-v1",
+    "manifest_sha256": "6b0f50646052f7bd862fc3570dbdebb23b0cc8a171916076249de90cf24089d4",
+    "max_chars": 200000,
+    "parser_identity": "grammar-spacy-annotation-v1;spacy=3.8.16;model=en_core_web_sm@3.8.0;model-files-sha256=c99c4f7c306a310c603f9bbfb32d299e2b1199c964efe108253536432c98b68f;paragraph-content-v2;raw-text-v1",
+    "review_dir": "annotations",
+    "review_limit": 3,
+    "review_modulus": 1,
+    "schema": "slop_ninja_grammar_coverage_v1",
+    "sources": {
+      "cmu-long-sources-v1": {
+        "bibliography_sha256": null,
+        "latex_preamble_sha256": null,
+        "source_sha256": "5ff946daf1b33d57971103c41b87ea857cef120e71ce488c273086d75df66596"
+      }
+    }
+  },
+  "complete_input_traversal": false,
+  "correctness_certified": false,
+  "distinct_text_statuses": {
+    "parsed_unreviewed": 3
+  },
+  "new_distinct_texts": 3,
+  "no_error_is_not_correctness": true,
+  "parse_accuracy": null,
+  "records_visited": 3,
+  "records_without_text": 0,
+  "review_queue_size": 3
+}

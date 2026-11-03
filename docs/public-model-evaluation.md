@@ -1,0 +1,137 @@
+# Public-model evaluation
+
+Whitepaper draft 0.48 and the [Cloudflare design](cloudflare-subnet-draft.md)
+define the current proposal. Launch admits public *A* artifacts and uses
+coordinator-led hidden evaluation. Every validator independently derives the
+weight row from signed per-miner scores and commits through native commit/reveal.
+*B* activates separately. This guide summarizes evaluation policy; the
+production runner still requires implementation and qualification.
+
+## What publication provides
+
+An admitted *A* model publishes its weights and everything needed to execute
+its declared calculation when its cohort ends. Its terms let anyone obtain it for
+free, run it locally, and reuse it to train a private *B* model. The coordinator
+hosts a published entrant artifact until its cohort's receipts become deletable,
+at least about 48 hours with daily cohorts, and keeps the current and previous
+reference artifacts hosted while they are references. After that, a
+non-reference artifact is available only from copies others kept; the retained
+signed package still binds its digest. Training data and recipes need not be
+published where the applicable rights permit them to remain private. Optional
+hosted service has separate costs and terms; publishing a model does not
+require the miner to operate an inference endpoint.
+
+The coordinator caches qualified artifacts and executes them on common hidden
+inputs under equal limits. This avoids sending benchmark jobs through miner
+endpoints. It retains predictions, failures, input identities, and execution
+settings for signed result records. Validators verify the coordinator's score
+package and receipts, then calculate reward allocations and canonical native
+weights using the common policy. They commit independently; the coordinator's
+finalized row is a later consistency audit. Other validators receive no held-out documents,
+labels, or per-document predictions and cannot reproduce hidden evaluation. Independent users can run public
+artifacts on their own inputs.
+Honest coordinator scoring and curation remain trust assumptions.
+
+Reproducing an artifact establishes its calculation, not detection accuracy.
+A public model can reproduce a deliberately permissive response to a trigger.
+Qualification therefore includes independently labelled holdouts, hidden
+production histories, source-family separation, formatting controls, targeted
+triggers, and common-owner attacks. Retire benchmark material before authorized
+release. Public weights establish neither original training nor the absence
+of collusion or memorized examples.
+
+## The artifact contract
+
+One shared learned encoder supports origin, AI-share, and attribution outputs.
+The [model contract](../whitepaper/sections/03-models.tex) fixes their meanings
+and qualification. A weight file alone is insufficient. The complete artifact
+binds preprocessing, feature meanings, reference pooling, calibration, numerical
+precision and tolerances, dependencies, allowed operators, resource limits,
+and reference outputs. Under the proposed CFG-only profile, it also binds the
+parser, grammar, resolution policy, and projection. That input restriction
+still depends on the [viability experiment](cfg-vector-viability.md).
+
+One shared learned encoding interface is required; useful feature sharing and
+its benefit remain hypotheses.
+Matched controls must measure positive and negative transfer; graph inspection
+does not show whether heads use common useful features. Adverse results inform
+an explicit design revision rather than an entrant-specific exception.
+
+The main intended human profile comes from a customer's independent writing
+samples. Trusted preprocessing projects compatible CFG vectors and constructs a
+representative writer vector for the learned model. A normalized weighted mean
+is the proposed starting point, with versioned pooling, per-work weights, masks,
+and grammar/schema/projection bindings. Test sample length, topic, register, and
+variation lost in averaging. The named `provided_writer` result ("Provided
+writer") follows the ordinary match rule and leaves `other_human` available when
+no human profile qualifies. It identifies a supplied profile, not a verified
+person. AI share/confidence and both role probabilities remain separate outputs.
+Keep these references and vectors private to their job or customer; publication
+of *A* does not publish customer profiles. Secondary human galleries may use
+documented public/licensed references under a provenance and permitted-use policy.
+
+The admitted scorer has no network access, online learning, undeclared mutable
+state, or cross-job prompt cache. Query inputs exclude explicit author IDs,
+miner UIDs, assignments, hidden labels, and source/candidate-role flags.
+Interface restrictions do not establish that the text itself contains no
+benchmark cues. Qualify numerical behavior and resource bounds on the actual
+execution runtime; another backend requires its own equivalence evidence.
+
+Inference-semantic changes create a new artifact version. Registration binds
+inference content separately from signatures and owner metadata. Identical
+content receives one credited entry under the finalized commitment-priority
+rule; changing a wrapper does not establish a new model. Near-copy policy and
+original-training claims require separate treatment.
+
+## Scoring and external comparisons
+
+Every entrant receives the frozen comparison population. Missing predictions
+remain in coverage and failure accounting. The primary reward comparison uses
+AI-involvement Brier utility; share and attribution have their own qualification
+and measurements. See the [scoring rules](../whitepaper/sections/07-rewards.tex).
+
+Compare the incumbent anchor, eligible *A* models, and Pangram on the same
+independently labelled hidden set under declared operating points and
+uncertainty analysis. The anchor provides a reference for quality claims and
+the coordinator's paid-service activation decision; it supplies neither a
+reward weight nor an automatic activation gate. The operator funds shared
+provider observations once per set. A superior result needs fresh confirmation before a future anchor switch.
+Pangram fractions cannot directly replace *A* involvement probabilities, and
+provider agreement supplies no ground-truth label. The
+[external-comparison guide](pangram-oracle.md) records the policy and evidence.
+
+Cohorts retain frozen semantics across compatible operational repairs. A runner
+failure, coordinator outage, or missed wakeup cannot justify selecting a new
+favorable attempt or discarding assigned work. Each validator handles weight
+submission and recovery independently under the
+[cohort recovery rules](../whitepaper/sections/07b-cohorts.tex); adoption never
+gates cohort progress or service.
+A public artifact and successful local replay alone do not qualify a live subnet.
+
+## Existing evidence and later B
+
+The [V6 release](../baseline/detector/releases/v0.6.0/README.md) is a raw-text
+origin detector used as a research comparison. It implements neither the
+proposed shared *A* model nor its AI-share and attribution outputs. The
+[platform guide](platform-support.md) records its tested runtime boundary;
+the [paper's evidence section](../whitepaper/sections/10-evidence.tex) separates
+those results from future model qualification.
+
+Later private *B* would use Cloudflare-hosted adapters and operator-controlled
+ranking, with weights private from the public and customer content protected
+from miners under a qualified provider configuration. Public *A* lets *B*
+optimize against the detector at its own compute cost. Held-out generators,
+source families, and later detector versions measure transfer; low detector
+scores cannot certify preservation or author fit. The
+[later B proposal](../whitepaper/sections/07a-adjudication.tex) defines the
+candidate objectives and remaining activation choices without requiring TEE
+execution evidence.
+
+For personal-voice editing, *B* uses the same fixed writer vector and continuous
+*A* author-fit signal to rank successive revisions. Freeze the evaluator,
+profile, and calibration for each comparison. Qualify any mapping to the public
+style distance; its calibrated rank is not an authorship probability. Test
+adaptive metric gaming against independent author-fit judgments and separate
+preservation, readability, and tone review. The learned scorer receives the
+reference vector; trusted preprocessing sees the samples and the editing
+pipeline still needs the source prose. None is disclosed to serving miners.

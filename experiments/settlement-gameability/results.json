@@ -1,0 +1,543 @@
+{
+  "allocation": {
+    "allocations": [
+      {
+        "first_pots": [],
+        "paired_paid": [
+          0,
+          0
+        ],
+        "pot_max": null,
+        "pot_min": null,
+        "rows_base_pair_burn": [
+          [
+            48000,
+            0,
+            12000
+          ],
+          [
+            48000,
+            0,
+            12000
+          ]
+        ],
+        "slots": 0,
+        "total_burn": 24000
+      },
+      {
+        "first_pots": [
+          12000
+        ],
+        "paired_paid": [
+          0,
+          12000
+        ],
+        "pot_max": 12000,
+        "pot_min": 12000,
+        "rows_base_pair_burn": [
+          [
+            48000,
+            0,
+            12000
+          ],
+          [
+            48000,
+            12000,
+            0
+          ]
+        ],
+        "slots": 1,
+        "total_burn": 12000
+      },
+      {
+        "first_pots": [
+          1715,
+          1715,
+          1714,
+          1714,
+          1714,
+          1714,
+          1714
+        ],
+        "paired_paid": [
+          6937,
+          5063
+        ],
+        "pot_max": 1715,
+        "pot_min": 1714,
+        "rows_base_pair_burn": [
+          [
+            48000,
+            6937,
+            5063
+          ],
+          [
+            48000,
+            5063,
+            6937
+          ]
+        ],
+        "slots": 7,
+        "total_burn": 12000
+      },
+      {
+        "first_pots": [
+          1091,
+          1091,
+          1091,
+          1091,
+          1091,
+          1091,
+          1091,
+          1091,
+          1091,
+          1091,
+          1090
+        ],
+        "paired_paid": [
+          6810,
+          5190
+        ],
+        "pot_max": 1091,
+        "pot_min": 1090,
+        "rows_base_pair_burn": [
+          [
+            48000,
+            6810,
+            5190
+          ],
+          [
+            48000,
+            5190,
+            6810
+          ]
+        ],
+        "slots": 11,
+        "total_burn": 12000
+      },
+      {
+        "first_pots": [
+          95,
+          95,
+          95,
+          95,
+          95,
+          95,
+          95,
+          95,
+          95,
+          95,
+          95,
+          95
+        ],
+        "paired_paid": [
+          7911,
+          4089
+        ],
+        "pot_max": 95,
+        "pot_min": 94,
+        "rows_base_pair_burn": [
+          [
+            48000,
+            7911,
+            4089
+          ],
+          [
+            48000,
+            4089,
+            7911
+          ]
+        ],
+        "slots": 127,
+        "total_burn": 12000
+      }
+    ],
+    "base_budget": 48000,
+    "mechanism_budget": 60000,
+    "paired_budget": 12000,
+    "partial_base_rows_base_pair_burn": [
+      [
+        24000,
+        0,
+        36000
+      ],
+      [
+        0,
+        0,
+        60000
+      ]
+    ],
+    "rejected_pairs": [
+      {
+        "case": "unchanged_no_positive_improvement",
+        "paired_burn": 24000,
+        "paired_credit": [
+          0,
+          0
+        ]
+      },
+      {
+        "case": "preservation_failed",
+        "paired_burn": 24000,
+        "paired_credit": [
+          0,
+          0
+        ]
+      },
+      {
+        "case": "a_ineligible",
+        "paired_burn": 24000,
+        "paired_credit": [
+          0,
+          0
+        ]
+      },
+      {
+        "case": "b_ineligible",
+        "paired_burn": 24000,
+        "paired_credit": [
+          0,
+          0
+        ]
+      },
+      {
+        "case": "evidence_missing",
+        "paired_burn": 24000,
+        "paired_credit": [
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "native_counterexample": {
+    "cases": [
+      {
+        "candidate_true_label_probability": 1.0,
+        "coalition_total_miner_share": 0.13157894736842107,
+        "combined_pair_credits": 12000,
+        "normalized_incentives": [
+          [
+            0.26315789473684215,
+            0.736842105263158,
+            0.0
+          ],
+          [
+            0.0,
+            0.7999999999999999,
+            0.19999999999999998
+          ]
+        ],
+        "pair_credits": [
+          12000,
+          0
+        ],
+        "targets_coalition_other_burn": [
+          [
+            12000,
+            48000,
+            0
+          ],
+          [
+            0,
+            48000,
+            12000
+          ]
+        ]
+      },
+      {
+        "candidate_true_label_probability": 0.5,
+        "coalition_total_miner_share": 0.13563617590463228,
+        "combined_pair_credits": 12000,
+        "normalized_incentives": [
+          [
+            0.20134228187919462,
+            0.7516778523489932,
+            0.046979865771812075
+          ],
+          [
+            0.06993006993006992,
+            0.7832167832167831,
+            0.14685314685314685
+          ]
+        ],
+        "pair_credits": [
+          9000,
+          3000
+        ],
+        "targets_coalition_other_burn": [
+          [
+            9000,
+            48000,
+            3000
+          ],
+          [
+            3000,
+            48000,
+            9000
+          ]
+        ]
+      }
+    ],
+    "coalition_share_gain": 0.00405722853621121,
+    "honest_stake": 0.7,
+    "malicious_row_both": [
+      60000,
+      0,
+      0
+    ],
+    "malicious_stake": 0.3,
+    "mechanism_shares": [
+      0.5,
+      0.5
+    ],
+    "model": "simplified normalized rows, stake median clipping, normalized ranks; NOT native execution",
+    "official_algorithm": "https://www.bittensor.com/docs/concepts/emissions"
+  },
+  "old_attacks": {
+    "brier_penalty_plus_linear_b_bonus": {
+      "a_brier_loss": 0.0001,
+      "b_linear_gain": 0.005,
+      "coalition_gain": 0.0049,
+      "epsilon": 0.01
+    },
+    "normalized_separate_pools": {
+      "coalition_share_after": 0.10835913312693499,
+      "coalition_share_before": 0.1,
+      "raw_pair_sum_both": 12000
+    },
+    "source_baseline_poisoning": {
+      "a_credit_after": 12000,
+      "a_credit_before": 9000,
+      "candidate_loss_fixed": 0.25,
+      "candidate_only_a_credit_both": 9000,
+      "delta_after": 0.0,
+      "delta_before": 0.25,
+      "source_loss_after": 1,
+      "source_loss_before": 0
+    }
+  },
+  "pair_invariant": {
+    "admission_masks": 32,
+    "admitted_binary_cases": 60060,
+    "admitted_nonintegral_rounding_cases": 39902,
+    "binary_cases": 1921920,
+    "pots": [
+      0,
+      1,
+      2,
+      3,
+      7,
+      12000
+    ],
+    "probability_scale": 1000,
+    "three_class_cases": 693,
+    "violations": 0,
+    "weights": [
+      0,
+      1,
+      500,
+      999,
+      1000
+    ]
+  },
+  "quorums": {
+    "above_one_third": {
+      "bad_signs_both": [
+        0
+      ],
+      "both_certify": true,
+      "first_signers": [
+        0,
+        1
+      ],
+      "second_signers": [
+        0,
+        2
+      ],
+      "support_each": 3,
+      "weights": [
+        2,
+        1,
+        1
+      ]
+    },
+    "admissible_vote_pairs": 1332,
+    "conflicting_certificates_with_bad_weight_at_most_one_third": 0,
+    "exact_one_third": {
+      "bad_withholding": 1,
+      "certificate": false,
+      "failure": "liveness; safety still holds",
+      "honest_support": 2,
+      "total": 3
+    },
+    "one_honest_verdict": "Below one-third, bad-only support cannot certify its contrary verdict.",
+    "unsafe_responder_denominator": {
+      "bad_weight": 1,
+      "frozen_certifies": false,
+      "frozen_total": 4,
+      "honest_double_signers": 0,
+      "responding_total": 2,
+      "shrunk_certifies": true,
+      "support_each": 2
+    },
+    "zero_weight_certificate": false
+  },
+  "schema": "slopninja/settlement-gameability-v1",
+  "scope": "Synthetic policy credits, ideal certificate votes, and a simplified native-transform counterexample; no models, chain or detector calls.",
+  "service": {
+    "abandon_failed_epoch": {
+      "F": 100,
+      "N": 100,
+      "S": 0,
+      "U": 0,
+      "V": 0,
+      "activated": 100,
+      "availability": false,
+      "new_deficit": 900,
+      "previous_deficit": 0
+    },
+    "above_ten_percent": {
+      "F": 1,
+      "N": 9,
+      "S": 8,
+      "U": 0,
+      "V": 0,
+      "activated": 9,
+      "availability": false,
+      "new_deficit": 1,
+      "previous_deficit": 0
+    },
+    "exact_ten_percent": {
+      "F": 1,
+      "N": 10,
+      "S": 9,
+      "U": 0,
+      "V": 0,
+      "activated": 10,
+      "availability": true,
+      "new_deficit": 0,
+      "previous_deficit": 0
+    },
+    "finish_failed_epoch": {
+      "F": 11,
+      "N": 100,
+      "S": 89,
+      "U": 0,
+      "V": 0,
+      "activated": 100,
+      "availability": false,
+      "new_deficit": 10,
+      "previous_deficit": 0
+    },
+    "invalid_input_provider": {
+      "F": 0,
+      "N": 0,
+      "S": 0,
+      "U": 0,
+      "V": 0,
+      "activated": 0,
+      "availability": false,
+      "new_deficit": 0,
+      "previous_deficit": 0
+    },
+    "invalid_input_requester": {
+      "F": 1,
+      "N": 1,
+      "S": 0,
+      "U": 0,
+      "V": 0,
+      "activated": 1,
+      "availability": false,
+      "new_deficit": 9,
+      "previous_deficit": 0
+    },
+    "no_work": {
+      "F": 0,
+      "N": 0,
+      "S": 0,
+      "U": 0,
+      "V": 0,
+      "activated": 0,
+      "availability": false,
+      "new_deficit": 10,
+      "previous_deficit": 10
+    },
+    "recovery": {
+      "F": 0,
+      "N": 10,
+      "S": 10,
+      "U": 0,
+      "V": 0,
+      "activated": 10,
+      "availability": true,
+      "new_deficit": 0,
+      "previous_deficit": 10
+    },
+    "retry": {
+      "provider_activations": 1,
+      "requester": {
+        "F": 0,
+        "N": 1,
+        "S": 1,
+        "U": 0,
+        "V": 0,
+        "activated": 1,
+        "availability": true,
+        "new_deficit": 0,
+        "previous_deficit": 0
+      },
+      "transmissions": 3
+    },
+    "unresolved_blocks": {
+      "F": 0,
+      "N": 9,
+      "S": 9,
+      "U": 1,
+      "V": 0,
+      "activated": 10,
+      "availability": false,
+      "new_deficit": 0,
+      "previous_deficit": 0
+    },
+    "unresolved_input_provider_activations": 0,
+    "unresolved_input_requester": {
+      "F": 0,
+      "N": 0,
+      "S": 0,
+      "U": 1,
+      "V": 0,
+      "activated": 1,
+      "availability": false,
+      "new_deficit": 0,
+      "previous_deficit": 0
+    }
+  },
+  "status": "hypothesis comparison; settlement proposal not adopted",
+  "sybils": {
+    "fixed_roster_identity_capture": [
+      {
+        "allocated_each_mechanism": 60000,
+        "coalition_paired_credits": 1500,
+        "global_paired_credits": 12000,
+        "global_pairs": 8,
+        "owned_endpoint_pairs": 1
+      },
+      {
+        "allocated_each_mechanism": 60000,
+        "coalition_paired_credits": 3000,
+        "global_paired_credits": 12000,
+        "global_pairs": 8,
+        "owned_endpoint_pairs": 2
+      },
+      {
+        "allocated_each_mechanism": 60000,
+        "coalition_paired_credits": 6000,
+        "global_paired_credits": 12000,
+        "global_pairs": 8,
+        "owned_endpoint_pairs": 4
+      }
+    ],
+    "limit": "Fixed budgets prevent extra total credit; acquiring more scheduled identities can increase an owner's share."
+  }
+}

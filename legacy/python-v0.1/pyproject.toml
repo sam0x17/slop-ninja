@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unslop"
+version = "0.1.0"
+description = "Corpus profiling and controlled prose revision experiments"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+grammar = ["spacy>=3.8,<3.9"]
+
+[project.scripts]
+unslop = "unslop.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

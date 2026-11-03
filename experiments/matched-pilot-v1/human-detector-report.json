@@ -1,0 +1,277 @@
+{
+  "all_groups_observed_success": false,
+  "comparison": "strictly_less_than",
+  "duplicate_records_ignored": 0,
+  "groups": [
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "3655f9d9eb37041c0310c31c03ea64b6b0d64db869489eb189395e47ae2be7e1",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-e6ddfc7c774ba2e9"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "4fbc3e46890cd3a9f1cd81ce658af594eae673c628c5814a7b1e18f3492ee8ef",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-2f3a1b01d293ceff"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "5110b4f8cfd1205f5814d3c1f453094ae5a012380d3de5445044fbe5f3305ed4",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-1ae01657dfdcb705"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": true,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "a07a94d99694bd60b04d28b8402f4154ab10bbaab6fddd73d25189b877ec21db",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-224e2b876355ee46"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "be2d8b325bc039530d1ed6de96af61dd02917d7bd9dbcec8ec93781b3784f9e9",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-3622f0102508729f"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "e2c802556981a389817dfadb279a3b8b8b28d970bec46f71283c944efda113a8",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-e5e1efdcc6b6a3b6"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "e933416af5648c51db469d7602b56fedd5ba58d73f7a045d85e65fa54ebb38d7",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-c6b02ea04931e2d3"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "f534841dc7f88772fbcd42af46eb6d89869acbc8794ca1f221e6806ed0c63622",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-5faf3393d98fddd2"
+      ],
+      "version": "4.0"
+    }
+  ],
+  "interpretation": "These are repeated observations of particular inputs. They do not establish reliability on unseen documents or determine a text's authorship.",
+  "min_repeats": 3,
+  "record_count": 8,
+  "reliability_established": false,
+  "threshold": 0.1,
+  "unique_runs": 8
+}

@@ -1,0 +1,123 @@
+{
+  "corpus_sha256": "178b2c9ab55a74107fb6792b72a5d69e369a9bd103b17fa3343caeaac989c23d",
+  "dataset": {
+    "collections": {
+      "hc3-wiki-historical": 261
+    },
+    "evidence": {
+      "historical_proxy": 261
+    },
+    "licenses": {
+      "CC-BY-SA-3.0": 261
+    },
+    "origins": {
+      "human_only": 261
+    },
+    "records": 261,
+    "source_groups": 243,
+    "splits": {
+      "calibration": 26,
+      "development": 28,
+      "test": 17,
+      "train": 190
+    },
+    "words_max": 496,
+    "words_min": 80
+  },
+  "decisions": {
+    "Full historical text mismatch": 405,
+    "Long quotation requires separate review": 16,
+    "Outside 80..=500 lexical-word range": 112,
+    "Source notice requires separate review: attribution": 9,
+    "Source notice requires separate review: cc-by": 2,
+    "Source notice requires separate review: cc-notice": 1,
+    "Source notice requires separate review: copied": 13,
+    "Source notice requires separate review: copyright": 10,
+    "Source notice requires separate review: eb1911": 3,
+    "Source notice requires separate review: plagiar": 1,
+    "Source notice requires separate review: public domain": 4,
+    "admitted": 261,
+    "unresolved historical source": 5
+  },
+  "decisions_sha256": "76522b875eec983c9c562bd5183ded7089e801935650a5af0f8507d65b334662",
+  "exclude_corpora": [
+    {
+      "path": "data/baseline-detector/acquisition-v1/human-records.jsonl",
+      "sha256": "073e868079b2562e32b15dab4d1502932bdd5644670db3a0fda15656ab38dd15"
+    },
+    {
+      "path": "data/baseline-detector/style-pilot-v2/primary-records.jsonl",
+      "sha256": "6377d431b570a53cb9e5cfa97adb28627c24eb8fa68be263df6c86f94065fa06"
+    },
+    {
+      "path": "data/baseline-detector/style-pilot-v2/reserved-records.jsonl",
+      "sha256": "bbc50aeb049168de529e4067a0331541e8267febffca0b0cfabb3661a75d2689"
+    }
+  ],
+  "generator_calls": 0,
+  "importer_executable_sha256": "2752c1426f421c1b8f8751017e98f84b8df91ada13a1da28bbbc0ed0bf9df324",
+  "input_sha256": "4f78105c72e7edd3b619b3b44abac1e6f8bdb42211f22e43191d4dae889e1968",
+  "pangram_calls": 0,
+  "policy_sha256": "f57f1aaab40f52892495bf791128b7809ebb672845e00c7ee7ee03b1e6752aff",
+  "qualification": "Historical weak labels; conservative rights/quotation screen, not a certification of every possible source issue. No individual-author labels.",
+  "questions_reviewed": 842,
+  "review_inputs": [
+    {
+      "path": "data/baseline-detector/standard-corpora/hc3-lineage-v1",
+      "plan_sha256": "e98e522230112323fa7d3cb93855f44a1dc9aa59f5e88208363bc99711850611",
+      "results_sha256": "aa2bfbf49de231146de9731d1891258092215471646067d2a0d75e5d2b749dfb"
+    },
+    {
+      "path": "data/baseline-detector/standard-corpora/hc3-lineage-offset-100-v1",
+      "plan_sha256": "b4df178ba81f29d83181220f4950e88073db6b458242bf07b70c972484c30e7b",
+      "results_sha256": "01d768f60f65f59c5c6d1d28dba6b27675328e78907970b2754b118ab526cb3a"
+    },
+    {
+      "path": "data/baseline-detector/standard-corpora/hc3-lineage-offset-200-v1",
+      "plan_sha256": "1028f66754757092118cc9689d8403cb844547524a66b306589293bbbf2623ff",
+      "results_sha256": "cda9065183f5a4da95cb3c8f20ca40e7a66637f2ef745042a29eadd46bb1c42c"
+    },
+    {
+      "path": "data/baseline-detector/standard-corpora/hc3-lineage-offset-300-v1",
+      "plan_sha256": "0aa59b93b868e79758cd2b7a89f1893f55959d578e644b9fc065c97dbf81049a",
+      "results_sha256": "51867344f17056ba46c91bb4126f4326926f430672037d9d7b170698da73ea04"
+    },
+    {
+      "path": "data/baseline-detector/standard-corpora/hc3-lineage-offset-400-v1",
+      "plan_sha256": "20d3c801ea9b8f447655d634780f684b11dfa3c951c91f6860a9885efe321e31",
+      "results_sha256": "f7d82a38457db15b84749a30abc84122d880235cf8b57d8cf50713e38c49cb25"
+    },
+    {
+      "path": "data/baseline-detector/standard-corpora/hc3-lineage-offset-500-v1",
+      "plan_sha256": "c8680aca0caa9152906fbd9d1202c4c4a90cd6a7c0263686f3beb4f682f7d3ca",
+      "results_sha256": "aeab8bd81c64d1460d7f4690666bda42591133835f9e29889d361f5a6967a2d6"
+    },
+    {
+      "path": "data/baseline-detector/standard-corpora/hc3-lineage-offset-600-v1",
+      "plan_sha256": "4dffb264515452ee1c85057a290c793cf8f8b28061b9e1767467a19414e66967",
+      "results_sha256": "9ddd16957416c86ed38748270d93594ccf2b76b0113aae4cd3c19fbb232b5a03"
+    },
+    {
+      "path": "data/baseline-detector/standard-corpora/hc3-lineage-offset-700-v1",
+      "plan_sha256": "c657e91963c98802c6d462214d5932b1381000fb6deac10d47eb492cf168a5b2",
+      "results_sha256": "92d130a5a266bcf493288302056d14e335d566edc995cbf65a3420a4b7b3530c"
+    },
+    {
+      "path": "data/baseline-detector/standard-corpora/hc3-lineage-offset-800-v1",
+      "plan_sha256": "2630a160f1baf384ab23794beabcef411ce9269ece6d55216580d9fcd22c6e1d",
+      "results_sha256": "f0a8bc272868998e9244163929315f6fced98a6158c9532c2f27bb732abe6f46"
+    }
+  ],
+  "schema": "slop_ninja_hc3_admission_summary_v1",
+  "split_report": {
+    "counts": {
+      "calibration": 26,
+      "development": 28,
+      "test": 17,
+      "train": 190
+    },
+    "merged_duplicate_groups": 0,
+    "seed": "slop-ninja-standard-hc3-v1"
+  },
+  "upstream_chatgpt_answers_admitted": 0
+}

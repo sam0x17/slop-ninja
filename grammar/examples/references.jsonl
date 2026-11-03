@@ -1,0 +1,3 @@
+{"id":"fixture-a","path":"reference-a.txt","source_group":"fixture-work-a","split":"train","authorship":"synthetic_fixture","author_id":"synthetic-demo","provenance":{"purpose":"offline workflow example; assistant authored, not human ground truth"}}
+{"id":"fixture-b","path":"reference-b.txt","source_group":"fixture-work-b","split":"train","authorship":"synthetic_fixture","author_id":"synthetic-demo","provenance":{"purpose":"offline workflow example; assistant authored, not human ground truth"}}
+{"id":"fixture-c","path":"reference-c.txt","source_group":"fixture-work-c","split":"dev","authorship":"synthetic_fixture","author_id":"synthetic-demo","provenance":{"purpose":"held-out fixture; excluded from fitting"}}

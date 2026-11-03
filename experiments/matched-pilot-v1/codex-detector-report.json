@@ -1,0 +1,277 @@
+{
+  "all_groups_observed_success": false,
+  "comparison": "strictly_less_than",
+  "duplicate_records_ignored": 0,
+  "groups": [
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "15c8d2b238fdd623fee99bc11c06576d7bda4707ac36d970d679c1a4b9f567e5",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-cf53f82ba57c8dd7"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.7231108546257019,
+        "mean": 0.7231108546257019,
+        "median": 0.7231108546257019,
+        "min": 0.7231108546257019,
+        "values": [
+          0.7231108546257019
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-641fe137feb1449b"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "43444f84632eccf7c7f5baf1ffa9c882262e2134249e334cfe09c7be8b393071",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-1844df41aa47bd39"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "511b52da33e3a139cbcfb7b7cf07ac9d6673867769e7e75afa84498330d9c392",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-e877d9035401c201"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.1480225920677185,
+        "mean": 0.1480225920677185,
+        "median": 0.1480225920677185,
+        "min": 0.1480225920677185,
+        "values": [
+          0.1480225920677185
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "7eed63bf84ef8cd4b4c5d99a533c7d17fa36ee5f16298c99054c024f12934038",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-70a1d04e92c9879f"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.564752995967865,
+        "mean": 0.564752995967865,
+        "median": 0.564752995967865,
+        "min": 0.564752995967865,
+        "values": [
+          0.564752995967865
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": true,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-4dc1eacab5df4e9a"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 0.4754672944545746,
+        "mean": 0.4754672944545746,
+        "median": 0.4754672944545746,
+        "min": 0.4754672944545746,
+        "values": [
+          0.4754672944545746
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": true,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-c05c3d9df98078aa"
+      ],
+      "version": "4.0"
+    },
+    {
+      "ai_fraction": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "values": [
+          0.0
+        ]
+      },
+      "ai_only_observed_success": false,
+      "ai_plus_assisted_fraction": {
+        "max": 1.0,
+        "mean": 1.0,
+        "median": 1.0,
+        "min": 1.0,
+        "values": [
+          1.0
+        ]
+      },
+      "detector": "pangram",
+      "full_document": false,
+      "model": "pangram-4",
+      "normalization_observed": false,
+      "observed_success": false,
+      "repeat_count": 1,
+      "sha256": "cb227e165658690ff09a7fc80d5207c981708e0aa6d39fec433e90204106cfab",
+      "sufficient_repeats": false,
+      "task_ids": [
+        "redacted-5dc038596be687e1"
+      ],
+      "version": "4.0"
+    }
+  ],
+  "interpretation": "These are repeated observations of particular inputs. They do not establish reliability on unseen documents or determine a text's authorship.",
+  "min_repeats": 3,
+  "record_count": 8,
+  "reliability_established": false,
+  "threshold": 0.1,
+  "unique_runs": 8
+}

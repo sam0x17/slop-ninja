@@ -1,0 +1,88 @@
+{
+  "decision": {
+    "rounds": [
+      {
+        "accepted": true,
+        "cumulative_unique_texts": 81,
+        "cumulative_units": 189,
+        "round": 1
+      },
+      {
+        "accepted": true,
+        "cumulative_unique_texts": 162,
+        "cumulative_units": 441,
+        "round": 2
+      },
+      {
+        "accepted": false,
+        "cumulative_unique_texts": 243,
+        "cumulative_units": 675,
+        "round": 3
+      }
+    ],
+    "selected_unique_texts": 162,
+    "selected_units": 441,
+    "stop_reason": "next_complete_round_exceeds_budget"
+  },
+  "detector_scores_used": false,
+  "executable_sha256": "65f0bad0fc3e60d81d832fad2693ac9e87c92742f3200f0fc184a744ce0ed345",
+  "families_per_cell": 2,
+  "historical_exact_hashes_checked": 6507,
+  "historical_families_checked": 852,
+  "ledger": "spend is recorded in the private ledger",
+  "maximum_units": 600,
+  "model_calls": 0,
+  "paired_population_families": 103,
+  "pangram_calls": 0,
+  "profile_counts": {
+    "phi4|anti-ai": 2,
+    "phi4|direct": 2,
+    "phi4|fix-slop": 8,
+    "phi4|informal": 3,
+    "phi4|plain": 2,
+    "phi4|source-matched": 1,
+    "primary|anti-ai": 5,
+    "primary|direct": 3,
+    "primary|fix-slop": 2,
+    "primary|informal": 2,
+    "primary|plain": 3,
+    "primary|source-matched": 3
+  },
+  "protocol_sha256": "a25abe5373dd950e11a9c10679946e436c11a5c29e1df9d6a4469f106f250d39",
+  "rank_domain": "slop-ninja-v6-pangram-confirmation-v1",
+  "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+  "schema": "slop_ninja_v6_pangram_membership_v1",
+  "selected_families": 18,
+  "source_sha256": "bbd07c4faf44a39034e1c737a01d2c2f1801a3625244d7de4e06e42eb5ffa2f2",
+  "summary": {
+    "collections": {
+      "cmu-books-historical": 54,
+      "plos_one": 54,
+      "wikinews": 54
+    },
+    "evidence": {
+      "historical_proxy": 18,
+      "model_edit_of_historical_proxy": 36,
+      "recorded_model_generation": 36,
+      "recorded_model_revision": 72
+    },
+    "licenses": {
+      "CC-BY-2.5": 54,
+      "CC-BY-4.0": 54,
+      "CC-BY-SA-3.0": 6,
+      "CC-BY-SA-4.0": 48
+    },
+    "origins": {
+      "human_only": 18,
+      "mixed": 36,
+      "model_only": 108
+    },
+    "records": 162,
+    "source_groups": 18,
+    "splits": {
+      "test": 162
+    },
+    "words_max": 439,
+    "words_min": 88
+  }
+}

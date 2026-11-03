@@ -1,0 +1,112 @@
+{
+  "schema": "slop_ninja_public_origin_snapshot_v1",
+  "date": "2026-09-12",
+  "files": [
+    {
+      "path": "train/pilot.jsonl",
+      "sha256": "eaf7aeb6ccadb19dbb542b313d17a2f02d9715882b098f792c381418e091f8fa",
+      "bytes": 1049522,
+      "records": 120,
+      "source_families": 24,
+      "split": [
+        "train"
+      ],
+      "origins": {
+        "human_only": 24,
+        "mixed": 24,
+        "model_only": 72
+      },
+      "licenses": {
+        "CC-BY-2.5": 30,
+        "CC-BY-4.0": 30,
+        "CC-BY-SA-3.0": 12,
+        "CC-BY-SA-4.0": 48
+      }
+    },
+    {
+      "path": "train/second.jsonl",
+      "sha256": "e55d55dc73b2753ce64af7a12c640883e89f7e3e433a06dd420543cc5cc66854",
+      "bytes": 838546,
+      "records": 96,
+      "source_families": 32,
+      "split": [
+        "train"
+      ],
+      "origins": {
+        "human_only": 32,
+        "mixed": 32,
+        "model_only": 32
+      },
+      "licenses": {
+        "CC-BY-2.5": 12,
+        "CC-BY-4.0": 36,
+        "CC-BY-SA-3.0": 16,
+        "CC-BY-SA-4.0": 32
+      }
+    },
+    {
+      "path": "train/third.jsonl",
+      "sha256": "a6f1bfb8a2cdac74219619bcef88eb6929958876c139c75ac2d86c463ee818d6",
+      "bytes": 461345,
+      "records": 42,
+      "source_families": 14,
+      "split": [
+        "train"
+      ],
+      "origins": {
+        "human_only": 14,
+        "mixed": 14,
+        "model_only": 14
+      },
+      "licenses": {
+        "CC-BY-2.5": 3,
+        "CC-BY-SA-3.0": 13,
+        "CC-BY-SA-4.0": 26
+      }
+    },
+    {
+      "path": "train/fourth.jsonl",
+      "sha256": "a0c49900402be52ea7c94a3b1dce7a3ec8d93fed5e678c0b69ec679c3e2100a9",
+      "bytes": 1189202,
+      "records": 117,
+      "source_families": 39,
+      "split": [
+        "train"
+      ],
+      "origins": {
+        "human_only": 39,
+        "mixed": 39,
+        "model_only": 39
+      },
+      "licenses": {
+        "CC-BY-2.5": 18,
+        "CC-BY-4.0": 6,
+        "CC-BY-SA-3.0": 31,
+        "CC-BY-SA-4.0": 62
+      }
+    },
+    {
+      "path": "development/initial.jsonl",
+      "sha256": "a5967f8f564d0f25fabb82ba3f9c90777ee094c781bfb9a32f712766b2e94bbf",
+      "bytes": 495752,
+      "records": 57,
+      "source_families": 19,
+      "split": [
+        "development"
+      ],
+      "origins": {
+        "human_only": 19,
+        "mixed": 19,
+        "model_only": 19
+      },
+      "licenses": {
+        "CC-BY-2.5": 24,
+        "CC-BY-4.0": 33
+      }
+    }
+  ],
+  "total_records": 432,
+  "total_record_bytes": 4034367,
+  "packaging": "Exact copies of admitted corpus files; no text or provenance changes",
+  "pangram_individual_annotations_included": false
+}

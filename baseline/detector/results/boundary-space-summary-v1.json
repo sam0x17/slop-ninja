@@ -1,0 +1,2183 @@
+{
+  "schema": "slop_ninja_boundary_space_summary_v1",
+  "at": "2026-09-15T14:57:52Z",
+  "completion_sha256": "9da8e8a242bffb72900d2598ad07551676f0b69150e61a309f7113447e300814",
+  "plan_sha256": "7dddd4b1f7234e08fdbd08b7e1395b7fa9864c0e9b6ecd1d0cd580f7a9e9b36a",
+  "preflight_sha256": "7cc1a7953ac268b49db8c8ae768b641496d394d62adf9f204d72169f9bb35742",
+  "audit_source_sha256": "8131f29fc8ccb9e148e5ee388463118537168a7eac14cc8b280ab08233dfc6d4",
+  "all_three_successful": true,
+  "observations": 756,
+  "records": 126,
+  "families": 16,
+  "independent_recalculation": "All request/response identities, full three-class distributions, paired scores, all-row and collection/origin summaries and original-cutoff crossings matched.",
+  "views": [
+    "outer_whitespace_trimmed",
+    "one_ASCII_space_prefix"
+  ],
+  "reports": [
+    {
+      "role": "v6",
+      "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "report_sha256": "8bebf1696a930ab522a497ce3679867c7b33ab88bfc083ad492ba1f2d1a19c28",
+      "all": {
+        "cutoffs": [
+          {
+            "clear_to_flag": 0,
+            "flag_to_clear": 11,
+            "space_flagged": 93,
+            "threshold": 0.8436493155285434,
+            "trim_flagged": 104
+          },
+          {
+            "clear_to_flag": 0,
+            "flag_to_clear": 9,
+            "space_flagged": 99,
+            "threshold": 0.4287369114260753,
+            "trim_flagged": 108
+          }
+        ],
+        "equal_family_origin_mean_absolute_delta_ai": 0.0758762814815081,
+        "equal_family_origin_mean_delta_ai": -0.07571014270542867,
+        "family_origin_cells": 48,
+        "max_absolute_delta_ai": 0.9543067749098696,
+        "mean_absolute_delta_ai": 0.07802079160687268,
+        "mean_delta_ai": -0.07782986231551,
+        "rows": 126
+      },
+      "origins": [
+        {
+          "origin": "human_only",
+          "summary": {
+            "rows": 16,
+            "family_origin_cells": 16,
+            "mean_delta_ai": -0.01730559267554479,
+            "mean_absolute_delta_ai": 0.017404712037534985,
+            "equal_family_origin_mean_delta_ai": -0.01730559267554479,
+            "equal_family_origin_mean_absolute_delta_ai": 0.017404712037534985,
+            "max_absolute_delta_ai": 0.1407823156673125,
+            "cutoffs": [
+              {
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 0,
+                "space_flagged": 0,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              },
+              {
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 0,
+                "space_flagged": 0,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              }
+            ]
+          }
+        },
+        {
+          "origin": "mixed",
+          "summary": {
+            "rows": 39,
+            "family_origin_cells": 16,
+            "mean_delta_ai": -0.18328346331288795,
+            "mean_absolute_delta_ai": 0.18337173060082565,
+            "equal_family_origin_mean_delta_ai": -0.17787677995262435,
+            "equal_family_origin_mean_absolute_delta_ai": 0.17798435570979848,
+            "max_absolute_delta_ai": 0.9244989901635778,
+            "cutoffs": [
+              {
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 34,
+                "space_flagged": 28,
+                "flag_to_clear": 6,
+                "clear_to_flag": 0
+              },
+              {
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 37,
+                "space_flagged": 29,
+                "flag_to_clear": 8,
+                "clear_to_flag": 0
+              }
+            ]
+          }
+        },
+        {
+          "origin": "model_only",
+          "summary": {
+            "rows": 71,
+            "family_origin_cells": 16,
+            "mean_delta_ai": -0.033543916897787504,
+            "mean_absolute_delta_ai": 0.03381192755539713,
+            "equal_family_origin_mean_delta_ai": -0.03194805548811683,
+            "equal_family_origin_mean_absolute_delta_ai": 0.032239776697190844,
+            "max_absolute_delta_ai": 0.9543067749098696,
+            "cutoffs": [
+              {
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 70,
+                "space_flagged": 65,
+                "flag_to_clear": 5,
+                "clear_to_flag": 0
+              },
+              {
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 71,
+                "space_flagged": 70,
+                "flag_to_clear": 1,
+                "clear_to_flag": 0
+              }
+            ]
+          }
+        }
+      ],
+      "slices": [
+        {
+          "collection": "cmu-books-historical",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.00022546715020184304,
+            "equal_family_origin_mean_delta_ai": -0.00014834148187122342,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.0003774891234985863,
+            "mean_absolute_delta_ai": 0.00022546715020184304,
+            "mean_delta_ai": -0.00014834148187122342,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "cmu-books-historical",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 3,
+                "space_flagged": 9,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 12
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 2,
+                "space_flagged": 10,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 12
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.18457870389057543,
+            "equal_family_origin_mean_delta_ai": -0.18457870389057543,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.9244989901635778,
+            "mean_absolute_delta_ai": 0.18457870389057543,
+            "mean_delta_ai": -0.18457870389057543,
+            "rows": 12
+          }
+        },
+        {
+          "collection": "cmu-books-historical",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 20,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 20
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 20,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 20
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.00991044302090624,
+            "equal_family_origin_mean_delta_ai": -0.009909132772304902,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.11194841026647062,
+            "mean_absolute_delta_ai": 0.00991044302090624,
+            "mean_delta_ai": -0.009909132772304902,
+            "rows": 20
+          }
+        },
+        {
+          "collection": "hc3-wiki-historical",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.006553422272467395,
+            "equal_family_origin_mean_delta_ai": -0.00648749811123192,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.02608184076739863,
+            "mean_absolute_delta_ai": 0.006553422272467395,
+            "mean_delta_ai": -0.00648749811123192,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "hc3-wiki-historical",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 2,
+                "space_flagged": 7,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 9
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 4,
+                "space_flagged": 7,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 11
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.26808406227290377,
+            "equal_family_origin_mean_delta_ai": -0.26808406227290377,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.8228314226926359,
+            "mean_absolute_delta_ai": 0.26021416303087075,
+            "mean_delta_ai": -0.26021416303087075,
+            "rows": 11
+          }
+        },
+        {
+          "collection": "hc3-wiki-historical",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 3,
+                "space_flagged": 16,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 19
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 18,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 19
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0884854838929164,
+            "equal_family_origin_mean_delta_ai": -0.088397144314131,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.9543067749098696,
+            "mean_absolute_delta_ai": 0.0901803746324221,
+            "mean_delta_ai": -0.09008738560212168,
+            "rows": 19
+          }
+        },
+        {
+          "collection": "plos_one",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.03616511664289796,
+            "equal_family_origin_mean_delta_ai": -0.03591168902450328,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.1407823156673125,
+            "mean_absolute_delta_ai": 0.03616511664289796,
+            "mean_delta_ai": -0.03591168902450328,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "plos_one",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 6,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 6
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 6,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 7
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.11496996125519199,
+            "equal_family_origin_mean_delta_ai": -0.11478781190420836,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.6452888515175361,
+            "mean_absolute_delta_ai": 0.11496996125519199,
+            "mean_delta_ai": -0.11478781190420836,
+            "rows": 8
+          }
+        },
+        {
+          "collection": "plos_one",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 14,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 15
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 16,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 16
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.020277626486127714,
+            "equal_family_origin_mean_delta_ai": -0.020155877424132745,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.16495221724036246,
+            "mean_absolute_delta_ai": 0.020277626486127714,
+            "mean_delta_ai": -0.020155877424132745,
+            "rows": 16
+          }
+        },
+        {
+          "collection": "wikinews",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.02667484208457274,
+            "equal_family_origin_mean_delta_ai": -0.02667484208457274,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.08608424882404044,
+            "mean_absolute_delta_ai": 0.02667484208457274,
+            "mean_delta_ai": -0.02667484208457274,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "wikinews",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 6,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 7
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 6,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 7
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.1443046954205227,
+            "equal_family_origin_mean_delta_ai": -0.1440565417428099,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.832517326690419,
+            "mean_absolute_delta_ai": 0.1443046954205227,
+            "mean_delta_ai": -0.1440565417428099,
+            "rows": 8
+          }
+        },
+        {
+          "collection": "wikinews",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 15,
+                "threshold": 0.8436493155285434,
+                "trim_flagged": 16
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 16,
+                "threshold": 0.4287369114260753,
+                "trim_flagged": 16
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.01028555338881302,
+            "equal_family_origin_mean_delta_ai": -0.009330067441898675,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.05305241838927288,
+            "mean_absolute_delta_ai": 0.01028555338881302,
+            "mean_delta_ai": -0.009330067441898675,
+            "rows": 16
+          }
+        }
+      ],
+      "largest_by_origin": [
+        {
+          "origin": "human_only",
+          "largest_absolute_change": {
+            "ai": [
+              0.14980488927065583,
+              0.009022573603343322
+            ],
+            "collection": "plos_one",
+            "delta_ai": -0.1407823156673125,
+            "group": "doi:10.1371/journal.pone.0208754",
+            "id": "plos:10.1371/journal.pone.0208754:abstract:4325c7ff35ce794c",
+            "origin": "human_only",
+            "probabilities": [
+              [
+                0.8501951107293442,
+                0.0581831998270962,
+                0.09162168944355961
+              ],
+              [
+                0.9909774263966568,
+                0.0060352649941967235,
+                0.0029873086091465983
+              ]
+            ],
+            "text_sha256": [
+              "4325c7ff35ce794c36918b6b83dbd5889cccb0311448f42d3c09c4343a0a3034",
+              "02ceb1823af34364f5df6add3ac6d265251193aa77bb99d3147bbdb955c1623a"
+            ]
+          },
+          "minimum_delta": {
+            "ai": [
+              0.14980488927065583,
+              0.009022573603343322
+            ],
+            "collection": "plos_one",
+            "delta_ai": -0.1407823156673125,
+            "group": "doi:10.1371/journal.pone.0208754",
+            "id": "plos:10.1371/journal.pone.0208754:abstract:4325c7ff35ce794c",
+            "origin": "human_only",
+            "probabilities": [
+              [
+                0.8501951107293442,
+                0.0581831998270962,
+                0.09162168944355961
+              ],
+              [
+                0.9909774263966568,
+                0.0060352649941967235,
+                0.0029873086091465983
+              ]
+            ],
+            "text_sha256": [
+              "4325c7ff35ce794c36918b6b83dbd5889cccb0311448f42d3c09c4343a0a3034",
+              "02ceb1823af34364f5df6add3ac6d265251193aa77bb99d3147bbdb955c1623a"
+            ]
+          },
+          "maximum_delta": {
+            "ai": [
+              0.0007462232801195435,
+              0.0012530785169089175
+            ],
+            "collection": "plos_one",
+            "delta_ai": 0.000506855236789374,
+            "group": "doi:10.1371/journal.pone.0208301",
+            "id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+            "origin": "human_only",
+            "probabilities": [
+              [
+                0.9992537767198804,
+                0.0004100312135157291,
+                0.00033619206660381434
+              ],
+              [
+                0.9987469214830911,
+                0.0009296502969848971,
+                0.0003234282199240203
+              ]
+            ],
+            "text_sha256": [
+              "6571837bc8ea414c0b659bb8f78669f7dfa2889af57b7d098b390f40b279f510",
+              "ed90fe6f267cdffbfc4fb6412bac7dbe9bf8e26f902b93ab016cf28560acbde3"
+            ]
+          }
+        },
+        {
+          "origin": "mixed",
+          "largest_absolute_change": {
+            "ai": [
+              0.9681611125173231,
+              0.04366212235374517
+            ],
+            "collection": "cmu-books-historical",
+            "delta_ai": -0.9244989901635778,
+            "group": "wikipedia:page:15279338",
+            "id": "generation:e3eb2fed9ba6a9eb8a6c5c258028c0aa0e2babcefa1bc025bdce8aa510025d04",
+            "origin": "mixed",
+            "probabilities": [
+              [
+                0.03183888748267706,
+                0.6360317720798232,
+                0.33212934043749986
+              ],
+              [
+                0.9563378776462547,
+                0.022802050674036015,
+                0.020860071679709158
+              ]
+            ],
+            "text_sha256": [
+              "2289c2fdc2512acf0ebd1302f64c510e86a1751e6a382368b6e24270ce6bb0d2",
+              "806143962d8c7341a9dfc35350487a46448fcd636f22cfe0fa9d189c1354415b"
+            ]
+          },
+          "minimum_delta": {
+            "ai": [
+              0.9681611125173231,
+              0.04366212235374517
+            ],
+            "collection": "cmu-books-historical",
+            "delta_ai": -0.9244989901635778,
+            "group": "wikipedia:page:15279338",
+            "id": "generation:e3eb2fed9ba6a9eb8a6c5c258028c0aa0e2babcefa1bc025bdce8aa510025d04",
+            "origin": "mixed",
+            "probabilities": [
+              [
+                0.03183888748267706,
+                0.6360317720798232,
+                0.33212934043749986
+              ],
+              [
+                0.9563378776462547,
+                0.022802050674036015,
+                0.020860071679709158
+              ]
+            ],
+            "text_sha256": [
+              "2289c2fdc2512acf0ebd1302f64c510e86a1751e6a382368b6e24270ce6bb0d2",
+              "806143962d8c7341a9dfc35350487a46448fcd636f22cfe0fa9d189c1354415b"
+            ]
+          },
+          "maximum_delta": {
+            "ai": [
+              0.9629248326730223,
+              0.9639174473838736
+            ],
+            "collection": "wikinews",
+            "delta_ai": 0.000992614710851325,
+            "group": "wikinews:252189",
+            "id": "generation:c234dfaeedd1495d2040c867a19e4009c3e79785a385e62b75c4f88394b9a719",
+            "origin": "mixed",
+            "probabilities": [
+              [
+                0.03707516732697769,
+                0.4060309065890284,
+                0.5568939260839939
+              ],
+              [
+                0.036082552616126556,
+                0.4670615110902423,
+                0.4968559362936313
+              ]
+            ],
+            "text_sha256": [
+              "339872f5ec2c22e6beec9544da150cca2d693e130c25aedbec72322905d18ce4",
+              "aded8dc49cb39f57f2a4dac17efbf4594e5dbdbb999b749eabab4c8f27b192e1"
+            ]
+          }
+        },
+        {
+          "origin": "model_only",
+          "largest_absolute_change": {
+            "ai": [
+              0.9672762459918947,
+              0.012969471082025058
+            ],
+            "collection": "hc3-wiki-historical",
+            "delta_ai": -0.9543067749098696,
+            "group": "wikipedia:page:483114",
+            "id": "generation:b3c67f02f149ed3150b6d682a51a52a96771ad46ed3465dff9d6be6e48198f76",
+            "origin": "model_only",
+            "probabilities": [
+              [
+                0.03272375400810545,
+                0.27641206348434766,
+                0.690864182507547
+              ],
+              [
+                0.9870305289179748,
+                0.00847200071163479,
+                0.004497470370390269
+              ]
+            ],
+            "text_sha256": [
+              "1f8f3b432861c0c1a092f4d426072c27ef05f5e7a1a5e82a77b6646d1c94037e",
+              "3a77ecd48b02a3940d01e0a3f5fde6d2b36419873862b6a66fce30c586192ffc"
+            ]
+          },
+          "minimum_delta": {
+            "ai": [
+              0.9672762459918947,
+              0.012969471082025058
+            ],
+            "collection": "hc3-wiki-historical",
+            "delta_ai": -0.9543067749098696,
+            "group": "wikipedia:page:483114",
+            "id": "generation:b3c67f02f149ed3150b6d682a51a52a96771ad46ed3465dff9d6be6e48198f76",
+            "origin": "model_only",
+            "probabilities": [
+              [
+                0.03272375400810545,
+                0.27641206348434766,
+                0.690864182507547
+              ],
+              [
+                0.9870305289179748,
+                0.00847200071163479,
+                0.004497470370390269
+              ]
+            ],
+            "text_sha256": [
+              "1f8f3b432861c0c1a092f4d426072c27ef05f5e7a1a5e82a77b6646d1c94037e",
+              "3a77ecd48b02a3940d01e0a3f5fde6d2b36419873862b6a66fce30c586192ffc"
+            ]
+          },
+          "maximum_delta": {
+            "ai": [
+              0.9712528775707221,
+              0.9777820579248558
+            ],
+            "collection": "wikinews",
+            "delta_ai": 0.006529180354133746,
+            "group": "wikinews:6477",
+            "id": "generation:f785c411b767732747c25454309d2f0eb628d7b58b3c03db6b23d8d8491e102d",
+            "origin": "model_only",
+            "probabilities": [
+              [
+                0.02874712242927806,
+                0.6983335056218072,
+                0.27291937194891486
+              ],
+              [
+                0.022217942075144118,
+                0.7937987372836851,
+                0.18398332064117076
+              ]
+            ],
+            "text_sha256": [
+              "fd326474c04a5036d528ca8d961c5845d06b5f0a23d4ec145079b1f0314c93f2",
+              "0ed5daee05bfef8d0e6a136247aa7bd824a70234c077f20fe98de1831fe59240"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "control",
+      "artifact_id": "74e59f3187fe0c05dddeb5dd4520d192474c027e90545b1085056a12260519d7",
+      "report_sha256": "b245b7aa4038bb50cad189e09334b3d5e89b9b9a45c940b949c2159de1624570",
+      "all": {
+        "cutoffs": [
+          {
+            "clear_to_flag": 0,
+            "flag_to_clear": 2,
+            "space_flagged": 101,
+            "threshold": 0.936631839777329,
+            "trim_flagged": 103
+          },
+          {
+            "clear_to_flag": 0,
+            "flag_to_clear": 2,
+            "space_flagged": 105,
+            "threshold": 0.8629230174477677,
+            "trim_flagged": 107
+          }
+        ],
+        "equal_family_origin_mean_absolute_delta_ai": 0.012487783498167272,
+        "equal_family_origin_mean_delta_ai": -0.01167355880475555,
+        "family_origin_cells": 48,
+        "max_absolute_delta_ai": 0.2733861225440462,
+        "mean_absolute_delta_ai": 0.007322493615525517,
+        "mean_delta_ai": -0.0065253883748803455,
+        "rows": 126
+      },
+      "origins": [
+        {
+          "origin": "human_only",
+          "summary": {
+            "rows": 16,
+            "family_origin_cells": 16,
+            "mean_delta_ai": -0.02593038964257961,
+            "mean_absolute_delta_ai": 0.026040965468019713,
+            "equal_family_origin_mean_delta_ai": -0.02593038964257961,
+            "equal_family_origin_mean_absolute_delta_ai": 0.026040965468019713,
+            "max_absolute_delta_ai": 0.2733861225440462,
+            "cutoffs": [
+              {
+                "threshold": 0.936631839777329,
+                "trim_flagged": 0,
+                "space_flagged": 0,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              },
+              {
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 0,
+                "space_flagged": 0,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              }
+            ]
+          }
+        },
+        {
+          "origin": "mixed",
+          "summary": {
+            "rows": 39,
+            "family_origin_cells": 16,
+            "mean_delta_ai": -0.008725542639955468,
+            "mean_absolute_delta_ai": 0.01030764820472497,
+            "equal_family_origin_mean_delta_ai": -0.008163526637342525,
+            "equal_family_origin_mean_absolute_delta_ai": 0.00993720279583444,
+            "max_absolute_delta_ai": 0.12158625064051298,
+            "cutoffs": [
+              {
+                "threshold": 0.936631839777329,
+                "trim_flagged": 32,
+                "space_flagged": 30,
+                "flag_to_clear": 2,
+                "clear_to_flag": 0
+              },
+              {
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 36,
+                "space_flagged": 34,
+                "flag_to_clear": 2,
+                "clear_to_flag": 0
+              }
+            ]
+          }
+        },
+        {
+          "origin": "model_only",
+          "summary": {
+            "rows": 71,
+            "family_origin_cells": 16,
+            "mean_delta_ai": -0.0009438949013434723,
+            "mean_absolute_delta_ai": 0.001464513634980647,
+            "equal_family_origin_mean_delta_ai": -0.0009267601343445353,
+            "equal_family_origin_mean_absolute_delta_ai": 0.0014851822306476703,
+            "max_absolute_delta_ai": 0.009443871227575729,
+            "cutoffs": [
+              {
+                "threshold": 0.936631839777329,
+                "trim_flagged": 71,
+                "space_flagged": 71,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              },
+              {
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 71,
+                "space_flagged": 71,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              }
+            ]
+          }
+        }
+      ],
+      "slices": [
+        {
+          "collection": "cmu-books-historical",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0004349534062362909,
+            "equal_family_origin_mean_delta_ai": -0.0004349534062362909,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.0009415108201443279,
+            "mean_absolute_delta_ai": 0.0004349534062362909,
+            "mean_delta_ai": -0.0004349534062362909,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "cmu-books-historical",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 10,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 11
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 11,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 12
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.00985659926879993,
+            "equal_family_origin_mean_delta_ai": -0.00981577532760497,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.05673140044973546,
+            "mean_absolute_delta_ai": 0.009856599268799929,
+            "mean_delta_ai": -0.00981577532760497,
+            "rows": 12
+          }
+        },
+        {
+          "collection": "cmu-books-historical",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 20,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 20
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 20,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 20
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0008986883965337311,
+            "equal_family_origin_mean_delta_ai": -0.0007555238821401522,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.0060341678843706115,
+            "mean_absolute_delta_ai": 0.0008986883965337311,
+            "mean_delta_ai": -0.0007555238821401522,
+            "rows": 20
+          }
+        },
+        {
+          "collection": "hc3-wiki-historical",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0006821051629646276,
+            "equal_family_origin_mean_delta_ai": -0.0004537762857128643,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.001782309121891439,
+            "mean_absolute_delta_ai": 0.0006821051629646276,
+            "mean_delta_ai": -0.0004537762857128643,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "hc3-wiki-historical",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 8,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 8
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 10,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 10
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.01126980153456535,
+            "equal_family_origin_mean_delta_ai": -0.009865401809265715,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.12158625064051298,
+            "mean_absolute_delta_ai": 0.012249073247172261,
+            "mean_delta_ai": -0.010793038520637116,
+            "rows": 11
+          }
+        },
+        {
+          "collection": "hc3-wiki-historical",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 19,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 19
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 19,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 19
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.00159845092033888,
+            "equal_family_origin_mean_delta_ai": -0.0012217623752703148,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.007886043158490508,
+            "mean_absolute_delta_ai": 0.0016268034979716943,
+            "mean_delta_ai": -0.0012752627301631952,
+            "rows": 19
+          }
+        },
+        {
+          "collection": "plos_one",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.06852391969144762,
+            "equal_family_origin_mean_delta_ai": -0.06830994526693897,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.2733861225440462,
+            "mean_absolute_delta_ai": 0.06852391969144762,
+            "mean_delta_ai": -0.06830994526693897,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "plos_one",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 6,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 7
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 7,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 7
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.010576552304824766,
+            "equal_family_origin_mean_delta_ai": -0.004927071337351707,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.04236513907985928,
+            "mean_absolute_delta_ai": 0.010576552304824766,
+            "mean_delta_ai": -0.004927071337351707,
+            "rows": 8
+          }
+        },
+        {
+          "collection": "plos_one",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 16,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 16
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 16,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 16
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.001299745449471236,
+            "equal_family_origin_mean_delta_ai": -0.0003441570765253185,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.004128130026383681,
+            "mean_absolute_delta_ai": 0.001299745449471236,
+            "mean_delta_ai": -0.0003441570765253185,
+            "rows": 16
+          }
+        },
+        {
+          "collection": "wikinews",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.03452288361143032,
+            "equal_family_origin_mean_delta_ai": -0.03452288361143032,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.10736176290486545,
+            "mean_absolute_delta_ai": 0.03452288361143032,
+            "mean_delta_ai": -0.03452288361143032,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "wikinews",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 6,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 6
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 6,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 7
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.00804585807514771,
+            "equal_family_origin_mean_delta_ai": -0.00804585807514771,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.047709801795145834,
+            "mean_absolute_delta_ai": 0.00804585807514771,
+            "mean_delta_ai": -0.00804585807514771,
+            "rows": 8
+          }
+        },
+        {
+          "collection": "wikinews",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 16,
+                "threshold": 0.936631839777329,
+                "trim_flagged": 16
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 16,
+                "threshold": 0.8629230174477677,
+                "trim_flagged": 16
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.002143844156246834,
+            "equal_family_origin_mean_delta_ai": -0.0013855972034423555,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.009443871227575729,
+            "mean_absolute_delta_ai": 0.002143844156246834,
+            "mean_delta_ai": -0.0013855972034423555,
+            "rows": 16
+          }
+        }
+      ],
+      "largest_by_origin": [
+        {
+          "origin": "human_only",
+          "largest_absolute_change": {
+            "ai": [
+              0.45030215372634835,
+              0.17691603118230215
+            ],
+            "collection": "plos_one",
+            "delta_ai": -0.2733861225440462,
+            "group": "doi:10.1371/journal.pone.0208754",
+            "id": "plos:10.1371/journal.pone.0208754:abstract:4325c7ff35ce794c",
+            "origin": "human_only",
+            "probabilities": [
+              [
+                0.5496978462736516,
+                0.12345465539962214,
+                0.3268474983267262
+              ],
+              [
+                0.8230839688176979,
+                0.05156975085631631,
+                0.12534628032598585
+              ]
+            ],
+            "text_sha256": [
+              "4325c7ff35ce794c36918b6b83dbd5889cccb0311448f42d3c09c4343a0a3034",
+              "02ceb1823af34364f5df6add3ac6d265251193aa77bb99d3147bbdb955c1623a"
+            ]
+          },
+          "minimum_delta": {
+            "ai": [
+              0.45030215372634835,
+              0.17691603118230215
+            ],
+            "collection": "plos_one",
+            "delta_ai": -0.2733861225440462,
+            "group": "doi:10.1371/journal.pone.0208754",
+            "id": "plos:10.1371/journal.pone.0208754:abstract:4325c7ff35ce794c",
+            "origin": "human_only",
+            "probabilities": [
+              [
+                0.5496978462736516,
+                0.12345465539962214,
+                0.3268474983267262
+              ],
+              [
+                0.8230839688176979,
+                0.05156975085631631,
+                0.12534628032598585
+              ]
+            ],
+            "text_sha256": [
+              "4325c7ff35ce794c36918b6b83dbd5889cccb0311448f42d3c09c4343a0a3034",
+              "02ceb1823af34364f5df6add3ac6d265251193aa77bb99d3147bbdb955c1623a"
+            ]
+          },
+          "maximum_delta": {
+            "ai": [
+              0.015226396623291128,
+              0.015683054377794655
+            ],
+            "collection": "hc3-wiki-historical",
+            "delta_ai": 0.00045665775450352657,
+            "group": "wikipedia:page:20748374",
+            "id": "hc3-wiki:1a5a5937bced1b4bd46e333f8d1680b5c0f352ff7a4a97424ecc031ec30fe131:0",
+            "origin": "human_only",
+            "probabilities": [
+              [
+                0.984773603376709,
+                0.0038919436245420432,
+                0.011334452998749085
+              ],
+              [
+                0.9843169456222054,
+                0.004110238540354069,
+                0.011572815837440586
+              ]
+            ],
+            "text_sha256": [
+              "b9ca611de5f5b6b04e40bb09e736d140b2d00ca7fc697f0f46235135533b02ca",
+              "8cb716a92bd39fb40dbf76fa0362463c2680dd2b7528b28b05a415bfa129bebe"
+            ]
+          }
+        },
+        {
+          "origin": "mixed",
+          "largest_absolute_change": {
+            "ai": [
+              0.7876587760312898,
+              0.6660725253907768
+            ],
+            "collection": "hc3-wiki-historical",
+            "delta_ai": -0.12158625064051298,
+            "group": "wikipedia:page:1242713",
+            "id": "generation:f2a37a61e68c5a1f6c0fcaddcd558a11cbb9e11daa724e1604cc8743385d1105",
+            "origin": "mixed",
+            "probabilities": [
+              [
+                0.21234122396871027,
+                0.08507940744835073,
+                0.702579368582939
+              ],
+              [
+                0.333927474609223,
+                0.0763148831247531,
+                0.5897576422660237
+              ]
+            ],
+            "text_sha256": [
+              "eaac8910febc2195853bdab69ea89dafb704a5db0ef743350f7ed42842749022",
+              "04a49aa6606dc4588fd349f2765f45c676c42ecb904775bcc204e8980f8f873c"
+            ]
+          },
+          "minimum_delta": {
+            "ai": [
+              0.7876587760312898,
+              0.6660725253907768
+            ],
+            "collection": "hc3-wiki-historical",
+            "delta_ai": -0.12158625064051298,
+            "group": "wikipedia:page:1242713",
+            "id": "generation:f2a37a61e68c5a1f6c0fcaddcd558a11cbb9e11daa724e1604cc8743385d1105",
+            "origin": "mixed",
+            "probabilities": [
+              [
+                0.21234122396871027,
+                0.08507940744835073,
+                0.702579368582939
+              ],
+              [
+                0.333927474609223,
+                0.0763148831247531,
+                0.5897576422660237
+              ]
+            ],
+            "text_sha256": [
+              "eaac8910febc2195853bdab69ea89dafb704a5db0ef743350f7ed42842749022",
+              "04a49aa6606dc4588fd349f2765f45c676c42ecb904775bcc204e8980f8f873c"
+            ]
+          },
+          "maximum_delta": {
+            "ai": [
+              0.38205711008433674,
+              0.40465503395422897
+            ],
+            "collection": "plos_one",
+            "delta_ai": 0.022597923869892234,
+            "group": "doi:10.1371/journal.pone.0208837",
+            "id": "generation:1213733a2c777ed85a9d1047b20ebd9a16679a7630b330105b1f64a8987e5bf7",
+            "origin": "mixed",
+            "probabilities": [
+              [
+                0.6179428899156632,
+                0.06120024423295657,
+                0.3208568658513802
+              ],
+              [
+                0.595344966045771,
+                0.07101178456929966,
+                0.33364324938492934
+              ]
+            ],
+            "text_sha256": [
+              "f33553a12954d145a2b3db424defb236a9885d03cb5b6a456f3a19be05d368d1",
+              "92de4106673e0c5155bdfb705048ed3935534f624416858b610f788c1c2861da"
+            ]
+          }
+        },
+        {
+          "origin": "model_only",
+          "largest_absolute_change": {
+            "ai": [
+              0.9803322699411714,
+              0.9708883987135957
+            ],
+            "collection": "wikinews",
+            "delta_ai": -0.009443871227575729,
+            "group": "wikinews:6477",
+            "id": "generation:aa58c83a2e1646fa3fcc128321eb050b5dad648e317f1efcf5f749e39e9a6153",
+            "origin": "model_only",
+            "probabilities": [
+              [
+                0.019667730058828492,
+                0.1467836116719494,
+                0.833548658269222
+              ],
+              [
+                0.029111601286404176,
+                0.13895956044983887,
+                0.8319288382637569
+              ]
+            ],
+            "text_sha256": [
+              "e3d782f801b60f3aecef78002b75b51d9e0f5820684df5ea534f8ca0e017537a",
+              "31a988b9adc3e24221c746071c7024c82466c2884a6e2a868d75c6315c3b9017"
+            ]
+          },
+          "minimum_delta": {
+            "ai": [
+              0.9803322699411714,
+              0.9708883987135957
+            ],
+            "collection": "wikinews",
+            "delta_ai": -0.009443871227575729,
+            "group": "wikinews:6477",
+            "id": "generation:aa58c83a2e1646fa3fcc128321eb050b5dad648e317f1efcf5f749e39e9a6153",
+            "origin": "model_only",
+            "probabilities": [
+              [
+                0.019667730058828492,
+                0.1467836116719494,
+                0.833548658269222
+              ],
+              [
+                0.029111601286404176,
+                0.13895956044983887,
+                0.8319288382637569
+              ]
+            ],
+            "text_sha256": [
+              "e3d782f801b60f3aecef78002b75b51d9e0f5820684df5ea534f8ca0e017537a",
+              "31a988b9adc3e24221c746071c7024c82466c2884a6e2a868d75c6315c3b9017"
+            ]
+          },
+          "maximum_delta": {
+            "ai": [
+              0.9814575883436351,
+              0.9855857183700187
+            ],
+            "collection": "plos_one",
+            "delta_ai": 0.004128130026383681,
+            "group": "doi:10.1371/journal.pone.0208301",
+            "id": "generation:d108fa94fd47b847af1f0383b6f50edd0cda780f0631791c03831ccaafbf2021",
+            "origin": "model_only",
+            "probabilities": [
+              [
+                0.01854241165636494,
+                0.6236855928443047,
+                0.35777199549933036
+              ],
+              [
+                0.014414281629981273,
+                0.531122742211825,
+                0.45446297615819375
+              ]
+            ],
+            "text_sha256": [
+              "e3791266d49bebe8006ca5cc23af5eea9bdd7064f6e7d2498763092b2127347b",
+              "b448694a740793c9ce619777663d07311709daf43d5a551c17cd41fcd2c119fe"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "consistency",
+      "artifact_id": "3aafef8aa796f16824d6429895122caf0025217b7e9fb272fc0b3eca86201756",
+      "report_sha256": "447faffdcaeb1f2e43e45c9815b26280ce96ce5a634d641c4be1530d1b1ae7d6",
+      "all": {
+        "cutoffs": [
+          {
+            "clear_to_flag": 0,
+            "flag_to_clear": 2,
+            "space_flagged": 98,
+            "threshold": 0.9584060312166393,
+            "trim_flagged": 100
+          },
+          {
+            "clear_to_flag": 1,
+            "flag_to_clear": 0,
+            "space_flagged": 107,
+            "threshold": 0.8189382925777733,
+            "trim_flagged": 106
+          }
+        ],
+        "equal_family_origin_mean_absolute_delta_ai": 0.009107791266977748,
+        "equal_family_origin_mean_delta_ai": 0.0018118337947557333,
+        "family_origin_cells": 48,
+        "max_absolute_delta_ai": 0.1824196044837097,
+        "mean_absolute_delta_ai": 0.005998579605761616,
+        "mean_delta_ai": -0.00044736348510714564,
+        "rows": 126
+      },
+      "origins": [
+        {
+          "origin": "human_only",
+          "summary": {
+            "rows": 16,
+            "family_origin_cells": 16,
+            "mean_delta_ai": 0.01078559073612729,
+            "mean_absolute_delta_ai": 0.013184223902680725,
+            "equal_family_origin_mean_delta_ai": 0.01078559073612729,
+            "equal_family_origin_mean_absolute_delta_ai": 0.013184223902680725,
+            "max_absolute_delta_ai": 0.1824196044837097,
+            "cutoffs": [
+              {
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 0,
+                "space_flagged": 0,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              },
+              {
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 0,
+                "space_flagged": 0,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              }
+            ]
+          }
+        },
+        {
+          "origin": "mixed",
+          "summary": {
+            "rows": 39,
+            "family_origin_cells": 16,
+            "mean_delta_ai": -0.004688196042828137,
+            "mean_absolute_delta_ai": 0.01123956966322948,
+            "equal_family_origin_mean_delta_ai": -0.0047515888826521096,
+            "equal_family_origin_mean_absolute_delta_ai": 0.012621234844941608,
+            "max_absolute_delta_ai": 0.12030736949616916,
+            "cutoffs": [
+              {
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 31,
+                "space_flagged": 29,
+                "flag_to_clear": 2,
+                "clear_to_flag": 0
+              },
+              {
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 35,
+                "space_flagged": 36,
+                "flag_to_clear": 0,
+                "clear_to_flag": 1
+              }
+            ]
+          }
+        },
+        {
+          "origin": "model_only",
+          "summary": {
+            "rows": 71,
+            "family_origin_cells": 16,
+            "mean_delta_ai": -0.0006492620455104172,
+            "mean_absolute_delta_ai": 0.001500425788973554,
+            "equal_family_origin_mean_delta_ai": -0.0005985004692079805,
+            "equal_family_origin_mean_absolute_delta_ai": 0.0015179150533109053,
+            "max_absolute_delta_ai": 0.011188257160684278,
+            "cutoffs": [
+              {
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 69,
+                "space_flagged": 69,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              },
+              {
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 71,
+                "space_flagged": 71,
+                "flag_to_clear": 0,
+                "clear_to_flag": 0
+              }
+            ]
+          }
+        }
+      ],
+      "slices": [
+        {
+          "collection": "cmu-books-historical",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0009649496494221933,
+            "equal_family_origin_mean_delta_ai": 0.0007980747422748322,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.002604330857650752,
+            "mean_absolute_delta_ai": 0.0009649496494221933,
+            "mean_delta_ai": 0.0007980747422748322,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "cmu-books-historical",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 10,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 11
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 12,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 12
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0064151135954401235,
+            "equal_family_origin_mean_delta_ai": -0.006354157652279286,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.04917929772117802,
+            "mean_absolute_delta_ai": 0.0064151135954401235,
+            "mean_delta_ai": -0.006354157652279285,
+            "rows": 12
+          }
+        },
+        {
+          "collection": "cmu-books-historical",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 20,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 20
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 20,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 20
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0016890525106041665,
+            "equal_family_origin_mean_delta_ai": -0.001362629810316568,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.006059983710188677,
+            "mean_absolute_delta_ai": 0.0016890525106041665,
+            "mean_delta_ai": -0.001362629810316568,
+            "rows": 20
+          }
+        },
+        {
+          "collection": "hc3-wiki-historical",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.003959923405171163,
+            "equal_family_origin_mean_delta_ai": -0.003959923405171163,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.013354575542294082,
+            "mean_absolute_delta_ai": 0.003959923405171163,
+            "mean_delta_ai": -0.003959923405171163,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "hc3-wiki-historical",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 9,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 9
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 10,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 10
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0026161668983836484,
+            "equal_family_origin_mean_delta_ai": -0.001758397740947391,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.016403273512466177,
+            "mean_absolute_delta_ai": 0.0027029620575569954,
+            "mean_delta_ai": -0.0017672138858083506,
+            "rows": 11
+          }
+        },
+        {
+          "collection": "hc3-wiki-historical",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 19,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 19
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 19,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 19
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0007444360116978493,
+            "equal_family_origin_mean_delta_ai": -0.000672243241104073,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.006413993090964687,
+            "mean_absolute_delta_ai": 0.0007651807236828065,
+            "mean_delta_ai": -0.0006894183062277772,
+            "rows": 19
+          }
+        },
+        {
+          "collection": "plos_one",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.0007743287278618962,
+            "equal_family_origin_mean_delta_ai": 0.0007743287278618962,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.0018880069242717562,
+            "mean_absolute_delta_ai": 0.0007743287278618962,
+            "mean_delta_ai": 0.0007743287278618962,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "plos_one",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 1,
+                "space_flagged": 4,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 5
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 6,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 6
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.023606477296343416,
+            "equal_family_origin_mean_delta_ai": -0.023606477296343416,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.1105855385445676,
+            "mean_absolute_delta_ai": 0.023606477296343416,
+            "mean_delta_ai": -0.023606477296343416,
+            "rows": 8
+          }
+        },
+        {
+          "collection": "plos_one",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 14,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 14
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 16,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 16
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.002364423440291155,
+            "equal_family_origin_mean_delta_ai": -3.749551468344714e-05,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.011188257160684278,
+            "mean_absolute_delta_ai": 0.002364423440291155,
+            "mean_delta_ai": -3.749551468344714e-05,
+            "rows": 16
+          }
+        },
+        {
+          "collection": "wikinews",
+          "origin": "human_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 0
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 0,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 0
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.04703769382826765,
+            "equal_family_origin_mean_delta_ai": 0.0455298828795436,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.1824196044837097,
+            "mean_absolute_delta_ai": 0.04703769382826765,
+            "mean_delta_ai": 0.0455298828795436,
+            "rows": 4
+          }
+        },
+        {
+          "collection": "wikinews",
+          "origin": "mixed",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 6,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 6
+              },
+              {
+                "clear_to_flag": 1,
+                "flag_to_clear": 0,
+                "space_flagged": 8,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 7
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.017847181589599248,
+            "equal_family_origin_mean_delta_ai": 0.012712677158961655,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.12030736949616916,
+            "mean_absolute_delta_ai": 0.017847181589599248,
+            "mean_delta_ai": 0.012712677158961655,
+            "rows": 8
+          }
+        },
+        {
+          "collection": "wikinews",
+          "origin": "model_only",
+          "summary": {
+            "cutoffs": [
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 16,
+                "threshold": 0.9584060312166393,
+                "trim_flagged": 16
+              },
+              {
+                "clear_to_flag": 0,
+                "flag_to_clear": 0,
+                "space_flagged": 16,
+                "threshold": 0.8189382925777733,
+                "trim_flagged": 16
+              }
+            ],
+            "equal_family_origin_mean_absolute_delta_ai": 0.00127374825065045,
+            "equal_family_origin_mean_delta_ai": -0.0003216333107278341,
+            "family_origin_cells": 4,
+            "max_absolute_delta_ai": 0.0052715700351013695,
+            "mean_absolute_delta_ai": 0.00127374825065045,
+            "mean_delta_ai": -0.0003216333107278341,
+            "rows": 16
+          }
+        }
+      ],
+      "largest_by_origin": [
+        {
+          "origin": "human_only",
+          "largest_absolute_change": {
+            "ai": [
+              0.07302700783918481,
+              0.2554466123228945
+            ],
+            "collection": "wikinews",
+            "delta_ai": 0.1824196044837097,
+            "group": "wikinews:2785377",
+            "id": "wikinews:2785377:4344051:be240fa8a178127f",
+            "origin": "human_only",
+            "probabilities": [
+              [
+                0.9269729921608153,
+                0.022764926945709647,
+                0.050262080893475156
+              ],
+              [
+                0.7445533876771053,
+                0.09922388462785309,
+                0.15622272769504142
+              ]
+            ],
+            "text_sha256": [
+              "be240fa8a178127fadaebc802d140ab2af884174a472905a36f169b7030269a1",
+              "6e01fb39bc386996e34bd064d5607625fff4052d0a832ae47d4741ec96b3619a"
+            ]
+          },
+          "minimum_delta": {
+            "ai": [
+              0.044577094211946174,
+              0.031222518669652092
+            ],
+            "collection": "hc3-wiki-historical",
+            "delta_ai": -0.013354575542294082,
+            "group": "wikipedia:page:20748374",
+            "id": "hc3-wiki:1a5a5937bced1b4bd46e333f8d1680b5c0f352ff7a4a97424ecc031ec30fe131:0",
+            "origin": "human_only",
+            "probabilities": [
+              [
+                0.9554229057880537,
+                0.0073725223488364895,
+                0.03720457186310969
+              ],
+              [
+                0.9687774813303479,
+                0.005962324836253384,
+                0.025260193833398708
+              ]
+            ],
+            "text_sha256": [
+              "b9ca611de5f5b6b04e40bb09e736d140b2d00ca7fc697f0f46235135533b02ca",
+              "8cb716a92bd39fb40dbf76fa0362463c2680dd2b7528b28b05a415bfa129bebe"
+            ]
+          },
+          "maximum_delta": {
+            "ai": [
+              0.07302700783918481,
+              0.2554466123228945
+            ],
+            "collection": "wikinews",
+            "delta_ai": 0.1824196044837097,
+            "group": "wikinews:2785377",
+            "id": "wikinews:2785377:4344051:be240fa8a178127f",
+            "origin": "human_only",
+            "probabilities": [
+              [
+                0.9269729921608153,
+                0.022764926945709647,
+                0.050262080893475156
+              ],
+              [
+                0.7445533876771053,
+                0.09922388462785309,
+                0.15622272769504142
+              ]
+            ],
+            "text_sha256": [
+              "be240fa8a178127fadaebc802d140ab2af884174a472905a36f169b7030269a1",
+              "6e01fb39bc386996e34bd064d5607625fff4052d0a832ae47d4741ec96b3619a"
+            ]
+          }
+        },
+        {
+          "origin": "mixed",
+          "largest_absolute_change": {
+            "ai": [
+              0.701788478597072,
+              0.8220958480932412
+            ],
+            "collection": "wikinews",
+            "delta_ai": 0.12030736949616916,
+            "group": "wikinews:1445",
+            "id": "generation:7389bc6c98a76756744a3143e20fc4cd798405f190069af6d70a0c19e9487876",
+            "origin": "mixed",
+            "probabilities": [
+              [
+                0.2982115214029279,
+                0.01975159175906403,
+                0.682036886838008
+              ],
+              [
+                0.17790415190675873,
+                0.06379904060109753,
+                0.7582968074921437
+              ]
+            ],
+            "text_sha256": [
+              "e13be573bf4e97058ad38ca7a2e82696bfa848d70ec98fd8cd13fb57127ca8e4",
+              "331cc4612f7750597bb3943e2ad230b3d43a955bb91ba6b06b05445b503aa570"
+            ]
+          },
+          "minimum_delta": {
+            "ai": [
+              0.5210278057294433,
+              0.4104422671848757
+            ],
+            "collection": "plos_one",
+            "delta_ai": -0.1105855385445676,
+            "group": "doi:10.1371/journal.pone.0208301",
+            "id": "generation:928569b26785f298a893ffe46beb2f2a1e38b5a2f1ddfda2e92197772c825ba7",
+            "origin": "mixed",
+            "probabilities": [
+              [
+                0.47897219427055676,
+                0.028179590457522274,
+                0.4928482152719211
+              ],
+              [
+                0.5895577328151244,
+                0.03624579423555834,
+                0.37419647294931735
+              ]
+            ],
+            "text_sha256": [
+              "afadb45a53635104ef5c1d79bca2e5c8a881e84e2ce39f8c15f22da667c52158",
+              "b86a8ae3aad827aedc2953a42371232f49b1eb621a07a5de3e54616a44d4381c"
+            ]
+          },
+          "maximum_delta": {
+            "ai": [
+              0.701788478597072,
+              0.8220958480932412
+            ],
+            "collection": "wikinews",
+            "delta_ai": 0.12030736949616916,
+            "group": "wikinews:1445",
+            "id": "generation:7389bc6c98a76756744a3143e20fc4cd798405f190069af6d70a0c19e9487876",
+            "origin": "mixed",
+            "probabilities": [
+              [
+                0.2982115214029279,
+                0.01975159175906403,
+                0.682036886838008
+              ],
+              [
+                0.17790415190675873,
+                0.06379904060109753,
+                0.7582968074921437
+              ]
+            ],
+            "text_sha256": [
+              "e13be573bf4e97058ad38ca7a2e82696bfa848d70ec98fd8cd13fb57127ca8e4",
+              "331cc4612f7750597bb3943e2ad230b3d43a955bb91ba6b06b05445b503aa570"
+            ]
+          }
+        },
+        {
+          "origin": "model_only",
+          "largest_absolute_change": {
+            "ai": [
+              0.9795724182357401,
+              0.9683841610750559
+            ],
+            "collection": "plos_one",
+            "delta_ai": -0.011188257160684278,
+            "group": "doi:10.1371/journal.pone.0208301",
+            "id": "generation:d108fa94fd47b847af1f0383b6f50edd0cda780f0631791c03831ccaafbf2021",
+            "origin": "model_only",
+            "probabilities": [
+              [
+                0.02042758176425988,
+                0.21912261403659425,
+                0.7604498041991459
+              ],
+              [
+                0.031615838924944094,
+                0.2797043097463345,
+                0.6886798513287213
+              ]
+            ],
+            "text_sha256": [
+              "e3791266d49bebe8006ca5cc23af5eea9bdd7064f6e7d2498763092b2127347b",
+              "b448694a740793c9ce619777663d07311709daf43d5a551c17cd41fcd2c119fe"
+            ]
+          },
+          "minimum_delta": {
+            "ai": [
+              0.9795724182357401,
+              0.9683841610750559
+            ],
+            "collection": "plos_one",
+            "delta_ai": -0.011188257160684278,
+            "group": "doi:10.1371/journal.pone.0208301",
+            "id": "generation:d108fa94fd47b847af1f0383b6f50edd0cda780f0631791c03831ccaafbf2021",
+            "origin": "model_only",
+            "probabilities": [
+              [
+                0.02042758176425988,
+                0.21912261403659425,
+                0.7604498041991459
+              ],
+              [
+                0.031615838924944094,
+                0.2797043097463345,
+                0.6886798513287213
+              ]
+            ],
+            "text_sha256": [
+              "e3791266d49bebe8006ca5cc23af5eea9bdd7064f6e7d2498763092b2127347b",
+              "b448694a740793c9ce619777663d07311709daf43d5a551c17cd41fcd2c119fe"
+            ]
+          },
+          "maximum_delta": {
+            "ai": [
+              0.923062971639417,
+              0.932321412907678
+            ],
+            "collection": "plos_one",
+            "delta_ai": 0.00925844126826103,
+            "group": "doi:10.1371/journal.pone.0208301",
+            "id": "generation:1537ce3565df8c1b8a235377b92ffc317b2ab73254503b7b6301783bf1d43bb3",
+            "origin": "model_only",
+            "probabilities": [
+              [
+                0.0769370283605829,
+                0.11743819474424565,
+                0.8056247768951713
+              ],
+              [
+                0.06767858709232202,
+                0.2561503733501639,
+                0.6761710395575141
+              ]
+            ],
+            "text_sha256": [
+              "6e0a0a697ba7997c5acbf976a3c9ba09cf19cc7bc89a071dbccd441e49d03741",
+              "4e50a2c5e65d213f7033b7a52920d03a0b81a1a7aa026868f6e5d1f23877e76e"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "provider_calls": 0,
+  "new_training_records": 0,
+  "reference_promoted": false,
+  "fresh_confirmation": false
+}

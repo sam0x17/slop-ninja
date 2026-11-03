@@ -1,0 +1,342 @@
+\section{Development and launch
+criteria}\label{development-and-launch-criteria}
+
+Launch begins with \textit{A} alone. A rights-cleared offline comparison comes
+before live rewards; a coordinator-scored network rehearsal comes before paid
+service. Neither completing a cohort nor qualifying for rewards authorizes
+sales. The coordinator opens a bounded commercial workload only after recording
+its quality evidence, supported document classes, capacity, and operating
+budget. \textit{C} contribution rewards and \textit{B} transformation each require
+a later activation decision.
+
+\subsection{Model qualification}
+
+The launch input contract is raw text (Section~\ref{input-contract}), and the
+reference \(R_0\) was compared with Pangram on a sealed, pre-registered
+Test (Section~\ref{existing-evidence-and-implementation-status}). It was
+noninferior as a single artifact, but its recipe missed the legal-opinions slice
+limit. Later reference changes follow Section~\ref{reference-model}: the cohort
+promotion rule, plus a single replacement of the testnet's \(R_0\), announced in
+advance, by the next reference Slop Ninja trains, only if it passes every
+required gate; external comparisons continue under
+Section~\ref{pangram-evidence-and-assigned-audits}. Within each new architecture,
+compare the joint model with origin-only and attribution-only controls using
+matched encoder capacity, data, and training budgets. Measure whether
+attribution supervision improves origin detection and whether origin supervision
+improves attribution, including cases where either task is harmed.
+
+Keep each source work and its generated or edited descendants together across
+Train, Development, Calibration, and Test, and freeze gallery policy, model
+versions, and thresholds before opening final evaluation data. The qualification
+set needs independent reference/query works, withheld writers, unseen generator
+families and versions, mixed editing histories, and cross-topic controls.
+Human proxies and documented human-only histories remain separate strata.
+Report AI-involvement Brier score, calibration, sensitivity at declared human
+false-positive operating points, and source-family uncertainty. Report
+attribution and open-set rejection separately, including unseen generators,
+ambiguous listed-model cases, and mixed work with a supported human match.
+Qualify both conditional fallback categories on the documented contributor
+roles, including mixed work with neither identity in the gallery. Assess absent
+roles through involvement probabilities, without treating a conditional
+fallback as a claim that the role is present. Include low AI confidence with
+supported named-model matches to test that attribution remains visible. A model
+failure stays in requested-population coverage; paired accuracy on successful
+documents cannot hide it. Include cold starts, tail latency, memory, and total
+delivered-document cost. A later CFG input profile needs the paired comparison
+of Section~\ref{input-contract}, including parsing and resolution cost, before
+it can be admitted.
+
+Before mainnet live rewards, re-measure the era-only gate of
+Section~\ref{human-stock} on normalised, length-matched positives from the next
+training round, with a cohort large enough that its upper bound falls below
+5\%. Score each quarterly pool sample with all three detectors, finish the red team,
+including the test on ModernBERT-base's own pretrained weights, and re-derive
+\(\sigma\), \(\delta\), \(w\), and the headroom on a Common Crawl-parented batch.
+Record each pool's measured domain precision and size its draw by it. Measure
+\(R_0\)'s false-positive rate and Brier on freshly written anchors against
+same-domain Common Crawl humans, first at 300 anchors. When the reference
+testnet will hand on differs from \(R_0\), report the same measurements, its
+Common Crawl-parented batch score, and a canary audit for it.
+
+For the later personal-profile workflow, the next qualification is a learned
+matcher over encoder and stylometric profiles, trained on fresh authors, with
+its acceptance thresholds measured on withheld writers and on real
+style-transfer data. Evaluate enrollment from independent samples and
+\emph{Provided writer} matching on separate query works across sample counts,
+lengths, topics, registers, and outliers, comparing the proposed pooling
+contract with qualified alternatives and testing CFG only as an optional fused
+input. Test cross-customer isolation and fallback when the supplied profile
+fails the matching rule. Before \textit{B} uses \textit{A}'s author-fit feedback,
+verify on rewrites conditioned on several of a writer's own samples that
+iterative gains against the fixed profile agree with blinded judgments of voice
+while preserving meaning. Keep adaptive reference-copying and metric-gaming
+controls from Section~\ref{transformation-and-improvement-utility}. These tests
+qualify a later product workflow, not an additional \textit{A}-only launch
+requirement.
+
+Qualify document-level AI share on controlled partial rewrites with measured
+final-span fractions, including zero and complete replacement, dispersed edits,
+and small rewritten regions in long documents. Keep all versions of each source
+in one split. Report source-balanced share error, failures, uncertainty, and
+transfer to held-out generators and editing procedures alongside binary-label
+confidence calibration. Neither a calibrated involvement score nor accurate
+pure-human/pure-model classification establishes fractional accuracy.
+Measure span outputs with the metrics of Section~\ref{span-outputs}, fix the
+span gate's thresholds from those measurements before enforcing it, and qualify
+span heads in the scorer before admission accepts the span graph. The first
+package that serves spans also needs a calibrated, replayed export with the
+adopted S2c head (Section~\ref{span-outputs}). Word and
+grammar explanations are a later qualification and do not delay launch; their
+tests must establish explanation faithfulness as specified in
+Section~\ref{author-and-origin-detection}.
+
+\subsection{Protocol checks before launch}\label{protocol-checks-before-launch}
+
+The first coordinator-scored tournament freezes entrants and a fresh hidden batch,
+records every assigned outcome, and publishes signed result manifests. Rust
+validators, including the serverless coordinator, independently derive native
+weight rows from the public score inputs and use commit--reveal in parallel.
+Other validators audit the coordinator's certificate and finalized row afterward.
+Hidden inputs, labels, and individual predictions remain with the coordinator
+and never go to other validators. The tournament must include both reference
+models, malformed output, targeted triggers, an embedded text index, an
+artifact outside the allowed graphs, with another tokenizer, or with a file that
+fails its role's schema or has no declared role, outputs that change with a
+document's batch-mates, missing uploads, uploads that do not
+open their commitment or open one made for another cohort, chain, or hotkey,
+exact, recalibrated, perturbed, and deliberately degraded copies of published
+artifacts, including copies that match only on the probe, weight soups of
+published models, crashes that do and do not reproduce in isolation, and
+selective execution failures. Measure, under the frozen rule and on simulated
+rosters of honest entrants that resemble seed retrains or differ structurally,
+the expected credit of a degraded copy and of a weaker variant aimed below a
+crowded band, the distribution of honest entrants' pay across cohorts, and the
+drift of the reference's true quality across promotions
+(Sections~\ref{reference-model} and~\ref{reward-v1}). Commitment order
+requires a valid opening and qualification; it is not proof of authorship.
+Verify that no submitted artifact is retrievable by another participant before
+its cohort ends, and that every artifact and opening is published afterward. Canonical-byte controls cover Unicode normalization, invisible
+characters, whitespace, malformed encodings, and mismatches between submitted,
+scored, and externally analyzed text. No representation-only change earns
+utility. The full reserved workload determines the tempo targets; a small
+protocol test cannot establish production throughput. Rehearsals may use
+\(K=4\) manifests to exercise deletion and recovery within hours.
+
+Rehearse the Workers and Durable Object state machine by interrupting dispatch,
+result persistence, scoring, weight submission, and transition completion.
+Expire queue messages and task claims, duplicate deliveries, drop block deliveries,
+return results from superseded workers, interrupt migrations, and restore from
+durable exports. Rehearse above the testnet roster cap: at least 64 scored artifacts in
+parallel lanes, measuring cold-start and artifact-load distributions, rate-limit
+behavior, lane loss and reconciliation, and pause and resume during scoring.
+Authoritative records must reconstruct unfinished work after an arbitrarily long
+pause. Results need one canonical outcome per task under
+the frozen attempt policy. A transition issues no new challenges; a recovered
+coordinator resumes the same cohort. Slow work can move advancement to a later
+tempo without changing evaluation semantics or discarding observations.
+Interrupt coordinator checkpoints across several tempos and verify that
+remaining application deadline budgets survive without retroactively charging
+the silent intervals. Expired authorizations must stop new work while existing
+chain and customer obligations retain their separate deadlines.
+
+Qualify \texttt{rtao-rpc} webhook delivery. Reject unauthorized
+notifications; duplicate and reorder valid ones, lose deliveries across several
+tempos, and interrupt the handler between durable recording and acknowledgment.
+Verify RPC backfill from the saved finalized height and hash, fork handling for
+best-head events, and recovery without advancing past unprocessed finalized
+effects. Stop deliveries and verify that the one-minute watchdog enters
+fallback after the threshold, recovers the saved work from public RPC in bounded
+ticks, flags cursor lag while deliveries continue, and returns to webhooks when
+they resume. Let a subscription exhaust its retries and pause, and verify that
+the watchdog carries the coordinator and raises the operator alert until the
+subscription is resumed. Measure actual tempo-boundary observation lag with webhooks enabled
+and disabled, including provider polling, scheduler delay, and RPC catch-up. No webhook can authorize signing,
+reset active-time budgets, or create a replacement cohort. These tests must run
+without a resident chain subscriber or polling server.
+
+Native-chain rehearsal verifies the recognized owner's execution path for
+required hyperparameter changes under the actual ownership or lease arrangement,
+including enabling native weight commit--reveal. Every validator checks the
+effective setting at startup and before
+signing. An unexpectedly disabled flag must pause new commitments, with no
+fallback to direct submissions. Measure commitment inclusion, reveal intervals,
+finality, rate limits, normalization, quantization, bonds, registration changes,
+UID reuse, stale RPC views, and cohorts with no new target, including the
+subnet's emission share while miner credit burns. Miss a commitment window and
+verify later valid delivery without loss of the cohort. Exercise the native
+timelocked reveal path; automatic reveal cannot be withheld pending a
+coordinator check. Re-commit the active target at every tempo under per-tempo
+operation identities across a whole cohort, then let the authorization lease
+lapse during a simulated coordinator outage and verify that new commitments
+pause while submitted obligations recover. Restart validators with uncertain
+commitments and pending reveals. Upgrade the chain runtime between cohort
+creation, commitment, reveal, and finality, including an upgrade that removes or
+changes a signed call: work continues, and only an operation without a
+type-correct encoding defers until live metadata admits it. Journal recovery
+must precede new signing, while existing native obligations retain their
+original deadlines. The native validator's testnet qualification
+(Section~\ref{testnet-m2}) covered commitment, per-tempo re-commitment, and
+recovery under a fixture package, and the \texttt{reward-v1} rehearsal
+(Section~\ref{testnet-reward-v1}) covered verification, commitment, and a
+carried target under \texttt{reward-v1} packages for a row paying one UID.
+Still required are a live row paying several UIDs, the fault drills under
+\texttt{reward-v1} packages, native validators' commitment of the burn row,
+qualification of the coordinator's own signing, and an immunity period above
+the first-payout lag.
+Successful scheduling alone does not prove finalized execution or cohort
+settlement. Verify that an old UID's credit cannot transfer silently to a new
+registrant. Subtensor can continue paying native emissions during a coordinator
+outage, so stale-weight behavior needs an explicit tested policy.
+
+Test tampered score packages and certificates, invalid score-signing authority
+or coordinator hotkey bindings, stale revisions, mismatched finalized rows,
+runtime changes (work continues; only an operation without a type-correct
+encoding defers), UID reuse, and owner-hotkey rotation, including to an
+unregistered hotkey. Give independent Linux and macOS validators the
+same package and registration snapshot, including shuffled input order, near ties, zero entries, rounding
+boundaries, and cohorts with no new target. Include the Workers coordinator in the same
+comparison. Their canonical integer rows must match exactly.
+
+Verify the \texttt{reward-v1} calculation against hand-worked fixtures: the
+margin and reference promotion, the fallback cutoff with and without a
+predecessor reference, a cohort with no new target, with and without a previous
+target, a perfect reference, the public-copy gate on the batch and on the probe,
+the canonical fingerprint of identical content, cluster formation and equal
+splits, the inclusive near-equal drop, band boundaries, a lone cluster below a
+crowded band, largest-remainder ties,
+a departed hotkey's burn, a deferred burn row, a reference-model failure, a
+promotion that passes to the next retained cluster head, the max-upscaled committed row, and allocations and caps. Exercise the launch authorization
+before the first manifest, a first cohort with no target, a probe-version
+replacement, a renewal after a lapsed lease, and the per-tempo active-target
+check. Each validator uses its own key,
+nonce, and journal, and commits without waiting for a coordinator reveal. A chain
+conversion change requires an authenticated compatible delivery revision,
+preserving the frozen scores. Publish a new score revision before its package
+is ready and verify that the previous authorized target remains usable within
+its retention, identity, and native-window limits. Preserve pending commitments
+when a successor target or authorized coordinator hotkey rotation arrives; a new target
+cannot reset old obligations or cause a stale row to overwrite its successor.
+An absent or divergent coordinator certificate must not block healthy validators;
+pause only locally affected work when the evidence exposes a defect in its own
+target, authority, or context.
+
+Verify the R2 package's index, count, and receipt digests for successful, failed,
+retried, and pending calls without revealing prompts, responses, or labels.
+After cohorts \(n+1\) and \(n+2\) complete, delete \(n\)'s detailed receipts and
+index, including managed copies, while preserving compact score inputs,
+calculated rows, certificates, and recovery state, and only after \(T_n\) has
+been superseded. Missed tempos and coordinator silence must not trigger
+deletion, and the artifacts of \(R_k\) and \(R_{k-1}\) must remain hosted.
+Recover a long-offline validator from its journal and a current retained package;
+expired receipt objects must not be needed to reconcile existing submissions.
+
+Set every other validator to silent, offline, refusing, or an old release.
+The healthy coordinator must still finish evaluation, publish results, complete
+the transition at a permitted boundary, begin another cohort, and serve admitted
+customer jobs. Its deployment and recovery must also work without validator
+acknowledgments. Track absent chain submissions separately; this test does not
+establish that native payouts match the prescribed rows. Delay coordinator delivery
+and certificate publication as well, and verify that cohorts still advance.
+Restore validators with uncertain submissions, then verify
+independent catch-up without replaying stale targets, deleting obligations, or
+duplicating credit.
+Separately rehearse migration from an earlier direct-submission configuration
+and recovery across commit--reveal versions. Resolve uncertain transactions and
+preserve existing commitments under their original rules; changing the flag,
+updating software, or publishing a new row cannot erase those obligations.
+
+Settle participant update opt-out/deferral policy and staggered rollout sequencing
+before launch, within the compatibility and independent-progress requirements
+of Section~\ref{participant-updates}.
+Exercise signed Rust updates after many missed releases on Linux and macOS.
+Interrupt every migration step, retain its checkpoint, and resume the complete
+ordered path while preserving keys, journals, and pending operations. Test
+invalid signatures, release-key rotation, stale release metadata, missing
+migration paths, and accidental old-process startup after migration. Updated
+participants must reconcile before new signing, while other participants and
+the serverless coordinator continue independently. Rehearse coordinator schema
+migrations with unfinished cohorts and enforce generation fencing. Test the
+single Rust supervisor's handoff, exclusive journal and signer ownership, and
+schema-compatible rollback without losing newer transaction evidence.
+
+The cohort length, batch size and mix, human stock, authorization lease, reward
+rule, copy policy, artifact cap, and the treatment of a cohort with no new
+target are fixed above. Before live rewards, settle active-time accounting,
+retry and canonical-attempt rules, gate thresholds, including both
+false-positive tiers, correction authority, the criteria of the signed review
+that clears a blocked candidate, and shared-failure treatment, choosing them on
+development evidence. Mainnet batches of 4,000 cases may use batch model APIs
+with no stated completion time; generating ahead of a cohort would need its own
+authorized phase, which is not yet specified. There is no validator-adoption
+threshold or membership denominator in cohort advancement.
+The production application must bind signed results to the actual weight calls
+and retain reveal evidence beyond a scheduler's diagnostic ring. Qualify
+Linux/macOS participants and the coordinator's Workers chain path separately;
+native \texttt{rtao} support does not establish Wasm compatibility. The serverless
+path must qualify transport, encoding, signing, nonce ownership, durable attempt
+records, finalized reconciliation, and commitment/reveal recovery. Interrupt
+signing and submission across deployments and Durable Object migrations, then
+verify that only the current signing generation can create a new attempt and
+that uncertain earlier effects are reconciled. The coordinator must perform
+all lead-validator duties without a separate native signer or daemon.
+
+\subsection{Commercial activation}
+
+A paid \textit{A} pilot exercises centrally served published artifacts, durable job
+acceptance, private delivery, idempotent receipts, and separate customer
+cutoffs. Customer delivery and refund duties survive a paused evaluation
+cohort. Qualify Coinbase Onramp's native-TAO route, available card methods,
+wallet requirements, transfer holds, and any additional Solana entry route.
+Verify burn authority under the actual ownership or lease arrangement.
+Test duplicate provider events, late finality, failed conversion, burn
+allocation, and original-payment refunds. Burned principal is unavailable for
+refunds or operations, so operating funds and reserves must exist separately.
+
+Measure actual pipeline costs before fixing the pricing multiplier or promising
+a price below Pangram. The exploratory multiplier of 25 and the detection
+price range of \$0.01--\$0.03 require representative document lengths,
+Container utilization and idle time, retries, and matched competitor volumes. Public-artifact
+serving and hosted \textit{A} evaluation costs belong to Slop Ninja. Miners fund
+their own training; later \textit{B} miners also absorb bounded evaluation
+inference and required candidate-report costs. Shared benchmark infrastructure
+and external comparisons need an operator budget. Free \texttt{rtao-rpc} access
+does not remove chain or compute costs.
+
+Paid-use emissions are separately optional. A nonzero share needs contributor
+attribution, ensemble treatment, caps, self-purchase controls, and unused-pool
+handling. Rehearse a common owner receiving miner rewards and validator
+dividends while purchasing its own traffic. Alpha burning does not by itself
+establish cost recovery or prevent manipulation. Measure usable coverage,
+false-positive disputes, repeat use, turnaround, willingness to pay, and
+operator cost per delivered job before expanding sales.
+
+\subsection{Later grammar and transformation mechanisms}
+
+Before \textit{C} activates, define admissible contributions, correctness and
+regression checks, overlap attribution, award sizes, and settlement/weight-expiry
+rules. Credit accepted reusable improvements once. Larger grammar files alone
+are not a benefit; evaluate held-out coverage, interpretation quality,
+ambiguity, and runtime cost. Shared grammar changes must preserve frozen cohort
+representations. The contribution allocation starts inactive.
+
+Before \textit{B} activates, choose benchmark and incident authority, panel and
+report-selection rules, service obligations, and a mapping into the chain's
+supported native mechanisms. Qualify the Cloudflare base/adapter and numeric
+ranker on the offered workload. Complete the content-privacy comparison with
+gateway logging enabled, a routed positive control, and a direct request without
+gateway selection. Check owner controls, private-weight denial to unrelated
+callers, model replacement, retention, and response isolation. Test adapter-controlled
+output-length leakage through owner-visible usage as described in
+Section~\ref{assignment-recovery-and-the-privacy-boundary}. Synthetic jobs
+must survive restarts and duplicate delivery without exposing content to miners
+or creating duplicate credit. The provider boundary needs independent review
+of the actual serving path and account controls.
+
+Transformation then needs joint author-fit, preservation, readability, tone,
+and detector comparisons, including blinded reader review and adaptive attacks
+on the public style metric. Test held-out authors, registers, source families,
+and later detectors with matched search budgets. Measure disagreements and
+preservation failures alongside score gains. Chapter and book claims require
+assembled-document evaluation of long-range consistency. A small protocol
+pilot cannot establish reader indistinguishability, safe editing, or profitable
+miner-paid inference.

@@ -1,0 +1,39 @@
+{
+  "at": "2026-09-15T12:40:21Z",
+  "checker_sha256": "c0979d8dd819a73e323bf91c91ddce82e2829c43ef72d5f104eda0e2ca6df835",
+  "review_sha256": "36cc1b0c38bb93550114f0f292a3172fe110a707fa98a3846db32fd79cc47d3e",
+  "summary_sha256": "c8ee5a4207a2df701e409d0a527fa3af9bd5419a0d76da0e6df008f4a376749f",
+  "reviewed_outputs": 4,
+  "source_request_response_and_final_bindings_match": true,
+  "profile_review_complete": true,
+  "word_count_method": "Unicode POSIX space class; empty fields excluded",
+  "collector_records": 3,
+  "source_copy_exclusions": 1,
+  "rows": [
+    {
+      "task": "3a8168af13c1d599fbcb73f11402600360b2b2d40a740db9973b86f140182acb",
+      "words_whitespace": 196,
+      "record_sha256": "592f266f79dd8e18d8fb34fbd4902dbee9838180c1dafcdf535360934e520456",
+      "raw_final_exactly_equals_record": true
+    },
+    {
+      "task": "c90cb1ca660b19cfc3301a665ba503561a0c97643c51377ed90abd5ce1262dfb",
+      "words_whitespace": 222,
+      "record_sha256": "eb0049225c6a0c1845a9232658b73ff9dbcbed5c778cd3e6d42e685e772c6f1c",
+      "raw_final_exactly_equals_record": true
+    },
+    {
+      "task": "f60759cf0352eb0303879d78084e45880502e44d46ff914d6bd76b573bf9f70b",
+      "words_whitespace": 240,
+      "record_sha256": "f07e290f39907e7fed2e9647adcb3803dcc10ec84e690991d388f26f5e40a62e",
+      "raw_final_exactly_equals_record": true
+    },
+    {
+      "task": "ece5de87dfc937da21fe6e446a9fd94f0f296849cba9bb9a2e98fc3deb80e9b9",
+      "words_whitespace": 194,
+      "error_sha256": "89e594389227915a3293516d2c4bfb55224b1f19c7b3016c3579f1ada33b9b7c",
+      "record_absent": true
+    }
+  ],
+  "semantic_judgments": "manual_assistant_review_not_automatically_proven"
+}

@@ -1,0 +1,581 @@
+{
+  "schema": "slopninja-parser-counterexample-fixtures-v1",
+  "id": "parser-counterexamples-v1",
+  "provenance": {
+    "authorship": "assistant_constructed",
+    "corpus_or_private_text": false,
+    "prior_evidence_used": "Known small-parser failure on previous boundary-choice-v1 panel informed this new design; these exact new texts have not been parsed.",
+    "new_parser_outcomes_read": false,
+    "semantic_equivalence_certified": false,
+    "labels": "Engineering abstention and intended-clause probes; no human ratings"
+  },
+  "pair_count": 12,
+  "directional_cases": 24,
+  "expectation_policy": "expected_rule_candidate:null is unspecified. guard_must_reject:true requires a tested changed or unresolved guard; false imposes no guard-pass expectation. Missing/error guards remain unavailable. Supplementary panel stays separate from the prior 24-case panel.",
+  "cases": [
+    {
+      "pair_id": "transitive_past",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Keep each subject's action and object; punctuation may change discourse emphasis.",
+      "semantic_equivalence_certified": false,
+      "id": "transitive_past_semicolon_to_period",
+      "inverse_case_id": "transitive_past_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The assistant sorted the files; the supervisor approved the list.",
+      "candidate_text": "The assistant sorted the files. The supervisor approved the list.",
+      "edits": [
+        {
+          "start_byte": 30,
+          "end_byte": 35,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ]
+    },
+    {
+      "pair_id": "transitive_past",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Keep each subject's action and object; punctuation may change discourse emphasis.",
+      "semantic_equivalence_certified": false,
+      "id": "transitive_past_period_to_semicolon",
+      "inverse_case_id": "transitive_past_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The assistant sorted the files. The supervisor approved the list.",
+      "candidate_text": "The assistant sorted the files; the supervisor approved the list.",
+      "edits": [
+        {
+          "start_byte": 30,
+          "end_byte": 31,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 32,
+          "end_byte": 35,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "pair_id": "plural_pronoun",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Preserve plural reference and both actions; antecedent resolution is not certified.",
+      "semantic_equivalence_certified": false,
+      "id": "plural_pronoun_semicolon_to_period",
+      "inverse_case_id": "plural_pronoun_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The nurses checked the charts; they recorded the notes.",
+      "candidate_text": "The nurses checked the charts. They recorded the notes.",
+      "edits": [
+        {
+          "start_byte": 29,
+          "end_byte": 35,
+          "expected": "; they",
+          "replacement": ". They"
+        }
+      ]
+    },
+    {
+      "pair_id": "plural_pronoun",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Preserve plural reference and both actions; antecedent resolution is not certified.",
+      "semantic_equivalence_certified": false,
+      "id": "plural_pronoun_period_to_semicolon",
+      "inverse_case_id": "plural_pronoun_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The nurses checked the charts. They recorded the notes.",
+      "candidate_text": "The nurses checked the charts; they recorded the notes.",
+      "edits": [
+        {
+          "start_byte": 29,
+          "end_byte": 30,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 31,
+          "end_byte": 35,
+          "expected": "They",
+          "replacement": "they"
+        }
+      ]
+    },
+    {
+      "pair_id": "passive_clauses",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Keep both passive events, past tense and distinct affected objects.",
+      "semantic_equivalence_certified": false,
+      "id": "passive_clauses_semicolon_to_period",
+      "inverse_case_id": "passive_clauses_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The forms were signed; the copies were filed.",
+      "candidate_text": "The forms were signed. The copies were filed.",
+      "edits": [
+        {
+          "start_byte": 21,
+          "end_byte": 26,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ]
+    },
+    {
+      "pair_id": "passive_clauses",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Keep both passive events, past tense and distinct affected objects.",
+      "semantic_equivalence_certified": false,
+      "id": "passive_clauses_period_to_semicolon",
+      "inverse_case_id": "passive_clauses_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The forms were signed. The copies were filed.",
+      "candidate_text": "The forms were signed; the copies were filed.",
+      "edits": [
+        {
+          "start_byte": 21,
+          "end_byte": 22,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 23,
+          "end_byte": 26,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "pair_id": "copular_past",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Keep each subject's predicate and past tense; discourse equivalence is unjudged.",
+      "semantic_equivalence_certified": false,
+      "id": "copular_past_semicolon_to_period",
+      "inverse_case_id": "copular_past_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "Mara was ready; the team was calm.",
+      "candidate_text": "Mara was ready. The team was calm.",
+      "edits": [
+        {
+          "start_byte": 14,
+          "end_byte": 19,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ]
+    },
+    {
+      "pair_id": "copular_past",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Keep each subject's predicate and past tense; discourse equivalence is unjudged.",
+      "semantic_equivalence_certified": false,
+      "id": "copular_past_period_to_semicolon",
+      "inverse_case_id": "copular_past_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "Mara was ready. The team was calm.",
+      "candidate_text": "Mara was ready; the team was calm.",
+      "edits": [
+        {
+          "start_byte": 14,
+          "end_byte": 15,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 16,
+          "end_byte": 19,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "pair_id": "repeated_subject",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Keep both events and distinct objects without dropping the repeated subject.",
+      "semantic_equivalence_certified": false,
+      "id": "repeated_subject_semicolon_to_period",
+      "inverse_case_id": "repeated_subject_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The worker opened the case; the worker checked the seal.",
+      "candidate_text": "The worker opened the case. The worker checked the seal.",
+      "edits": [
+        {
+          "start_byte": 26,
+          "end_byte": 31,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ]
+    },
+    {
+      "pair_id": "repeated_subject",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Keep both events and distinct objects without dropping the repeated subject.",
+      "semantic_equivalence_certified": false,
+      "id": "repeated_subject_period_to_semicolon",
+      "inverse_case_id": "repeated_subject_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The worker opened the case. The worker checked the seal.",
+      "candidate_text": "The worker opened the case; the worker checked the seal.",
+      "edits": [
+        {
+          "start_byte": 26,
+          "end_byte": 27,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 28,
+          "end_byte": 31,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "pair_id": "coordinated_noun_subject",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Coordination belongs to the first subject phrase; record any conservative rule rejection rather than treating it as a missing grammatical alternative.",
+      "semantic_equivalence_certified": false,
+      "id": "coordinated_noun_subject_semicolon_to_period",
+      "inverse_case_id": "coordinated_noun_subject_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The teacher and the assistant packed the boxes; the driver loaded the van.",
+      "candidate_text": "The teacher and the assistant packed the boxes. The driver loaded the van.",
+      "edits": [
+        {
+          "start_byte": 46,
+          "end_byte": 51,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ]
+    },
+    {
+      "pair_id": "coordinated_noun_subject",
+      "expected_rule_candidate": null,
+      "guard_must_reject": false,
+      "linguistic_intent": "independent_clause_alternative",
+      "risk": "Coordination belongs to the first subject phrase; record any conservative rule rejection rather than treating it as a missing grammatical alternative.",
+      "semantic_equivalence_certified": false,
+      "id": "coordinated_noun_subject_period_to_semicolon",
+      "inverse_case_id": "coordinated_noun_subject_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The teacher and the assistant packed the boxes. The driver loaded the van.",
+      "candidate_text": "The teacher and the assistant packed the boxes; the driver loaded the van.",
+      "edits": [
+        {
+          "start_byte": 46,
+          "end_byte": 47,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 48,
+          "end_byte": 51,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "pair_id": "reporting_complement",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "Replacing the reporting complement relation with a semicolon can turn attributed content into a separate assertion. Require rejection of this declared edit.",
+      "semantic_equivalence_certified": false,
+      "id": "reporting_complement_semicolon_to_complement",
+      "inverse_case_id": "reporting_complement_complement_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The editor said; the clerk filed the form.",
+      "candidate_text": "The editor said the clerk filed the form.",
+      "edits": [
+        {
+          "start_byte": 15,
+          "end_byte": 16,
+          "expected": ";",
+          "replacement": ""
+        }
+      ]
+    },
+    {
+      "pair_id": "reporting_complement",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "Replacing the reporting complement relation with a semicolon can turn attributed content into a separate assertion. Require rejection of this declared edit.",
+      "semantic_equivalence_certified": false,
+      "id": "reporting_complement_complement_to_semicolon",
+      "inverse_case_id": "reporting_complement_semicolon_to_complement",
+      "observed_form": "complement",
+      "source_text": "The editor said the clerk filed the form.",
+      "candidate_text": "The editor said; the clerk filed the form.",
+      "edits": [
+        {
+          "start_byte": 15,
+          "end_byte": 15,
+          "expected": "",
+          "replacement": ";"
+        }
+      ]
+    },
+    {
+      "pair_id": "belief_modal_complement",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "Keep the modal claim within the manager's belief. A punctuation-only patch cannot certify that attribution remains intact.",
+      "semantic_equivalence_certified": false,
+      "id": "belief_modal_complement_semicolon_to_complement",
+      "inverse_case_id": "belief_modal_complement_complement_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The manager believed; the clerk could leave.",
+      "candidate_text": "The manager believed the clerk could leave.",
+      "edits": [
+        {
+          "start_byte": 20,
+          "end_byte": 21,
+          "expected": ";",
+          "replacement": ""
+        }
+      ]
+    },
+    {
+      "pair_id": "belief_modal_complement",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "Keep the modal claim within the manager's belief. A punctuation-only patch cannot certify that attribution remains intact.",
+      "semantic_equivalence_certified": false,
+      "id": "belief_modal_complement_complement_to_semicolon",
+      "inverse_case_id": "belief_modal_complement_semicolon_to_complement",
+      "observed_form": "complement",
+      "source_text": "The manager believed the clerk could leave.",
+      "candidate_text": "The manager believed; the clerk could leave.",
+      "edits": [
+        {
+          "start_byte": 20,
+          "end_byte": 20,
+          "expected": "",
+          "replacement": ";"
+        }
+      ]
+    },
+    {
+      "pair_id": "conditional_scope",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "The condition may acquire wider scope after joining; the current conservative rule must abstain.",
+      "semantic_equivalence_certified": false,
+      "id": "conditional_scope_semicolon_to_period",
+      "inverse_case_id": "conditional_scope_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "If the queue is empty, the worker sleeps; the timer runs.",
+      "candidate_text": "If the queue is empty, the worker sleeps. The timer runs.",
+      "edits": [
+        {
+          "start_byte": 40,
+          "end_byte": 45,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ]
+    },
+    {
+      "pair_id": "conditional_scope",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "The condition may acquire wider scope after joining; the current conservative rule must abstain.",
+      "semantic_equivalence_certified": false,
+      "id": "conditional_scope_period_to_semicolon",
+      "inverse_case_id": "conditional_scope_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "If the queue is empty, the worker sleeps. The timer runs.",
+      "candidate_text": "If the queue is empty, the worker sleeps; the timer runs.",
+      "edits": [
+        {
+          "start_byte": 40,
+          "end_byte": 41,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 42,
+          "end_byte": 45,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "pair_id": "temporal_scope",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "The temporal qualification may acquire wider scope; retain the declared abstention.",
+      "semantic_equivalence_certified": false,
+      "id": "temporal_scope_semicolon_to_period",
+      "inverse_case_id": "temporal_scope_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "After the alarm rang, the guard checked the door; the clerk called the office.",
+      "candidate_text": "After the alarm rang, the guard checked the door. The clerk called the office.",
+      "edits": [
+        {
+          "start_byte": 48,
+          "end_byte": 53,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ]
+    },
+    {
+      "pair_id": "temporal_scope",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "The temporal qualification may acquire wider scope; retain the declared abstention.",
+      "semantic_equivalence_certified": false,
+      "id": "temporal_scope_period_to_semicolon",
+      "inverse_case_id": "temporal_scope_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "After the alarm rang, the guard checked the door. The clerk called the office.",
+      "candidate_text": "After the alarm rang, the guard checked the door; the clerk called the office.",
+      "edits": [
+        {
+          "start_byte": 48,
+          "end_byte": 49,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 50,
+          "end_byte": 53,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "pair_id": "quoted_content",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "Preserve punctuation and phrasing inside quoted content; reject rewriting the quotation.",
+      "semantic_equivalence_certified": false,
+      "id": "quoted_content_semicolon_to_period",
+      "inverse_case_id": "quoted_content_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The clerk wrote, \"The server stopped; the worker waited.\"",
+      "candidate_text": "The clerk wrote, \"The server stopped. The worker waited.\"",
+      "edits": [
+        {
+          "start_byte": 36,
+          "end_byte": 41,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ]
+    },
+    {
+      "pair_id": "quoted_content",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "Preserve punctuation and phrasing inside quoted content; reject rewriting the quotation.",
+      "semantic_equivalence_certified": false,
+      "id": "quoted_content_period_to_semicolon",
+      "inverse_case_id": "quoted_content_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The clerk wrote, \"The server stopped. The worker waited.\"",
+      "candidate_text": "The clerk wrote, \"The server stopped; the worker waited.\"",
+      "edits": [
+        {
+          "start_byte": 36,
+          "end_byte": 37,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 38,
+          "end_byte": 41,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    },
+    {
+      "pair_id": "embedded_complement_context",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "Retain the genuine reporting complement while examining the outer boundary. Existing conservative rules exclude this context; any guard approval needs further review.",
+      "semantic_equivalence_certified": false,
+      "id": "embedded_complement_context_semicolon_to_period",
+      "inverse_case_id": "embedded_complement_context_period_to_semicolon",
+      "observed_form": "semicolon",
+      "source_text": "The editor said the clerk filed the form; the auditor checked the receipt.",
+      "candidate_text": "The editor said the clerk filed the form. The auditor checked the receipt.",
+      "edits": [
+        {
+          "start_byte": 40,
+          "end_byte": 45,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ]
+    },
+    {
+      "pair_id": "embedded_complement_context",
+      "expected_rule_candidate": false,
+      "guard_must_reject": true,
+      "linguistic_intent": "conservative_exclusion_or_changed_claim",
+      "risk": "Retain the genuine reporting complement while examining the outer boundary. Existing conservative rules exclude this context; any guard approval needs further review.",
+      "semantic_equivalence_certified": false,
+      "id": "embedded_complement_context_period_to_semicolon",
+      "inverse_case_id": "embedded_complement_context_semicolon_to_period",
+      "observed_form": "period",
+      "source_text": "The editor said the clerk filed the form. The auditor checked the receipt.",
+      "candidate_text": "The editor said the clerk filed the form; the auditor checked the receipt.",
+      "edits": [
+        {
+          "start_byte": 40,
+          "end_byte": 41,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 42,
+          "end_byte": 45,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ]
+    }
+  ]
+}

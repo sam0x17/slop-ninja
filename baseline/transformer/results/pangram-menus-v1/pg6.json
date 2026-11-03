@@ -1,0 +1,472 @@
+{
+  "annotation_files": [
+    {
+      "sha256": "b6ef4ed0ce6b5d65a8d8261458c71068aadb0e99cca7ab2d2e66b0cd168e1b10"
+    }
+  ],
+  "observations": [
+    {
+      "a_probability": 0.9476684903239057,
+      "bulk_id": "redacted-5a1327f372a0b50b",
+      "choices": [
+        "booking-timing",
+        "cancel-relative"
+      ],
+      "collected_at": "2026-09-13T21:51:03.352399+00:00",
+      "echo_match": "whitespace_only",
+      "flagged_fraction": 1.0,
+      "fraction_ai": 0.2842215299606323,
+      "fraction_ai_assisted": 0.7157784700393677,
+      "fraction_human": 0.0,
+      "full_word_grammar_distance": 1.0966257268809902,
+      "function_grammar_distance": 1.2109235407928465,
+      "model_selector": "pangram-4",
+      "observed_joint_detector_target": false,
+      "request_id": "18184a644c75313f103754c613941726a0cb2eecbbca1e58a43797fc693ca1b0:0",
+      "returned_text_sha256": "d9b3bed870411f4637ce0903dec02ac5dd7b6594988b09226c6b14c9fc5ab9cd",
+      "returned_version": "4.0",
+      "root_control": false,
+      "text_sha256": "18184a644c75313f103754c613941726a0cb2eecbbca1e58a43797fc693ca1b0",
+      "windows": [
+        {
+          "ai_assistance_score": 0.586219310760498,
+          "confidence": "High",
+          "end_index": 685,
+          "humanizer_score": 0.002139837946742773,
+          "is_humanized": false,
+          "label": "AI-Assisted",
+          "start_index": 0,
+          "token_length": 139,
+          "word_count": 119
+        },
+        {
+          "ai_assistance_score": 0.8272241353988647,
+          "confidence": "High",
+          "end_index": 957,
+          "humanizer_score": 0.002139837946742773,
+          "is_humanized": false,
+          "label": "AI-Generated",
+          "start_index": 685,
+          "token_length": 50,
+          "word_count": 44
+        }
+      ],
+      "word_weighted_window_score": 0.6512758278407933
+    },
+    {
+      "a_probability": 0.9459109737027986,
+      "bulk_id": "redacted-5a1327f372a0b50b",
+      "choices": [
+        "booking-timing",
+        "induction-for",
+        "cancel-relative"
+      ],
+      "collected_at": "2026-09-13T21:51:03.352633+00:00",
+      "echo_match": "whitespace_only",
+      "flagged_fraction": 1.0,
+      "fraction_ai": 0.2851153016090393,
+      "fraction_ai_assisted": 0.7148846983909607,
+      "fraction_human": 0.0,
+      "full_word_grammar_distance": 1.097998288282988,
+      "function_grammar_distance": 1.2128964033019132,
+      "model_selector": "pangram-4",
+      "observed_joint_detector_target": false,
+      "request_id": "28b3b13a9fb85227243914036167937361d94d5dd072879062a7af08fda4adb8:0",
+      "returned_text_sha256": "f03bad11e8c7963f94099746a0b7ac047a24a11a757e84d4c81bf73be25ea2ed",
+      "returned_version": "4.0",
+      "root_control": false,
+      "text_sha256": "28b3b13a9fb85227243914036167937361d94d5dd072879062a7af08fda4adb8",
+      "windows": [
+        {
+          "ai_assistance_score": 0.5983597636222839,
+          "confidence": "High",
+          "end_index": 682,
+          "humanizer_score": 0.0036893244832754135,
+          "is_humanized": false,
+          "label": "AI-Assisted",
+          "start_index": 0,
+          "token_length": 138,
+          "word_count": 118
+        },
+        {
+          "ai_assistance_score": 0.8359098434448242,
+          "confidence": "High",
+          "end_index": 954,
+          "humanizer_score": 0.0036893244832754135,
+          "is_humanized": false,
+          "label": "AI-Generated",
+          "start_index": 682,
+          "token_length": 50,
+          "word_count": 44
+        }
+      ],
+      "word_weighted_window_score": 0.6628795383888998
+    },
+    {
+      "a_probability": 0.9539460494846168,
+      "bulk_id": "redacted-5a1327f372a0b50b",
+      "choices": [
+        "booking-timing",
+        "induction-for",
+        "trial-reason-first"
+      ],
+      "collected_at": "2026-09-13T21:51:03.352871+00:00",
+      "echo_match": "whitespace_only",
+      "flagged_fraction": 1.0,
+      "fraction_ai": 0.3363914489746094,
+      "fraction_ai_assisted": 0.6636085510253906,
+      "fraction_human": 0.0,
+      "full_word_grammar_distance": 1.1207290015349627,
+      "function_grammar_distance": 1.2517509330852639,
+      "model_selector": "pangram-4",
+      "observed_joint_detector_target": false,
+      "request_id": "64db74ee54de0a59fb4ee0f80316bc33e7d9ec3c4293f7973d13de559d2d5f83:0",
+      "returned_text_sha256": "b83e487f0ba6f50d7476402afdcae6d465fd41e04324b99673e1430598509f64",
+      "returned_version": "4.0",
+      "root_control": false,
+      "text_sha256": "64db74ee54de0a59fb4ee0f80316bc33e7d9ec3c4293f7973d13de559d2d5f83",
+      "windows": [
+        {
+          "ai_assistance_score": 0.5774472951889038,
+          "confidence": "High",
+          "end_index": 651,
+          "humanizer_score": 0.0016607779543846846,
+          "is_humanized": false,
+          "label": "AI-Assisted",
+          "start_index": 0,
+          "token_length": 136,
+          "word_count": 116
+        },
+        {
+          "ai_assistance_score": 0.7478489875793457,
+          "confidence": "High",
+          "end_index": 981,
+          "humanizer_score": 0.0016607779543846846,
+          "is_humanized": false,
+          "label": "AI-Generated",
+          "start_index": 651,
+          "token_length": 58,
+          "word_count": 51
+        }
+      ],
+      "word_weighted_window_score": 0.6294861353799969
+    },
+    {
+      "a_probability": null,
+      "bulk_id": "redacted-5a1327f372a0b50b",
+      "choices": null,
+      "collected_at": "2026-09-13T21:51:03.353118+00:00",
+      "echo_match": "whitespace_only",
+      "flagged_fraction": 1.0,
+      "fraction_ai": 1.0,
+      "fraction_ai_assisted": 0.0,
+      "fraction_human": 0.0,
+      "full_word_grammar_distance": null,
+      "function_grammar_distance": null,
+      "model_selector": "pangram-4",
+      "observed_joint_detector_target": false,
+      "request_id": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195:0",
+      "returned_text_sha256": "8d34b8eef2fd69d1ec58cd811fca2a345b771e0c8e6705e063191093f3fd7c78",
+      "returned_version": "4.0",
+      "root_control": true,
+      "text_sha256": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+      "windows": [
+        {
+          "ai_assistance_score": 0.9987776279449463,
+          "confidence": "High",
+          "end_index": 1027,
+          "humanizer_score": 0.020116113126277924,
+          "is_humanized": false,
+          "label": "AI-Generated",
+          "start_index": 0,
+          "token_length": 204,
+          "word_count": 174
+        }
+      ],
+      "word_weighted_window_score": 0.9987776279449463
+    },
+    {
+      "a_probability": 0.9497233493967864,
+      "bulk_id": "redacted-5a1327f372a0b50b",
+      "choices": [
+        "booking-timing",
+        "cancel-relative",
+        "trial-reason-first"
+      ],
+      "collected_at": "2026-09-13T21:51:03.353375+00:00",
+      "echo_match": "whitespace_only",
+      "flagged_fraction": 1.0,
+      "fraction_ai": 0.7239958643913269,
+      "fraction_ai_assisted": 0.2760041058063507,
+      "fraction_human": 0.0,
+      "full_word_grammar_distance": 1.0928573996351036,
+      "function_grammar_distance": 1.2042225651173135,
+      "model_selector": "pangram-4",
+      "observed_joint_detector_target": false,
+      "request_id": "98538aa1219102db8f8d0f9539f3bbe4d2a80647f011a0d8085fa2a8c1d879d4:0",
+      "returned_text_sha256": "95e935ca0ba1ab4be5c332af9f080124332ffec3b9df2fa2dd7be8b63c25364a",
+      "returned_version": "4.0",
+      "root_control": false,
+      "text_sha256": "98538aa1219102db8f8d0f9539f3bbe4d2a80647f011a0d8085fa2a8c1d879d4",
+      "windows": [
+        {
+          "ai_assistance_score": 0.6134622693061829,
+          "confidence": "High",
+          "end_index": 268,
+          "humanizer_score": 0.006811346393078566,
+          "is_humanized": false,
+          "label": "AI-Assisted",
+          "start_index": 0,
+          "token_length": 59,
+          "word_count": 47
+        },
+        {
+          "ai_assistance_score": 0.7550206780433655,
+          "confidence": "High",
+          "end_index": 971,
+          "humanizer_score": 0.006811346393078566,
+          "is_humanized": false,
+          "label": "AI-Generated",
+          "start_index": 268,
+          "token_length": 131,
+          "word_count": 117
+        }
+      ],
+      "word_weighted_window_score": 0.7144521096857582
+    },
+    {
+      "a_probability": 0.9515970008308259,
+      "bulk_id": "redacted-5a1327f372a0b50b",
+      "choices": [
+        "booking-timing",
+        "trial-reason-first"
+      ],
+      "collected_at": "2026-09-13T21:51:03.353589+00:00",
+      "echo_match": "whitespace_only",
+      "flagged_fraction": 1.0,
+      "fraction_ai": 0.3353658616542816,
+      "fraction_ai_assisted": 0.6646341681480408,
+      "fraction_human": 0.0,
+      "full_word_grammar_distance": 1.119448908579158,
+      "function_grammar_distance": 1.2499402755011735,
+      "model_selector": "pangram-4",
+      "observed_joint_detector_target": false,
+      "request_id": "a66ccf407dc8d6c8426728bef02520888e9e53bb1123f5435b04eb106ac64142:0",
+      "returned_text_sha256": "b38f4caad73131e80d0430cabca98f0abd061d8fe281d9b7543e18aab0c37dfb",
+      "returned_version": "4.0",
+      "root_control": false,
+      "text_sha256": "a66ccf407dc8d6c8426728bef02520888e9e53bb1123f5435b04eb106ac64142",
+      "windows": [
+        {
+          "ai_assistance_score": 0.5697763562202454,
+          "confidence": "High",
+          "end_index": 654,
+          "humanizer_score": 0.0016726837493479252,
+          "is_humanized": false,
+          "label": "AI-Assisted",
+          "start_index": 0,
+          "token_length": 137,
+          "word_count": 117
+        },
+        {
+          "ai_assistance_score": 0.7439137101173401,
+          "confidence": "High",
+          "end_index": 984,
+          "humanizer_score": 0.0016726837493479252,
+          "is_humanized": false,
+          "label": "AI-Generated",
+          "start_index": 654,
+          "token_length": 58,
+          "word_count": 51
+        }
+      ],
+      "word_weighted_window_score": 0.6226394815104348
+    },
+    {
+      "a_probability": 0.9613606020054317,
+      "bulk_id": "redacted-5a1327f372a0b50b",
+      "choices": [
+        "booking-timing",
+        "cancel-relative",
+        "safety-same"
+      ],
+      "collected_at": "2026-09-13T21:51:03.353822+00:00",
+      "echo_match": "whitespace_only",
+      "flagged_fraction": 1.0,
+      "fraction_ai": 0.3308976888656616,
+      "fraction_ai_assisted": 0.6691023111343384,
+      "fraction_human": 0.0,
+      "full_word_grammar_distance": 1.0965852846785693,
+      "function_grammar_distance": 1.2110226119285274,
+      "model_selector": "pangram-4",
+      "observed_joint_detector_target": false,
+      "request_id": "b0218f359d18330e1c82d8684abd9d4e7a2ea6fc451ae676ab0e8f0f263a64db:0",
+      "returned_text_sha256": "72d8ae12af7cb0f757cf3172b4eef16e598ecdc3d9c41936374f0d37230c6080",
+      "returned_version": "4.0",
+      "root_control": false,
+      "text_sha256": "b0218f359d18330e1c82d8684abd9d4e7a2ea6fc451ae676ab0e8f0f263a64db",
+      "windows": [
+        {
+          "ai_assistance_score": 0.5782811045646667,
+          "confidence": "High",
+          "end_index": 641,
+          "humanizer_score": 0.0008060433901846409,
+          "is_humanized": false,
+          "label": "AI-Assisted",
+          "start_index": 0,
+          "token_length": 132,
+          "word_count": 113
+        },
+        {
+          "ai_assistance_score": 0.7974714040756226,
+          "confidence": "High",
+          "end_index": 958,
+          "humanizer_score": 0.0008060433901846409,
+          "is_humanized": false,
+          "label": "AI-Generated",
+          "start_index": 641,
+          "token_length": 57,
+          "word_count": 50
+        }
+      ],
+      "word_weighted_window_score": 0.6455173927582115
+    },
+    {
+      "a_probability": 0.9515008186211895,
+      "bulk_id": "redacted-5a1327f372a0b50b",
+      "choices": [
+        "booking-timing",
+        "induction-for"
+      ],
+      "collected_at": "2026-09-13T21:51:03.354048+00:00",
+      "echo_match": "whitespace_only",
+      "flagged_fraction": 1.0,
+      "fraction_ai": 0.0,
+      "fraction_ai_assisted": 1.0,
+      "fraction_human": 0.0,
+      "full_word_grammar_distance": 1.1246568259389271,
+      "function_grammar_distance": 1.2586153865431364,
+      "model_selector": "pangram-4",
+      "observed_joint_detector_target": false,
+      "request_id": "c80d6dd2c518ff600adfe4134c1fc76eec939dc2e84030127bfb5ba14bf60388:0",
+      "returned_text_sha256": "5528a5036d1fb2e9620dc275ac4d7c0d90e7800d46ebe54f60726c3fae65d8c6",
+      "returned_version": "4.0",
+      "root_control": false,
+      "text_sha256": "c80d6dd2c518ff600adfe4134c1fc76eec939dc2e84030127bfb5ba14bf60388",
+      "windows": [
+        {
+          "ai_assistance_score": 0.6093132495880127,
+          "confidence": "Medium",
+          "end_index": 967,
+          "humanizer_score": 0.000574411591514945,
+          "is_humanized": false,
+          "label": "AI-Assisted",
+          "start_index": 0,
+          "token_length": 193,
+          "word_count": 166
+        }
+      ],
+      "word_weighted_window_score": 0.6093132495880127
+    },
+    {
+      "a_probability": 0.9484675893723236,
+      "bulk_id": "redacted-5a1327f372a0b50b",
+      "choices": [
+        "booking-timing"
+      ],
+      "collected_at": "2026-09-13T21:51:03.354266+00:00",
+      "echo_match": "whitespace_only",
+      "flagged_fraction": 1.0,
+      "fraction_ai": 0.0,
+      "fraction_ai_assisted": 1.0,
+      "fraction_human": 0.0,
+      "full_word_grammar_distance": 1.1232895785033783,
+      "function_grammar_distance": 1.2566623098439629,
+      "model_selector": "pangram-4",
+      "observed_joint_detector_target": false,
+      "request_id": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959:0",
+      "returned_text_sha256": "3d4ac5a93be768229478a5c2a66ff00309121d955f02dd018e59727111f537e2",
+      "returned_version": "4.0",
+      "root_control": false,
+      "text_sha256": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "windows": [
+        {
+          "ai_assistance_score": 0.6081036329269409,
+          "confidence": "Medium",
+          "end_index": 970,
+          "humanizer_score": 0.0004987012362107635,
+          "is_humanized": false,
+          "label": "AI-Assisted",
+          "start_index": 0,
+          "token_length": 194,
+          "word_count": 167
+        }
+      ],
+      "word_weighted_window_score": 0.6081036329269409
+    }
+  ],
+  "plan_sha256": "9675e0cc74fa27a1b0c98751f6a079298bf1a6fa5cc2c86de6f5a3feb93da749",
+  "research_only": true,
+  "schema": "slop_ninja_b_external_report_v1",
+  "scope": "Adaptive measurements, not independent validation. AI and AI-assisted both count as flagged. Each window score and its word-weighted mean are auxiliary diagnostics, not calibrated content percentages. A score and Pangram fractions measure different quantities. Missing external observations are not successes. Reviews remain separate.",
+  "scores_sha256": "1e5c016010eb7c5785f6ae4ead3750558c4e459e53d4a3ac830d6738e6d43fcf",
+  "semantic_preservation_certified": false,
+  "unmeasured_menu_ids": [
+    "01a7fa5fc1ac84d817e3d5fdbe363a0e6675a6fd30bfc3ce18fd0dfd5f735b75",
+    "130651ea97fb5bf7c72ea6d587362a77e8dde4c73f6cc45ab7c35acc1d487d80",
+    "13a08493b2ce807cc606cc99143196c471da3cb35307e67a32348d58c280ce6a",
+    "1f6c68c1aed384728d7741fb220d6244fd59e3f9317a79d3e117191e64659cca",
+    "2679e64f805058867c8317c42a0949a2b39a276c7fc70509f3a91e6b97f0430b",
+    "29be6e788e6241fe2fd1a73e0ea4c92124fab8b579de7fe35f342b4ec8402e89",
+    "2dd53ab263d37dfefefad85c8f7d638bba1a5632d959ab5772311941b1682d8a",
+    "3236f7ee40395456d9db046e36cfe456733314035e1c89c928299f4af1471b2d",
+    "356743745746ca4427caf1daf39e5d8697a04b8388d1b8b4c2259771cdc01f3e",
+    "441a4de966ca49c61d675d21f2a72c31c006c946df2ebc998c8c615b5047f63d",
+    "4dd7ebc2a3deb91628e8b87d9b89639ea5bf1d2782d6ab8a226d366e20dc44c3",
+    "52ae4db60e6708271363bd80b7cc8d0d1fcc7516a93c86d54e223c39a8b90c75",
+    "52ef02ee5c3f4d2b210b023c18a18484e54c107a7f8fb3debf37842df853ecf6",
+    "54fb117882db61e30d8ea88bb7e3e6c84358e1f1728118e8492388d0ef4a52ac",
+    "55e59997b47fcdda5644e00fe069168111b99d869b27b2b7f7f112b9d8c51818",
+    "57057a31c2fcfb817d54d9f8f25fa11654ea0703540b51bdac8cc7b7933618ae",
+    "652a4d699e4ca9cb7cd6d8a8d1572c77391c2977645821df4be95c924c2dc3e7",
+    "69e16109d26b50b587d0ab4e8657865ec26ac38e4fdf99a0c8357c62a0225e0b",
+    "72ceb9b20c96a89df717b8880373dc1c1fc186bc37c3816723fc99a65410ca21",
+    "73d23e895822fe99cf27d5f784417ea97f2a7f2c2fd5ab40390e831d36f4fe9b",
+    "75704e1c7abf1029161aecf4625f4a4bc7bfac696d506447384dece441c8e6bc",
+    "7628acc6455c7a78a0c127972fc731a97f29ff4cb9da67af47f695cfa888defc",
+    "874fe7b923f451fc4265daa12f8f54de437e3e0a641d54fc4e7265f7aa8d26d9",
+    "8abd68cffdb95d844caf0a91d0639fea3760325bc5734ee83c2f7673b941bc68",
+    "8e198e0263368360d755a31a713f1901b75ddedef6f489a8b0da2330349a8bfc",
+    "a1e16e9eb22e784afb599271ba0a6d456b382f782028e4ec16fcd32a75363492",
+    "aa7fcf2d2b59797d6ee1511ec24f4be676dc3077455274c293d62556f29a8597",
+    "af9da4dc41a6649cd78ae2168b93a60b2d98a63a61997e07df1f94c95ef419bd",
+    "b35c0bd671330a8e34421f7ce3c05c86630c808f8c7c5402fc1e7b0d14141e1d",
+    "b778aa4c6cc9a54d3bc0402aea0dec72d92dbffe73c09bd9cc85d7df65580b64",
+    "b90d7abd81f3442d6c85b47ab89388fb7654c10905de1ae55df8b36b3800dc28",
+    "bff99af7c9ff18fef0918b5ef0efdded60e42edb91644a35c482878dcb2008ca",
+    "c04f0ddad4c62d48f2abcc7b4fcf73731a447ce51eb6f726b586ea07697091c1",
+    "c0b2aa62ae9c3eeb42f785873b80665c7b57b8216c468ffb19b7b5c4c5034ce1",
+    "c6af9372e1b6515a9a494b09f7596e7bb00ffe03632431ffdc0a2431579e6413",
+    "c9982094898382e0ebb421d7aee316df5d4f170e2f671c9bf2ce08f9f342e9cc",
+    "c9e9bc6f1998c86e9e907b645e58ac0faf7f57820daf5713de52a334c1f940d7",
+    "ccf189f7ae7ba9b194d490b38b75840f73236c278528e51f6a13167050137628",
+    "d87d9cbaaf5eb26daf8a42bc4c1888b6a362b5c2e839968fb03e5d83cedd4de8",
+    "da1d53c224820dacad6a7e550e4716d5e0d82e486dca08f5dccb13a18ed24654",
+    "dc97455037c01a44399e388134e18111055f9ac88c7e56053a151abf32cb330f",
+    "ddec339e15c564ca8bd59efcce2d97214c9a2434d9c6feda4fbd9d8f2472600d",
+    "dfc9f542797acc16ea073a936c48d41883f4a8b145571d7e48a7bd57307f437a",
+    "dfdab2cb93e738dd9cf43e2ef7debf96187a7af752e908968d3450c101beff4d",
+    "e16cacb51a4ee3924de5d5708ada7b212f45b94065de574b878f9ad4c17d278d",
+    "e2932b4036537e6e5b27cc3651f2aa179add2fd02bb3276dae8e364624fe9b93",
+    "e36a2c71bce88a07fa916b9673614006af63a966f88ef385b153f59a9b04c23a",
+    "e4bd1e89997cd13e5d784d29411d5d87d95608cc7229680d7f49370087244f1f",
+    "e86b20bf6d379a8de76a9b89ef53401a1168aa55a19ba79ec333791c9a86c9c8",
+    "ec63a93ea1921cd2aa8264e9e75809229ecc43b925e5c3b6c43110a3b02754cb",
+    "f41b66b5810d6ca9c12550c18c41eddac2dd5fcce08aac974fb2b9422dffadbb",
+    "f73d62dd42031277029f0a353510da5015899436a1e209d8cb94b3b6fc53e4b1",
+    "f74b333afdbfefb66ef8e5b74151d26814005703a9c0b782ec51f57b795c7432",
+    "f81070106dcd075c561c6cbf9f1de71443196a7787a8312fb9619b343ed357de",
+    "f87c083e4fd6967037ee05e9bd91ccedd07f15e5c3653b348aa715233f8809ad",
+    "fd244a056ca319b6f63cf43754f8ec7de40df9ce73513857bee8ca42e55c28bf"
+  ]
+}

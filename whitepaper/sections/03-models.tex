@@ -1,0 +1,445 @@
+\section{Model interfaces and qualification}\label{model-interfaces-and-starter-architectures}
+
+Launch admits one \textit{A} model per entry. The model predicts AI share,
+production history, author identity, and AI spans in one invocation. All output heads
+must consume a common document encoding produced by a shared learned encoder;
+each may also have task-specific layers. This requirement enforces one shared
+encoding interface; whether the heads use common predictive features requires
+measurement. Admission checks this structure in the
+submitted computation graph, together with one manifest and input/output
+contract. Packaging two independent predictors behind one API does not qualify.
+This checks inference structure, not whether the components were trained jointly.
+Known AI models have predefined author profiles alongside human
+writers. Detecting AI involvement is the primary purpose of the origin output
+and the only reward quantity; the other outputs are qualification gates. The
+transformation mechanism \textit{B} is deferred to Section~\ref{later-b};
+\textit{C}'s proposed contributions to the shared grammar appear in
+Section~\ref{grammar-contributions}.
+
+The shared encoder is intended to let the two tasks improve each other.
+Learning author- and generator-specific writing patterns can help identify
+model involvement. Production-history supervision can help attribution
+distinguish a writer's habits from patterns introduced by generation or
+editing. Both objectives can therefore shape features useful to the other.
+This expected mutual benefit requires measurement: sharing an encoder alone
+does not establish it. Section~\ref{development-and-launch-criteria} requires
+each new architecture to be tested in both directions against models trained
+for each task alone.
+The requirement deliberately gives detection, attribution, and later author-fit
+feedback one reusable learned representation. Graph inspection cannot establish
+useful feature sharing; disjoint slices could satisfy the structural rule.
+Measured harm would prompt an explicit revision of the design before launch,
+rather than an undocumented exception to admission.
+
+An \textit{A} entrant submits the weights and all data needed for the declared
+inference calculation. The artifact stays private while it competes and is
+published when its cohort ends (Section~\ref{a-artifact-execution}). Miner
+submissions are licensed CC BY-SA 4.0, so anyone may obtain a published artifact
+free of charge and execute it locally, and later \textit{B} development is
+expected to train against published detectors. The coordinator hosts a
+published entrant artifact until its cohort's receipts become deletable, at
+least about 48 hours with daily cohorts, and keeps the current and previous
+reference artifacts while they are references
+(Section~\ref{cohort-receipt-retention}). After that, a non-reference artifact
+is available only from copies others kept; the retained signed package still
+binds its digest. Hosted execution through the paid API is charged separately.
+Miners may keep their training recipes and permitted training corpora private.
+
+Project code and documentation are licensed MIT OR Apache-2.0, except files and
+datasets that carry their own licence or notice. Reference weights are licensed
+CC BY-SA 4.0, like miner submissions, and Slop Ninja publishes its own
+references, \(R_0\) and any later reference it trains
+(Section~\ref{reference-model}), on the same terms. A public reference package
+carries no evaluation text: its replay cases are synthetic rather than
+development documents, and the package passes a scan for corpus text before
+release. \(R_0\) is published once its package has been re-exported in this
+way. Miners can also start from a public training recipe~\cite{trainingguide}:
+it fine-tunes ModernBERT-base on about 4,200 Train rows from five
+redistributable dataset snapshots and packs and checks an admissible artifact
+with the miner client. It reproduces \(R_0\)'s pipeline and artifact format,
+not its V6 starting point, data, or weights, and is not a strong detector. An
+entrant artifact that becomes the reference was already published with its
+cohort.
+Slop Ninja executes submitted artifacts for the pilot benchmark and published,
+qualified artifacts for customer service; an \textit{A} miner needs no private
+serving account or delegated inference credential.
+
+\subsection{AI detection through origin and attribution}\label{author-and-origin-detection}
+
+The origin output is a calibrated probability distribution over three recorded
+production histories: human-only (\(p_{\mathrm{human}}\)), model-only
+(\(p_{\mathrm{model}}\)), and mixed human/model work (\(p_{\mathrm{mixed}}\)). The
+artifact combines model-only and mixed probabilities to answer the primary
+AI-involvement question. It reports a continuous probability, displayed as a
+percentage:
+\[
+ p_{\mathrm{AI}} = p_{\mathrm{model}} + p_{\mathrm{mixed}},
+ \qquad
+ \texttt{ai\_confidence\_percent} = 100\,p_{\mathrm{AI}}.
+\]
+Binary training labels are zero for documented human-only work and one for
+model-only or mixed work. The model learns a probability from those labels;
+it does not convert a hard decision into a percentage. Documented three-way
+histories additionally supervise the origin components. The three probabilities
+sum to one, and their calibration method and workload profile are frozen with
+the artifact. Every completed inference returns numeric share and confidence
+scores. An unavailable prediction returns an explicit failure status, never
+zero scores. Fixed
+thresholds remain useful for benchmark operating points but are not required
+public outputs.
+
+The second percentage is estimated AI share: the expected fraction of final
+words in model-written or model-rewritten spans under the provenance convention
+in Section~\ref{training-data-and-evaluation-separation}. Write that fraction
+as \(f_{\mathrm{AI}}\) and its predicted expectation as \(\hat f_{\mathrm{AI}}\):
+\[
+ \texttt{ai\_share\_percent}=100\,\hat f_{\mathrm{AI}},
+ \qquad 0\leq p_{\mathrm{model}}\leq\hat f_{\mathrm{AI}}\leq p_{\mathrm{AI}}\leq1.
+\]
+These bounds follow because human-only work has zero share and model-only
+work has unit share under this convention. One implementation uses
+\(\hat f_{\mathrm{AI}}=p_{\mathrm{model}}+p_{\mathrm{mixed}}\mu_{\mathrm{mixed}}\),
+where \(\mu_{\mathrm{mixed}}\in[0,1]\) is the learned expected share conditional
+on mixed history and the document. Binary labels supervise confidence; measured
+fractional labels additionally supervise share. A result can therefore report
+20\% estimated share with 99\% confidence that AI contributed. Confidence is
+the probability of involvement, not certainty that the share estimate is exact;
+uncertainty intervals for share require separate validation. Both percentages
+must qualify on their declared workloads before paid service.
+
+Attribution reports conditional results for both human and AI-model roles.
+Each result names supported gallery matches, or returns \emph{Other human}
+(\texttt{other\_human}) or \emph{Other AI} (\texttt{other\_ai}) when no named
+profile for that role satisfies the frozen matching rule. The question is
+which contributor fits \emph{if that role contributed}; a conditional match or
+fallback does not itself assert that the role is present. Report its involvement
+probability alongside it:
+\[
+ p_{\mathrm{human\ involved}}=p_{\mathrm{human}}+p_{\mathrm{mixed}},
+ \qquad p_{\mathrm{AI\ involved}}=p_{\mathrm{AI}}.
+\]
+These probabilities may sum above one because mixed work includes both roles;
+they are not shares of the text. No presence cutoff suppresses a role's
+attribution. Both fallbacks can therefore appear for mixed work, including
+when neither contributor has a named match. Multiple contributors need not
+be forced into one identity.
+
+The fallback categories are outcomes, not enrolled profiles or assertions
+that an identity is absent from the gallery. A listed writer or model may be
+unidentifiable from the available text. There is no separate unknown or
+attribution-abstention label in a completed result; failure remains separate.
+Supported named-model matches remain visible even at low AI-involvement
+probability, without changing that probability or proving authorship.
+The output contract fixes these meanings and their calibration before evaluation.
+
+Origin and attribution answer related but different questions. An unseen generator
+may receive high AI confidence and \emph{Other AI} attribution. Failure to match a
+known model does not establish human origin. A known writer's style may survive
+AI assistance, so a human-profile match cannot override the origin estimate.
+When a model rewrites human-only text, the resulting work has mixed history.
+When one model rewrites another model's draft, it remains model-only under the
+initial label policy, with attribution potentially unresolved. The outputs
+estimate the recorded workflow and its contributors; they do not prove authorship.
+
+Independent reference works form the gallery. Its construction, pooling,
+reference/query roles, and version are part of the inference contract. The
+interface should permit enrollment of a new human author from independent
+samples without fitting another permanent identity classifier. Profile IDs
+identify output matches and gallery entries; they are excluded from query
+features.
+
+The main intended human-attribution workflow is personal: a customer supplies
+their own writing samples to construct a private writer profile. A qualifying
+match returns \emph{Provided writer} (\texttt{provided\_writer}), bound to that
+customer's selected reference profile. This is a named match under the normal
+matching rule; if no human profile qualifies, return \emph{Other human}. It can accompany
+AI involvement and identifies resemblance to the supplied writing, without
+authenticating the customer's identity or proving authorship. The profile is
+scoped to the request or customer account and is never implicitly enrolled in
+the public gallery. Operator-maintained human profiles may also use documented
+public or licensed references under a published enrollment policy recording
+provenance, the identity basis, and permitted uses. Public availability alone
+does not settle those uses.
+
+In this later workflow, trusted preprocessing represents each reference work by
+\textit{A}'s encoder output and by stylometric features, function-word
+frequencies and character n-grams, then pools them into one writer profile under
+a qualified, versioned pooling contract. A normalized weighted mean is the
+initial candidate; the contract fixes feature scaling, per-work weights,
+missing-channel handling, and the compatible encoder, feature, and pooling
+versions. A CFG writer vector may enter at most as an optional fused input. The
+matcher receives the profile instead of raw reference prose. A pooled summary
+need not represent any single work, so qualification must test whether
+averaging loses useful variation across topics or registers and whether sample
+length or an outlier dominates the result. Raw samples are still read during
+trusted preprocessing. Both samples and profiles receive customer-content
+protection; a profile is not an anonymization method. The same fixed profile is
+the intended target for later \textit{B} revision using \textit{A}'s continuous
+author-fit feedback (Section~\ref{author-transformation-and-detector-evasion}).
+
+No profile type yet qualifies to back \emph{Provided writer} or that feedback.
+In an October 31, 2026 comparison on writers neither system had seen, unlearned
+profiles from \(R_0\)'s encoder beat CFG writer vectors on verification, and
+stylometric features beat both. Encoder plus stylometry was the strongest
+profile, yet at five references 42\% of impostor trials still passed when 90\%
+of genuine ones did, and no profile ranked rewrites toward a target writer much
+above chance (Section~\ref{writer-profile-evidence}). The next qualification is
+a learned matcher trained on fresh authors, with its acceptance thresholds
+measured on withheld writers and on real style-transfer data. Until a profile
+type passes it, neither \emph{Provided writer} nor \textit{B}'s author-fit
+feedback is offered.
+
+Open-set rejection is evaluated on withheld writers and
+generators, separately from choosing among known profiles. Rejection means a
+completed attribution decision that accepts no named match for the evaluated
+writer or generator role, including \emph{Other human} and \emph{Other AI}.
+Evaluate each documented contributor role, including both roles in mixed work,
+regardless of its predicted probability. Credit successful rejection only when
+the ground-truth identity is absent from the gallery and the corresponding
+fallback accepts no named match for that role. A wrong named match is an
+attribution error; fallback on a listed identity is not successful open-set
+rejection. Missing role results and execution failures remain in the assigned
+population and earn no rejection credit. Do not score conditional identities
+for roles absent from the documented history; evaluate mistaken involvement
+probabilities through origin calibration and false-positive measurements.
+This role-level rejection rule covers one contributor or a role whose
+contributors are all withheld. A role containing both known and withheld
+contributors needs a frozen set-valued attribution metric before earning
+rejection credit; retain such cases in coverage and report them separately.
+Launch qualification covers English documents. Multilingual claims and
+additional document-length classes need their own data and workload evidence.
+
+\subsection{AI span localization}\label{span-outputs}
+
+The goal is to locate AI-written text, not only to score whole documents.
+Sentences are one view of that location. The output contract therefore adds a
+token-level head on the shared encoder. It returns an AI probability for every
+token, decodes those probabilities into AI spans with exact character offsets
+into the canonical text and a confidence for each span, and derives per-sentence
+AI share and AI-involvement confidence from the same token probabilities. The
+document-level outputs keep their meanings and must agree with the span outputs;
+for example, document share should match the expected AI word fraction implied
+by the token probabilities. Sentence shares aggregate to documents by
+final-word counts over complete, nonoverlapping partitions, but document
+involvement confidence needs joint calibration because neighboring sentences are
+dependent. Neither averaging sentence confidences nor multiplying their
+complements yields a document probability.
+
+The training labels already exist: retained exact model-produced spans for mixed
+documents, all-AI labels for model-only documents, and all-human labels for
+human-only documents (Section~\ref{training-data-and-evaluation-separation}).
+Qualification measures token-level Brier score, character-span intersection over
+union and F1 against the retained spans, span-boundary error, and sentence-level
+calibration. Each cohort reports these measures as a qualification gate whose
+thresholds are fixed after measurement; span outputs earn no reward, and
+document involvement Brier remains the reward. The span gate includes the
+false-positive rate of human sentences inside mixed documents, reported
+separately from the pure-human document gate, because identical human words
+score higher next to AI text than alone (Section~\ref{cohort-mix-evidence});
+like every span measure it carries no reward weight.
+
+The release package pairs \(R_0\), the first reference model, with such a head
+(Section~\ref{span-evidence}). The head was
+trained on \(R_0\) with the encoder and document heads frozen, so its document
+outputs are bit-identical to \(R_0\)'s. Its decoder was chosen under a limit of
+spans on at most 22 of 570 development human documents, which it meets with no
+slack. On held-out spliced rewrites it reaches mean per-document character F1
+0.410 and recall 0.402, counting a document without a decoded span as zero, and
+precision 0.862 over the documents in which it decodes one.
+It decodes no span in 42\% of those documents and mostly misses clause and
+single-sentence edits, at character F1 0.051 and 0.167. Retrospectively, on the
+consumed sealed Test, 2.5\% of human documents carry a decoded span, and text
+written by a base model is almost never found. A joint fine-tune of encoder and
+heads found more spans but scored human documents clearly worse before
+calibration, so it was not adopted.
+
+Slop Ninja has adopted a follow-up head, S2c, as its span head for the first
+package that serves spans; until span serving lands, the shipped head above
+stays in the release package. S2c keeps the encoder and document heads frozen
+and feeds the token head through a trained copy of the encoder's last four
+layers and final norm. Its document outputs are byte-identical to \(R_0\)'s at
+every seed, so confidence, share, and reward scoring do not change. Its own
+decoder puts spans on 21 of the 570 development human documents, within the
+limit, though seeds 29 and 41 give 22 and 27. Compared without span calibration
+maps, on the held-out spliced rewrites it reaches character F1 0.519 and span
+F1 0.485, against 0.410 and 0.241 for the shipped head (0.245 with its maps);
+retrospectively, on the consumed Test, its mixed-document character F1 is 0.535
+against 0.478, but with calibration 3.4\% of human documents carry a span
+against 2.5\% (Section~\ref{s2c-evidence}). The tower adds 18--20\% of the
+encoder's CPU time and about 20 million parameters, which puts such a graph
+outside both allow-listed graphs and above the 160 million parameter limit
+(Section~\ref{a-artifact-execution}); admitting such a graph needs a versioned
+manifest that widens both. No calibrated package with S2c has been built or
+replayed yet. \(R_0\) remains testnet's first reference, and no span package
+is named \(R_0\) (Section~\ref{reference-model}).
+
+Until a cohort manifest enforces the span gate, the token-level head is
+optional and its outputs are reported without affecting eligibility; from that
+manifest on, every entrant must provide it. The allow-list names the graph with
+the token-level head from launch, but the scorer does not run span heads yet,
+so admission refuses that graph until span serving qualifies
+(Section~\ref{a-artifact-execution}). Enforcing the gate does not by itself
+change the reference; reference changes follow Section~\ref{reference-model}.
+
+A further extension could identify words and grammar choices that materially
+influence a score. CFG features can map those choices to exact spans and
+productions. Test explanations by removing or changing the cited feature,
+reparsing, and measuring the model's response with meaning and context controls.
+Require stability across valid parses and innocuous formatting changes. An
+influence on a model score is evidence about its calculation, not proof that a
+word or construction was produced by AI. Attention weights or a generated
+explanation alone do not establish that influence. These explanations are a
+separate future qualification, not an initial launch requirement.
+
+\subsection{Launch input contract: raw text}\label{input-contract}
+
+The launch \textit{A} input is the canonical document text. A miner artifact is a
+text model: an ONNX computation graph, a fixed tokenizer, the output heads, and
+their calibration. The coordinator tokenizes each document with the
+allow-listed tokenizer, which the artifact's own must match byte for byte, and
+runs the graph on CPU in a Slop Ninja-controlled Cloudflare
+Container under the cohort's declared length and resource limits; an input beyond the artifact's limit returns an explicit
+unsupported-length result. Cohort batches stay within the declared profile.
+While the span gate is inactive, an entrant with document heads only, like
+\(R_0\), is admissible (Section~\ref{span-outputs}).
+The reference \(R_0\) is a ModernBERT-base encoder~\cite{modernbert} of
+about 150M parameters with a 2,048-token limit, fine-tuned from the earlier V6
+detector on raw tokens, with origin, share, and attribution heads
+(Section~\ref{existing-evidence-and-implementation-status}); the release
+package adds the token-level span head. Its architecture,
+with or without a token-level span head, defines the graphs that admission
+allows (Section~\ref{a-artifact-execution}).
+
+Training \textit{A} on features derived from a resolved context-free-grammar (CFG)
+parse remains an open research hypothesis. Such a representation could tie
+detection to lexical and structural choices and place a later revision in the
+same feature space as its source and target-author references. Its first
+real-data test failed: on an October 26, 2026 research Test of 102 documents
+(splits as in Section~\ref{splits}),
+CFG-only shared models had AI-involvement Brier 0.126--0.134 against 0.096 for a
+Calibration-mapped Pangram comparator on the same documents, and flagged
+67--87\% of human documents at the 0.5
+cutoff~\cite{cfgviability}. Adding CFG coordinates to frozen text features gave
+only a small, uncertain Development gain, 0.048--0.057 against 0.052--0.058 for
+text alone~\cite{v6cfgfusion}. Those tests used pooled grammatical-leaf counts;
+ordered and tree-aware CFG inputs remain untested. Parsing and ambiguity
+resolution also add latency and cost, and numeric features carry information
+about the source, so they provide no confidentiality guarantee.
+
+A later CFG input profile would begin a new comparison. It would bind the
+shared parser, grammar, resolver, and projection, and would compare lexical,
+structural, combined, and raw-text models on the same populations and splits,
+with parse failures kept in the requested population. The grammar
+contributions of mechanism \textit{C} (Section~\ref{grammar-contributions}) do not
+depend on the launch input contract.
+
+\subsection{Artifact submission and execution policy}\label{a-artifact-execution}
+
+An execution manifest fixes the whole calculation: weights, input/output
+schema, feature meanings and order, normalization, availability masks,
+serialization, calibration, reference pooling, numerical precision, rounding
+and tolerances, admitted operators, dependencies, resource bounds, and
+reference outputs. It also fixes the tokenizer and the canonical text profile.
+Names, handles, and other identity-bearing material follow the profile's
+declared policy. Explicit author IDs, miner UIDs,
+assignment metadata, hidden labels, and source/candidate-role flags are
+excluded from learned query inputs.
+
+Models within a comparison receive the same accepted text. A change to the
+input profile begins a new comparison and requires requalification;
+it cannot silently alter an unfinished cohort. Weight, calibration, or other
+inference-semantic changes create a new artifact version. Compatible
+operational repairs may preserve those semantics under the cohort rules in
+Section~\ref{cohorts}. In particular, replacing an execution host must preserve
+the artifact and calculation rather than substitute a different detector.
+
+The coordinator caches the cohort batch, executes qualified artifacts under
+equal limits, and retains their predictions and failures. Centrally executing
+submitted artifacts keeps hidden benchmark inputs out of miner request paths
+and limits direct benchmark harvesting. Model isolation and operator access
+controls remain necessary. Publishing each executable after its cohort permits
+inspection and independent experiments.
+Validator duties follow Section~\ref{participants-and-the-two-kinds-of-work};
+the scoring trust assumption is stated in
+Section~\ref{trust-assumptions-and-adversarial-behavior}.
+
+The manifest's allow-list names two graphs: the reference's ModernBERT-base
+architecture and the same architecture with the token-level span head, each
+with matching operators and shapes and integer arithmetic on token identifiers
+only in the embedding lookup. An artifact has at most 160 million
+parameters; \(R_0\) has 149.6 million. Its tokenizer must match the
+allow-listed tokenizer byte for byte. Its calibration, contract, and other
+declared files must validate against fixed schemas for their roles, such as a
+monotone piecewise-linear calibration map whose knot count the schema bounds,
+and a file without a declared role is rejected. These rules bound the total
+size at about 700 MB, against the 610.6 MB of \(R_0\)'s artifact object, whose
+graph file is 601 MB, so no separate byte cap
+applies. The scorer serves only the graph without the span head today, so
+admission refuses the span graph, recognized from the graph file's length in
+the artifact object's header (below), until span serving
+qualifies~\cite{artifactspec}. Where a limit is needed it derives in this way from structure, such as
+the allow-list, a schema, or a measured bound, and is versioned in the manifest
+rather than hard-wired, because a fixed limit that later models outgrow can
+strand a subnet. The allow-list widens only through a versioned manifest. The
+cap bounds what an artifact can memorize, an estimated 40--72 MB of learned
+capacity, and an embedded index or lookup table
+of text fails admission (Section~\ref{lookup-exposure}). The scorer has no
+network access, online learning, cross-job prompt cache, or undeclared mutable
+state. Qualification exercises resource bounds and numerical
+boundary cases on the actual admitted runtime. Linux and macOS tooling may
+inspect and prepare artifacts, but outputs from another backend become
+interchangeable only after numerical qualification.
+
+Qualification uses independently labelled hidden material and includes
+formatting variants, identity and topic leakage, targeted triggers, chosen-input
+failures, exact or near-copy submissions, and batch invariance: each document's
+outputs must be identical whether it is scored alone or among its batch. Canonicalization does not replace
+these controls. A publicly reproducible calculation can still exploit a
+benchmark shortcut or favor a collaborator. These checks inform qualification
+and continuing evaluation without establishing universal robustness.
+
+\paragraph{Artifact objects.}
+An artifact object is a length-prefixed header of at most 1 MiB, listing each
+file's path, role, SHA-256, and length, followed by the files in path order.
+The graph, weights, tokenizer, calibration, and output-schema files form its
+inference content; reference test vectors, owner metadata, and publisher
+signatures do not. The inference-content digest covers the frozen contract and
+each inference file's role, digest, and length, so renaming or re-signing an
+artifact cannot create new inference content. Two inference files with the same
+role, digest, and length are refused.
+
+\paragraph{Private submission and duplicate credit.}
+A miner commits on chain only a digest. Through the chain's commitment call, it
+publishes a domain-separated commitment binding the chain and subnet, the
+cohort, its hotkey and registration generation, the inference-content digest,
+and a fresh secret 256-bit nonce. The commitment binds the inference content,
+not the object's bytes, so objects that differ only in excluded files open the
+same commitment. Before the admission cutoff the miner uploads the artifact
+object and the commitment opening privately to the coordinator's evaluation
+storage, encrypted to the coordinator's key once that path is qualified. The
+coordinator checks that the upload opens a finalized commitment for this
+cohort on this chain, made by the hotkey and registration generation the
+opening names, registered no later than the commitment block, and that the
+artifact qualifies. That commitment's finalized block and extrinsic index fix
+the entrant's admission order. A commitment without a matching upload reserves
+nothing. Artifacts stay private evaluation material until the cohort ends, so no
+other participant can download, run, or copy a model while it competes. The
+signed score package is published when scoring completes, and its artifact
+digest names the object that was admitted. At the cohort's closing boundary the
+coordinator also publishes every entrant's artifact and opening. Validators
+check each published object and opening against its finalized on-chain
+commitment, including that the entrant's hotkey and registration generation made
+it at the block and extrinsic index the package lists; they do not run the
+models.
+
+Within a cohort, identical inference content, or predictions within the
+near-copy distance on the cohort batch, forms one cluster that receives one
+credit split equally among its members (Section~\ref{reward-v1}). The
+commitment nonce is excluded from content identity. The finalized commitment
+block and extrinsic index break score ties and choose which member heads a
+cluster, and so which artifact can become the next reference. This order
+assigns no authorship: it cannot establish who originally trained a model.
+Already-published artifacts may enter but earn nothing
+(Section~\ref{public-copies}). Permitted foundation-model components may be used
+in new models, and a weight soup of published models, which fits the allowed
+graph, is a new model.

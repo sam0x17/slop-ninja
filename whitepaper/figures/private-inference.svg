@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="490" viewBox="0 0 900 490">
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#395c65"/></marker></defs>
+  <rect width="900" height="490" fill="white"/>
+  <g font-family="Helvetica" fill="#172a30">
+    <rect x="28" y="35" width="176" height="88" rx="8" fill="#f3f5f5" stroke="#8a9da1"/>
+    <text x="116" y="73" font-size="23" text-anchor="middle">Customer</text>
+    <text x="116" y="102" font-size="17" text-anchor="middle">Document + references</text>
+    <rect x="286" y="26" width="570" height="207" rx="8" fill="#f0f7f7" stroke="#4d777e" stroke-width="2"/>
+    <text x="310" y="61" font-size="23">Slop Ninja-controlled execution</text>
+    <text x="310" y="92" font-size="18">Input checks, parsing, resolution, private job state</text>
+    <rect x="310" y="115" width="244" height="86" rx="5" fill="white" stroke="#8a9da1"/>
+    <text x="432" y="148" font-size="21" text-anchor="middle">Public A artifact</text>
+    <text x="432" y="178" font-size="18" text-anchor="middle">Origin + attribution</text>
+    <rect x="580" y="115" width="250" height="86" rx="5" fill="white" stroke="#8a9da1"/>
+    <text x="705" y="148" font-size="21" text-anchor="middle">Later B workflow</text>
+    <text x="705" y="178" font-size="18" text-anchor="middle">Rank, validate, assemble</text>
+    <path d="M204 79 H278" fill="none" stroke="#395c65" stroke-width="2"/>
+    <path d="M278 74 L286 79 L278 84 Z" fill="#395c65"/>
+    <path d="M286 215 H116 V131" fill="none" stroke="#395c65" stroke-width="2"/>
+    <path d="M111 131 L116 123 L121 131 Z" fill="#395c65"/>
+    <text x="33" y="244" font-size="18">Encrypted private result</text>
+    <rect x="394" y="321" width="462" height="112" rx="8" fill="#f0f7f7" stroke="#4d777e" stroke-width="2"/>
+    <text x="625" y="355" font-size="22" text-anchor="middle">Cloudflare Workers AI: later B</text>
+    <text x="625" y="387" font-size="18" text-anchor="middle">Private adapter in miner-owned account</text>
+    <text x="625" y="414" font-size="18" text-anchor="middle">Direct API; no selected AI Gateway</text>
+    <path d="M675 233 V313" fill="none" stroke="#395c65" stroke-width="2"/>
+    <path d="M670 313 L675 321 L680 313 Z" fill="#395c65"/>
+    <path d="M728 321 V241" fill="none" stroke="#395c65" stroke-width="2"/>
+    <path d="M723 241 L728 233 L733 241 Z" fill="#395c65"/>
+    <text x="414" y="270" font-size="17">Prompt / response</text>
+    <text x="414" y="294" font-size="17">within trusted operators</text>
+    <rect x="28" y="329" width="250" height="96" rx="8" fill="#f3f5f5" stroke="#8a9da1"/>
+    <text x="153" y="365" font-size="22" text-anchor="middle">B miner</text>
+    <text x="153" y="395" font-size="18" text-anchor="middle">Upload, billing, usage totals</text>
+    <path d="M278 376 H386" fill="none" stroke="#395c65" stroke-width="2"/>
+    <path d="M386 371 L394 376 L386 381 Z" fill="#395c65"/>
+    <text x="450" y="470" font-size="18" text-anchor="middle">Miners receive no customer content. Slop Ninja and Cloudflare process plaintext.</text>
+  </g>
+</svg>

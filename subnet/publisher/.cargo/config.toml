@@ -1,0 +1,8 @@
+# Fixed Wasm linear memory (src/arena.rs, rule slop_ninja.publisher.arena/v1):
+# initial memory equals maximum memory, so the module never grows at run time.
+# 67108864 bytes = 64 MiB = arena::LINEAR_MEMORY_BYTES (a test checks they agree).
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "link-arg=--initial-memory=67108864",
+  "-C", "link-arg=--max-memory=67108864",
+]

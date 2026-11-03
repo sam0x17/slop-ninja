@@ -1,0 +1,51 @@
+{
+  "schema": "slop_ninja_gpt_oss_pilot_review_check_v1",
+  "at": "2026-09-15T14:43:23Z",
+  "checker_sha256": "04bc2e8efec37110bec8ab909a5f364e9f33294fdd3fc166a970aa69e0010242",
+  "review_sha256": "e01b1a4e53c99e7830579326bbf7c45f4692e1526b6e85c6e0f710cf52064b0f",
+  "summary_sha256": "fdc083a4dae72cfa154622a21539573b4ee65e7ded1dc7ae65560bec07102bc7",
+  "reviewed_outputs": 4,
+  "profile_review_complete": true,
+  "source_request_response_and_final_bindings_match": true,
+  "word_count_method": "Unicode POSIX space class; empty fields excluded",
+  "collector_records": 2,
+  "response_format_exclusions": 1,
+  "incomplete_exclusions": 1,
+  "source_copy_exclusions": 0,
+  "rows": [
+    {
+      "task": "f82fc3ca6a27bff108402ccaf35f3ba1f6cfba4f6632a119f97f2f0aee0c434b",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "text_sha256": "aa267b91d5d60ed9a6dcad6519ba33627206365c7ffc61034e47d8458ccbd4bb",
+      "record_sha256": "2b4206d24b595712377748174f5680664c3bcf23887d2885bd1507280a1c0b24",
+      "words_unicode_whitespace": 195,
+      "collector_status": "recorded"
+    },
+    {
+      "task": "91df8cac3adbbec77884b6e2669b2e92e719892e873fde01eb1e373763ee723c",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "text_sha256": "2e8385c9004c55ffc8a7812af747d7bed34bf34ad9681f9257156f4f49db8411",
+      "record_sha256": "6bbfdd072d98b468913fd64f55c3eeb80a03294208d0484bd8ee8c2eed4b5ed9",
+      "words_unicode_whitespace": 227,
+      "collector_status": "recorded"
+    },
+    {
+      "task": "43ade6b454e85280cbf2830ccfe3f3d1dd059db049359d2b94a57a0b3c8d14a3",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "text_sha256": "d875ea716a511aa0565aa079dbbe7a15f27516267d8a262e2084796ce0bf33dd",
+      "record_sha256": null,
+      "words_unicode_whitespace": 80,
+      "collector_status": "excluded_incomplete"
+    },
+    {
+      "task": "64ee50de70349ba58e8f7d1e97a4bfe967914ca0ad76a6ac81f1b379f03d2b7b",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "text_sha256": "8bfcc98cd17241cd25eff0b59e4b16b218fffdfeba2c958fa8b212b0b9079fde",
+      "record_sha256": null,
+      "words_unicode_whitespace": 186,
+      "collector_status": "excluded_response_format"
+    }
+  ],
+  "semantic_judgments": "manual_assistant_review_not_automatically_proven",
+  "active_training_records_admitted": 0
+}

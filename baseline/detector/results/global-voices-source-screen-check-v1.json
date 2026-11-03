@@ -1,0 +1,30 @@
+{
+  "schema": "slop_ninja_global_voices_source_screen_check_v1",
+  "at": "2026-09-15T11:49:05Z",
+  "checker": "separate_Ruby_recomputation_on_Studio",
+  "observations_verified": 840,
+  "saved_responses_verified": 62,
+  "report_sha256": "59c4de879e58853796e677e67d3cd0074ca493e2359a99d5cb06e0681a1b5e70",
+  "source_sha256": "8284d72ac678005b30f284c28cb10c09445f5bcca6754e10d2d1e22b5c904e91",
+  "protocol_sha256": "7af017a190904e448c8e9a7e20ff139bd88a99e003a6162e7dc41dfecd684d8c",
+  "binary_sha256": "31ecf6ac07daa0a9352d38e1930a7c796d8b728c84bbd10e8d97a98fd7663e6f",
+  "packet_sha256": "572c9f9cc5f5e3efd755fc688bb7308339f9914b73c59f937f79c70220806b16",
+  "v1_v2_packet_identical": true,
+  "counts_and_selection_reproduced": true,
+  "timestamp_flag_observations": 177,
+  "timestamp_flag_distinct_works": 169,
+  "flag_counts": {
+    "modification_before_publication": 177
+  },
+  "check_logs_sha256": {
+    "fmt-v2.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests-v2.log": "e74b43850dea71a18d21fae18ed0d32e7d77297734099fe5b8d43687584fc2ce",
+    "clippy-v2.log": "bc9bb79bb4cc6f69d33f47a51fe30dea224cf397d8bba98e21e244f9d76da90d",
+    "build-v2.log": "1d005f1b3269aaf877fe639c52cb2ff5d3f2af93c89df9dd557ba27f0bcb90ce"
+  },
+  "manual_article_review_complete": false,
+  "source_authorship_or_rights_certified": false,
+  "new_source_requests": 0,
+  "model_calls": 0,
+  "pangram_calls": 0
+}

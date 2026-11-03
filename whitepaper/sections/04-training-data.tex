@@ -1,0 +1,175 @@
+\section{Training data and evaluation separation}\label{training-data-and-evaluation-separation}
+
+The data model separates authorship from production history. A third record
+type supports later transformation research:
+
+\par\medskip\noindent
+\begin{tabularx}{\linewidth}{@{}LLL@{}}
+\toprule
+Record & Material & Supervision \\
+\midrule
+Authorship & Independent works and reference/query roles & Writer or model
+identity, work family, date, genre, label strength \\
+Production & Originals, generations, and revision chains & Workflow,
+generator version, parent links, assistance order \\
+Revision preferences & Sources, briefs, edits, and reviews & Preservation,
+target voice, editorial preference, ties \\
+\bottomrule
+\end{tabularx}
+\par\medskip
+
+The first two records supervise the shared \textit{A} model. A production label
+comes from documented creation and editing history. A publication date alone,
+a detector's opinion, or a request to imitate an author does not supply that
+label. Model-only text written in a named human's style remains model-only;
+style resemblance supplies no authorship label. Mixed histories retain the
+order and type of assistance. Uncertain historical-human proxies remain
+identified as such in each evaluation, rather than becoming verified human
+examples through repeated reuse.
+
+Controlled partial rewrites can also supply a measured extent label. Select
+sections of a documented human-only source, replace only those sections with
+recorded model outputs, and retain the remaining text byte for byte. Under a
+fixed word-counting rule, divide the final words in model-produced replacement
+spans by all final-document words. Record exact span boundaries, original and
+replacement lengths, model versions, prompts, and the assembly procedure.
+The realized fraction can differ from the requested fraction when a rewrite
+changes length. Words copied within a model-produced span count under this
+provenance convention; the label does not measure semantic dependence or
+editing effort. It is distinct from the binary label for any AI involvement.
+A complete model rewrite of human text can have 100\% replacement-span share
+while retaining mixed production history. An unchanged copied passage can
+also have different recorded histories, so exact provenance labels need not
+be recoverable from the final text alone.
+Documented untouched human examples supply zero-share targets; complete
+generation records with every final word retained from model output supply
+one-share targets. Intermediate shares require the span evidence above. The
+same exact spans supervise and evaluate span localization
+(Section~\ref{span-outputs}).
+
+Vary replacement size, position, topic, generator, and editing intensity,
+including dispersed edits and complete rewrites. All variants of one source
+remain in the same split. Control for splice artifacts and formatting cues,
+and evaluate on unseen sources, generators, and rewrite procedures. These
+examples could supervise an extent estimate; they do not establish that it
+generalizes to arbitrary human/AI revision histories.
+
+\subsection{Splits and exposure}\label{splits}
+
+Training, public development, private evaluation, and customer references are
+separate collections. Experiments use four fixed splits: Train fits weights,
+Development chooses recipes and settings, Calibration (CAL) fits only the map
+from raw outputs to calibrated probabilities, and a held-out Test stays sealed
+until the final comparison. Assign splits before fitting vocabulary, feature
+selection, calibration, or model weights. Group authors and source families
+before assigning their works. Every excerpt, translation, revision, and
+generated descendant of a source remains in its declared split. A common
+prompt, source document, or editorial pipeline can create dependence even
+when the resulting texts differ; source manifests record those relationships
+for group-aware evaluation.
+
+Evaluation writers have independent reference and query works. Claims of
+chronological transfer require earlier references and later queries with usable
+composition dates. Held-out writers test gallery enrollment and open-set
+rejection. Origin testing also holds out generator and prompt families, and
+attribution testing includes previously unseen generators. Match subject,
+genre, length, and assignment format across origins. Cross-topic comparisons
+test whether an apparent writer signature survives a change of subject rather
+than merely identifying the material that writer discussed.
+
+Grammar development and parse-selection tuning count as exposure. Documents
+used to choose productions, select derivations, or tune a resolver cannot also
+serve as untouched final-test evidence for that representation. Freeze the
+parser, resolver, projection, and feature catalog before the held-out test.
+The same principle applies to held-out contribution tests for \textit{C}.
+Reusable lexical resources do not exempt a fitted pipeline from recording what
+evaluation material influenced its choices.
+
+The gallery has its own version and exposure controls. Reference-profile IDs
+identify the candidates to match, not privileged coordinates in a query.
+Names, handles, quotations, shared templates, and editorial signatures need
+the declared identity policy and leakage controls. Distinguish an original
+writer from a translator, shared account, coauthor, or quoted source before
+assigning a single-author label. Author uncertainty can coexist with a usable
+production-history label, and the dataset should preserve that distinction.
+
+\subsection{Evaluation and reuse}
+
+The coordinator qualifies each submitted artifact on independently labelled
+hidden material. Origin and attribution measurements use their declared
+populations, including identities absent from the gallery. Thresholds, comparison tolerances,
+source-group weights, and workload limits are fitted or chosen outside the
+final test. Retain failed assigned items in the evaluation accounting and
+report coverage for the requested population. A common input failure must
+receive the same treatment across models rather than produce a different
+successful subset for each entrant. Each cohort's batch is fresh. A passage of
+fresh human stock is scored as a pure-human negative at most once; otherwise it
+may serve only as a rewrite source, in its own cohort or later ones, under the
+reuse rule of Section~\ref{cohort-batch}. Testnet cohorts without a working
+outside entrant instead redraw already-exposed documents
+(Section~\ref{human-stock}).
+
+Formatting controls are necessary even when inputs have a canonical byte
+profile. The V6 leading-space probe reported in
+Appendix~\ref{earlier-research-checkpoints} used exposed training
+material and found a formatting shortcut. Include paired variations that preserve
+the claimed label, and test identity leakage, targeted triggers, and
+source-format confounds. Upstream parsing and resolution see prose and need
+their own contamination checks. Hiding assignment metadata from the numeric
+head does not establish that upstream processing was blind to benchmark cues.
+
+Active evaluation material has no general training release. Retirement and
+source authorization precede reuse, including reuse of later \textit{B}
+candidates or adversarial examples. A low detector score does not turn a
+model-assisted revision into a human-only example. Preserve its complete
+production history and include difficult human examples as well. Store exact
+provider observations and query counts, including failures, separately from
+the independent labels. Agreement with Pangram cannot supply ground truth.
+
+Customer documents, references, profiles, and outputs are never reused
+automatically for training or benchmarks. Each use needs separate permission.
+Permission for a bounded inference job does not authorize a training release.
+An artifact license also grants no rights to its training texts. Source records
+must distinguish rights in prose, model outputs, and associated data from the
+license on code that downloads or processes them.
+
+\subsection{Acquisition and later revision data}\label{acquisition-and-later-revision-data}
+
+Global Voices is a prospective source of attributed prose under its default
+CC BY terms, subject to writer/translator and quotation checks~\cite{globalvoices}.
+PLOS articles offer factual material and citation constraints; coauthorship
+limits their use as single-writer examples~\cite{plos}. Acquisition qualifies
+rights and labels item by item. Existing Blog Authorship Corpus experiments
+remain local, noncommercial research and supply no commercial starter data.
+Restricted private research material is excluded from releases. Project policy
+permits publishing Pangram row-level results, hosted and open-weight model
+outputs, and fifteen Creative Commons-licensed collections, each with its
+licence notice. FineWeb page text, Reddit, Amazon
+reviews, Ubuntu IRC, RAID, and SBCSAE text are not published, and Common Crawl
+text is never redistributed. The acquisition plan~\cite{trainingplan} records
+screened sources and outstanding qualification.
+
+The lookup canary funds about 1,000 freshly written anchor documents a year
+from paid writers on a keystroke-logged editor, one source group per writer,
+plus PACER purchases of US-government court filings, within a human-data budget
+below \$10,000 a year (Section~\ref{lookup-exposure}). Anchors stay private
+evaluation material and are never scored in a cohort. A separate
+stronger-label collection would commission 50 writers, each providing twelve independent
+pieces and two edits of supplied drafts. Shared
+briefs enable comparisons on similar topics; multiple topics per writer test
+transfer. Collection would record collaboration and AI assistance and obtain
+separate rights for training, private evaluation, and redistribution. A larger
+500-writer target would allocate 300 to training, 100 to development, and 100 to
+private evaluation, with further withheld writers needed for stronger open-set
+rejection evidence. These two collections are unfunded options. Neither has
+been commissioned, and launch does not depend on their counts.
+
+Permitted sources can also produce model-only and mixed examples while
+retaining exact prompts where known, model revisions, outputs, and human editing
+records. Later \textit{B} research adds linked source, brief, candidate, and
+review records. Synthetic restoration pairs require a reviewer to check that
+the generic draft retains the information needed to reconstruct the original;
+otherwise the target would reward invention. Keep this weak supervision
+separate from writers' own edits. Any later training tickets, adversarial
+revision releases, or transformation benchmarks must preserve these splits,
+production labels, and permissions.

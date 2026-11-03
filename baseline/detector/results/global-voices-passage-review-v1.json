@@ -1,0 +1,136 @@
+{
+  "schema": "slop_ninja_global_voices_passage_review_v1",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "boundaries_sha256": "08504ecdeb0a5c24d2a97f146f86909f685ea1b6e22051531780ede39ee376ac",
+  "passage_source_sha256": "52366af101c42b7d58107310a7f4a90f56f9d3ac6ec530bdf122db8f4cfa7c55",
+  "reviewed_candidates": 8,
+  "reviewed_paragraphs": 22,
+  "reviewed_words_unicode_whitespace": 1323,
+  "scope": "Read every complete materialized candidate with its declared boundaries against the previous full article and region review. No detector result informed selection or review. Mechanical checks establish retained text and boundaries separately from these judgments.",
+  "rows": [
+    {
+      "id": "gv:769472",
+      "paragraph_range": [
+        1,
+        2
+      ],
+      "words_unicode_whitespace": 183,
+      "coherence": "locally_connected_narrative_with_source_date_error",
+      "findings": [
+        "Named participants and political context remain internally connected. The excerpt ends before a new introduction to an embedded statement, with no dangling colon or removed internal paragraph.",
+        "The printed 2002 date conflicts with the same excerpt's 2018 chronology and source metadata. It is an existing source defect, not an extraction change. Preserve it in research evidence rather than silently rewriting it.",
+        "Do not describe this as a verified factual account or the complete argument of the article. Source error and origin provenance are separate attributes."
+      ]
+    },
+    {
+      "id": "gv:614081",
+      "paragraph_range": [
+        1,
+        2
+      ],
+      "words_unicode_whitespace": 217,
+      "coherence": "coherent_narrative_opening",
+      "findings": [
+        "The speaker's initial motivation, introduction of Joseph, arrival and description of the neighborhood form a connected opening. All pronouns have available antecedents.",
+        "The final observation completes this scene without requiring a missing quote or image. The later interview and evolution of the author's motivation are outside the excerpt; this is not the author's complete account.",
+        "The normalization changes whitespace, not the source's stated observations, attitude or figures."
+      ]
+    },
+    {
+      "id": "gv:594642",
+      "paragraph_range": [
+        1,
+        4
+      ],
+      "words_unicode_whitespace": 182,
+      "coherence": "coherent_expository_opening",
+      "findings": [
+        "Language counts, unequal online coverage, workshop purpose, organizers and venue remain connected. References to the country, other languages and event have antecedents within the passage.",
+        "The final paragraph ends before the Participants heading. No section text or media is skipped inside the selected range.",
+        "The excerpt represents workshop background; it does not include the later activities and conclusion."
+      ]
+    },
+    {
+      "id": "gv:711372",
+      "paragraph_range": [
+        1,
+        1
+      ],
+      "words_unicode_whitespace": 57,
+      "coherence": "coherent_short_opening",
+      "findings": [
+        "The explanation of student protests and access barriers is complete as a short opening. It does not require the next embedded post to resolve a reference.",
+        "At 57 words it adds little long-context coverage and must not stand in for the complete report about arrests and subsequent release.",
+        "No post hoc minimum-length filter was applied. Keep the short candidate explicit for a later declared corpus policy."
+      ]
+    },
+    {
+      "id": "gv:555064",
+      "paragraph_range": [
+        1,
+        4
+      ],
+      "words_unicode_whitespace": 199,
+      "coherence": "coherent_context_with_attributed_allegation",
+      "findings": [
+        "Historical context, the social-media comparison, the question about timing and the election background remain connected.",
+        "The allegation in the final paragraph stays explicitly attributed to the named political challenger; its quoted phrases remain inside the reporting paragraph.",
+        "The social-post sequence is outside the range. Its recollections and images are not silently joined into this byline-prose excerpt. Quoted attribution and downstream reuse obligations still require the source-admission policy."
+      ]
+    },
+    {
+      "id": "gv:662657",
+      "paragraph_range": [
+        1,
+        5
+      ],
+      "words_unicode_whitespace": 288,
+      "coherence": "coherent_case_opening_not_complete_legal_account",
+      "findings": [
+        "The woman, employer, recording and circulation of the call are introduced before later references. The naming convention and reason for not reporting survive.",
+        "The range ends before the comic factbox. It includes the temporary suspension of imprisonment from the opening, but later procedural and legal explanations remain outside the excerpt.",
+        "Preserve the source's framing and allegations without treating this excerpt as a complete legal account or independently verified statement of law."
+      ]
+    },
+    {
+      "id": "gv:557838",
+      "paragraph_range": [
+        1,
+        3
+      ],
+      "words_unicode_whitespace": 136,
+      "coherence": "interview_setup_requires_further_context_review",
+      "findings": [
+        "The background statistics are connected, and the source's apparent pluralized month typo remains unchanged.",
+        "The final paragraph announces an interview but supplies none of its discussion. Successful paragraph extraction does not establish that this is a useful standalone passage.",
+        "Do not automatically admit this nomination. A later revision could review a shorter background passage or a properly attributed multi-speaker interview view. Preserve the present candidate and finding."
+      ]
+    },
+    {
+      "id": "gv:742458",
+      "paragraph_range": [
+        1,
+        1
+      ],
+      "words_unicode_whitespace": 61,
+      "coherence": "coherent_short_opening",
+      "findings": [
+        "The one-sentence opening introduces the named journalist, location, time spent there and her reported reason for leaving. Its local references are available.",
+        "The later experiences, nested dialogue and regional response are absent. This is an opening claim, not the evidence for or complete argument of the article.",
+        "At 61 words it supplies little long-context evidence. Keep that limitation explicit without an undeclared minimum-length exclusion."
+      ]
+    }
+  ],
+  "limitations": [
+    "All eight sources were exposed before nomination. This is development curation, not an unseen accuracy estimate.",
+    "Seven candidates provide connected openings with the stated scope limits; one remains an interview setup needing further context review. Two of the seven are only 57 and 61 words, and another retains an internal source-date conflict.",
+    "No historical-byte verification, human-only production certification or completed commercial admission follows from the coherence review.",
+    "Source wording and exact HTML remain available outside Git. The plain-text view uses declared whitespace normalization and does not reproduce browser rendering."
+  ],
+  "manual_review_complete": true,
+  "training_records_admitted": 0,
+  "origin_labels_assigned": 0,
+  "detector_calls": 0,
+  "pangram_calls": 0
+}

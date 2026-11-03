@@ -1,0 +1,50 @@
+{
+  "schema": "slop_ninja.plos_numeric_scripts_admission_summary.v2",
+  "status": "four_additional_unsplit_historical_proxies_admitted",
+  "host": "mac_studio",
+  "declaration_sha256": "ee037ae04a5877c07645e777f60ff7e90d8964dd8e4bcf5db6f8e06c46623d29",
+  "admission_report_sha256": "f9d753a9a577940d729c796a323590076fb21c7dbe6572c5227b80db0d3d428b",
+  "records_sha256": "0f3d0d02ca80dc16b24c6402f55cc0598ba1406639f0a68df988b3222735db29",
+  "original_records_sha256": "99d0f65bc5e129a0d2824beab7e685820de9fb41d55425b50d96fc411b77f164",
+  "original_records_unchanged": true,
+  "original_candidates": 33,
+  "previously_admitted": 13,
+  "newly_admitted": 4,
+  "total_admitted_across_both_cohorts": 17,
+  "still_pending_across_both_cohorts": 16,
+  "pending_breakdown": {
+    "unsupported_rendering": 15,
+    "quotation_permission": 1
+  },
+  "supplemental_report_scope": "The raw supplemental report labels 29 candidates pending for that write. Thirteen of them were already admitted in the original cohort and were deliberately not duplicated; their existing records and family aliases remain valid.",
+  "evidence": "historical_proxy",
+  "license": "CC-BY-4.0",
+  "split_assigned_to_supplement": false,
+  "active_training_changed": false,
+  "existing_generation_plan_changed": false,
+  "manual_review": "plos-numeric-scripts-review-v2.json",
+  "validation": {
+    "new_records_validated": 4,
+    "complete_introductions_read": 4,
+    "paragraphs_read": 19,
+    "notation_elements_checked": 49,
+    "citation_labels_and_targets_checked": 168,
+    "new_a_tokens": [
+      1198,
+      1144,
+      1108,
+      1412
+    ],
+    "truncation": false,
+    "overlap_existing_unique_texts": 9265,
+    "overlap_new_candidate_flags": 0
+  },
+  "source_groups": [
+    "doi:10.1371/journal.pone.0203566",
+    "doi:10.1371/journal.pone.0203249",
+    "doi:10.1371/journal.pone.0201509",
+    "doi:10.1371/journal.pone.0198056"
+  ],
+  "corpus_storage": "Studio experiment storage; no source prose added to Git or existing datasets.",
+  "limitations": "Current publication metadata supports weak historical labels only. It does not verify the age of the captured bytes or a human-only workflow. Lexical overlap screening covers declared inputs and cannot establish general independence. No detector result, fit or new generation uses this supplement."
+}

@@ -1,0 +1,195 @@
+{
+  "bindings": {
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/completion.json": "b3c7fd5761a1089c3081421329f46fad9ebb7d73706c46cf641f8a76eabb4469",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/consistency/phi4-R0/report.json": "2e95e75cca6d80a22ab7b30d3660ab030e0b8ca94139714e7c1cf53f5e9852f7",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/consistency/phi4-R1/report.json": "5e0997470afd3f6761cb58ba0d7373952759a8127df74325e83eb51d690d87a2",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/consistency/phi4-R2/report.json": "dda5b6333956704172329482d98bfc534bc1a7e8ce2b367ebdaddde430294a29",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/consistency/primary-R0/report.json": "48c306f36114a819dd6680f11dd48131b113a3d7c862d1ffd7ea6b392966c785",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/consistency/primary-R1/report.json": "0478bc0e6b2b6b2eae371ff145202f1aeb637b0c19a7b5992d350d3c54f637d5",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/consistency/primary-R2/report.json": "1ff59759a0a19b7862cfa09a38b4100db19d262f4482e989c3cbb95d8d5df249",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/control/phi4-R0/report.json": "5c914c6b0288e6419546703c09b95e709755b2942badcfc815c01abee64848fa",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/control/phi4-R1/report.json": "ebc4f36eb0ff57a729da1f8f5a6e194345ed915d9465710b52d950303a578952",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/control/phi4-R2/report.json": "450b0c7682ac2efce700cf627c13def53bccfc30f86f141b6d34efe17d520dde",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/control/primary-R0/report.json": "59655dcedb2859770ea03c96c93e01599e78a1e4a5ca905693ec2d3d45297b15",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/control/primary-R1/report.json": "1d46079a3de56c6d088f9ced1ac30e005a126e14ab4002c48da79e1c678d9c4b",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/control/primary-R2/report.json": "c70fc067c7d7432c77abd9c32e2ecbed94171bb10cae650556a03fdc803c0c1f",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/opening.json": "f8b48ecbe9f4a9a4e2f76ce7607db72ed4ee234fd3bcc79dd3dca70e8fa10f29",
+    "~/slop_ninja_runs/a_robustness_v1/origin-comparison-recovery-v1/plan.json": "3a454016d24c56d645625c25ba3ead1862e43ccf68cf2ef9990884192cf07fea",
+    "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R0-v6/report.json": "7dd759d556b53c1b37957c1183d86604e6dccd0acbac34402242a19492038daa",
+    "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R1-v6/report.json": "5217d9641794729c9318df6fd1fbd733a32dc433b30ff1a874bf17d701257f09",
+    "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R2-v6/report.json": "2ffde8f34d3db05e8a406296c74a93cd9b1b5a01230b5134fd1d8cbfe01641fe",
+    "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R0-v6/report.json": "3a4db052883fbc011a21ed1864a04d842ca3bc50543797cbc42a61e0b77af2bd",
+    "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R1-v6/report.json": "785c78df3a8173e9a7741c569842f46abd900d873ae64b0206edb124919b67a4",
+    "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R2-v6/report.json": "b815f7efce74ed1026bd7d0db1230de64cf9c3a6fc2c26c1c5a69baa53790543"
+  },
+  "exploratory_posthoc": true,
+  "interpretation": "Equal-weight three-way Jensen-Shannon divergence of calibrated three-class predictions and range of P(model_only)+P(mixed), within each source family's R0/R1/R2 sequence. Each family contributes once. Temperatures differ across artifacts. Constant wrong predictions can be perfectly stable; this is neither accuracy nor direct measurement of the uncalibrated training loss. No independent confirmation or model/threshold selection follows from this diagnostic.",
+  "new_model_calls": 0,
+  "provider_calls": 0,
+  "reference_promoted": false,
+  "rows": [
+    {
+      "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "cohort": "primary",
+      "combined_probability_range_pp": {
+        "groups": 112,
+        "maximum": 95.7492327197568,
+        "mean": 8.033539119393167,
+        "median": 1.493024676289334,
+        "minimum": 0.0536514438365332
+      },
+      "r2_minus_r0_pp": {
+        "groups": 112,
+        "maximum": 93.64331132976332,
+        "mean": 6.413719137069951,
+        "median": 0.9613911563250033,
+        "minimum": -31.317302700315032
+      },
+      "role": "v6",
+      "three_stage_js_nats": {
+        "groups": 112,
+        "maximum": 0.5099907134515494,
+        "mean": 0.08477807361852296,
+        "median": 0.048256257400388525,
+        "minimum": 0.0001032440842649307
+      },
+      "thresholds_sha256": "91fe5ea2d7a92aed30e58f1795476f9d203414eb4e474b8376e8bb5d3a11ef81"
+    },
+    {
+      "artifact_id": "74e59f3187fe0c05dddeb5dd4520d192474c027e90545b1085056a12260519d7",
+      "cohort": "primary",
+      "combined_probability_range_pp": {
+        "groups": 112,
+        "maximum": 95.77776065827682,
+        "mean": 7.260718976788774,
+        "median": 0.8035237213873725,
+        "minimum": 0.01582044938321925
+      },
+      "r2_minus_r0_pp": {
+        "groups": 112,
+        "maximum": 95.3297351522417,
+        "mean": 6.618605058245572,
+        "median": 0.5942246086392877,
+        "minimum": -16.224740761642053
+      },
+      "role": "control",
+      "three_stage_js_nats": {
+        "groups": 112,
+        "maximum": 0.5529528836494072,
+        "mean": 0.08559146500227652,
+        "median": 0.0456015775064752,
+        "minimum": 0.00015596820419305768
+      },
+      "thresholds_sha256": "986f1f8ea86eba764e89e73ef567c48c3a69293236c3ea7253e4f70d51a60632"
+    },
+    {
+      "artifact_id": "3aafef8aa796f16824d6429895122caf0025217b7e9fb272fc0b3eca86201756",
+      "cohort": "primary",
+      "combined_probability_range_pp": {
+        "groups": 112,
+        "maximum": 97.76436023637224,
+        "mean": 6.541163518085777,
+        "median": 0.7672872273798592,
+        "minimum": 0.03527351897041342
+      },
+      "r2_minus_r0_pp": {
+        "groups": 112,
+        "maximum": 95.59096138645131,
+        "mean": 6.039185957052539,
+        "median": 0.5142184207681033,
+        "minimum": -4.298829711666996
+      },
+      "role": "consistency",
+      "three_stage_js_nats": {
+        "groups": 112,
+        "maximum": 0.5618437502032203,
+        "mean": 0.09642439210248895,
+        "median": 0.059840535815989554,
+        "minimum": 0.0004251611902283958
+      },
+      "thresholds_sha256": "ea282ae963badb0e4d375ebbdf72ad5e63196472f2739fe0bf4a60f0cdb2d1af"
+    },
+    {
+      "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "cohort": "phi4",
+      "combined_probability_range_pp": {
+        "groups": 104,
+        "maximum": 61.194027006228914,
+        "mean": 5.181686886454183,
+        "median": 1.7007827112939078,
+        "minimum": 0.027721814617864826
+      },
+      "r2_minus_r0_pp": {
+        "groups": 104,
+        "maximum": 34.33527305964448,
+        "mean": 1.7972839048850122,
+        "median": 0.6384455217267715,
+        "minimum": -27.200306550626173
+      },
+      "role": "v6",
+      "three_stage_js_nats": {
+        "groups": 104,
+        "maximum": 0.13739908181378602,
+        "mean": 0.019724810676665497,
+        "median": 0.013077217633574001,
+        "minimum": 0.00046654928486300484
+      },
+      "thresholds_sha256": "91fe5ea2d7a92aed30e58f1795476f9d203414eb4e474b8376e8bb5d3a11ef81"
+    },
+    {
+      "artifact_id": "74e59f3187fe0c05dddeb5dd4520d192474c027e90545b1085056a12260519d7",
+      "cohort": "phi4",
+      "combined_probability_range_pp": {
+        "groups": 104,
+        "maximum": 58.653109379820336,
+        "mean": 4.065465941142857,
+        "median": 0.7674532881415452,
+        "minimum": 0.05309183531212458
+      },
+      "r2_minus_r0_pp": {
+        "groups": 104,
+        "maximum": 47.42088227932542,
+        "mean": 1.4828641262164095,
+        "median": 0.3427242899812666,
+        "minimum": -27.651238984985348
+      },
+      "role": "control",
+      "three_stage_js_nats": {
+        "groups": 104,
+        "maximum": 0.15403944933766933,
+        "mean": 0.021384240968902995,
+        "median": 0.011998384963735731,
+        "minimum": 0.0002364260371425786
+      },
+      "thresholds_sha256": "986f1f8ea86eba764e89e73ef567c48c3a69293236c3ea7253e4f70d51a60632"
+    },
+    {
+      "artifact_id": "3aafef8aa796f16824d6429895122caf0025217b7e9fb272fc0b3eca86201756",
+      "cohort": "phi4",
+      "combined_probability_range_pp": {
+        "groups": 104,
+        "maximum": 88.10894569065889,
+        "mean": 5.187070136882446,
+        "median": 0.7712637584187387,
+        "minimum": 0.051508457725901735
+      },
+      "r2_minus_r0_pp": {
+        "groups": 104,
+        "maximum": 86.93525918426288,
+        "mean": 2.5131968279166568,
+        "median": 0.15357223661637276,
+        "minimum": -49.85827419670106
+      },
+      "role": "consistency",
+      "three_stage_js_nats": {
+        "groups": 104,
+        "maximum": 0.43759151244643163,
+        "mean": 0.03956600665516094,
+        "median": 0.020209911601066888,
+        "minimum": 0.0001601365445087488
+      },
+      "thresholds_sha256": "ea282ae963badb0e4d375ebbdf72ad5e63196472f2739fe0bf4a60f0cdb2d1af"
+    }
+  ],
+  "schema": "slop_ninja_revision_score_stability_v1"
+}

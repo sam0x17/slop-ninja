@@ -1,0 +1,14 @@
+[package]
+name = "shared-pool-gameability"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+num-traits = "=0.2.19"
+log = "=0.4.28"
+substrate-fixed = { git = "https://github.com/encointer/substrate-fixed.git", rev = "d5f70362f2e05b5f33fb51cd7baa825323e4e6c5" }

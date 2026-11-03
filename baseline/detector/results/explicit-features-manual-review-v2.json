@@ -1,0 +1,40 @@
+{
+  "schema": "slop_ninja_explicit_feature_manual_review_v2",
+  "reviewer": "assistant",
+  "previous_review": "explicit-features-manual-review-v1.json",
+  "complete_texts_read_this_review": 9,
+  "parser_sentence_roots_inspected_this_review": 88,
+  "complete_texts_read_across_both_reviews": 12,
+  "parser_sentence_roots_inspected_across_both_reviews": 105,
+  "inspection_scope": "Read the complete texts and all sentence boundaries and roots for the nine remaining prepared Train states. Inspect selected token/head tables around the findings below. This does not inspect every token relationship in those documents. Earlier truncated tool output was reread in bounded complete-text views before counting an inspection.",
+  "features_file_sha256": "ef6e1bfb1bf6ff5d5d486caa98430fb14504975cf07d0243c3f6d0dc653ddf39",
+  "annotations": [
+    {"source_group":"wikipedia:page:5311","index":0,"origin":"human_only","annotation_sha256":"d577f2959737b484c8b7ad9de8cdd085e27fd2509e72bc0fe40c41a274d2e5d0"},
+    {"source_group":"wikipedia:page:5311","index":1,"origin":"model_only","annotation_sha256":"ea62bc279ec6cc586a19d60135c4db45aa427bc53f9c9303ae41f2e657386909"},
+    {"source_group":"wikipedia:page:5311","index":2,"origin":"mixed","annotation_sha256":"e0aad62eb1c571c952186ff2c3dd39547e1acd17ba849573322fba1e8360e3e8"},
+    {"source_group":"doi:10.1371/journal.pone.0208237","index":0,"origin":"human_only","annotation_sha256":"e94c667310372fad840bf3b20fd73616ffced1261ea30d55d1a691bbc0f4eb7c"},
+    {"source_group":"doi:10.1371/journal.pone.0208237","index":1,"origin":"model_only","annotation_sha256":"884272eb9bbd8c9acc70f87b654e4e963502ae4c976d1aae327ba0ae6b556d37"},
+    {"source_group":"doi:10.1371/journal.pone.0208237","index":2,"origin":"mixed","annotation_sha256":"ecf4e27743f7ac51e37e9dfb76ffb48fe422a5bc7807ac45aede467ed9ce63b7"},
+    {"source_group":"wikinews:103360","index":0,"origin":"human_only","annotation_sha256":"70f95fe67144e1a7f4c49cda35fe5f5525ea38b249b07315bac7ef222793b617"},
+    {"source_group":"wikinews:103360","index":1,"origin":"model_only","annotation_sha256":"5bcce21e3a294c32cc1275226667afe3c86ef1c43cbadc1534c3e4d72367c846"},
+    {"source_group":"wikinews:103360","index":2,"origin":"mixed","annotation_sha256":"ff5b120efc0cedc1616eb7c1ec691b8a33adc21f8d1570f15caf580ec12ac093"}
+  ],
+  "all_prepared_features_match_cache": true,
+  "findings": [
+    {"source_group":"wikipedia:page:5311","index":0,"tokens":[171,172,177],"kind":"main_predicate_displaced","observed":"A participial modifier of the subject becomes the root; the finite main predicate is its conjunct.","expected":"Attach the participial phrase to the subject and retain the finite main predicate as root."},
+    {"source_group":"wikipedia:page:5311","index":0,"tokens":[275,276,277],"kind":"hyphen_verb_tag","observed":"A hyphenated verb prefix and its hyphen both receive VERB tags and conjunct dependencies.","expected":"The hyphen is punctuation, not another coordinated verb. Preserve the intended prefixed lexical verb."},
+    {"source_group":"wikipedia:page:5311","index":1,"tokens":[272,273,274,275,276],"kind":"relative_clause_analysis","observed":"The relative clause's object noun becomes its head, while the actual finite verb and noun modifier receive VERB compound analyses.","expected":"The finite verb heads the relative clause; its noun object and modifier retain their roles."},
+    {"source_group":"wikipedia:page:5311","index":2,"tokens":[72,75,77],"kind":"parenthetical_attachment","observed":"The phrase naming the code is attached to the programmers rather than to the code.","expected":"The naming parenthetical modifies the code. Proximity alone does not identify its antecedent."},
+    {"source_group":"doi:10.1371/journal.pone.0208237","index":0,"tokens":[140,141,150],"kind":"missed_sentence_boundary","observed":"The terminal period remains inside an abbreviation token and the following independent sentence is absorbed into the prior reporting clause.","expected":"Separate the two complete sentences and retain the second sentence's own subject and finite predicate."},
+    {"source_group":"doi:10.1371/journal.pone.0208237","index":0,"tokens":[116,118,126,137],"kind":"modifier_as_reporting_verb_conjunct","observed":"An adjective selecting subregions becomes a verb coordinated with the reporting act; the embedded assertion loses its intended subject/predicate structure.","expected":"The selecting modifier belongs to the subregion noun phrase, within the reported assertion."},
+    {"source_group":"doi:10.1371/journal.pone.0208237","index":2,"tokens":[120,138],"kind":"nominal_root_displaces_predicate","observed":"The subject noun becomes the root and its finite main predicate becomes an acl modifier.","expected":"Retain the finite main predicate and attach the noun phrase as its subject."},
+    {"source_group":"wikinews:103360","index":0,"tokens":[247,250,257,268],"kind":"apposition_and_main_predicate","observed":"The subject publication name becomes the root; the main reporting predicate becomes an acl modifier after an appositive.","expected":"The finite reporting predicate heads the sentence, with the publication as subject and the naming explanation as apposition."}
+  ],
+  "status": "partial_syntax_inspection_of_all_twelve_prepared_texts_complete",
+  "parser_changed": false,
+  "parse_accuracy": null,
+  "independent_human_annotation": false,
+  "detector_scoring": false,
+  "fidelity_certified": false,
+  "limitations": "Four deliberately selected Train families do not estimate corpus accuracy or establish origin-specific error rates. Generated texts also contain substantive differences from their sources; this syntax review does not approve those revisions. Raw texts and full annotations remain outside the repository."
+}

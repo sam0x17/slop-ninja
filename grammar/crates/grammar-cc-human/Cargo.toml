@@ -1,0 +1,42 @@
+[package]
+name = "grammar-cc-human"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Common Crawl human-slice pilot sampler for Slop Ninja A: polite WET download, record provenance, screens, domain rules, corpus-v1 dedup and yield tables"
+
+[lib]
+name = "grammar_cc_human"
+
+[[bin]]
+name = "slop_ninja_cc_human"
+path = "src/main.rs"
+
+[[bin]]
+name = "slop_ninja_cc_lookup"
+path = "src/lookup_main.rs"
+
+[dependencies]
+aho-corasick = "1"
+anyhow.workspace = true
+clap.workspace = true
+flate2 = "=1.1.10"
+grammar-a-form = { path = "../grammar-a-form" }
+grammar-a-pools = { path = "../grammar-a-pools" }
+grammar-a-positives = { path = "../grammar-a-positives" }
+hex.workspace = true
+libc = "0.2"
+rayon = "1"
+regex = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde.workspace = true
+serde_json.workspace = true
+sha1 = "0.10"
+sha2.workspace = true
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
+ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
+whatlang = "=0.16.4"
+zstd.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

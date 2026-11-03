@@ -1,0 +1,42 @@
+{
+  "schema": "slop_ninja.encoder_capacity_metadata_preparation.v1",
+  "status": "pinned metadata only; weights not downloaded and no model loaded or executed",
+  "host": "mac_studio",
+  "checked_date_utc": "2026-09-14",
+  "model_id": "answerdotai/ModernBERT-large",
+  "revision": "45bb4654a4d5aaff24dd11d4781fa46d39bf8c13",
+  "weight_license_declaration": "Apache-2.0",
+  "upstream_url": "https://huggingface.co/answerdotai/ModernBERT-large/tree/45bb4654a4d5aaff24dd11d4781fa46d39bf8c13",
+  "published_parameter_count": 395000000,
+  "exact_loaded_classifier_parameters": null,
+  "config": {
+    "classifier_pooling": "mean",
+    "hidden_size": 1024,
+    "intermediate_size": 2624,
+    "max_position_embeddings": 8192,
+    "model_type": "modernbert",
+    "num_attention_heads": 16,
+    "num_hidden_layers": 28,
+    "vocab_size": 50368
+  },
+  "metadata_files": {
+    "model-info.json": "00f0095ebb85a5751d2da80d9e2ee48992b418d2226411c5b99619f21d4495af",
+    "config.json": "55dca68059e98f0debf8eb63ab355c451c65b1f5d90fdca4754113fdaadd2cca",
+    "README.md": "40539466fa1117be4693b8f1fdfdac81fac3c5db472ff57bc05d013d48eafa82",
+    "tokenizer_config.json": "3cd2017ff46d0a527e5d39cae39272eccfa1f19bb9f89b05d166aab2e38354e2",
+    "special_tokens_map.json": "ea97ecdbcc73713039d8d64dbb05e3689495c96657fbd9a18f5bed381be81049"
+  },
+  "tokenizer_identity_verified": false,
+  "weights_verified": false,
+  "classification_runtime_verified": false,
+  "gradient_runtime_verified": false,
+  "model_calls": 0,
+  "provider_calls": 0,
+  "active_fits_changed": false,
+  "implementation_findings": [
+    "Current ml/common.py and ml/fetch_checkpoint.py pin only ModernBERT-base; metadata preparation does not make the large checkpoint loadable.",
+    "Artifact packaging currently writes base-specific upstream and architecture labels. Generalization must preserve exact checkpoint validation and correct artifact identity.",
+    "The proposed matched capacity comparison retains both paired-exposure control and consistency loss settings at each backbone size.",
+    "The published 8192-token position capacity is not a validated detector context length; the initial matched comparison keeps 2048."
+  ]
+}

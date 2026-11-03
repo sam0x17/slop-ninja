@@ -1,0 +1,677 @@
+{
+  "schema": "slopninja-edit-preference-fixtures-v1",
+  "id": "edit-preferences-v1",
+  "provenance": {
+    "authorship": "assistant_constructed",
+    "labels": "engineering_expectations_not_human_judgments",
+    "corpus_or_private_text": false,
+    "preference_outcomes_read_before_freeze": false,
+    "readability": "unjudged",
+    "tone": "unjudged",
+    "semantic_equivalence_certified": false
+  },
+  "scope": {
+    "cases": 6,
+    "canonical_auxiliary_forms": [
+      "does",
+      "could",
+      "can"
+    ],
+    "source_forms": [
+      "expanded",
+      "contracted"
+    ],
+    "synthetic_author_profiles": false,
+    "model_calls_required": 0,
+    "detector_calls_required": 0
+  },
+  "execution": {
+    "source_policy": "all six exact source/candidate pairs are fixed before observing corpus preference counts or application outcomes",
+    "patch_type": "grammar_core::edits::Edit; nonoverlapping original UTF-8 byte offsets with exact expected bytes",
+    "extraction_policy": "call the unchanged negative rule descriptors without the search candidate cap; compare extraction expectations independently of guard output",
+    "conditioning_key_encoding": "compact JSON [canonical inflected auxiliary form, clause type]",
+    "guard_policy": "compare exact raw source/candidate patches with the separately versioned claim guard; retain all findings and mismatches",
+    "profile_policy": "apply all frozen full-author TRAIN profiles; display context support and population-backoff status rather than selecting authors by outcome",
+    "recommendation_policy": "only observed_preserved makes a counterpart eligible; select it only when its predicted form probability is strictly greater than the source form probability; exact ties retain source",
+    "interpretation": "recommendations describe the fixed empirical preference model, not human authorship, readable prose, intended tone or certified meaning preservation",
+    "no_change_available": true
+  },
+  "cases": [
+    {
+      "id": "does_expanded",
+      "source_text": "The service does not stop.",
+      "candidate_text": "The service doesn't stop.",
+      "edits": [
+        {
+          "start_byte": 12,
+          "end_byte": 20,
+          "expected": "does not",
+          "replacement": "doesn't"
+        }
+      ],
+      "expected_extraction": {
+        "opportunity_count": 1,
+        "observed_form": "expanded",
+        "canonical_auxiliary_form": "does",
+        "canonical_expanded_form": "does not",
+        "clause_type": "declarative",
+        "conditioning_key": "[\"does\",\"declarative\"]",
+        "rule": "contract_negative_auxiliary",
+        "counterpart_text": "The service doesn't stop."
+      },
+      "expected_guard_outcome": "observed_preserved",
+      "protected_expectations": [
+        {
+          "id": "does_expanded-polarity",
+          "dimension": "source_aligned_polarity",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 20,
+              "expected": "does not"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 25,
+              "expected": "stop"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 19,
+              "expected": "doesn't"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 24,
+              "expected": "stop"
+            }
+          ],
+          "note": "Keep negation attached to the same predicate. A preferred surface form does not authorize deletion or relocation of negation."
+        },
+        {
+          "id": "does_expanded-qualification",
+          "dimension": "finite_auxiliary_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 20,
+              "expected": "does not"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 19,
+              "expected": "doesn't"
+            }
+          ],
+          "note": "Retain the finite auxiliary's tense/person and the negative stop clause."
+        },
+        {
+          "id": "does_expanded-content",
+          "dimension": "predicate_argument_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 11,
+              "expected": "service"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 25,
+              "expected": "stop"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 11,
+              "expected": "service"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 24,
+              "expected": "stop"
+            }
+          ],
+          "note": "Keep the actor and predicate. Register, negation emphasis, readability and tone require separate review."
+        }
+      ]
+    },
+    {
+      "id": "does_contracted",
+      "source_text": "The service doesn't stop.",
+      "candidate_text": "The service does not stop.",
+      "edits": [
+        {
+          "start_byte": 12,
+          "end_byte": 19,
+          "expected": "doesn't",
+          "replacement": "does not"
+        }
+      ],
+      "expected_extraction": {
+        "opportunity_count": 1,
+        "observed_form": "contracted",
+        "canonical_auxiliary_form": "does",
+        "canonical_expanded_form": "does not",
+        "clause_type": "declarative",
+        "conditioning_key": "[\"does\",\"declarative\"]",
+        "rule": "expand_negative_auxiliary",
+        "counterpart_text": "The service does not stop."
+      },
+      "expected_guard_outcome": "observed_preserved",
+      "protected_expectations": [
+        {
+          "id": "does_contracted-polarity",
+          "dimension": "source_aligned_polarity",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 19,
+              "expected": "doesn't"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 24,
+              "expected": "stop"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 20,
+              "expected": "does not"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 25,
+              "expected": "stop"
+            }
+          ],
+          "note": "Keep negation attached to the same predicate. A preferred surface form does not authorize deletion or relocation of negation."
+        },
+        {
+          "id": "does_contracted-qualification",
+          "dimension": "finite_auxiliary_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 19,
+              "expected": "doesn't"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 20,
+              "expected": "does not"
+            }
+          ],
+          "note": "Retain the finite auxiliary's tense/person and the negative stop clause."
+        },
+        {
+          "id": "does_contracted-content",
+          "dimension": "predicate_argument_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 11,
+              "expected": "service"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 24,
+              "expected": "stop"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 11,
+              "expected": "service"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 25,
+              "expected": "stop"
+            }
+          ],
+          "note": "Keep the actor and predicate. Register, negation emphasis, readability and tone require separate review."
+        }
+      ]
+    },
+    {
+      "id": "could_expanded",
+      "source_text": "The client could not retry.",
+      "candidate_text": "The client couldn't retry.",
+      "edits": [
+        {
+          "start_byte": 11,
+          "end_byte": 20,
+          "expected": "could not",
+          "replacement": "couldn't"
+        }
+      ],
+      "expected_extraction": {
+        "opportunity_count": 1,
+        "observed_form": "expanded",
+        "canonical_auxiliary_form": "could",
+        "canonical_expanded_form": "could not",
+        "clause_type": "declarative",
+        "conditioning_key": "[\"could\",\"declarative\"]",
+        "rule": "contract_negative_auxiliary",
+        "counterpart_text": "The client couldn't retry."
+      },
+      "expected_guard_outcome": "observed_preserved",
+      "protected_expectations": [
+        {
+          "id": "could_expanded-polarity",
+          "dimension": "source_aligned_polarity",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 20,
+              "expected": "could not"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 26,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 19,
+              "expected": "couldn't"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 25,
+              "expected": "retry"
+            }
+          ],
+          "note": "Keep negation attached to the same predicate. A preferred surface form does not authorize deletion or relocation of negation."
+        },
+        {
+          "id": "could_expanded-qualification",
+          "dimension": "modal_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 20,
+              "expected": "could not"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 19,
+              "expected": "couldn't"
+            }
+          ],
+          "note": "Retain this exact modal qualification; do not substitute another modal to improve predicted preference. The contextual modal reading is not inferred."
+        },
+        {
+          "id": "could_expanded-content",
+          "dimension": "predicate_argument_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 26,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 25,
+              "expected": "retry"
+            }
+          ],
+          "note": "Keep the actor and predicate. Register, negation emphasis, readability and tone require separate review."
+        }
+      ]
+    },
+    {
+      "id": "could_contracted",
+      "source_text": "The client couldn't retry.",
+      "candidate_text": "The client could not retry.",
+      "edits": [
+        {
+          "start_byte": 11,
+          "end_byte": 19,
+          "expected": "couldn't",
+          "replacement": "could not"
+        }
+      ],
+      "expected_extraction": {
+        "opportunity_count": 1,
+        "observed_form": "contracted",
+        "canonical_auxiliary_form": "could",
+        "canonical_expanded_form": "could not",
+        "clause_type": "declarative",
+        "conditioning_key": "[\"could\",\"declarative\"]",
+        "rule": "expand_negative_auxiliary",
+        "counterpart_text": "The client could not retry."
+      },
+      "expected_guard_outcome": "observed_preserved",
+      "protected_expectations": [
+        {
+          "id": "could_contracted-polarity",
+          "dimension": "source_aligned_polarity",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 19,
+              "expected": "couldn't"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 25,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 20,
+              "expected": "could not"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 26,
+              "expected": "retry"
+            }
+          ],
+          "note": "Keep negation attached to the same predicate. A preferred surface form does not authorize deletion or relocation of negation."
+        },
+        {
+          "id": "could_contracted-qualification",
+          "dimension": "modal_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 19,
+              "expected": "couldn't"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 20,
+              "expected": "could not"
+            }
+          ],
+          "note": "Retain this exact modal qualification; do not substitute another modal to improve predicted preference. The contextual modal reading is not inferred."
+        },
+        {
+          "id": "could_contracted-content",
+          "dimension": "predicate_argument_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 25,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 26,
+              "expected": "retry"
+            }
+          ],
+          "note": "Keep the actor and predicate. Register, negation emphasis, readability and tone require separate review."
+        }
+      ]
+    },
+    {
+      "id": "can_expanded",
+      "source_text": "The client cannot retry.",
+      "candidate_text": "The client can't retry.",
+      "edits": [
+        {
+          "start_byte": 11,
+          "end_byte": 17,
+          "expected": "cannot",
+          "replacement": "can't"
+        }
+      ],
+      "expected_extraction": {
+        "opportunity_count": 1,
+        "observed_form": "expanded",
+        "canonical_auxiliary_form": "can",
+        "canonical_expanded_form": "cannot",
+        "clause_type": "declarative",
+        "conditioning_key": "[\"can\",\"declarative\"]",
+        "rule": "contract_negative_auxiliary",
+        "counterpart_text": "The client can't retry."
+      },
+      "expected_guard_outcome": "observed_preserved",
+      "protected_expectations": [
+        {
+          "id": "can_expanded-polarity",
+          "dimension": "source_aligned_polarity",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 17,
+              "expected": "cannot"
+            },
+            {
+              "start_byte": 18,
+              "end_byte": 23,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 16,
+              "expected": "can't"
+            },
+            {
+              "start_byte": 17,
+              "end_byte": 22,
+              "expected": "retry"
+            }
+          ],
+          "note": "Keep negation attached to the same predicate. A preferred surface form does not authorize deletion or relocation of negation."
+        },
+        {
+          "id": "can_expanded-qualification",
+          "dimension": "modal_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 17,
+              "expected": "cannot"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 16,
+              "expected": "can't"
+            }
+          ],
+          "note": "Retain this exact modal qualification; do not substitute another modal to improve predicted preference. The contextual modal reading is not inferred."
+        },
+        {
+          "id": "can_expanded-content",
+          "dimension": "predicate_argument_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            },
+            {
+              "start_byte": 18,
+              "end_byte": 23,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            },
+            {
+              "start_byte": 17,
+              "end_byte": 22,
+              "expected": "retry"
+            }
+          ],
+          "note": "Keep the actor and predicate. Register, negation emphasis, readability and tone require separate review."
+        }
+      ]
+    },
+    {
+      "id": "can_contracted",
+      "source_text": "The client can't retry.",
+      "candidate_text": "The client cannot retry.",
+      "edits": [
+        {
+          "start_byte": 11,
+          "end_byte": 16,
+          "expected": "can't",
+          "replacement": "cannot"
+        }
+      ],
+      "expected_extraction": {
+        "opportunity_count": 1,
+        "observed_form": "contracted",
+        "canonical_auxiliary_form": "can",
+        "canonical_expanded_form": "cannot",
+        "clause_type": "declarative",
+        "conditioning_key": "[\"can\",\"declarative\"]",
+        "rule": "expand_negative_auxiliary",
+        "counterpart_text": "The client cannot retry."
+      },
+      "expected_guard_outcome": "observed_preserved",
+      "protected_expectations": [
+        {
+          "id": "can_contracted-polarity",
+          "dimension": "source_aligned_polarity",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 16,
+              "expected": "can't"
+            },
+            {
+              "start_byte": 17,
+              "end_byte": 22,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 17,
+              "expected": "cannot"
+            },
+            {
+              "start_byte": 18,
+              "end_byte": 23,
+              "expected": "retry"
+            }
+          ],
+          "note": "Keep negation attached to the same predicate. A preferred surface form does not authorize deletion or relocation of negation."
+        },
+        {
+          "id": "can_contracted-qualification",
+          "dimension": "modal_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 16,
+              "expected": "can't"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 17,
+              "expected": "cannot"
+            }
+          ],
+          "note": "Retain this exact modal qualification; do not substitute another modal to improve predicted preference. The contextual modal reading is not inferred."
+        },
+        {
+          "id": "can_contracted-content",
+          "dimension": "predicate_argument_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            },
+            {
+              "start_byte": 17,
+              "end_byte": 22,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            },
+            {
+              "start_byte": 18,
+              "end_byte": 23,
+              "expected": "retry"
+            }
+          ],
+          "note": "Keep the actor and predicate. Register, negation emphasis, readability and tone require separate review."
+        }
+      ]
+    }
+  ]
+}

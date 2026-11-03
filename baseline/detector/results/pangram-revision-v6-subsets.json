@@ -1,0 +1,3533 @@
+{
+  "comparisons": {
+    "phi4-R0": {
+      "baseline_artifact_id": "da3a604d7bd1708f5ba1c4a4a4be946d77670492b702e41e267fb86237dfb8c9",
+      "baseline_metrics": {
+        "accuracy": 0.7222222222222222,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.375,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.46428330021639286,
+            "rows": 8,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.6521739130434783,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.545659711391746,
+            "rows": 23,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 0.875,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6441149123046589,
+            "rows": 8,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.742646893540452,
+            "rows": 3,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8467187395361,
+            "rows": 2,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 0.9,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.9818544531009984,
+            "rows": 10,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.9333333333333333,
+            "recall": 0.7777777777777778,
+            "support": 18
+          },
+          {
+            "precision": 0.6666666666666666,
+            "recall": 0.6666666666666666,
+            "support": 18
+          },
+          {
+            "precision": 0.6190476190476191,
+            "recall": 0.7222222222222222,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            0,
+            12,
+            6
+          ],
+          [
+            1,
+            4,
+            13
+          ]
+        ],
+        "log_loss": 0.6886010563698904,
+        "mean_group_accuracy": 0.7222222222222221,
+        "multiclass_brier": 0.4126603843748884,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.12793222430741005
+      },
+      "baseline_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9052925262799454
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8884499969916239
+        }
+      ],
+      "baseline_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 0,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 15,
+            "group_bootstrap_percentile_95": [
+              0.6666666666666666,
+              1.0
+            ],
+            "rate": 0.8333333333333334,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 32,
+            "group_bootstrap_percentile_95": [
+              0.75,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 3,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.8884499969916239
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 15,
+            "group_bootstrap_percentile_95": [
+              0.6666666666666666,
+              1.0
+            ],
+            "rate": 0.8333333333333334,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 32,
+            "group_bootstrap_percentile_95": [
+              0.75,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "baseline_report_sha256": "15ef90e46b45e0d9f3f758501faa2fee7339439c2a562d3be9362cb5932d1cc2",
+      "candidate_artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "candidate_metrics": {
+        "accuracy": 0.7222222222222222,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.6,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.4618213138410863,
+            "rows": 5,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.5625,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5507041084708911,
+            "rows": 16,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 0.8,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.634251540482665,
+            "rows": 10,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 0.6666666666666666,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.7466320207142708,
+            "rows": 3,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 0.0,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8368788827721186,
+            "rows": 1,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 0.8947368421052632,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.9849213564404002,
+            "rows": 19,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.8,
+            "recall": 0.8888888888888888,
+            "support": 18
+          },
+          {
+            "precision": 0.8333333333333334,
+            "recall": 0.5555555555555556,
+            "support": 18
+          },
+          {
+            "precision": 0.5909090909090909,
+            "recall": 0.7222222222222222,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            16,
+            0,
+            2
+          ],
+          [
+            1,
+            10,
+            7
+          ],
+          [
+            3,
+            2,
+            13
+          ]
+        ],
+        "log_loss": 0.7804837187166612,
+        "mean_group_accuracy": 0.7222222222222222,
+        "multiclass_brier": 0.41263535130342427,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.09865542606881844
+      },
+      "candidate_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.8436493155285434
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.4287369114260753
+        }
+      ],
+      "candidate_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 1,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.8436493155285434
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 0,
+            "group_bootstrap_percentile_95": null,
+            "rate": 0.0,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "degenerate_observed_outcomes"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 12,
+            "group_bootstrap_percentile_95": [
+              0.4444444444444444,
+              0.8888888888888888
+            ],
+            "rate": 0.6666666666666666,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 28,
+            "group_bootstrap_percentile_95": [
+              0.6111111111111112,
+              0.9166666666666666
+            ],
+            "rate": 0.7777777777777778,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 5,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.4287369114260753
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 33,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              0.9722222222222222
+            ],
+            "rate": 0.9166666666666666,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "candidate_report_sha256": "9821ca77d8a591102cbdc38c4586444ba31aa5224c75eed5e44e07c7704c97ef",
+      "comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy": {
+            "candidate_minus_baseline": 0.0,
+            "group_bootstrap_percentile_95": [
+              -0.14814814814814814,
+              0.12962962962962962
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": 0.09188266234677073,
+            "group_bootstrap_percentile_95": [
+              -0.1627492699956645,
+              0.4081812798631723
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "multiclass_brier": {
+            "candidate_minus_baseline": -0.000025033071464347737,
+            "group_bootstrap_percentile_95": [
+              -0.09614299313342299,
+              0.10761947793624184
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "three_class",
+        "rows": 54,
+        "source_groups": 18
+      },
+      "evaluation_view": {
+        "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+        "selected_rows": 54,
+        "sha256": "afbfa22449d283e61de799a965777cf9df77c9975d3551955e32aee2b7079367",
+        "source_groups": 18,
+        "split": "test"
+      },
+      "human_model_comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy_at_half": {
+            "candidate_minus_baseline": 0.05555555555555555,
+            "group_bootstrap_percentile_95": [
+              -0.05555555555555555,
+              0.16666666666666666
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "binary_brier": {
+            "candidate_minus_baseline": -0.03619720545354948,
+            "group_bootstrap_percentile_95": [
+              -0.112692446782782,
+              0.04756117910473512
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": -0.08000906724515494,
+            "group_bootstrap_percentile_95": [
+              -0.3220268331062866,
+              0.22257826127860167
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "human_model",
+        "rows": 36,
+        "source_groups": 18
+      },
+      "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+      "schema": "slop_ninja_paired_encoder_comparison_v1",
+      "split": "test"
+    },
+    "phi4-R1": {
+      "baseline_artifact_id": "da3a604d7bd1708f5ba1c4a4a4be946d77670492b702e41e267fb86237dfb8c9",
+      "baseline_metrics": {
+        "accuracy": 0.6481481481481481,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.25,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.4557326764397386,
+            "rows": 8,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.5555555555555556,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5417199689236454,
+            "rows": 27,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6742591549600001,
+            "rows": 4,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.742646893540452,
+            "rows": 3,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8467187395361,
+            "rows": 2,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 0.9,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.9818544531009984,
+            "rows": 10,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.9333333333333333,
+            "recall": 0.7777777777777778,
+            "support": 18
+          },
+          {
+            "precision": 0.5714285714285714,
+            "recall": 0.4444444444444444,
+            "support": 18
+          },
+          {
+            "precision": 0.52,
+            "recall": 0.7222222222222222,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            0,
+            8,
+            10
+          ],
+          [
+            1,
+            4,
+            13
+          ]
+        ],
+        "log_loss": 0.7133051309356596,
+        "mean_group_accuracy": 0.6481481481481481,
+        "multiclass_brier": 0.4297132709245126,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.09665837040844277
+      },
+      "baseline_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9052925262799454
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8884499969916239
+        }
+      ],
+      "baseline_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 0,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 15,
+            "group_bootstrap_percentile_95": [
+              0.6666666666666666,
+              1.0
+            ],
+            "rate": 0.8333333333333334,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 31,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              0.9722222222222222
+            ],
+            "rate": 0.8611111111111112,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 3,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.8884499969916239
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 15,
+            "group_bootstrap_percentile_95": [
+              0.6666666666666666,
+              1.0
+            ],
+            "rate": 0.8333333333333334,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 32,
+            "group_bootstrap_percentile_95": [
+              0.75,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "baseline_report_sha256": "f7a257e9b805aaace3a79c922100b171e856e47e2995fae41aa0ef05511504e8",
+      "candidate_artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "candidate_metrics": {
+        "accuracy": 0.6666666666666666,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.25,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.4691352005310452,
+            "rows": 8,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.46153846153846156,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5523842980406793,
+            "rows": 13,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 0.8571428571428571,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.630059756411075,
+            "rows": 7,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 0.8,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.7477672949905279,
+            "rows": 5,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 0.6666666666666666,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8394064140470651,
+            "rows": 3,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 0.8888888888888888,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.9884855955454606,
+            "rows": 18,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.7619047619047619,
+            "recall": 0.8888888888888888,
+            "support": 18
+          },
+          {
+            "precision": 0.7777777777777778,
+            "recall": 0.3888888888888889,
+            "support": 18
+          },
+          {
+            "precision": 0.5416666666666666,
+            "recall": 0.7222222222222222,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            16,
+            0,
+            2
+          ],
+          [
+            2,
+            7,
+            9
+          ],
+          [
+            3,
+            2,
+            13
+          ]
+        ],
+        "log_loss": 0.7324181490614338,
+        "mean_group_accuracy": 0.6666666666666665,
+        "multiclass_brier": 0.389996475006246,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.1314033827945651
+      },
+      "candidate_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.8436493155285434
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.4287369114260753
+        }
+      ],
+      "candidate_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 1,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.8436493155285434
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 0,
+            "group_bootstrap_percentile_95": null,
+            "rate": 0.0,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "degenerate_observed_outcomes"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 12,
+            "group_bootstrap_percentile_95": [
+              0.4444444444444444,
+              0.8888888888888888
+            ],
+            "rate": 0.6666666666666666,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 28,
+            "group_bootstrap_percentile_95": [
+              0.6111111111111112,
+              0.9166666666666666
+            ],
+            "rate": 0.7777777777777778,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 5,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.4287369114260753
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 33,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              0.9722222222222222
+            ],
+            "rate": 0.9166666666666666,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "candidate_report_sha256": "feef2c423183b7eb1f52971168f32e193d6f695653fc2ea71778ecd1d27a7b5f",
+      "comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy": {
+            "candidate_minus_baseline": 0.018518518518518517,
+            "group_bootstrap_percentile_95": [
+              -0.1111111111111111,
+              0.12962962962962962
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": 0.019113018125774258,
+            "group_bootstrap_percentile_95": [
+              -0.21179285411942855,
+              0.2816792510043405
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "multiclass_brier": {
+            "candidate_minus_baseline": -0.0397167959182667,
+            "group_bootstrap_percentile_95": [
+              -0.12940295909736158,
+              0.06658535289650686
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "three_class",
+        "rows": 54,
+        "source_groups": 18
+      },
+      "evaluation_view": {
+        "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+        "selected_rows": 54,
+        "sha256": "59ff679d9ea84b82d05de21956f8965a56f30504ead37d51952e7c4b8b48d142",
+        "source_groups": 18,
+        "split": "test"
+      },
+      "human_model_comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy_at_half": {
+            "candidate_minus_baseline": 0.05555555555555555,
+            "group_bootstrap_percentile_95": [
+              -0.05555555555555555,
+              0.16666666666666666
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "binary_brier": {
+            "candidate_minus_baseline": -0.03887732351969993,
+            "group_bootstrap_percentile_95": [
+              -0.11287785363674102,
+              0.04368341021942415
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": -0.11397623395567752,
+            "group_bootstrap_percentile_95": [
+              -0.34081630510162775,
+              0.13453698859584223
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "human_model",
+        "rows": 36,
+        "source_groups": 18
+      },
+      "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+      "schema": "slop_ninja_paired_encoder_comparison_v1",
+      "split": "test"
+    },
+    "phi4-R2": {
+      "baseline_artifact_id": "da3a604d7bd1708f5ba1c4a4a4be946d77670492b702e41e267fb86237dfb8c9",
+      "baseline_metrics": {
+        "accuracy": 0.7037037037037037,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.5454545454545454,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.47163409817195456,
+            "rows": 11,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.5652173913043478,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5455944050245423,
+            "rows": 23,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6477958090423284,
+            "rows": 5,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.742646893540452,
+            "rows": 3,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8467187395361,
+            "rows": 2,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 0.9,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.9818544531009984,
+            "rows": 10,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.9333333333333333,
+            "recall": 0.7777777777777778,
+            "support": 18
+          },
+          {
+            "precision": 0.6470588235294118,
+            "recall": 0.6111111111111112,
+            "support": 18
+          },
+          {
+            "precision": 0.5909090909090909,
+            "recall": 0.7222222222222222,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            0,
+            11,
+            7
+          ],
+          [
+            1,
+            4,
+            13
+          ]
+        ],
+        "log_loss": 0.702383428438771,
+        "mean_group_accuracy": 0.7037037037037037,
+        "multiclass_brier": 0.42454654440192025,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.0911396468638669
+      },
+      "baseline_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9052925262799454
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8884499969916239
+        }
+      ],
+      "baseline_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 0,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 15,
+            "group_bootstrap_percentile_95": [
+              0.6666666666666666,
+              1.0
+            ],
+            "rate": 0.8333333333333334,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 32,
+            "group_bootstrap_percentile_95": [
+              0.75,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 3,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.8884499969916239
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 15,
+            "group_bootstrap_percentile_95": [
+              0.6666666666666666,
+              1.0
+            ],
+            "rate": 0.8333333333333334,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 32,
+            "group_bootstrap_percentile_95": [
+              0.75,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "baseline_report_sha256": "885871bc32fa6e027219f6a21702f5772eca570bdd5d25ebc341634daa7ebeed",
+      "candidate_artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "candidate_metrics": {
+        "accuracy": 0.7407407407407407,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.5714285714285714,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.46415776766194755,
+            "rows": 7,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.5,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5582243164140633,
+            "rows": 14,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6397965386858995,
+            "rows": 8,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 0.75,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.7446128005850308,
+            "rows": 4,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 0.5,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8353736823234321,
+            "rows": 2,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 0.8947368421052632,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.9820873389202666,
+            "rows": 19,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.7619047619047619,
+            "recall": 0.8888888888888888,
+            "support": 18
+          },
+          {
+            "precision": 0.8461538461538461,
+            "recall": 0.6111111111111112,
+            "support": 18
+          },
+          {
+            "precision": 0.65,
+            "recall": 0.7222222222222222,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            16,
+            0,
+            2
+          ],
+          [
+            2,
+            11,
+            5
+          ],
+          [
+            3,
+            2,
+            13
+          ]
+        ],
+        "log_loss": 0.7070624835927247,
+        "mean_group_accuracy": 0.7407407407407408,
+        "multiclass_brier": 0.3774204477546873,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.12591887682347896
+      },
+      "candidate_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.8436493155285434
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.4287369114260753
+        }
+      ],
+      "candidate_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 1,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.8436493155285434
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 0,
+            "group_bootstrap_percentile_95": null,
+            "rate": 0.0,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "degenerate_observed_outcomes"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 12,
+            "group_bootstrap_percentile_95": [
+              0.4444444444444444,
+              0.8888888888888888
+            ],
+            "rate": 0.6666666666666666,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 28,
+            "group_bootstrap_percentile_95": [
+              0.6111111111111112,
+              0.9166666666666666
+            ],
+            "rate": 0.7777777777777778,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 5,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.4287369114260753
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 33,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              0.9722222222222222
+            ],
+            "rate": 0.9166666666666666,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "candidate_report_sha256": "3b5156cf255a2cfdbc65e1b2e041aefcbe4d921dd53bc28026b77c8c8bdb3416",
+      "comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy": {
+            "candidate_minus_baseline": 0.037037037037037035,
+            "group_bootstrap_percentile_95": [
+              -0.1111111111111111,
+              0.16666666666666666
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": 0.004679055153953545,
+            "group_bootstrap_percentile_95": [
+              -0.22739849080137853,
+              0.2784804488323826
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "multiclass_brier": {
+            "candidate_minus_baseline": -0.04712609664723307,
+            "group_bootstrap_percentile_95": [
+              -0.1459908637056524,
+              0.06547501849689856
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "three_class",
+        "rows": 54,
+        "source_groups": 18
+      },
+      "evaluation_view": {
+        "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+        "selected_rows": 54,
+        "sha256": "c2ab3449b1fecc0d80eb0968a15ff25565c0ca2c5bc75f00f6106bc9408c13a1",
+        "source_groups": 18,
+        "split": "test"
+      },
+      "human_model_comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy_at_half": {
+            "candidate_minus_baseline": 0.05555555555555555,
+            "group_bootstrap_percentile_95": [
+              -0.05555555555555555,
+              0.16666666666666666
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "binary_brier": {
+            "candidate_minus_baseline": -0.03800449453392014,
+            "group_bootstrap_percentile_95": [
+              -0.11323044513838518,
+              0.03970344352910531
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": -0.12990124520305077,
+            "group_bootstrap_percentile_95": [
+              -0.33471087888329637,
+              0.07616604375058304
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "human_model",
+        "rows": 36,
+        "source_groups": 18
+      },
+      "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+      "schema": "slop_ninja_paired_encoder_comparison_v1",
+      "split": "test"
+    },
+    "primary-R0": {
+      "baseline_artifact_id": "da3a604d7bd1708f5ba1c4a4a4be946d77670492b702e41e267fb86237dfb8c9",
+      "baseline_metrics": {
+        "accuracy": 0.6851851851851852,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": 0.0,
+            "lower_inclusive": 0.3,
+            "mean_confidence": 0.3697671696390583,
+            "rows": 1,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.2,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.4748610384592493,
+            "rows": 5,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.5454545454545454,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5442820913420103,
+            "rows": 22,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 0.7777777777777778,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6483447105249056,
+            "rows": 9,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.7450214680471883,
+            "rows": 5,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8466724889771392,
+            "rows": 3,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.984852185126203,
+            "rows": 9,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 1.0,
+            "recall": 0.7777777777777778,
+            "support": 18
+          },
+          {
+            "precision": 0.5652173913043478,
+            "recall": 0.7222222222222222,
+            "support": 18
+          },
+          {
+            "precision": 0.5882352941176471,
+            "recall": 0.5555555555555556,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            0,
+            13,
+            5
+          ],
+          [
+            0,
+            8,
+            10
+          ]
+        ],
+        "log_loss": 0.6217900980330275,
+        "mean_group_accuracy": 0.685185185185185,
+        "multiclass_brier": 0.3819416789697651,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.08899943489599521
+      },
+      "baseline_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9052925262799454
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8884499969916239
+        }
+      ],
+      "baseline_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 0,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 34,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 3,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.8884499969916239
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 34,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "baseline_report_sha256": "2763f294bef2ac01cc3ed60f7a338f23abb5b0053b1572c6c8911020342da6e1",
+      "candidate_artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "candidate_metrics": {
+        "accuracy": 0.7037037037037037,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.0,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.4729469007280389,
+            "rows": 4,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.7777777777777778,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5441904380717147,
+            "rows": 9,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 0.5454545454545454,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6375527180598936,
+            "rows": 11,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 0.6666666666666666,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.7514040559694074,
+            "rows": 6,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 0.6666666666666666,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8625384555232246,
+            "rows": 6,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 0.9444444444444444,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.9848043986113483,
+            "rows": 18,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.8888888888888888,
+            "recall": 0.8888888888888888,
+            "support": 18
+          },
+          {
+            "precision": 0.6666666666666666,
+            "recall": 0.5555555555555556,
+            "support": 18
+          },
+          {
+            "precision": 0.5714285714285714,
+            "recall": 0.6666666666666666,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            16,
+            0,
+            2
+          ],
+          [
+            1,
+            10,
+            7
+          ],
+          [
+            1,
+            5,
+            12
+          ]
+        ],
+        "log_loss": 0.6162930747833518,
+        "mean_group_accuracy": 0.7037037037037036,
+        "multiclass_brier": 0.3805985942407625,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.13735718153491877
+      },
+      "candidate_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.8436493155285434
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.4287369114260753
+        }
+      ],
+      "candidate_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 1,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.8436493155285434
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 0,
+            "group_bootstrap_percentile_95": null,
+            "rate": 0.0,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "degenerate_observed_outcomes"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 34,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 5,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.4287369114260753
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 34,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "candidate_report_sha256": "f3a3e8982c6efde3776ef67015168c51ac2895568e853a208c117d320355d984",
+      "comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy": {
+            "candidate_minus_baseline": 0.018518518518518517,
+            "group_bootstrap_percentile_95": [
+              -0.05555555555555555,
+              0.09259259259259259
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": -0.005497023249675407,
+            "group_bootstrap_percentile_95": [
+              -0.20636773617418372,
+              0.2588525341079213
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "multiclass_brier": {
+            "candidate_minus_baseline": -0.0013430847290025656,
+            "group_bootstrap_percentile_95": [
+              -0.10797557812945385,
+              0.12673287862388788
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "three_class",
+        "rows": 54,
+        "source_groups": 18
+      },
+      "evaluation_view": {
+        "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+        "selected_rows": 54,
+        "sha256": "be3caa17fa3f772abaf47e6f637795e6152a56e9e0eb06652c9e87620c0e8150",
+        "source_groups": 18,
+        "split": "test"
+      },
+      "human_model_comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy_at_half": {
+            "candidate_minus_baseline": 0.05555555555555555,
+            "group_bootstrap_percentile_95": [
+              -0.05555555555555555,
+              0.16666666666666666
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "binary_brier": {
+            "candidate_minus_baseline": -0.04130503344339579,
+            "group_bootstrap_percentile_95": [
+              -0.11319368330735144,
+              0.038773597266058016
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": -0.11164279274543043,
+            "group_bootstrap_percentile_95": [
+              -0.33576315144562296,
+              0.1391938569290051
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "human_model",
+        "rows": 36,
+        "source_groups": 18
+      },
+      "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+      "schema": "slop_ninja_paired_encoder_comparison_v1",
+      "split": "test"
+    },
+    "primary-R1": {
+      "baseline_artifact_id": "da3a604d7bd1708f5ba1c4a4a4be946d77670492b702e41e267fb86237dfb8c9",
+      "baseline_metrics": {
+        "accuracy": 0.6666666666666666,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.125,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.4742790774037322,
+            "rows": 8,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.5789473684210527,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5452786975379835,
+            "rows": 19,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 0.7272727272727273,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6425225146540217,
+            "rows": 11,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.7379866072788256,
+            "rows": 4,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8466724889771392,
+            "rows": 3,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.984852185126203,
+            "rows": 9,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.9333333333333333,
+            "recall": 0.7777777777777778,
+            "support": 18
+          },
+          {
+            "precision": 0.5454545454545454,
+            "recall": 0.6666666666666666,
+            "support": 18
+          },
+          {
+            "precision": 0.5882352941176471,
+            "recall": 0.5555555555555556,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            1,
+            12,
+            5
+          ],
+          [
+            0,
+            8,
+            10
+          ]
+        ],
+        "log_loss": 0.6291214733102529,
+        "mean_group_accuracy": 0.6666666666666665,
+        "multiclass_brier": 0.38929401968282673,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.11130659523391456
+      },
+      "baseline_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9052925262799454
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8884499969916239
+        }
+      ],
+      "baseline_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 0,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 34,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 3,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.8884499969916239
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 34,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "baseline_report_sha256": "d631f1a823d90700a2667a660a00e42117ae4dd380c2f90cf7246bb8f187735f",
+      "candidate_artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "candidate_metrics": {
+        "accuracy": 0.8333333333333334,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.0,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.43034657834056367,
+            "rows": 1,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.8888888888888888,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5478930686345204,
+            "rows": 9,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 0.75,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6454748875240344,
+            "rows": 8,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 0.7142857142857143,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.7572549839826792,
+            "rows": 7,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 0.6,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8678665190960178,
+            "rows": 5,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 0.9583333333333334,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.980894155137738,
+            "rows": 24,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.8888888888888888,
+            "recall": 0.8888888888888888,
+            "support": 18
+          },
+          {
+            "precision": 0.7727272727272727,
+            "recall": 0.9444444444444444,
+            "support": 18
+          },
+          {
+            "precision": 0.8571428571428571,
+            "recall": 0.6666666666666666,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            16,
+            0,
+            2
+          ],
+          [
+            1,
+            17,
+            0
+          ],
+          [
+            1,
+            5,
+            12
+          ]
+        ],
+        "log_loss": 0.49959228591588767,
+        "mean_group_accuracy": 0.8333333333333333,
+        "multiclass_brier": 0.29706969004872763,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.12068679753892894
+      },
+      "candidate_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.8436493155285434
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.4287369114260753
+        }
+      ],
+      "candidate_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 1,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.8436493155285434
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 0,
+            "group_bootstrap_percentile_95": null,
+            "rate": 0.0,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "degenerate_observed_outcomes"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 34,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 5,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.4287369114260753
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 34,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "candidate_report_sha256": "7bb7dbb1884d4ae34d47dadc83638121ce79db8d8230808093c3cd4606b8c6ff",
+      "comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy": {
+            "candidate_minus_baseline": 0.16666666666666666,
+            "group_bootstrap_percentile_95": [
+              0.018518518518518517,
+              0.3148148148148148
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": -0.12952918739436528,
+            "group_bootstrap_percentile_95": [
+              -0.32931154028567483,
+              0.13658013884078563
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "multiclass_brier": {
+            "candidate_minus_baseline": -0.09222432963409935,
+            "group_bootstrap_percentile_95": [
+              -0.2087851628094452,
+              0.04930118943000497
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "three_class",
+        "rows": 54,
+        "source_groups": 18
+      },
+      "evaluation_view": {
+        "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+        "selected_rows": 54,
+        "sha256": "84fcadd64a589026e24e82c96e7f015aa1682c3ea4a6b1d6676233cd8dd4ea2e",
+        "source_groups": 18,
+        "split": "test"
+      },
+      "human_model_comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy_at_half": {
+            "candidate_minus_baseline": 0.05555555555555555,
+            "group_bootstrap_percentile_95": [
+              -0.05555555555555555,
+              0.16666666666666666
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "binary_brier": {
+            "candidate_minus_baseline": -0.044645109075007815,
+            "group_bootstrap_percentile_95": [
+              -0.11570168602718159,
+              0.028084110614519972
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": -0.13177384095416458,
+            "group_bootstrap_percentile_95": [
+              -0.35133789018994427,
+              0.10386071158724705
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "human_model",
+        "rows": 36,
+        "source_groups": 18
+      },
+      "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+      "schema": "slop_ninja_paired_encoder_comparison_v1",
+      "split": "test"
+    },
+    "primary-R2": {
+      "baseline_artifact_id": "da3a604d7bd1708f5ba1c4a4a4be946d77670492b702e41e267fb86237dfb8c9",
+      "baseline_metrics": {
+        "accuracy": 0.7037037037037037,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.2857142857142857,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.48142899013157575,
+            "rows": 7,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.5238095238095238,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5420978021381766,
+            "rows": 21,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 0.8888888888888888,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6428746421491545,
+            "rows": 9,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.7329705496143164,
+            "rows": 5,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8466724889771392,
+            "rows": 3,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.984852185126203,
+            "rows": 9,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 1.0,
+            "recall": 0.7777777777777778,
+            "support": 18
+          },
+          {
+            "precision": 0.5833333333333334,
+            "recall": 0.7777777777777778,
+            "support": 18
+          },
+          {
+            "precision": 0.625,
+            "recall": 0.5555555555555556,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            0,
+            14,
+            4
+          ],
+          [
+            0,
+            8,
+            10
+          ]
+        ],
+        "log_loss": 0.6337923596207601,
+        "mean_group_accuracy": 0.7037037037037037,
+        "multiclass_brier": 0.3819851637661161,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.10925268732113932
+      },
+      "baseline_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9052925262799454
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8884499969916239
+        }
+      ],
+      "baseline_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 0,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 33,
+            "group_bootstrap_percentile_95": [
+              0.7777777777777778,
+              1.0
+            ],
+            "rate": 0.9166666666666666,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 3,
+            "calibration_human_groups": 67,
+            "calibration_human_rows": 67,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.8884499969916239
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 33,
+            "group_bootstrap_percentile_95": [
+              0.7777777777777778,
+              1.0
+            ],
+            "rate": 0.9166666666666666,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "baseline_report_sha256": "1ae0a7e68ada7ada45bdaf8cd5cdea63ef40ebe6546556cf81d28e46cdea482c",
+      "candidate_artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "candidate_metrics": {
+        "accuracy": 0.7962962962962963,
+        "calibration_bins": [
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.0,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.1
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.1,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.2
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.2,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.3
+          },
+          {
+            "accuracy": null,
+            "lower_inclusive": 0.3,
+            "mean_confidence": null,
+            "rows": 0,
+            "upper_inclusive_last_bin": 0.4
+          },
+          {
+            "accuracy": 0.0,
+            "lower_inclusive": 0.4,
+            "mean_confidence": 0.43034657834056367,
+            "rows": 1,
+            "upper_inclusive_last_bin": 0.5
+          },
+          {
+            "accuracy": 0.8,
+            "lower_inclusive": 0.5,
+            "mean_confidence": 0.5513117321320997,
+            "rows": 10,
+            "upper_inclusive_last_bin": 0.6
+          },
+          {
+            "accuracy": 0.625,
+            "lower_inclusive": 0.6,
+            "mean_confidence": 0.6439218400182811,
+            "rows": 8,
+            "upper_inclusive_last_bin": 0.7
+          },
+          {
+            "accuracy": 0.4,
+            "lower_inclusive": 0.7,
+            "mean_confidence": 0.7443774309772628,
+            "rows": 5,
+            "upper_inclusive_last_bin": 0.8
+          },
+          {
+            "accuracy": 0.75,
+            "lower_inclusive": 0.8,
+            "mean_confidence": 0.8549869220191308,
+            "rows": 8,
+            "upper_inclusive_last_bin": 0.9
+          },
+          {
+            "accuracy": 1.0,
+            "lower_inclusive": 0.9,
+            "mean_confidence": 0.9805692792916509,
+            "rows": 22,
+            "upper_inclusive_last_bin": 1.0
+          }
+        ],
+        "classes": [
+          {
+            "precision": 0.8888888888888888,
+            "recall": 0.8888888888888888,
+            "support": 18
+          },
+          {
+            "precision": 0.75,
+            "recall": 0.8333333333333334,
+            "support": 18
+          },
+          {
+            "precision": 0.75,
+            "recall": 0.6666666666666666,
+            "support": 18
+          }
+        ],
+        "confusion": [
+          [
+            16,
+            0,
+            2
+          ],
+          [
+            1,
+            15,
+            2
+          ],
+          [
+            1,
+            5,
+            12
+          ]
+        ],
+        "log_loss": 0.5161992279901906,
+        "mean_group_accuracy": 0.7962962962962962,
+        "multiclass_brier": 0.31966040224100145,
+        "rows": 54,
+        "source_groups": 18,
+        "top_label_ece_10_bins": 0.11218263636646031
+      },
+      "candidate_near_cutoffs": [
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.8436493155285434
+        },
+        {
+          "diagnostic_margin": 2e-6,
+          "human_rows": 0,
+          "rows": 0,
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.4287369114260753
+        }
+      ],
+      "candidate_operating_points": [
+        {
+          "calibration": {
+            "calibration_false_positives": 1,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.8436493155285434
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 0,
+            "group_bootstrap_percentile_95": null,
+            "rate": 0.0,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "degenerate_observed_outcomes"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 16,
+            "group_bootstrap_percentile_95": [
+              0.7222222222222222,
+              1.0
+            ],
+            "rate": 0.8888888888888888,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 33,
+            "group_bootstrap_percentile_95": [
+              0.7777777777777778,
+              1.0
+            ],
+            "rate": 0.9166666666666666,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        },
+        {
+          "calibration": {
+            "calibration_false_positives": 5,
+            "calibration_human_groups": 108,
+            "calibration_human_rows": 108,
+            "comparison": "strictly_greater_than",
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.4287369114260753
+          },
+          "human_false_positive_rate": {
+            "bootstrap_replicates": 512,
+            "events": 2,
+            "group_bootstrap_percentile_95": [
+              0.0,
+              0.2777777777777778
+            ],
+            "rate": 0.1111111111111111,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_only_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 17,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 18,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          },
+          "model_or_mixed_sensitivity": {
+            "bootstrap_replicates": 512,
+            "events": 34,
+            "group_bootstrap_percentile_95": [
+              0.8333333333333334,
+              1.0
+            ],
+            "rate": 0.9444444444444444,
+            "rows": 36,
+            "source_groups": 18,
+            "uncertainty_status": "group_bootstrap_percentile"
+          }
+        }
+      ],
+      "candidate_report_sha256": "ae504ab9a2ec9dabf182fa8ae824636b5309bb9ae994fd33660c6f5ecc56e569",
+      "comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy": {
+            "candidate_minus_baseline": 0.09259259259259259,
+            "group_bootstrap_percentile_95": [
+              -0.037037037037037035,
+              0.2037037037037037
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": -0.11759313163056939,
+            "group_bootstrap_percentile_95": [
+              -0.31216330543637816,
+              0.09225645686421717
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "multiclass_brier": {
+            "candidate_minus_baseline": -0.062324761525114875,
+            "group_bootstrap_percentile_95": [
+              -0.18199370823772956,
+              0.0700758234872057
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "three_class",
+        "rows": 54,
+        "source_groups": 18
+      },
+      "evaluation_view": {
+        "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+        "selected_rows": 54,
+        "sha256": "31683177e354d7fe9891384f6b8a4e40c293689b1ba9b4cd6231688836007240",
+        "source_groups": 18,
+        "split": "test"
+      },
+      "human_model_comparison": {
+        "bootstrap_replicates": 512,
+        "bootstrap_seed": "243f6a8885a308d3",
+        "deltas": {
+          "accuracy_at_half": {
+            "candidate_minus_baseline": 0.05555555555555555,
+            "group_bootstrap_percentile_95": [
+              -0.05555555555555555,
+              0.16666666666666666
+            ],
+            "improvement_direction": "positive",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "binary_brier": {
+            "candidate_minus_baseline": -0.05065427759780011,
+            "group_bootstrap_percentile_95": [
+              -0.11586391741619186,
+              0.01001636862168517
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          },
+          "log_loss": {
+            "candidate_minus_baseline": -0.1778173088783707,
+            "group_bootstrap_percentile_95": [
+              -0.35304435043983595,
+              -0.02189735075025036
+            ],
+            "improvement_direction": "negative",
+            "uncertainty_status": "paired_source_group_percentile"
+          }
+        },
+        "limits": "Intervals assume independent source families and do not cover arbitrary new registers, generators or pretraining contamination. Degenerate intervals are omitted. Different frozen thresholds do not establish matched-FPR superiority.",
+        "method": "Sample complete source families with replacement, using the same draw for both detectors; average all sampled rows. Sorted IDs/groups and a fixed SplitMix64 stream make the calculation reproducible.",
+        "objective": "human_model",
+        "rows": 36,
+        "source_groups": 18
+      },
+      "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+      "schema": "slop_ninja_paired_encoder_comparison_v1",
+      "split": "test"
+    }
+  },
+  "limits": "Six stage views share human and edited texts. These are not independent sample expansions. The 18 complete paired families cannot establish rare population false-positive rates or Pangram parity.",
+  "model_calls": 0,
+  "pangram_calls": 0,
+  "schema": "slop_ninja_revision_subset_comparisons_v1",
+  "selected_families": 18,
+  "source_prediction_exports_preserved": true,
+  "unique_texts": 162
+}

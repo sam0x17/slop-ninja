@@ -1,0 +1,115 @@
+{
+  "schema": "slop_ninja_a_edit_stress_review_v1",
+  "reviewer": "Codex manual text and syntax inspection, 2026-09-14",
+  "detector_scores_seen": false,
+  "selection": "First hash-ranked source family per collection in the previously frozen 12-family Development study, all three stages and every prepared state. No redraws.",
+  "scope": "Read all 26 complete state texts and their exact patches. Inspected predicate, subject and negation dependencies, including original and combined states. Reviewed preservation relative to each stage's own source, not whether earlier model generation preserved the human source. This is a single assistant review without author approval or exhaustive dependency annotation.",
+  "policy": "Score all 26 reviewed states, retain quality concerns as a separate slice, and leave the other 119 states unscored and pending review. All interventions remain evaluation-only.",
+  "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+  "runtime": "cpu_float32_eager",
+  "thresholds_strictly_greater_than": [
+    0.8436493155285434,
+    0.4287369114260753
+  ],
+  "documents": [
+    {
+      "path": "documents/000-human.json",
+      "source_sha256": "378557a2d6848419e894a8a09fd8b9d6c4b496761f0cf1ce84eee9294395454e",
+      "admissible_masks": [
+        1
+      ],
+      "quality_concern_masks": [],
+      "register_shift_masks": [],
+      "note": "The join retains two complete clauses about the same confrontation. Carpathia remains the subject of stages; Hattie remains the subject of confronts. No new agency, negation or attribution. Outside this edit, the parser splits at Trib. and produces a Force fragment; it also mishandles the absolute/inverted construction with Leading them. Full parse correctness is not certified."
+    },
+    {
+      "path": "documents/001-draft.json",
+      "source_sha256": "5801329f34853cbba49979b88288fff6248d9036a2aec4f8332441209f9ea61e",
+      "admissible_masks": [],
+      "quality_concern_masks": [],
+      "register_shift_masks": [],
+      "note": "Unmodified control; no nominations. The parser makes met the root of the opening absolute construction, although commits is the main predicate. The model source includes substantive changes from the human account; this control represents model provenance, not a faithful transformation."
+    },
+    {
+      "path": "documents/002-revision2.json",
+      "source_sha256": "dccd0f34b44672170c38c6010b9b7bed72d7a809e3bf2aabd7ba09143a7d2c63",
+      "admissible_masks": [
+        2,
+        4,
+        6
+      ],
+      "quality_concern_masks": [
+        1,
+        3,
+        5,
+        7
+      ],
+      "register_shift_masks": [],
+      "note": "All seven edited states retain claims and negative scope. The first join combines an already complex killing/loyalty sentence with a distinct mass-marking event; retain a density/discourse concern whenever that join is present. The second join connects a leader and his companion coherently. The contraction retains the is/not-a-speech-but-a-scene contrast. These changes remain separable in combinations. Outside the edits, the parser selects deliberate and trembling as roots of absolute constructions and labels close as ADV. No claim that the original model revision preserves its human ancestor."
+    },
+    {
+      "path": "documents/012-human.json",
+      "source_sha256": "892fe4252054f545e0004ac262b42217f2c957ad42299e19e25172c9e9cea6ca",
+      "admissible_masks": [
+        1
+      ],
+      "quality_concern_masks": [],
+      "register_shift_masks": [
+        2,
+        3
+      ],
+      "note": "The join links unexplained cases to a suggested explanation while retaining the hedge has been suggested and all numerical claims. The contraction preserves does/not/reveal negation but is less formal in this scientific abstract; mark that register change alone and in combination. Reviewed incidence/remained, cases/remain, it/suggested, investigation/reveal dependencies. No medical accuracy validation is implied."
+    },
+    {
+      "path": "documents/013-draft.json",
+      "source_sha256": "f7f4651c6e656e7af1a603a0efbfca2fb14723f09a400aaa014e9958f8fbe356",
+      "admissible_masks": [],
+      "quality_concern_masks": [],
+      "register_shift_masks": [],
+      "note": "Unmodified control; no nominations. Original model wording strengthens the human source's conclusion. This is a provenance control, not an editorially accepted rewrite."
+    },
+    {
+      "path": "documents/014-revision2.json",
+      "source_sha256": "54d381f78fe643b733e3c7f0bff1121370a982b58a6dc048ec12754830cd917b",
+      "admissible_masks": [
+        1
+      ],
+      "quality_concern_masks": [],
+      "register_shift_masks": [],
+      "note": "The joined concluding clauses preserve may contribute and the existing screening recommendation. Finding/suggests and results/advocate remain separate subjects and predicates. Earlier model drift in statistics/conclusions is inherited, not introduced by this punctuation edit. Parser incorrectly selects study as the opening root; do not certify that untouched parse."
+    },
+    {
+      "path": "documents/024-human.json",
+      "source_sha256": "6cf3118c8a8e2b1acc4836a1384ed400253506d27ed3a75e1f38a4f3b7579610",
+      "admissible_masks": [
+        2
+      ],
+      "quality_concern_masks": [
+        1,
+        3
+      ],
+      "register_shift_masks": [],
+      "note": "Both joins preserve facts and complete clauses. The first creates an unnecessarily long lead with two substantial claims; mark density concern alone and in combination. The second coherently links Tolkien's languages to their screen appearance. Proper-name Cameron remains capitalized. Subject/predicate pairs remain release/generated, Cameron/asked, Tolkien/developed and language/featured. Other sentence roots character and compound title dependencies are faulty outside the edits."
+    },
+    {
+      "path": "documents/025-draft.json",
+      "source_sha256": "aa2fee03adbf5235e1cd808aa723a5c5b43f0a49323a22696715d4b8170fa910",
+      "admissible_masks": [
+        1
+      ],
+      "quality_concern_masks": [],
+      "register_shift_masks": [],
+      "note": "The join connects a general example to its specific Elvish instance, retains the author/work/film relationships and has two complete main clauses. Example/comes and languages/found remain the heads; embedded he/created retains Tolkien as antecedent."
+    },
+    {
+      "path": "documents/026-revision2.json",
+      "source_sha256": "81fdcf9599991ea625c239ac9e506bd6b745045e786e3fafa3d15763700ace9e",
+      "admissible_masks": [
+        1
+      ],
+      "quality_concern_masks": [],
+      "register_shift_masks": [],
+      "note": "The join retains the Okrand inspiration and dictionary-sales claims. Okrand/drew and Dictionary/sold remain complete clauses. The source already has a misplaced who-relative after speech patterns; the edit does not repair or introduce it. Accept for the provenance stress diagnostic, without certifying the source as good prose."
+    }
+  ]
+}

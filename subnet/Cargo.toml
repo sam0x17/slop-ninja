@@ -1,0 +1,67 @@
+[package]
+name = "slop-ninja-subnet"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Durable native weight adapter for Slop Ninja"
+
+[workspace]
+members = [
+    ".",
+    "crates/artifact-check",
+    "crates/protocol",
+    "crates/protocol-check",
+    "crates/protocol-wasm-fixture",
+    "crates/validator",
+    "crates/miner",
+    "crates/miner/wire",
+]
+resolver = "3"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+slop-ninja-protocol = { path = "crates/protocol" }
+rtao-client = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-neuron = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44", default-features = false, features = ["validator"] }
+rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44", features = ["serde"] }
+rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+scale-info = { version = "2.11", default-features = false }
+
+[features]
+# Offline tests in dependent crates: clear the pause that opening persists, so
+# storage-level enqueue can run without a chain. It never marks recovery
+# complete, so no signer can be attached. Never enable in a release build.
+offline-test-hooks = []
+
+[dev-dependencies]
+tempfile = "3"
+# Test-only: attempt hashes are BLAKE2b-256 of the signed bytes.
+blake2 = "0.10"
+# Test-only metadata mutation: decode a recorded metadata snapshot, move indices
+# or change arguments, and re-encode it for the live-surface tests.
+frame-metadata = { version = "23", default-features = false, features = ["current", "decode", "std"] }
+parity-scale-codec = { version = "3.7", default-features = false, features = ["std"] }
+
+# Cargo does not inherit patches from a Git dependency's workspace. Mirror the
+# selected rtao revision's core fixes so the compiled code matches its pin.
+[patch.crates-io]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[patch."https://github.com/RaoFoundation/subtensor.git"]
+bittensor-core = { git = "https://github.com/sam0x17/subtensor.git", rev = "5f2477f5290f5f4cb467524754cc025626b52974" }
+
+[patch."https://github.com/sam0x17/subtensor.git"]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+subtensor-macros = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[[bin]]
+name = "slop-ninja-journal"
+path = "src/main.rs"

@@ -1,0 +1,1874 @@
+{
+  "schema": "slop_ninja.runtime_needed.v1",
+  "runtime": {
+    "schema": "slop_ninja.runtime_provenance.v1",
+    "network": "testnet",
+    "endpoint": "https://test.finney.opentensor.ai:443",
+    "fetched_at": "2026-10-30T01:23:36Z",
+    "genesis": "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105",
+    "finalized_head": "0xff4dbadfb114a8a50b5b63a387aeec6c3e18b8bcf385733c0fe960df92816003",
+    "finalized_number": 8331758,
+    "spec_name": "node-subtensor",
+    "spec_version": 486,
+    "transaction_version": 1,
+    "code_storage_hash": "0x49781ac4cfda0ac6cf6e53cfceea7c728394d9c28da7881f47e3fbfbc239800f",
+    "state_get_metadata_v14_sha256": "142e2f2735d9585567fd71e080554a2a0ec10d4ad0bcedb4993e87e473ddd852"
+  },
+  "metadata": {
+    "v15_sha256": "582b1d0568a4c1a4c5e9ab2b0038ea4c0f8c61f4972ce1af91fa6dfb0ab01a81",
+    "v15_blake2b_256": "9a0a99c8d7a561d76053a64774849c90e6c0faff4f0c3d03c2e7b393767fbf92",
+    "v15_bytes": 411830,
+    "v16_sha256": "e96a429def2d05791ac2bbf57f9f5287d6fb07c44900d71353c2697d8a7b6da4",
+    "v16_blake2b_256": "e99c3ada56326acf0cbe93bc15e8ad779006e60b5b31465b4b4b583d4f5bba92",
+    "v16_bytes": 415879
+  },
+  "pallets": {
+    "System": {
+      "index": 0,
+      "calls": 11
+    },
+    "RandomnessCollectiveFlip": {
+      "index": 1,
+      "calls": 0
+    },
+    "Timestamp": {
+      "index": 2,
+      "calls": 1
+    },
+    "Aura": {
+      "index": 3,
+      "calls": 0
+    },
+    "Grandpa": {
+      "index": 4,
+      "calls": 3
+    },
+    "Balances": {
+      "index": 5,
+      "calls": 9
+    },
+    "TransactionPayment": {
+      "index": 6,
+      "calls": 0
+    },
+    "SubtensorModule": {
+      "index": 7,
+      "calls": 89
+    },
+    "Utility": {
+      "index": 11,
+      "calls": 8
+    },
+    "Sudo": {
+      "index": 12,
+      "calls": 5
+    },
+    "Multisig": {
+      "index": 13,
+      "calls": 5
+    },
+    "Preimage": {
+      "index": 14,
+      "calls": 5
+    },
+    "Scheduler": {
+      "index": 15,
+      "calls": 10
+    },
+    "Proxy": {
+      "index": 16,
+      "calls": 12
+    },
+    "Commitments": {
+      "index": 18,
+      "calls": 2
+    },
+    "AdminUtils": {
+      "index": 19,
+      "calls": 98
+    },
+    "SafeMode": {
+      "index": 20,
+      "calls": 8
+    },
+    "Ethereum": {
+      "index": 21,
+      "calls": 1
+    },
+    "EVM": {
+      "index": 22,
+      "calls": 6
+    },
+    "EVMChainId": {
+      "index": 23,
+      "calls": 0
+    },
+    "BaseFee": {
+      "index": 25,
+      "calls": 2
+    },
+    "Drand": {
+      "index": 26,
+      "calls": 3
+    },
+    "Crowdloan": {
+      "index": 27,
+      "calls": 10
+    },
+    "Swap": {
+      "index": 28,
+      "calls": 6
+    },
+    "Contracts": {
+      "index": 29,
+      "calls": 10
+    },
+    "MevShield": {
+      "index": 30,
+      "calls": 7
+    },
+    "AlphaAssets": {
+      "index": 31,
+      "calls": 0
+    },
+    "LimitOrders": {
+      "index": 32,
+      "calls": 5
+    }
+  },
+  "extrinsic": {
+    "versions": [
+      4,
+      5
+    ],
+    "address": "MultiAddress<AccountId32, ()>",
+    "signature": "MultiSignature",
+    "signed_extensions_columns": [
+      "identifier",
+      "explicit_shape_sha256_16",
+      "additional_signed",
+      "additional_shape_sha256_16"
+    ],
+    "signed_extensions": [
+      [
+        "CheckNonZeroSender",
+        "8e191808aca73576",
+        "()",
+        "2e38e77b22c314a4"
+      ],
+      [
+        "CheckSpecVersion",
+        "50c1a91818e3fb9c",
+        "u32",
+        "d7649d428b9ff33d"
+      ],
+      [
+        "CheckTxVersion",
+        "4c6019246599cf2a",
+        "u32",
+        "d7649d428b9ff33d"
+      ],
+      [
+        "CheckGenesis",
+        "4582d388e7119295",
+        "H256",
+        "8e300e728819d12c"
+      ],
+      [
+        "CheckMortality",
+        "94d92a44666c1f51",
+        "H256",
+        "8e300e728819d12c"
+      ],
+      [
+        "CheckNonce",
+        "d1837b70c48736b4",
+        "()",
+        "2e38e77b22c314a4"
+      ],
+      [
+        "CheckWeight",
+        "b4b6f18d1b75f2c4",
+        "()",
+        "2e38e77b22c314a4"
+      ],
+      [
+        "ChargeTransactionPayment",
+        "09cd457f0f77ce14",
+        "()",
+        "2e38e77b22c314a4"
+      ],
+      [
+        "SudoTransactionExtension",
+        "4b98b9f5d602ff91",
+        "()",
+        "2e38e77b22c314a4"
+      ],
+      [
+        "CheckShieldedTxValidity",
+        "b2112b8494244ca0",
+        "()",
+        "2e38e77b22c314a4"
+      ],
+      [
+        "SubtensorTransactionExtension",
+        "a83b27d69e451324",
+        "()",
+        "2e38e77b22c314a4"
+      ],
+      [
+        "DrandPriority",
+        "368e54d620c89ba3",
+        "()",
+        "2e38e77b22c314a4"
+      ],
+      [
+        "CheckMetadataHash",
+        "9a19bc0226c05cd9",
+        "Option<[u8; 32]>",
+        "e71469517ce98ab5"
+      ]
+    ],
+    "transaction_extensions_by_version": {
+      "0": [
+        "CheckNonZeroSender",
+        "CheckSpecVersion",
+        "CheckTxVersion",
+        "CheckGenesis",
+        "CheckMortality",
+        "CheckNonce",
+        "CheckWeight",
+        "ChargeTransactionPayment",
+        "SudoTransactionExtension",
+        "CheckShieldedTxValidity",
+        "SubtensorTransactionExtension",
+        "DrandPriority",
+        "CheckMetadataHash"
+      ]
+    }
+  },
+  "calls": {
+    "SubtensorModule.commit_timelocked_weights": {
+      "index": [
+        7,
+        113
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "commit",
+          "BoundedVec<u8>"
+        ],
+        [
+          "reveal_round",
+          "u64"
+        ],
+        [
+          "commit_reveal_version",
+          "u16"
+        ]
+      ],
+      "args_sha256_16": "3a3af74668eaae6f",
+      "origin": "signed hotkey",
+      "purpose": "timelocked (CRv4) weight commit"
+    },
+    "SubtensorModule.commit_timelocked_mechanism_weights": {
+      "index": [
+        7,
+        118
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "mecid",
+          "MechId"
+        ],
+        [
+          "commit",
+          "BoundedVec<u8>"
+        ],
+        [
+          "reveal_round",
+          "u64"
+        ],
+        [
+          "commit_reveal_version",
+          "u16"
+        ]
+      ],
+      "args_sha256_16": "c4ad26ee114dd639",
+      "origin": "signed hotkey",
+      "purpose": "timelocked commit with mechanism id"
+    },
+    "SubtensorModule.commit_crv3_weights": {
+      "absent": true,
+      "purpose": "legacy CRv3 commit name"
+    },
+    "SubtensorModule.set_weights": {
+      "index": [
+        7,
+        0
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "dests",
+          "Vec<u16>"
+        ],
+        [
+          "weights",
+          "Vec<u16>"
+        ],
+        [
+          "version_key",
+          "u64"
+        ]
+      ],
+      "args_sha256_16": "592b1c194c63d9d2",
+      "origin": "signed hotkey",
+      "purpose": "plaintext weights; refused while commit-reveal is on"
+    },
+    "SubtensorModule.set_mechanism_weights": {
+      "index": [
+        7,
+        119
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "mecid",
+          "MechId"
+        ],
+        [
+          "dests",
+          "Vec<u16>"
+        ],
+        [
+          "weights",
+          "Vec<u16>"
+        ],
+        [
+          "version_key",
+          "u64"
+        ]
+      ],
+      "args_sha256_16": "1a63a4170a2aeadf",
+      "origin": "signed hotkey",
+      "purpose": "plaintext weights with mechanism id"
+    },
+    "SubtensorModule.commit_weights": {
+      "index": [
+        7,
+        96
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "commit_hash",
+          "H256"
+        ]
+      ],
+      "args_sha256_16": "ff8cf8a90f7a842a",
+      "origin": "signed hotkey",
+      "purpose": "hash commit-reveal (CRv2) commit"
+    },
+    "SubtensorModule.reveal_weights": {
+      "index": [
+        7,
+        97
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "uids",
+          "Vec<u16>"
+        ],
+        [
+          "values",
+          "Vec<u16>"
+        ],
+        [
+          "salt",
+          "Vec<u16>"
+        ],
+        [
+          "version_key",
+          "u64"
+        ]
+      ],
+      "args_sha256_16": "b4ddbc30e51e4cbb",
+      "origin": "signed hotkey",
+      "purpose": "hash commit-reveal (CRv2) reveal"
+    },
+    "SubtensorModule.register": {
+      "index": [
+        7,
+        6
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "block_number",
+          "u64"
+        ],
+        [
+          "nonce",
+          "u64"
+        ],
+        [
+          "work",
+          "Vec<u8>"
+        ],
+        [
+          "hotkey",
+          "AccountId32"
+        ],
+        [
+          "coldkey",
+          "AccountId32"
+        ]
+      ],
+      "args_sha256_16": "63eacbb8c2575bfb",
+      "origin": "signed coldkey (pays burn)",
+      "purpose": "legacy alias of burned_register; PoW arguments ignored"
+    },
+    "SubtensorModule.pow_register": {
+      "index": [
+        7,
+        152
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "work_block",
+          "u64"
+        ],
+        [
+          "nonce",
+          "u64"
+        ],
+        [
+          "work",
+          "[u8; 32]"
+        ],
+        [
+          "hotkey",
+          "AccountId32"
+        ]
+      ],
+      "args_sha256_16": "5885fe74383d752d",
+      "origin": "signed coldkey",
+      "purpose": "owner-enabled PoW registration without burn"
+    },
+    "SubtensorModule.burned_register": {
+      "index": [
+        7,
+        7
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "hotkey",
+          "AccountId32"
+        ]
+      ],
+      "args_sha256_16": "37e85ab5276a1031",
+      "origin": "signed coldkey",
+      "purpose": "burn registration of miners and validators"
+    },
+    "SubtensorModule.register_network": {
+      "index": [
+        7,
+        59
+      ],
+      "args": [
+        [
+          "hotkey",
+          "AccountId32"
+        ]
+      ],
+      "args_sha256_16": "b797103873a17e17",
+      "origin": "signed coldkey",
+      "purpose": "subnet registration"
+    },
+    "SubtensorModule.register_network_with_identity": {
+      "index": [
+        7,
+        79
+      ],
+      "args": [
+        [
+          "hotkey",
+          "AccountId32"
+        ],
+        [
+          "identity",
+          "Option<SubnetIdentityV3>"
+        ]
+      ],
+      "args_sha256_16": "4329b8b24872a3b3",
+      "origin": "signed coldkey",
+      "purpose": "subnet registration with identity"
+    },
+    "SubtensorModule.start_call": {
+      "index": [
+        7,
+        92
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ]
+      ],
+      "args_sha256_16": "334c5f68708d5d18",
+      "origin": "signed subnet owner coldkey",
+      "purpose": "owner start of subnet emissions"
+    },
+    "SubtensorModule.serve_axon": {
+      "index": [
+        7,
+        4
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "version",
+          "u32"
+        ],
+        [
+          "ip",
+          "u128"
+        ],
+        [
+          "port",
+          "u16"
+        ],
+        [
+          "ip_type",
+          "u8"
+        ],
+        [
+          "protocol",
+          "u8"
+        ],
+        [
+          "placeholder1",
+          "u8"
+        ],
+        [
+          "placeholder2",
+          "u8"
+        ]
+      ],
+      "args_sha256_16": "70acc1eb4bc6d675",
+      "origin": "signed hotkey",
+      "purpose": "axon announcement"
+    },
+    "SubtensorModule.serve_axon_tls": {
+      "index": [
+        7,
+        40
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "version",
+          "u32"
+        ],
+        [
+          "ip",
+          "u128"
+        ],
+        [
+          "port",
+          "u16"
+        ],
+        [
+          "ip_type",
+          "u8"
+        ],
+        [
+          "protocol",
+          "u8"
+        ],
+        [
+          "placeholder1",
+          "u8"
+        ],
+        [
+          "placeholder2",
+          "u8"
+        ],
+        [
+          "certificate",
+          "Vec<u8>"
+        ]
+      ],
+      "args_sha256_16": "826d86a23c010e05",
+      "origin": "signed hotkey",
+      "purpose": "axon announcement with certificate"
+    },
+    "SubtensorModule.add_stake": {
+      "index": [
+        7,
+        2
+      ],
+      "args": [
+        [
+          "hotkey",
+          "AccountId32"
+        ],
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "amount_staked",
+          "TaoBalance"
+        ]
+      ],
+      "args_sha256_16": "20362af16a5eb9d5",
+      "origin": "signed coldkey",
+      "purpose": "validator stake"
+    },
+    "AdminUtils.sudo_set_commit_reveal_weights_enabled": {
+      "index": [
+        19,
+        49
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "enabled",
+          "bool"
+        ]
+      ],
+      "args_sha256_16": "cc8a421d70980c2e",
+      "origin": "subnet owner coldkey (owner rate limit, admin freeze window) or root",
+      "purpose": "CommitRevealWeightsEnabled"
+    },
+    "AdminUtils.sudo_set_commit_reveal_weights_interval": {
+      "index": [
+        19,
+        57
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "interval",
+          "u64"
+        ]
+      ],
+      "args_sha256_16": "b025127c8d13bf3c",
+      "origin": "subnet owner coldkey (owner rate limit, admin freeze window) or root",
+      "purpose": "RevealPeriodEpochs"
+    },
+    "AdminUtils.sudo_set_weights_version_key": {
+      "index": [
+        19,
+        6
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "weights_version_key",
+          "u64"
+        ]
+      ],
+      "args_sha256_16": "b025127c8d13bf3c",
+      "origin": "subnet owner coldkey (owner rate limit, admin freeze window) or root",
+      "purpose": "WeightsVersionKey"
+    },
+    "AdminUtils.sudo_set_activity_cutoff": {
+      "index": [
+        19,
+        18
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "activity_cutoff",
+          "u16"
+        ]
+      ],
+      "args_sha256_16": "e440857352e67bbe",
+      "origin": "subnet owner coldkey (owner rate limit, admin freeze window) or root",
+      "purpose": "ActivityCutoff"
+    },
+    "AdminUtils.sudo_set_tempo": {
+      "index": [
+        19,
+        30
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "tempo",
+          "u16"
+        ]
+      ],
+      "args_sha256_16": "e440857352e67bbe",
+      "origin": "subnet owner coldkey (owner rate limit, admin freeze window) or root",
+      "purpose": "Tempo; owner values bounded to MinTempo..MaxTempo"
+    },
+    "AdminUtils.sudo_set_commit_reveal_version": {
+      "index": [
+        19,
+        71
+      ],
+      "args": [
+        [
+          "version",
+          "u16"
+        ]
+      ],
+      "args_sha256_16": "29881aad8730c5ab",
+      "origin": "root",
+      "purpose": "CommitRevealWeightsVersion"
+    },
+    "AdminUtils.sudo_set_weights_set_rate_limit": {
+      "index": [
+        19,
+        7
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "weights_set_rate_limit",
+          "u64"
+        ]
+      ],
+      "args_sha256_16": "b025127c8d13bf3c",
+      "origin": "root",
+      "purpose": "WeightsSetRateLimit"
+    },
+    "AdminUtils.sudo_set_network_registration_allowed": {
+      "index": [
+        19,
+        19
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "registration_allowed",
+          "bool"
+        ]
+      ],
+      "args_sha256_16": "cc8a421d70980c2e",
+      "origin": "subnet owner coldkey (owner rate limit, admin freeze window) or root; root only on netuid 0",
+      "purpose": "NetworkRegistrationAllowed (burned registration); disabling requires NetworkPowRegistrationAllowed"
+    },
+    "AdminUtils.sudo_set_network_pow_registration_allowed": {
+      "index": [
+        19,
+        20
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "registration_allowed",
+          "bool"
+        ]
+      ],
+      "args_sha256_16": "cc8a421d70980c2e",
+      "origin": "subnet owner coldkey (owner rate limit, admin freeze window) or root",
+      "purpose": "NetworkPowRegistrationAllowed; disabling requires NetworkRegistrationAllowed; refused on netuid 0"
+    },
+    "AdminUtils.sudo_set_epoch_consensus": {
+      "index": [
+        19,
+        111
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "mode",
+          "EpochConsensus"
+        ]
+      ],
+      "args_sha256_16": "df97bb36267f8f8c",
+      "origin": "subnet owner coldkey (owner rate limit, admin freeze window) or root",
+      "purpose": "SubnetEpochConsensus (Yuma or Null); sets the timelocked commit bound"
+    },
+    "Commitments.set_commitment": {
+      "index": [
+        18,
+        0
+      ],
+      "args": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "info",
+          "CommitmentInfo"
+        ]
+      ],
+      "args_sha256_16": "6fe5112c859369e5",
+      "origin": "signed hotkey registered on the subnet",
+      "purpose": "model-artifact admission digest"
+    }
+  },
+  "storage": {
+    "SubtensorModule.Tempo": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "u16",
+        "shape_sha256_16": "29881aad8730c5ab",
+        "shape": "u16"
+      },
+      "default": "0x6801"
+    },
+    "SubtensorModule.FirstEmissionBlockNumber": {
+      "modifier": "Optional",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "u64",
+        "shape_sha256_16": "1506e6f44c1d6291",
+        "shape": "u64"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.NetworkRegistrationAllowed": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "bool",
+        "shape_sha256_16": "b760f44fa5965c24",
+        "shape": "bool"
+      },
+      "default": "0x01"
+    },
+    "SubtensorModule.NetworkPowRegistrationAllowed": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "bool",
+        "shape_sha256_16": "b760f44fa5965c24",
+        "shape": "bool"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.LastMechansimStepBlock": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "u64",
+        "shape_sha256_16": "1506e6f44c1d6291",
+        "shape": "u64"
+      },
+      "default": "0x0000000000000000"
+    },
+    "SubtensorModule.SubnetOwner": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "AccountId32",
+        "shape_sha256_16": "b797103873a17e17",
+        "shape": "sp_core::crypto::AccountId32{_:[u8;32]}"
+      },
+      "default": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "SubtensorModule.SubnetOwnerHotkey": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "AccountId32",
+        "shape_sha256_16": "b797103873a17e17",
+        "shape": "sp_core::crypto::AccountId32{_:[u8;32]}"
+      },
+      "default": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "SubtensorModule.ActivityCutoff": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "u16",
+        "shape_sha256_16": "29881aad8730c5ab",
+        "shape": "u16"
+      },
+      "default": "0x8813"
+    },
+    "SubtensorModule.WeightsVersionKey": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "u64",
+        "shape_sha256_16": "1506e6f44c1d6291",
+        "shape": "u64"
+      },
+      "default": "0x0000000000000000"
+    },
+    "SubtensorModule.WeightsSetRateLimit": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "u64",
+        "shape_sha256_16": "1506e6f44c1d6291",
+        "shape": "u64"
+      },
+      "default": "0x6400000000000000"
+    },
+    "SubtensorModule.CommitRevealWeightsEnabled": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "bool",
+        "shape_sha256_16": "b760f44fa5965c24",
+        "shape": "bool"
+      },
+      "default": "0x01"
+    },
+    "SubtensorModule.SubnetEpochConsensus": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "EpochConsensus",
+        "shape_sha256_16": "b718bf7afc2bc72c",
+        "shape": "pallet_subtensor::pallet::EpochConsensus<Yuma#0()|Null#1()>"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.Uids": {
+      "modifier": "Optional",
+      "kind": "map",
+      "hashers": [
+        "Identity",
+        "Blake2_128Concat"
+      ],
+      "key": {
+        "type": "(NetUid, AccountId32)",
+        "shape_sha256_16": "fa024f2a97c5539d",
+        "shape": "(subtensor_runtime_common::NetUid{_:u16},sp_core::crypto::AccountId32{_:[u8;32]})"
+      },
+      "value": {
+        "type": "u16",
+        "shape_sha256_16": "29881aad8730c5ab",
+        "shape": "u16"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.Keys": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity",
+        "Identity"
+      ],
+      "key": {
+        "type": "(NetUid, u16)",
+        "shape_sha256_16": "ab773603cce243bf",
+        "shape": "(subtensor_runtime_common::NetUid{_:u16},u16)"
+      },
+      "value": {
+        "type": "AccountId32",
+        "shape_sha256_16": "b797103873a17e17",
+        "shape": "sp_core::crypto::AccountId32{_:[u8;32]}"
+      },
+      "default": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "SubtensorModule.Incentive": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUidStorageIndex",
+        "shape_sha256_16": "a3673668d1764a0d",
+        "shape": "subtensor_runtime_common::NetUidStorageIndex{_:u16}"
+      },
+      "value": {
+        "type": "Vec<PerU16>",
+        "shape_sha256_16": "89c1e2ac984b95b5",
+        "shape": "[sp_arithmetic::per_things::PerU16{_:u16}]"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.LastUpdate": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity"
+      ],
+      "key": {
+        "type": "NetUidStorageIndex",
+        "shape_sha256_16": "a3673668d1764a0d",
+        "shape": "subtensor_runtime_common::NetUidStorageIndex{_:u16}"
+      },
+      "value": {
+        "type": "Vec<u64>",
+        "shape_sha256_16": "4c5c5ea81f2b24af",
+        "shape": "[u64]"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.Weights": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity",
+        "Identity"
+      ],
+      "key": {
+        "type": "(NetUidStorageIndex, u16)",
+        "shape_sha256_16": "89c06d3613e0a49f",
+        "shape": "(subtensor_runtime_common::NetUidStorageIndex{_:u16},u16)"
+      },
+      "value": {
+        "type": "Vec<(u16, u16)>",
+        "shape_sha256_16": "821cd59bc7b02beb",
+        "shape": "[(u16,u16)]"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.BlockAtRegistration": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Identity",
+        "Identity"
+      ],
+      "key": {
+        "type": "(NetUid, u16)",
+        "shape_sha256_16": "ab773603cce243bf",
+        "shape": "(subtensor_runtime_common::NetUid{_:u16},u16)"
+      },
+      "value": {
+        "type": "u64",
+        "shape_sha256_16": "1506e6f44c1d6291",
+        "shape": "u64"
+      },
+      "default": "0x0000000000000000"
+    },
+    "SubtensorModule.Axons": {
+      "modifier": "Optional",
+      "kind": "map",
+      "hashers": [
+        "Identity",
+        "Blake2_128Concat"
+      ],
+      "key": {
+        "type": "(NetUid, AccountId32)",
+        "shape_sha256_16": "fa024f2a97c5539d",
+        "shape": "(subtensor_runtime_common::NetUid{_:u16},sp_core::crypto::AccountId32{_:[u8;32]})"
+      },
+      "value": {
+        "type": "AxonInfo",
+        "shape_sha256_16": "cb475ad094dee6e7",
+        "shape": "pallet_subtensor::pallet::AxonInfo{block:u64,version:u32,ip:u128,port:u16,ip_type:u8,protocol:u8,placeholder1:u8,placeholder2:u8}"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.TransactionKeyLastBlock": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Blake2_128Concat",
+        "Identity",
+        "Identity"
+      ],
+      "key": {
+        "type": "(AccountId32, NetUid, u16)",
+        "shape_sha256_16": "71054d42dd6135f9",
+        "shape": "(sp_core::crypto::AccountId32{_:[u8;32]},subtensor_runtime_common::NetUid{_:u16},u16)"
+      },
+      "value": {
+        "type": "u64",
+        "shape_sha256_16": "1506e6f44c1d6291",
+        "shape": "u64"
+      },
+      "default": "0x0000000000000000"
+    },
+    "SubtensorModule.WeightCommits": {
+      "modifier": "Optional",
+      "kind": "map",
+      "hashers": [
+        "Twox64Concat",
+        "Twox64Concat"
+      ],
+      "key": {
+        "type": "(NetUidStorageIndex, AccountId32)",
+        "shape_sha256_16": "867cbef6e5142f50",
+        "shape": "(subtensor_runtime_common::NetUidStorageIndex{_:u16},sp_core::crypto::AccountId32{_:[u8;32]})"
+      },
+      "value": {
+        "type": "Vec<(H256, u64, u64, u64)>",
+        "shape_sha256_16": "062d87c3cca5cb87",
+        "shape": "[(primitive_types::H256{_:[u8;32]},u64,u64,u64)]"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.TimelockedWeightCommits": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Twox64Concat",
+        "Twox64Concat"
+      ],
+      "key": {
+        "type": "(NetUidStorageIndex, u64)",
+        "shape_sha256_16": "1c2263f13f9c62eb",
+        "shape": "(subtensor_runtime_common::NetUidStorageIndex{_:u16},u64)"
+      },
+      "value": {
+        "type": "Vec<(AccountId32, u64, BoundedVec<u8>, u64)>",
+        "shape_sha256_16": "fc493fac55834f8d",
+        "shape": "[(sp_core::crypto::AccountId32{_:[u8;32]},u64,bounded_collections::bounded_vec::BoundedVec{_:[u8]},u64)]"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.CRV3WeightCommitsV2": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Twox64Concat",
+        "Twox64Concat"
+      ],
+      "key": {
+        "type": "(NetUidStorageIndex, u64)",
+        "shape_sha256_16": "1c2263f13f9c62eb",
+        "shape": "(subtensor_runtime_common::NetUidStorageIndex{_:u16},u64)"
+      },
+      "value": {
+        "type": "Vec<(AccountId32, u64, BoundedVec<u8>, u64)>",
+        "shape_sha256_16": "fc493fac55834f8d",
+        "shape": "[(sp_core::crypto::AccountId32{_:[u8;32]},u64,bounded_collections::bounded_vec::BoundedVec{_:[u8]},u64)]"
+      },
+      "default": "0x00"
+    },
+    "SubtensorModule.RevealPeriodEpochs": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Twox64Concat"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "u64",
+        "shape_sha256_16": "1506e6f44c1d6291",
+        "shape": "u64"
+      },
+      "default": "0x0100000000000000"
+    },
+    "SubtensorModule.CommitRevealWeightsVersion": {
+      "modifier": "Default",
+      "kind": "plain",
+      "value": {
+        "type": "u16",
+        "shape_sha256_16": "29881aad8730c5ab",
+        "shape": "u16"
+      },
+      "default": "0x0400"
+    },
+    "SubtensorModule.MechanismCountCurrent": {
+      "modifier": "Default",
+      "kind": "map",
+      "hashers": [
+        "Twox64Concat"
+      ],
+      "key": {
+        "type": "NetUid",
+        "shape_sha256_16": "334c5f68708d5d18",
+        "shape": "subtensor_runtime_common::NetUid{_:u16}"
+      },
+      "value": {
+        "type": "MechId",
+        "shape_sha256_16": "fe63c7669d0d80b1",
+        "shape": "subtensor_runtime_common::MechId{_:u8}"
+      },
+      "default": "0x01"
+    },
+    "Commitments.CommitmentOf": {
+      "modifier": "Optional",
+      "kind": "map",
+      "hashers": [
+        "Identity",
+        "Twox64Concat"
+      ],
+      "key": {
+        "type": "(NetUid, AccountId32)",
+        "shape_sha256_16": "fa024f2a97c5539d",
+        "shape": "(subtensor_runtime_common::NetUid{_:u16},sp_core::crypto::AccountId32{_:[u8;32]})"
+      },
+      "value": {
+        "type": "Registration<TaoBalance, u32>",
+        "shape_sha256_16": "f1caec31fb9435e3"
+      },
+      "default": "0x00"
+    },
+    "Commitments.LastCommitment": {
+      "modifier": "Optional",
+      "kind": "map",
+      "hashers": [
+        "Identity",
+        "Twox64Concat"
+      ],
+      "key": {
+        "type": "(NetUid, AccountId32)",
+        "shape_sha256_16": "fa024f2a97c5539d",
+        "shape": "(subtensor_runtime_common::NetUid{_:u16},sp_core::crypto::AccountId32{_:[u8;32]})"
+      },
+      "value": {
+        "type": "u32",
+        "shape_sha256_16": "d7649d428b9ff33d",
+        "shape": "u32"
+      },
+      "default": "0x00"
+    },
+    "Commitments.UsedSpaceOf": {
+      "modifier": "Optional",
+      "kind": "map",
+      "hashers": [
+        "Identity",
+        "Twox64Concat"
+      ],
+      "key": {
+        "type": "(NetUid, AccountId32)",
+        "shape_sha256_16": "fa024f2a97c5539d",
+        "shape": "(subtensor_runtime_common::NetUid{_:u16},sp_core::crypto::AccountId32{_:[u8;32]})"
+      },
+      "value": {
+        "type": "UsageTracker",
+        "shape_sha256_16": "6d3f01101e6f8950",
+        "shape": "pallet_commitments::types::UsageTracker{last_epoch:u64,used_space:u64}"
+      },
+      "default": "0x00"
+    },
+    "Commitments.MaxSpace": {
+      "modifier": "Default",
+      "kind": "plain",
+      "value": {
+        "type": "u32",
+        "shape_sha256_16": "d7649d428b9ff33d",
+        "shape": "u32"
+      },
+      "default": "0x1c0c0000"
+    },
+    "Drand.Pulses": {
+      "modifier": "Optional",
+      "kind": "map",
+      "hashers": [
+        "Blake2_128Concat"
+      ],
+      "key": {
+        "type": "u64",
+        "shape_sha256_16": "1506e6f44c1d6291",
+        "shape": "u64"
+      },
+      "value": {
+        "type": "Pulse",
+        "shape_sha256_16": "e746df562aa58c52",
+        "shape": "pallet_drand::types::Pulse{round:u64,randomness:bounded_collections::bounded_vec::BoundedVec{_:[u8]},signature:bounded_collections::bounded_vec::BoundedVec{_:[u8]}}"
+      },
+      "default": "0x00"
+    },
+    "Drand.LastStoredRound": {
+      "modifier": "Default",
+      "kind": "plain",
+      "value": {
+        "type": "u64",
+        "shape_sha256_16": "1506e6f44c1d6291",
+        "shape": "u64"
+      },
+      "default": "0x0000000000000000"
+    }
+  },
+  "events": {
+    "SubtensorModule.NetworkAdded": {
+      "index": [
+        7,
+        0
+      ],
+      "fields": [
+        [
+          "_",
+          "NetUid"
+        ],
+        [
+          "_",
+          "u16"
+        ]
+      ],
+      "fields_sha256_16": "70578aa03005a39a"
+    },
+    "SubtensorModule.WeightsSet": {
+      "index": [
+        7,
+        5
+      ],
+      "fields": [
+        [
+          "_",
+          "NetUidStorageIndex"
+        ],
+        [
+          "_",
+          "u16"
+        ]
+      ],
+      "fields_sha256_16": "0808acfa356796e2"
+    },
+    "SubtensorModule.NeuronRegistered": {
+      "index": [
+        7,
+        7
+      ],
+      "fields": [
+        [
+          "_",
+          "NetUid"
+        ],
+        [
+          "_",
+          "u16"
+        ],
+        [
+          "_",
+          "AccountId32"
+        ]
+      ],
+      "fields_sha256_16": "f2801c81ab9c66ae"
+    },
+    "SubtensorModule.BulkNeuronsRegistered": {
+      "index": [
+        7,
+        8
+      ],
+      "fields": [
+        [
+          "_",
+          "u16"
+        ],
+        [
+          "_",
+          "u16"
+        ]
+      ],
+      "fields_sha256_16": "e6069f7eb09de845"
+    },
+    "SubtensorModule.AxonServed": {
+      "index": [
+        7,
+        29
+      ],
+      "fields": [
+        [
+          "_",
+          "NetUid"
+        ],
+        [
+          "_",
+          "AccountId32"
+        ]
+      ],
+      "fields_sha256_16": "ac993a2b4357755b"
+    },
+    "SubtensorModule.CRV3WeightsCommitted": {
+      "index": [
+        7,
+        85
+      ],
+      "fields": [
+        [
+          "_",
+          "AccountId32"
+        ],
+        [
+          "_",
+          "NetUidStorageIndex"
+        ],
+        [
+          "_",
+          "H256"
+        ]
+      ],
+      "fields_sha256_16": "4b16e3afc46cd4d4"
+    },
+    "SubtensorModule.FirstEmissionBlockNumberSet": {
+      "index": [
+        7,
+        96
+      ],
+      "fields": [
+        [
+          "_",
+          "NetUid"
+        ],
+        [
+          "_",
+          "u64"
+        ]
+      ],
+      "fields_sha256_16": "e3843b4ca846ab37"
+    },
+    "SubtensorModule.CRV3WeightsRevealed": {
+      "index": [
+        7,
+        100
+      ],
+      "fields": [
+        [
+          "_",
+          "NetUid"
+        ],
+        [
+          "_",
+          "AccountId32"
+        ]
+      ],
+      "fields_sha256_16": "c89c3a7f26206b23"
+    },
+    "SubtensorModule.CommitRevealPeriodsSet": {
+      "index": [
+        7,
+        101
+      ],
+      "fields": [
+        [
+          "_",
+          "NetUid"
+        ],
+        [
+          "_",
+          "u64"
+        ]
+      ],
+      "fields_sha256_16": "3c938e0e89032760"
+    },
+    "SubtensorModule.CommitRevealEnabled": {
+      "index": [
+        7,
+        102
+      ],
+      "fields": [
+        [
+          "_",
+          "NetUid"
+        ],
+        [
+          "_",
+          "bool"
+        ]
+      ],
+      "fields_sha256_16": "a4f7058a1c2be136"
+    },
+    "SubtensorModule.TimelockedWeightsCommitted": {
+      "index": [
+        7,
+        108
+      ],
+      "fields": [
+        [
+          "_",
+          "AccountId32"
+        ],
+        [
+          "_",
+          "NetUidStorageIndex"
+        ],
+        [
+          "_",
+          "H256"
+        ],
+        [
+          "_",
+          "u64"
+        ]
+      ],
+      "fields_sha256_16": "43964d8636c5d319"
+    },
+    "SubtensorModule.TimelockedWeightsRevealed": {
+      "index": [
+        7,
+        109
+      ],
+      "fields": [
+        [
+          "_",
+          "NetUidStorageIndex"
+        ],
+        [
+          "_",
+          "AccountId32"
+        ]
+      ],
+      "fields_sha256_16": "31ee2dbdd817557e"
+    },
+    "Commitments.Commitment": {
+      "index": [
+        18,
+        0
+      ],
+      "fields": [
+        [
+          "netuid",
+          "NetUid"
+        ],
+        [
+          "who",
+          "AccountId32"
+        ]
+      ],
+      "fields_sha256_16": "0b3163838d95d76d"
+    }
+  },
+  "comparisons": {
+    "finney-484-rtao-v484": {
+      "metadata": {
+        "v15_sha256": "17183e36d52a18aa8cc15caf054b82f7559608ca6decc45923313e7be5c8d32f",
+        "v15_blake2b_256": "56792f438a51f045ccb1873623a8f7ac7334b9e286020e9e07fb097ac90c42a8",
+        "v15_bytes": 411830,
+        "v16_sha256": "5f7b01288df379ddd32bc7665f61fccc30b157c6662a13ea80008d1bc440192c",
+        "v16_blake2b_256": "782e734a0af8af92317c9d0322e3eb2af5f0f52422a9db12aa76943fb0ef73ed",
+        "v16_bytes": 415879
+      },
+      "needed": {
+        "call SubtensorModule.commit_timelocked_weights": "unchanged",
+        "call SubtensorModule.commit_timelocked_mechanism_weights": "unchanged",
+        "call SubtensorModule.commit_crv3_weights": "absent",
+        "call SubtensorModule.set_weights": "unchanged",
+        "call SubtensorModule.set_mechanism_weights": "unchanged",
+        "call SubtensorModule.commit_weights": "unchanged",
+        "call SubtensorModule.reveal_weights": "unchanged",
+        "call SubtensorModule.register": "unchanged",
+        "call SubtensorModule.pow_register": "unchanged",
+        "call SubtensorModule.burned_register": "unchanged",
+        "call SubtensorModule.register_network": "unchanged",
+        "call SubtensorModule.register_network_with_identity": "unchanged",
+        "call SubtensorModule.start_call": "unchanged",
+        "call SubtensorModule.serve_axon": "unchanged",
+        "call SubtensorModule.serve_axon_tls": "unchanged",
+        "call SubtensorModule.add_stake": "unchanged",
+        "call AdminUtils.sudo_set_commit_reveal_weights_enabled": "unchanged",
+        "call AdminUtils.sudo_set_commit_reveal_weights_interval": "unchanged",
+        "call AdminUtils.sudo_set_weights_version_key": "unchanged",
+        "call AdminUtils.sudo_set_activity_cutoff": "unchanged",
+        "call AdminUtils.sudo_set_tempo": "unchanged",
+        "call AdminUtils.sudo_set_commit_reveal_version": "unchanged",
+        "call AdminUtils.sudo_set_weights_set_rate_limit": "unchanged",
+        "call AdminUtils.sudo_set_network_registration_allowed": "unchanged",
+        "call AdminUtils.sudo_set_network_pow_registration_allowed": "unchanged",
+        "call AdminUtils.sudo_set_epoch_consensus": "unchanged",
+        "call Commitments.set_commitment": "unchanged",
+        "storage SubtensorModule.TimelockedWeightCommits": "unchanged",
+        "storage SubtensorModule.CRV3WeightCommitsV2": "unchanged",
+        "storage SubtensorModule.WeightCommits": "unchanged",
+        "storage SubtensorModule.RevealPeriodEpochs": "unchanged",
+        "storage SubtensorModule.CommitRevealWeightsEnabled": "unchanged",
+        "storage SubtensorModule.CommitRevealWeightsVersion": "unchanged",
+        "storage SubtensorModule.Tempo": "unchanged",
+        "storage SubtensorModule.Weights": "unchanged",
+        "storage SubtensorModule.WeightsSetRateLimit": "unchanged",
+        "storage SubtensorModule.WeightsVersionKey": "unchanged",
+        "storage SubtensorModule.LastUpdate": "unchanged",
+        "storage SubtensorModule.Uids": "unchanged",
+        "storage SubtensorModule.Keys": "unchanged",
+        "storage SubtensorModule.BlockAtRegistration": "unchanged",
+        "storage SubtensorModule.Incentive": "unchanged",
+        "storage SubtensorModule.ActivityCutoff": "unchanged",
+        "storage SubtensorModule.SubnetOwner": "unchanged",
+        "storage SubtensorModule.SubnetOwnerHotkey": "unchanged",
+        "storage SubtensorModule.FirstEmissionBlockNumber": "unchanged",
+        "storage SubtensorModule.NetworkRegistrationAllowed": "unchanged",
+        "storage SubtensorModule.NetworkPowRegistrationAllowed": "unchanged",
+        "storage SubtensorModule.SubnetEpochConsensus": "unchanged",
+        "storage SubtensorModule.Axons": "unchanged",
+        "storage SubtensorModule.MechanismCountCurrent": "unchanged",
+        "storage SubtensorModule.LastMechansimStepBlock": "unchanged",
+        "storage SubtensorModule.TransactionKeyLastBlock": "unchanged",
+        "storage Commitments.CommitmentOf": "unchanged",
+        "storage Commitments.LastCommitment": "unchanged",
+        "storage Commitments.MaxSpace": "unchanged",
+        "storage Commitments.UsedSpaceOf": "unchanged",
+        "storage Drand.LastStoredRound": "unchanged",
+        "storage Drand.Pulses": "unchanged",
+        "event SubtensorModule.TimelockedWeightsCommitted": "unchanged",
+        "event SubtensorModule.TimelockedWeightsRevealed": "unchanged",
+        "event SubtensorModule.CRV3WeightsCommitted": "unchanged",
+        "event SubtensorModule.CRV3WeightsRevealed": "unchanged",
+        "event SubtensorModule.WeightsSet": "unchanged",
+        "event SubtensorModule.NeuronRegistered": "unchanged",
+        "event SubtensorModule.BulkNeuronsRegistered": "unchanged",
+        "event SubtensorModule.NetworkAdded": "unchanged",
+        "event SubtensorModule.FirstEmissionBlockNumberSet": "unchanged",
+        "event SubtensorModule.AxonServed": "unchanged",
+        "event SubtensorModule.CommitRevealEnabled": "unchanged",
+        "event SubtensorModule.CommitRevealPeriodsSet": "unchanged",
+        "event Commitments.Commitment": "unchanged"
+      },
+      "changed_sections": {
+        "constants": {
+          "added": [],
+          "removed": [],
+          "changed": [
+            "System.Version"
+          ]
+        }
+      }
+    },
+    "finney-482-rtao-main": {
+      "metadata": {
+        "v15_sha256": "e1104feeb153ca201da1d1e88174c4c6d52d9d9e12e54e463778900136afb1fc",
+        "v15_blake2b_256": "d31d5ed4b70b1cafc38b313c43ef6189e2b6c33ba77ed4f5c94e37d15dffa545",
+        "v15_bytes": 411511,
+        "v16_sha256": "6d662b835afe9c02132cff8fe46c24d9cc93d3bcc5d77c039a99384cf18e88fb",
+        "v16_blake2b_256": "3c982165f0a3ca4f1df12bce8807c265ae37a1228c88c907e063eabc85f0a468",
+        "v16_bytes": 415559
+      },
+      "needed": {
+        "call SubtensorModule.commit_timelocked_weights": "unchanged",
+        "call SubtensorModule.commit_timelocked_mechanism_weights": "unchanged",
+        "call SubtensorModule.commit_crv3_weights": "absent",
+        "call SubtensorModule.set_weights": "unchanged",
+        "call SubtensorModule.set_mechanism_weights": "unchanged",
+        "call SubtensorModule.commit_weights": "unchanged",
+        "call SubtensorModule.reveal_weights": "unchanged",
+        "call SubtensorModule.register": "unchanged",
+        "call SubtensorModule.pow_register": "unchanged",
+        "call SubtensorModule.burned_register": "unchanged",
+        "call SubtensorModule.register_network": "unchanged",
+        "call SubtensorModule.register_network_with_identity": "unchanged",
+        "call SubtensorModule.start_call": "unchanged",
+        "call SubtensorModule.serve_axon": "unchanged",
+        "call SubtensorModule.serve_axon_tls": "unchanged",
+        "call SubtensorModule.add_stake": "unchanged",
+        "call AdminUtils.sudo_set_commit_reveal_weights_enabled": "unchanged",
+        "call AdminUtils.sudo_set_commit_reveal_weights_interval": "unchanged",
+        "call AdminUtils.sudo_set_weights_version_key": "unchanged",
+        "call AdminUtils.sudo_set_activity_cutoff": "unchanged",
+        "call AdminUtils.sudo_set_tempo": "unchanged",
+        "call AdminUtils.sudo_set_commit_reveal_version": "unchanged",
+        "call AdminUtils.sudo_set_weights_set_rate_limit": "unchanged",
+        "call AdminUtils.sudo_set_network_registration_allowed": "unchanged",
+        "call AdminUtils.sudo_set_network_pow_registration_allowed": "unchanged",
+        "call AdminUtils.sudo_set_epoch_consensus": "unchanged",
+        "call Commitments.set_commitment": "unchanged",
+        "storage SubtensorModule.TimelockedWeightCommits": "unchanged",
+        "storage SubtensorModule.CRV3WeightCommitsV2": "unchanged",
+        "storage SubtensorModule.WeightCommits": "unchanged",
+        "storage SubtensorModule.RevealPeriodEpochs": "unchanged",
+        "storage SubtensorModule.CommitRevealWeightsEnabled": "unchanged",
+        "storage SubtensorModule.CommitRevealWeightsVersion": "unchanged",
+        "storage SubtensorModule.Tempo": "unchanged",
+        "storage SubtensorModule.Weights": "unchanged",
+        "storage SubtensorModule.WeightsSetRateLimit": "unchanged",
+        "storage SubtensorModule.WeightsVersionKey": "unchanged",
+        "storage SubtensorModule.LastUpdate": "unchanged",
+        "storage SubtensorModule.Uids": "unchanged",
+        "storage SubtensorModule.Keys": "unchanged",
+        "storage SubtensorModule.BlockAtRegistration": "unchanged",
+        "storage SubtensorModule.Incentive": "unchanged",
+        "storage SubtensorModule.ActivityCutoff": "unchanged",
+        "storage SubtensorModule.SubnetOwner": "unchanged",
+        "storage SubtensorModule.SubnetOwnerHotkey": "unchanged",
+        "storage SubtensorModule.FirstEmissionBlockNumber": "unchanged",
+        "storage SubtensorModule.NetworkRegistrationAllowed": "unchanged",
+        "storage SubtensorModule.NetworkPowRegistrationAllowed": "unchanged",
+        "storage SubtensorModule.SubnetEpochConsensus": "unchanged",
+        "storage SubtensorModule.Axons": "unchanged",
+        "storage SubtensorModule.MechanismCountCurrent": "unchanged",
+        "storage SubtensorModule.LastMechansimStepBlock": "unchanged",
+        "storage SubtensorModule.TransactionKeyLastBlock": "unchanged",
+        "storage Commitments.CommitmentOf": "unchanged",
+        "storage Commitments.LastCommitment": "unchanged",
+        "storage Commitments.MaxSpace": "unchanged",
+        "storage Commitments.UsedSpaceOf": "unchanged",
+        "storage Drand.LastStoredRound": "unchanged",
+        "storage Drand.Pulses": "unchanged",
+        "event SubtensorModule.TimelockedWeightsCommitted": "unchanged",
+        "event SubtensorModule.TimelockedWeightsRevealed": "unchanged",
+        "event SubtensorModule.CRV3WeightsCommitted": "unchanged",
+        "event SubtensorModule.CRV3WeightsRevealed": "unchanged",
+        "event SubtensorModule.WeightsSet": "unchanged",
+        "event SubtensorModule.NeuronRegistered": "unchanged",
+        "event SubtensorModule.BulkNeuronsRegistered": "unchanged",
+        "event SubtensorModule.NetworkAdded": "unchanged",
+        "event SubtensorModule.FirstEmissionBlockNumberSet": "unchanged",
+        "event SubtensorModule.AxonServed": "unchanged",
+        "event SubtensorModule.CommitRevealEnabled": "unchanged",
+        "event SubtensorModule.CommitRevealPeriodsSet": "unchanged",
+        "event Commitments.Commitment": "unchanged"
+      },
+      "changed_sections": {
+        "storage_digests": {
+          "added": [
+            "SubtensorModule.SubnetState"
+          ],
+          "removed": [],
+          "changed": []
+        },
+        "constants": {
+          "added": [],
+          "removed": [],
+          "changed": [
+            "System.Version"
+          ]
+        }
+      }
+    }
+  }
+}

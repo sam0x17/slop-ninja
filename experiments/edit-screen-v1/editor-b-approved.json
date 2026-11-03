@@ -1,0 +1,133 @@
+[
+  {
+    "corpus": "claude-opus-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0186133",
+    "candidate_id": "editor-b-0186133-document-v2",
+    "kind": "document_revision",
+    "text": "Ecotourism is widely promoted for biodiversity conservation, yet conservation gains are often modest relative to the investment and revenue involved. Projects adopting ecotourism are frequently criticised for failing to demonstrate reductions in threats or improvements in the condition of the biodiversity they claim to protect. In Lao PDR, ecotourism revenue has not been directly linked to, or made conditional on, improvements in biodiversity. There is no evidence of conservation benefits from ecotourism enterprises there. Elsewhere in the developing world, direct payments for ecosystem services under explicit contracts have been proposed as a more cost-effective conservation mechanism. The impact of this approach still needs further study. To address this research need, we tested a new model in the Nam Et-Phou Louey National Protected Area (NPA) in Lao PDR, using direct payments through ecotourism to give villagers incentives to increase wildlife populations. Over four years, we monitored progress along a theory of change to test assumptions about the links between intermediate results and biological outcomes. Preliminary findings indicated a negative correlation between ecotourism benefits and hunting infractions in the targeted villages, no increase in hunting sign in the NPA's ecotourism sector compared with a three-fold increase across its non-tourism sectors, and an overall increase in wildlife sightings. The case offers important lessons for designing direct payments within an ecotourism strategy. These concern the joint use of threat monitoring and wildlife sighting data to assess effectiveness, the setting of rates for wildlife sightings and village fees, and the approach's potential usefulness for protecting very rare species.",
+    "edit_rationale": "Replace nested clauses about project aims, payments, and findings with direct statements. Keep the technical study sequence and separate the Lao PDR evidence claim from the revenue condition. Retain necessary passive constructions and the methodological first person.",
+    "preservation_notes": [
+      "Retains the mismatch between widespread promotion and modest gains relative to investment and revenue, the criticism of unproven biodiversity outcomes, and both Lao PDR claims.",
+      "Retains explicit contracts, ecosystem services, the proposed comparative cost-effectiveness of direct payments, and the need for further impact study.",
+      "Retains the named protected area, the new model, incentives for villagers to increase wildlife populations, four years of monitoring, and the theory-of-change purpose.",
+      "Retains the preliminary status of the findings, negative correlation in targeted villages, no increase in tourism-sector hunting sign, the three-fold increase elsewhere in the NPA, and increased wildlife sightings overall.",
+      "Retains all three design lessons: joint monitoring evidence, rates and village fees, and possible usefulness for very rare species. No causal conservation benefit is asserted from the correlation."
+    ],
+    "reviewed_by_human": false,
+    "reviewer_type": "assistant",
+    "parent_candidate_id": "editor-b-0186133-document-v1",
+    "pre_scan_corrections": [
+      {
+        "old": "Projects are frequently criticised",
+        "new": "Projects adopting ecotourism are frequently criticised"
+      },
+      {
+        "old": "the biodiversity they aim to protect",
+        "new": "the biodiversity they claim to protect"
+      },
+      {
+        "old": "has not been linked to, or made conditional on,",
+        "new": "has not been directly linked to, or made conditional on,"
+      },
+      {
+        "old": "We tested a new model in",
+        "new": "To address this research need, we tested a new model in"
+      },
+      {
+        "old": "Preliminary findings indicated a negative correlation between ecotourism benefits and hunting infractions in the targeted villages. Hunting sign did not increase in the NPA's ecotourism sector, compared with a three-fold increase across its non-tourism sectors, and wildlife sightings increased overall.",
+        "new": "Preliminary findings indicated a negative correlation between ecotourism benefits and hunting infractions in the targeted villages, no increase in hunting sign in the NPA's ecotourism sector compared with a three-fold increase across its non-tourism sectors, and an overall increase in wildlife sightings."
+      }
+    ],
+    "review_scope": "Writer saw only model text. Independent assistant checks also consulted original human abstract; corrections precede scoring. Not a human-certified audit."
+  },
+  {
+    "corpus": "claude-opus-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0179877",
+    "candidate_id": "editor-b-0179877-document-v2",
+    "kind": "document_revision",
+    "text": "We examined the influence of the Norfolk-Suffolk Bovine Viral Diarrhoea Disease (BVD) Eradication scheme on farmers' bio-security attitudes and behaviours. During 2010, we surveyed 100 cattle farmers living in the UK counties of Norfolk and Suffolk: 53 scheme members and 47 non-members. The study followed a cross-sectional independent measures design, with content analysis as the principal analytical method. Analysis at the individual farmer level covered the specific BVD control measures adopted, livestock disease priorities, reasons for scheme membership, broader knowledge acquisition, actual bio-security practices, and training course attendance. The results indicate that scheme participation enhanced farmers' perceptions of its benefits and increased participation in training courses. Scheme participation showed no association with livestock disease priorities, motivation for joining, or knowledge of the BVD bio-security measures in use. An equally important finding was that membership appeared to affect the importance farmers assigned to particular bio-security measures, but these rankings did not appear to match their actual practices. Disease control efforts are necessary but insufficient on their own. Improving farmers' bio-security behaviours requires substantial work on underlying attitudes towards the particular disease threat.",
+    "edit_rationale": "Remove the opening reference to the paper, repeated framing around analytical variables, and rhetorical transitions between results. Express each reported association and the discrepancy between rankings and behaviour directly. Preserve the scientific register and qualified membership finding.",
+    "preservation_notes": [
+      "Retains the exact scheme name, disease abbreviation, year, counties, sample size, and member/non-member counts.",
+      "Retains the cross-sectional independent measures design and content analysis as the principal analytical method.",
+      "Retains all six variable categories and the individual-farmer level of analysis.",
+      "Retains the reported gains in perceived benefits and training attendance, all three null associations, the qualified effect on the importance assigned to measures, and the mismatch with actual behaviour.",
+      "Retains the conclusion that disease control is necessary but insufficient and that improving behaviour requires substantial work on attitudes towards the specific disease threat. The revision adds no causal inference beyond the supplied model text."
+    ],
+    "reviewed_by_human": false,
+    "reviewer_type": "assistant",
+    "parent_candidate_id": "editor-b-0179877-document-v1",
+    "pre_scan_corrections": [
+      {
+        "old": "covered adopted BVD control measures",
+        "new": "covered the specific BVD control measures adopted"
+      },
+      {
+        "old": "increased attendance at training courses",
+        "new": "increased participation in training courses"
+      },
+      {
+        "old": "Membership also appeared to affect the importance farmers assigned to particular bio-security measures, but these rankings did not match their actual practices.",
+        "new": "An equally important finding was that membership appeared to affect the importance farmers assigned to particular bio-security measures, but these rankings did not appear to match their actual practices."
+      },
+      {
+        "old": "substantial work on attitudes",
+        "new": "substantial work on underlying attitudes"
+      },
+      {
+        "old": "Norfolk-Suffolk Bovine Viral Diarrhoea (BVD)",
+        "new": "Norfolk-Suffolk Bovine Viral Diarrhoea Disease (BVD)"
+      }
+    ],
+    "review_scope": "Writer saw only model text. Independent assistant checks also consulted original human abstract; corrections precede scoring. Not a human-certified audit."
+  },
+  {
+    "corpus": "claude-opus-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0188280",
+    "candidate_id": "editor-b-0188280-document-v2",
+    "kind": "document_revision",
+    "text": "Sierra Leone continues to have one of the world's highest maternal mortality ratios. Initiatives to address this burden have aimed to encourage women to give birth in health facilities. Many women still give birth at home despite the introduction of the free health care initiative for pregnant women, and few of these women have access to a skilled birth attendant. Inequalities between rural and urban populations in access to and use of health facilities also persist. A fuller understanding of how and why women make decisions about childbirth would help inform future plans and initiatives to improve maternal health in Sierra Leone. We explored the perceptions and decision-making processes of women and their communities during childbirth in rural Sierra Leone.\n\nData came from seven focus group discussions and 22 in-depth interviews with recently pregnant women and members of their communities in two rural villages. We analysed the material using systematic text condensation. The findings showed that decision-making during childbirth is dynamic and complex and must be interpreted within the wider social context. Distance, lack of transport, perceived negative behaviour by hospital staff, direct and indirect financial barriers, and women's position in society interact to influence both how decisions are made and what is decided.\n\nMultiple, interacting vulnerabilities shape pregnant women's decisions about seeking healthcare during pregnancy and childbirth. Initiatives to improve pregnant women's access to and use of safe healthcare services should be based on an adequate understanding of the structural constraints and health inequities affecting women in rural Sierra Leone.",
+    "edit_rationale": "Shorten the introductory and findings sentences, make the study methods explicit, and replace nested relative clauses with direct descriptions of the interacting factors. Preserve the three-paragraph scientific abstract structure and both access and use as distinct concerns.",
+    "preservation_notes": [
+      "Retains the high maternal mortality ratio, facility-birth initiatives, free care for pregnant women, continued home births, scarce skilled attendance at those births, and persistent rural/urban inequalities in both access and use.",
+      "Retains the planning rationale and the aim to explore women and community perceptions and decision-making in rural Sierra Leone.",
+      "Retains seven focus groups, 22 in-depth interviews, recently pregnant women and community participants, two rural villages, and systematic text condensation.",
+      "Retains dynamic and complex decision-making, the need for its social interpretation, every listed barrier, their interaction, and their influence on both the process and the decisions reached.",
+      "Retains interacting vulnerabilities during pregnancy and childbirth, safe healthcare, and the recommendation to understand structural constraints and health inequities. Hospital staff behaviour remains explicitly perceived rather than established as fact."
+    ],
+    "reviewed_by_human": false,
+    "reviewer_type": "assistant",
+    "parent_candidate_id": "editor-b-0188280-document-v1",
+    "pre_scan_corrections": [
+      {
+        "old": "and few of these home births involve a skilled birth attendant.",
+        "new": "and few of these women have access to a skilled birth attendant."
+      },
+      {
+        "old": "Rural and urban inequalities in access to and use of health facilities also persist.",
+        "new": "Inequalities between rural and urban populations in access to and use of health facilities also persist."
+      },
+      {
+        "old": "A fuller understanding of women's childbirth decisions and their reasons would help inform",
+        "new": "A fuller understanding of how and why women make decisions about childbirth would help inform"
+      },
+      {
+        "old": "We explored women's and communities' perceptions and decision-making processes around childbirth in rural Sierra Leone.",
+        "new": "We explored the perceptions and decision-making processes of women and their communities during childbirth in rural Sierra Leone."
+      },
+      {
+        "old": "with recently pregnant women and community members in two rural villages.",
+        "new": "with recently pregnant women and members of their communities in two rural villages."
+      },
+      {
+        "old": "decision-making during childbirth was dynamic and complex and required interpretation within the wider social context.",
+        "new": "decision-making during childbirth is dynamic and complex and must be interpreted within the wider social context."
+      },
+      {
+        "old": "society interacted to influence both how decisions were made and what was decided.",
+        "new": "society interact to influence both how decisions are made and what is decided."
+      }
+    ],
+    "review_scope": "Writer saw only model text. Independent assistant checks also consulted original human abstract; corrections precede scoring. Not a human-certified audit."
+  }
+]

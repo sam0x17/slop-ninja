@@ -1,0 +1,148 @@
+{
+  "schema": "slop_ninja_global_voices_source_manual_review_v1",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "packet_sha256": "572c9f9cc5f5e3efd755fc688bb7308339f9914b73c59f937f79c70220806b16",
+  "selected_works": 8,
+  "reviewed_works": 8,
+  "scope": "Read all eight cached article bodies, their paragraph retention/exclusion decisions and resulting extracted prose. Read the matching cached archive cards' titles, bylines and dates. The initial output for two items was truncated; subsequent reads recovered the missing source beginning, metadata and selected-text portions. No article webpage header/footer, external linked report, image, video, audio or historical independent capture was retrieved or verified.",
+  "extraction_review_complete": true,
+  "commercial_admission_review_complete": false,
+  "historical_bytes_independently_verified": false,
+  "human_only_production_verified": false,
+  "active_training_records_admitted": 0,
+  "rows": [
+    {
+      "id": "gv:769472",
+      "text_sha256": "a81f0ece9daa108c27e604895b54abe69816285c1e0be629da384faf08725a58",
+      "content_html_sha256": "9cc6458cba6a5eeab6de060a0f31a7dba1202ec58b7ca4ab250e3fd8858b8798",
+      "retained_introduction_ordinals_with_removed_following_material": [3, 7, 13, 18, 24, 29, 33],
+      "quotation_filtered_paragraphs_requiring_finer_roles": [43],
+      "findings": [
+        "The extraction leaves seven introductions to reported statements or tweets without their following content. Several adjacent retained paragraphs now end in colons while discussing different statements.",
+        "Paragraph 43 contains the author's historical comparison plus one quoted descriptive phrase. Dropping the entire paragraph removes the comparison, not merely another speaker's words.",
+        "The opening retains a 2002 date that conflicts with the article's 2022 date and its own later chronology. This occurs in the cached source and is not an extraction invention. No correction was applied.",
+        "The final assessment remains, but the extracted text lacks much of the evidence and context that preceded it."
+      ],
+      "credit_and_material_review": "The cached archive card credits R Umaima Ahmed as writer. The body contains separately attributed tweets and a Facebook photo; their presence does not make all material the writer's own prose or extend the publisher default to every embedded object.",
+      "coherent_whole_article_extract": false
+    },
+    {
+      "id": "gv:614081",
+      "text_sha256": "19ee0c1716dfe13ffbcfe208c63ac192f959f509fe6867e75a5e0b23f6f3dfa2",
+      "content_html_sha256": "6c4da58ac27a892c4139bf4422cba30e31b18d9a8986d3f9fbb81ba67ed65498",
+      "retained_introduction_ordinals_with_removed_following_material": [14, 16, 18],
+      "quotation_filtered_paragraphs_requiring_finer_roles": [3],
+      "findings": [
+        "Paragraph 3 introduces a woman, her role and the room. A quoted nickname causes all of that narration to be excluded, leaving the subsequent reference to the woman without its introduction.",
+        "The story's first-person reporting, stated motivation, reactions and qualified promises remain, but two colon-ended quotation introductions and a comment attribution lose their content.",
+        "The opening two paragraphs offer a potentially useful contiguous narrative passage. Any excerpt would need its own declared boundaries and admission review; the present joined extract is not that passage."
+      ],
+      "credit_and_material_review": "The cached archive card credits Prudence Nyamishana. The article links her own blog and reports interviews and reader responses. Embedded tweets and quoted organizational statements have distinct speakers. The interview subject's name is intentionally withheld in the source; do not infer an identity.",
+      "coherent_whole_article_extract": false
+    },
+    {
+      "id": "gv:594642",
+      "text_sha256": "ba4042ab993f237060e7c216376f19995d5ba1f12293d7a0c24e13558bc09643",
+      "content_html_sha256": "9c0cbf7ea5e0d5df47689c3f09c01174c45e2be24b79fd0febd23d648bf6a135",
+      "retained_introduction_ordinals_with_removed_following_material": [18],
+      "quotation_filtered_paragraphs_requiring_finer_roles": [11],
+      "findings": [
+        "Paragraph 11 describes an activist's projects and a video. Quoted ballot choices trigger exclusion of the whole paragraph. The next activist is consequently introduced as another activist without the preceding example.",
+        "The extracted prose retains a reference to the following dentist video after omitting the video. The absence of a media representation should remain explicit in the document structure.",
+        "Section headings disappear because the old view collects paragraphs only. Most of the remaining exposition is readable, but the joined text does not preserve the whole article's organization or references.",
+        "Translation is a topic of the report. That does not by itself establish that this English article is a translation."
+      ],
+      "credit_and_material_review": "The cached archive card credits Eduardo Avila. The body describes a Global Voices workshop and links participants' projects, with embedded videos, audio and images. The roles of those objects differ from the credited English narration.",
+      "coherent_whole_article_extract": false
+    },
+    {
+      "id": "gv:711372",
+      "text_sha256": "27fb78a2d6bdb5f94785c90d0dcc458e8999b68cf0143d530be7699c67a8c1ab",
+      "content_html_sha256": "4da1998f9ed8b430c648d5bda53bf10da5ac674878e7644bcd9d8b5c97b5bf18",
+      "retained_introduction_ordinals_with_removed_following_material": [2, 7, 12, 15, 28],
+      "quotation_filtered_paragraphs_requiring_finer_roles": [19, 24],
+      "findings": [
+        "Paragraph 19 combines an official quotation with the chief minister's response and the subsequent release of all students. Excluding the whole paragraph removes the reported resolution of the arrests.",
+        "Five retained introductions lose following tweet or video material. Section headings also disappear from the old paragraph-only view.",
+        "Paragraph 24 is an attribution with a quoted slogan; this has a different function from the official direct quotation in paragraph 19, despite the shared exclusion label.",
+        "The retained prose includes a grammatical number mismatch already present in the article. No normalization or factual repair was applied."
+      ],
+      "credit_and_material_review": "The cached archive card credits R Umaima Ahmed. Separately attributed tweets contain informal English, emphatic case and punctuation. The photo has a separate CC BY-SA 2.0 notice. None of those objects was admitted as this author's own detector-training prose.",
+      "coherent_whole_article_extract": false
+    },
+    {
+      "id": "gv:555064",
+      "text_sha256": "e398fde924923a1aca9f8773974bce098ec6f29038431466e6e59b8004e6b9a6",
+      "content_html_sha256": "aefad8ad236e0b46c86b0259ac42fd74ba0e3eeb834b497289887047d0975209",
+      "retained_introduction_ordinals_with_removed_following_material": [5, 10, 13, 23, 26, 29, 36],
+      "quotation_filtered_paragraphs_requiring_finer_roles": [4, 18],
+      "findings": [
+        "After its initial context, much of the extract consists of seven introductions to absent tweets. The final sentence promises an example but ends without it.",
+        "Paragraph 4 contains economic and campaign reporting plus quoted phrases from an allegation. Excluding it removes the unquoted reporting as well.",
+        "Quoted comparison labels in paragraph 18 are treated like extended third-party speech. Their grammatical and attribution roles need separate treatment.",
+        "The article's central device is a sequence of social-media recollections and images. A paragraph-only montage cannot stand in for that complete article."
+      ],
+      "credit_and_material_review": "The archive card credits Prudence Nyamishana. Twitter users supply distinct recollections and picture captions. The photograph has its own credit; images and social posts were not independently rights-reviewed.",
+      "coherent_whole_article_extract": false
+    },
+    {
+      "id": "gv:662657",
+      "text_sha256": "d1fa1718b9cdd0333d141d2b2da968c88a584eb79c9902ea300110da8aa2b788",
+      "content_html_sha256": "064d65527ac72edf4dec71d786ce035006d44eb114541fa6699ce5b078d63763",
+      "retained_introduction_ordinals_with_removed_following_material": [18],
+      "quotation_filtered_paragraphs_requiring_finer_roles": [4, 9, 11],
+      "findings": [
+        "Paragraph 4 introduces the head master's name, explains the naming convention and reports the woman's reason for not reporting harassment. One quoted term removes all of that context; a later paragraph uses the name without this introduction.",
+        "Paragraph 9 quotes legal language, whereas paragraph 11 explains an honorific. Treating both as interchangeable quotation-marked paragraphs hides their different roles.",
+        "The final section retains an introduction to the representative's explanation but omits the explanation itself.",
+        "The printed local-currency amount and its dollar equivalent warrant a source-level check; the extraction preserves them. This review did not verify or correct the exchange-rate claim."
+      ],
+      "credit_and_material_review": "The archive card credits Juke Carolina through the carolina-rumuat account. The article contains a webcomic explicitly used with permission, a translated comic description and an attributed interview quotation. Permission to this publisher is not a downstream grant to reuse the comic; the existing extract excludes the comic material.",
+      "coherent_whole_article_extract": false
+    },
+    {
+      "id": "gv:557838",
+      "text_sha256": "16a2a335ed6e84af0ec2821e100e16dc266a22ac5a0a50ca9e9e12566bc9be67",
+      "content_html_sha256": "b5e913b527ef6bed56a61995d2c4a16208a430ae5ffb6d8f0e8827f04abab6ef",
+      "retained_introduction_ordinals_with_removed_following_material": [4, 7, 11, 14, 16, 18, 20],
+      "quotation_filtered_paragraphs_requiring_finer_roles": [],
+      "findings": [
+        "The old extraction retains the interviewer questions and removes every interview answer because they appear inside blockquotes. The resulting 234-word text is not a complete interview.",
+        "The source explicitly identifies the interviewer and interviewee. Attribution needs turn-level roles; a single article byline cannot identify the speaker of every sentence.",
+        "Two blockquotes contain more than one paragraph. Preserve their common turn boundaries if the interview is later represented.",
+        "The opening statistics paragraph contains an apparent source typo. It remains unchanged."
+      ],
+      "credit_and_material_review": "The archive card credits Prudence Nyamishana; the body labels her questions and Michael Niyitegeka's answers. An interview transcript can have multiple human speakers without being mixed human/AI text. Its production and rights still need the declared source review.",
+      "coherent_whole_article_extract": false
+    },
+    {
+      "id": "gv:742458",
+      "text_sha256": "da72caa26851f47c0365b5e6cceb680722d20da262ce6dff9cb6f52e3981ef73",
+      "content_html_sha256": "9616bcf39e8a3182a94eb693b2a21bdcb562f822619e4e57c7aa24fe239802c9",
+      "retained_introduction_ordinals_with_removed_following_material": [2, 5, 15],
+      "quotation_filtered_paragraphs_requiring_finer_roles": [10, 21, 23, 24],
+      "findings": [
+        "The article discusses another journalist's personal account, with extended quotations and nested speech. Removing them leaves three unsupported introductions.",
+        "Whole-paragraph quotation filtering also removes police-reporting context, a policy comparison and the reported decision to return home.",
+        "The final paragraph refers to a tendency for women to second-guess themselves. The immediately preceding account of that self-doubt has been removed, weakening the referential and argumentative connection.",
+        "The credited article writer, quoted journalist and people quoted within her account require distinct attribution roles."
+      ],
+      "credit_and_material_review": "The archive card credits Flora Thomas. The body quotes Andrea Lo and others. Its photograph explicitly carries CC BY-NC-ND 2.0, a different grant from the publisher's default; the photo and caption are excluded. The external article and embedded quotations were not separately cleared or retrieved.",
+      "coherent_whole_article_extract": false
+    }
+  ],
+  "next_extraction_requirements": [
+    "Preserve an ordered document representation of narration, headings, attributed quotations, interview turns, captions and embedded objects instead of concatenating retained paragraphs across silent gaps.",
+    "Distinguish quoted terms, nicknames, slogans and titles from attributed direct speech. Do not discard the surrounding author-written paragraph merely because it contains quotation marks.",
+    "Keep omission boundaries and unresolved references explicit. A source excerpt must use declared contiguous boundaries and be checked for context dependence; do not insert generated bridges or silently repair original wording.",
+    "Keep article byline, quoted speaker, translator and original source distinct. Multiple human speakers do not imply mixed human/model origin.",
+    "Retain source-level dates, defects and item-specific notices. Complete independent historical and admission review before any new training recipe uses the material."
+  ],
+  "interpretation_limit": "These eight deterministically selected works establish extraction defects in this packet, not a corpus-wide error rate or an A accuracy result. The original articles remain candidates; their damaged concatenated extracts are not admitted as coherent documents.",
+  "new_source_requests": 0,
+  "model_calls": 0,
+  "pangram_calls": 0,
+  "parser_changed": false,
+  "training_changed": false
+}

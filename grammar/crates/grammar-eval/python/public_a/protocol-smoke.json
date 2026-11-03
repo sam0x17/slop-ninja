@@ -1,0 +1,74 @@
+{
+ "ai_roster": {
+  "profiles_sha256": "2e1c6f39d0f313959a43c6478843934633fb812ad0b109c4245faeb6ee37fa55",
+  "rule": "fixed_v1"
+ },
+ "arms": {
+  "E1": {
+   "batching": {
+    "kind": "random"
+   },
+   "contrastive": null,
+   "share_mode": "head",
+   "share_supervision": {
+    "bins": null,
+    "conditional_loss_weight": 1.0
+   },
+   "span_head": null,
+   "style_adversary": null
+  }
+ },
+ "attention_implementation": "eager",
+ "attribution": {
+  "loss_weight": 0.25
+ },
+ "cuda_memory_fraction": 0.35,
+ "diagnostic_scope": "public A recipe smoke: one epoch, two Dev-iter evaluations, to check the pipeline end to end; never a result",
+ "early_stopping": {
+  "evaluations_per_epoch": 2,
+  "metric": "dev_iter_uncalibrated_balanced_involvement_brier",
+  "min_delta": 0.0,
+  "patience_evaluations": 2,
+  "split": "dev_iter"
+ },
+ "final_test_opened": false,
+ "gradient_checkpointing": true,
+ "logical_batch_size": 32,
+ "max_epochs": 1,
+ "max_tokens": 2048,
+ "microbatch_token_budget": 8192,
+ "optimizer": {
+  "aux_gradient_clip_norm": 1.0,
+  "betas": [
+   0.9,
+   0.999
+  ],
+  "encoder_peak_learning_rate": 1e-05,
+  "eps": 1e-08,
+  "gradient_clip_norm": 1.0,
+  "heads_learning_rate": 0.0003,
+  "layer_lr_decay": 1.0,
+  "name": "AdamW",
+  "weight_decay": 0.01
+ },
+ "precision": {
+  "evaluate": "fp32",
+  "train": "bf16_autocast"
+ },
+ "schedule": {
+  "floor_fraction": 0.0,
+  "horizon_epochs": 1,
+  "name": "warmup_decay_horizon",
+  "shape": "cosine",
+  "warmup_fraction_of_total_steps": 0.06
+ },
+ "schema": "slop_ninja_full_a_protocol_v2",
+ "seeds": [
+  17
+ ],
+ "status": "frozen",
+ "train_weighting": {
+  "positive_mass": null,
+  "scheme": "family_origin_balanced"
+ }
+}

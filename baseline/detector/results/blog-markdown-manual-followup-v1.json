@@ -1,0 +1,66 @@
+{
+  "schema": "slop_ninja_blog_markdown_manual_followup_v1",
+  "reviewer": "Codex assistant",
+  "independent_human_review": false,
+  "host": "mac_studio",
+  "selection": "First three lexicographically ordered saved annotations created after the resumed blog sweep began, frozen before reading their text. No content, syntax-flag or detector-score selection. This is a small development inspection, not a representative accuracy sample.",
+  "complete_source_texts_read": 3,
+  "annotations_inspected": 12,
+  "all_sentence_spans_and_roots_read": true,
+  "all_token_annotations_read": false,
+  "dependency_inspection": "Selected complete token/head tables for a contracted copula, discourse-marker coordination, a result coordination, a quoted clause modifying a noun, and an auxiliary-led question. Other attachments remain unreviewed.",
+  "parser_models": ["en_core_web_sm@3.8.0", "en_core_web_trf@3.8.0"],
+  "spacy_version": "3.8.16",
+  "rust_binary_sha256": "137d8df1ab94e04ff59fa35d52b0c33c343fcf84e70c95030b5c4ff7b2401e69",
+  "input_comparison": "Existing Rust CommonMark view, whole-document raw/rendered pairs. The new small-parser raw token and sentence arrays matched all three saved paragraph-documents-v1 annotations; profile identities remain distinct.",
+  "projection_audit": {
+    "all_checks_passed": true,
+    "same_rendered_views_for_both_models": true,
+    "changed_documents": 2,
+    "decoded_nonbreaking_space_entities": 10,
+    "other_text_changes": 0,
+    "rendered_tokens_per_model": 1285,
+    "eligible_token_projections_verified_per_model": 1279,
+    "withheld_token_projections_verified_per_model": 6,
+    "unchanged_document_has_identical_raw_rendered_token_and_sentence_arrays": true
+  },
+  "reproducibility_check": {
+    "completed": true,
+    "method": "Reran the same frozen Rust binary and transformer parser with the three inputs in reverse order and one identical duplicate, yielding eight annotations.",
+    "all_replayed_views_annotations_and_projections_equal_previous": true,
+    "duplicate_pair_identical": true,
+    "scope": "The observed errors reproduce under this changed order. This does not establish universal determinism or identify the cause of within-document context sensitivity."
+  },
+  "findings": [
+    {
+      "kind": "learned_parser_improvements",
+      "observation": "The transformer recovers a contracted copula and its subject/adjectival predicate where the small parser treats the contraction as possession. It also recovers the nominal head outside a quoted clause, and the verb and subject of an auxiliary-led question. These improvements occur in both raw and rendered views."
+    },
+    {
+      "kind": "input_view_improvement",
+      "observation": "Decoding HTML spaces restores several intended sentence boundaries in one diary post and removes lexical analyses of trailing entity names. Offset correctness is verified separately from the grammatical judgments."
+    },
+    {
+      "kind": "learned_parser_regression",
+      "observation": "In the same post, the rendered transformer analysis changes a previously plausible result coordination into a clausal complement with its connector attached to punctuation. The words of this sentence are unchanged; entity replacements occur later in the document. The internal cause has not been isolated."
+    },
+    {
+      "kind": "sentence_boundary_regression",
+      "observation": "In a question compilation, the raw transformer already merges several independent questions and a closing statement. After decoding only trailing HTML spaces, it merges two further closing sentences into that span. The small parser retains these boundaries but has other tagging and quoted-speech boundary errors."
+    },
+    {
+      "kind": "layout_and_nonstandard_text",
+      "observation": "The transformer retains whitespace-only sentences and splits an emoticon into separate sentence spans. Interjections, elliptical fragments and informal spelling also occur legitimately; a missing finite verb alone is not evidence of a parser failure. Mojibake remains unrepaired."
+    },
+    {
+      "kind": "author_profile_contamination",
+      "observation": "One post explicitly attributes most of its content to another source and distinguishes a short added portion. Blog account identity therefore does not establish sole authorship of its text. This observation does not verify the external attribution or estimate corpus-wide quotation prevalence."
+    }
+  ],
+  "next_action": "Keep both parser profiles and current fitted spaces unchanged. Isolate sentence-boundary sensitivity with individual entity substitutions and unchanged context controls, and record quotation/attribution evidence before using posts as author-profile samples. Do not automatically repair every parser disagreement or treat fragments as errors.",
+  "parse_accuracy": null,
+  "detector_calls": 0,
+  "training_admission": false,
+  "source_text_or_identifying_manifest_in_repository": false,
+  "limitations": "Manual scope is full-text reading, every sentence span/root, and selected dependencies. Mechanical projection checks do not certify syntax or meaning. No general parser, author-attribution, detector or gradient improvement has been established. No default, feature denominator, corpus label or active fit changed."
+}

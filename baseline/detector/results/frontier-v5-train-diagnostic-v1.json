@@ -1,0 +1,355 @@
+{
+  "all_sources_in_v5_train": true,
+  "artifact_id": "da3a604d7bd1708f5ba1c4a4a4be946d77670492b702e41e267fb86237dfb8c9",
+  "bindings": {
+    "per_record_sha256": "b39da982a7523accb115213c947197c2c054a305dad31562320fc79350c43867",
+    "pre_inference_sha256": "aed776cc4c2a0c305d1d16fb0173fdf46d2ba0b07170bf5787a1fc81929c8ed4",
+    "requests_sha256": "c4d7824961acee9a078883a6ca499a2e3e661c5e98da0295540b6b9fd256e5b1",
+    "responses_sha256": "f91588d251f53e258dd5fddcbb94c85f81c9416c3688bc7ed1a80034a4a9a478",
+    "reviews_sha256": "a20b5987dc6d098efd0b5403d7de139cb3c996d897396e05aba7aa5fc5779a40",
+    "thresholds_sha256": "95ce23144752e8a589bd0471f6bda155ddc1171b2d2993d7473264096006c301",
+    "train_sha256": "61c46872d730563bd8531e1a7e2a705afa9d7595f5b74dcee1e2dabbd12331df"
+  },
+  "fresh_benchmark": false,
+  "limits": "Train-source diagnostic of new model-written texts. No human controls, false-positive estimate, fresh-source accuracy, Pangram comparison or fidelity certification. No fitting or v6 protocol change. Unsupported results retained and excluded only from explicitly conditional detection rates.",
+  "overall": {
+    "mean_combined_score": 0.8785922542113269,
+    "operating_points": [
+      {
+        "comparison": "strictly_greater_than",
+        "detected": 72,
+        "detection_rate_on_supported": 0.75,
+        "nominal_calibration_fpr": 0.01,
+        "threshold": 0.9052925262799454
+      },
+      {
+        "comparison": "strictly_greater_than",
+        "detected": 76,
+        "detection_rate_on_supported": 0.7916666666666666,
+        "nominal_calibration_fpr": 0.05,
+        "threshold": 0.8884499969916239
+      }
+    ],
+    "requested": 96,
+    "supported": 96,
+    "unsupported": 0
+  },
+  "schema": "slop_ninja_frontier_train_diagnostic_result_v1",
+  "slices": {
+    "collection": {
+      "cmu-books-historical": {
+        "mean_combined_score": 0.8854288536581713,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 19,
+            "detection_rate_on_supported": 0.7916666666666666,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 19,
+            "detection_rate_on_supported": 0.7916666666666666,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 24,
+        "supported": 24,
+        "unsupported": 0
+      },
+      "hc3-wiki-historical": {
+        "mean_combined_score": 0.7566727300942114,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 13,
+            "detection_rate_on_supported": 0.5416666666666666,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 15,
+            "detection_rate_on_supported": 0.625,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 24,
+        "supported": 24,
+        "unsupported": 0
+      },
+      "plos_one": {
+        "mean_combined_score": 0.9433365158673016,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 20,
+            "detection_rate_on_supported": 0.8333333333333334,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 22,
+            "detection_rate_on_supported": 0.9166666666666666,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 24,
+        "supported": 24,
+        "unsupported": 0
+      },
+      "wikinews": {
+        "mean_combined_score": 0.9289309172256232,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 20,
+            "detection_rate_on_supported": 0.8333333333333334,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 20,
+            "detection_rate_on_supported": 0.8333333333333334,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 24,
+        "supported": 24,
+        "unsupported": 0
+      }
+    },
+    "profile": {
+      "anti-ai": {
+        "mean_combined_score": 0.9533570705976876,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 16,
+            "detection_rate_on_supported": 1.0,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 16,
+            "detection_rate_on_supported": 1.0,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 16,
+        "supported": 16,
+        "unsupported": 0
+      },
+      "direct": {
+        "mean_combined_score": 0.8288236640740716,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 12,
+            "detection_rate_on_supported": 0.75,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 12,
+            "detection_rate_on_supported": 0.75,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 16,
+        "supported": 16,
+        "unsupported": 0
+      },
+      "fix-slop": {
+        "mean_combined_score": 0.8195877452850879,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 10,
+            "detection_rate_on_supported": 0.625,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 11,
+            "detection_rate_on_supported": 0.6875,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 16,
+        "supported": 16,
+        "unsupported": 0
+      },
+      "informal": {
+        "mean_combined_score": 0.8926655033081646,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 13,
+            "detection_rate_on_supported": 0.8125,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 13,
+            "detection_rate_on_supported": 0.8125,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 16,
+        "supported": 16,
+        "unsupported": 0
+      },
+      "plain": {
+        "mean_combined_score": 0.8870708589730028,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 10,
+            "detection_rate_on_supported": 0.625,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 12,
+            "detection_rate_on_supported": 0.75,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 16,
+        "supported": 16,
+        "unsupported": 0
+      },
+      "source-matched": {
+        "mean_combined_score": 0.8900486830299467,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 11,
+            "detection_rate_on_supported": 0.6875,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 12,
+            "detection_rate_on_supported": 0.75,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 16,
+        "supported": 16,
+        "unsupported": 0
+      }
+    },
+    "requested_model": {
+      "gpt-5.6-sol": {
+        "mean_combined_score": 0.930235510978167,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 21,
+            "detection_rate_on_supported": 0.875,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 21,
+            "detection_rate_on_supported": 0.875,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 24,
+        "supported": 24,
+        "unsupported": 0
+      },
+      "gpt-6-astra": {
+        "mean_combined_score": 0.956152663985902,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 23,
+            "detection_rate_on_supported": 0.9583333333333334,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 23,
+            "detection_rate_on_supported": 0.9583333333333334,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 24,
+        "supported": 24,
+        "unsupported": 0
+      },
+      "opus": {
+        "mean_combined_score": 0.7781678717313681,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 11,
+            "detection_rate_on_supported": 0.4583333333333333,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 13,
+            "detection_rate_on_supported": 0.5416666666666666,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 24,
+        "supported": 24,
+        "unsupported": 0
+      },
+      "sonnet": {
+        "mean_combined_score": 0.8498129701498702,
+        "operating_points": [
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 17,
+            "detection_rate_on_supported": 0.7083333333333334,
+            "nominal_calibration_fpr": 0.01,
+            "threshold": 0.9052925262799454
+          },
+          {
+            "comparison": "strictly_greater_than",
+            "detected": 19,
+            "detection_rate_on_supported": 0.7916666666666666,
+            "nominal_calibration_fpr": 0.05,
+            "threshold": 0.8884499969916239
+          }
+        ],
+        "requested": 24,
+        "supported": 24,
+        "unsupported": 0
+      }
+    }
+  },
+  "source_families": 24
+}

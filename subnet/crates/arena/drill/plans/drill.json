@@ -1,0 +1,234 @@
+{
+  "compatibility_date": "2026-10-01",
+  "variants": [
+    "default",
+    "arena"
+  ],
+  "scenarios": [
+    {
+      "name": "lane",
+      "shapes": [
+        1000
+      ],
+      "invocations": 1000,
+      "expect": {
+        "within_ceiling": true,
+        "statuses.0": 1000,
+        "arena_sum.overdrafts": 0,
+        "arena_sum.alloc_failures": 0,
+        "arena_sum.route_bound_exceeded": 0,
+        "arena_sum.stale_allocs": 0,
+        "arena_sum.quarantines": 0
+      }
+    },
+    {
+      "name": "package",
+      "shapes": [
+        20000
+      ],
+      "invocations": 1000,
+      "expect": {
+        "within_ceiling": true,
+        "statuses.0": 1000,
+        "arena_sum.overdrafts": 0,
+        "arena_sum.alloc_failures": 0,
+        "arena_sum.route_bound_exceeded": 0,
+        "arena_sum.stale_allocs": 0,
+        "arena_sum.quarantines": 0
+      }
+    },
+    {
+      "name": "packagestream",
+      "shapes": [
+        20000
+      ],
+      "flags": 1,
+      "invocations": 1000,
+      "expect": {
+        "within_ceiling": true,
+        "statuses.0": 1000,
+        "arena_sum.overdrafts": 0,
+        "arena_sum.alloc_failures": 0,
+        "arena_sum.route_bound_exceeded": 0,
+        "arena_sum.stale_allocs": 0,
+        "arena_sum.quarantines": 0
+      }
+    },
+    {
+      "name": "mixed",
+      "shapes": [
+        1000,
+        20000,
+        13000,
+        4000,
+        16000
+      ],
+      "invocations": 1000,
+      "expect": {
+        "within_ceiling": true,
+        "statuses.0": 1000,
+        "arena_sum.overdrafts": 0,
+        "arena_sum.alloc_failures": 0,
+        "arena_sum.route_bound_exceeded": 0,
+        "arena_sum.stale_allocs": 0,
+        "arena_sum.quarantines": 0
+      }
+    },
+    {
+      "name": "quarantine",
+      "shapes": [
+        12900
+      ],
+      "flags": 2,
+      "invocations": 1000,
+      "expect_refusals": true,
+      "expect": {
+        "recycles": {
+          "min": 1,
+          "max": 2
+        },
+        "recycles_per_cause_max": {
+          "max": 2
+        },
+        "durable.arena_leak.length": 1,
+        "paused_invocations": {
+          "min": 1
+        },
+        "within_ceiling": true,
+        "statuses.0": {
+          "min": 1
+        }
+      }
+    },
+    {
+      "name": "abandon",
+      "shapes": [
+        1000
+      ],
+      "invocations": 1000,
+      "async": [
+        {
+          "every": 10,
+          "offset": 1,
+          "fate": "abandon"
+        },
+        {
+          "every": 10,
+          "offset": 4,
+          "fate": "settle",
+          "after": 40
+        },
+        {
+          "every": 10,
+          "offset": 7,
+          "fate": "drop",
+          "after": 40
+        },
+        {
+          "every": 10,
+          "offset": 9,
+          "fate": "settle",
+          "after": 3
+        }
+      ],
+      "expect": {
+        "recycles": {
+          "min": 1,
+          "max": 2
+        },
+        "recycles_per_cause_max": {
+          "max": 2
+        },
+        "durable.arena_leak.length": {
+          "max": 1
+        },
+        "within_ceiling": true,
+        "arena_sum.abandon_recovered": {
+          "min": 1
+        },
+        "arena_sum.abandon_reclaimed": {
+          "min": 1
+        },
+        "arena_sum.refusals_retry": 0
+      }
+    },
+    {
+      "name": "trap",
+      "shapes": [
+        1000
+      ],
+      "invocations": 1000,
+      "trap_every": 50,
+      "trap_offset": 25,
+      "rerun_on_trap": true,
+      "async": [
+        {
+          "every": 10,
+          "offset": 3,
+          "fate": "settle",
+          "after": 5
+        }
+      ],
+      "expect": {
+        "durable.step_crashes": 40,
+        "aborted_by_reinit": {
+          "min": 1
+        },
+        "attributed.crash": 0,
+        "postmortem_matches": 40,
+        "within_ceiling": true
+      }
+    },
+    {
+      "name": "leakstep",
+      "shapes": [
+        12900
+      ],
+      "flags": 2,
+      "invocations": 1000,
+      "expect_refusals": true,
+      "async": [
+        {
+          "every": 5,
+          "offset": 2,
+          "fate": "settle",
+          "after": 7,
+          "shape": 1000
+        }
+      ],
+      "expect": {
+        "recycles": {
+          "min": 1,
+          "max": 2
+        },
+        "recycles_per_cause_max": {
+          "max": 2
+        },
+        "durable.arena_leak.length": 1,
+        "attributed.recycle": {
+          "min": 1
+        },
+        "attributed.crash": 0,
+        "durable.step_crashes": 0,
+        "durable.arena_trap.length": 0,
+        "paused_invocations": {
+          "min": 1
+        },
+        "within_ceiling": true
+      }
+    },
+    {
+      "name": "jsenvelope",
+      "shapes": [
+        1000,
+        20000,
+        26000
+      ],
+      "invocations": 300,
+      "expect_refusals": true,
+      "expect": {
+        "statuses.28676": 100
+      }
+    }
+  ]
+}

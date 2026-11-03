@@ -1,0 +1,87 @@
+{
+  "schema": "slop_ninja_markup_boundary_manual_review_v1",
+  "reviewer": "Codex assistant",
+  "independent_human_annotation": false,
+  "host": "mac_studio",
+  "model": "en_core_web_sm@3.8.0",
+  "spacy_version": "3.8.16",
+  "model_files_sha256": "c99c4f7c306a310c603f9bbfb32d299e2b1199c964efe108253536432c98b68f",
+  "bridge_sha256": "a02b3ffac64a89fe064c1825a871ae72492cf2f33b8047fc1243f29e4017dc4e",
+  "probe_script_sha256": "184e73a1c91f085fec7d9fc4c3df1babda23b760bb66fde2a351e3071f760672",
+  "probe_inputs_sha256": "36008914f6d64f6dfaa7c711d2d33e7a2efadc216cd228f1ab47da71191f3858",
+  "mechanical_report_sha256": "90926fab1422be55bc8084f259cb7f65f5dd863944ebfaf1052b22b8c42cd118",
+  "intervention": "For four selected inputs, manually split one fused token into its noun, closing emphasis marker, dash and following verb before running the unchanged trained NLP pipeline. No POS tags or dependency labels were supplied. Two unmodified inputs provide execution controls. This is a diagnostic intervention with supplied boundaries, not an automatic tokenizer rule.",
+  "api_reference": "https://spacy.io/api/doc#retokenizer.split",
+  "source_bytes_preserved": true,
+  "cached_train_annotation_reproduced": true,
+  "manual_scope": "Read all six complete inputs and the complete POS/tag/dependency/head tables for baseline and intervention outputs. Compared all existing token spans mechanically, including morphology and anchored heads. This is a partial linguistic review, not independent gold annotation or exhaustive checking of every morphological field.",
+  "cases": [
+    {
+      "id": "train-full-document",
+      "source_group": "wikipedia:page:1001127",
+      "origin": "model_only",
+      "split": "train",
+      "text_sha256": "352bdfda3366c4d9fd66f0c2a59adf5a0e11f33c94733283a88b17a6c98990f1",
+      "original_annotation_sha256": "089e626cdcd4786b73628d99c32a7c107d53d73c47b5ba859d631538232b981a",
+      "baseline_wire_annotation_sha256": "2b50e1c659c5f253780defe01718a28962e1dc958dfb980e2f0d612144afe532",
+      "intervention_wire_annotation_sha256": "9ba9e5d3fcae31ec85808e805760fc3c9d7af8e29d092cec37486b0d032194fc",
+      "sentences": 7,
+      "tokens_before": 128,
+      "tokens_after": 131,
+      "main_subject_and_predicate_recovered": true,
+      "finding": "The final sentence's subject changes from ROOT to nsubj of the recovered finite main verb. Its accompanying participial clause also attaches to that verb. Five pre-existing token spans change annotation, all in the final sentence; one fused span becomes four tokens.",
+      "remaining_errors": "The opening markup marker is still tagged as a proper noun. The earlier contrasting predicate-nominal attachment, free-relative copular clause and contracted negation errors are unchanged. Correcting this boundary does not approve the full parse."
+    },
+    {
+      "id": "synthetic-emphasis",
+      "text": "The barrier—what the engineers called *the screen*—collapsed during testing.",
+      "manually_split_token": "screen*—collapsed",
+      "pieces": ["screen", "*", "—", "collapsed"],
+      "tokens_before": 13,
+      "tokens_after": 16,
+      "main_subject_and_predicate_recovered": false,
+      "finding": "The verb becomes available as a separate token, but remains VBN/acl under the noun root. The main finite assertion is still lost. The initial emphasis marker retains an inappropriate proper-noun tag."
+    },
+    {
+      "id": "synthetic-strong",
+      "text": "The barrier—what the engineers called **the screen**—collapsed during testing.",
+      "manually_split_token": "screen**—collapsed",
+      "pieces": ["screen", "**", "—", "collapsed"],
+      "tokens_before": 14,
+      "tokens_after": 17,
+      "main_subject_and_predicate_recovered": true,
+      "finding": "The main verb becomes VBD/ROOT with the intended noun subject. Formatting markers still receive object/complement roles; one is tagged as a proper noun."
+    },
+    {
+      "id": "synthetic-underscore",
+      "text": "The barrier—what the engineers called _the screen_—collapsed during testing.",
+      "manually_split_token": "screen_—collapsed",
+      "pieces": ["screen", "_", "—", "collapsed"],
+      "tokens_before": 13,
+      "tokens_after": 16,
+      "main_subject_and_predicate_recovered": true,
+      "finding": "The main verb becomes VBD/ROOT with the intended noun subject. The opening underscore remains PRON/dobj, and the closing marker remains an object-predicate complement."
+    },
+    {
+      "id": "synthetic-without-markup",
+      "text": "The barrier—what the engineers called the screen—collapsed during testing.",
+      "intervention_applied": false,
+      "annotations_equal_ignoring_identity": true,
+      "finding": "Both runs retain the expected main root and subject. The main verb is nevertheless tagged VBN instead of the finite VBD required in this sentence. Correct root selection does not establish complete correctness."
+    },
+    {
+      "id": "synthetic-simple",
+      "text": "The barrier collapsed during testing.",
+      "intervention_applied": false,
+      "annotations_equal_ignoring_identity": true,
+      "finding": "The six-token table has the expected finite root, subject and temporal prepositional phrase in both runs."
+    }
+  ],
+  "conclusion": "The supplied boundary correction recovers the intended main subject and predicate in three of four selected fused-token inputs. The remaining failure and spurious grammatical roles for markup justify testing an explicit rendered-content view as well as tokenization changes. A Rust port of the same weights would not itself address those learned analyses.",
+  "parse_accuracy": null,
+  "production_parser_changed": false,
+  "model_fitted": false,
+  "detector_calls": 0,
+  "active_spaces_or_fits_changed": false,
+  "linux_execution": "unverified"
+}

@@ -1,0 +1,61 @@
+{
+  "book_authors_used_as_summary_authors": false,
+  "corpus_sha256": "5ff946daf1b33d57971103c41b87ea857cef120e71ce488c273086d75df66596",
+  "dataset": {
+    "collections": {
+      "cmu-books-historical": 47
+    },
+    "evidence": {
+      "historical_proxy": 47
+    },
+    "licenses": {
+      "CC-BY-SA-3.0": 47
+    },
+    "origins": {
+      "human_only": 47
+    },
+    "records": 47,
+    "source_groups": 47,
+    "splits": {
+      "unassigned": 47
+    },
+    "words_max": 994,
+    "words_min": 650
+  },
+  "decisions": {
+    "Long quotation requires separate review": 8,
+    "No full historical match": 41,
+    "Source notice requires separate review: copyright": 1,
+    "Source notice requires separate review: fair use": 2,
+    "Source notice requires separate review: plagiar": 1,
+    "admitted": 47
+  },
+  "decisions_sha256": "a969370053076c1e4300284a292484e938671a9de6ac57b6d29e13ab3449d354",
+  "exclude_corpora": [
+    {
+      "corpus_sha256": "195a632721f370f84b5ab3bc8c71a5e7f620fdb1c3a4796e04c639cef2887ad4"
+    }
+  ],
+  "executable_sha256": "c4d4da988f00a8aca5c0ec90daba33c32095885ffd546f57068c0e4f6d7d02f9",
+  "experiment_splits_assigned": false,
+  "generator_calls": 0,
+  "historical_ledger_sha256": "62a4f08c839fdbc05700a224187933910bfa6cf1d94aabecdb6a367527822e8f",
+  "input_sha256": "94516c64d1b4ac6b8b397ef106ee598b43d0e5364ffd8305edc945dce04f4305",
+  "pangram_calls": 0,
+  "policy_sha256": "c9447a6d15dddb01fa558efaa9e95ed7ad8399587fa7e7a74596308e26a082ae",
+  "qualification": "Historical proxies, conservative notice/quotation screen; no strong provenance or detector qualification claim.",
+  "review_inputs": [
+    {
+      "plan_sha256": "eb95fe79bffbc619890811915db767370b25bbcbbd67132cd16eaa1c7a2a399b",
+      "results_sha256": "72cca924187323abbe5ad2d62d33f2b67d53d1aab81391ff94bb46a05612ca79"
+    }
+  ],
+  "reviewed": 100,
+  "schema": "slop_ninja_cmu_long_admission_summary_v1",
+  "split_report": null,
+  "status": "complete",
+  "word_range": [
+    650,
+    1000
+  ]
+}

@@ -1,0 +1,471 @@
+schema=slop_ninja.protocol.golden/reward-v1
+params.sigma_3e-3.delta=10000000000000000
+params.sigma_20e-3.delta=40000000000000000
+params.sigma_28e-3.delta=56000000000000000
+params.sigma_40e-3.delta=80000000000000000
+params.w.sigma_40e-3.reference_0.9=1/125 epsilon_x250=8000000000000000000000000000000000
+params.w.sigma_40e-3.reference_0.9482=259/62500 epsilon_x250=4144000000000000000000000000000000
+params.w.sigma_40e-3.reference_1=none
+params.near_copy=d_ppb=25000000 improvement_divisor=2
+content.alpha.bytes_sha256=55451e4f454b26f64c0f451b02ac353242f6209013bbf6926242329a66216cd5
+content.alpha.digest=a3f0ce93d55bf5be0079e82c7fcd4e56b2f6190e3291f002b7fc39c81fe5c6e7
+near.identical=common=6 fwd=0 rev=0 distance_ppb=0 within_d=true
+near.recalibrated=common=6 fwd=0 rev=0 distance_ppb=0 within_d=true
+near.ties=common=6 fwd=5800000000000000 rev=0 distance_ppb=0 within_d=true
+near.reversed=common=6 fwd=428333333333333334 rev=428333333333333334 distance_ppb=267186992 within_d=false
+near.failures_left_out=common=3 fwd=0 rev=0 distance_ppb=0 within_d=true
+near.no_common_document=common=0 fwd=0 rev=0 distance_ppb=none within_d=false
+near.score_clause.below=outscores=false near=true
+near.score_clause.equal=outscores=false near=true
+near.score_clause.half_band_above=outscores=false near=true
+near.score_clause.past_half_band=outscores=true near=false
+cohort.index=contents=3 content_root=5fc2bd4aa66134a7613a471f7439f8eceef66efb24fe80f301f9af4621ae5abb fingerprints=3 fingerprint_root=2713856b77b079c62a915796b66f9a827fd3937ede94e1b33460e6bb5d39247d
+cohort.manifest.bytes_sha256=969331e90918fa33d7eb7fffe6e13e94fac064d88d9f2514b95e762ef1158f73
+cohort.manifest.digest=1e0e098b4e90f939eb7bfa67de0d751d87e13ac0975935fc37b356129eca0a6d
+cohort.reference=910000000000000000
+cohort.predecessor=877500000000000000
+cohort.entrant.alpha=score=960000000000000000 gated=true head=11 units=8492
+cohort.entrant.beta=score=935000000000000000 gated=true head=12 units=6135
+cohort.entrant.iota=score=951600000000000000 gated=true head=13 units=21654
+cohort.entrant.delta=score=915900000000000000 gated=true head=none units=0
+cohort.entrant.gamma=score=935000000000000000 gated=true head=15 units=0
+cohort.entrant.alpha_copy=score=960000000000000000 gated=true head=11 units=8492
+cohort.entrant.beta_copy_1=score=935000000000000000 gated=true head=12 units=6135
+cohort.entrant.zeta=score=990000000000000000 gated=false head=none units=0
+cohort.entrant.eta=score=none gated=false head=none units=0
+cohort.entrant.theta=score=864000000000000000 gated=true head=none units=0
+cohort.entrant.alpha_close=score=959990000000000000 gated=true head=11 units=8492
+cohort.entrant.beta_copy_2=score=935000000000000000 gated=true head=12 units=6135
+cohort.entrant.rk_exact_copy=score=none gated=false head=none units=0
+cohort.entrant.rk_recalibrated=score=896416250000000000 gated=false head=none units=0
+cohort.entrant.rk_retrain=score=910000000000000000 gated=true head=none units=0
+cohort.entrant.rk1_sharpened=score=878171000000000000 gated=false head=none units=0
+cohort.entrant.omega_probe_copy=score=903900000000000000 gated=false head=none units=0
+cohort.entrant.kappa=score=873495000000000000 gated=true head=none units=0
+cohort.public.alpha=gate=pass current=39634695 predecessor=39634695 probe_references=39634695,39634695 probe=none
+cohort.public.beta=gate=pass current=73717607 predecessor=64300431 probe_references=73717607,64300431 probe=none
+cohort.public.iota=gate=pass current=61493785 predecessor=61493785 probe_references=61493785,61493785 probe=none
+cohort.public.delta=gate=pass current=0 predecessor=0 probe_references=0,0 probe=none
+cohort.public.gamma=gate=pass current=82433759 predecessor=82433759 probe_references=82433759,82433759 probe=none
+cohort.public.alpha_copy=gate=pass current=39634695 predecessor=39634695 probe_references=39634695,39634695 probe=none
+cohort.public.beta_copy_1=gate=pass current=73717607 predecessor=64300431 probe_references=73717607,64300431 probe=none
+cohort.public.zeta=gate=pass current=0 predecessor=0 probe_references=0,0 probe=none
+cohort.public.theta=gate=pass current=41556998 predecessor=41556998 probe_references=41556998,41556998 probe=none
+cohort.public.alpha_close=gate=pass current=39742678 predecessor=39742678 probe_references=39742678,39742678 probe=none
+cohort.public.beta_copy_2=gate=pass current=73717607 predecessor=64300431 probe_references=73717607,64300431 probe=none
+cohort.public.rk_exact_copy=gate=public.content
+cohort.public.rk_recalibrated=gate=public.near.current current=18973665 predecessor=88969752 probe_references=18973665,88969752 probe=none
+cohort.public.rk_retrain=gate=pass current=83855162 predecessor=83855162 probe_references=83855162,83855162 probe=none
+cohort.public.rk1_sharpened=gate=public.near.predecessor current=83855162 predecessor=0 probe_references=83855162,0 probe=none
+cohort.public.omega_probe_copy=gate=public.near.probe current=83855162 predecessor=86650334 probe_references=83855162,65397247 probe=d0@v1 distance=0 scores=891100000000000000/891100000000000000
+cohort.public.kappa=gate=pass current=79130830 predecessor=49036164 probe_references=79130830,49036164 probe=none
+cohort.rk_recalibrated.raw_rms_ppb=34550687
+cohort.pair.alpha.alpha_close=0
+cohort.pair.alpha.iota=39634695
+cohort.pair.alpha.beta=39634695
+cohort.pair.alpha.gamma=39634695
+cohort.pair.iota.beta=61493785
+cohort.pair.iota.gamma=61549979
+cohort.pair.beta.gamma=74939975
+cohort.cluster_stats.alpha_close=0
+cohort.distance_monitor=min_entrant_pair_ppb=39634695 min_gated_vs_current_ppb=0 min_gated_vs_archive_ppb=0
+cohort.mode=Margin
+cohort.cutoff=917200000000000000
+cohort.cluster.11=members=11+16+1b band=133 kappa=0/3 mu=0/1 credit=400/1029 ppm=388726
+cohort.cluster.13=members=13 band=132 kappa=1/3 mu=0/1 credit=340/1029 ppm=330417
+cohort.cluster.12=members=12+17+1c band=129 kappa=2/3 mu=0/1 credit=289/1029 ppm=280855
+cohort.cluster.15=members=15 dropped=near_equal
+cohort.promoted=11
+cohort.package.credits=11:400/1029,13:340/1029,12:289/1029
+cohort.package.bytes_sha256=65a1efa2bf78079899084201d5478d9c410d3425febade5cd7d645e27af6ce72
+cohort.package.digest=19dc9e8882b8df8685b6ec338be945fdaa79ecefe7a544af49d74cf06a07dde0
+cohort.target.bytes_sha256=a48c2c6bbe63fa1a657f8a74d22846f5921fe7d71e9fb9b868e14c6730652825
+cohort.target.digest=51876723a9c0f6e862694f1b973f98eaa05bd331b7d06d6034194c5c21a83944
+cohort.snapshot.bytes_sha256=ec8d178cb339b862b5a83ef4685eaafaa40f57007d8d0f170d3d37412f51d17b
+cohort.snapshot.digest=4958a8816b945494cfa54cf7a15e9a5a08fc3e5def6eb39105c1c21db8546e9d
+cohort.row.entries=2:27789,18:6135,22:8492,23:6135,27:8492,33:8492
+cohort.row.owner_hotkey=0f
+cohort.row.digest=0bb71791dde71496d2e1c3f198742d1ebbc37b4eb68cc7a4a0cf6ac11d198837
+cohort.launch_burn_target.bytes_sha256=391cde2dd48122e9ca7f87fb823e830a0a9f7d729fd15e23c4a0ad23e1c1e403
+cohort.launch_burn_target.digest=c57ce073304a751e4c7c447d9e4012beef062cfd3eb9e0d89901b0519460d56e
+cohort.launch_burn_row.entries=2:65535
+cohort.launch_burn_row.owner_hotkey=0f
+cohort.launch_burn_row.digest=a591ee363994b918e21d98f4b24bc70b9654f258d37b331617754d46b3fbddd2
+cohort.owner_rotated.snapshot.bytes_sha256=660d4090670b3c455a918ca200c080a18046cc633642c7ddb5d52b608980b507
+cohort.owner_rotated.snapshot.digest=6513a137852d24cae964e0c1b21d33b4c99273e7fdc30933aee73c835a108413
+cohort.owner_rotated.row.entries=18:6135,22:8492,23:6135,27:8492,33:8492,48:27789
+cohort.owner_rotated.row.owner_hotkey=77
+cohort.owner_rotated.row.digest=d2ea9df75f606514da2f14d6df32cbf7c38d04893267704b2b7ea92b31ab63ba
+cohort.owner_rotated.launch_burn_row.entries=48:65535
+cohort.owner_rotated.launch_burn_row.owner_hotkey=77
+cohort.owner_rotated.launch_burn_row.digest=5103abb0fe50293b61fa400343f1d015611d9b3d3d6aa3ed68c6c71e94deb219
+cohort.next_references=index=2 current_is_alpha=true predecessor_is_r1=true
+cohort.next_index=contents=17 content_root=f8c39ffe68797a6c9e1563f39b4704b61d205f5beeff5c29051fa4b550b1db90 fingerprints=16 fingerprint_root=4263389f1ed8fa6b52a2dcb20b92b4fb35b6af0ee3687d3a207656062f56f7b3
+cohort.next_index.divergent_later_copy=recorded_is_alpha=true same_index=true
+cohort.next_index.divergent_earliest=recorded_is_alpha=true same_index=false
+cohort.signed.manifest.signing_payload=20000000736c6f705f6e696e6a612e70726f746f636f6c2e7369676e61747572652f76310126000000736c6f705f6e696e6a612e70726f746f636f6c2f636f686f72742d6d616e69666573742f76341e0e098b4e90f939eb7bfa67de0d751d87e13ac0975935fc37b356129eca0a6d
+cohort.signed.manifest.signature=b3edfde02546374212af6e2faef4d98d765357ffd22d7d7130e5b0fab0bf25c1e105e0a50fd0413251048d595a8efca926245cdec144b3daf48f687a88fbce0a
+cohort.signed.package.signing_payload=20000000736c6f705f6e696e6a612e70726f746f636f6c2e7369676e61747572652f76310124000000736c6f705f6e696e6a612e70726f746f636f6c2f73636f72652d7061636b6167652f763419dc9e8882b8df8685b6ec338be945fdaa79ecefe7a544af49d74cf06a07dde0
+cohort.signed.package.signature=bed1c54a96da323b01c6121476282b625103b27eac3194eb034264ea8808d17012e54aea4467507bbd099fbf37cdcd617aa81aa189fda17b1f94593a7edf3000
+cohort.signed.target.signing_payload=20000000736c6f705f6e696e6a612e70726f746f636f6c2e7369676e61747572652f76310129000000736c6f705f6e696e6a612e70726f746f636f6c2f63616c63756c6174696f6e2d7461726765742f763251876723a9c0f6e862694f1b973f98eaa05bd331b7d06d6034194c5c21a83944
+cohort.signed.target.signature=577ec13efbba256fd2224db2da6832e3bfec2efe00f6ec477ec4ec171cdaa657217e0df370907e20c56f7124c007ba0be639987a44d84bca4316099e41cda40c
+cohort.signed.closure.signing_payload=20000000736c6f705f6e696e6a612e70726f746f636f6c2e7369676e61747572652f76310125000000736c6f705f6e696e6a612e70726f746f636f6c2f636f686f72742d636c6f737572652f763105013ddf017848ae4d2b574eeae6fc20d8986ebab755b552494a7e9107e19f16
+cohort.signed.closure.signature=328a8bf942651a17a31dca1eae37c39aa632f76cb3298184e4dfea045313c48a18e18d5e2cf1878b4ba01bb5c139211b6b801e15010820ed295a49050fb8d40f
+cohort.closure.check=ok
+cohort.closure.entrant.11=ok
+cohort.closure.entrant.12=ok
+cohort.closure.entrant.13=ok
+cohort.closure.entrant.14=ok
+cohort.closure.entrant.15=ok
+cohort.closure.entrant.16=ok
+cohort.closure.entrant.17=ok
+cohort.closure.entrant.18=ok
+cohort.closure.entrant.19=ok
+cohort.closure.entrant.1a=ok
+cohort.closure.entrant.1b=ok
+cohort.closure.entrant.1c=ok
+cohort.closure.entrant.1d=ok
+cohort.closure.entrant.1e=ok
+cohort.closure.entrant.1f=ok
+cohort.closure.entrant.20=ok
+cohort.closure.entrant.22=ok
+cohort.closure.entrant.23=ok
+cohort.reference.artifact=ok
+cohort.authorization.bytes_sha256=03c69f0eee8d97b30acb8b57db1f600fdfb6ab5b10f22f3f870730d2b02405dd
+cohort.authorization.digest=e8972c4990b716f064eca9e2a6907ddbf71f6352275940f70bf8238e31ef7aa4
+cohort.signed.authorization.signing_payload=20000000736c6f705f6e696e6a612e70726f746f636f6c2e7369676e61747572652f76310332000000736c6f705f6e696e6a612e70726f746f636f6c2f7265776172642d696e74656e742d617574686f72697a6174696f6e2f7632e8972c4990b716f064eca9e2a6907ddbf71f6352275940f70bf8238e31ef7aa4
+cohort.signed.authorization.signature=ff88c7c79dcc8e20c4cb9c9ba8942b45124830a15722be015967d8d30e9cad1802ce4c8f85bd4fdab7a4088da39e080cf49037e9bb9628354d6bc1020d817501
+cohort.authorization.check.before_activation=ok
+cohort.authorization.check=ok
+cohort.renewal.bytes_sha256=bdee0c98b2235dfb91c664e04077d24677804f390648f4958e8c5ab1b9b485d2
+cohort.renewal.digest=39b18df9a647fe1bc2e978b0e72ba6f1d5c310bda772138053e77a4bdb2ee1ee
+cohort.signed.renewal.signing_payload=20000000736c6f705f6e696e6a612e70726f746f636f6c2e7369676e61747572652f7631032c000000736c6f705f6e696e6a612e70726f746f636f6c2f7265776172642d696e74656e742d72656e6577616c2f763139b18df9a647fe1bc2e978b0e72ba6f1d5c310bda772138053e77a4bdb2ee1ee
+cohort.signed.renewal.signature=4881519915da3858fa084bccee51e1ab9c25af933e79a96e18f454f0e0d4faa3f36d4b21225bdb6cce0748866e6e2a29a599bf35b427e180fce942ec651e3704
+cohort.renewal.check=ok
+cohort.operation.activation.epoch_80=slop_ninja:weights:v2:c14c6cd92e005c49d34c87a5a88be5b588c410aae17575785e75724c388c1945
+cohort.operation.next_tempo.epoch_81=slop_ninja:weights:v2:4f844a1d04c1fdd249d531848c6dc1d67ad9d3eba10b7f001d59b3531ab578aa
+cohort.operation.lease_end.epoch_116=slop_ninja:weights:v2:cbca0993c61244aa0cc2f331ce2798ec5f93c75e112658a88ddddb40b2204d13
+cohort.operation.past_lease.epoch_117=error:expired
+cohort.operation.renewed.epoch_117=slop_ninja:weights:v2:7062e06b6ecfd06fe0f518be7286a95de26e8af4a09eac2bcc1837f0519ec1fe
+cohort.operation.renewed_end.epoch_130=slop_ninja:weights:v2:4af832c0e52226644d3bd42505192e75df1b881a74ea8912bd5de5ae51a36ca0
+cohort.operation.past_renewal.epoch_131=error:expired
+cohort.operation.before_activation.epoch_79=error:invalid
+cohort.operation.stale_active.epoch_80=mismatch
+cohort.operation.after_successor_activation.epoch_100=mismatch
+cohort.operation.late_renewal.gap.epoch_121=error:invalid
+cohort.operation.late_renewal.resumed.epoch_126=slop_ninja:weights:v2:f8f6919b08d2fb161655c1277b6a50af62bec0a6b3376b5c42f67ebad384e611
+scenario.predecessor_above_margin.scores=reference=877500000000000000 predecessor=910000000000000000 margin_cutoff=887300000000000000 copy=910000000000000000 independent=915900000000000000
+scenario.predecessor_above_margin.copy_gate=public.near.predecessor
+scenario.predecessor_above_margin.mode=Margin
+scenario.predecessor_above_margin.units=42:65535
+scenario.predecessor_above_margin.copy_alone.mode=NoTarget
+scenario.predecessor_above_margin.copy_alone.units=
+scenario.later_copy.copy=score=955900000000000000 gate=public.near.probe probe_match=kappa@v1
+scenario.later_copy.mode=NoTarget
+scenario.later_copy.units=
+scenario.later_copy.without_fingerprint.mode=Fallback
+scenario.later_copy.without_fingerprint.units=51:65535
+scenario.current_on_probe.copy=score=910000000000000000 batch_current=83855162 gate=public.near.probe probe_match=r_k@v1
+scenario.current_on_probe.mode=NoTarget
+scenario.current_on_probe.units=
+intent.no_target.mode=NoTarget
+intent.no_target.authorization.bytes_sha256=4b5a7c83e917e11426a77977cee51d4da106ae55aa178f2388f0b2828bd65578
+intent.no_target.authorization.digest=845a7ad222533c5a83c6ca0b396df53823885e0423e074aa4aa17536f26a7e82
+intent.no_target.check=ok
+intent.no_target.operation.epoch_136=slop_ninja:weights:v2:fce9b3b21eb34640a245f5e9e600bb7f61b6591d289e4a0316de46e991b357ba
+intent.no_target.past_lease=expired
+intent.no_target.stale_active=mismatch
+intent.no_target.own_closure_activates_nothing=invalid
+intent.launch_burn.check=ok
+intent.launch_burn.operation.epoch_16=slop_ninja:weights:v2:8cee9bcaf96bfb3f8101179ef79780e57a8ee8600f85d5545667653e618f5cff
+intent.launch.authorization.bytes_sha256=7b86dca18ce76dfdae05271f7af5a7fbdab3dacc757576c3bd4f92b1dc88f1a5
+intent.launch.authorization.digest=048b4800e7c54c6efd1ed0ecd73ae2f8fdd050d107376db5c57d3e42c684684d
+intent.launch.signed.authorization.signing_payload=20000000736c6f705f6e696e6a612e70726f746f636f6c2e7369676e61747572652f7631032b000000736c6f705f6e696e6a612e70726f746f636f6c2f6c61756e63682d617574686f72697a6174696f6e2f7631048b4800e7c54c6efd1ed0ecd73ae2f8fdd050d107376db5c57d3e42c684684d
+intent.launch.signed.authorization.signature=e8bee7420422ddb4d0a25a0ddc999ca7a77244b791b954343bce882127097f2d9f961193a21649767dd5574af073a9dc720287123af463ffb8fe5bf61ddab20e
+intent.launch.check.before_first_package=ok
+intent.launch.operation.first_tempo.epoch_20=slop_ninja:weights:v2:8bda5c6032a877166acffa9363be4172ae598b2cba7d872836207429e79fda20
+intent.launch.operation.lease_end.epoch_60=slop_ninja:weights:v2:7844de517b22a80752da0b109896badbb7a689c47aa61ab0ff2eede5fbc568de
+intent.launch.operation.past_lease.epoch_61=error:expired
+intent.launch.operation.before_issue.epoch_19=error:invalid
+intent.launch.renewal.bytes_sha256=63c3c41e91bdd2fd988793342d2f4910cf7d41a203bc686d94e626c685555e62
+intent.launch.renewal.digest=35dff341f230c1f0bf9894f3a815d64653d8a33284941c3d88b833e2b0e26e02
+intent.launch.operation.renewed.epoch_61=slop_ninja:weights:v2:edcd407f67b5386537f19531f94274f21d4b7a881af8eea033ebe26919abe19c
+intent.launch.first_package.mode=Margin
+intent.launch.check.after_first_package=ok
+intent.launch.operation.after_first_package.epoch_37=slop_ninja:weights:v2:13153ebeb863a30769b039bda2b4f5b42fbeb398ad8b88fb0502e75e404456d4
+intent.launch.check.after_activation=invalid
+intent.launch.operation.after_activation.epoch_40=invalid
+intent.first_target.check.pending=ok
+intent.first_target.operation.epoch_40=slop_ninja:weights:v2:5eeb56fbfa5525ef708513380027b300bc71de244687920d9486f51ece3396bf
+submission.commitment=1908b64465b4e526e7707cfb83628ae86bb0c7d0eda2780b81dca0eb7437a14b
+submission.chain_payload=736e613103000000000000001908b64465b4e526e7707cfb83628ae86bb0c7d0eda2780b81dca0eb7437a14b
+submission.upload.bytes_sha256=289683a679d4885e658faf9f74028bc65ed59a7590751a9530564d47d321bb7a
+submission.upload.digest=606ce8a64168d7c088c954ca00fdb14fe02e2f637c91505ae59b556c6dd89f70
+submission.admit=uid=17 block=2000 extrinsic=17 roster_entry=true
+submission.admit.tampered_payload=mismatch
+submission.admit.other_artifact=mismatch
+submission.admit.uncommitted_content=mismatch
+submission.admit.other_cohort_payload=mismatch
+submission.admit.into_other_cohort=mismatch
+submission.admit.other_chain=mismatch
+submission.admit.other_hotkey=mismatch
+submission.admit.other_generation=mismatch
+submission.admit.registered_after_commitment=invalid
+submission.admit.registered_in_commitment_block=ok
+submission.upload.unbound_nonce=mismatch
+submission.payload.short=invalid
+submission.published_artifact=ok
+submission.published_artifact.other_object=mismatch
+submission.published_artifact.asserted_content=mismatch
+submission.entrant=ok
+submission.entrant.other_payload=mismatch
+submission.entrant.other_chain=mismatch
+submission.entrant.other_hotkey=mismatch
+submission.entrant.other_generation=mismatch
+submission.entrant.other_uid=mismatch
+submission.entrant.other_block=mismatch
+submission.entrant.other_extrinsic=mismatch
+submission.entrant.other_artifact=mismatch
+artifact.alpha.sha256=b6823e6ec25a916618ba06b7a2241411792c5cac924734a48834f63791fa93fb
+artifact.alpha.len=286
+artifact.alpha.content=a3f0ce93d55bf5be0079e82c7fcd4e56b2f6190e3291f002b7fc39c81fe5c6e7
+artifact.alpha.header.bytes_sha256=1206a1469592fcd7516f0f978bdc779e9a17858b4b8df2e422510c23b4d857dd
+artifact.alpha.header.digest=eaed2262c82c0cc7463ec2e824b04f4c332f2058af8d3ef9602052792b5a9471
+artifact.copy=same_object=false same_content=true
+artifact.streamed_matches=true
+artifact.reject.file_bytes=mismatch
+artifact.reject.truncated=unexpected_end
+artifact.reject.trailing=trailing_bytes
+artifact.reject.header_length=length_limit
+artifact.reject.no_graph=invalid
+artifact.reject.parent_segment=invalid
+artifact.reject.empty_file=invalid
+artifact.reject.duplicate_component=duplicate
+example.lone_cluster.mode=Margin
+example.lone_cluster.units=21:65535
+example.lone_cluster.credit.21=1/1 ppm=1000000
+example.two_clusters_two_bands.mode=Margin
+example.two_clusters_two_bands.units=21:35424,22:30111
+example.two_clusters_two_bands.credit.21=20/37 ppm=540540
+example.two_clusters_two_bands.credit.22=17/37 ppm=459459
+example.two_clusters_one_band.mode=Margin
+example.two_clusters_one_band.units=21:35424,22:30111
+example.two_clusters_one_band.credit.21=20/37 ppm=540540
+example.two_clusters_one_band.credit.22=17/37 ppm=459459
+example.two_in_top_band_one_below.mode=Margin
+example.two_in_top_band_one_below.units=21:19148,22:16276,23:30111
+example.two_in_top_band_one_below.credit.21=400/1369 ppm=292184
+example.two_in_top_band_one_below.credit.22=340/1369 ppm=248356
+example.two_in_top_band_one_below.credit.23=17/37 ppm=459459
+example.honest_and_six_perturbed_copies.mode=Margin
+example.honest_and_six_perturbed_copies.units=21:14469,22:12298,23:10453,24:8885,25:7553,26:6420,27:5457
+example.honest_and_six_perturbed_copies.credit.21=64000000/289887109 ppm=220775
+example.honest_and_six_perturbed_copies.credit.22=54400000/289887109 ppm=187659
+example.honest_and_six_perturbed_copies.credit.23=46240000/289887109 ppm=159510
+example.honest_and_six_perturbed_copies.credit.24=39304000/289887109 ppm=135583
+example.honest_and_six_perturbed_copies.credit.25=33408400/289887109 ppm=115246
+example.honest_and_six_perturbed_copies.credit.26=28397140/289887109 ppm=97959
+example.honest_and_six_perturbed_copies.credit.27=24137569/289887109 ppm=83265
+example.fallback.mode=Fallback
+example.fallback.units=31:25475,33:21654,34:18406
+example.fallback.cutoff=941500000000000000
+example.short_of_margin.fallback.mode=Fallback
+example.short_of_margin.fallback.units=41:65535
+example.short_of_margin.beside_passer.mode=Margin
+example.short_of_margin.beside_passer.units=42:65535
+example.near_equal_drop.mode=Margin
+example.near_equal_drop.units=51:65535
+edge.all_in_one_band.mode=Margin
+edge.all_in_one_band.units=61:25475,62:21654,63:18406
+edge.sybil_cluster_of_four.mode=Margin
+edge.sybil_cluster_of_four.units=71:16384,72:16384,73:16384,74:16383
+edge.sybil_cluster_beside_honest.mode=Margin
+edge.sybil_cluster_beside_honest.units=71:11808,72:11808,73:11808,75:30111
+edge.score_tie_independent.mode=Margin
+edge.score_tie_independent.units=81:65535
+edge.score_tie_commitment_order.mode=Margin
+edge.score_tie_commitment_order.units=83:65535
+edge.equal_split_of_three.mode=Margin
+edge.equal_split_of_three.units=84:21845,85:21845,86:21845
+edge.no_target.r0_no_margin.mode=NoTarget
+edge.no_target.r0_no_margin.units=
+edge.no_target.nobody_above_predecessor.mode=NoTarget
+edge.no_target.nobody_above_predecessor.units=
+edge.no_target.empty_roster.mode=NoTarget
+edge.no_target.empty_roster.units=
+edge.no_target.perfect_reference.mode=NoTarget
+edge.no_target.perfect_reference.units=
+edge.no_target.all_gated_out.mode=NoTarget
+edge.no_target.all_gated_out.units=
+edge.overflow.sigma_one=Fallback Some(Bands { width: 2000000000000000000000000000000000000, near_equal_divisor: 250 })
+edge.overflow.sigma_minimum=Margin bands=4999999999999999999999
+edge.overflow.sigma_minimum.mode=Margin
+edge.overflow.sigma_minimum.units=a2:65535
+edge.owner_unregistered.nothing_burns.entries=193:35424,194:30111
+edge.owner_unregistered.nothing_burns.owner_hotkey=0f
+edge.owner_unregistered.nothing_burns.digest=b0980c133d86cff618f59a68dc23057e460cc6244d4e1192c09ae8f4a989868c
+edge.owner_unregistered.must_burn=deferred
+edge.finney.row.entries=177:65535
+edge.finney.row.owner_hotkey=0f
+edge.finney.row.digest=65325599892d932b8d477a35ad68a7879d30aa75a651e202c021315164d6463d
+edge.finney.below_floor=invalid
+reject.v0_rule_in_v2_package=mismatch
+reject.v1_rule_in_v1_manifest=mismatch
+reject.v1_rule_in_v1_package=mismatch
+reject.v2_package_as_v1=wrong_version
+reject.params_decay=mismatch
+reject.params_sigma_zero=out_of_range
+reject.params_sigma_above_one=out_of_range
+reject.origin_mix=mismatch
+reject.strata_cases=mismatch
+reject.lease_below_two_cohorts=invalid
+reject.transition_minimum=invalid
+reject.phase_minimums_exceed_k=invalid
+reject.reference_without_predecessor=invalid
+reject.roster_order=unsorted
+reject.roster_duplicate_hotkey=duplicate
+reject.roster_cap=length_limit
+reject.roster_cap_above_max=out_of_range
+reject.reference_failure=invalid
+reject.reference_failure_score=invalid
+reject.span_gate_not_enforced=invalid
+reject.gate_reason_code=invalid
+reject.unscored_without_qualification_failure=invalid
+reject.outcome_count=mismatch
+reject.package_roster=mismatch
+reject.package_manifest_ok=ok
+reject.tampered_units=mismatch
+reject.tampered_mode=invalid
+reject.tampered_promotion=mismatch
+reject.tampered_credit=mismatch
+reject.credit_not_in_lowest_terms=mismatch
+reject.credit_order=mismatch
+reject.credit_missing=mismatch
+reject.credit_of_member=mismatch
+reject.credit_duplicate=duplicate
+reject.credit_zero=invalid
+reject.no_target_with_credit=invalid
+reject.identical_content_split=mismatch
+reject.head_ranked_below_member=mismatch
+reject.cluster_outside_cutoff=mismatch
+reject.eligible_without_cluster=mismatch
+reject.rotated_owner_unregistered=deferred
+reject.owner_unregistered=deferred
+reject.launch_burn_owner_unregistered=deferred
+reject.snapshot_duplicate_hotkey=duplicate
+reject.burn_target_with_package=invalid
+reject.cohort_target_without_package=invalid
+reject.target_for_no_target_package=invalid
+reject.closure_wrong_nonce=mismatch
+reject.closure_before_minimum=invalid
+reject.closure_admission_before_minimum=invalid
+reject.closure_published_before_admission_closed=invalid
+reject.closure_before_transition_minimum=invalid
+reject.closure_late_publication_ok=ok
+reject.closure_target_missing=mismatch
+reject.authorization_lease=mismatch
+reject.authorization_before_cohort=invalid
+reject.authorization_not_the_new_target=mismatch
+reject.authorization_other_target=mismatch
+reject.carried_target_from_later_cohort=mismatch
+reject.carried_target_not_active=mismatch
+reject.target_predecessor_not_active=mismatch
+reject.authorization_signed_by_package_key=untrusted_key
+reject.authorization_bad_signature=bad_signature
+reject.authorization_signed_ok=ok
+reject.launch_lease=mismatch
+reject.launch_after_activation=invalid
+reject.launch_target_not_burn=mismatch
+reject.launch_other_chain=mismatch
+reject.launch_signed_by_package_key=untrusted_key
+reject.renewal_lease=mismatch
+reject.renewal_generation=invalid
+reject.renewal_before_authorization=invalid
+reject.renewal_of_other_authorization=mismatch
+reject.renewal_bad_signature=bad_signature
+reject.renewal_signed_by_package_key=untrusted_key
+reject.renewal_retargets=mismatch
+reject.epoch_before_renewal_issue=invalid
+reject.operation_closure_of_other_target=mismatch
+reject.operation_closed_before_minimum=invalid
+reject.roster_above_max=length_limit
+reject.receipt_key_signs_package=untrusted_key
+reject.package_envelope_as_target=wrong_kind
+reject.signed_ok=ok
+reject.content_without_graph=invalid
+reject.content_unsorted=unsorted
+reject.public_content_executed=invalid
+reject.public_content_unrecorded=mismatch
+reject.public_content_not_published=mismatch
+reject.public_coverage_missing=mismatch
+reject.public_coverage_low_score=mismatch
+reject.public_check_unexecuted=invalid
+reject.public_near_unrecorded=mismatch
+reject.public_near_not_near=mismatch
+reject.public_improvement_clause=mismatch
+reject.public_precedence=mismatch
+reject.public_predecessor_copy_as_current=mismatch
+reject.probe_match_not_fingerprinted=mismatch
+reject.probe_version_not_in_use=mismatch
+reject.probe_match_not_near=mismatch
+reject.probe_match_without_failure=invalid
+reject.reference_probe_missing=mismatch
+reject.reference_probe_order=mismatch
+reject.reference_probe_near_passed=mismatch
+reject.probe_match_not_closest=mismatch
+reject.reference_probe_score=mismatch
+reject.entrant_probe_score=mismatch
+reject.published_index_binding=mismatch
+reject.reference_not_published=mismatch
+reject.reference_not_fingerprinted=mismatch
+reject.closure_fingerprint_missing=mismatch
+reject.closure_fingerprint_unexecuted=mismatch
+reject.closure_fingerprint_version=mismatch
+reject.closure_fingerprint_twice=mismatch
+reject.cluster_stats_too_far=mismatch
+reject.cluster_join_without_stats=mismatch
+reject.cluster_stats_on_identical_content=mismatch
+reject.near_stats_common=mismatch
+reject.near_stats_residual=out_of_range
+reject.distance_monitor_current=mismatch
+reject.distance_monitor_pair_below_d=mismatch
+reject.distance_monitor_archive_above_reference=mismatch
+reject.distance_monitor_archive_missing=mismatch
+reject.near_stats_length=mismatch
+reject.published_contents_unsorted=unsorted
+reject.fingerprint_of_unpublished=mismatch
+reject.fingerprint_twice_on_one_version=duplicate
+reject.manifest_without_probe=invalid
+mix.launch=20/55/25 valid=true
+promotion.clean.audits=71:strict=true:flags=0:blocked=false
+promotion.clean.promoted=71
+promotion.clean.mode=Margin
+promotion.clean.units=71:25475,72:21654,73:18406
+promotion.clean.package.bytes_sha256=f7dd6d349aebed62e70a59a48ee05c88caaa280afe7db38ca40a88175a876a5d
+promotion.clean.package.digest=27ad2a3aab19b429a7f11a4f415ffb0e6fb04d728ed818e1744ac4ba0822d852
+promotion.one_flag.audits=71:strict=true:flags=1:blocked=false
+promotion.one_flag.promoted=71
+promotion.one_flag.mode=Margin
+promotion.one_flag.units=71:25475,72:21654,73:18406
+promotion.one_flag.package.bytes_sha256=e8fbd7291e3716db75f5fa42ccb70f1db5f06bcf66c9fd9c9a03871bbbbb4b37
+promotion.one_flag.package.digest=fe7a2a07dbd95a911c9b93b74fdc607dd5ac2f15fece8831f272eebc3ceb1c7c
+promotion.two_flags.audits=71:strict=true:flags=2:blocked=true,72:strict=true:flags=0:blocked=false
+promotion.two_flags.promoted=72
+promotion.two_flags.mode=Margin
+promotion.two_flags.units=71:25475,72:21654,73:18406
+promotion.two_flags.package.bytes_sha256=0d4f69a0e75883be5093f289a83f818979c8b6f7825fd89dbe590c9a245e4a58
+promotion.two_flags.package.digest=99dd6b4da21bde8065ee2e70cb2f7ceac757caa409f4c04d8b9b71b1ef565748
+promotion.clearance.bytes_sha256=c9db5815566f8ec0266659b12cf721e862c9120ac258dd27fe039009db249e34
+promotion.clearance.digest=584576a47d2f2f952d3fa4ae236d10ef1526eca0c32433139f163d79f972c71c
+promotion.strict_failure.audits=71:strict=false:flags=0:blocked=false,72:strict=true:flags=2:blocked=true,73:strict=true:flags=0:blocked=false
+promotion.strict_failure.promoted=73
+promotion.strict_failure.mode=Margin
+promotion.strict_failure.units=71:25475,72:21654,73:18406
+promotion.strict_failure.package.bytes_sha256=33204ec42ccdf71b95d13f681ce1cc455c665ddea4b5a8a2869d922dc53dd2a3
+promotion.strict_failure.package.digest=94c124bce29b21fed3c82f8de10bd64100afdc79ff309710d5e1259184f277d0
+promotion.none_qualifies.audits=71:strict=true:flags=2:blocked=true,72:strict=false:flags=0:blocked=false,73:strict=false:flags=1:blocked=false
+promotion.none_qualifies.promoted=none
+promotion.none_qualifies.mode=Margin
+promotion.none_qualifies.units=71:25475,72:21654,73:18406
+promotion.none_qualifies.package.bytes_sha256=734dbf731aae394d68b68c067307bba5b8826b48b5be3bbccd750f91075dbc6a
+promotion.none_qualifies.package.digest=9ba052d9ac232a8f278f7b94f5843e7111f4102b92d314a3795caf22bc4e62b0

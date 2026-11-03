@@ -1,0 +1,28 @@
+[package]
+name = "slop-ninja-arena-drill"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Synthetic Workers handler for measuring slop-ninja-arena in local workerd"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Install `ArenaAlloc` and run each invocation in a scope. Without it the same
+# handler runs under the default allocator (std's dlmalloc on wasm32) with a
+# live-byte counter, for comparison.
+arena = []
+# Link the wasm32 module with the model's fixed linear memory (build.rs).
+fixed-memory = ["arena"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+slop-ninja-arena = { path = "..", features = ["selftest"] }
+
+[build-dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+sha2 = "0.10"

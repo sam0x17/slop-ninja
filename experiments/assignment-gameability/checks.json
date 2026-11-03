@@ -1,0 +1,28 @@
+{
+  "schema": "slopninja-assignment-gameability-checks-v1",
+  "status": "passed",
+  "scope": "Isolated experiment manifest only",
+  "commands": [
+    "cargo fmt --manifest-path experiments/assignment-gameability/Cargo.toml --check",
+    "cargo test --offline --locked --manifest-path experiments/assignment-gameability/Cargo.toml",
+    "cargo clippy --offline --locked --manifest-path experiments/assignment-gameability/Cargo.toml --all-targets -- -D warnings",
+    "cargo run --release --offline --locked --manifest-path experiments/assignment-gameability/Cargo.toml -- experiments/assignment-gameability/results.json",
+    "jq -f experiments/assignment-gameability/summary.jq experiments/assignment-gameability/results.json > experiments/assignment-gameability/summary.json"
+  ],
+  "focused_tests_passed": 3,
+  "format_check": "passed",
+  "clippy": "passed with warnings denied",
+  "simulation": "completed with provider/requester per-interface gates and UID exclusions asserted",
+  "source_sha256": "6d1ce628848400466a847541ed827d757f93e27a5b8aae27fc642a6db95c4ed8",
+  "results_sha256": "b0f04e47c8f69b9898a34f1fe8fd8bbf00bd68f82ba4301fdf7b3708103f2eca",
+  "summary_sha256": "bb1aa8152670bb3524f4c8aae8b2d2d749f4017311509d1fd7b17cbee94a5b13",
+  "artifact_bindings": "artifacts.sha256",
+  "artifact_bindings_sha256": "1585d69e11fbd06610183e397cca9c26e8b768af2d3306c5135ce76749ed6737",
+  "live_services_called": 0,
+  "model_calls": 0,
+  "detector_calls": 0,
+  "production_code_changes": 0,
+  "economic_equilibrium_proven": false,
+  "operator_identity_proven": false,
+  "fraudulent_payout_measured": false
+}

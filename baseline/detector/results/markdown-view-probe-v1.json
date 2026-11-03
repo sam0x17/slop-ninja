@@ -1,0 +1,72 @@
+{
+  "schema": "slop_ninja_markdown_view_manual_review_v1",
+  "reviewer": "Codex assistant",
+  "independent_human_annotation": false,
+  "host": "mac_studio",
+  "platform": "macOS-26.5.2-arm64",
+  "python": "3.12.14",
+  "spacy": "3.8.16",
+  "parser_model": "en_core_web_sm@3.8.0",
+  "view_version": "slop_ninja_commonmark_text_view_v1",
+  "policy_sha256": "30b074fb73ece2866d38f9f82b2d15c54d314ead7751ad78d5cac0fc31145d27",
+  "bindings_sha256": "c9d3e219813acdedb160473f14da59691ea8a20d203c0ebe48c718bc2443bb29",
+  "source_sha256": "9c011944a5a4db23a2314342d8ffac4198c54ae560f7c8cad3a2f9b94f101c51",
+  "comparison_binary_sha256": "137d8df1ab94e04ff59fa35d52b0c33c343fcf84e70c95030b5c4ff7b2401e69",
+  "inputs_sha256": "46c5a6ad12f79ba3181c97efe1517e51512df49e912ee2f4b8fed8cedb1b3249",
+  "comparison_sha256": "ef9143da4e2d760fab7582fa39d99f4af98607bbb8ba10b571a89b5918d2350d",
+  "projection_audit_sha256": "31f569d53f8a9bd61184ffdd191b7b60fd61b2c9baa06997f62dec45cb30975f",
+  "scope": "One complete known Train document and eight synthetic inputs. Read all inputs and all 18 baseline/rendered POS/tag/dependency/head tables. Inspect the resulting source projections separately. The first six inputs are those from the earlier manual-boundary probe; the additional cases cover an entity and word-internal emphasis, inline code with a link, and literal unclosed markup.",
+  "original_raw_annotation_reproduced": true,
+  "rendered_tokens": 215,
+  "verbatim_projected_tokens": 212,
+  "all_verbatim_projection_bytes_verified": true,
+  "cases": [
+    {
+      "id": "train-full-document",
+      "source_group": "wikipedia:page:1001127",
+      "source_text_sha256": "352bdfda3366c4d9fd66f0c2a59adf5a0e11f33c94733283a88b17a6c98990f1",
+      "origin": "model_only",
+      "split": "train",
+      "finding": "Removing emphasis syntax from the declared text view separates the previously fused noun, dash and main verb. The subject becomes nsubj of the VBD/ROOT main verb, and the accompanying participle attaches to that verb. The noun is now tagged NOUN/NNS; the manual-boundary intervention had tagged it PROPN/NNP. Earlier coordination, free-relative copular and contracted-negation errors remain.",
+      "main_subject_and_predicate_recovered": true,
+      "complete_parse_certified": false
+    },
+    {
+      "ids": ["synthetic-emphasis", "synthetic-strong", "synthetic-underscore"],
+      "finding": "All three now recover the main root and subject, including the single-asterisk case that still failed after manual token splitting. Their complete rendered annotations equal the unformatted control. Formatting markers no longer receive grammatical roles.",
+      "remaining_error": "The common rendered analysis tags the finite main verb VBN rather than VBD. The earlier manual splitting produced VBD in the strong/underscore variants, so the new view does not improve every field relative to that intervention.",
+      "emphasis_variants_equal_plain_control": true
+    },
+    {
+      "ids": ["synthetic-without-markup", "synthetic-simple"],
+      "finding": "Raw and rendered annotations are identical apart from the declared view identity. The longer control retains its incorrect participle tag; the simple control retains the expected finite root, subject and temporal phrase."
+    },
+    {
+      "id": "entities-and-word-internal-emphasis",
+      "finding": "The rendered adjective is available as one token, instead of a token fused with emphasis delimiters and spurious object markers. The embedded-predication representation was read but not independently adjudicated. The entity-containing token and the word crossing emphasis delimiters both correctly lack a contiguous verbatim source projection."
+    },
+    {
+      "id": "code-and-link-label",
+      "finding": "The guide label becomes the object of opening; the raw parse had instead attached URL material as its object. Inline code remains visible to NLP but is protected from a verbatim edit projection. The link label has an exact source span."
+    },
+    {
+      "id": "literal-unclosed-markup",
+      "finding": "The literal asterisk and underscore-containing term survive. The complete annotation matches the raw control, including the inappropriate interjection tag on the term used as a coordinated noun. Literal punctuation is not automatically formatting."
+    }
+  ],
+  "validation": {
+    "cargo_fmt_check": "passed_on_studio",
+    "cargo_test_workspace": "passed_on_studio",
+    "cargo_clippy_all_targets_deny_warnings": "passed_on_studio",
+    "new_focused_tests": 4,
+    "installed_spacy_comparison": "completed_with_validated_syntax_and_manual_review",
+    "bound_inputs_preflight_and_postflight": "passed",
+    "linux_execution": "unverified"
+  },
+  "limitations": "A selected nine-input development comparison cannot estimate corpus accuracy. This implements an optional Rust text-view adapter, not a replacement for spaCy or a change to existing model inputs. HTML and images remain explicit unsupported constructs; code stays protected text. Refit and evaluate any new representation consistently before using its features or gradients in B.",
+  "default_parser_changed": false,
+  "active_fits_or_spaces_changed": false,
+  "detector_calls": 0,
+  "model_fitted": false,
+  "parse_accuracy": null
+}

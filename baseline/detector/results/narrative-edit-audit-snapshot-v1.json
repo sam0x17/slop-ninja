@@ -1,0 +1,74 @@
+{
+  "schema": "slop_ninja_recorded_edit_audit_v1",
+  "source_corpus_sha256": "6967c60542f60b22ccc55e748fbc3d3f7b487acfbc5b4ea0cc33ba304ef2d574",
+  "cohorts": [
+    {
+      "directory": "qwen-cmu",
+      "heldout_records_excluded": 55,
+      "run_sha256": "82f0e630a4760eb111bc18f481bb0f15cd877bb2dc47c7d1b0fe402134f00f68",
+      "snapshot_record_files": 167,
+      "terminal_summary_present": false,
+      "train_records_inspected": 112
+    }
+  ],
+  "aggregates": {
+    "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa|draft": {
+      "identical_after_trim": 0,
+      "identical_after_whitespace_collapse": 0,
+      "identical_normalized_words": 0,
+      "identical_raw": 0,
+      "output_from_source": {
+        "count": 63,
+        "max": 0.7142857142857143,
+        "mean": 0.42618127831132285,
+        "min": 0.25,
+        "nearest_rank_p50": 0.41624365482233505,
+        "nearest_rank_p90": 0.5892857142857143
+      },
+      "records": 63,
+      "source_retention": {
+        "count": 63,
+        "max": 0.6407766990291263,
+        "mean": 0.43579017161815387,
+        "min": 0.25892857142857145,
+        "nearest_rank_p50": 0.4311594202898551,
+        "nearest_rank_p90": 0.5595238095238095
+      },
+      "source_retention_at_least_95_percent": 0,
+      "source_retention_below_half": 48
+    },
+    "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa|edit": {
+      "identical_after_trim": 0,
+      "identical_after_whitespace_collapse": 0,
+      "identical_normalized_words": 0,
+      "identical_raw": 0,
+      "output_from_source": {
+        "count": 49,
+        "max": 0.8061224489795918,
+        "mean": 0.5662907982880891,
+        "min": 0.3991769547325103,
+        "nearest_rank_p50": 0.5594936708860759,
+        "nearest_rank_p90": 0.7088607594936709
+      },
+      "records": 49,
+      "source_retention": {
+        "count": 49,
+        "max": 0.7669902912621359,
+        "mean": 0.5421840961123308,
+        "min": 0.3822314049586777,
+        "nearest_rank_p50": 0.536,
+        "nearest_rank_p90": 0.6436781609195402
+      },
+      "source_retention_at_least_95_percent": 0,
+      "source_retention_below_half": 17
+    }
+  },
+  "scope": "Snapshot of completed Train record files, including successful siblings of subsequently excluded families. Held-out outputs and unfinished calls are excluded; do not treat this as a final cohort or an admission decision.",
+  "method": "Longest common subsequence and longest contiguous run of grammar_core lowercased Unicode word tokens. Whitespace equality uses Rust str::split_whitespace and ASCII-space joining. Fractions measure surface overlap, not meaning or editing quality.",
+  "detector_calls": 0,
+  "labels_changed": false,
+  "records_filtered": false,
+  "factual_fidelity_certified": false,
+  "detailed_snapshot_sha256": "54ba8748e664f86543fc6120926b045225e41e17f0da61fd9eefa2d08a48ecba",
+  "audit_executable_sha256": "c741906616cc9fc9f1740a7a64a511ee6b8f65eab7c0d28eb9d046a5db10daae"
+}

@@ -1,0 +1,14 @@
+{
+  ".gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+  "README.md": "fa54639a8f5b46dc70380b1f2697612d6efad240b2baf56c7935f07d7c35f064",
+  "chat_template.jinja": "f5186d42d99c8a0445d37fd8a6c7ccf07fe3e24a29ce622d8bd245da9507b12b",
+  "config.json": "92408f393c6c724d087c8a1ef913a507d1c4aff689e2019fc7577fcacecfdd64",
+  "generation_config.json": "91d2394a56f6158bf157e37249ea20342c7a86e971ac9a43d007f406aeaddec0",
+  "merges.txt": "b6fe424e334903f7fb84d3a106d9730455f4744b9fe3c21ee136d97a00e72502",
+  "model.safetensors": "a97f02f033af038a222c4ae3cd22a3df580160d559dc985c6a6a2d512b5210cd",
+  "model.safetensors.index.json": "a4285a52cc9cc75d18d16ad8912d65db9d212ec20f722cc44bc020232f0589f7",
+  "special_tokens_map.json": "78afb564e81264029b25f9caf24bda2521d5bdaeff5cd3fdbc01d3da2e8ce2f2",
+  "tokenizer.json": "7738a25c46a6043a0e2e605138851baa450269ce9d800af6ca9bf6192e45510c",
+  "tokenizer_config.json": "f7a2753a4ff30657e452c8fef02b9a99a3b900ceb4c65a1e3fbea6a3bfab07a6",
+  "vocab.json": "d8eb44d0d51f5e39c9b14825ca8bd10a2500f99c438ca81d4462f0263acd3b53"
+}

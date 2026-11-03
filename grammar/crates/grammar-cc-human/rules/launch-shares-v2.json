@@ -1,0 +1,23 @@
+{
+  "id": "cc_launch_shares_v2",
+  "status": "proposed, not adopted",
+  "note": "RECOMMENDATION.md F3 proposal: share caps of the rules-v2 frames estimated with rules-v1 runs per page; reviews, forum, legal, speech and fiction just under their caps, freed points to essays.",
+  "shares": {
+    "email": 0.7,
+    "essays": 36.0,
+    "fiction": 1.8,
+    "forum": 7.8,
+    "legal": 5.4,
+    "news": 27.5,
+    "reviews": 6.5,
+    "speech": 2.3,
+    "technical": 12.0
+  },
+  "email_split": {
+    "press_release": 0.65,
+    "list_mail": 0.05
+  },
+  "derivation": {
+    "rule": "F3: lookup-v1 frames scaled by v2/v1 pool counts, v1 keys per page"
+  }
+}

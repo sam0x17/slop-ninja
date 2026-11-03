@@ -1,0 +1,84 @@
+{
+  "at": "2026-09-15T15:15:23.243799Z",
+  "binary_sha256": "2486414af5351ad7f91cc95a5a780ceb30c9258d30d7d9913f3c1e67aeb86dbe",
+  "campaign_sha256": "1182d5763a4318544542308303279c2ed3e9c647ff463384ab6ab9d5f45a554a",
+  "conditions": [
+    {
+      "name": "control",
+      "omit_word_count_target": false,
+      "plan": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-draft-methods-v1/plan-control.json",
+      "plan_sha256": "ccbd9e455f29cedfb8fd9f9152e64f29e18df15f6e8eaee7310d1090c081b836",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-draft-methods-v1/prospective-control",
+      "requests_sha256": "b9370849568f6f13af878b6875e1ded70201a009600f4252a760d000a35673ac",
+      "source_fidelity_check": false
+    },
+    {
+      "name": "no-target",
+      "omit_word_count_target": true,
+      "plan": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-draft-methods-v1/plan-no-target.json",
+      "plan_sha256": "4393292b08437a018007d5b656e9ed5dbbafaa1669dcc6c3d77ae6eb8626c8de",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-draft-methods-v1/prospective-no-target",
+      "requests_sha256": "7780a6f16108f252799bec31b91baa6613f48d6ccd5c08de74283d8f749b35fe",
+      "source_fidelity_check": false
+    },
+    {
+      "name": "claim-check",
+      "omit_word_count_target": false,
+      "plan": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-draft-methods-v1/plan-claim-check.json",
+      "plan_sha256": "1038c29269c360f4874077db8476dc221d9145a64b81efc6c7b88db04b8f8a38",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-draft-methods-v1/prospective-claim-check",
+      "requests_sha256": "cfc1c11c4ff96bbe79ebb23e298b01cbcf28c21f7998e426475700193110c525",
+      "source_fidelity_check": true
+    },
+    {
+      "name": "both",
+      "omit_word_count_target": true,
+      "plan": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-draft-methods-v1/plan-both.json",
+      "plan_sha256": "395157742664b9c9aacf8618f448980efd819256b2cbe166c25ace52ec2889fd",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-draft-methods-v1/prospective-both",
+      "requests_sha256": "70d75b22d738b5873a52e16805278d50c4ba95dfeae51faefbd3e50fac735c1c",
+      "source_fidelity_check": true
+    }
+  ],
+  "detector_calls": 0,
+  "generator_sha256": "ebf0af254e61d132e64714cc5337f89db35631683ecbb1908df0aff2d7fa956b",
+  "input_sha256": "461dd77d7d440c2b77091a47e08ef86ffbff6957b80497a0741c7b792c6f484a",
+  "legacy_compatibility": [
+    {
+      "profile": "source-matched",
+      "requests_sha256": "050b2bc911b2d1f2cb15538bf8a78c5d29be5c8fc618fd19ea5e7cd4a6bc1be8"
+    },
+    {
+      "profile": "plain",
+      "requests_sha256": "97d758d4a2b311f2dea1145f01fc5e1f6ad71c1092f1b7b121f0f27b059931a8"
+    },
+    {
+      "profile": "informal",
+      "requests_sha256": "7fa69a0abf9bf07a6eb2814c5f0bcdb9408a221a6219cc7e8412fc11b419b5c5"
+    },
+    {
+      "profile": "direct",
+      "requests_sha256": "0323c3d8ef3d434ef44d87a7ad2e1a8f44303ad711204b27f4c007f0664ae085"
+    },
+    {
+      "profile": "anti-ai",
+      "requests_sha256": "fcace534da3c9d8abdb36af778a4a458f6013928e02945bc973522a57b88b149"
+    },
+    {
+      "profile": "fix-slop",
+      "requests_sha256": "26f9225e862b2c7eea930d50bfd3fefc4333c3c486581ea28b85c4eed1ff2e8b"
+    }
+  ],
+  "legacy_requests_reproduced": 24,
+  "model_calls": 0,
+  "model_spec_sha256": "416e26a542ec826b9b897186e32ac5f98b3e16bcb995de5ac2cf30c7d912bf3a",
+  "planned_requests": 16,
+  "protocol_sha256": "48c5cc80ed4aedcb1869ca9e3e13b479e367e562852ec4689773487575aa22ae",
+  "rendered_prompt_review": "pending",
+  "schema": "slop_ninja_gpt_oss_draft_methods_preparation_v1",
+  "source_contract_sha256": "762c18847a9c8e476343199d47ac782791219198a2f6ad34d02f3f704511152e",
+  "source_sha256": "bb9d28495214ac79b9319de547f9e825bda863ff4921335a038820ee5b073c86",
+  "sources": 4,
+  "template_sha256": "0d899fe3f326e4d37306f69ac38d6be8efd9fcdb5d71f3b76fc2c5d47f62bb67",
+  "training_archive_changed": false
+}

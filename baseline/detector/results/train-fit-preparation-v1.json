@@ -1,0 +1,121 @@
+{
+  "schema": "slop_ninja_train_fit_preparation_v1",
+  "at": "2026-09-15T08:29:22Z",
+  "phase": "prepared_and_launched",
+  "execution_host": "Mac Studio",
+  "os_arch": "macOS arm64",
+  "models": [
+    {
+      "role": "v6",
+      "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+      "temperature": 1.8776105792643432,
+      "thresholds": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.8436493155285434
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.4287369114260753
+        }
+      ]
+    },
+    {
+      "role": "control",
+      "artifact_id": "74e59f3187fe0c05dddeb5dd4520d192474c027e90545b1085056a12260519d7",
+      "temperature": 1.5683121854901687,
+      "thresholds": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.936631839777329
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8629230174477677
+        }
+      ]
+    },
+    {
+      "role": "consistency",
+      "artifact_id": "3aafef8aa796f16824d6429895122caf0025217b7e9fb272fc0b3eca86201756",
+      "temperature": 1.8404313987816374,
+      "thresholds": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9584060312166393
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8189382925777733
+        }
+      ]
+    }
+  ],
+  "coverage": {
+    "families": 471,
+    "fresh_confirmation": false,
+    "models": 3,
+    "planned_inference_observations": 22998,
+    "provider_calls": 0,
+    "records_per_view": 3833,
+    "training_admission": false,
+    "views": 2
+  },
+  "original_partition_and_formatting_views_verified": true,
+  "original_artifact_members_verified": true,
+  "prepared_file_bindings": 78,
+  "checks": {
+    "cargo_fmt": "passed",
+    "cargo_test_all_targets": "passed",
+    "clippy": "passed_with_warnings_denied",
+    "release_example_tests": "passed",
+    "linux_execution": "unverified",
+    "nlp_or_ml_code_changed": false
+  },
+  "request_runtime": "Bundled CPU float32 eager reference, float64 probabilities, batch 1, one thread",
+  "fitting": false,
+  "threshold_or_temperature_fitted": false,
+  "reference_promoted": false,
+  "train_inference_complete": false,
+  "notes": "The preparation checks used the first tested build. The final build adds source-family/origin-balanced accuracy and Brier metrics alongside loss. Inputs and preparation checks are unchanged. The optimized executable avoids debug hashing overhead. No scores have yet been used to change a recipe.",
+  "bindings": {
+    "protocol": "3da73ff684df44df496ae31f6c812cdb845451af3f213e66e055dedc95b5468b",
+    "source": "52e1730ec5dee5e0e61c5e7339a40910f9c536699bbc9e9537a7d3c7d2142f71",
+    "executable": "d5d44ee6b2f529fe3cec4852772531668823c78980fb3d796de8bbc1f18306a0",
+    "plan": "acd45ba5a1f7853e5460828973574f333cf4323cd94acde23615b979e1daca2a"
+  },
+  "validation_logs": {
+    "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests.log": "6871d92f7b95320eb9d18a42cc5953e4e40bec97aad1d7f843347e43321a3462",
+    "clippy.log": "6af7a8bb1d5dc8ed30f896c6feafa7ac810faea1afbf0b03a6a6208016d99a87",
+    "build.log": "0cb65a1510779cad41eeb5cc484e939cb91cc50eb570fa9e0f1581b3473f4b89",
+    "release-build.log": "f82a957a192bd7bcb037649ad9010aaa713d2836f4405afeffd81b6b39923b1a",
+    "release-tests.log": "14b52a50c412c898c9ed319e58826efa52ce16f9d3c92b278467a09eb08b28f9"
+  },
+  "preparation_source_sha256": "e688426b31403594a81d2782d8befb7721e54b7e052cc1636f7a3dc67e914382",
+  "preparation_executable_sha256": "2524fedc23cea01e65d521ee07571ee7a095c1bea1e419dbafc371fd34e6b9fb"
+}

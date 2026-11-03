@@ -1,0 +1,156 @@
+{
+ "schema": "slop_ninja_a_pool_prior_registry_v1",
+ "description": "Every prior corpus snapshot a new human pool must not overlap: published datasets (detector-v5, detector-v6, hosted, origin, revisions, a-supervised, a-balanced, a-encoder, a-retained-train, a-train-augmentation, grammar samples), stage-1/2/3 private populations (including both consumed final Tests and their generation records), style and hosted exports, the CFG parse archive records and the raw downloaded source books. Paths are relative to the repository root. Metadata-only candidate inventories that were never opened are deliberately not registered. Version 2 keeps the v1 paths and name patterns (except as noted below); it exists because v1 indexes were built with a name matcher that compared patterns with a star in the middle (pg*.txt, *vectors*.jsonl) as literal names, so the 26 raw stage-1 PG books were never indexed. Indexes built from v2 use the shell-glob matcher recorded as name_matcher in index.json. The *vectors*.jsonl exclusions are dropped so that v2 indexes at least every file v1 indexed (v1 never applied them). Evaluation successor v3 (2026-10-27) adds the admitted Train-side pool (pools-v2/dedup-v2/admitted.jsonl: Train, Train-mining and held documents) for Dev-iter acquisition.",
+ "entries": [
+  {
+   "label": "published_datasets",
+   "scope": "published_snapshots_all_splits",
+   "path": "datasets",
+   "names": [
+    "*.jsonl.zst",
+    "*.json.zst",
+    "*.json"
+   ],
+   "exclude_names": [
+    "compression-manifest.json"
+   ]
+  },
+  {
+   "label": "stage1_a_baseline",
+   "scope": "stage1_populations_and_sources",
+   "path": "data/grammar-private/a-baseline-20261026",
+   "names": [
+    "*.jsonl",
+    "*.jsonl.zst",
+    "*.json",
+    "*.json.zst",
+    "pg*.txt"
+   ],
+   "exclude_dirs": [
+    "venv",
+    "worktree",
+    "*-target",
+    "target",
+    "paper-tools",
+    "paper",
+    "cache",
+    "fallback-measure-*",
+    "numeric*",
+    "export",
+    "export-*"
+   ],
+   "exclude_names": [
+    "*.windows.jsonl",
+    "*.receipt.json",
+    "*.transfer.json",
+    "*.headers",
+    "*.started-utc.txt"
+   ]
+  },
+  {
+   "label": "stage1_exports_prepared_rows",
+   "scope": "stage1_populations_and_sources",
+   "path": "data/grammar-private/a-baseline-20261026/export-v2/prepared/rows.jsonl"
+  },
+  {
+   "label": "stage2_parity",
+   "scope": "stage2_populations_including_consumed_final_test",
+   "path": "data/grammar-private/a-parity-stage2-20261026",
+   "names": [
+    "*.jsonl",
+    "*.jsonl.zst",
+    "*.json",
+    "*.json.zst",
+    "*.body"
+   ],
+   "exclude_dirs": [
+    "venv",
+    "worktree",
+    "*-target",
+    "target",
+    "runtime",
+    "paper",
+    "paper-v*",
+    "export-*",
+    "numeric*",
+    "embedding*",
+    "embeddings*",
+    "prefixes*",
+    "fit-curve-*",
+    "fits",
+    "rust-a",
+    "rust-v6",
+    "history"
+   ],
+   "exclude_names": [
+    "*.windows.jsonl",
+    "*.receipt.json"
+   ]
+  },
+  {
+   "label": "stage3_encoder",
+   "scope": "stage3_populations_including_consumed_final_test_style_and_cfg_archive_records",
+   "path": "data/grammar-private/a-encoder-stage3-20261026",
+   "names": [
+    "*.jsonl",
+    "*.jsonl.zst",
+    "*.json",
+    "*.json.zst",
+    "*.body"
+   ],
+   "exclude_dirs": [
+    "runtime-venv",
+    "r2-storage-v1",
+    "cfg-vectors-v1",
+    "parses",
+    "blobs",
+    "files",
+    "receipts",
+    "prefixes-v1",
+    "retained-train-prefixes-v1",
+    "catalog-inventory-v1",
+    "build-v*",
+    "rust-build-v*",
+    "replay-build-v*",
+    "assembly-build-v*",
+    "fit-prepare-build-v*",
+    "numerical-*",
+    "paper",
+    "paper-v*",
+    "export-*",
+    "export"
+   ],
+   "exclude_names": [
+    "*.windows.jsonl",
+    "*.receipt.json",
+    "profile.json",
+    "format.json"
+   ]
+  },
+  {
+   "label": "stage3_style_export_v1",
+   "scope": "style_exports",
+   "path": "data/grammar-private/a-encoder-stage3-20261026/style-corpus-v1/export-v1/records.jsonl"
+  },
+  {
+   "label": "stage3_style_export_v2",
+   "scope": "style_exports",
+   "path": "data/grammar-private/a-encoder-stage3-20261026/style-corpus-v1/export-v2/records.jsonl"
+  },
+  {
+   "label": "stage3_cfg_archive_records",
+   "scope": "cfg_archive",
+   "path": "data/grammar-private/a-encoder-stage3-20261026/cfg-archive-v1/records",
+   "names": [
+    "*.json.zst"
+   ]
+  },
+  {
+   "label": "a_competitive_train_side_pool_v2",
+   "scope": "train_side_pool_including_train_train_mining_and_held",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools-v2/dedup-v2/admitted.jsonl"
+  }
+ ],
+ "registry_version": 3,
+ "supersedes": "prior-registry-v2.json"
+}

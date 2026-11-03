@@ -1,0 +1,8 @@
+{
+ "schema": "slop_ninja_involvement_calibration_policy_v3",
+ "primary": "isotonic_v1_clipped",
+ "bound": "lo=1/(2*CAL human documents), hi=1-1/(2*CAL positive documents); every PAV level and every output clamped to [lo,hi]",
+ "temperature_rule": "one scalar T on the three origin logits; balanced-weighted three-class NLL on CAL; T=exp(0.01k), integer k=-300..300; nearest 1 on an exact tie",
+ "fallback": "origin_temperature_v1",
+ "selection": "isotonic_v1_clipped_unless_recorded_mechanical_failure_nonfinite_value_empty_class_or_fit_error"
+}

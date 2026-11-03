@@ -1,0 +1,77 @@
+\section{External comparisons and evidence renewal}\label{pangram-evidence-and-assigned-audits}
+
+Pangram begins as the external origin-quality anchor: the designated comparator
+for claims of competitive detection quality and the coordinator's assessment
+of readiness for paid service. It supplies a reference for those decisions;
+commercial activation still follows the workload-specific criteria in
+Section~\ref{development-and-launch-criteria}. The coordinator compares
+qualified \textit{A} artifacts, the incumbent anchor, and Pangram on the same
+hidden, independently labeled population. Shared provider observations are
+funded once per comparison set; admitting another artifact need not
+multiply that bill. Freeze provider/model versions, repetition policy, population
+weights, operating points, and uncertainty analysis before exposing the set.
+Rotate private sources, track repeated use, and release material only after
+retirement and source authorization.
+
+Pangram reports separate fractions classified as AI-generated, AI-assisted,
+and human, with segment confidence reported separately~\cite{pangramapi,pangramcard}.
+Its current dashboard explanation defines the fractions by character count;
+our share target uses final-word counts in recorded model-produced spans~\cite{pangramscores}.
+Both are distinct from \textit{A}'s probability of any document-level involvement.
+Quantitative share comparisons need common span labels and counting units;
+the raw fractions are not interchangeable.
+Compare both against documented histories at independently calibrated operating
+points. Provider agreement supplies neither ground-truth labels nor reward
+credit. The reference model that serves as the reward baseline, the
+external quality anchor, and the later \textit{B} panel leader have different
+roles. Replacing an anchor cannot change the reference in force or rescore an
+issued cohort.
+
+\subsection{Changing the quality anchor}\label{pangram-cadence-and-parity}
+
+A contender must beat the incumbent at declared human false-positive operating
+points, exceed a predeclared practical margin, and satisfy slice limits. Account
+for selection among multiple contenders, then require confirmation on fresh
+material after selection. Ties, missing observations, and inconclusive evidence
+leave the incumbent in place. Publish a signed version-bound decision and apply
+it only to a future cohort. Continue measuring Pangram after a subnet artifact
+becomes the anchor. The pilot's authority is the coordinator; no independent
+validator-execution quorum is implied. The October 30, 2026 sealed Test
+(Section~\ref{existing-evidence-and-implementation-status}) found the
+reference \(R_0\) noninferior to Pangram 4.1 but not superior on balanced Brier, and its
+pre-registered recipe verdict failed on one slice. Under this rule Pangram
+remains the anchor.
+
+Report source-family dependence and uncertainty, including weak historical-human
+proxies. A small comparison cannot establish a rare false-positive guarantee.
+Report coverage and failures alongside conditional accuracy. Outages preserve
+the comparison population and evidence; they do not justify silently closing
+with a smaller favorable sample. A later decision to reduce \textit{B}'s external
+checks needs its own repeated held-out noninferiority study. An \textit{A}
+anchor change alone cannot justify it.
+
+\subsection{Exact report identity and permitted disclosure}\label{audit-sequence}
+
+Bind every observation to the exact accepted text, provider version, settings,
+time, result identifier, and retained response bytes. Retrieval must use a
+permitted provider interface and verify that the displayed report corresponds
+to the submitted text. A working public report route in a past probe does not
+establish a permanent API or permission to automate an undocumented endpoint.
+The public-result probe found that the API and report removed a terminal LF;
+this motivates the later \textit{B} text profile's restriction without establishing
+a general preprocessing contract. The report exposed the analyzed text through
+an undocumented public endpoint, with no provider signature or immutable model
+identity established. Report URLs therefore stay out of public receipts and
+logs~\cite{reportprobe}.
+
+Repeatability probes found consistent document fractions for three texts, with
+auxiliary variation and no observation near the strict 10\% boundary. They
+establish neither general determinism nor threshold stability~\cite{repeatability}.
+
+A customer-requested external check is a separate funded operation requiring
+disclosure authorization. It is not silently included in private inference or
+sent to a third-party provider as a default audit. Required later \textit{B}
+benchmark reports use bounded prepaid miner budgets and an operator-controlled
+selection policy, as described in Section~\ref{reward-adjudication}. One report
+retrieved repeatedly is still one observation. Missing or mismatched reports
+remain evidence gaps rather than successful detector passes.

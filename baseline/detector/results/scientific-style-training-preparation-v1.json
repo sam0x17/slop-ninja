@@ -1,0 +1,28 @@
+{
+  "schema": "slop_ninja_scientific_style_preparation_v1",
+  "source_families": 13,
+  "pilot_source_families": 3,
+  "pilot_call_cap": 24,
+  "remaining_call_cap": 80,
+  "remaining_launched": false,
+  "profiles": [
+    "source-matched",
+    "plain",
+    "informal",
+    "fix-slop"
+  ],
+  "generators": {
+    "qwen": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+    "mistral": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde"
+  },
+  "runtime_bindings": 168,
+  "model_files_bound": 24,
+  "total_bound_files": 219,
+  "bindings_sha256": "922c75b5bc4bf9413f4fcee2d74d66fec534e416313c4cd4d7a5d23343712724",
+  "allocation_sha256": "e89b50a20c9c6b094c64376cf94ba2c4a028653473313b0bc46255c8ccae99d2",
+  "policy_sha256": "a572309c1870d307b46fd9c8d7e5efb5ab170d6a00978968b53fe3477c4dacf5",
+  "generation_calls": 0,
+  "model_fitting": false,
+  "active_fits_changed": false,
+  "linux_execution": "unverified"
+}

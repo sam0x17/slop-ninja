@@ -1,0 +1,511 @@
+{
+  "schema": "slop_ninja_v6_postfit_command_plan_v1",
+  "prepared_at": "2026-09-12",
+  "status": "prepared_not_executed",
+  "execution_host": "user@workstation-host",
+  "run_root": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1",
+  "output_root": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1",
+  "required_environment": {
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "TOKENIZERS_PARALLELISM": "false",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1"
+  },
+  "static_sha256": {
+    "repo/baseline/detector/ENCODER_REVISION_V6.md": "7063b6bfec139761768d8b1c71b9ba378652122c4cc570adca3e977e257f98e4",
+    "encoder-frontier-v6/protocol.json": "3a90c59834fb733b377a709da0c26887b40fbfe8fdf99d5542077e9ec777f79b",
+    "fitting-handoff-v2/run.sh": "0ab57686807b90f0ef329b163914f3493b8cc920c7329efddc367d1111abee72",
+    "fitting-handoff-v2/pre-fit-bindings.sha256": "12d52c63d412e6daef149f38c60d64eeb0b6e48d07a7ada215e6890d838a0042",
+    "repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/files.sha256": "fef787051d9feb5e1df78948e5b4ac1c9aedba7fe18690f487175f3ada17c10d",
+    "repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation": "2b87b6b8d24c25b2da6465d39154d040885447b6865b42c4c1032ed525bb6f85",
+    "repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/compare_encoder_reports": "8aff9df00e6e05d4fb7039473373b6fdb35f52cceabbfdbfcee1b91a71391660",
+    "repo/data/baseline-detector/narrative-expansion-v5/encoder-frontier-v5-recovered/lr-0.0000075/manifest.json": "14831915714729071508a0a476f309c8202c47dd0af60ebd2eed0072caeb0c15",
+    "repo/data/baseline-detector/narrative-expansion-v5/recovered-first-thresholds-v1/thresholds.json": "95ce23144752e8a589bd0471f6bda155ddc1171b2d2993d7473264096006c301",
+    "primary-coverage-v1/coverage.json": "887df53ab954e579b98de964afecfc33266f321922cf8ccc11f49a49a1adfc6b",
+    "phi4-coverage-v1/coverage.json": "e1d1afb3f5f76f9bd8536460eeea9439cd7c4032e9ba59e32b1ab07c159cd29b",
+    "shards-v1/calibration.jsonl": "e26ed741c1fbe2d64dc7e8d49211573eaa44b11589524ce76f2b487a9b711031",
+    "assembly-v1/primary/calibration-R2.json": "40635668d4dabc502f9baa41850fc83b5b1a355f14993b0c3272e9d8d924e809"
+  },
+  "unresolved_binding": {
+    "name": "selected_candidate_artifact",
+    "source": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/encoder-frontier-v6/selection.json",
+    "json_path": "selected.path",
+    "resolution": "Only resolve after successful frontier closure, verify two declared rate results and recheck Development-only selection. Reject null winner or any path outside this frontier."
+  },
+  "gates": [
+    "Require fitting-handoff-v2/completion.json exit_code 0, stage frontier_closed_inspect_selection_before_test, and test_predictions_opened false. Reconcile its actual process handle; no restart or signal from this plan.",
+    "Verify all static_sha256, every entry of fitting-tools-v1/files.sha256 from repo cwd, and fitting-handoff-v2/pre-fit-bindings.sha256.",
+    "For both coverage files, verify every files_sha256 entry and equality of full/common archives and stage views. Require 112 primary families, 104 Phi4 families and 117 human roots, no unsupported lengths. The two all-human-root archives must be identical.",
+    "Verify selection protocol hash, two declared learning rates, four epochs per attempted rate, eligible-epoch coverage and minimum uncalibrated Development human/model loss; exact epoch ties favor earlier epoch and rate ties favor lower rate. Null or failed candidate is a stop, not permission to refit.",
+    "Verify all files of both artifact manifests and candidate training/calibration metadata; v5 artifact ID must remain da3a604d7bd1708f5ba1c4a4a4be946d77670492b702e41e267fb86237dfb8c9. Candidate max_tokens 2048; v5 1024.",
+    "Create a new output root. Run only the calibration-phase command first, then verify original candidate Calibration shard/view, frozen temperature and threshold content binding.",
+    "Before the first test-phase command, write pre-test-bindings.sha256 and an opening receipt binding selection, both artifact manifests and calibration files, both threshold files, both coverage freezes/all views/human roots, this plan, protocol, tools, and execution-host companion. Unresolved candidate placeholders must be gone.",
+    "Run commands sequentially with argv arrays and preserve stdout/stderr/exit status per command. Stop on any error and retain partial outputs; never overwrite or blindly retry a partially executed evaluation.",
+    "After all commands complete, recheck pre-Test bindings. Keep all outputs, including unfavorable comparisons. No candidate switching, refitting or new generation after Test opens."
+  ],
+  "comparison_policy": {
+    "primary_statistic": "primary R2 common-support human/model binary log loss, candidate minus v5",
+    "bootstrap": "Existing frozen compare_encoder_reports, 512 paired source-family draws",
+    "full_common": "The pre-score coverage archives and all three views are byte-identical on both routes; each v6 result describes both full and common support, without duplicate inference.",
+    "human_diagnostic": "117 originally assigned human roots regardless of generation completion; no model-sensitivity estimate; do not pool across routes/stages.",
+    "stage_slices": "Keep initial-profile, original-composer, collection, revision path/depth and all three-class diagnostics from the frozen evaluator.",
+    "inference_requests": 4446,
+    "inference_breakdown": {
+      "calibration": 324,
+      "primary": 2016,
+      "phi4": 1872,
+      "human_roots": 234
+    },
+    "note": "4,122 Test inferences plus 324 Calibration inferences. Shared humans/mixed records across stage calls do not become independent observations. Each model uses its own frozen operating points, not matched population FPR.",
+    "pangram": "No Pangram submission in this command plan; preserve the separate allocation for the independently declared fresh comparison."
+  },
+  "commands": [
+    {
+      "id": "freeze_candidate_thresholds",
+      "phase": "calibration",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        {
+          "binding": "selected_candidate_artifact"
+        },
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/v6-thresholds",
+        "freeze-thresholds",
+        "--calibration-jsonl",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/shards-v1/calibration.jsonl",
+        "--calibration-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/assembly-v1/primary/calibration-R2.json"
+      ]
+    },
+    {
+      "id": "primary_R2_v5",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/encoder-frontier-v5-recovered/lr-0.0000075",
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R2-v5",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/recovered-first-thresholds-v1/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/R2.json"
+      ]
+    },
+    {
+      "id": "primary_R2_v6",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        {
+          "binding": "selected_candidate_artifact"
+        },
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R2-v6",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/v6-thresholds/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/R2.json"
+      ]
+    },
+    {
+      "id": "primary_R2_comparison",
+      "phase": "comparison",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/compare_encoder_reports",
+      "args": [
+        "--baseline",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R2-v5/report.json",
+        "--candidate",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R2-v6/report.json",
+        "--output",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R2-comparison.json"
+      ]
+    },
+    {
+      "id": "primary_R0_v5",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/encoder-frontier-v5-recovered/lr-0.0000075",
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R0-v5",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/recovered-first-thresholds-v1/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/R0.json"
+      ]
+    },
+    {
+      "id": "primary_R0_v6",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        {
+          "binding": "selected_candidate_artifact"
+        },
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R0-v6",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/v6-thresholds/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/R0.json"
+      ]
+    },
+    {
+      "id": "primary_R0_comparison",
+      "phase": "comparison",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/compare_encoder_reports",
+      "args": [
+        "--baseline",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R0-v5/report.json",
+        "--candidate",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R0-v6/report.json",
+        "--output",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R0-comparison.json"
+      ]
+    },
+    {
+      "id": "primary_R1_v5",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/encoder-frontier-v5-recovered/lr-0.0000075",
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R1-v5",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/recovered-first-thresholds-v1/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/R1.json"
+      ]
+    },
+    {
+      "id": "primary_R1_v6",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        {
+          "binding": "selected_candidate_artifact"
+        },
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R1-v6",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/v6-thresholds/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/common/R1.json"
+      ]
+    },
+    {
+      "id": "primary_R1_comparison",
+      "phase": "comparison",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/compare_encoder_reports",
+      "args": [
+        "--baseline",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R1-v5/report.json",
+        "--candidate",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R1-v6/report.json",
+        "--output",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/primary-R1-comparison.json"
+      ]
+    },
+    {
+      "id": "phi4_R2_v5",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/encoder-frontier-v5-recovered/lr-0.0000075",
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R2-v5",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/recovered-first-thresholds-v1/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/R2.json"
+      ]
+    },
+    {
+      "id": "phi4_R2_v6",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        {
+          "binding": "selected_candidate_artifact"
+        },
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R2-v6",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/v6-thresholds/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/R2.json"
+      ]
+    },
+    {
+      "id": "phi4_R2_comparison",
+      "phase": "comparison",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/compare_encoder_reports",
+      "args": [
+        "--baseline",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R2-v5/report.json",
+        "--candidate",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R2-v6/report.json",
+        "--output",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R2-comparison.json"
+      ]
+    },
+    {
+      "id": "phi4_R0_v5",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/encoder-frontier-v5-recovered/lr-0.0000075",
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R0-v5",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/recovered-first-thresholds-v1/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/R0.json"
+      ]
+    },
+    {
+      "id": "phi4_R0_v6",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        {
+          "binding": "selected_candidate_artifact"
+        },
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R0-v6",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/v6-thresholds/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/R0.json"
+      ]
+    },
+    {
+      "id": "phi4_R0_comparison",
+      "phase": "comparison",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/compare_encoder_reports",
+      "args": [
+        "--baseline",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R0-v5/report.json",
+        "--candidate",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R0-v6/report.json",
+        "--output",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R0-comparison.json"
+      ]
+    },
+    {
+      "id": "phi4_R1_v5",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/encoder-frontier-v5-recovered/lr-0.0000075",
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R1-v5",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/recovered-first-thresholds-v1/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/R1.json"
+      ]
+    },
+    {
+      "id": "phi4_R1_v6",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        {
+          "binding": "selected_candidate_artifact"
+        },
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R1-v6",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/records.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/v6-thresholds/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--evaluation-view",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/phi4-coverage-v1/common/R1.json"
+      ]
+    },
+    {
+      "id": "phi4_R1_comparison",
+      "phase": "comparison",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/compare_encoder_reports",
+      "args": [
+        "--baseline",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R1-v5/report.json",
+        "--candidate",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R1-v6/report.json",
+        "--output",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/phi4-R1-comparison.json"
+      ]
+    },
+    {
+      "id": "all_human_roots_v5",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/encoder-frontier-v5-recovered/lr-0.0000075",
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/all-humans-v5",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/humans/v5-supported.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/narrative-expansion-v5/recovered-first-thresholds-v1/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--human-roots-only"
+      ]
+    },
+    {
+      "id": "all_human_roots_v6",
+      "phase": "test",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/encoder_evaluation",
+      "args": [
+        "--artifact",
+        {
+          "binding": "selected_candidate_artifact"
+        },
+        "--python",
+        "~/slop_ninja_runs/reference_detector_20260911/detector-training/.venv/bin/python",
+        "--output-dir",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/all-humans-v6",
+        "evaluate",
+        "--records",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/primary-coverage-v1/humans/v6-supported.jsonl",
+        "--thresholds",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/v6-thresholds/thresholds.json",
+        "--split",
+        "test",
+        "--open-final-test",
+        "--human-roots-only"
+      ]
+    },
+    {
+      "id": "all_human_roots_comparison",
+      "phase": "comparison",
+      "program": "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/repo/data/baseline-detector/revision-expansion-v6/fitting-tools-v1/bin/compare_encoder_reports",
+      "args": [
+        "--baseline",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/all-humans-v5/report.json",
+        "--candidate",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/all-humans-v6/report.json",
+        "--output",
+        "~/slop_ninja_runs/revision_expansion_v6/detector_v6_v1/final-evaluation-v1/all-humans-comparison.json"
+      ]
+    }
+  ]
+}

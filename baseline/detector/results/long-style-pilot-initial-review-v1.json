@@ -1,0 +1,71 @@
+{
+  "schema": "slop_ninja.long_style_manual_review.v1",
+  "scope": "First two completed Qwen source-matched pilot drafts; partial generation QA only",
+  "reviewer": "One assistant, reading each complete request/source and complete raw response",
+  "source_split": "development",
+  "training_selection_or_calibration_use": false,
+  "detector_scores_opened": false,
+  "pangram_calls": 0,
+  "generation_calls_reviewed": 2,
+  "original_pilot_call_cap": 36,
+  "automatic_length_admission": {
+    "original": "One rejected by legacy 800-word ceiling; one admitted",
+    "amended": "Both admitted from exact cached responses under source-relative-v1; no generation repeated",
+    "meaning_certified_by_admission": false
+  },
+  "reviews": [
+    {
+      "source_id": "cmu-books:23563172:fbb39239ee9d854b",
+      "source_sha256": "fbb39239ee9d854b3a86cde957202ba1f4fa7c44eb33e7be317e51bdf173414e",
+      "task": "56f5396695e92a4c55f0aa1f183af45b51345be63ba4c73a229260fcf0ed6722",
+      "raw_response_sha256": "1b713736bddd35d67f68216755e82597eb42515ffa75ed6d646a9209436aafd8",
+      "draft_sha256": "c2323cc74da41437f90ad6b78bb865b84dd7ffd6fbac34a68f34c34c924e553f",
+      "source_lexical_words": 1443,
+      "draft_lexical_words": 1887,
+      "source_a_tokens": 1977,
+      "draft_a_tokens": 2667,
+      "a_token_limit": 2048,
+      "whole_draft_supported": false,
+      "fidelity": "fail",
+      "requested_register_preserved": false,
+      "findings": [
+        "Poisoning victim changed from the nobleman to the woman he courts.",
+        "Defeat in a magical contest reframed as a nonphysical moral and psychic defeat.",
+        "An unspecified philosophy given invented doctrines of nonviolence and restraint.",
+        "A lethal bandit encounter reframed with an unsupported nonlethal intention; the leader's indifference to arrow wounds is omitted.",
+        "Training and trials receive invented content while the appointed teacher and sword's precise age are omitted.",
+        "A prior breathing rescue changes which person needed rescue.",
+        "A pardon for the troupe killings is omitted and financial stability becomes a stronger wealth/security claim.",
+        "The final attempt to restore fighting ability receives an incompatible account of its purpose and an unsupported psychological conclusion.",
+        "Lyrical commentary, invented internal states and frequent dramatic fragments depart from the source's factual summary register."
+      ]
+    },
+    {
+      "source_id": "cmu-books:21829284:e2f9d8cb4a761ff8",
+      "source_sha256": "e2f9d8cb4a761ff829b115597ea7734e5c2f913e7337c80a68cfccb820046bb3",
+      "task": "589282dfc9aeec021f9769cfca1ce7e736748f324136abdafd1ba69b4d66ab35",
+      "raw_response_sha256": "dc954d3854fddbc962648e3f9ece93f80edf08dffe87be6c005111c305482e71",
+      "draft_sha256": "a1add214c91ccd35c4a56afaf815834659c44a9a611d3e411981bedbeae2db5d",
+      "source_lexical_words": 698,
+      "source_a_tokens": 919,
+      "draft_a_tokens": 819,
+      "a_token_limit": 2048,
+      "whole_draft_supported": true,
+      "fidelity": "fail_strict_preservation; broad event sequence mostly retained",
+      "requested_register_preserved": "partial",
+      "findings": [
+        "A faction leader's apparently traitorous intentions become definite claims of secret opposition.",
+        "The nomads acquire an unsupported habit of trading scraps; the stolen airship is assigned to the jailer's daughter without source support.",
+        "Retroactive elections remain, but the requirement that voting happens after the leader's term is omitted.",
+        "The explicit causal attribution of the inherited condition to the original crime is weakened.",
+        "Some lyrical phrasing and dramatic fragments are added, though the broad narrative remains much closer to the source than in the first draft."
+      ]
+    }
+  ],
+  "limitations": [
+    "This is not a parse-accuracy assessment or a detector evaluation.",
+    "Both responses use one generator and one requested profile; there is no measured cross-profile effect yet.",
+    "Retain these failures in attempted-source denominators; do not replace them with regenerated successes.",
+    "All confirmation sources remain closed. No reference-model promotion follows."
+  ]
+}

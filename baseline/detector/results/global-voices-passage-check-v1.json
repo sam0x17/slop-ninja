@@ -1,0 +1,65 @@
+{
+  "schema": "slop_ninja_global_voices_passage_check_v1",
+  "at": "2026-09-15T13:19:42Z",
+  "checker_sha256": "f1b086d1fe7bcca58f3dc88ca1ee4d0a2d237a7fb3ae662e5756502f93daf5ac",
+  "run_report_sha256": "ed71cef106939eef1ac791b05101019656fed1e7b0d89cb7dfe515c88fedfcb3",
+  "manual_review_sha256": "1e002ff4ac883c378ebab25bfaedebcf73e611d8b30ebbef18b6bb34a83d1702",
+  "source_bindings_match": true,
+  "totals": {
+    "candidates": 8,
+    "paragraphs": 22,
+    "words_unicode_whitespace": 1323
+  },
+  "rows": [
+    {
+      "id": "gv:769472",
+      "candidate_artifact_sha256": "0a31e2c97f1c81d17fb42fb507377b6871e5832484dfa9f85be490a98d7d0b3b",
+      "text_sha256": "738d8a4cd439884b7e74277e1c9c20a66b06bd7905ea594211cfefeb27431f77",
+      "source_and_boundary_checks_match": true
+    },
+    {
+      "id": "gv:614081",
+      "candidate_artifact_sha256": "fc7cc32008c7b25c20fc5c6da4a1a33b2cfadf7ca8863d521df3292cf9c223ee",
+      "text_sha256": "c0816e4df69c0fa9f0e540967446053d8069d25893ce3112dce49928827aa669",
+      "source_and_boundary_checks_match": true
+    },
+    {
+      "id": "gv:594642",
+      "candidate_artifact_sha256": "10f1a48fdbe58eb38f4be3209756586bd3754f2cf2cab38985990a59a88e6930",
+      "text_sha256": "7a377a1ebd0297ea2e48aa577382e5e926341ab655d4339bd34fdaf9f4d8cc09",
+      "source_and_boundary_checks_match": true
+    },
+    {
+      "id": "gv:711372",
+      "candidate_artifact_sha256": "de4a25ddcac48733842b5e19ed88d646c368af87986e6056e50ae80fc9afeec1",
+      "text_sha256": "84f802dfab799c87a1b9501024a94337ec0d4877a837f29ffa463f993e19f9fe",
+      "source_and_boundary_checks_match": true
+    },
+    {
+      "id": "gv:555064",
+      "candidate_artifact_sha256": "3fc27b3cd9c792e1411c4f80c1241d1d03b2acb4f8a5b96342cbeeea3912a5de",
+      "text_sha256": "a57d905fa215f3d072aa1330e86af8f838662317611aac4a9bcbdc71bcbdab28",
+      "source_and_boundary_checks_match": true
+    },
+    {
+      "id": "gv:662657",
+      "candidate_artifact_sha256": "074ea9c077e8ecdb20dfb99510d12e5155b594017bb37913f32f75088e197673",
+      "text_sha256": "86dbe1b686e6665eb5afe3b254a8bd877f76b8066b10c8aa818124709ab31bdf",
+      "source_and_boundary_checks_match": true
+    },
+    {
+      "id": "gv:557838",
+      "candidate_artifact_sha256": "c8e7dd61e0a3197ad25a5d08226bd0ddc89522855c85a1945d481e33d02f073a",
+      "text_sha256": "d28db248e0a096ec4abceec45edfa3b75ac3244f034c4710812f62b50987876b",
+      "source_and_boundary_checks_match": true
+    },
+    {
+      "id": "gv:742458",
+      "candidate_artifact_sha256": "c3ac8b608587aaeba4f2ba6749168f76cdef5679c022ce6c02fda1f43427df56",
+      "text_sha256": "4bbb6dcb41c3b86bfa15186a67b34b63e6f0b6a4f9ad302e13d060ca1de6c102",
+      "source_and_boundary_checks_match": true
+    }
+  ],
+  "semantic_judgments": "manual_assistant_review_not_automatically_proven",
+  "training_records_admitted": 0
+}

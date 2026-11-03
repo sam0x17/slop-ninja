@@ -1,0 +1,152 @@
+{
+ "schema": "slop_ninja_a_pool_prior_registry_v1",
+ "description": "Historical supplementary registry historical-supp-v1 (2026-10-27, branch a-comp-historical). Second-pass index for the historical pools: concurrent Train-side acquisitions that post-date the blogs-v1 index used for the first pass (FineWeb blog pool, PLOS blogs, Wikisource, Wikibooks, Wikivoyage and review-site pools, essay and review candidates, and the final documents.jsonl of the legal, forum and spoken pools when present). The large raw forum, court-opinion and media-interview candidate files are not indexed here because of memory limits; their final pools are, when they exist. Entries whose paths did not exist are optional and reported under entries_without_files.",
+ "entries": [
+  {
+   "label": "fineweb_blogs_admitted",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/fineweb-blogs/dedup-v1/admitted.jsonl",
+   "names": null,
+   "required": true
+  },
+  {
+   "label": "plos_blogs",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/plos-blogs",
+   "names": [
+    "candidates.jsonl",
+    "admitted.jsonl",
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "wikis_review",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/wikis-review",
+   "names": [
+    "admitted.jsonl",
+    "candidates.jsonl",
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "wikisource_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/wikisource",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "wikibooks_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/wikibooks",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "wikibooks_cookbook_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/wikibooks-cookbook",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "wikivoyage_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/wikivoyage",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "f1000research_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/f1000research",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "openreview_orb_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/openreview-orb",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "legal_gov_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/legal-gov",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "forums_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/forums",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "spoken_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/spoken",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "essays_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/essays",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "reviews_work_final_pool",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/reviews-work",
+   "names": [
+    "documents.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "essays_candidates",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/essays",
+   "names": [
+    "candidates.jsonl"
+   ],
+   "required": false
+  },
+  {
+   "label": "reviews_work_candidates",
+   "scope": "concurrent_train_side_pools",
+   "path": "data/grammar-private/a-competitive-20261027/data/pools/reviews-work",
+   "names": [
+    "candidates.jsonl"
+   ],
+   "required": false
+  }
+ ]
+}

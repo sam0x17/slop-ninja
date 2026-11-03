@@ -1,0 +1,14 @@
+[package]
+name = "slop_ninja_pool_components"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Contributor-closure split components for A human pools: families merged when they share a writer key or a dedup split component"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+quick-xml = "=0.41.0"

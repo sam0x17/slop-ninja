@@ -1,0 +1,2153 @@
+{
+  "cohorts": [
+    {
+      "accepted_generation_outputs": 158,
+      "accepted_generation_outputs_excluded_with_family": 2,
+      "attempts": 160,
+      "checkpoint": {
+        "license": "Apache-2.0",
+        "license_evidence_sha256": "05cab46843576551502bfdf712f84e93e6e9590d9997306ed4f6635ef82811d9",
+        "license_evidence_url": "https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507/resolve/0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe/LICENSE",
+        "quantization": {
+          "bits": 4,
+          "format": "MLX",
+          "group_size": 64
+        },
+        "repository": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit",
+        "revision": "e9675aa3ca5f900ccef55267914466d55ab325fa",
+        "runtime_files": {
+          "added_tokens.json": {
+            "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680",
+            "size_bytes": 707
+          },
+          "chat_template.jinja": {
+            "sha256": "40c21f34cf67d8c760ef72f8ad3ae5afad514299d4b06e91dd9a8d705af7b541",
+            "size_bytes": 4040
+          },
+          "config.json": {
+            "sha256": "e1caf81b25b71686af871f1147290a81cbcb81283b638f98957293990e031417",
+            "size_bytes": 10866
+          },
+          "generation_config.json": {
+            "sha256": "19d306dd769db12a9d710b44cf7f83b635efbe5166b84fb4358a08fb7d88bb53",
+            "size_bytes": 239
+          },
+          "merges.txt": {
+            "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+            "size_bytes": 1671853
+          },
+          "model-00001-of-00004.safetensors": {
+            "sha256": "70919a0f0b7d86c3100e30dfc2c72eb29909b841f9414b9c5ae3e8673ec9ff8c",
+            "size_bytes": 5321473414
+          },
+          "model-00002-of-00004.safetensors": {
+            "sha256": "1a0387973b19b0bac1201358d1f56989deaf595da34f307ec29777fa6f8469b8",
+            "size_bytes": 5366644780
+          },
+          "model-00003-of-00004.safetensors": {
+            "sha256": "d1a627729b2791dba7db5cda5dd0d24ea4c44c5131981c258598d5d0c80e0df3",
+            "size_bytes": 5276887419
+          },
+          "model-00004-of-00004.safetensors": {
+            "sha256": "b02f0e9f626bd2f5bb41e057216c9d6f594ddeac91cc3f2161cc935d050a12c6",
+            "size_bytes": 1216066381
+          },
+          "model.safetensors.index.json": {
+            "sha256": "c100efb419233c6be585014ebd9f5a8c2a4fe9de63be6271172f0f70f1c315ea",
+            "size_bytes": 119598
+          },
+          "special_tokens_map.json": {
+            "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd",
+            "size_bytes": 613
+          },
+          "tokenizer.json": {
+            "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+            "size_bytes": 11422654
+          },
+          "tokenizer_config.json": {
+            "sha256": "355f2b4e5bad7b01f11ef6cb68ebc176f61b95c3276092ea225b1bea0e01e95c",
+            "size_bytes": 5404
+          },
+          "vocab.json": {
+            "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+            "size_bytes": 2776833
+          }
+        },
+        "runtime_files_manifest_sha256": "7a0b048169c41072305ee26b9843ed997b00caec8205206ceb6ede43e08f27b8"
+      },
+      "cohort_id": "qwen-primary",
+      "excluded_source_families": 2,
+      "files_sha256": {
+        "profile-plan.json": "873bc89667dc5d78d230e09a952daeaf90d62c6a730154f9fd9d34c331c2e1cb",
+        "records.jsonl": "5eb6eb771a2067e26a02c76995684b6ed850ec1137809cd54b7d69c2e48ef59a",
+        "run.json": "d3ba9b3d8cf6672b92fe91c308f18e91128f5f636e2122913cf5fdaa1fa95877",
+        "summary.json": "be0dc82b907077953748e71e707d3ce73a5c2e077a3507271e2a725b249c0030"
+      },
+      "model_spec_sha256": "041808cee1488847763fab6b70eb0336371bb54184c4a910120739b889165c30",
+      "rejected_generation_outputs": 2,
+      "rejection_counts": {
+        "draft_source_copy": 2
+      },
+      "requested_profile_assignments": {
+        "doi:10.1371/journal.pone.0208246": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208292": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208304": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208308": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "calibration"
+        },
+        "doi:10.1371/journal.pone.0208356": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208367": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208434": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208511": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208543": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208605": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208610": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208616": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208674": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208681": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208688": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208692": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208694": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208701": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208713": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208728": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208730": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "calibration"
+        },
+        "doi:10.1371/journal.pone.0208733": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "calibration"
+        },
+        "doi:10.1371/journal.pone.0208736": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208737": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208754": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208801": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208809": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "calibration"
+        },
+        "doi:10.1371/journal.pone.0208827": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208858": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": false,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208892": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208893": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208937": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208943": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208952": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208958": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208963": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208992": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0209029": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0209032": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0209044": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:103360": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:103855": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "development"
+        },
+        "wikinews:109735": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:110838": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "development"
+        },
+        "wikinews:116308": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:116387": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:119672": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:1445": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:1446": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:173807": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:18141": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:18151": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:19236": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "development"
+        },
+        "wikinews:208700": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:253823": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:258867": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "calibration"
+        },
+        "wikinews:2639": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:269674": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:27818": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:2785377": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:2790703": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:2840087": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:28704": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:312216": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:34522": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:37639": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:380550": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:39966": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "calibration"
+        },
+        "wikinews:42735": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:45168": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:45660": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:461207": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": false,
+          "split": "calibration"
+        },
+        "wikinews:5003": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:59750": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:66780": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:72778": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:7751": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:7994": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "development"
+        },
+        "wikinews:86132": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:95575": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        }
+      },
+      "retained_families_by_split_and_profile": {
+        "calibration": {
+          "anti-ai": 2,
+          "fix-slop": 2,
+          "plain": 1,
+          "source-matched": 1
+        },
+        "development": {
+          "anti-ai": 2,
+          "direct": 2,
+          "fix-slop": 2,
+          "informal": 2,
+          "plain": 1,
+          "source-matched": 1
+        },
+        "test": {
+          "anti-ai": 1,
+          "direct": 1,
+          "fix-slop": 2,
+          "informal": 2,
+          "plain": 2,
+          "source-matched": 2
+        },
+        "train": {
+          "anti-ai": 9,
+          "direct": 8,
+          "fix-slop": 9,
+          "informal": 9,
+          "plain": 9,
+          "source-matched": 8
+        }
+      },
+      "retained_generated_outputs": 156,
+      "retained_summary": {
+        "collections": {
+          "plos_one": 117,
+          "wikinews": 117
+        },
+        "evidence": {
+          "historical_proxy": 78,
+          "model_edit_of_historical_proxy": 78,
+          "recorded_model_generation": 78
+        },
+        "licenses": {
+          "CC-BY-2.5": 117,
+          "CC-BY-4.0": 117
+        },
+        "origins": {
+          "human_only": 78,
+          "mixed": 78,
+          "model_only": 78
+        },
+        "records": 234,
+        "source_groups": 78,
+        "splits": {
+          "calibration": 18,
+          "development": 30,
+          "test": 30,
+          "train": 156
+        },
+        "words_max": 507,
+        "words_min": 149
+      },
+      "runtime": {
+        "hardware": {
+          "chip": "Apple M5 Max",
+          "gpu_cores": 40,
+          "metal_architecture": "applegpu_g17s",
+          "os": "macOS 26.6.2",
+          "unified_memory_gib": 128
+        },
+        "mistral_regex_correction_enabled": false,
+        "mlx": "0.32.2",
+        "mlx_lm": "0.31.3",
+        "mlx_metal": "0.32.2",
+        "python": "3.12.14",
+        "tokenizer_remote_code_enabled": false,
+        "tokenizers": "0.23.2",
+        "transformers": "5.17.0"
+      },
+      "settings": {
+        "checkpoint_context_limit": 262144,
+        "client_concurrency": 1,
+        "complete_families_only": true,
+        "decode_concurrency": 1,
+        "input_truncation": false,
+        "max_output_tokens": 1800,
+        "prompt_cache_size": 0,
+        "prompt_concurrency": 1,
+        "prompt_profile_selection": {
+          "assignment_method": "split-register-family-hash-round-robin-v1",
+          "catalog_sha256": "e3722ac039ba30d1b3a6eb2e19b5f2ddec36897dadebd450c5b168e6f120d4b9",
+          "guard": "Style requests may change formality, vocabulary and sentence rhythm. Preserve every source fact, qualification, attribution, uncertainty, stance and argumentative relationship. Preserve the intended seriousness and attitude even when changing formality. Do not invent facts, personal experiences, opinions, quotations or deliberate errors. Do not use misspellings, invisible characters or encoding tricks. Keep necessary technical terms and measurements. Apply the style only within the requested draft or light-to-moderate copyedit: an edit must still retain most source wording and the order of ideas. Factual fidelity and these operation constraints take priority over style.",
+          "guard_sha256": "32a8038f84f0635b306cabd6b571e886fa8a3da88b3c769df112f61816ab41f0",
+          "selected_profile_ids": [
+            "source-matched",
+            "plain",
+            "informal",
+            "direct",
+            "anti-ai",
+            "fix-slop"
+          ],
+          "set_id": "style-mix-v1"
+        },
+        "prompt_version": "source-conditioned-draft-light-edit-v1",
+        "seed": null,
+        "split_selector": null,
+        "temperature": 0.7
+      }
+    },
+    {
+      "accepted_generation_outputs": 20,
+      "accepted_generation_outputs_excluded_with_family": 0,
+      "attempts": 20,
+      "checkpoint": {
+        "license": "Apache-2.0",
+        "license_evidence_sha256": "05cab46843576551502bfdf712f84e93e6e9590d9997306ed4f6635ef82811d9",
+        "license_evidence_url": "https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507/resolve/0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe/LICENSE",
+        "quantization": {
+          "bits": 4,
+          "format": "MLX",
+          "group_size": 64
+        },
+        "repository": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit",
+        "revision": "e9675aa3ca5f900ccef55267914466d55ab325fa",
+        "runtime_files": {
+          "added_tokens.json": {
+            "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680",
+            "size_bytes": 707
+          },
+          "chat_template.jinja": {
+            "sha256": "40c21f34cf67d8c760ef72f8ad3ae5afad514299d4b06e91dd9a8d705af7b541",
+            "size_bytes": 4040
+          },
+          "config.json": {
+            "sha256": "e1caf81b25b71686af871f1147290a81cbcb81283b638f98957293990e031417",
+            "size_bytes": 10866
+          },
+          "generation_config.json": {
+            "sha256": "19d306dd769db12a9d710b44cf7f83b635efbe5166b84fb4358a08fb7d88bb53",
+            "size_bytes": 239
+          },
+          "merges.txt": {
+            "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+            "size_bytes": 1671853
+          },
+          "model-00001-of-00004.safetensors": {
+            "sha256": "70919a0f0b7d86c3100e30dfc2c72eb29909b841f9414b9c5ae3e8673ec9ff8c",
+            "size_bytes": 5321473414
+          },
+          "model-00002-of-00004.safetensors": {
+            "sha256": "1a0387973b19b0bac1201358d1f56989deaf595da34f307ec29777fa6f8469b8",
+            "size_bytes": 5366644780
+          },
+          "model-00003-of-00004.safetensors": {
+            "sha256": "d1a627729b2791dba7db5cda5dd0d24ea4c44c5131981c258598d5d0c80e0df3",
+            "size_bytes": 5276887419
+          },
+          "model-00004-of-00004.safetensors": {
+            "sha256": "b02f0e9f626bd2f5bb41e057216c9d6f594ddeac91cc3f2161cc935d050a12c6",
+            "size_bytes": 1216066381
+          },
+          "model.safetensors.index.json": {
+            "sha256": "c100efb419233c6be585014ebd9f5a8c2a4fe9de63be6271172f0f70f1c315ea",
+            "size_bytes": 119598
+          },
+          "special_tokens_map.json": {
+            "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd",
+            "size_bytes": 613
+          },
+          "tokenizer.json": {
+            "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+            "size_bytes": 11422654
+          },
+          "tokenizer_config.json": {
+            "sha256": "355f2b4e5bad7b01f11ef6cb68ebc176f61b95c3276092ea225b1bea0e01e95c",
+            "size_bytes": 5404
+          },
+          "vocab.json": {
+            "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+            "size_bytes": 2776833
+          }
+        },
+        "runtime_files_manifest_sha256": "7a0b048169c41072305ee26b9843ed997b00caec8205206ceb6ede43e08f27b8"
+      },
+      "cohort_id": "qwen-reserved",
+      "excluded_source_families": 0,
+      "files_sha256": {
+        "profile-plan.json": "e7b51b73b726ef5ecdf29d9da69a7fd4f2a2c1bfcf1422312cfcbc5c8cabed2a",
+        "records.jsonl": "e17a393567f3f36d5f1166622a9587ec75c9a0c36eec013fab080871089dc6a3",
+        "run.json": "8a9ba1eea28d017c2b97f3922e1e02e5e4190dfb2ead8bc8005c31002ca289f7",
+        "summary.json": "4db07b23770e7843db968a557f0d7d42a317f31fc9555fb381c832546782a9b7"
+      },
+      "model_spec_sha256": "041808cee1488847763fab6b70eb0336371bb54184c4a910120739b889165c30",
+      "rejected_generation_outputs": 0,
+      "rejection_counts": {},
+      "requested_profile_assignments": {
+        "doi:10.1371/journal.pone.0208356": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208511": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "formal",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208701": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "formal",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208801": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "formal",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208827": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0209032": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:253823": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:27818": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "formal",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:380550": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "formal",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:7751": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        }
+      },
+      "retained_families_by_split_and_profile": {
+        "test": {
+          "editorial": 5,
+          "formal": 5
+        }
+      },
+      "retained_generated_outputs": 20,
+      "retained_summary": {
+        "collections": {
+          "plos_one": 18,
+          "wikinews": 12
+        },
+        "evidence": {
+          "historical_proxy": 10,
+          "model_edit_of_historical_proxy": 10,
+          "recorded_model_generation": 10
+        },
+        "licenses": {
+          "CC-BY-2.5": 12,
+          "CC-BY-4.0": 18
+        },
+        "origins": {
+          "human_only": 10,
+          "mixed": 10,
+          "model_only": 10
+        },
+        "records": 30,
+        "source_groups": 10,
+        "splits": {
+          "test": 30
+        },
+        "words_max": 361,
+        "words_min": 168
+      },
+      "runtime": {
+        "hardware": {
+          "chip": "Apple M5 Max",
+          "gpu_cores": 40,
+          "metal_architecture": "applegpu_g17s",
+          "os": "macOS 26.6.2",
+          "unified_memory_gib": 128
+        },
+        "mistral_regex_correction_enabled": false,
+        "mlx": "0.32.2",
+        "mlx_lm": "0.31.3",
+        "mlx_metal": "0.32.2",
+        "python": "3.12.14",
+        "tokenizer_remote_code_enabled": false,
+        "tokenizers": "0.23.2",
+        "transformers": "5.17.0"
+      },
+      "settings": {
+        "checkpoint_context_limit": 262144,
+        "client_concurrency": 1,
+        "complete_families_only": true,
+        "decode_concurrency": 1,
+        "input_truncation": false,
+        "max_output_tokens": 1800,
+        "prompt_cache_size": 0,
+        "prompt_concurrency": 1,
+        "prompt_profile_selection": {
+          "assignment_method": "split-register-family-hash-round-robin-v1",
+          "catalog_sha256": "e3722ac039ba30d1b3a6eb2e19b5f2ddec36897dadebd450c5b168e6f120d4b9",
+          "guard": "Style requests may change formality, vocabulary and sentence rhythm. Preserve every source fact, qualification, attribution, uncertainty, stance and argumentative relationship. Preserve the intended seriousness and attitude even when changing formality. Do not invent facts, personal experiences, opinions, quotations or deliberate errors. Do not use misspellings, invisible characters or encoding tricks. Keep necessary technical terms and measurements. Apply the style only within the requested draft or light-to-moderate copyedit: an edit must still retain most source wording and the order of ideas. Factual fidelity and these operation constraints take priority over style.",
+          "guard_sha256": "32a8038f84f0635b306cabd6b571e886fa8a3da88b3c769df112f61816ab41f0",
+          "selected_profile_ids": [
+            "editorial",
+            "formal"
+          ],
+          "set_id": "style-mix-v1"
+        },
+        "prompt_version": "source-conditioned-draft-light-edit-v1",
+        "seed": null,
+        "split_selector": "test",
+        "temperature": 0.7
+      }
+    },
+    {
+      "accepted_generation_outputs": 149,
+      "accepted_generation_outputs_excluded_with_family": 11,
+      "attempts": 160,
+      "checkpoint": {
+        "license": "Apache-2.0",
+        "license_evidence_sha256": "48d492d5ded3dfb80ab53033391c7ada71f42037e442758d9eb29fdb08929edb",
+        "license_evidence_url": "https://huggingface.co/mistralai/Mistral-Small-3.2-24B-Instruct-2506/resolve/95a6d26c4bfb886c58daf9d3f7332c857cb27b43/README.md",
+        "quantization": {
+          "bits": 4,
+          "format": "MLX",
+          "group_size": 64
+        },
+        "repository": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit",
+        "revision": "2a1d5eabfc504747bdc24178394821a1efc0edde",
+        "runtime_files": {
+          "chat_template.jinja": {
+            "sha256": "d99c0a28fd4eebd7ba2cc0309651f6d7c5486024989bc42f6bb4cc558d553689",
+            "size_bytes": 415
+          },
+          "config.json": {
+            "sha256": "0f9f2c41325bb88c630b49f754e7539a78a890e43709809b06f86b3726a962f2",
+            "size_bytes": 1081
+          },
+          "generation_config.json": {
+            "sha256": "ac52ac4e326beae33b9dd33f5fca0301fc563e34becfe98ee210ee2b853d93bb",
+            "size_bytes": 135
+          },
+          "model-00001-of-00003.safetensors": {
+            "sha256": "b14ef6edd1fab31b052054c71f7c3f41f387a43e02f1c3eb99a627f162f6bbb2",
+            "size_bytes": 5285177419
+          },
+          "model-00002-of-00003.safetensors": {
+            "sha256": "e61504f270c677da853c0b09e7a2d9745f8e964cc3bb12956732535d972db7b7",
+            "size_bytes": 5314713098
+          },
+          "model-00003-of-00003.safetensors": {
+            "sha256": "f01eb88b488cf2e2291b8e3ab116039ab13d35546c36c58196420fe9ed59c2be",
+            "size_bytes": 2660302214
+          },
+          "model.safetensors.index.json": {
+            "sha256": "8f585f22a31efe4c005dafc116b3905f3e52ed31c99598b23e8b242bfe736eca",
+            "size_bytes": 93273
+          },
+          "special_tokens_map.json": {
+            "sha256": "5bc5d1c106bf86895473568ef5211f3fde8415e6fdee039223d6db8ca52cbe01",
+            "size_bytes": 21311
+          },
+          "tokenizer.json": {
+            "sha256": "b76085f9923309d873994d444989f7eb6ec074b06f25b58f1e8d7b7741070949",
+            "size_bytes": 17078037
+          },
+          "tokenizer_config.json": {
+            "sha256": "70b26ab59c2c959a0dee2b0f6146a2e9d3c2b61b3995d6d584eb975f522b4c92",
+            "size_bytes": 198055
+          }
+        },
+        "runtime_files_manifest_sha256": "1473d0676340694a109a83440a1a29b24be4af84cab43a090afa9bebd9ae7731"
+      },
+      "cohort_id": "mistral-primary",
+      "excluded_source_families": 11,
+      "files_sha256": {
+        "profile-plan.json": "990afadfa9bce87c5b84bb64f9a46a4485117a9d2aab982ee497a78eaf0406a4",
+        "records.jsonl": "36023f05f52bb1625240eaae08cda6d5dd31d7a28ba1dd07bc3cf313c135aa93",
+        "run.json": "b7de37e97274d38f4ff6409642a5bf4024c9dfd1f95d3f930fab42b02b7baa59",
+        "summary.json": "963166828344d09f1705cb3de2b1f9b7f2dd27486b711c0a98f799aa40bd3f3f"
+      },
+      "model_spec_sha256": "d2728a13c5347f9d518e9913e591b0b862235d46933ab9d9f134af117c02a76d",
+      "rejected_generation_outputs": 11,
+      "rejection_counts": {
+        "draft_source_copy": 11
+      },
+      "requested_profile_assignments": {
+        "doi:10.1371/journal.pone.0208237": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208287": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208288": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208289": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208301": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208365": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208366": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "calibration"
+        },
+        "doi:10.1371/journal.pone.0208371": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208377": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208384": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208436": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "calibration"
+        },
+        "doi:10.1371/journal.pone.0208491": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": false,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208505": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208506": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208517": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": false,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208643": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208658": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208665": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208677": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208682": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208717": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": false,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208724": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208819": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208837": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208869": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208871": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208873": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208889": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "development"
+        },
+        "doi:10.1371/journal.pone.0208902": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": false,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208906": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208913": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "calibration"
+        },
+        "doi:10.1371/journal.pone.0208918": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208939": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208941": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0208949": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208969": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "calibration"
+        },
+        "doi:10.1371/journal.pone.0209024": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0209028": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0209054": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "direct",
+          "retained": false,
+          "split": "train"
+        },
+        "doi:10.1371/journal.pone.0209056": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "development"
+        },
+        "wikinews:107889": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:109313": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:113046": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:114478": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:120451": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:1267722": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "calibration"
+        },
+        "wikinews:140323": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": false,
+          "split": "train"
+        },
+        "wikinews:140793": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": false,
+          "split": "train"
+        },
+        "wikinews:146204": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:15494": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:177523": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:18602": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": false,
+          "split": "train"
+        },
+        "wikinews:21393": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "development"
+        },
+        "wikinews:22206": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:252189": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:2524": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "calibration"
+        },
+        "wikinews:2526": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "development"
+        },
+        "wikinews:26436": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": false,
+          "split": "train"
+        },
+        "wikinews:2795624": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": false,
+          "split": "test"
+        },
+        "wikinews:2806664": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:28115": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:30022": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "anti-ai",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:300577": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:4273": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:44024": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "calibration"
+        },
+        "wikinews:45513": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:47846": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:5648": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": false,
+          "split": "test"
+        },
+        "wikinews:57007": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "development"
+        },
+        "wikinews:6477": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:69467": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:73383": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:783073": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:81854": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "calibration"
+        },
+        "wikinews:82619": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:83540": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "source-matched",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:85213": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "direct",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:86602": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "plain",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:96448": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "informal",
+          "retained": true,
+          "split": "train"
+        },
+        "wikinews:9740": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "fix-slop",
+          "retained": true,
+          "split": "development"
+        }
+      },
+      "retained_families_by_split_and_profile": {
+        "calibration": {
+          "anti-ai": 2,
+          "direct": 1,
+          "fix-slop": 2,
+          "plain": 1,
+          "source-matched": 2
+        },
+        "development": {
+          "anti-ai": 2,
+          "direct": 1,
+          "fix-slop": 2,
+          "informal": 2,
+          "plain": 1,
+          "source-matched": 1
+        },
+        "test": {
+          "anti-ai": 1,
+          "direct": 1,
+          "informal": 2,
+          "plain": 1,
+          "source-matched": 2
+        },
+        "train": {
+          "anti-ai": 9,
+          "direct": 7,
+          "fix-slop": 6,
+          "informal": 9,
+          "plain": 7,
+          "source-matched": 7
+        }
+      },
+      "retained_generated_outputs": 138,
+      "retained_summary": {
+        "collections": {
+          "plos_one": 105,
+          "wikinews": 102
+        },
+        "evidence": {
+          "historical_proxy": 69,
+          "model_edit_of_historical_proxy": 69,
+          "recorded_model_generation": 69
+        },
+        "licenses": {
+          "CC-BY-2.5": 102,
+          "CC-BY-4.0": 105
+        },
+        "origins": {
+          "human_only": 69,
+          "mixed": 69,
+          "model_only": 69
+        },
+        "records": 207,
+        "source_groups": 69,
+        "splits": {
+          "calibration": 24,
+          "development": 27,
+          "test": 21,
+          "train": 135
+        },
+        "words_max": 491,
+        "words_min": 124
+      },
+      "runtime": {
+        "hardware": {
+          "chip": "Apple M5 Max",
+          "gpu_cores": 40,
+          "metal_architecture": "applegpu_g17s",
+          "os": "macOS 26.6.2",
+          "unified_memory_gib": 128
+        },
+        "mistral_regex_correction_enabled": true,
+        "mlx": "0.32.2",
+        "mlx_lm": "0.31.3",
+        "mlx_metal": "0.32.2",
+        "python": "3.12.14",
+        "tokenizer_remote_code_enabled": false,
+        "tokenizers": "0.23.2",
+        "transformers": "5.17.0"
+      },
+      "settings": {
+        "checkpoint_context_limit": 131072,
+        "client_concurrency": 1,
+        "complete_families_only": true,
+        "decode_concurrency": 1,
+        "input_truncation": false,
+        "max_output_tokens": 1800,
+        "prompt_cache_size": 0,
+        "prompt_concurrency": 1,
+        "prompt_profile_selection": {
+          "assignment_method": "split-register-family-hash-round-robin-v1",
+          "catalog_sha256": "e3722ac039ba30d1b3a6eb2e19b5f2ddec36897dadebd450c5b168e6f120d4b9",
+          "guard": "Style requests may change formality, vocabulary and sentence rhythm. Preserve every source fact, qualification, attribution, uncertainty, stance and argumentative relationship. Preserve the intended seriousness and attitude even when changing formality. Do not invent facts, personal experiences, opinions, quotations or deliberate errors. Do not use misspellings, invisible characters or encoding tricks. Keep necessary technical terms and measurements. Apply the style only within the requested draft or light-to-moderate copyedit: an edit must still retain most source wording and the order of ideas. Factual fidelity and these operation constraints take priority over style.",
+          "guard_sha256": "32a8038f84f0635b306cabd6b571e886fa8a3da88b3c769df112f61816ab41f0",
+          "selected_profile_ids": [
+            "source-matched",
+            "plain",
+            "informal",
+            "direct",
+            "anti-ai",
+            "fix-slop"
+          ],
+          "set_id": "style-mix-v1"
+        },
+        "prompt_version": "source-conditioned-draft-light-edit-v1",
+        "seed": null,
+        "split_selector": null,
+        "temperature": 0.7
+      }
+    },
+    {
+      "accepted_generation_outputs": 17,
+      "accepted_generation_outputs_excluded_with_family": 1,
+      "attempts": 18,
+      "checkpoint": {
+        "license": "Apache-2.0",
+        "license_evidence_sha256": "48d492d5ded3dfb80ab53033391c7ada71f42037e442758d9eb29fdb08929edb",
+        "license_evidence_url": "https://huggingface.co/mistralai/Mistral-Small-3.2-24B-Instruct-2506/resolve/95a6d26c4bfb886c58daf9d3f7332c857cb27b43/README.md",
+        "quantization": {
+          "bits": 4,
+          "format": "MLX",
+          "group_size": 64
+        },
+        "repository": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit",
+        "revision": "2a1d5eabfc504747bdc24178394821a1efc0edde",
+        "runtime_files": {
+          "chat_template.jinja": {
+            "sha256": "d99c0a28fd4eebd7ba2cc0309651f6d7c5486024989bc42f6bb4cc558d553689",
+            "size_bytes": 415
+          },
+          "config.json": {
+            "sha256": "0f9f2c41325bb88c630b49f754e7539a78a890e43709809b06f86b3726a962f2",
+            "size_bytes": 1081
+          },
+          "generation_config.json": {
+            "sha256": "ac52ac4e326beae33b9dd33f5fca0301fc563e34becfe98ee210ee2b853d93bb",
+            "size_bytes": 135
+          },
+          "model-00001-of-00003.safetensors": {
+            "sha256": "b14ef6edd1fab31b052054c71f7c3f41f387a43e02f1c3eb99a627f162f6bbb2",
+            "size_bytes": 5285177419
+          },
+          "model-00002-of-00003.safetensors": {
+            "sha256": "e61504f270c677da853c0b09e7a2d9745f8e964cc3bb12956732535d972db7b7",
+            "size_bytes": 5314713098
+          },
+          "model-00003-of-00003.safetensors": {
+            "sha256": "f01eb88b488cf2e2291b8e3ab116039ab13d35546c36c58196420fe9ed59c2be",
+            "size_bytes": 2660302214
+          },
+          "model.safetensors.index.json": {
+            "sha256": "8f585f22a31efe4c005dafc116b3905f3e52ed31c99598b23e8b242bfe736eca",
+            "size_bytes": 93273
+          },
+          "special_tokens_map.json": {
+            "sha256": "5bc5d1c106bf86895473568ef5211f3fde8415e6fdee039223d6db8ca52cbe01",
+            "size_bytes": 21311
+          },
+          "tokenizer.json": {
+            "sha256": "b76085f9923309d873994d444989f7eb6ec074b06f25b58f1e8d7b7741070949",
+            "size_bytes": 17078037
+          },
+          "tokenizer_config.json": {
+            "sha256": "70b26ab59c2c959a0dee2b0f6146a2e9d3c2b61b3995d6d584eb975f522b4c92",
+            "size_bytes": 198055
+          }
+        },
+        "runtime_files_manifest_sha256": "1473d0676340694a109a83440a1a29b24be4af84cab43a090afa9bebd9ae7731"
+      },
+      "cohort_id": "mistral-reserved",
+      "excluded_source_families": 1,
+      "files_sha256": {
+        "profile-plan.json": "6e034738ad695503c2569b218a165981e82843462a5c8b1aa075765382bc6181",
+        "records.jsonl": "9f01bf8be35634f16e83d933ddbcc613ca760020cf20164e815e2e374c5988bc",
+        "run.json": "2be2184bd21b1d8a61b11cf7902fa6c61bb78aa26de5b1133f862d9c5a98b581",
+        "summary.json": "7f7b816ec4e688b969df10ec176273e71dbc38d33e9add76182a89093cf2a901"
+      },
+      "model_spec_sha256": "d2728a13c5347f9d518e9913e591b0b862235d46933ab9d9f134af117c02a76d",
+      "rejected_generation_outputs": 1,
+      "rejection_counts": {
+        "draft_source_copy": 1
+      },
+      "requested_profile_assignments": {
+        "doi:10.1371/journal.pone.0208371": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208505": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "formal",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208682": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0208949": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        },
+        "doi:10.1371/journal.pone.0209028": {
+          "collections": [
+            "plos_one"
+          ],
+          "profile": "formal",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:22206": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:2795624": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "formal",
+          "retained": false,
+          "split": "test"
+        },
+        "wikinews:5648": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "formal",
+          "retained": true,
+          "split": "test"
+        },
+        "wikinews:83540": {
+          "collections": [
+            "wikinews"
+          ],
+          "profile": "editorial",
+          "retained": true,
+          "split": "test"
+        }
+      },
+      "retained_families_by_split_and_profile": {
+        "test": {
+          "editorial": 5,
+          "formal": 3
+        }
+      },
+      "retained_generated_outputs": 16,
+      "retained_summary": {
+        "collections": {
+          "plos_one": 15,
+          "wikinews": 9
+        },
+        "evidence": {
+          "historical_proxy": 8,
+          "model_edit_of_historical_proxy": 8,
+          "recorded_model_generation": 8
+        },
+        "licenses": {
+          "CC-BY-2.5": 9,
+          "CC-BY-4.0": 15
+        },
+        "origins": {
+          "human_only": 8,
+          "mixed": 8,
+          "model_only": 8
+        },
+        "records": 24,
+        "source_groups": 8,
+        "splits": {
+          "test": 24
+        },
+        "words_max": 350,
+        "words_min": 195
+      },
+      "runtime": {
+        "hardware": {
+          "chip": "Apple M5 Max",
+          "gpu_cores": 40,
+          "metal_architecture": "applegpu_g17s",
+          "os": "macOS 26.6.2",
+          "unified_memory_gib": 128
+        },
+        "mistral_regex_correction_enabled": true,
+        "mlx": "0.32.2",
+        "mlx_lm": "0.31.3",
+        "mlx_metal": "0.32.2",
+        "python": "3.12.14",
+        "tokenizer_remote_code_enabled": false,
+        "tokenizers": "0.23.2",
+        "transformers": "5.17.0"
+      },
+      "settings": {
+        "checkpoint_context_limit": 131072,
+        "client_concurrency": 1,
+        "complete_families_only": true,
+        "decode_concurrency": 1,
+        "input_truncation": false,
+        "max_output_tokens": 1800,
+        "prompt_cache_size": 0,
+        "prompt_concurrency": 1,
+        "prompt_profile_selection": {
+          "assignment_method": "split-register-family-hash-round-robin-v1",
+          "catalog_sha256": "e3722ac039ba30d1b3a6eb2e19b5f2ddec36897dadebd450c5b168e6f120d4b9",
+          "guard": "Style requests may change formality, vocabulary and sentence rhythm. Preserve every source fact, qualification, attribution, uncertainty, stance and argumentative relationship. Preserve the intended seriousness and attitude even when changing formality. Do not invent facts, personal experiences, opinions, quotations or deliberate errors. Do not use misspellings, invisible characters or encoding tricks. Keep necessary technical terms and measurements. Apply the style only within the requested draft or light-to-moderate copyedit: an edit must still retain most source wording and the order of ideas. Factual fidelity and these operation constraints take priority over style.",
+          "guard_sha256": "32a8038f84f0635b306cabd6b571e886fa8a3da88b3c769df112f61816ab41f0",
+          "selected_profile_ids": [
+            "editorial",
+            "formal"
+          ],
+          "set_id": "style-mix-v1"
+        },
+        "prompt_version": "source-conditioned-draft-light-edit-v1",
+        "seed": null,
+        "split_selector": "test",
+        "temperature": 0.7
+      }
+    }
+  ],
+  "frozen_source_plan_sha256": "70e006ff5851c86009651dcccba737a744ac46d8003ecf4f3057e6a022a659d5",
+  "generation_config_sha256": "be06856ec727b2311df996143b5fbeba0a518db1d58431bca11b76c35477b5fa",
+  "generation_elapsed_seconds": 3092.496391041961,
+  "merged_corpus_sha256": {
+    "primary-records.jsonl": "6377d431b570a53cb9e5cfa97adb28627c24eb8fa68be263df6c86f94065fa06",
+    "reserved-records.jsonl": "bbc50aeb049168de529e4067a0331541e8267febffca0b0cfabb3661a75d2689"
+  },
+  "notes": [
+    "Profiles describe requested instructions, not verified author-style matches or successful detector evasion.",
+    "Historical human proxies and model-edited proxies have weak origin labels; admission does not certify semantic fidelity.",
+    "Primary and reserved cohorts share Test sources. Report retained family counts separately and do not treat paired humans as independent.",
+    "Counts distinguish accepted responses from responses retained after whole-family exclusion. All failures remain archived locally.",
+    "Two training outputs were read for prompt compliance. One retained stock phrasing; the other omitted details and added an unsupported qualification. No protocol, label, admission or prompt changes followed; this was not a random fidelity audit.",
+    "Raw prompts, corpus text and row probabilities are omitted from this public metadata projection."
+  ],
+  "schema": "slop_ninja_public_style_generation_v1",
+  "source_commit": "8b36e1fa98db7a9de6a91e99f2f41b1de7f046b4"
+}

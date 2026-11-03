@@ -1,0 +1,34 @@
+[package]
+name = "slop-ninja-coordinator-parity"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Native byte-for-byte checks of the Workers coordinator's chain encodings against rtao"
+
+# Its own workspace: it builds rtao's native runtime, which the coordinator's
+# Wasm build must never see.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[dependencies]
+slop-ninja-coordinator = { path = ".." }
+
+[dev-dependencies]
+hex = "0.4"
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+slop-ninja-protocol = { path = "../../crates/protocol" }
+
+# The same patches as the coordinator and subnet/Cargo.toml.
+[patch.crates-io]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[patch."https://github.com/RaoFoundation/subtensor.git"]
+bittensor-core = { git = "https://github.com/sam0x17/subtensor.git", rev = "5f2477f5290f5f4cb467524754cc025626b52974" }
+
+[patch."https://github.com/sam0x17/subtensor.git"]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+subtensor-macros = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }

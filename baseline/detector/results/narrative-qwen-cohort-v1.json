@@ -1,0 +1,420 @@
+{
+  "token_audit_sha256": "3653a83052092077220bcefa6f497715edb6d952bf2060e910fcf489a883e21f",
+  "schema": "slop_ninja_narrative_cohort_summary_v1",
+  "provider": "qwen",
+  "status": "complete",
+  "source_corpus_sha256": "6967c60542f60b22ccc55e748fbc3d3f7b487acfbc5b4ea0cc33ba304ef2d574",
+  "records_sha256": "6a5ab65b0c92ec92cb53b446e5e8cf2a5499340968d6542ccaafce73f40ed67a",
+  "generation_summary_sha256": "a624e6d38165601a2ed55961ee26885f9c5150962a25578fae9069aa45b199ae",
+  "profile_plan_sha256": "d122a913ce616d63ab7270ac6f88d3c6ae1783825e1607cd3f9944fc738ca16f",
+  "requested": 578,
+  "individually_accepted": 559,
+  "failed": 19,
+  "complete_export_ready": true,
+  "unattempted_count": 0,
+  "excluded_root_count": 16,
+  "exclusion_reasons": {
+    "Incomplete generation: \"length\"": 1,
+    "Output length outside declared 80–800 word admission bounds: 63": 1,
+    "Output length outside declared 80–800 word admission bounds: 67": 1,
+    "Output length outside declared 80–800 word admission bounds: 70": 2,
+    "Output length outside declared 80–800 word admission bounds: 73": 1,
+    "Output length outside declared 80–800 word admission bounds: 74": 1,
+    "Output length outside declared 80–800 word admission bounds: 75": 1,
+    "Output length outside declared 80–800 word admission bounds: 76": 1,
+    "Output length outside declared 80–800 word admission bounds: 77": 3,
+    "Output length outside declared 80–800 word admission bounds: 78": 1,
+    "Output length outside declared 80–800 word admission bounds: 79": 2,
+    "draft_source_copy": 4
+  },
+  "failed_operations": {
+    "draft": 9,
+    "edit": 10
+  },
+  "successful_drafts_excluded_by_pair_rule": 7,
+  "successful_edits_excluded_by_pair_rule": 6,
+  "admitted": {
+    "collections": {
+      "cmu-books-historical": 819
+    },
+    "evidence": {
+      "historical_proxy": 273,
+      "model_edit_of_historical_proxy": 273,
+      "recorded_model_generation": 273
+    },
+    "licenses": {
+      "CC-BY-SA-3.0": 273,
+      "CC-BY-SA-4.0": 546
+    },
+    "origins": {
+      "human_only": 273,
+      "mixed": 273,
+      "model_only": 273
+    },
+    "records": 819,
+    "source_groups": 273,
+    "splits": {
+      "calibration": 99,
+      "development": 78,
+      "test": 66,
+      "train": 576
+    },
+    "words_max": 614,
+    "words_min": 80
+  },
+  "planned_families_by_split_profile": [
+    {
+      "split": "calibration",
+      "profile": "anti-ai",
+      "families": 6
+    },
+    {
+      "split": "calibration",
+      "profile": "direct",
+      "families": 5
+    },
+    {
+      "split": "calibration",
+      "profile": "fix-slop",
+      "families": 6
+    },
+    {
+      "split": "calibration",
+      "profile": "informal",
+      "families": 5
+    },
+    {
+      "split": "calibration",
+      "profile": "plain",
+      "families": 6
+    },
+    {
+      "split": "calibration",
+      "profile": "source-matched",
+      "families": 6
+    },
+    {
+      "split": "development",
+      "profile": "anti-ai",
+      "families": 4
+    },
+    {
+      "split": "development",
+      "profile": "direct",
+      "families": 5
+    },
+    {
+      "split": "development",
+      "profile": "fix-slop",
+      "families": 4
+    },
+    {
+      "split": "development",
+      "profile": "informal",
+      "families": 5
+    },
+    {
+      "split": "development",
+      "profile": "plain",
+      "families": 4
+    },
+    {
+      "split": "development",
+      "profile": "source-matched",
+      "families": 4
+    },
+    {
+      "split": "test",
+      "profile": "anti-ai",
+      "families": 4
+    },
+    {
+      "split": "test",
+      "profile": "direct",
+      "families": 4
+    },
+    {
+      "split": "test",
+      "profile": "fix-slop",
+      "families": 4
+    },
+    {
+      "split": "test",
+      "profile": "informal",
+      "families": 5
+    },
+    {
+      "split": "test",
+      "profile": "plain",
+      "families": 5
+    },
+    {
+      "split": "test",
+      "profile": "source-matched",
+      "families": 5
+    },
+    {
+      "split": "train",
+      "profile": "anti-ai",
+      "families": 34
+    },
+    {
+      "split": "train",
+      "profile": "direct",
+      "families": 34
+    },
+    {
+      "split": "train",
+      "profile": "fix-slop",
+      "families": 34
+    },
+    {
+      "split": "train",
+      "profile": "informal",
+      "families": 34
+    },
+    {
+      "split": "train",
+      "profile": "plain",
+      "families": 33
+    },
+    {
+      "split": "train",
+      "profile": "source-matched",
+      "families": 33
+    }
+  ],
+  "admitted_families_by_split_profile": [
+    {
+      "split": "calibration",
+      "profile": "anti-ai",
+      "families": 5
+    },
+    {
+      "split": "calibration",
+      "profile": "direct",
+      "families": 5
+    },
+    {
+      "split": "calibration",
+      "profile": "fix-slop",
+      "families": 6
+    },
+    {
+      "split": "calibration",
+      "profile": "informal",
+      "families": 5
+    },
+    {
+      "split": "calibration",
+      "profile": "plain",
+      "families": 6
+    },
+    {
+      "split": "calibration",
+      "profile": "source-matched",
+      "families": 6
+    },
+    {
+      "split": "development",
+      "profile": "anti-ai",
+      "families": 4
+    },
+    {
+      "split": "development",
+      "profile": "direct",
+      "families": 5
+    },
+    {
+      "split": "development",
+      "profile": "fix-slop",
+      "families": 4
+    },
+    {
+      "split": "development",
+      "profile": "informal",
+      "families": 5
+    },
+    {
+      "split": "development",
+      "profile": "plain",
+      "families": 4
+    },
+    {
+      "split": "development",
+      "profile": "source-matched",
+      "families": 4
+    },
+    {
+      "split": "test",
+      "profile": "anti-ai",
+      "families": 4
+    },
+    {
+      "split": "test",
+      "profile": "direct",
+      "families": 4
+    },
+    {
+      "split": "test",
+      "profile": "fix-slop",
+      "families": 3
+    },
+    {
+      "split": "test",
+      "profile": "informal",
+      "families": 5
+    },
+    {
+      "split": "test",
+      "profile": "plain",
+      "families": 3
+    },
+    {
+      "split": "test",
+      "profile": "source-matched",
+      "families": 3
+    },
+    {
+      "split": "train",
+      "profile": "anti-ai",
+      "families": 33
+    },
+    {
+      "split": "train",
+      "profile": "direct",
+      "families": 32
+    },
+    {
+      "split": "train",
+      "profile": "fix-slop",
+      "families": 31
+    },
+    {
+      "split": "train",
+      "profile": "informal",
+      "families": 33
+    },
+    {
+      "split": "train",
+      "profile": "plain",
+      "families": 30
+    },
+    {
+      "split": "train",
+      "profile": "source-matched",
+      "families": 33
+    }
+  ],
+  "token_audit": {
+    "fits_configured_token_limit": true,
+    "max_tokens": 1024,
+    "records_dropped": 0,
+    "model_executed": false,
+    "shards": {
+      "calibration": {
+        "sha256": "4539931a7e3c965cc59b5ae510553d0322bb1850456e853927f22481f1686403",
+        "records": 99,
+        "source_groups": 33,
+        "class_counts": {
+          "human_only": 33,
+          "mixed": 33,
+          "model_only": 33
+        },
+        "over_limit_count": 0,
+        "token_lengths_including_special_tokens": {
+          "max": 676,
+          "mean": 294.1111111111111,
+          "min": 113,
+          "nearest_rank_percentiles": {
+            "25": 159,
+            "50": 236,
+            "75": 416,
+            "90": 547,
+            "95": 597,
+            "99": 676
+          }
+        }
+      },
+      "development": {
+        "sha256": "9fd06f0b8997ca866e0656284b0325382e3c3154ceb7bc07ea5e87776797d5e6",
+        "records": 78,
+        "source_groups": 26,
+        "class_counts": {
+          "human_only": 26,
+          "mixed": 26,
+          "model_only": 26
+        },
+        "over_limit_count": 0,
+        "token_lengths_including_special_tokens": {
+          "max": 595,
+          "mean": 279.4871794871795,
+          "min": 110,
+          "nearest_rank_percentiles": {
+            "25": 158,
+            "50": 255,
+            "75": 354,
+            "90": 497,
+            "95": 564,
+            "99": 595
+          }
+        }
+      },
+      "test": {
+        "sha256": "b01f5ae51fdf810303cd458d547bbe91938bf863f932f0ca714d694e2580eb61",
+        "records": 66,
+        "source_groups": 22,
+        "class_counts": {
+          "human_only": 22,
+          "mixed": 22,
+          "model_only": 22
+        },
+        "over_limit_count": 0,
+        "token_lengths_including_special_tokens": {
+          "max": 717,
+          "mean": 271.22727272727275,
+          "min": 112,
+          "nearest_rank_percentiles": {
+            "25": 154,
+            "50": 214,
+            "75": 402,
+            "90": 469,
+            "95": 533,
+            "99": 717
+          }
+        }
+      },
+      "train": {
+        "sha256": "aba771bc4331ad0fc22faabe346e0740f141a50b83245fb68a0383f085b18b49",
+        "records": 576,
+        "source_groups": 192,
+        "class_counts": {
+          "human_only": 192,
+          "mixed": 192,
+          "model_only": 192
+        },
+        "over_limit_count": 0,
+        "token_lengths_including_special_tokens": {
+          "max": 807,
+          "mean": 293.6423611111111,
+          "min": 98,
+          "nearest_rank_percentiles": {
+            "25": 165,
+            "50": 256,
+            "75": 377,
+            "90": 532,
+            "95": 596,
+            "99": 700
+          }
+        }
+      }
+    }
+  },
+  "detector_predictions_opened": false,
+  "pangram_calls": 0,
+  "limitations": [
+    "One completed provider cohort; the complete v5 corpus has not been assembled or fitted.",
+    "The pair rule can exclude an otherwise accepted model draft when its auxiliary edit fails. Exclusions are unrelated to detector scores.",
+    "Historical human proxies and source-conditioned model drafts; neither semantic fidelity nor successful style evasion has been certified."
+  ]
+}

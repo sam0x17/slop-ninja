@@ -1,0 +1,34 @@
+{
+  "schema": "slop_ninja_harmony_response_v2_validation_v1",
+  "at": "2026-09-15T13:48:19Z",
+  "execution_host": "Mac Studio",
+  "platform": "macOS arm64",
+  "shell_check_chain_exit": 0,
+  "checks": {
+    "fmt": "passed",
+    "all_target_tests": "passed",
+    "clippy": "passed_with_warnings_denied",
+    "build": "passed",
+    "saved_response_replay": "passed"
+  },
+  "report_sha256": "385817ee306148eaf0d61646f4841f74c9f0164e02b07a62428de98f24c7bb7d",
+  "protocol_sha256": "c768c4f72dd3ada5332805e515173db109f213a2b36234629508badcd19fdb87",
+  "packet_sha256": "803930a03eae6c26eb02e289791553d4ecf80a2ef3b1c5cd485fdadcfaa4b375",
+  "compiled_source_bindings_match": true,
+  "logs": {
+    "fmt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests": "c2ca2f33e5e873e361d88dc69c70066f30f50a636bb15ef49085023fa02decb9",
+    "clippy": "1df6cc9249bb878101cb4f39b0daef81391e2f241c8130d2b8dbf19cf2411a3e",
+    "build": "a18229e1639f886bcf3ce84a01b0180e08d49489573dc4caca1873ae5398a782",
+    "run": "b86782ae475774767e5957fe577d2d351d06adeab716d3c92d487ecad0e5d4e2"
+  },
+  "expected_results": {
+    "saved_responses": 20,
+    "v1_successes": 19,
+    "v2_successes": 20,
+    "earlier_final_bytes_unchanged": 19
+  },
+  "no_retrospective_training_admission": true,
+  "linux_execution": "unverified",
+  "semantic_fidelity_established": false
+}

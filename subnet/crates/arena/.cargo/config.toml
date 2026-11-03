@@ -1,0 +1,5 @@
+# The arena's tests share one process-wide pool and its counters (see the
+# headers of tests/flat.rs and tests/glue_spill.rs), so they run on one test
+# thread: a plain `cargo test` here behaves like `-- --test-threads=1`.
+[env]
+RUST_TEST_THREADS = "1"

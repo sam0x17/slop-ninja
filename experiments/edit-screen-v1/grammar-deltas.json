@@ -1,0 +1,314 @@
+{
+  "report_version": "edit-grammar-deltas-v1",
+  "prepared_input": "data/edit-screen-v1/prepared/prepared.jsonl",
+  "prepared_input_sha256": "2260c1b5d1a6679b646e447d81e87189a24f02a6b25fb5619c863662950170ca",
+  "extractor": "unslop-features-rust-v1;nfc-unicode-word-v1;sentence-heuristic-v1;spacy=3.8.16;model=en_core_web_sm@3.8.0;grammar-rules-v1;python-unicode=15.0.0",
+  "extraction_command": "target/debug/unslop features <exact UTF-8 text file> --grammar",
+  "unique_texts_extracted": 6,
+  "selected_candidate_kind": "document_revision",
+  "notes": {
+    "scope": "Only the three frozen Claude training baseline/document-revision pairs were extracted. No detector outputs or independent quality-review documents were inspected.",
+    "rates": "Construction rates divide the number of parsed sentences with a pattern by parsed nonempty sentences. Pronoun-token rates divide spaCy PRON tokens by parsed lexical tokens. All rates are fractions, not percentages.",
+    "interpretation": "These counts describe one English parser's analysis. They do not establish detector effects, readability, fidelity, animacy, or a general editing rule. Revisions also change sentence counts and document length, so rates and counts must be read together.",
+    "model_identity": "The prepared records identify the source model corpus but do not repeat the resolved model ID. Source corpus provenance remains authoritative."
+  },
+  "comparisons": [
+    {
+      "source_corpus": "claude-opus-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "candidate_id": "editor-b-0186133-document-v2",
+      "source_sha256": "d9af036bcf167269df975c3f03cddc34263ce8881576b0a92cd5934455761cbf",
+      "candidate_sha256": "a15c299e2ca0b872af75becfa41274b28582880f5e12d14d4efd5d6e0688d92c",
+      "before": {
+        "lexical_words": 290,
+        "parsed_sentences": 9,
+        "parsed_lexical_tokens": 292,
+        "heuristic_mean_sentence_words": 32.22222222222222,
+        "parsed_mean_dependency_distance_tokens": 2.8551236749116606,
+        "constructions": {
+          "passive_sentence": {
+            "count": 5,
+            "opportunities": 9,
+            "rate": 0.5555555555555556
+          },
+          "relative_clause_sentence": {
+            "count": 3,
+            "opportunities": 9,
+            "rate": 0.3333333333333333
+          },
+          "pronoun_subject_sentence": {
+            "count": 5,
+            "opportunities": 9,
+            "rate": 0.5555555555555556
+          },
+          "first_person_reference_sentence": {
+            "count": 2,
+            "opportunities": 9,
+            "rate": 0.2222222222222222
+          }
+        },
+        "pronoun_tokens": {
+          "count": 7,
+          "opportunities": 292,
+          "rate": 0.023972602739726026
+        }
+      },
+      "after": {
+        "lexical_words": 257,
+        "parsed_sentences": 11,
+        "parsed_lexical_tokens": 259,
+        "heuristic_mean_sentence_words": 23.363636363636363,
+        "parsed_mean_dependency_distance_tokens": 2.7983870967741935,
+        "constructions": {
+          "passive_sentence": {
+            "count": 4,
+            "opportunities": 11,
+            "rate": 0.36363636363636365
+          },
+          "relative_clause_sentence": {
+            "count": 1,
+            "opportunities": 11,
+            "rate": 0.09090909090909091
+          },
+          "pronoun_subject_sentence": {
+            "count": 3,
+            "opportunities": 11,
+            "rate": 0.2727272727272727
+          },
+          "first_person_reference_sentence": {
+            "count": 2,
+            "opportunities": 11,
+            "rate": 0.18181818181818182
+          }
+        },
+        "pronoun_tokens": {
+          "count": 5,
+          "opportunities": 259,
+          "rate": 0.019305019305019305
+        }
+      },
+      "candidate_minus_source": {
+        "lexical_words": -33,
+        "parsed_sentences": 2,
+        "parsed_lexical_tokens": -33,
+        "construction_counts": {
+          "adverbial_clause_sentence": -1,
+          "apposition_sentence": 2,
+          "complement_clause_sentence": -2,
+          "coordination_sentence": 1,
+          "existential_there_sentence": 1,
+          "noun_subject_sentence": -2,
+          "passive_sentence": -1,
+          "pronoun_subject_sentence": -2,
+          "relative_clause_sentence": -2
+        },
+        "construction_rates": {
+          "first_person_reference_sentence": -0.04040404040404039,
+          "passive_sentence": -0.19191919191919193,
+          "pronoun_subject_sentence": -0.2828282828282829,
+          "relative_clause_sentence": -0.2424242424242424
+        },
+        "pronoun_token_count": -2,
+        "pronoun_token_rate": -0.0046675834347067215
+      }
+    },
+    {
+      "source_corpus": "claude-opus-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0179877",
+      "candidate_id": "editor-b-0179877-document-v2",
+      "source_sha256": "8adb3e32d14e893fc68496e7e1ea37ea64c83a5301a26472b21066b0a7b78280",
+      "candidate_sha256": "f168252836e88d5381d5362431e9ee4e5d64243a82cd2553c8bd3678aa67dc5a",
+      "before": {
+        "lexical_words": 221,
+        "parsed_sentences": 9,
+        "parsed_lexical_tokens": 221,
+        "heuristic_mean_sentence_words": 24.555555555555557,
+        "parsed_mean_dependency_distance_tokens": 3.108490566037736,
+        "constructions": {
+          "passive_sentence": {
+            "count": 3,
+            "opportunities": 9,
+            "rate": 0.3333333333333333
+          },
+          "relative_clause_sentence": {
+            "count": 3,
+            "opportunities": 9,
+            "rate": 0.3333333333333333
+          },
+          "pronoun_subject_sentence": {
+            "count": 3,
+            "opportunities": 9,
+            "rate": 0.3333333333333333
+          },
+          "first_person_reference_sentence": {
+            "count": 0,
+            "opportunities": 9,
+            "rate": 0
+          }
+        },
+        "pronoun_tokens": {
+          "count": 7,
+          "opportunities": 221,
+          "rate": 0.03167420814479638
+        }
+      },
+      "after": {
+        "lexical_words": 185,
+        "parsed_sentences": 9,
+        "parsed_lexical_tokens": 185,
+        "heuristic_mean_sentence_words": 20.555555555555557,
+        "parsed_mean_dependency_distance_tokens": 2.7443181818181817,
+        "constructions": {
+          "passive_sentence": {
+            "count": 0,
+            "opportunities": 9,
+            "rate": 0
+          },
+          "relative_clause_sentence": {
+            "count": 0,
+            "opportunities": 9,
+            "rate": 0
+          },
+          "pronoun_subject_sentence": {
+            "count": 2,
+            "opportunities": 9,
+            "rate": 0.2222222222222222
+          },
+          "first_person_reference_sentence": {
+            "count": 2,
+            "opportunities": 9,
+            "rate": 0.2222222222222222
+          }
+        },
+        "pronoun_tokens": {
+          "count": 5,
+          "opportunities": 185,
+          "rate": 0.02702702702702703
+        }
+      },
+      "candidate_minus_source": {
+        "lexical_words": -36,
+        "parsed_sentences": 0,
+        "parsed_lexical_tokens": -36,
+        "construction_counts": {
+          "adverbial_clause_sentence": -2,
+          "apposition_sentence": 1,
+          "complement_clause_sentence": -2,
+          "coordination_sentence": 1,
+          "first_person_reference_sentence": 2,
+          "negation_sentence": -2,
+          "noun_subject_sentence": -2,
+          "passive_sentence": -3,
+          "pronoun_subject_sentence": -1,
+          "relative_clause_sentence": -3
+        },
+        "construction_rates": {
+          "first_person_reference_sentence": 0.2222222222222222,
+          "passive_sentence": -0.3333333333333333,
+          "pronoun_subject_sentence": -0.1111111111111111,
+          "relative_clause_sentence": -0.3333333333333333
+        },
+        "pronoun_token_count": -2,
+        "pronoun_token_rate": -0.00464718111776935
+      }
+    },
+    {
+      "source_corpus": "claude-opus-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "candidate_id": "editor-b-0188280-document-v2",
+      "source_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074",
+      "candidate_sha256": "fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7",
+      "before": {
+        "lexical_words": 293,
+        "parsed_sentences": 11,
+        "parsed_lexical_tokens": 294,
+        "heuristic_mean_sentence_words": 26.636363636363637,
+        "parsed_mean_dependency_distance_tokens": 2.7137809187279154,
+        "constructions": {
+          "passive_sentence": {
+            "count": 4,
+            "opportunities": 11,
+            "rate": 0.36363636363636365
+          },
+          "relative_clause_sentence": {
+            "count": 2,
+            "opportunities": 11,
+            "rate": 0.18181818181818182
+          },
+          "pronoun_subject_sentence": {
+            "count": 3,
+            "opportunities": 11,
+            "rate": 0.2727272727272727
+          },
+          "first_person_reference_sentence": {
+            "count": 1,
+            "opportunities": 11,
+            "rate": 0.09090909090909091
+          }
+        },
+        "pronoun_tokens": {
+          "count": 12,
+          "opportunities": 294,
+          "rate": 0.04081632653061224
+        }
+      },
+      "after": {
+        "lexical_words": 253,
+        "parsed_sentences": 12,
+        "parsed_lexical_tokens": 257,
+        "heuristic_mean_sentence_words": 21.083333333333332,
+        "parsed_mean_dependency_distance_tokens": 2.4571428571428573,
+        "constructions": {
+          "passive_sentence": {
+            "count": 3,
+            "opportunities": 12,
+            "rate": 0.25
+          },
+          "relative_clause_sentence": {
+            "count": 1,
+            "opportunities": 12,
+            "rate": 0.08333333333333333
+          },
+          "pronoun_subject_sentence": {
+            "count": 3,
+            "opportunities": 12,
+            "rate": 0.25
+          },
+          "first_person_reference_sentence": {
+            "count": 2,
+            "opportunities": 12,
+            "rate": 0.16666666666666666
+          }
+        },
+        "pronoun_tokens": {
+          "count": 6,
+          "opportunities": 257,
+          "rate": 0.023346303501945526
+        }
+      },
+      "candidate_minus_source": {
+        "lexical_words": -40,
+        "parsed_sentences": 1,
+        "parsed_lexical_tokens": -37,
+        "construction_counts": {
+          "adverbial_clause_sentence": -1,
+          "apposition_sentence": 1,
+          "complement_clause_sentence": -1,
+          "copular_sentence": -2,
+          "first_person_reference_sentence": 1,
+          "noun_subject_sentence": 1,
+          "passive_sentence": -1,
+          "relative_clause_sentence": -1
+        },
+        "construction_rates": {
+          "first_person_reference_sentence": 0.07575757575757575,
+          "passive_sentence": -0.11363636363636365,
+          "pronoun_subject_sentence": -0.022727272727272707,
+          "relative_clause_sentence": -0.0984848484848485
+        },
+        "pronoun_token_count": -6,
+        "pronoun_token_rate": -0.017470023028666716
+      }
+    }
+  ]
+}

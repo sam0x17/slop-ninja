@@ -1,0 +1,34 @@
+[package]
+name = "slop-ninja-arena-glue-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "workers-rs 0.8.7 entry points under the arena allocator, for measuring platform glue in local workerd"
+
+# Its own workspace: the coordinator's Cargo.lock (fanout 1e23b121) pins the
+# same worker, wasm-bindgen and js-sys versions the coordinator builds with.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+# The hand-written, ticket-admitted `fetch` export (design §2.2) instead of
+# the worker-macros `#[event(fetch)]` export.
+admitted = []
+
+[dependencies]
+slop-ninja-arena = { path = "..", default-features = false, features = ["knobs", "unmeasured-model"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+worker = { version = "0.8.7", features = ["queue"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

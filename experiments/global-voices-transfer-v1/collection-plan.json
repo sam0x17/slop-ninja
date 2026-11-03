@@ -1,0 +1,112 @@
+{
+  "schema": "slopninja-global-voices-plan-v1",
+  "authors": [
+    {
+      "url": "https://globalvoices.org/author/gabriela-mesones-rojo/",
+      "name": "Gabriela Mesones Rojo",
+      "displayed_posts": 53
+    },
+    {
+      "url": "https://globalvoices.org/author/filip-noubel/",
+      "name": "Filip Noubel",
+      "displayed_posts": 291
+    },
+    {
+      "url": "https://globalvoices.org/author/melissa-vida/",
+      "name": "Melissa Vida",
+      "displayed_posts": 121
+    },
+    {
+      "url": "https://globalvoices.org/author/jcbrunet/",
+      "name": "Jean-Christophe Brunet",
+      "displayed_posts": 45
+    },
+    {
+      "url": "https://globalvoices.org/author/umaimaahmed/",
+      "name": "R Umaima Ahmed",
+      "displayed_posts": 71
+    },
+    {
+      "url": "https://globalvoices.org/author/carolina-rumuat/",
+      "name": "Juke Carolina",
+      "displayed_posts": 111
+    },
+    {
+      "url": "https://globalvoices.org/author/sydney-allen/",
+      "name": "Sydney Allen",
+      "displayed_posts": 43
+    },
+    {
+      "url": "https://globalvoices.org/author/zita-zage/",
+      "name": "Zita Zage",
+      "displayed_posts": 77
+    },
+    {
+      "url": "https://globalvoices.org/author/lully-posada/",
+      "name": "Lully Posada",
+      "displayed_posts": 113
+    },
+    {
+      "url": "https://globalvoices.org/author/psubhashish/",
+      "name": "Subhashish Panigrahi",
+      "displayed_posts": 74
+    },
+    {
+      "url": "https://globalvoices.org/author/laura-dunne/",
+      "name": "Laura",
+      "displayed_posts": 178
+    },
+    {
+      "url": "https://globalvoices.org/author/mong/",
+      "name": "Mong Palatino",
+      "displayed_posts": 3506
+    },
+    {
+      "url": "https://globalvoices.org/author/flora-thomas/",
+      "name": "Flora Thomas",
+      "displayed_posts": 72
+    },
+    {
+      "url": "https://globalvoices.org/author/prudence-nyamishana/",
+      "name": "Prudence Nyamishana",
+      "displayed_posts": 48
+    },
+    {
+      "url": "https://globalvoices.org/author/janine-mendes-franco/",
+      "name": "Janine Mendes-Franco",
+      "displayed_posts": 7657
+    },
+    {
+      "url": "https://globalvoices.org/author/liam-anderson/",
+      "name": "Liam Anderson",
+      "displayed_posts": 222
+    },
+    {
+      "url": "https://globalvoices.org/author/eduardo-avila/",
+      "name": "Eduardo Avila",
+      "displayed_posts": 2299
+    },
+    {
+      "url": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "name": "Arzu Geybullayeva",
+      "displayed_posts": 502
+    },
+    {
+      "url": "https://globalvoices.org/author/daria-dergacheva/",
+      "name": "Daria Dergacheva",
+      "displayed_posts": 159
+    },
+    {
+      "url": "https://globalvoices.org/author/rezwan/",
+      "name": "Rezwan",
+      "displayed_posts": 4188
+    }
+  ],
+  "archive_pages": 2,
+  "min_articles": 12,
+  "max_articles": 12,
+  "min_words": 150,
+  "max_words": 1500,
+  "selection": "Active English directory accounts with >=40 displayed posts; exclude 12 named organization/shared accounts from metadata review; sort remaining by SHA256(gv-author-transfer-v1: + profile URL), take20 before any text extraction or scoring. This selects accounts, not verified human-only writers.",
+  "directory_sha256": "60a8935ec366326f8e94cf0fbb97e9c65cbb55d1e7035961b6d4b2a7136c17e3"
+}

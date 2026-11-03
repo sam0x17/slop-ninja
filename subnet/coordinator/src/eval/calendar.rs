@@ -1,0 +1,404 @@
+//! The standing plan template and the cohort calendar.
+//!
+//! The operator installs one standing template: a reward-v1 (v3) plan with an
+//! `admission` block and no entrants. The coordinator then opens every cohort
+//! itself: when no cohort is queued and the latest one has reached its
+//! transition (or closed or was abandoned), it queues the next one from the
+//! template, numbered after the last, labelled `<label_prefix>-<cohort>`. The
+//! engine opens a queued cohort at the first epoch boundary after the
+//! previous one closes, so cohorts run back to back on tempo boundaries:
+//! cohort `N` opens at epoch `E_N`, admits until at least
+//! `E_N + admission_min`, and closes at or after `E_N + K`, where cohort
+//! `N + 1` opens.
+//!
+//! The next cohort names the references its seal will meet: the chain as
+//! `reference_state` holds it, after the promotion of a cohort still in its
+//! transition (decided at its packaging, applied at its close, which comes
+//! before the next cohort opens); the template's own references only while
+//! no chain exists. A reinstalled template never resets the chain.
+//!
+//! A template is checked when it is installed, at its own roster cap and
+//! with a predecessor reference (as after a promotion): the plan validates
+//! with `roster_cap` admitted entrants, its scoring budget covers their
+//! probe-inclusive upper bound, and its package step fits the memory model
+//! (`arena_routes::package_fits`). It runs the testnet plan defaults of the
+//! 2026-11-01 ruling: one scoring lane per artifact (`lane_docs >= n`, so
+//! W = 1), no scoring pre-start, and the incentive rule with its provisional
+//! gates flag. Installing a template never changes a queued or running
+//! cohort.
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)
+)]
+
+use crate::eval::engine::{self, EvalConfig, EvalError, R, i, opt_int, s};
+use crate::eval::plan::{ArtifactJson, CohortPlan, IdentityJson, PLAN_SCHEMA_V3};
+use crate::sql::{Sql, bind_u64, int, text};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+pub const TEMPLATE_SCHEMA: &str = "slop_ninja_eval_cohort_template_v1";
+
+/// A standing template as installed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Template {
+    pub schema: String,
+    /// Cohort labels are `<label_prefix>-<cohort>`.
+    pub label_prefix: String,
+    /// The plan every opened cohort runs; its `cohort`, `label` and
+    /// `entrants` are set per cohort, and its references follow the chain.
+    pub plan: CohortPlan,
+}
+
+/// `(jobs, documents per job)` of a plan's package step: its jobs and the
+/// documents admission counts for them (as `engine::admit` does), spread
+/// over the jobs.
+pub fn package_shape(plan: &CohortPlan) -> (u64, u64) {
+    let jobs = (plan.jobs() as u64).max(1);
+    let docs = match &plan.reward_v1 {
+        Some(v) if !plan.is_probe_build() => {
+            let refs = 1 + u64::from(plan.previous_reference.is_some());
+            let probe: u64 = v.probes.iter().map(|p| u64::from(p.size)).sum();
+            let per_entrant =
+                u64::from(plan.n) + probe + u64::from(plan.audit_humans()) + u64::from(plan.audit_b_humans());
+            refs * u64::from(plan.n) + plan.entrants.len() as u64 * per_entrant
+        }
+        _ => jobs * u64::from(plan.n),
+    };
+    (jobs, docs.div_ceil(jobs))
+}
+
+/// The most tasks one job of `plan` scores: an entrant's batch, probe and
+/// audit tasks under reward-v1 (a reference job scores the batch alone),
+/// else the batch.
+pub fn max_job_tasks(plan: &CohortPlan) -> u64 {
+    match &plan.reward_v1 {
+        Some(v) if !plan.is_probe_build() => {
+            let probe: u64 = v.probes.iter().map(|p| u64::from(p.size)).sum();
+            u64::from(plan.n) + probe + u64::from(plan.audit_humans()) + u64::from(plan.audit_b_humans())
+        }
+        Some(v) => v
+            .probes
+            .iter()
+            .map(|p| u64::from(p.size))
+            .sum::<u64>()
+            .max(u64::from(plan.n)),
+        None => u64::from(plan.n),
+    }
+}
+
+/// Whether a plan's package step fits the memory model.
+pub fn fits(plan: &CohortPlan) -> bool {
+    let (jobs, docs) = package_shape(plan);
+    crate::arena_routes::package_fits(jobs, docs, max_job_tasks(plan))
+}
+
+/// A synthetic full roster for the template checks: `cap` distinct
+/// admitted-entrant records in position order (never stored).
+fn full_roster(plan: &CohortPlan, cap: u16) -> Vec<ArtifactJson> {
+    (0..cap)
+        .map(|n| {
+            let mut a = plan.reference.clone();
+            let tag = slop_ninja_protocol::domain_hash("slop_ninja.eval/template-check/v1", &n.to_le_bytes()).0;
+            a.owner = IdentityJson {
+                uid: n.saturating_add(1),
+                hotkey: format!("0x{}", hex::encode(tag)),
+                registration_block: 1,
+            };
+            a.package_sha256 =
+                hex::encode(slop_ninja_protocol::domain_hash("slop_ninja.eval/template-check/package/v1", &tag).0);
+            a.commitment_block = 2;
+            a.opening_nonce = Some(hex::encode(tag));
+            a.extrinsic_index = Some(u32::from(n));
+            a.object_key = Some(format!("admission/template-check/{n}.object"));
+            a
+        })
+        .collect()
+}
+
+/// Checks a template at its roster cap and returns it.
+pub fn check(cfg: &EvalConfig, bytes: &[u8]) -> R<Template> {
+    let t: Template = serde_json::from_slice(bytes).map_err(|_| EvalError::Plan("template json"))?;
+    let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(EvalError::Plan(what)) };
+    e(t.schema == TEMPLATE_SCHEMA, "template schema")?;
+    e(
+        !t.label_prefix.is_empty()
+            && t.label_prefix.len() <= 64
+            && t.label_prefix.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'),
+        "template label_prefix",
+    )?;
+    e(t.plan.schema == PLAN_SCHEMA_V3, "template plan (v3)")?;
+    e(t.plan.entrants.is_empty(), "template entrants (admission fills them)")?;
+    let a = t
+        .plan
+        .admission
+        .as_ref()
+        .ok_or(EvalError::Plan("template admission block"))?;
+    // The testnet plan defaults (ruling of 2026-11-01): one scoring lane per
+    // artifact, no pre-start, and the incentive rule the manifest binds.
+    let f = t.plan.fanout.as_ref().ok_or(EvalError::Plan("template fanout"))?;
+    e(
+        f.score.lane_docs >= t.plan.n,
+        "template fanout.score.lane_docs (at least n: one lane per artifact)",
+    )?;
+    e(
+        f.score.prestart_lead_ms == 0,
+        "template fanout.score.prestart_lead_ms (0: no pre-start)",
+    )?;
+    let incentive = t
+        .plan
+        .reward_v1
+        .as_ref()
+        .and_then(|v| v.incentive.as_ref())
+        .ok_or(EvalError::Plan("template reward_v1.incentive (the D11 rule)"))?;
+    e(
+        incentive.provisional_gates || cfg.chain.genesis != slop_ninja_protocol::TESTNET_GENESIS,
+        "template reward_v1.incentive.provisional_gates (testnet gate thresholds are provisional)",
+    )?;
+    // The plan as admission leaves it at the cap, with a predecessor (as
+    // after a promotion, so two references score): it validates, its budget
+    // covers that roster, and its package step fits the memory model.
+    let mut full = t.plan.clone();
+    full.label = format!("{}-{}", t.label_prefix, u64::MAX);
+    full.entrants = full_roster(&t.plan, a.roster_cap);
+    if full.previous_reference.is_none() {
+        let mut p = t.plan.reference.clone();
+        p.package_sha256 = hex::encode(
+            slop_ninja_protocol::domain_hash(
+                "slop_ninja.eval/template-check/predecessor/v1",
+                p.package_sha256.as_bytes(),
+            )
+            .0,
+        );
+        p.manifest_key = format!("artifacts/packages/{}.json", p.package_sha256);
+        full.previous_reference = Some(p);
+    }
+    let full_bytes = serde_json::to_vec(&full).map_err(|_| EvalError::Plan("template json"))?;
+    let (plan, _) = engine::admit(cfg, &full_bytes)?;
+    e(
+        fits(&plan),
+        "arena_capacity: the package step at the template's roster cap exceeds the memory model",
+    )?;
+    Ok(t)
+}
+
+/// Installs (or replaces) the standing template. A reference chain that
+/// exists must resolve to a stored artifact record (the calendar names it);
+/// the reply says which references the next cohort names.
+pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R<Value> {
+    let t = check(cfg, bytes)?;
+    let (next_ref, next_prev, source) = references(sql, &t)?;
+    let text = std::str::from_utf8(bytes).map_err(|_| EvalError::Plan("template utf-8"))?;
+    let sha = engine::sha_hex(bytes);
+    sql.exec(
+        "INSERT INTO standing_template (id, template, sha256, installed_ms, paused) VALUES (1, ?, ?, ?, 0)
+         ON CONFLICT (id) DO UPDATE SET template = excluded.template, sha256 = excluded.sha256,
+            installed_ms = excluded.installed_ms, paused = 0, last_error = NULL",
+        &[s(text), s(&sha), bind_u64(now_ms)?],
+    )?;
+    Ok(json!({"installed": true, "sha256": sha, "label_prefix": t.label_prefix,
+        "roster_cap": t.plan.admission.as_ref().map(|a| a.roster_cap),
+        "next_references": {"source": source, "reference": next_ref.package_sha256,
+            "previous_reference": next_prev.map(|p| p.package_sha256),
+            "template_reference_followed": source == "template"}}))
+}
+
+/// Pauses or resumes opening cohorts from the template.
+pub fn set_paused(sql: &impl Sql, paused: bool) -> R<bool> {
+    Ok(!sql
+        .exec(
+            "UPDATE standing_template SET paused = ? WHERE id = 1 RETURNING id",
+            &[i(i64::from(paused))],
+        )?
+        .is_empty())
+}
+
+/// The installed template's plan, if any.
+pub fn template(sql: &impl Sql) -> R<Option<CohortPlan>> {
+    Ok(stored(sql)?.map(|(t, _)| t.plan))
+}
+
+fn stored(sql: &impl Sql) -> R<Option<(Template, bool)>> {
+    let rows = sql.exec("SELECT template, paused FROM standing_template WHERE id = 1", &[])?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    let t: Template = serde_json::from_str(text(r, 0)?).map_err(|_| EvalError::State("stored template"))?;
+    Ok(Some((t, int(r, 1)? != 0)))
+}
+
+/// An artifact record as a reference: scored as a reference, never as an
+/// entrant.
+fn as_reference(mut a: ArtifactJson) -> ArtifactJson {
+    a.opening_nonce = None;
+    a.extrinsic_index = None;
+    a.object_key = None;
+    a
+}
+
+/// The stored artifact record whose content digest is `content`: a v3
+/// cohort's reference, predecessor or entrant, newest first.
+fn resolve(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
+    let rows = sql.exec("SELECT seq FROM cohorts WHERE v3 IS NOT NULL ORDER BY seq DESC", &[])?;
+    for r in &rows {
+        let seq = int(r, 0)?;
+        let st = crate::eval::v3::state(sql, seq)?;
+        let c = engine::cohort(sql, seq)?;
+        if st.reference.is_some_and(|d| d.content.0.to_string() == content) {
+            return Ok(Some(as_reference(c.plan.reference)));
+        }
+        if st.predecessor.is_some_and(|d| d.content.0.to_string() == content)
+            && let Some(p) = c.plan.previous_reference
+        {
+            return Ok(Some(as_reference(p)));
+        }
+        if let Some(n) = st.entrants.iter().position(|d| d.content.0.to_string() == content)
+            && let Some(a) = c.plan.entrants.get(n)
+        {
+            return Ok(Some(as_reference(a.clone())));
+        }
+    }
+    Ok(None)
+}
+
+/// The references the next cohort names, and where they come from: a
+/// promotion in the cohort now in its transition (`pending_promotion`), else
+/// the chain `reference_state` holds (`chain`), else the template's own
+/// (`template`, while no chain exists). A chain that names a record this
+/// store does not hold is an error (the template cannot stand in for it).
+fn references(sql: &impl Sql, t: &Template) -> R<(ArtifactJson, Option<ArtifactJson>, &'static str)> {
+    let rows = sql.exec(
+        "SELECT seq FROM cohorts WHERE phase = 'transition' AND v3 IS NOT NULL ORDER BY seq DESC LIMIT 1",
+        &[],
+    )?;
+    if let Some(r) = rows.first() {
+        let seq = int(r, 0)?;
+        let st = crate::eval::v3::state(sql, seq)?;
+        if let Some(p) = st.promoted {
+            let c = engine::cohort(sql, seq)?;
+            let promoted = c
+                .plan
+                .entrants
+                .get(p)
+                .cloned()
+                .ok_or(EvalError::State("promoted entrant"))?;
+            return Ok((
+                as_reference(promoted),
+                Some(as_reference(c.plan.reference)),
+                "pending_promotion",
+            ));
+        }
+    }
+    let chain = sql.exec("SELECT current, predecessor FROM reference_state WHERE id = 1", &[])?;
+    let Some(r) = chain.first() else {
+        return Ok((t.plan.reference.clone(), t.plan.previous_reference.clone(), "template"));
+    };
+    let current = resolve(sql, text(r, 0)?)?.ok_or(EvalError::Plan(
+        "template_reference_unresolved: the reference chain names an artifact no stored cohort records",
+    ))?;
+    let previous = match engine::opt_text(r, 1) {
+        Some(p) => Some(resolve(sql, &p)?.ok_or(EvalError::Plan(
+            "template_reference_unresolved: the reference chain's predecessor is not recorded",
+        ))?),
+        None => None,
+    };
+    Ok((current, previous, "chain"))
+}
+
+/// The next cohort's plan bytes when the calendar says one is due: a
+/// template is installed and not paused, nothing is queued, and the latest
+/// cohort is in its transition, closed or abandoned (or there is none).
+pub fn due(sql: &impl Sql) -> R<Option<(String, Vec<u8>)>> {
+    let Some((t, paused)) = stored(sql)? else {
+        return Ok(None);
+    };
+    if paused {
+        return Ok(None);
+    }
+    let rows = sql.exec("SELECT phase, cohort FROM cohorts ORDER BY seq DESC LIMIT 1", &[])?;
+    let last_cohort = match rows.first() {
+        Some(r) => {
+            if !matches!(text(r, 0)?, "transition" | "closed" | "abandoned") {
+                return Ok(None);
+            }
+            Some(int(r, 1)?)
+        }
+        None => None,
+    };
+    let max = sql.exec("SELECT COALESCE(MAX(cohort), 0) FROM cohorts", &[])?;
+    let next = max.first().map_or(Ok(0), |r| int(r, 0))?.max(last_cohort.unwrap_or(0)) + 1;
+    let (reference, previous, _) = match references(sql, &t) {
+        Ok(r) => r,
+        // The calendar cannot name the chain's references: it pauses with
+        // the reason rather than failing every step.
+        Err(EvalError::Plan(code)) => {
+            note_error(sql, code)?;
+            set_paused(sql, true)?;
+            return Ok(None);
+        }
+        Err(e) => return Err(e),
+    };
+    let mut plan = t.plan.clone();
+    plan.cohort = u64::try_from(next).map_err(|_| EvalError::State("cohort number"))?;
+    plan.label = format!("{}-{}", t.label_prefix, next);
+    plan.reference = reference;
+    plan.previous_reference = previous;
+    plan.entrants = Vec::new();
+    let bytes = serde_json::to_vec(&plan).map_err(|_| EvalError::State("next plan"))?;
+    Ok(Some((plan.label, bytes)))
+}
+
+/// Records why the calendar could not queue the next cohort (for status).
+pub fn note_error(sql: &impl Sql, code: &str) -> R<()> {
+    sql.exec("UPDATE standing_template SET last_error = ? WHERE id = 1", &[s(code)])?;
+    Ok(())
+}
+
+/// The next cohort and its earliest opening epoch: a queued cohort, else the
+/// one the template opens next.
+pub fn next(sql: &impl Sql) -> R<Option<(u64, Option<u64>)>> {
+    let last = sql.exec("SELECT cohort, phase, opened_epoch, k_tempos FROM (
+            SELECT cohort, phase, opened_epoch, json_extract(plan, '$.k_tempos') AS k_tempos, seq FROM cohorts) ORDER BY seq DESC LIMIT 2", &[])?;
+    let earliest = |row: &crate::sql::Row| -> Option<u64> {
+        let opened = opt_int(row, 2)?;
+        let k = opt_int(row, 3)?;
+        u64::try_from(opened.saturating_add(k)).ok()
+    };
+    if let Some(r) = last.first()
+        && text(r, 1)? == "queued"
+    {
+        let after = last.get(1).and_then(earliest);
+        return Ok(Some((u64::try_from(int(r, 0)?).unwrap_or(0), after)));
+    }
+    if stored(sql)?.is_some_and(|(_, paused)| !paused) {
+        let next = last.first().map_or(Ok(0), |r| int(r, 0))?.saturating_add(1);
+        let after = last.first().and_then(earliest);
+        return Ok(Some((u64::try_from(next).unwrap_or(0), after)));
+    }
+    Ok(None)
+}
+
+/// The calendar for status and the public snapshot: the current cohort's
+/// tempo boundaries and the next cohort, in subnet epoch indices.
+pub fn view(sql: &impl Sql) -> R<Value> {
+    let rows = sql.exec(
+        "SELECT cohort, label, phase, opened_epoch, admission_closed_epoch, closed_epoch,
+            json_extract(plan, '$.k_tempos'), json_extract(plan, '$.admission_tempos'), json_extract(plan, '$.transition_tempos')
+         FROM cohorts ORDER BY seq DESC LIMIT 1",
+        &[],
+    )?;
+    let current = rows.first().map(|r| {
+        let opened = opt_int(r, 3);
+        json!({"cohort": int(r, 0).ok(), "label": text(r, 1).ok(), "phase": text(r, 2).ok(), "opened_epoch": opened,
+            "planned_cutoff_epoch": opened.zip(opt_int(r, 7)).map(|(o, a)| o + a),
+            "admission_closed_epoch": opt_int(r, 4), "earliest_close_epoch": opened.zip(opt_int(r, 6)).map(|(o, k)| o + k),
+            "closed_epoch": opt_int(r, 5), "k_tempos": opt_int(r, 6), "admission_tempos": opt_int(r, 7),
+            "transition_tempos": opt_int(r, 8)})
+    });
+    let template = sql.exec(
+        "SELECT sha256, paused, last_error FROM standing_template WHERE id = 1",
+        &[],
+    )?;
+    let template = template.first().map(|r| json!({"sha256": text(r, 0).ok(), "paused": int(r, 1).ok() == Some(1), "last_error": crate::eval::engine::opt_text(r, 2)}));
+    let next = next(sql)?.map(|(c, e)| json!({"cohort": c, "earliest_open_epoch": e}));
+    Ok(json!({"rule": "back_to_back_on_tempo_boundaries/v1", "current": current, "next": next, "template": template}))
+}

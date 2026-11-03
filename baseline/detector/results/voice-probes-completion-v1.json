@@ -1,0 +1,29 @@
+{
+  "schema": "slop_ninja_voice_probes_completion_v1",
+  "at": "2026-09-15T05:44:05Z",
+  "phase": "review_and_diagnostic_closed",
+  "bindings": {
+    "report.json": "4004d4bb53db8dfecac5712681e4929e06dd06938048b7fa647c9195dbbd7ea9",
+    "review.json": "e62ad10adf9c5f5c05af9afaf502616b27bd903c98dd683f4caf298af53c421d",
+    "preflight.json": "87273addf394e71c0f9a77ec86efd7754a532a873c8a830ea9b4b5d92e05b7ec",
+    "completion.json": "dd1e0c05c70f70383762d23619c579f72668dd3f3ad4e34bcbaba18278a52dfa",
+    "tests.log": "93fa60468c164b291a447d330fab6887c9a6c7f76104efa928594c276cbd3f7a",
+    "clippy.log": "40dc49751394833b356a5ec53f8ab1e9d9009feb9f0381460239ddcdbb346b5f",
+    "build.log": "7717134ef60f46a533c1f33d0787936cd6cd05e165ab718600d813a2dc827093",
+    "tools/ablate_structural_revision.rs": "646d39a27c9e00e0a1d820dd9da17a6d6b7229f7837927e81a3ef55455d25f6d",
+    "tools/ablate_structural_revision": "e602d518c02b675c61e05ca5ac0a7906c5acc8c922ee84af3847defbad499d62",
+    "close.rb": "899cfc57fde0924a8f9738c1c764d708e3eca0988a2138075abc34c92db4861f"
+  },
+  "exact_train_membership": true,
+  "captured_mode_replay": "byte_identical_plan_and_requests",
+  "negative_mode_checks": "both_rejected_before_output_creation",
+  "source_and_binary_verified": true,
+  "cargo_fmt": "passed_on_studio",
+  "all_target_tests": "passed_on_studio",
+  "clippy": "passed_with_warnings_denied",
+  "new_inputs": 3,
+  "cached_inputs": 6,
+  "provider_calls": 0,
+  "training_admission": false,
+  "reference_promoted": false
+}

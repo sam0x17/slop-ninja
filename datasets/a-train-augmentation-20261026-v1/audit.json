@@ -1,0 +1,174 @@
+{
+  "accepted_before_exclusions": 1056,
+  "ai_identities": {
+    "Qwen/Qwen3.6-35B-A3B:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3": 476,
+    "microsoft/Phi-4-mini-instruct:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2": 477,
+    "null": 96
+  },
+  "evidence_files_modified": false,
+  "excluded": [
+    {
+      "id": "local-80c4fe6b1765a6aeed53ef10",
+      "normalized_text_sha256": "1671c0a194d74d0f7caffc39cab88277a15f5a9889b0c009c129001e5d947be7",
+      "parent_id": "train-scale-human-d92d5e61115b43bb1d976447589f70094d5097b656f2602c1d59681587a44a75",
+      "reason": "duplicate_generated_normalized_text",
+      "retained_generation_evidence": true,
+      "text_sha256": "01583318f119fa2a3692000ade70147f53af9e4b2aea5ff94fa8e46127ae87a2"
+    },
+    {
+      "id": "local-ecad70bbf1104c49d245af14",
+      "normalized_text_sha256": "1671c0a194d74d0f7caffc39cab88277a15f5a9889b0c009c129001e5d947be7",
+      "parent_id": "train-scale-human-e8ab87bededac87679715b80de47e38fda0a77f79a424300c13296940e5a185d",
+      "reason": "duplicate_generated_normalized_text",
+      "retained_generation_evidence": true,
+      "text_sha256": "01583318f119fa2a3692000ade70147f53af9e4b2aea5ff94fa8e46127ae87a2"
+    },
+    {
+      "id": "local-5b157ec49000898feb3bb9bb",
+      "normalized_text_sha256": "5dcc004567dbdbe821edf9510c9be8226220286d94a2773903385320ae6cb9b4",
+      "parent_id": "train-scale-human-d92d5e61115b43bb1d976447589f70094d5097b656f2602c1d59681587a44a75",
+      "reason": "duplicate_generated_normalized_text",
+      "retained_generation_evidence": true,
+      "text_sha256": "226bc4b3f3cd4a0ea271a403a4bb09aaabec4efe6de68fc70bd20a224aeb3661"
+    },
+    {
+      "id": "local-beb32d51b3af8b6411606ccc",
+      "normalized_text_sha256": "5dcc004567dbdbe821edf9510c9be8226220286d94a2773903385320ae6cb9b4",
+      "parent_id": "train-scale-human-e8ab87bededac87679715b80de47e38fda0a77f79a424300c13296940e5a185d",
+      "reason": "duplicate_generated_normalized_text",
+      "retained_generation_evidence": true,
+      "text_sha256": "226bc4b3f3cd4a0ea271a403a4bb09aaabec4efe6de68fc70bd20a224aeb3661"
+    },
+    {
+      "id": "local-d35be5220e7ad53217c536e5",
+      "normalized_text_sha256": "a9f8139b222a757ea45ae4199aeed987f5d89e1fa19028f1f686cf4040018633",
+      "parent_id": "train-scale-human-777ac6a0e090f3a3c861f639fd55bd65e22c5182ad820af459f3c859d75110d7",
+      "reason": "normalized_text_matches_human_root",
+      "retained_generation_evidence": true,
+      "text_sha256": "9ffa3915c47d4683e37ece79baf06f8ef25f72612b3b2ffec7d8a8f33ca5bb11"
+    },
+    {
+      "id": "local-e9681a4c43857acaf278ce0b",
+      "normalized_text_sha256": "ec4d38040bbd1e0df75ec7c3c4371ad3352abcb1da9c17b16f77a9871f4a6cc1",
+      "parent_id": "train-scale-human-872dab5a686302ab0e472119c0d8b9ffc7d5c61b113a4dcd439d18cc76498b5c",
+      "reason": "duplicate_generated_normalized_text",
+      "retained_generation_evidence": true,
+      "text_sha256": "56ebd5697442e5b8182198852b4a098a1118cf5ea54c53af43c41bf44e8fadef"
+    },
+    {
+      "id": "local-d2ad1d39a872f5b3b4230e1a",
+      "normalized_text_sha256": "ec4d38040bbd1e0df75ec7c3c4371ad3352abcb1da9c17b16f77a9871f4a6cc1",
+      "parent_id": "train-scale-human-872dab5a686302ab0e472119c0d8b9ffc7d5c61b113a4dcd439d18cc76498b5c",
+      "reason": "duplicate_generated_normalized_text",
+      "retained_generation_evidence": true,
+      "text_sha256": "56ebd5697442e5b8182198852b4a098a1118cf5ea54c53af43c41bf44e8fadef"
+    }
+  ],
+  "full_rewrite_mixed_share_one_rows": 192,
+  "generators": [
+    {
+      "accepted": 480,
+      "binding_sha256": "ba5cd677cc3075f004e95dc91d5ebf5e7910642c3adf067215e75ab56ff76dac",
+      "complete": true,
+      "config_sha256": "fc3f44298af6443f1de0ef031a55270caec98272a06d776faeee21c8d18e7d5d",
+      "failed": 0,
+      "failures": [],
+      "generator": "Qwen/Qwen3.6-35B-A3B:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+      "input_sha256": "cb0b7afe683f1083a1e0cb6fcc00cf14442f7a7b47581c165e2eb21bbd287b2c",
+      "report": {
+        "accepted": 480,
+        "binding_sha256": "ba5cd677cc3075f004e95dc91d5ebf5e7910642c3adf067215e75ab56ff76dac",
+        "complete": true,
+        "failures": [],
+        "input_sha256": "cb0b7afe683f1083a1e0cb6fcc00cf14442f7a7b47581c165e2eb21bbd287b2c",
+        "records_sha256": "9b89b131c868f4801522902d727750fdf65157c3584c25ef616f7d15a69936c5",
+        "schema": "slop_ninja_controlled_generation_report_v2",
+        "test_opened": false
+      },
+      "requested": 480,
+      "slot": "known_model_1"
+    },
+    {
+      "accepted": 480,
+      "binding_sha256": "c53665e10f38cb8144892b26aed039b3c50ccc4764375f6202f2219e43885a7e",
+      "complete": true,
+      "config_sha256": "3fc69820a9a81998b5f11b8a275819a6cd534536009e0cdb9d10f01b77e98109",
+      "failed": 0,
+      "failures": [],
+      "generator": "microsoft/Phi-4-mini-instruct:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2",
+      "input_sha256": "cb0b7afe683f1083a1e0cb6fcc00cf14442f7a7b47581c165e2eb21bbd287b2c",
+      "report": {
+        "accepted": 480,
+        "binding_sha256": "c53665e10f38cb8144892b26aed039b3c50ccc4764375f6202f2219e43885a7e",
+        "complete": true,
+        "failures": [],
+        "input_sha256": "cb0b7afe683f1083a1e0cb6fcc00cf14442f7a7b47581c165e2eb21bbd287b2c",
+        "records_sha256": "cf096b2240de4cb2f22326e759b1382eae1776f15ce1190e2073cde9e58f079f",
+        "schema": "slop_ninja_controlled_generation_report_v2",
+        "test_opened": false
+      },
+      "requested": 480,
+      "slot": "known_model_2"
+    }
+  ],
+  "included": 1049,
+  "original_audit_sha256": "f7b196f89d3e4dde1296ca8156a0ee72c49e483878014342946ec00374237fff",
+  "origins": {
+    "human_only": 96,
+    "mixed": 765,
+    "model_only": 188
+  },
+  "protected_populations": [
+    {
+      "manifest_sha256": "cc5a7ae7de4789c06b935a6066811cd917e16adebec3ab999cdb07279c9e697f",
+      "records": 929,
+      "records_sha256": "c66df310c9f166ea77432c3d8c7308447bf3ac1510e792a4f9fb29f1453610b7"
+    },
+    {
+      "manifest_sha256": "402416c5435cbd3585161d6ea0804ae6c7712df2992cc90817c1d6d76c8403ec",
+      "records": 8,
+      "records_sha256": "f5ca7d42c9860a876801c64e51b9b406b3af14ca8751fc87b0d9f28133281c56"
+    }
+  ],
+  "requested_generation_tasks": 960,
+  "requested_roots": 96,
+  "root_selection_counts": [
+    {
+      "collection": "cmu-books-historical",
+      "eligible": 110,
+      "requested": 24,
+      "selected": 24,
+      "shortfall": 0
+    },
+    {
+      "collection": "hc3-wiki-historical",
+      "eligible": 89,
+      "requested": 24,
+      "selected": 24,
+      "shortfall": 0
+    },
+    {
+      "collection": "plos_one",
+      "eligible": 44,
+      "requested": 24,
+      "selected": 24,
+      "shortfall": 0
+    },
+    {
+      "collection": "wikinews",
+      "eligible": 49,
+      "requested": 24,
+      "selected": 24,
+      "shortfall": 0
+    }
+  ],
+  "schema": "slop_ninja_train_augmentation_audit_v1",
+  "selected_roots_by_collection": {
+    "cmu-books-historical": 24,
+    "hc3-wiki-historical": 24,
+    "plos_one": 24,
+    "wikinews": 24
+  },
+  "test_text_opened": false,
+  "unknown_human_identity_rows": 1049
+}

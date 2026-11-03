@@ -1,0 +1,25 @@
+[workspace]
+members = ["crates/grammar-core", "crates/grammar-spacy", "crates/grammar-cli", "crates/grammar-corpus", "crates/grammar-eval", "crates/grammar-markdown", "crates/grammar-a-baseline", "crates/grammar-a-pools", "crates/grammar-a-assemble", "crates/grammar-a-positives", "crates/grammar-a-augment", "crates/grammar-cc-human", "crates/grammar-a-form"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip", "unbounded_depth"] }
+sha2 = "0.10"
+hex = "0.4"
+unicode-normalization = "0.1"
+unicode_categories = "0.1"
+unicode-general-category = "=1.1.0"
+clap = { version = "4", features = ["derive"] }
+tempfile = "3"
+roxmltree = "=0.21.1"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+zstd = "0.13"
+grammar-core = { path = "crates/grammar-core" }
+grammar-spacy = { path = "crates/grammar-spacy" }

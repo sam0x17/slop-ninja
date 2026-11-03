@@ -1,0 +1,145 @@
+{
+  "schema": "slop_ninja_surface_noise_terminal_review_v1",
+  "at": "2026-09-15T15:18:00Z",
+  "preparation_sha256": "e167257243e780d610d3f3215beaed7334cfc1b05eab144371d35b2cff1eb89e",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "selection": "Every eligible terminal-repeat case, selected without detector scores.",
+  "complete_baseline_passages_read": 8,
+  "exact_mutations_verified": true,
+  "reviewed_pairs": [
+    {
+      "id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "group": "wikipedia:page:15279338",
+      "origin": "human_only",
+      "kind": "terminal-repeat",
+      "request_ids": [
+        "f433faa92d973074988cbf7298ca1c7a01caa02bc49913f036a8c1378e3df817",
+        "e64baca1ced6f53feccb4e2b20d751031df28a3d4648fbe033255337fb224b3e"
+      ],
+      "text_sha256": [
+        "3800f12a41215d6b84da6a8004f3d2e0252bd508f38418571b91495a7edabeac",
+        "df9e4f5fd9650e3bb6fc90e094baa977e83f046dfb8edf9ec310458f0850c8c7"
+      ],
+      "judgment": "Retain as an origin-sensitivity probe. The edit repeats a prose-final question mark; no lexical content changes. Added emphasis or insistence is possible, so do not certify tonal equivalence or accept it as a B improvement."
+    },
+    {
+      "id": "generation:0761613420252da87b306bcf226503a5adb61f162bedaa4eb269e4770c676354",
+      "group": "wikipedia:page:15279338",
+      "origin": "model_only",
+      "kind": "terminal-repeat",
+      "request_ids": [
+        "10ba6cec70394e3e21dd6fc2a778d196b3308b94c07c51e3f9cbfcd7f017226e",
+        "5293137d0db8a128d0756226bf9c328a309229e5435d502700c76d3ea8eefaba"
+      ],
+      "text_sha256": [
+        "46ce6c3073f585d4214dc484f6dfd2412567dbf1f371e3859e4aed438ac95ea3",
+        "560943ce5fcb783c7f7efcab19583b9a900dca3334da5cd161aacedd756db4a6"
+      ],
+      "judgment": "Retain as an origin-sensitivity probe. The edit repeats a prose-final question mark; no lexical content changes. Added emphasis or insistence is possible, so do not certify tonal equivalence or accept it as a B improvement."
+    },
+    {
+      "id": "generation:1acdd496444ccf58d4e735a720a74b7418a4115c5b726efba9c4c66fb7180b3a",
+      "group": "wikipedia:page:15279338",
+      "origin": "model_only",
+      "kind": "terminal-repeat",
+      "request_ids": [
+        "43faa911b8c3a59e85ff8093d695b85de8fac1245a0d53721812d8a629bac346",
+        "28f9635de3736279eccc9015d6362fb87fc105e51ba1cc93083065084f0bfe3f"
+      ],
+      "text_sha256": [
+        "ff1791df41b1c28b329e861557f4fdcd1991ddc8ca8016b0184fb1faf39ac0cd",
+        "dc5ea50e18b1e0100ffcd6fe0332c6091a628483dd514ba7f2a4f89117516f10"
+      ],
+      "judgment": "Retain as an origin-sensitivity probe. The edit repeats a prose-final question mark; no lexical content changes. Added emphasis or insistence is possible, so do not certify tonal equivalence or accept it as a B improvement."
+    },
+    {
+      "id": "generation:5ecfa0bb996d92118bac54acf1690efb8d6b623f984ea14fcab2b1d6bc8c2fc1",
+      "group": "wikipedia:page:15279338",
+      "origin": "model_only",
+      "kind": "terminal-repeat",
+      "request_ids": [
+        "7c53e18e95bc00f5a6ae7a9e4ef6ced67cdcb809faabd91da895992702164d4f",
+        "f504196f6120833bda390a8288d0cd43582f4a09690e9fd4a3628af86003d90a"
+      ],
+      "text_sha256": [
+        "8b6a300f6662ecd10c53a2af1be365298e08c10b931d182b60edf739906d7897",
+        "e21a8ad01e3cfb628743db07770f7843cae286264145c3213bfd92d02bdbe293"
+      ],
+      "judgment": "Retain as an origin-sensitivity probe. The edit repeats a prose-final question mark; no lexical content changes. Added emphasis or insistence is possible, so do not certify tonal equivalence or accept it as a B improvement."
+    },
+    {
+      "id": "generation:6739ba1dd9780adcbbf70456d7db13235c414847bbbda7125c9b6ff6458ec1dd",
+      "group": "wikipedia:page:15279338",
+      "origin": "model_only",
+      "kind": "terminal-repeat",
+      "request_ids": [
+        "8fc2d1f0d74f2cba5612b473867626a2ad7aa1c3c5088b9b6bc712ced7385fbc",
+        "a3a74f1d3d2e11673b13a8bba767e63477441da2725ca50ccf5b49d70450dd6e"
+      ],
+      "text_sha256": [
+        "afd009288d5d63eb05f38b6f5394bf4a27812be0a4b04bb65f60019c837f0348",
+        "aa0dc4a8fd267065c59976bd45f52f08bba6a4ce66ceb6b0826d3404ad517e38"
+      ],
+      "judgment": "Retain as an origin-sensitivity probe. The edit repeats a prose-final question mark; no lexical content changes. Added emphasis or insistence is possible, so do not certify tonal equivalence or accept it as a B improvement."
+    },
+    {
+      "id": "generation:69c3d49ac665fb014d54fb06918b57afcbca92ebf6bba21862718a2b67118dcd",
+      "group": "wikipedia:page:15279338",
+      "origin": "model_only",
+      "kind": "terminal-repeat",
+      "request_ids": [
+        "e836c14d5c5fe2a0f3f1062c741597a80ffd065dea8fd8249a273f8433cada74",
+        "bec6ccebbff556271c2e207fa2fb875747d2caab45f00fb11325686e462b883a"
+      ],
+      "text_sha256": [
+        "a578ac209bf8ea1caa5624e7e3f17afc5ef56f9d9c95b3795cbbfb694b4e5a80",
+        "0cabd2dafff49a8f0ff184991d71ed8fde3ed2fadf0bafc7bfc7ee0c021e6ed3"
+      ],
+      "judgment": "Retain as an origin-sensitivity probe. The edit repeats a prose-final question mark; no lexical content changes. Added emphasis or insistence is possible, so do not certify tonal equivalence or accept it as a B improvement."
+    },
+    {
+      "id": "generation:b6fea599dd05947ebb3703921cfd50a6bd92da0c2c50fa9d0458e54c08fd34e2",
+      "group": "wikipedia:page:1242713",
+      "origin": "model_only",
+      "kind": "terminal-repeat",
+      "request_ids": [
+        "b40fb4a8f55f6bf4dcf777f321a9df06847e141403f0e42459a3655e4ea2e921",
+        "70808d9da70e9f02060797545c0f1e0b23a59314afd7aa5f7c5dc946221a07ae"
+      ],
+      "text_sha256": [
+        "455af47546a18017f0c23329f2908d0c0dc48eeb4e64446ea5ace09c02317488",
+        "d8dff9cf6c5ba1300a1c72ef0fbff221f6d4d3ba03a6661fc794e6e5c44ed8fd"
+      ],
+      "judgment": "Retain as an origin-sensitivity probe. The edit repeats a prose-final question mark; no lexical content changes. Added emphasis or insistence is possible, so do not certify tonal equivalence or accept it as a B improvement."
+    },
+    {
+      "id": "generation:e3eb2fed9ba6a9eb8a6c5c258028c0aa0e2babcefa1bc025bdce8aa510025d04",
+      "group": "wikipedia:page:15279338",
+      "origin": "mixed",
+      "kind": "terminal-repeat",
+      "request_ids": [
+        "e3b6198b0d4e02155fcd4a17b56be7284b8910033e80827413eba59b7894d308",
+        "5213740fb9bc51ee227a8321b030f670e0e264003ce14b0b3c9abf38f8fcc528"
+      ],
+      "text_sha256": [
+        "2289c2fdc2512acf0ebd1302f64c510e86a1751e6a382368b6e24270ce6bb0d2",
+        "58e579e97aac65f2f47d93ff88a78c07f6dacf5bdab2e7b34b8c1c087ee64458"
+      ],
+      "judgment": "Retain as an origin-sensitivity probe. The edit repeats a prose-final question mark; no lexical content changes. Added emphasis or insistence is possible, so do not certify tonal equivalence or accept it as a B improvement."
+    }
+  ],
+  "findings": [
+    "Seven cases belong to one wolf-novel source family; the eighth is a conversational DBN explanation. Only two families are represented.",
+    "All eight eligible endings are question marks. This panel supplies no exclamation-mark observation.",
+    "The human novel summary already has a damaged final question. Repeating its terminal mark does not resolve that syntax; retain the ambiguity.",
+    "No edited final mark is inside a code block, citation, quoted string or arithmetic expression in these eight passages. Earlier generated-text fidelity defects remain separate from this one-mark intervention."
+  ],
+  "reviewed_pair_count": 8,
+  "remaining_pair_count": 378,
+  "remaining_review": "All internal-space, spelling-transposition and repeated-determiner contexts remain to be inspected.",
+  "inference_ready": false,
+  "detector_calls": 0,
+  "new_training_records": 0,
+  "record_source_sha256": "0ceb4482c07b12430fbaaf850a4b5429b03fb1f8b36254f2192e16457af26d1c"
+}

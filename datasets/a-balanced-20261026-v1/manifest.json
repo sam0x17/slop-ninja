@@ -1,0 +1,315 @@
+{
+  "accepted_generation_records": 829,
+  "clean_holdout": false,
+  "files": [
+    {
+      "bytes": 2182,
+      "path": "NOTICE.md",
+      "sha256": "9ca43e3b903499f7fbb2d0c414f8c583072bf4c36e77a8e130ec36ab2cc766e9"
+    },
+    {
+      "bytes": 2634,
+      "path": "README.md",
+      "sha256": "dd1f3d13fd8252f49857ff60fe33c5c289f84b5f9cc6768ce8e421acf8c04c68"
+    },
+    {
+      "bytes": 6363857,
+      "path": "calibration.jsonl",
+      "sha256": "c6c4e4c16752e4923d7e5fbb5f23be2e76a6485cc212d088a23e8ce4fb3b6360"
+    },
+    {
+      "bytes": 4425180,
+      "path": "development.jsonl",
+      "sha256": "64fb984b1ecec5daf56d1d7278796c9dffd9aade42d451a67d30e574fb748ab2"
+    },
+    {
+      "bytes": 4591,
+      "path": "failures.json",
+      "sha256": "18c6e2dbc12b40ac01487df046869d251dbfcb6e8da20f7e472e35f64df766a7"
+    },
+    {
+      "bytes": 9025,
+      "path": "generators.json",
+      "sha256": "2b5fc26d0de6593745f1eb7e4cac4e611173107a7dc2c0bbd0bb0ef0416b5daa"
+    },
+    {
+      "bytes": 4348,
+      "path": "licenses/gemma-prohibited-use.txt",
+      "sha256": "f08605a6bff5ab3e8187bae70f06112629d4042bdd42ca6fd9d2fe8cab035048"
+    },
+    {
+      "bytes": 10779,
+      "path": "licenses/gemma-terms.txt",
+      "sha256": "d60bd6f05c5f433c1c0a04178d4f057ec06846c4e87cf9ff5ef5359cf4b1d7f8"
+    },
+    {
+      "bytes": 1084,
+      "path": "licenses/phi-base.LICENSE",
+      "sha256": "fa8235e5b48faca34e3ca98cf4f694ef08bd216d28b58071a1f85b1d50cb814d"
+    },
+    {
+      "bytes": 11343,
+      "path": "licenses/qwen-base.LICENSE",
+      "sha256": "50cbab8a892c5f2993b8c7351a99182507472def3b1374558308605d99b86b32"
+    },
+    {
+      "bytes": 158636,
+      "path": "references.jsonl",
+      "sha256": "8f1961d8a70f46040491014ed0afe110aa45e36f1373960dcba19e9bc83cc66f"
+    },
+    {
+      "bytes": 3305980,
+      "path": "train.jsonl",
+      "sha256": "081c0a0258f9d3df62657d83541a50f0435c2335610eb9ae1f6cda15362851a4"
+    }
+  ],
+  "fractional_share_records": 416,
+  "frozen_selection_sha256": "3271a46bf0b1dd70a2429ee5a9ce3002fba8c8235f7a629219162c46471f903f",
+  "future_hidden_test": false,
+  "generation_failures": 3,
+  "lineage_basis": "exact original line-byte and compact row hashes retained per record",
+  "original_dataset_manifest_sha256": "cc5a7ae7de4789c06b935a6066811cd917e16adebec3ab999cdb07279c9e697f",
+  "original_dataset_sha256": "c66df310c9f166ea77432c3d8c7308447bf3ac1510e792a4f9fb29f1453610b7",
+  "original_query_manifest_sha256": "90cd1b5de480c6f3919e246f44a995943fbc5a270a4b8ea141c3d4ffa5ed7a9c",
+  "original_records_immutable": true,
+  "original_references_sha256": "87c0d517a998e251c139378947e091f1862d0868c918ad0ea273d2b722894b5c",
+  "original_source_manifest_sha256": "a6a64f4128e3516a41ef994a176c39bf660d4bc0cfb63a07d853b26c6e81050e",
+  "origins": {
+    "human_only": 108,
+    "mixed": 624,
+    "model_only": 205
+  },
+  "partitions": {
+    "calibration": 414,
+    "development": 288,
+    "references": 20,
+    "train": 215
+  },
+  "publisher_sha256": "8198a1c9148a98559b5767b240efcade053d3dcec01485f106c630f5a523d3f4",
+  "records": 937,
+  "reference_policy": "separate references retain actual partitions; never fit parameters or normalization on references",
+  "requested_generation_records": 832,
+  "rights": "US public-domain source determinations; generated text and curation CC-BY-SA-4.0 to extent rights exist; underlying rights and generator terms retained",
+  "schema": "slop_ninja_a_balanced_public_snapshot_v1",
+  "source_families": 54,
+  "source_work_partitions": {
+    "author_work_v2:anthony_trollope:american_senator": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:anthony_trollope:belton_estate": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:anthony_trollope:golden_lion_of_granpere": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:anthony_trollope:he_knew_he_was_right": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:anthony_trollope:kellys_and_the_o_kellys": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:anthony_trollope:rachel_ray": {
+      "purpose": "reference",
+      "split": "train"
+    },
+    "author_work_v2:anthony_trollope:way_we_live_now": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:edith_nesbit:enchanted_castle": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:edith_nesbit:railway_children": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:edith_nesbit:wet_magic": {
+      "purpose": "reference",
+      "split": "development"
+    },
+    "author_work_v2:edith_wharton:age_of_innocence": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:edith_wharton:ethan_frome": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:edith_wharton:glimpses_of_the_moon": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:edith_wharton:house_of_mirth": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:edith_wharton:mother_s_recompense": {
+      "purpose": "reference",
+      "split": "train"
+    },
+    "author_work_v2:edith_wharton:reef": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:edith_wharton:summer": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:elizabeth_gaskell:mary_barton": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:elizabeth_gaskell:north_and_south": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:elizabeth_gaskell:ruth": {
+      "purpose": "reference",
+      "split": "development"
+    },
+    "author_work_v2:george_eliot:adam_bede": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:george_eliot:brother_jacob": {
+      "purpose": "reference",
+      "split": "train"
+    },
+    "author_work_v2:george_eliot:felix_holt_the_radical": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:george_eliot:middlemarch": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:george_eliot:mill_on_the_floss": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:george_eliot:romola": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:george_eliot:silas_marner": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:george_gissing:nether_world": {
+      "purpose": "reference",
+      "split": "calibration"
+    },
+    "author_work_v2:george_gissing:new_grub_street": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:george_gissing:odd_women": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:henry_james:ambassadors": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:henry_james:american": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:henry_james:confidence": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:henry_james:europeans": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:henry_james:golden_bowl": {
+      "purpose": "reference",
+      "split": "train"
+    },
+    "author_work_v2:henry_james:roderick_hudson": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:henry_james:washington_square": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:joseph_conrad:almayer_s_folly": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:joseph_conrad:arrow_of_gold": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:joseph_conrad:chance": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:joseph_conrad:nostromo": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:joseph_conrad:outcast_of_the_islands": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:joseph_conrad:secret_agent": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:joseph_conrad:victory": {
+      "purpose": "reference",
+      "split": "train"
+    },
+    "author_work_v2:thomas_hardy:far_from_the_madding_crowd": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:thomas_hardy:jude_the_obscure": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:thomas_hardy:mayor_of_casterbridge": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:thomas_hardy:pair_of_blue_eyes": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:thomas_hardy:return_of_the_native": {
+      "purpose": "query",
+      "split": "development"
+    },
+    "author_work_v2:thomas_hardy:tess_of_the_d_urbervilles": {
+      "purpose": "query",
+      "split": "train"
+    },
+    "author_work_v2:thomas_hardy:trumpet_major": {
+      "purpose": "reference",
+      "split": "train"
+    },
+    "author_work_v2:wilkie_collins:moonstone": {
+      "purpose": "query",
+      "split": "calibration"
+    },
+    "author_work_v2:wilkie_collins:no_name": {
+      "purpose": "reference",
+      "split": "calibration"
+    },
+    "author_work_v2:wilkie_collins:woman_in_white": {
+      "purpose": "query",
+      "split": "calibration"
+    }
+  },
+  "test_records_published": 0,
+  "test_text_opened": false
+}

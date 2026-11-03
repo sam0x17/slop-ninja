@@ -1,0 +1,11 @@
+{
+  "model_id": "slop-ninja-b-probe-v1",
+  "checkpoint": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit",
+  "revision": "e9675aa3ca5f900ccef55267914466d55ab325fa",
+  "files_manifest_sha256": "7a0b048169c41072305ee26b9843ed997b00caec8205206ceb6ede43e08f27b8",
+  "license": "Apache-2.0; pinned conversion and upstream evidence in baseline/detector/manifests/qwen-mlx-files.json",
+  "runtime": "Mac Studio; LM Studio CLI 71bd99c, MLX backend, 8192-token context, parallelism 1, speculative decoding disabled; save loaded-instance metadata beside each run",
+  "temperature": 0.7,
+  "max_tokens": 900,
+  "seed": 17
+}

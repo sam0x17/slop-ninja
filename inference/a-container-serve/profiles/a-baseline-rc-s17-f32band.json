@@ -1,0 +1,95 @@
+{
+  "schema": "slop_ninja_a_served_profile_v1",
+  "profile_id": "a-baseline-rc-s17-f32band-v1",
+  "status": "release_candidate_not_deployed",
+  "release": {
+    "schema": "slop_ninja_a_baseline_release_candidate_v1",
+    "arm": "E1aux",
+    "selected_arm": "Faux",
+    "seed": 17,
+    "release_json_sha256": "cb3e69b5d90ee90613de0c793480ed165b7fda040e77dbcd7ca6297557e3cd6e",
+    "sha256sums_sha256": "7b5e69f224577f9aa61fd6896278238a8a551ebf020c8f15789cf3d23a8dc3ca",
+    "replay_receipt_sha256": "dd276b4b6d8a0a5ea690d3cd9f5165611316471390a370af557799f4888aaff2",
+    "encoder_safetensors_sha256": "a167c6072e946be3ce23aa06a1f6ea0e0150dd29dafa3fb387980fe90c236927"
+  },
+  "files": [
+    {
+      "name": "a-fp32band.onnx",
+      "role": "encoder_graph",
+      "bytes": 601028257,
+      "sha256": "08848d95261eea0e0791366298cede77033d92dcac88cfcb08f8367fd6ca4cb7",
+      "release_path": null
+    },
+    {
+      "name": "heads.json",
+      "role": "heads",
+      "bytes": 6047907,
+      "sha256": "b70a4a4bf631a06a07342e963ad98d764ca3ba8653be8282b97db1aad8e6c882",
+      "release_path": "model/heads.json"
+    },
+    {
+      "name": "contract.json",
+      "role": "contract",
+      "bytes": 67253,
+      "sha256": "70254744c4af0e0721083ef118d36afb40eac6da01cb57d186b21bd028a549a0",
+      "release_path": "model/contract.json"
+    },
+    {
+      "name": "calibration.json",
+      "role": "calibration",
+      "bytes": 2459802,
+      "sha256": "70745806a82f86d831da52a4d5a2126fd20605964fadb619ca27b65469366531",
+      "release_path": "model/calibration.json"
+    },
+    {
+      "name": "manifest.json",
+      "role": "export_manifest",
+      "bytes": 3630,
+      "sha256": "4a878e709b6b5cd423414904ef8584ef337d4d991da60ad6cca0e7500011ee10",
+      "release_path": "model/manifest.json"
+    },
+    {
+      "name": "tokenizer.json",
+      "role": "tokenizer",
+      "bytes": 3583228,
+      "sha256": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
+      "release_path": "runtime-base/tokenizer.json"
+    }
+  ],
+  "graph": {
+    "file": "a-fp32band.onnx",
+    "format": "onnx",
+    "opset": 17,
+    "precision": "f32",
+    "attention": "banded",
+    "pad_block": 64,
+    "max_tokens_including_specials": 2048,
+    "inputs": ["input_ids", "attention_mask"],
+    "outputs_used": ["h"],
+    "derived_from": ["model/encoder.safetensors", "model/heads.json"],
+    "export": {
+      "tool": "export_banded.py: torch.onnx.export, opset 17, constant folding, dynamo off",
+      "tool_sha256": "3f1fa5486974e9caac29963d43f67275ada8444c7d1e8c74f075fb374b0825a2",
+      "build_record_sha256": "70050561416d73460a2e826467a4ec2e3cea4dcac37e9a8d672c3fd0489f6c12",
+      "binding_gate_record_sha256": "d01eef0b214258400e3725cf37a9af476af847cf0516a070e8de83794e01dec4",
+      "validation_record_sha256": "5db1e7b9b3c2e3fa864a11c64cb293e4f8fe34eae6660dccedea219b3b3f6020",
+      "validation_max_abs_p_ai": 7.773021212409414e-06,
+      "independent_exports_with_this_digest": 2
+    }
+  },
+  "heads_runtime_sha256": {
+    "full_a.rs": "90a387169d38487615c30cb03b8e81f6ef2a76abdc783b0afc1da7b5dc286369",
+    "full_a_spans.rs": "70cf814b378ef12acdab25d37d9c1e0f49810a7d649a981d90a2ee16bf6a8b5f",
+    "involvement_calibration.rs": "0893526927b09ef22038e1f1c03376546b2c35781366618e5b828d0223196f7e",
+    "shared.rs": "ef1db317e5559e00d7f0757c170f76bb0d972328e8968e87e2d75177874e5043"
+  },
+  "heads_base_temperature": 1.8776105792643432,
+  "runtime": {
+    "onnxruntime_version": "1.31.1",
+    "onnxruntime_library": "libonnxruntime.so.1.31.1",
+    "onnxruntime_library_sha256": "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3",
+    "onnxruntime_source": "onnxruntime 1.31.1 cp312 manylinux_2_28_x86_64 wheel",
+    "base_image": "gcr.io/distroless/cc-debian12@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f",
+    "builder_image": "rust@sha256:24707e70a4f1e23d9a7b25202ec43126d28a52294b96aad5c670df1fd1f1d400"
+  }
+}

@@ -1,0 +1,379 @@
+\section{Earlier research checkpoints}\label{earlier-research-checkpoints}
+
+These checkpoints precede \(R_0\) and gate nothing at launch. \(R_0\) was
+fine-tuned from the V6 detector below, and the adaptation results trace that
+path; the grammar and CFG-vector results bear on later CFG inputs, which the
+launch does not use.
+
+\paragraph{Origin detector baseline, September 13, 2026.}
+Our V6 baseline is a raw-text ModernBERT-base experiment fine-tuned for three
+production-origin classes. It accepts up to 2,048 tokens and has an offline CPU
+reference runner. The frozen primary corpus has 5,463 records drawn from 797
+source families. For every record we retain the source rights, full generation
+ancestry, and split assignment~\cite{detectorv6data}. Development data selected
+the checkpoint. We then fitted the temperature on Calibration and froze the
+decision cutoffs before looking at Test.
+V6's stricter and looser cutoffs are approximately 0.84365 and 0.42874;
+V5's are 0.90529 and 0.88845. A flag requires
+$P(\mathrm{model\_only})+P(\mathrm{mixed})$ strictly above the respective
+full-precision cutoff. Calibration targeted 1\% and 5\% human false-positive
+rates, respectively; these targets are not population guarantees. The 0.5
+boundary below is a separate diagnostic operating point.
+Its results provide a raw-text comparator for the proposed CFG-only detector;
+they do not show that the parsed-vector restriction preserves detection performance.
+
+The second-rewrite Test view, labeled R2 in the detector release, pairs 112
+unchanged historical human-source passages with
+112 model-only passages that each underwent two successive text rewrites:
+a Qwen anti-ai rewrite followed by a Mistral fix-slop rewrite. On these 224
+passages from 112 source families, V6 reaches 95.1\% accuracy at the 0.5
+boundary; V5 reached 88.4\%. The predeclared binary
+log loss fell from 0.2653 to 0.1007. A paired bootstrap by source family gives a
+95\% interval of $[-0.2229,-0.1075]$ for that difference. Mixed-origin passages
+are absent from these rows, and repeated views from successive revision stages
+are dependent observations. In a separate diagnostic over all 117 assigned human
+sources, the stricter frozen cutoff reduced false positives from 7 for V5 to 3
+for V6, an observed V6 rate of 2.6\% against the 1\% Calibration target. At the
+looser cutoff they increased from 9 to 12, an observed V6 rate of 10.3\% against
+the 5\% target. Both observed V6 rates exceeded their Calibration targets.
+Three-class classification and mixed-origin cases are
+still material weaknesses~\cite{detectorv6}.
+
+A September 15 probe added one leading ASCII
+space to each of 126 Train records that V6 had already seen. The mean absolute
+change in combined model/mixed probability was 7.80 percentage points. In the
+largest model-only swing, the score fell from 96.73\% to 1.30\%. That is evidence
+of a formatting shortcut. It says nothing about held-out robustness or transfer
+to Pangram. The proposed text profile must prevent this exact representation
+change from earning later \textit{B} utility. Paired formatting controls also
+remain necessary for \textit{A} qualification~\cite{boundaryspace}.
+
+We also ran a fresh paired comparison with Pangram. It contains 162 passages
+from 18 source families: 18 human passages, 108 distinct model drafts or
+revisions, and 36 direct model edits of human text. Using the declared boundary
+of at least 10\% combined AI and AI-assisted content, Pangram flagged all
+108 model-only passages and 34 of the 36 mixed-origin passages. It flagged none
+of the 18 human passages. At its stricter cutoff, V6 found 98 of 108 model-only
+and 29 of 36 mixed-origin passages, again with no observed human flags. At the
+looser cutoff it found 102 of 108 and 33 of 36, while flagging 2 of the 18 human
+passages.
+
+These two scores answer different questions: Pangram reports a content
+fraction, whereas V6 reports a probability about the document's production
+origin. We have not matched their population false-positive rates. The 162
+passages are also clustered within 18 source families, so they are not 162
+independent trials. This sample cannot support a Pangram-parity claim, a rare
+error-rate guarantee, or unrestricted genre coverage. Pangram stays the outside
+quality anchor. V6 is a research baseline and is not yet a qualified subnet
+detector~\cite{detectorv6}.
+
+\paragraph{Native grammar checkpoint, October 5, 2026.}
+The earlier author experiments combined word occurrences with grammatical
+features extracted from spaCy annotations. The current Rust path binds exact
+document bytes to reviewed sentence units, packed grammar forests, append-only
+ambiguity decisions and frozen lexical and grammatical coordinates. A compact
+cache records the source span, grammar identity, resource envelope, grammar-item
+dependencies and any selected tree. A grammar change can require replay beyond
+the old production-dependency set when it introduces new alternatives.
+An unchanged selected tree carries forward only when it maps exactly onto the
+new forest. This is the proposed representation for \textit{A} and \textit{B};
+the author-retrieval results below still come from the earlier feature system.
+
+At this checkpoint, the native grammar campaign had completed 205 of its first
+500 documents. Of these, 151 tracked-public documents contributed 1,696 exact candidate units to a
+compact cache; 54 local-private proofs covering 1,065 units remain outside Git.
+A document counts only when every candidate has a complete root, a complete lexical scan,
+no unknown token and no parser limit. The v368 replay of 1,657 previously
+tracked public units retained all 1,217 saved selections and every terminal
+status. It changed 305 packed forests only by adding alternatives; 92 changed,
+unselected ambiguities remained open for review rather than receiving the first
+available derivation. In the nine-document Wave 136 batch, only 47 of 148
+candidate units parsed completely before repair. Reusable additions brought all
+148 to complete roots without unknown tokens or resource limits, while a replay
+left all 1,657 previously tracked units complete. That batch added 39 public
+units to the prior 1,657, giving 1,696 at this checkpoint; its other 109 units
+belong to the private proofs. These figures measure source-bound parser
+coverage and replay behavior. Complete roots do not certify the selected
+interpretation or measure detector accuracy~\cite{cfgcampaign}.
+
+\paragraph{CFG-vector preparation, October 22, 2026.}
+A Rust exporter produced whole-document structural features for 70 of 80
+requested documents: 20 historical human proxies, 27 model drafts, and 23 mixed
+edits. Ten documents remained unavailable because 58 candidate spans lacked
+retained ambiguity selections. Twenty source families retained both human and
+model documents. The full requested population remains in the report, so these
+exclusions cannot disappear from a coverage denominator.
+
+Export from existing cache trees took 9.97 seconds and peaked at 1,263,268 KiB
+RSS with no swap, under a one-CPU, 4 GiB limit. This excludes first-time parsing
+and ambiguity resolution. All 80 documents were previously Development and
+exposed to grammar work. Their caches span four parser engines and 899 grammar
+identities across six grammar/profile prefixes. The export preserves those
+identities rather than claiming one frozen representation. Lexical and combined
+inputs remain unavailable. No model was fitted, no attribution targets were
+certified, and no clean holdout result was produced~\cite{cfgvectorprep}.
+
+\paragraph{Supervised shared CFG model, October 26, 2026.}
+A Development-selected grammatical-leaf model uses a shared
+$2062\!\to\!64\!\to\!32$ encoder, a three-name model head and a four-name writer head.
+Train contains 229 queries, including 16 measured fractional-share targets;
+eight independent reference rows are excluded from fitting. Features, weights
+and Calibration mappings were frozen before Test. On 102 Test documents from
+15 source families, including 21 human-labeled documents, joint seeds 17, 29
+and 41 have involvement Brier 0.125825, 0.129129 and 0.134119, versus 0.095745
+for the Calibration-fitted Pangram fraction-to-involvement mapping. That mapping
+is not Pangram's native involvement probability. Pangram is the paired raw-text
+comparator here; the historical V6 measurements use a different cohort.
+Human false-positive rates at
+0.5 are 66.67\%, 86.67\% and 66.67\%; share MAE is 30.18--34.72 percentage points.
+Conditional known-human top-1 is only 28.13--31.25\%, and rejection of withheld
+identities is unstable. Matched origin-only and attribution-only controls retain
+explicit untrained-head limits. Historical human proxies, grammar exposure,
+source/generator confounds and the same withheld OLMo model across Calibration,
+Development and Test prevent broader generalization claims. No rare
+false-positive guarantee or Pangram parity follows. All 450 non-Test and 102
+Test inputs have complete byte accounting with zero execution failures, but
+35 and 34 unresolved tokens remain. Frozen projection matched all 450 non-Test
+numeric vectors exactly, and three unlabelled synthetic documents passed the
+native extraction-to-prediction path. A Wasm library build passed; neither that
+build nor small native Rust numeric inference qualifies parser memory or full
+Workers execution. Full per-seed evidence,
+artifact bindings and commands are recorded in the current repository report
+\texttt{grammar/crates/grammar-a-baseline/}\allowbreak\texttt{SUPERVISED\_BASELINE.md},
+linked from the continuing CFG-vector viability experiment~\cite{cfgvectorprep}.
+
+A paired whitespace-collapse diagnostic retained the words and targets of all
+102 Test documents while changing whitespace in 71. With joint seed 17 and all
+calibration frozen, Brier was 0.125631 versus 0.125825 originally; human FPR
+remained 66.67\% and share MAE was 30.1074 percentage points. Mapped Pangram Brier
+was 0.095504, a paired gap of 0.030127. Equal-document absolute confidence changes
+averaged 0.1252 percentage points, with p95 0.3576 and maximum 4.2182; four exceeded
+one point and one crossed 50\% confidence. Absolute share changes averaged
+0.1123 points, with p95 0.3636 and maximum 4.2592; three exceeded one point.
+No conditional profile names changed, including outputs for absent roles;
+these comparisons are not false-attribution counts. There was no retraining.
+This single perturbation does not establish general formatting robustness.
+
+\paragraph{Recovered V6 and shared text/CFG pilot, October 26, 2026.}
+The unchanged V6 release was recovered and its original reference checks passed
+under a separately identified Linux x86-64 CPU profile. On the same consumed
+102-document Test population, frozen V6 involvement Brier, with equal weight
+for each of the 15 source families, is 0.13959 overall, 0.02283 on the 57
+human/model-only documents, and 0.23824 on the 45 mixed documents. Its
+historical 95.1\% accuracy excluded mixed examples and is not the result of
+this matched comparison. Source-family exposure strata and all
+unsupported-input checks are retained; the release has no trained share or
+attribution heads.
+
+A subsequent bounded Development experiment freezes V6's 768-dimensional text
+representation and the native CFG's 2,062 numeric coordinates, with a shared
+$2830\!\to\!64\!\to\!32$ learned encoder feeding all current A heads. The 21
+fits cover text-only, CFG-only and combined inputs, matched single-task controls,
+and seeds 17, 29 and 41. On 106 exposed Development documents, joint text-only
+Brier is 0.05177--0.05834; combined is 0.04842--0.05659; CFG-only is
+0.12573--0.13122; mapped Pangram is 0.07705. Combined-minus-text Brier averages
+$-0.00150$, with a paired family interval of $[-0.01052,+0.00600]$.
+Combined human false positives remain 21.9--28.1\% at 0.5. Conditional generator
+ranking improves over text-only, but writer retrieval remains near chance and
+open-set decisions are unstable. Mixed-share errors are much larger in sparse
+fractional-share ranges than the aggregate MAE suggests.
+
+These checkpoints were selected on Development, including 50 documents exposed
+to V6 selection or Calibration. No new Test was opened and no new Pangram calls
+were needed. Thus lower Development Brier establishes neither Pangram parity
+nor a reliable incremental CFG benefit. Every numeric head passed Rust reference
+replay, but the complete ModernBERT pipeline was then unqualified for Rust and
+Cloudflare serving. The public 552-record cohort retains exact text, licenses,
+production spans and fixed splits; fitted profiles remain private. Full evidence
+and reproduction commands are in \texttt{docs/a-v6-cfg-fusion.md}.
+
+A fresh-family comparison completed 39 shared-model fits on 929 non-Test records,
+with two known generators, a Calibration-only generator, independent writer works,
+and 96 measured fractional Train targets. The public snapshot contains 937 records
+including separate reference excerpts. Equal-family, equal-origin Development
+involvement Brier is 0.04103--0.04626 for text, 0.04474--0.04762 for combined,
+and 0.13809 for unchanged V6. Combined-minus-text averages $+0.00313$, with a
+family interval $[-0.00720,+0.01262]$. Combined share MAE improves to
+10.04--11.10 percentage points versus text's 12.66--13.41, and observed human
+false positives fall to 3.1--6.3\% versus 6.3--9.4\%, at cutoff 0.5. There are
+only 32 human excerpts from 16 Development works; these are not rare-error
+guarantees. Aggregate CFG alone remains weak, and a fixed four-bin ordered-count
+probe underperforms its global control. Human attribution and open-set decisions
+also remain weak. See \texttt{docs/a-balanced-baseline.md} for all seeds,
+single-task tradeoffs, coverage and runtime costs.
+
+Six further fits initialize a shared residual encoder to reproduce frozen V6's
+origin predictions, then train origin, share and attribution heads together.
+All 929 initialization checks pass within $10^{-6}$ absolute probability, and
+all six fitted heads pass Rust numeric replay. Text-only residual Brier is
+0.03664--0.03910 and share MAE 8.27--8.73 points; adding CFG gives
+0.04287--0.04555 and 8.81--9.27. Text-only is the current Development selection.
+Only 215 queries from 12 works train those selected models, with the upstream
+encoder frozen. Six matched fits then expand Train to 1,264 queries from 108
+works, including 669 fractional-share targets. Development Brier worsens to
+0.07354--0.08332 for text and 0.07044--0.07211 for text/CFG; share MAE is
+10.40--11.66 points. The earlier text residual remains selected. The added
+historical V6 Train sources also change domain mixture and rewrite histories,
+so this is not a pure sample-count test. All examples and observations are
+retained, and no extra Pangram calls or new Test reads are needed. One fixed
+50/50 original/added cohort weighting recovers text Brier to 0.04517--0.04830,
+while the earlier model remains selected. More independent works, writer coverage
+and balanced source mixtures are still needed; encoder adaptation and tree-aware
+CFG inputs remain untested. These count-feature experiments do not establish
+CFG's ceiling.
+
+All 702 fresh Pangram observations were retained as permanent exact-text evidence.
+Its content fraction has 5.23-point error against the controlled replacement-share
+convention, better than these new A heads. It does not separately provide our
+share and involvement-confidence targets; any Calibration-derived confidence
+mapping is our proxy, not native Pangram confidence or a training label. A
+CAL-only monotone isotonic proxy gives balanced Brier 0.01896, better than every
+new text/combined seed. That diagnostic was added after inspecting Development;
+it is not independent Test evidence. No Pangram-parity claim follows.
+Historical human proxies and unknown pretrained
+exposure remain explicit. Test was unopened during the
+function-preserving V6 warm-start and Train-expansion comparisons. A local
+ModernBERT Rust CPU prototype passes the original reference and bounded synthetic
+checks; serverless serving was then unqualified. Head-only latency excludes
+feature extraction. Later sentence and paragraph scores require separate
+qualification.
+
+\paragraph{Reserved 414-query Test, October 26, 2026.}
+After all selection and Calibration were frozen, sixteen joint configurations
+with three fixed seeds were evaluated on 414 accepted queries from sixteen
+reserved works. Two of 416 requested queries failed during bounded generation;
+all accepted documents were supported by every candidate and frozen V6 without
+truncation. Four separate withheld-writer references complete an eight-writer
+gallery. Human examples remain historical proxies. The human/model/mixed counts
+are 32/94/288. All 414 additional Pangram observations and their raw exchanges
+are permanently retained, using the unchanged CAL-only isotonic mapping.
+
+The preselected text residual has mean balanced involvement Brier 0.07661,
+versus 0.12434 for frozen V6 and 0.01537 for mapped Pangram. The selected-minus-
+Pangram gap is $+0.06124$, with paired family interval $[+0.02852,+0.10131]$.
+The selected-minus-V6 interval, $[-0.09590,+0.00578]$, includes zero. Its human
+false-positive rate at 0.5 is 23.96\% averaged across seeds, versus 12.5\% for
+V6 and zero observed flags for Pangram. Thus better mixed-inclusive detection
+than V6 comes with worse human flags; 32 human excerpts cannot establish rare
+error rates. Mean share MAE is 9.04 percentage points. Pangram's raw content
+fraction has 4.81-point diagnostic error against the replacement-span target,
+but that fraction is neither our involvement probability nor span ground truth.
+The original binary V6 evidence remains a separate population and task.
+
+The full-data text candidate trained on 3,629 queries from 333 works reaches
+0.05937 Test Brier, with 0.06625 for its matched CFG fusion. It cannot replace
+the preselected artifact on these results. The different Development ordering
+shows the limits of small selection populations. Aggregate grammatical-leaf CFG
+has 0.14692 Brier; the four-bin ordered probe has 0.17452. These do not establish
+a CFG-only detector or test full ordered-tree representations. Attribution,
+open-set behavior and Pangram parity remain unqualified. All seeds, family-aware
+uncertainty, missing support and output metrics are retained in
+\texttt{docs/a-final-test.md} and its aggregate evidence.
+
+The selected exact-text-to-A pipeline passes native Linux Rust reference checks,
+with about 605 MB of encoder/head weights, 1.67 GiB peak RSS and a roughly
+thirteen-second 2,048-token forward on one CPU. First-time Test CFG extraction
+took 15m27s; V6 extraction took 12m28s. Cached features and sub-millisecond
+numeric heads do not remove those costs. Workers/Wasm and Cloudflare Container
+execution were then unqualified. No deployment or grammar expansion was performed.
+
+\paragraph{Broader data and final-block adaptation, October 26, 2026.}
+A separate bounded experiment trains on 4,157 queries from 357 works and selects
+on 439 Development queries, with 637 separate Calibration queries. Six fixed
+runs compare adaptation of V6's final encoder block with a matched frozen
+encoder, using one shared A representation and seeds 17, 29 and 41. CFG
+coordinates are zero in both conditions. Historical human proxies and measured
+replacement-span shares remain distinct from authenticated production histories.
+Previous Test populations are excluded from fitting and selection.
+
+On 636 newly reserved Test queries from twenty works, selected adaptation has
+mean family/origin-balanced involvement Brier 0.07255 versus 0.07755 for its
+matched frozen control. The paired difference is $-0.00500$, with source-family
+interval $[-0.00935,-0.00148]$. With equal family weight but the observed origin
+mixture, Brier is 0.10610 versus 0.10593, with an interval for the difference
+spanning zero. Original frozen V6 scores 0.16827 balanced and 0.37594 under the
+observed mixture; previous A scores 0.09070 and 0.07054. Adaptation therefore
+improves mixed-inclusive detection over V6 and modestly improves the matched
+balanced criterion, but does not uniformly improve on previous A.
+
+Adapted human false positives at 0.5 are 5--7.5\% across seeds, versus 32.5\%
+for previous A and zero for V6, on only forty human-proxy excerpts. Adapted
+share MAE is 11.55--12.43 percentage points overall and 14.88--16.05 on the
+476 mixed-history documents. Previous A has lower overall share error,
+10.03--11.17 points. These results establish neither rare-error guarantees nor
+useful general attribution. All candidates support the retained queries;
+four generated duplicate/no-change queries remain explicit upstream exclusions.
+
+All 1,076 new CAL/Development Pangram responses are preserved. Development
+balanced Brier is 0.04382 for the CAL-mapped provider versus 0.07809 for selected
+adaptation; their paired gap is $+0.03427$ with interval
+$[+0.02408,+0.04569]$. Test collection is complete: all 636 queries have version
+4.1 results: 607 from bulk requests, all successful, and 29 earlier results
+reused. Every request, including one rejected earlier, and every raw response
+remain evidence.
+Using the unchanged CAL mapping, provider Test Brier is 0.04803 balanced and
+0.07348 under the observed mixture, versus 0.07255 and 0.10610 for adapted A.
+The paired balanced gap is $+0.02452$, interval $[+0.00406,+0.04101]$; the
+family-weighted gap is $+0.03263$, interval $[+0.01600,+0.04877]$.
+Pangram flags one of forty human proxies at 0.5, versus two or three for adapted
+A. These results favor the comparator and do not establish parity or rare-error
+guarantees. Provider fractions are neither native involvement probabilities nor
+share labels. No Test result changes selection or Calibration.
+
+A separate native Linux Rust/MKL profile passes all six calibrated runs on 44
+fixed CUDA-reference cases each, retaining five explicitly unsupported inputs
+and earlier numerical failures. One-CPU 2,048-token encoder latency is about
+19 seconds, heads about 0.13 milliseconds, and peak process RSS about 1.31 GiB.
+The roughly 623 MB parent/overlay/head artifacts and native-library profile do
+not fit or qualify Workers/Wasm; Container execution was then unqualified.
+Full results, scope, fixed-comparator routes and recovery commands are in
+\texttt{docs/a-encoder-adaptation.md}. Persisted CFG vectors and compressed
+ambiguous-forest archives support later reuse, without changing this experiment's
+learned inputs. No deployment or grammar expansion was performed.
+
+\paragraph{Earlier author experiments.}
+
+For the table below, accuracy is first averaged within each author, then equally
+across authors, then across three seeds. The query counts are unique inputs
+scored in every seed. Consequently, the author-macro percentages are not pooled
+fractions of those query totals. The protocols are reported in
+~\cite{projection,gvtransfer}.
+
+\par\medskip\noindent
+\begin{tabularx}{\linewidth}{@{}LLL@{}}
+\toprule
+Experiment & Author-macro top-1 & Scope \\
+\midrule
+Blog author retrieval & 56.30\% & 600 evaluation authors in six
+100-author galleries; 1,206 queries \\
+Global Voices transfer & 73.81\% combined; 77.98\% lexical-only &
+Fourteen provisionally qualified authors; 58 queries; topic/editorial
+confounds \\
+Compact document projection & 32.82\% Blog; 25.00\% Global Voices &
+Development-selected linear encoder; previously evaluated test
+corpora \\
+Selected-feature ablation & 40.83\% Blog; 29.17\%
+Global Voices & Conditional diagnostic retaining the frozen scorer's pooling and
+calibration \\
+\bottomrule
+\end{tabularx}
+\par\medskip
+
+For Global Voices, we removed grammar terms from the
+frozen Blog-trained scorer without refitting the model or renormalizing the
+terms left behind. Accuracy on this sample rose by 4.17 percentage points, the
+opposite of grammar's contribution on the Blog data. We do not know why. There
+is no matched-topic control, and the experiment cannot separate register,
+editorial practice, and extraction effects. It argues for testing feature
+weights across registers; it does not show that grammar is generally useless
+~\cite{gvtransfer}.
+
+The projection experiment also puts the parameter count in context. Its 3,557
+learned coordinate weights are not a sufficient fixed input vocabulary, since
+the full model keeps additional word and grammar contributions that were not
+selected. Neither retrieval nor a feature ablation demonstrates safe editing or
+detector evasion. We saw the danger directly in another diagnostic: replacing
+\emph{may} with \emph{must} moved the passage closer to its target author while
+changing the claim. Preservation therefore needs an independent gate.
+See~\cite{projection} for the projection study and
+~\cite{editcounterexamples} for the counterexamples.

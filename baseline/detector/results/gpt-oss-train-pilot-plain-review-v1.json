@@ -1,0 +1,136 @@
+{
+  "schema": "slop_ninja_gpt_oss_train_pilot_manual_review_v1",
+  "profile": "plain",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "source_contract_sha256": "762c18847a9c8e476343199d47ac782791219198a2f6ad34d02f3f704511152e",
+  "planned_profile_requests": 4,
+  "planned_whole_pilot_requests": 24,
+  "reviewed_outputs": 4,
+  "profile_review_complete": true,
+  "rows": [
+    {
+      "task": "3a8168af13c1d599fbcb73f11402600360b2b2d40a740db9973b86f140182acb",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "source_sha256": "b916dbe980cbb2b6c66a6b8d8351ac130deccafb8d2c0135843fd8eff40bb131",
+      "text_sha256": "f10e331b9979e0368c6efc85e687bff6c4f4642a3390729cd1a6f848b785f29b",
+      "request_sha256": "7412152374ac05ce541c8099caa80efcab215d9035b365173b233acd3b44b136",
+      "response_sha256": "614f524f32a3e8f80b6975b71f6d68676159e681e7791680fe56d95c45065bb3",
+      "read_scope": "Read the full source in the stored generation prompt, complete raw response and final passage, and the previously declared source obligations.",
+      "finish_reason": "stop",
+      "prompt_tokens": 610,
+      "completion_tokens": 2174,
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "preserved": [
+        "The dominant male/female roles, Huttser and Palla's relationship, cave location, pups, feared Sight, family hardship and unresolved outcome remain recognizable.",
+        "The draft keeps the Sight claim as a rumor and leaves the main prophecy question unanswered."
+      ],
+      "omissions_and_corruption": [
+        "The specific wolf terms Dragga and Drappa are omitted even though their general meanings remain.",
+        "Morgra is first introduced as Morg, then called Morgra later. This entity-name corruption occurs in the retained final text.",
+        "Secret rearing of the cubs is weakened to a safe place away from the antagonist."
+      ],
+      "qualification_and_relationship_changes": [
+        "Being rumored to be afflicted with the Sight becomes being rumored to possess it.",
+        "A legend bringing wolves together with their most feared enemy becomes one forcing confrontation with their greatest threat. The latter intensifies and narrows the stated relationship.",
+        "The final added material characterizes the family's future and devotion beyond the supplied summary, including fighting together forever."
+      ],
+      "register_and_tone": "The vocabulary is generally accessible, but the long opening and repeated final statements about danger, destiny and hope do not consistently realize manageable plain prose. The promotional register survives, with extra sentiment and repetition.",
+      "word_count_observation": "The raw response explicitly adds a final sentence and adjusts its words to target 194. This observation does not isolate a causal prompt effect. Unicode punctuation and narrow spaces are retained; this review does not infer deliberate evasion from them.",
+      "disposition": "Retain model-origin evidence and all defects. Exclude from a controlled same-meaning style comparison; no active training or released-corpus admission."
+    },
+    {
+      "task": "c90cb1ca660b19cfc3301a665ba503561a0c97643c51377ed90abd5ce1262dfb",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "source_sha256": "44a8481592c6470d36444a0dc85b56a3b11e738dc35c921db7ded6b1d92dc330",
+      "text_sha256": "04d53042c2694ded26a90c2c17fde4abfbf194251b7b4bea8575f29628d6a409",
+      "request_sha256": "e653be7ae72b09316a632241213ad8cfb99dff3bd5bff86c97108bbf838eee0a",
+      "response_sha256": "1b381cf38b7eee3413850e32099fe37fba267dfbc1768b2172fd11aeb9a727fb",
+      "record_sha256": "eb0049225c6a0c1845a9232658b73ff9dbcbed5c778cd3e6d42e685e772c6f1c",
+      "read_scope": "Read the complete source from the saved prompt, the full raw generation response and final passage against all seven source obligations.",
+      "finish_reason": "stop",
+      "prompt_tokens": 625,
+      "completion_tokens": 2678,
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "preserved": [
+        "Missing values, nonresponse, income sensitivity, attrition, unavailable institutional statistics and researcher mistakes remain recognizable.",
+        "The three named missingness types and the analogy with handling censored observations remain."
+      ],
+      "unsupported_additions": [
+        "The draft supplies definitions of all three missingness mechanisms; the source only names them and says their consequences differ.",
+        "It adds distinct required analytical approaches, specific claims about bias, variability and power, and imputation, weighting and model-based corrections. Those claims and prescriptions are absent from the source. Their external correctness was not adjudicated."
+      ],
+      "omissions_and_relationship_changes": [
+        "Private entities are narrowed to private firms, and the source's explicit choice not to report versus failure to report is compressed into may not report.",
+        "The source identifies a unit as a subject. The draft describes respondents refusing to answer an entire unit, weakening the item-versus-subject distinction.",
+        "Longitudinal research is named without the source's explanation of repeated measurements over time. Scheduled assessments partly imply that relationship but do not retain the explicit explanation."
+      ],
+      "register_and_tone": "The opening is accessible, but the long final paragraph adds technical definitions and analytical advice, shifting emphasis from the source's causes of missingness. The instruction to use plain prose does not by itself establish accessibility or fidelity.",
+      "word_count_observation": "The raw response repeatedly counts, trims and adds claims to target 222 words. The final statistical consequence and treatment sentences are explicitly constructed for the remaining word budget. This remains an observation about one generation, not a causal prompt experiment.",
+      "disposition": "Retain the exact model-origin record and source-fidelity failure. Do not use this as a controlled same-meaning style pair or automatically admit it to active training or the released corpus."
+    },
+    {
+      "task": "f60759cf0352eb0303879d78084e45880502e44d46ff914d6bd76b573bf9f70b",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "source_sha256": "6571837bc8ea414c0b659bb8f78669f7dfa2889af57b7d098b390f40b279f510",
+      "text_sha256": "036aa5916813c34f0e346b137c4ecd8b395f096df288ce4fa0a74cc69eda26ae",
+      "request_sha256": "3c0e1de1fe481f0fe408d83b53862c56eb0445bec6b985be63eab90bbc46994b",
+      "response_sha256": "cea3650035937aa3e0f3f07d0dfb0fd04d3e7dfefbfe7b1d49dbaffe6649c6b2",
+      "record_sha256": "f07e290f39907e7fed2e9647adcb3803dcc10ec84e690991d388f26f5e40a62e",
+      "read_scope": "Read the complete source and raw response, including the final passage, against all ten scientific source obligations.",
+      "finish_reason": "stop",
+      "prompt_tokens": 732,
+      "completion_tokens": 817,
+      "final_words_whitespace": 240,
+      "collector_status": "recorded_model_generation_passed_existing_copy_length_and_completion_guards",
+      "strict_fidelity": "failed",
+      "preserved": [
+        "The cell populations, eCM positive control, border-zone mapping, catheterization, 30% and 94% VT results, p<0.01 and connexin 43 observation remain.",
+        "The final conclusion still distinguishes functional improvement from prevention of inducible arrhythmia."
+      ],
+      "timing_change": "The final passage again moves the 14-day interval to the injection itself. The source places electrical-vulnerability assessment 14 days after injury and injection.",
+      "unsupported_additions": [
+        "The draft identifies male mice and transthoracic echocardiography, neither specified in the supplied abstract.",
+        "The opening adds a trend in opinion about the treatment being a promising repair strategy, replacing the source's qualified reference to clinical and experimental evidence."
+      ],
+      "qualification_and_scope_changes": [
+        "The results describe a significant reduction in inducible VT where the source reports prevention. The conclusion returns to prevention, leaving inconsistent strength across the draft."
+      ],
+      "register_and_tone": "The abstract remains technical with orderly paragraphs. Added promotional framing and extra qualifiers do not improve fidelity. A plain-style request did not prevent the same timing mistake found in the source-matched attempt.",
+      "word_count_observation": "The raw response mentions an approximate length but has no long word-by-word counting loop. Fidelity defects therefore also occur in this pilot without that observed counting behavior; no causal prompt comparison was performed.",
+      "disposition": "Retain the model-origin record and timing, addition and qualification defects. No controlled same-meaning comparison or active training admission."
+    },
+    {
+      "task": "ece5de87dfc937da21fe6e446a9fd94f0f296849cba9bb9a2e98fc3deb80e9b9",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "source_sha256": "be240fa8a178127fadaebc802d140ab2af884174a472905a36f169b7030269a1",
+      "text_sha256": "65c051caafa970490d649756c9ee4d0c8a618c7dc23b233146285eb437e63b18",
+      "request_sha256": "dc0283131b353eca198301d0bd2ed9a292ed594cbc2885aec0a367e7fc69d22f",
+      "response_sha256": "816f07cbef6616be45dc8ddce78fd52a8f9d6065c30973cc850e52ebec4f47ac",
+      "error_sha256": "89e594389227915a3293516d2c4bfb55224b1f19c7b3016c3579f1ada33b9b7c",
+      "read_scope": "Read the complete source from the saved request and the complete raw response and final passage despite the absence of an admitted record. Inspected the collector rejection separately.",
+      "finish_reason": "stop",
+      "prompt_tokens": 623,
+      "completion_tokens": 412,
+      "final_words_whitespace": 194,
+      "collector_status": "excluded_draft_source_copy_reused_contiguous_20_word_source_span",
+      "strict_fidelity": "failed",
+      "preserved": [
+        "Most award categories, titles, people, nomination counts and the source-relative yesterday remain, as does the Grammy qualification for Earned It."
+      ],
+      "omissions": [
+        "The Wolf of Wall Street's Best Picture nomination is omitted, leaving only the Best Actor nomination.",
+        "The Weeknd's Canadian nationality is omitted."
+      ],
+      "register_and_tone": "The passage retains factual awards reporting and accessible paragraphs. Inline Markdown emphasis is new. It avoids the invented generic concluding celebration in the source-matched output, but the omissions and source-copy rejection remain.",
+      "word_count_observation": "The short raw analysis asks to count but contains no extended counting trace. It supplies no causal evidence about length instructions.",
+      "disposition": "Preserve the raw model attempt, final text and source-copy failure. No corpus record was admitted, and the model-only admission flag must not be silently restored. Fidelity and copying are separate limitations."
+    }
+  ],
+  "limitations": "All four plain-profile outputs reviewed; eight of 24 planned pilot outputs reviewed across profiles. Plain produced three admitted collector records and one source-copy exclusion, with four strict-fidelity failures. These small source-conditioned attempts provide no population estimate, paired causal style-effect estimate or detector result.",
+  "new_training_records_admitted": 0,
+  "detector_calls": 0,
+  "pangram_calls": 0
+}

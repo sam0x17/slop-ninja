@@ -1,0 +1,105 @@
+{
+  "schema": "slop_ninja_frontier_capture_summary_v1",
+  "date": "2026-09-12",
+  "matrix_complete": true,
+  "source_families": 24,
+  "captured": 96,
+  "content_checks_passed": 96,
+  "by_model": {
+    "gpt-5.6-sol": {
+      "captured": 24,
+      "content_checks_passed": 24,
+      "reported_models": [
+        []
+      ]
+    },
+    "gpt-6-astra": {
+      "captured": 24,
+      "content_checks_passed": 24,
+      "reported_models": [
+        []
+      ]
+    },
+    "opus": {
+      "captured": 24,
+      "content_checks_passed": 24,
+      "reported_models": [
+        [
+          "claude-opus-5"
+        ]
+      ]
+    },
+    "sonnet": {
+      "captured": 24,
+      "content_checks_passed": 24,
+      "reported_models": [
+        [
+          "claude-sonnet-5"
+        ]
+      ]
+    }
+  },
+  "coverage": {
+    "records": 96,
+    "unique_texts": 96,
+    "text_bytes": 129060,
+    "word_min": 83,
+    "word_max": 326,
+    "issues": [],
+    "by_collection": [
+      {
+        "collection": "cmu-books-historical",
+        "records": 24
+      },
+      {
+        "collection": "hc3-wiki-historical",
+        "records": 24
+      },
+      {
+        "collection": "plos_one",
+        "records": 24
+      },
+      {
+        "collection": "wikinews",
+        "records": 24
+      }
+    ],
+    "by_profile": [
+      {
+        "profile": "anti-ai",
+        "records": 16
+      },
+      {
+        "profile": "direct",
+        "records": 16
+      },
+      {
+        "profile": "fix-slop",
+        "records": 16
+      },
+      {
+        "profile": "informal",
+        "records": 16
+      },
+      {
+        "profile": "plain",
+        "records": 16
+      },
+      {
+        "profile": "source-matched",
+        "records": 16
+      }
+    ]
+  },
+  "bindings": {
+    "sources_sha256": "a956aad4715d76975ec8e884475d8c396d44af3e490cc257902c5571410c3ddf",
+    "reviews_sha256": "a20b5987dc6d098efd0b5403d7de139cb3c996d897396e05aba7aa5fc5779a40",
+    "auditor_source_sha256": "b2be6c2e0c5210dbdb3875ea9a6b77a24502a8fe0486721a5f6de2fe78fbb178",
+    "parser_source_sha256": "46fb68811716e356e0213748f1df74c32bde75c6fd74aeca867f20407a38d133",
+    "auditor_executable_sha256": "bd4bc9b9c22fa828c322a9fe8971ed058ec5e89482967f8db50a164fdf3e65a1"
+  },
+  "corpus_admission": false,
+  "fidelity_reviewed": false,
+  "new_pangram_calls": 0,
+  "fresh_benchmark": false
+}

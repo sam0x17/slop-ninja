@@ -1,0 +1,349 @@
+\section{Paid inference, funding, and settlement}
+\label{paid-asynchronous-jobs-and-on-chain-coordination}
+
+The first commercial service is hosted \textit{A}: one admitted model returns
+estimated AI share, AI-involvement confidence, and author
+attribution within its qualified scope. Slop Ninja serves a published,
+qualified artifact in its own infrastructure; \(R_0\) is such an artifact once
+its public package is published
+(Section~\ref{model-interfaces-and-starter-architectures}). Customers buy access through an API rather than
+operating the artifact themselves. A later \textit{B} service would offer
+bounded revision through private models hosted in miners' Cloudflare accounts,
+under the conditions in Section~\ref{later-b}.
+
+The coordinator opens paid inference only after deciding that measured quality
+supports the advertised service. It publishes the accepted versions, supported
+workloads, limitations, and activation decision. Emission eligibility alone
+does not authorize a paid product. Each product needs its own cost,
+availability, privacy, and delivery qualification; book-length inputs remain
+outside an offer until those properties have been measured at that size.
+
+Customer inference principal is converted to subnet alpha where needed and
+burned. It pays neither a direct miner fee nor an operator margin. The economic
+hypothesis is that customer demand purchases alpha where conversion is required
+and removes alpha from supply through burns. Compared with retaining those
+tokens, this may support alpha's market value for holders, including miners
+and other emission recipients. It guarantees neither price appreciation nor
+spendable proceeds sufficient to cover costs. This market-value channel is
+distinct from a possible reward allocation for verified paid use, which
+distributes emissions available under the chain's rules. Miners and the operator
+must fund their bills while any emissions they earn remain subject to chain
+allocation, market value, and liquidity.
+
+The full-principal choice puts the entire inference price toward alpha burning,
+purchasing alpha when conversion is required. The operator's intended upside comes
+through its holdings and any owner or validator emissions it is entitled to
+earn. This commits the treasury to funding operations and refund reserves
+separately, accepting that exposure in pursuit of a benefit shared with other
+alpha holders. The policy's commercial viability remains to be measured.
+
+\subsection{Pricing and cost calibration}\label{market-pricing-in-alpha}
+
+The operator quotes a fixed price for a bounded workload using a versioned
+reference cost and multiplier:
+\[
+  P_{\mathrm{USD}} = M_{\mathrm{price}} C_{\mathrm{model}},\qquad
+  C_{\mathrm{total}} = C_{\mathrm{model}} + C_{\mathrm{other}}.
+\]
+Here \(C_{\mathrm{model}}\) is the expected cost of all model invocations per
+delivered job: execution of the \textit{A} artifact and, for later revision or a
+later CFG input profile, ambiguity resolution, proposal, ranking, and required
+semantic checks.
+\(C_{\mathrm{other}}\) includes non-model parsing, orchestration, storage,
+delivery, payment and chain fees, and expected refund overhead. Numeric-model
+runtime is counted once. Training and mandatory benchmark research have
+separate budgets.
+
+An exploratory value is \(M_{\mathrm{price}}=25\). Detection and revision may need different
+values. The multiplier sizes customer principal destined for burning relative
+to reference model cost. Calibration must weigh the intended economic effect
+against competitive pricing and customer demand. It does not set an operator
+margin, fix the share of emissions allocated to inference, or guarantee a
+miner's margin. Cost profiles bind model versions, workload limits,
+maximum attempts, tariff assumptions, and measurement dates. Overruns cannot
+increase an accepted quote. Repricing affects future reservations.
+
+The initial detection hypothesis is \$0.02 per 1,000 words, with
+\$0.01--\$0.03 as the first range to test. The following planning scenarios
+are not measurements of a qualified production service.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{Lrrr}
+\toprule
+Service per 1,000 words & Model cost & Delivery subtotal & Price at \(M_{\mathrm{price}}=25\) \\
+\midrule
+Raw-text detection & \$0.0002875--\$0.0004250 & \$0.0004--\$0.0009 & \$0.007188--\$0.01063 \\
+Bounded revision & \$0.008289 & \$0.0106--\$0.0112 & \$0.2072 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+A launch detection job tokenizes the canonical text and runs the raw-text
+\textit{A} artifact (Section~\ref{input-contract}); it has no grammar parse and
+no language-model call. Its model cost is the October 29, 2026 Container
+busy-time measurement, \$0.23--\$0.34 per 1,000 documents at the 2,048-token
+limit, used as the bound for a 1,000-word document within that
+limit~\cite{containerserving}. The bounded revision scenario, dated October 22,
+2026, uses published tariffs and assumed workloads for later \textit{B}, which
+parses its source~\cite{cfpricing}: 8,000 input and 1,000 output tokens of
+batched ambiguity resolution on Llama 3.1 8B fast FP8, at \$0.045/\$0.384 per
+million input/output tokens; three proposal calls totaling 12,000 input and
+4,500 output tokens at the Mistral 7B v0.1 tariff of \$0.110/\$0.190; an
+independent preservation check using 8,000 input and 600 output tokens at the
+Llama 3.3 70B fast FP8 tariff of \$0.293/\$2.253; and \$0.00002 for numeric
+scoring and ranking, an allocation that predates the Container measurement.
+Both model costs include a 25\% failure/retry allowance. Prices use the
+unrounded model-cost totals; model costs and prices are displayed to four
+significant figures.
+
+The delivery subtotal includes model cost and adds \$0.0001--\$0.0005 per
+detection or \$0.0002--\$0.0008 per revision for orchestration, storage, and
+delivery. Revision also assumes sixty seconds of non-model parsing and runtime
+on a warm Cloudflare Container with one fully active vCPU, 6 GiB of memory, and
+12 GB of disk, about \$0.00215 at the published resource
+rates~\cite{cfcontainerspricing}. The subtotal excludes payment and chain fees,
+refund reserves, training, evaluation, external checks, and low-volume fixed
+costs. An idle Container of the standard-2 to standard-4 sizes costs
+\$0.057--\$0.113 per hour, so idle capacity and cold starts can dominate per-job cost at low volume. Private-adapter
+pricing remains uncertain beyond Cloudflare's advertised free LoRA beta; a
+base-model tariff is only a comparison point~\cite{cfloras}.
+
+The dated comparison uses Pangram's standalone realtime rate of \$0.50 per
+1,000 words and its advertised bulk rate of \$0.40, against the proposed
+\$0.02~\cite{pangrampricing,pangrambulk}. Subscriptions, negotiated prices,
+per-item rounding, and differing detection performance limit this comparison.
+Prices must be checked again when an offer is published. At
+\(M_{\mathrm{price}}=25\), raw-text detection prices at about \$0.007--\$0.011,
+at the bottom of the target range; a \$0.02 price corresponds to
+\(M_{\mathrm{price}}\) of about 47--70. Price is an independent product
+hypothesis, not evidence of comparable accuracy.
+
+Calibration runs the whole admitted pipeline on authorized workloads at
+realistic concurrency. Record every attempt's opaque identifier, model,
+billed account, usage, latency, outcome, and tariff version without text.
+Reconcile usage with provider charges, separating cash charges, promotional
+credits, and undiscounted estimates. Divide the cost of all attempts by
+successful deliveries, and report failures and cost percentiles separately.
+Measure miner and operator expenses separately before selecting \(M_{\mathrm{price}}\), workload
+limits, or a paid-use emission share.
+
+\subsection{Checkout and the burn policy}
+
+The planned funding routes are:
+\[
+\begin{aligned}
+\text{USD card payment} &\longrightarrow \text{TAO}
+  \longrightarrow \text{alpha} \longrightarrow \text{burn},\\
+\text{TAO payment} &\longrightarrow \text{alpha}
+  \longrightarrow \text{burn},\\
+\text{alpha payment} &\longrightarrow \text{burn}.
+\end{aligned}
+\]
+Coinbase Onramp is the selected candidate for card-to-native-TAO funding.
+TAO.com's documented integration supports direct TAO delivery, but Slop
+Ninja's access, supported card types and jurisdictions, recipient wallets,
+limits, holds, and refunds still need qualification~\cite{coinbaseonramp}.
+Credit-card support cannot be inferred from a documented debit-card flow.
+This intended route requires neither Ethereum nor a separate bridge. Solana
+is the preferred entry network for additional crypto inputs, pending a
+qualified route to native TAO.
+
+The target is automated checkout. Onramp delivery, conversion, service delivery,
+and burning remain separate events with independent failure modes. Identity
+checks, finality, and liquidity can delay them. A card authorization or an
+expected exchange fill cannot fund execution; the adapter must confirm arrival
+at the authorized funding destination. Provider-hosted forms handle card
+details. Payment systems receive opaque job references, not customer documents
+or author samples. At cent-scale prices, minimum purchases and fees may require
+a funded balance spanning multiple jobs; that product rule remains open.
+
+All inference principal follows the selected burn route. The operator funds
+processing, conversion, and chain fees separately, including any shortfall
+when a provider deducts fees from its output. Customers bear their own wallet
+submission fees unless the offer explicitly sponsors them. Optional external
+detector checks have a separate disclosed budget and require authorization to
+send the text. Their charges neither reduce inference principal nor earn
+additional inference credit.
+
+A quote fixes the original currency and amount, conversion conditions, and
+slippage limits. It records an estimated alpha quantity; the final record uses
+actual fills and actual alpha destroyed. Native alpha's transfer and staking
+semantics, deployment permissions, and burn operations must be qualified
+against the runtime. Burning existing alpha does not itself buy TAO, and
+recycling is a different operation~\cite{stakeburn,alphaburnimplementation}.
+If the deployed burn call is owner-only, a subnet lease must provide an
+authorized owner execution path or another verified route before sales open.
+Operating the service does not itself grant that permission. This is separate
+from the lease's required path for owner-controlled hyperparameter changes
+(Section~\ref{participants-and-the-two-kinds-of-work}).
+An address transfer or treasury allocation
+alone cannot substantiate a burn claim.
+
+Funds remain refundable custody until valid delivery and the published
+pre-burn refund window have passed. Conversion may occur earlier if that
+custody and its refund liability remain fully funded. Burn batches allocate
+each job's principal uniquely and reconcile deposits, conversion fills,
+custody, refunds, and finalized burns. Using treasury inventory temporarily
+does not replace the promised purchase-and-burn accounting.
+
+\subsection{Reservation, execution, and delivery}\label{reservation-and-delivery}
+\label{application-and-agent-integration}
+
+The API and an MCP integration expose quote, reserve, submit, status, and
+result operations~\cite{mcp2026}. A quote binds the accepted pipeline and cost
+profile, price and currency, input limits, attempt budget, acceptance and
+delivery cutoffs, retention, and refund terms. Size and service requirements
+suffice for discovery. The document goes to Slop Ninja only after reservation;
+later \textit{B} miners receive no customer text through the discovery process.
+
+\begin{enumerate}
+\tightlist
+\item Reserve confirmed funds, refund liquidity, and capacity durably before
+dispatch. A customer idempotency key identifies one job. An expired or
+exhausted offer cannot be reserved, and repricing cannot alter an existing
+reservation. Cross-ledger operations must reconcile before execution.
+\item Validate the submitted document, format, size, and customer output key
+before acceptance. Construct the admitted input, canonical text under the
+launch profile, and run the selected \textit{A} artifact. Check complete input
+coverage, schema validity, probabilities, share/confidence consistency, and
+attribution. An input beyond the artifact's length limit, or under a later CFG
+profile an unresolved parse or exhausted ambiguity budget, produces an explicit
+failure or a separately quoted diagnostic result.
+\item For later \textit{B}, execute the bounded proposal and ranking procedure
+and check the assembled document for preservation, readability, requested
+tone, and any qualified author-fit objective. Local edit acceptance does not
+establish whole-document success. Customer-requested Pangram checks require
+separate disclosure authorization and funding.
+\item Encrypt the result to the customer's output key, retain it in private
+storage, and issue an operator-signed receipt. Retrieval must remain available
+for the quoted period independently of a serving miner. Complete the required
+delivery checks before authorizing burn or inference credit.
+\item After the pre-burn window, settle the principal's burn allocation once.
+Retain content-free accounting, return excess funds, and expire document data,
+derived artifacts, and caches according to the disclosed retention policy,
+including backup retention. Training reuse requires separate consent.
+\end{enumerate}
+
+The exact delivery predicate is a paid-launch prerequisite. It must bind a
+durably stored encrypted object, the authorized customer/key, verified digest
+and length, working retrieval, completed validations, and timely delivery.
+Whether customer acknowledgment is required, and how acceptance interacts
+with the refund window, remains to be fixed in the customer terms. A response
+hash alone cannot authorize an irreversible burn. The offer buys a bounded
+computation and retrievable result; subjective quality guarantees or additional
+revision allowances require explicit terms.
+
+Transactional Durable Object ledgers preserve reservations and transitions.
+Queues carry job identifiers; private content stays in the operator account.
+Persist each attempt's identity and maximum budget before dispatch. A timed-out
+provider call may have executed and incurred charges, so mark its outcome
+uncertain and reconcile before a bounded retry. Customer charges, burns, and
+credits remain idempotent even when provider execution repeats. Restarts do
+not extend accepted customer cutoffs. A cohort pause under
+Section~\ref{cohorts} preserves research work but does not suspend delivery,
+retrieval, or refund obligations.
+
+Switching to another model or later \textit{B} provider requires either prior
+customer authorization that fixes replacement eligibility and budget, or a
+fresh quote and acceptance. A replacement cannot inherit the reserved model's
+benchmark claim. Retain the original attempt and its outcome when a qualified
+fallback completes the service.
+
+\subsection{Receipts and refund liabilities}\label{receipt-certified-payment}
+\label{payment-without-disclosing-the-job}
+
+A completion receipt binds the protocol and chain domain, job and acceptance,
+salted input commitment, customer output-key identity, enrolled model and
+pipeline, attempt-ledger commitment, encrypted result digest and size,
+deadline, and signer version. Linked payment records bind the quote,
+original-currency amount, conversion history, and refund state. Burn records
+bind finalized transactions and each job's allocation. Canonical encodings,
+signature verification, key rotation, and replay protection must be fixed
+before these records authorize funds.
+
+Each inference attempt also has a content-free R2 receipt included in a certified
+cohort package. Section~\ref{cohort-receipt-retention} defines its index, validator
+verification, and deletion after two subsequent cohorts complete. That rolling
+window applies to detailed inference receipts, separately from customer delivery
+terms, compact burn/accounting records, and unresolved refund obligations.
+
+Content-free commitments may be anchored on-chain, with inclusion proofs for
+batches. Customer ciphertext, billing identity, report URLs, and raw document
+hashes stay off-chain. Use fresh secret salts for document commitments. The
+receipt states the operator's assertion about execution; it supplies neither
+a Cloudflare signature nor independent validator certification. Result
+availability remains an operator obligation. Later \textit{B} receipts report
+the qualified identity evidence without claiming stronger historical model
+immutability than the provider supports.
+
+Rejection before acceptance releases funds and capacity. Failure to deliver
+the agreed service requires the published refund; failed attempts still cost
+the billed account holder and earn no inference credit. Valid delivery after
+bounded retries keeps the original price. Cancellation after acceptance follows
+the fixed terms. A conversion or burn delay retains pending credit and follows
+its fixed cutoff. Reconcile finalized chain inclusion before deciding that
+a pending transaction failed; a local timeout cannot both return principal
+and leave an unresolved burn executable.
+
+The proposed service refund restores the original amount in the original
+currency: USD through a qualified return path, TAO to the bound refund address,
+or alpha to its qualified position. Conversion losses and consumed provider
+fees fall to the operator. Card checkout cannot promise this until an actual
+USD return path is qualified; an onramp's completed crypto purchase may be
+irreversible. Custodial intermediate alpha is reconciled into the refund,
+not returned as an additional payment.
+
+After a burn, a refund is a new operator-funded payment. Hold reserves for
+retention obligations, service claims, and uncovered processor disputes;
+reconcile chargebacks and manual refunds to avoid duplicate returns. Already
+paid native emissions cannot be assumed recoverable. Stop new admissions when
+required reserves are unavailable.
+
+\subsection{Who pays, and what paid use earns}\label{revenue-and-costs}
+
+Miners fund model preparation and training. Slop Ninja pays to serve public
+\textit{A} artifacts, including their Container execution, storage,
+coordination, and delivery. Later \textit{B} miners pay Cloudflare for their own customer
+inference and bounded mandatory evaluation calls. They absorb permitted
+failures and retries as part of participation. Their required candidate
+Pangram reports use prepaid balances and a fixed budget; those deposits are
+separate from burned customer principal. Unused, uncommitted balances remain
+withdrawable.
+
+The operator funds shared evaluation sets, source baselines,
+authoritative \textit{A} execution, and independent review through named budgets.
+Validators fund their own record verification and native weight submissions;
+shared evaluation and service never depend on their funding or approval.
+The operator also pays conversion and burn fees, refunds, and its other service
+liabilities. Access to \texttt{rtao-rpc} has no service charge; transaction fees
+and the caller's runtime costs remain. Insufficient evaluation funding reduces
+new assignments rather than evidence requirements or accepted miner budgets.
+
+These expenses require spendable operating funds. Customer principal is burned,
+so a high markup supplies no cash for invoices. Capital or explicitly allocated
+and realized owner proceeds may fund operations; future emissions are not
+reserves. Native owner emissions accrue under the actual ownership or lease
+arrangement and do not automatically fund Slop Ninja or an investor
+\cite{mechanisms}. Report operating cash, purchased and burned alpha, miner
+emissions, and separately priced enterprise services separately.
+
+Section~\ref{benchmark-scoring-and-mechanism-mapping} defines the proposed
+quality and paid-use allocations. Inference credit requires an admitted version,
+acceptable delivery, and finalized allocation of paid principal to a burn.
+Pending burns retain pending credit. Failed attempts, free traffic, mandatory
+evaluations, duplicate receipts, and extra tokens earn none. Work units come
+from a frozen workload schedule. A published \textit{A} artifact hosted by the
+operator also requires an explicit choice about model-author credit versus
+serving-cost credit before its calls enter a paid-use pool.
+
+Assign usage to the epoch containing finalized burn inclusion plus a fixed
+protocol lag. Publish that lag, the applicable emission-share schedule,
+burn cutoff, and batch policy before admission. The operator cannot select
+a favorable reward epoch after observing its pool. Delayed or late burns
+follow the quoted resolution rule without creating duplicate principal
+dispositions or retroactive work credit.
+
+Section~\ref{token-economics} develops the burn hypothesis, cost-recovery
+conditions, and self-purchase incentives. Its sensitivity analysis separates
+miner participation from the operator's funding and reserve requirements.

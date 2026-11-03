@@ -1,0 +1,72 @@
+{
+  "schema": "unslop-grammar-synthetic-demo-v1",
+  "authorship": "assistant-authored synthetic fixtures; not human ground truth",
+  "geometry": "unslop-hellinger-euclidean-v2",
+  "feature_schema": "grammar-features-v1;nfc-lowercase-letter-apostrophe-v1;alphabetic-parse-token-v1;syntax-families-v1",
+  "parser_identity": "grammar-spacy-annotation-v1;spacy=3.8.16;model=en_core_web_sm@3.8.0;raw-text-v1",
+  "space_id": "f2b88f94245713c758698df81b5cf52f80078f137487d7db779aa876e83beb1b",
+  "source_sha256": "15dd5baca16e309bb1ddac09ca5cf7c054a19df2f7b00a122853e894946d0a28",
+  "reference_groups": 2,
+  "axes": 391,
+  "source_distance": 0.7618334960199875,
+  "candidates": [
+    {
+      "rule": "split_independent_coordination",
+      "catalog_version": "grammar-rules-v1",
+      "source_sha256": "15dd5baca16e309bb1ddac09ca5cf7c054a19df2f7b00a122853e894946d0a28",
+      "candidate_sha256": "da3a84c70b4540d119fb8b18ceca65119d651d8977192f5ca8fa84a6f01353ef",
+      "edits": [
+        {
+          "end_byte": 82,
+          "expected": ", and",
+          "replacement": ". And",
+          "start_byte": 77
+        }
+      ],
+      "distance": 0.7495986139849659,
+      "distance_improvement": 0.012234882035021655,
+      "changed_coordinates": 91,
+      "semantic_equivalence_certified": false
+    },
+    {
+      "rule": "reduce_present_passive_relative",
+      "catalog_version": "grammar-rules-v1",
+      "source_sha256": "15dd5baca16e309bb1ddac09ca5cf7c054a19df2f7b00a122853e894946d0a28",
+      "candidate_sha256": "7b71fae5d6da149cdefadd5fd626944bababa39aca255b0e155d1979b23d0827",
+      "edits": [
+        {
+          "end_byte": 19,
+          "expected": "that are ",
+          "replacement": "",
+          "start_byte": 10
+        }
+      ],
+      "distance": 0.7576228082788774,
+      "distance_improvement": 0.0042106877411101085,
+      "changed_coordinates": 213,
+      "semantic_equivalence_certified": false
+    },
+    {
+      "rule": "contract_negative_auxiliary",
+      "catalog_version": "grammar-rules-v1",
+      "source_sha256": "15dd5baca16e309bb1ddac09ca5cf7c054a19df2f7b00a122853e894946d0a28",
+      "candidate_sha256": "e0e622598361fc862178cd90489a2f0d3f9fd23c3c213ccf61ccb15d21d9cb11",
+      "edits": [
+        {
+          "end_byte": 127,
+          "expected": "does not",
+          "replacement": "doesn't",
+          "start_byte": 119
+        }
+      ],
+      "distance": 0.7604867746831427,
+      "distance_improvement": 0.0013467213368447695,
+      "changed_coordinates": 51,
+      "semantic_equivalence_certified": false
+    }
+  ],
+  "recommendation": null,
+  "llm_calls": 0,
+  "detector_calls": 0,
+  "interpretation": "This verifies concrete coordinate movement on synthetic text; it does not establish preservation, authorship, detector improvement, or generalization."
+}

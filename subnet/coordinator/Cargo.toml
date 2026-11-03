@@ -1,0 +1,101 @@
+[package]
+name = "slop-ninja-coordinator"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Cloudflare Workers coordinator for the Slop Ninja testnet subnet"
+
+# Independent of the native `subnet/` workspace so the Wasm build never pulls
+# the native rtao runtime.
+[workspace]
+members = ["."]
+# The native rtao parity checks pull rtao's native runtime; they are their own
+# workspace so this crate's Wasm build never sees them.
+exclude = ["parity"]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Native witness tests: the arena is the test binary's global allocator, so
+# `cargo test --features arena-witness -- --test-threads=1` runs the route
+# witnesses (and, unfiltered, the whole suite) on the bounded arena.
+arena-witness = ["slop-ninja-arena/knobs"]
+
+[dependencies]
+hex = "0.4"
+# The global allocator of both Workers (wasm32): every invocation allocates in
+# its own bounded scope arena. Its memory model is `memory-model.json` here
+# (SLOP_NINJA_MEMORY_MODEL, set by .cargo/config.toml). `glue-spill` keeps
+# the entry points that are not yet wrapped in scopes (the fan-out lane
+# objects in cf_lanes.rs) working, counted; `unmeasured-model` because the
+# JS reserve and stack high-water of this build are not yet measured
+# (memory-model.json says which inputs are), and therefore `observe`
+# (migration step 1): the arena refuses an unmeasured model in any other
+# mode, and build.rs refuses the test-only features (`knobs`, `selftest`,
+# `strict`) on this line.
+slop-ninja-arena = { path = "../crates/arena", features = ["glue-spill", "unmeasured-model", "observe"] }
+# rtao's portable core seam (bittensor-core without `host`): by-name SCALE
+# composition from live metadata, storage keys, signing payloads, sr25519
+# keys and drand timelock encryption. rtao-client/rtao-tx pull tokio's net
+# stack and do not build for wasm32; the coordinator uses only this seam.
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44", default-features = false }
+slop-ninja-protocol = { path = "../crates/protocol" }
+# The admission API's byte-level helpers (request message, route parser, part
+# plan, codes) and its response shapes, shared with the miner client.
+slop-ninja-admission-wire = { path = "../crates/miner/wire" }
+# The A artifact spec: the bounds admission derives its object bound from, and
+# the header-only file-table checks and parts mapping of an uploaded object.
+# The full check (graph pre-parse, role schemas) runs in the scorer
+# Container's admission load, never in a Worker that holds signing keys.
+slop-ninja-artifact-check = { path = "../crates/artifact-check", default-features = false }
+hmac = "0.12"
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip is declared here, not only inherited from artifact-check:
+# scorer probabilities (`eval::score`) parse to the exact f64 the scorer
+# printed. It is part of the evaluation semantics; a deploy that changes it
+# runs only between cohorts (the idle rule), so no cohort mixes two parses.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+subtle = "2.6"
+zeroize = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+# `queue`: the lane-wakeup consumer (`#[event(queue)]`) and the producer binding.
+worker = { version = "0.8.7", features = ["queue"] }
+
+[build-dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+# A second, genuinely different runtime for the signing tests: the recorded
+# V15 metadata decoded, one event enum changed, and re-encoded.
+frame-metadata = { version = "23.0.1", features = ["current", "decode"] }
+parity-scale-codec = "3.7.5"
+rusqlite = { version = "0.37", features = ["bundled"] }
+scale-info = "2.11.6"
+# Deterministic fixture cohorts and public test seeds for the target tests.
+slop-ninja-protocol = { path = "../crates/protocol", features = ["fixtures"] }
+
+# Cargo does not inherit patches from a Git dependency's workspace. Mirror the
+# selected rtao revision's core fixes (as subnet/Cargo.toml does) so the
+# compiled crypto and codec match its pin.
+[patch.crates-io]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[patch."https://github.com/RaoFoundation/subtensor.git"]
+bittensor-core = { git = "https://github.com/sam0x17/subtensor.git", rev = "5f2477f5290f5f4cb467524754cc025626b52974" }
+
+[patch."https://github.com/sam0x17/subtensor.git"]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+subtensor-macros = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

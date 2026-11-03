@@ -1,0 +1,1766 @@
+# Workers coordinator (testnet)
+
+This crate is the serverless coordinator for the Slop Ninja testnet subnet
+(netuid 601): a Rust Cloudflare Worker built with workers-rs 0.8.7. It follows
+finalized blocks, keeps a durable chain journal and, from M3, signs and submits
+its own commit-reveal v4 timelocked weight commit once per subnet epoch with
+the coordinator hotkey, journaled in the ChainJournal Durable Object (see
+[Signing](#signing-m3)). It is deployed on testnet as
+`slop-ninja-coordinator-testnet`; [TESTNET.md](TESTNET.md) is the runbook, with
+the 2026-10-30 measurements, the first live commit and reveal, and the drills.
+The same crate also runs hidden evaluation (milestone M4,
+[below](#hidden-evaluation-m4)), deployed on testnet as the separate Worker
+`slop-ninja-eval-testnet`, which has no coordinator hotkey and signs no
+weights.
+
+The crate is its own Cargo workspace, separate from the native `subnet/`
+adapter, so the Wasm build never pulls the native rtao runtime. It depends on
+the shared, wasm-clean [protocol crate](../crates/protocol/README.md) by path:
+the testnet genesis guard checks against its `TESTNET_GENESIS`, the T12
+target is verified and its row derived with it, and `src/wire.rs` adds only
+JSON encodings of chain identifiers. Chain encoding and cryptography come from
+rtao `b5553a76`'s portable core seam, `rtao-core` with default features off
+(upstream `bittensor-core` without `host`). All logic except `src/cf.rs` is
+plain Rust, tested natively against SQLite, which is the dialect Durable Object
+storage uses. `src/cf.rs` holds the Workers entry points, the Durable Objects
+and the `fetch` RPC transport, and compiles only for `wasm32`.
+
+| Module | Role |
+| --- | --- |
+| `webhook` | rtao-rpc receiver contract v1: HMAC authentication and body validation |
+| `journal` | delivery dedup, the per-block path, the cursor, durable faults, RPC audits |
+| `heartbeat` | what one delivery, tick or RPC round does inside one transaction |
+| `watchdog` | primary/fallback mode, thresholds and durable transitions |
+| `claims` | durable leases with fencing generations, and the shared RPC budget |
+| `schedule` | the bounded scheduling step each block drives (no-op hook for now) |
+| `chain` | rtao core seam: by-name calls, storage keys and values, signing payloads, extrinsics, sr25519, timelock, epochs |
+| `signing` | the signing journal: one commit per epoch, attempts, fencing, reconciliation, read-back and reveal |
+| `target` | T12 bundle verification and the pluggable reward-rule row |
+| `rpc` | JSON-RPC request bodies and response validation, including the single write |
+| `config` | vars, secrets, testnet guards, names and bearer-token checks |
+| `eval::engine` | cohort phases, claims, the draw, generation, seal, scoring, receipts and packaging over SQL |
+| `eval::plan`, `eval::pool` | the frozen operator plan; the hidden human pool and the never-reuse draw |
+| `eval::textgen` | Workers AI prompts, output validation, exact-span splicing and list prices |
+| `eval::score`, `eval::receipts`, `eval::package` | outcomes and components; chunked receipts; package inputs and the reward policy |
+| `eval::chain` | twox storage keys and the `state_queryStorageAt` epoch read |
+
+## Routes
+
+| Entry point | Behaviour |
+| --- | --- |
+| `POST /hook` | rtao-rpc finalized-block webhook: the primary heartbeat. |
+| `GET /status` | Content-free JSON. Needs `Authorization: Bearer` with `COORDINATOR_STATUS_TOKEN`. |
+| `POST /fault/clear` | Operator action, body `{"fault_id": n, "reanchor": false}`. Needs `COORDINATOR_OPERATOR_TOKEN`. |
+| `POST /signing/target` | Operator action: install a T12 bundle as the current target (body: the bundle JSON, at most 1 MiB). |
+| `POST /signing/control` | Operator action, body `{"action": "resume" \| "pause" \| "clear_fault" \| "arm_drill", "drill": ..., "count": n}`. |
+| `POST /signing/kick` | Operator action: run one signing round now (the duplicate-wakeup drill). |
+| `GET /eval/status` | `EVAL_ROLE = "eval"` only. Content-free cohort status, with every scorer slot's running state. Needs the status token. |
+| `POST /eval/plan`, `/eval/clear` | Queue a cohort plan; clear a resumable cohort fault (`{"label": ...}`). Operator token. |
+| `POST /eval/abandon` | End a terminally faulted cohort without a target (`{"label": ..., "reason": "<code>"}`). Operator token. |
+| `POST /eval/probe`, `/eval/scorer-probe` | Pre-flight one generator, or the scorer path, on fixed synthetic text; the measured cost is settled in the spend ledger. Operator token. |
+| `POST /eval/template`, `/eval/template/pause`, `GET /eval/calendar` | Install the standing cohort template; pause or resume opening cohorts from it (`{"paused": bool}`); the cohort calendar. Operator token. |
+| `/admission/v1/...` | `EVAL_ROLE = "eval"` only, and only when `ADMISSION_ROUTES` opens them (`off`, the default: 404; `hotkeys`: the listed `ADMISSION_HOTKEYS` only; `open`): the admission API, contract `slop_ninja.admission/v1` (`docs/testnet/admission-api.md`). Hotkey-signed; the Worker checks the signature and body digest before forwarding. No token. |
+| cron `* * * * *` | The watchdog. On the coordinator it is the only timer, and no Durable Object alarms are set; on the eval Worker it also kicks the cohort authority and, outside scoring, stops idle scorer slots, while the cohort and scorer Durable Objects keep bounded alarms. |
+
+Without its token secret, a route returns 503. A wrong token gets 401. Both
+tokens must be at least 32 bytes. They are compared in constant time over
+SHA-256 digests.
+
+`/status` reports only:
+
+- configuration presence and the RPC host
+- public chain identifiers: genesis, netuid, block heights and hashes
+- the provisional cursor, the RPC-confirmed watermark with its basis and age,
+  and the count of provisional blocks
+- the mode, its reason and ages, the lag and the behind flag
+- the last five mode transitions
+- the active fault, if any, with its public block hashes
+- the backfill claim's state
+- RPC calls used this minute
+- the settings and named counters
+
+It also reports the `signing` section: the signer state and pause reason, the
+coordinator's public hotkey, the nonce floor, the live runtime versions, the
+active target digest, the signer claim, the last six operations with their
+attempts (nonce, era, state, sends, extrinsic hash, inclusion, dispatch) and
+reveal observations, armed drills and the last twelve signing-log events.
+
+It never shows bodies, delivery, event or subscription IDs, body digests,
+secrets, signed bytes, ciphertexts or Cloudflare account identifiers. Native
+tests check this.
+
+## Heartbeat
+
+The rtao-rpc finalized-stream subscription delivers every finalized block. Each
+delivery is a separate Worker invocation and is the coordinator's clock. A
+delivery goes through these steps:
+
+1. **Authenticate.** The Worker checks `X-Rtao-Signature` against the exact raw
+   body before parsing anything. It requires:
+   - signature version 1, the configured key ID and the configured subscription
+   - a nonzero attempt and at most 300 s of timestamp skew
+   - a valid MAC: HMAC-SHA256 under the hex-decoded 32-byte secret, in the
+     contract's framing, compared in constant time
+
+   Bodies over 256 KiB, unknown fields, non-canonical hex and non-decimal u64
+   strings are refused. An authenticated challenge gets its nonce back in
+   `X-Rtao-Challenge-Response` with 204 and is never recorded. Block events must
+   match the signed `event_id`, event version 1 and the testnet genesis. Only
+   `finalized` is accepted.
+2. **Persist, deduplicate and run the step.** One `transactionSync` in the
+   ChainJournal Durable Object:
+   - records the delivery and its block event
+   - deduplicates by delivery ID, and by (stream, block hash) for the block
+   - notes the delivery time for the watchdog
+   - runs the per-block path
+   - runs one bounded scheduling step
+   - claims any RPC work under the durable `rpc-backfill` lease and charges its
+     calls to the shared budget
+3. **Acknowledge.** The Worker returns 204 only after that commit. Any planned
+   RPC round then runs in `ctx.waitUntil`, after the response.
+
+Each case gets a different response:
+
+| Case | Response |
+| --- | --- |
+| Provider retry: same delivery ID, same bytes | 204, nothing processed again |
+| Same delivery ID, changed bytes | 409 |
+| Same event ID naming another block | 409 |
+| New delivery ID for a recorded block (re-registration, or a block RPC backfill already supplied) | 204, nothing processed again |
+| Authentication failure | 401 |
+| Invalid body | 400 or 422 |
+| Missing configuration, or storage failure | 503, which the provider retries |
+
+The provider retries every non-2xx answer and pauses the subscription after
+its last retry (see the receiver contract below), so a persistent conflict
+pauses it.
+
+### The per-block path
+
+Webhook deliveries and RPC backfill share one code path (`journal::drain`).
+Recorded blocks are applied in height order:
+
+- **Advance.** The block at `cursor + 1` advances the cursor only when its
+  parent hash equals the cursor hash. The cursor and the retained finalized
+  chain (`finalized_blocks`) are written together.
+- **Late block.** A block at or below the cursor is compared with the retained
+  chain. A block below the anchor is recorded as `below_anchor`.
+- **Gap.** A missing height below a recorded block is a gap.
+- **Conflict.** A broken parent link, or two hashes at one height, is a
+  conflict. It is recorded in `faults` in the same transaction and stays active
+  until an operator clears it.
+
+While a fault is active, deliveries are still authenticated, persisted and
+acknowledged, but the cursor does not move, and neither deliveries nor ticks
+make RPC calls. `POST /fault/clear` either resumes or, with `reanchor: true`,
+drops the cursor and the retained chain so the next delivery or tick anchors
+again. Blocks set aside as conflicting are judged again on new evidence after a
+clear.
+
+### RPC use and trust
+
+The heartbeat's transport (`src/rpc.rs`, `cf.rs`) is read-only. It uses three
+methods, `chain_getFinalizedHead`, `chain_getHeader` and the list form of
+`chain_getBlockHash`, sent as one JSON-RPC call per HTTPS POST with a named
+User-Agent. Each call has an 8 s abort timeout and a 64 KiB response cap. The
+signing journal's calls ([Steps](#steps)) go through the same transport and
+budget; metadata, block bodies and storage reads may be up to 4 MiB, and
+metadata has a 20 s timeout.
+
+| Situation | RPC calls |
+| --- | --- |
+| Delivery that extends the cursor | none |
+| First cursor | `chain_getFinalizedHead` and its header (2) |
+| Gap | one `chain_getBlockHash` list per round, from the cursor height up to 32 heights; at most 2 rounds per delivery, the rest carried to later deliveries |
+| Watchdog head read | 2, at most once per tick |
+| Fallback | at most 3 list calls per tick |
+
+Gap backfill accepts a hash list only when its first entry equals the retained
+hash at the cursor height. Each later entry becomes a block whose parent is the
+previous entry, and it goes through the same per-block path. The list stops at
+the first height the node does not have yet.
+
+All calls are charged to a budget held in the Durable Object and shared by every
+invocation: `RPC_CALLS_PER_MINUTE`, default 12, at most 20. The public endpoint
+throttles near 25 calls a minute per source. Work the budget defers is carried
+over.
+
+**Trust: provisional cursor, RPC-confirmed watermark.** Notifications alone
+establish neither finality nor authorization. An authenticated finalized
+delivery advances the cursor without RPC, but only along an unbroken parent
+chain from an anchor taken from the RPC finalized head, and the blocks it adds
+are provisional. A separate watermark, `rpc_confirmed` (schema v3), records the
+highest retained block that RPC evidence independent of the provider covers.
+Three things move it:
+
+- **Anchor:** the anchor itself, read from the RPC finalized head.
+- **Head audit:** a watchdog head read whose hash equals the retained block at
+  its height. When the cursor already holds that height, the hashes are
+  compared at once. Otherwise the head is kept as an audit point (at most 16)
+  and checked when the cursor reaches it.
+- **RPC list:** a block applied from an RPC hash list at or below the last RPC
+  finalized head. Heights above it are only RPC's best chain, so they stay
+  provisional.
+
+A block hash commits to its parent, so confirming one retained height confirms
+the retained chain below it. The watermark never moves down. A re-anchor drops
+it together with the cursor. A mismatch is an `rpc_head_conflict` fault and
+never confirms anything.
+
+Scheduling reads only the watermark (`schedule::due_operations`). Cohort
+transitions and scoring will, and signing does, act only on confirmed blocks,
+never on the provisional cursor. This uses no RPC beyond the one head read per
+tick. In primary mode a delivered block is normally confirmed by the next tick,
+within about a minute. A head the provider has not delivered yet is confirmed
+when its delivery arrives. In fallback, blocks are confirmed as they are
+applied. `/status` reports the watermark, its basis and age, and
+`provisional_blocks` (cursor height minus confirmed height). The watermark
+removes the old exposure: a parent-linked but wrong chain from a compromised or
+faulty provider could advance the cursor until the next audit. It still
+advances only the cursor; nothing acts on those blocks.
+
+## Watchdog
+
+The cron trigger fires every minute. A tick is cheap: it reads the last
+accepted delivery time and the cursor, and makes at most one head read.
+
+- **Silent.** No valid delivery for `WATCHDOG_SILENCE_SECS` (default 300). Before
+  the first delivery, silence counts from the first tick.
+- **Behind.** The head read finds the cursor more than `WATCHDOG_BEHIND_BLOCKS`
+  (default 25, which is 300 s of 12 s blocks) below the RPC finalized head, even
+  while deliveries arrive.
+- **Fallback.** Entered when silent or behind. Each tick then walks the cursor
+  toward the RPC finalized head through the same per-block path, with the same
+  dedup, cursor and claim, at most 3 × 31 new heights per tick. The rest carries
+  over to the next tick. A fallback round that advances the cursor also runs
+  the scheduling step, since no delivery does.
+- **Back to primary.** A valid delivery returns the coordinator to primary when
+  it is not behind (`webhook_resumed`). A tick returns it once deliveries are
+  fresh and the lag is within the threshold (`caught_up`, or `webhook_resumed`).
+  Overlap is safe: a delivery for a block that fallback already applied is a
+  duplicate.
+
+Every mode change is a row in `mode_transitions`, with the time, both modes, the
+reason, and the cursor and head heights. `/status` shows the current mode, the
+reason, the lag, the behind flag and recent transitions.
+
+A tick that fires twice within 50 s skips its second head read. If no tick runs,
+nothing is lost: the next delivery or tick continues from durable state.
+
+When the cursor has no anchor, the first tick's head read anchors it too, so a
+deployment with no subscription still starts following after the first tick,
+and switches to fallback once the silence threshold has passed.
+
+## Long work: claims and invocation limits
+
+Each block's delivery is its own invocation, so a slow task started by block N
+must not block block N+1, and no Queue or other dispatch layer is used. Work is
+claimed in the Durable Object under an idempotent operation ID
+(`claims::claim`), with a holder, a generation and an expiry:
+
+- **Overlap.** An overlapping invocation sees a live claim and skips the work.
+- **Crash.** A claim whose holder crashed expires and is re-claimed with the
+  next generation. The stale holder's late result, renewal or completion is
+  refused, which fences it.
+- **Completion.** Completion is durable, and later claims return `Done`.
+
+The `rpc-backfill` claim serializes RPC anchoring and backfill this way. The
+scheduling step claims due operations the same way. It runs once per new
+delivery, and once per RPC round that raises the confirmed watermark. It judges
+what is due at the watermark. None is due yet: cohort transitions and scoring
+arrive in M4. Signing has its own claim, `signer`, and its own step loop
+([Signing](#signing-m3)), driven after each delivery and tick.
+
+Two sets of limits shaped the design.
+
+**Provider: rtao-rpc receiver contract and pilot notes.**
+
+- A receiver must acknowledge within 5 s.
+- Any non-2xx answer (redirects, 401, 403, 404, 408, 429 and 5xx included), a
+  timeout, or a connection, DNS or TLS failure is a failed attempt. A failed
+  delivery is retried with the same ID and body up to ten times after the
+  first attempt, after about 2 s, 6 s, 18 s, 54 s, 2.7 min, 8.1 min, 24.3 min,
+  72.9 min, 2 h and 2 h (each with jitter of up to 20%), about 5 h 49 min in
+  all; `Retry-After` can lengthen a delay up to 2 h.
+- After the last failed attempt the subscription pauses (cause
+  `receiver_failures`, with the last undelivered block). Resuming starts at
+  the head, or replays from the last undelivered block on request. Blocks
+  during a pause are not owed, so after any pause the coordinator backfills
+  from its finalized cursor through RPC. A registration starts paused.
+- Each subscription has one delivery in flight at a time, so a slow
+  acknowledgment delays every later block.
+- The coordinator has no resume path: after a long outage the subscription
+  stays paused and the cron and RPC fallback carries progress; this is an
+  alerting condition, not a correctness one.
+
+The coordinator therefore acknowledges as soon as the delivery and its step are
+committed. It never holds the request open for slow work.
+
+**Cloudflare Workers Paid limits** (developers.cloudflare.com, read
+2026-10-29):
+
+| Limit | Value |
+| --- | --- |
+| CPU time per HTTP invocation | 30 s default (5 min max) |
+| CPU time for a cron of under 1 hour | 30 s |
+| Cron wall time | 15 min |
+| `waitUntil` after the response | 30 s |
+| Subrequests per invocation | 10,000 |
+| Open outgoing connections per invocation | 6 |
+| Memory per isolate | 128 MB |
+| Durable Object request duration | no hard limit while the caller is connected |
+
+Per-invocation work is sized well inside these. A delivery makes one DO
+transaction, at most 2 RPC rounds of at most 2 calls, and one DO transaction per
+round, all inside `waitUntil`. The claim lease is 25 s, below the 30 s
+allowance. A tick makes at most 4 rounds. Each transaction applies at most 512
+blocks. Work that does not fit is carried by later deliveries or ticks, from
+durable state.
+
+## Memory: bounded arenas
+
+Every hand-written export of both Workers allocates in its own bounded scope
+of [`slop-ninja-arena`](../crates/arena/README.md)
+([design](../../docs/workers-arena-design.md)); the fan-out lane objects and
+the constructor fallbacks spill or overdraw, counted. The build runs in
+`Observe` mode (design migration step 1): nothing the pool can physically
+serve is refused, and every would-be refusal and overdraft is counted, until
+the JS reserve and the stack are measured on this build (step 0) and the
+testnet load gate passes (step 9).
+
+- **Linear memory ceiling.** `build.rs` links the module with a maximum of
+  `floor((isolate_bytes - js_reserve_bytes) / 65,536)` pages of
+  [`memory-model.json`](memory-model.json) (96 MiB). This `Observe` build
+  links it growable: the pool commits pages with `memory.grow` as scopes are
+  admitted, so an isolate holds the linear memory it uses (the heartbeat
+  Worker a few MiB) and the JS heap beside it keeps its room until its
+  high-water is measured. A build whose arena enforces (a measured model)
+  links `initial = maximum`, a fixed memory. The model records the source of
+  every input: the ceiling comes from the largest measured Rust peak (the
+  package step at R_0 + 128 jobs, n = 1,000); the JS reserve is the
+  remainder and, with the stack high-water, is not yet measured on this
+  build (the build uses the arena's `unmeasured-model` feature, which the
+  arena accepts only with `observe`, and `build.rs` refuses the test-only
+  arena features). `cargo run --example arena_wasm_check -- <module.wasm>`
+  checks a built module's memory limits, its hand-written exports and its
+  static end (`__heap_base`) against the static size the route table's fit
+  assumes.
+- **One scope per invocation.** Every export is hand-written
+  (`src/cf_arena.rs`): it takes a glue ticket, sweeps for abandoned scopes
+  at that safe point (a poisoned pool is reported, not recycled: the recycle
+  waits for its durable intent and stop rule), opens the invocation's scope
+  with its route's declared
+  footprint ([`src/arena_routes.rs`](src/arena_routes.rs)), converts the
+  request inside it and closes it with the handler: the Worker `fetch`,
+  `scheduled` and `queue` exports, the delivery's `waitUntil` continuation
+  (a child scope admitted before it is spawned, holding copies of what it
+  needs, and whose rounds start only while their worst case fits the 30 s
+  window), and the ChainJournal and EvalCohort classes (`fetch`, `alarm`;
+  each cohort step runs in a child scope of its own route: the seal and
+  package steps admit their shape-derived footprints physically, refused
+  with `Retry` in every mode when the pool cannot serve them even scattered,
+  so a second large step of a co-resident object waits instead of exhausting
+  linear memory). Every await has a timeout the platform enforces or one
+  raced in JS, never a dropped `select` future: RPC calls and Durable Object
+  calls carry `AbortSignal.timeout` (a journal call or kick on the delivery,
+  cron and signing paths: `liveness::TIMEOUT_MS`), and R2 reads and writes,
+  body reads and Workers AI runs are raced against their deadline in JS
+  (`cf_io::settle`), so the promise Rust awaits always settles. A delivery
+  continuation starts each journal call, kick, RPC round and signing step
+  only while its allowance still fits the 30 s window, and the journal hands
+  out a signing step only when its worst case fits the budget the caller
+  sends (`signing::step_worst_ms`): a metadata fetch or a submission never
+  fits a delivery and stays for the cron tick, so deliveries never take and
+  abandon the signer claim.
+- **Webhook ingress.** A `/hook` request with no signature header naming
+  this receiver's subscription is refused in JS (401) before it takes a glue
+  ticket or a scope. The Rust receiver then checks every header field
+  (`webhook::precheck`: key, subscription, attempt and timestamp window)
+  before any body byte is admitted, admits the body as its bytes arrive,
+  stops reading a body still incomplete after the provider's 5 s
+  acknowledgement window (`webhook::DELIVERY_ACK_MS`, 408) and
+  authenticates the HMAC over the exact body.
+- **Refusals.** A scope the pool cannot hold answers a JS-only 503 (an alarm
+  rejects and is retried, a queue batch is retried, a cron tick resolves).
+  A step or a step's object read that no wait can hold (`Capacity`), or an
+  object above its kind's bound, faults its cohort durably
+  (`arena_capacity`, `object_over_bound`): it pauses and is never skipped. A
+  plan whose package (with its in-flight summary reads) the model cannot
+  hold is refused at `/plan`. In `Observe` mode these admissions do not
+  refuse; the would-be refusals are counted.
+- **Bounded reads** (`src/cf_io.rs`): request bodies (the webhook, the
+  operator routes, the internal Durable Object bodies, the lane routes),
+  Durable Object replies, RPC replies and R2 objects are read through their
+  stream's own reader (JS holds one chunk at a time), refused above their
+  bound before they are read, and admitted as blocks only when bytes
+  arrive: one block of the exact length when it is known (an unencoded
+  body, an R2 object's size), else a buffer grown with the bytes received
+  (doubling, never past the bound; a `gzip` or `br` reply keeps its encoded
+  `Content-Length`). A Durable Object reply is bounded by the control
+  footprint of the route that holds it. Each R2 object kind has its bound
+  (`arena_routes::STEP_OBJECT_BYTES`, the job-summary and fingerprint
+  bounds); a scope reading many objects re-uses one returned block run
+  instead of holding one per object. An internal body that cannot be read
+  answers its own status (503 for an arena refusal or a transport failure,
+  which the caller retries), one that does not parse 400.
+- **Home scopes.** What outlives an invocation lives in three bounded
+  scopes opened on first use and kept for the isolate's life: the Durable
+  Objects' own state, the parsed chain runtimes and the parsed cohort plans
+  (a fixed entry count each; a cache miss re-reads storage, so it changes
+  CPU only). They are marked permanent, so a refusal they cause is
+  `Capacity`, never `Retry`. A home refused at its first use (a large step
+  holding the pool) opens at a later use; refusals are counted
+  (`home_open_failures`). The runtime cache evicts before it parses and
+  parses uncached when the home lacks room for the metadata's measured
+  parse need.
+- **Status.** Every `/status` (Worker, ChainJournal `instance.arena`,
+  EvalCohort `arena`) reports the arena counters: pool and glue use,
+  overdrafts, refusals by kind, quarantine, abandonment, spilled glue, the
+  stack high-water, per-route peaks (the cohort steps each on their own
+  route: `cohort/draw`, `cohort/seal`, `cohort/load-seal`, `cohort/package`,
+  `cohort/close`), the home scopes, the previous instance's postmortem if it
+  trapped, and `fault`: `arena_abandoned_scopes` when a scope stopped being
+  polled past its deadline (its pages, and a continuation's glue ticket,
+  stay held until the instance is evicted) or `arena_poisoned` when pinned
+  pages passed the quarantine budget, for an operator alert to key on.
+- **Witnesses.** `cargo test --features arena-witness arena_witness --
+  --test-threads=1` runs the heaviest native path of each light route under
+  `Strict` in exactly its declared footprint (any allocation outside the
+  scope, overdraft or leak fails), and measures the home entries. With the
+  feature and no filter, the whole suite runs on the arena allocator.
+- **Local wasm32 smoke run.** `node arena-smoke/run.mjs <miniflare
+  dist/src/index.js> build <linear bytes> [requests]` loads worker-build's
+  output into miniflare's local workerd (loopback only, in-memory Durable
+  Objects and R2, test-only bindings, every subrequest answered 503) and
+  checks the memory ceiling, the per-invocation reset over many requests,
+  the ChainJournal and EvalCohort classes, the static size, the body
+  bounds, the shed of unsigned deliveries, and a stalled delivery body
+  cancelled at the acknowledgement window (408); then 40 signed deliveries (the public fixture receiver) against a
+  mock JSON-RPC chain on a loopback HTTP server, reached through a small JS
+  relay Worker so that the reply crosses workerd's own network fetch (with
+  gzip, the coordinator sees the decoded body with the encoded
+  `Content-Length`, as on Cloudflare), with plain and with gzip replies, and
+  the cron export through miniflare's local trigger route. Subrequest bodies
+  the coordinator does not read are cancelled (`cf_io::discard`): workerd
+  keeps a cron, queue or `waitUntil` invocation open while one is unread.
+
+## Signing (M3)
+
+The coordinator signs and submits its own `commit_timelocked_mechanism_weights`
+(commit-reveal v4) once per subnet epoch with the coordinator hotkey. The chain
+reveals it itself one epoch later.
+
+### Wasm path
+
+Checked on 2026-10-30 against rtao `b5553a76` (the pin) and rtao `main` at
+`57191ba` (six commits later, none touching the core seam or Wasm support), with
+`cargo check --target wasm32-unknown-unknown`:
+
+| rtao crate | wasm32 | Why |
+| --- | --- | --- |
+| `rtao-core`, default features off | builds | upstream `bittensor-core` without `host` is a declared wasm32 seam: codec, metadata runtime, signed extrinsics, sr25519 keys (pure-Rust `sp-core`), drand timelock (`tle`, `w3f-bls`) |
+| `rtao-signer`, default features | builds | `KeypairSigner` is `rtao-core`'s `Keypair` |
+| `rtao-client`, default features off | fails | tokio `net` (mio) |
+| `rtao-tx` | fails | tokio `net`, reqwest/rustls |
+
+So the coordinator depends on `rtao-core` alone and replaces only the client's
+I/O and journaling. `src/chain.rs` uses the same functions rtao's client uses,
+with the same parameters:
+
+- calls are composed by name from live V15 metadata (`Runtime::compose_call`);
+  rtao composes only from V15, and so does this;
+- storage keys and values are resolved by pallet and item name;
+- the signing payload is `call ++ extra ++ additional` over the runtime's own
+  signed extensions. The spec and transaction versions in `additional` are the
+  live ones (`state_getRuntimeVersion`), observed and compared nowhere;
+- the mortal era is rtao's `{period, current}` anchored at the birth block,
+  with `CheckMetadataHash` disabled, as rtao's keyfile signer has no metadata
+  hash capability;
+- the payload, the drand round (`reveal_round_at`, with rtao's three-block
+  security offset) and the epoch prediction are rtao's `timelock_commit` and
+  `epoch_schedule`; encryption is upstream `encrypt_and_compress`.
+
+The same `[patch]` set as `subnet/Cargo.toml` pins `bittensor-core`, `w3f-bls`
+and `subtensor-macros`.
+
+Byte-for-byte checks, natively:
+
+- `chain::tests` compare the composed call and both signing payloads with the
+  native validator's golden file, which rtao's own builders wrote for the same
+  inputs; encrypt to a past quicknet round and decrypt with that round's
+  published signature; and pin storage keys, defaults and epoch arithmetic.
+- `parity/` (its own workspace, so the Wasm build never sees rtao's native
+  runtime) feeds rtao's generated builders and typed values (`NetUid`, `MechId`,
+  `AccountId`, `NetUidStorageIndex`) and the coordinator the same inputs:
+  commit calls, eleven storage keys, signing payloads and signed extrinsics
+  with one shared signature, the timelock payload, round and first reveal
+  block, and ciphertexts that each side decrypts.
+
+### Target and row
+
+The operator installs the T12 bundle (`POST /signing/target`), the same file the
+native validator reads. The ChainJournal verifies it with the configured trust
+roots, re-verifies it from storage on each use, and derives the row from the
+coordinator's own registration snapshot read at the operation's confirmed
+block. `target::derive_row` is the one dispatch point from the package's frozen
+reward rule to its calculation. A `testnet-reward-v0` bundle (refused off
+testnet by the protocol crate) derives a v1 row. A `reward-v1` bundle
+(`slop_ninja.reward_v1_bundle/v1`: the launch burn row, or a cohort target with
+its records and authorization) is verified by the protocol crate's
+`target_bundle`, which recomputes the outcome and checks the closure and the
+authorization; each epoch's operation is the `WeightOperationV2` issued only
+under the authorization checked again at that epoch, and the row is derived
+against a snapshot that also reads the finalized `SubnetOwnerHotkey`. A row
+that must burn while the owner hotkey holds no UID is deferred to a later
+epoch.
+
+### One operation per epoch
+
+The identity of the commit for subnet epoch `e` is
+`slop_ninja:coordinator-commit:v1:` + SHA-256 of a domain, the protocol's
+weight operation ID for (target, hotkey) and big-endian `e`. `commit_ops.epoch`
+is unique, so no epoch holds two operations.
+
+An operation is prepared when the RPC-confirmed watermark is at least
+`SIGN_COMMIT_OFFSET` blocks into an epoch and more than the era plus an
+eight-block guard before the next one, so any attempt lands in the epoch it was
+encrypted for. With tempo 360 and the defaults, that is blocks 12 to about 287
+of each epoch. A preflight with nothing to do backs off ten blocks.
+
+### Steps
+
+The heartbeat drives everything. After each new delivery is acknowledged, and
+after each cron tick, the Worker runs one bounded signing round in `waitUntil`
+(3 steps for a delivery, 8 for a tick). The ChainJournal plans one step at a
+time under the durable `signer` claim (25 s lease, fencing generation),
+records it as the pending step, and the Worker makes that step's one RPC call
+and posts the outcome back. A wakeup that finds the claim held skips at once
+(`sign_claim_held_skips`). Every step is charged to the shared RPC budget and
+to signing's own share of it (`SIGN_RPC_CALLS_PER_MINUTE`, default the shared
+budget minus four, so 8 of 12), which leaves the heartbeat's anchoring, audits
+and fallback at least four calls a minute however busy signing is.
+
+Steps are planned in this order: the head runtime when none is stored; the
+live attempt, whose nonce decides everything else; new work (a preflight)
+while active and no attempt is live; then diagnostics, the read-back and
+reveal tracking of committed operations. A diagnostic that is failing or
+backing off is skipped, so it never delays a commit.
+
+| Step | RPC call | At |
+| --- | --- | --- |
+| Runtime | `state_getRuntimeVersion` | the confirmed block (head runtime); the parent of a block written by an unknown runtime; the preflight block before signing |
+| Metadata | `state_call Metadata_metadata_at_version(15)`, once per runtime, stored in the DO | the block whose version was not stored |
+| Preflight | one `state_queryStorageAt`: `LastRuntimeUpgrade`, the hotkey's `System.Account`, `Timestamp.Now`, `NetworksAdded`, `Uids`, `CommitRevealWeightsEnabled`, `CommitRevealWeightsVersion`, `RevealPeriodEpochs`, `WeightsVersionKey`, `WeightsSetRateLimit`, `LastUpdate`, the five schedule items, `SubnetworkN`, `MinAllowedWeights`, `MaxWeightsLimit` | the confirmed block |
+| Registration | `Keys` and `BlockAtRegistration` for every UID, and the chain's own `TimelockedWeightCommits` queue for the epoch | the same block |
+| Signing runtime | `state_getRuntimeVersion` (and its metadata once, if new) | the same block |
+| Submit | `author_submitExtrinsic`, after the mark | |
+| Nonce check, probes | `System.Account` | the confirmed block, then a binary search over retained blocks |
+| Inclusion | `chain_getBlock` | the block where the nonce moved |
+| Events | `System.Events` | that block |
+| Read-back | `TimelockedWeightCommits` for the epoch and the next | the confirmed block |
+| Reveal | the queue, `LastUpdate`, `Weights`, then `System.Events` and `Weights` at the reveal block | confirmed blocks after the predicted reveal block |
+
+Every read is pinned to a block hash from the retained, RPC-confirmed chain,
+and includes `LastRuntimeUpgrade`. A read is decoded with the runtime that
+wrote its block, the one its own `LastRuntimeUpgrade` names. The version and
+metadata APIs at block `b` run the code in `b`'s post-state, which executes
+`b + 1`: at the block that enacts an upgrade they already report the new
+runtime, while that block was executed, and its storage and events written,
+by the old one, whose spec its `LastRuntimeUpgrade` still holds until the
+next block's initialization. So the writer of `b` is learned at `b`'s parent,
+whose reported spec must equal the one `b` names, never at `b` itself. Stored
+runtimes are kept by spec (two parsed in memory), so a search across an
+upgrade decodes each block with its own runtime without learning anything
+twice. A planned key the writer derives differently is never read as absent:
+the read is planned again with the writer's keys. Re-learning is capped at
+four per read before it counts as a failure (below).
+
+Keys are planned with the head runtime, the one reported at the newest block
+the signer asked about. Signing reads the executing runtime fresh: after the
+registration read, a runtime version at the preflight block (its post-state
+code, which executes the attempt) chooses the metadata the call is composed
+and signed with. No spec or transaction version gates anything. If live
+metadata has no type-correct encoding of the call, the operation is deferred
+alone and re-evaluated at its next preflight.
+
+### Signing an attempt
+
+The Registration outcome is processed in one DO transaction that:
+
+1. refuses if this hotkey already has a commit in the chain's queue for the
+   epoch (`commit_already_present`), so a lost or rebuilt journal cannot
+   commit twice;
+2. derives the row and checks it against `MinAllowedWeights`;
+3. allocates the nonce: the hotkey's nonce at the confirmed block, which must be
+   at least the journal's floor (otherwise `fault:nonce_regressed`);
+4. reads `COORDINATOR_HOTKEY_SEED`, derives the sr25519 key and requires it to
+   be the configured public hotkey (`fault:hotkey_mismatch`);
+5. computes the drand round from that block's `Timestamp.Now` and schedule, so
+   the round follows chain time rather than the Worker's clock; encrypts;
+   composes the call; signs; verifies the signature; assembles the extrinsic;
+6. journals the attempt (nonce, era birth and expiry, anchor hash, runtime
+   versions, round, digests, the extrinsic hash and bytes) as `signed`.
+
+Steps 1 to 3 run with the registration read; steps 4 to 6 run with the
+signing-runtime step that follows it at the same block. Nothing is sent in
+either transaction.
+
+### Submission and reconciliation
+
+The Worker sends an attempt only after a one-shot mark, `signed` → `sending`,
+which the journal grants only to the current, unexpired claim holder whose
+pending step is that submission. The column `sends` is constrained to 0 or 1.
+Then:
+
+| Reply | Attempt | Next |
+| --- | --- | --- |
+| extrinsic hash equal to the journal's | `submitted` | reconcile |
+| JSON-RPC 1010, 1011, 1016 or -32602, unless it says outdated or stale | `rejected` | the epoch's operation fails; no retry |
+| 1012, 1013, 1014, outdated, stale, any other error, 429, 5xx, timeout, transport failure, malformed reply | `uncertain` | reconcile |
+| none (the invocation or the DO died after the mark) | `uncertain` when the next holder claims (`abandoned_after_mark`) | reconcile |
+
+Reconciliation uses only RPC-confirmed state and never resends:
+
+- **Nonce passed:** binary search over the retained finalized blocks between
+  the anchoring block and the confirmed block finds the inclusion block. Its
+  body must contain these exact bytes, otherwise `fault:foreign_nonce_use`.
+  Its events give `ExtrinsicSuccess` or `ExtrinsicFailed` and
+  `TimelockedWeightsCommitted`. The floor becomes nonce + 1.
+- **Era expired:** at a confirmed block at or past the expiry with the nonce
+  unconsumed, the attempt can never be included. Only then may the operation
+  sign a new attempt, with the nonce read again, if the epoch's window is
+  still open.
+
+### Failures and backoff
+
+A step can fail in two ways, and neither rolls the journal back into a retry
+loop:
+
+- **RPC errors** (transport, timeout, HTTP 429, any other status) end the
+  round at once and back the whole signer off in time: 5 s doubling to 120 s,
+  or 30 s doubling for 429. Any answered call resets it. Nothing settles on an
+  RPC error.
+- **Deterministic failures** (a value, event list or metadata that does not
+  decode or parse, a block hash the journal does not retain, a parent whose
+  runtime is not the one a block names, a re-learn cap) are recorded durably
+  in `sign_failures` against the step's subject: the head runtime, the
+  preflight, one attempt, one operation's read-back, or its reveal. The
+  subject backs off by confirmed blocks (1, 2, 4 ... up to 60), and other
+  subjects keep planning. After five failures it settles:
+
+| Subject | Settles as |
+| --- | --- |
+| reveal of an operation | diagnostic `reveal_unverifiable:CODE`; the operation stays `committed` and its reveal is no longer checked (the chain reveals on its own) |
+| read-back | read-back `unverifiable`, diagnostic `readback_unverifiable:CODE`; the reveal is still tracked |
+| an included attempt (its events do not decode) | dispatch `unverifiable`; the nonce floor still advances past its nonce; the operation is `committed` with diagnostic `events_unverifiable:CODE`, and the read-back then checks the commit in the chain's queue |
+| any other attempt (its nonce cannot be read) | `fault:attempt_unverifiable`, since no later nonce can be allocated safely |
+| head runtime, preflight | never: they keep the 60-block backoff, so unparsable metadata is fetched again about every 12 minutes, not every round |
+
+`/status` reports `signing.health` (`ok`, `backing_off`, `failing`,
+`diagnostic`, `paused` or `fault`), the last error, the RPC backoff, each
+failing subject with its count, code, retry block and whether it settled, the
+stored runtimes, and signing's calls this minute. Operation and attempt rows
+carry their diagnostic.
+
+### Read-back and reveal
+
+After inclusion, `TimelockedWeightCommits(netuid, epoch)` at a confirmed block
+must hold this hotkey, the inclusion block, the ciphertext digest and the
+round (`readback = ok`).
+
+The pallet takes an epoch's queue at the first block of its reveal epoch and
+puts back only the commits whose drand pulse has not arrived yet, retrying
+every block. So the entry disappears in exactly the block that revealed or
+dropped it. After the predicted reveal block plus two, the journal reads the
+queue at the confirmed block: if the entry is still there it checks again five
+blocks later, and fails the operation as `reveal_missed` once the reveal epoch
+has passed. If it is gone, a binary search over the queue at retained blocks,
+from the last block known to hold it (the predicted block, or the last check
+that found it), finds the block that removed it, and that block's events must
+hold `TimelockedWeightsRevealed` by this hotkey (otherwise `reveal_dropped`).
+Each check (`reveal_check`, with `queued, next N` or `gone, search LO..HI`)
+and each probe (`reveal_probe`, at its block) is in the signing log. `Weights` there is compared with the row. With
+commit-reveal enabled the reveal does not move `LastUpdate`, which stays at
+the commit block.
+
+### Pauses, faults and drills
+
+`signer.state` starts `paused` (`operator_hold`). `POST /signing/control`
+resumes or pauses it. While paused, live attempts keep reconciling, and so do
+read-back and reveal checks, but no new operation is prepared. A disabled
+commit/reveal flag pauses with `commit_reveal_disabled` and never falls back
+to direct weights. A `fault:` reason (foreign nonce use, nonce regression, key
+mismatch, an unverifiable signature, an attempt whose nonce cannot be read)
+also stops reconciliation and needs `clear_fault` before `resume`; clearing it
+also lets a settled attempt be retried. A chain-journal fault stops signing
+too.
+
+Testnet drills are armed per step (`arm_drill`, at most 3):
+
+| Drill | Effect |
+| --- | --- |
+| `stall_before_mark` | the holder of a submission step has its lease cut to 2 s, sleeps 15 s, then tries to mark and to post an outcome; both must be refused |
+| `never_send` | the submission is marked but never sent, and reported uncertain (a lost request); only the era's expiry with the nonce unconsumed allows a second attempt, which reuses the nonce |
+| `evict_after_send` | after sending, the invocation stops and never reports. A redeploy restarts the DO, but on testnet a deploy took 1 to 5 minutes to reach the running instance, so arming `trap` while the attempt is `sending` restarts it at once (TESTNET.md; `state.abort()` wedged the instance and is not used) |
+| `uncertain_after_send` | after sending, the Worker discards the reply and reports uncertainty |
+| `ack_failure` | the next new delivery is committed but answered 503, so the provider retries the same delivery |
+| `trap` | the next `/sign-step` request panics in the ChainJournal outside any transaction (the drill is consumed in its own committed transaction first); workers-rs marks the Wasm instance broken and rebuilds it, and the DO object, on the next request |
+
+Submission drills are taken in the order `stall_before_mark`, `never_send`,
+`evict_after_send`, `uncertain_after_send`, one per submission step, so one
+epoch can run several in sequence.
+
+### ChainJournal liveness
+
+The heartbeat, the watchdog and signing all go through the one ChainJournal
+instance, so a wedged instance stalls all three and cannot report it. The cron
+Worker therefore bounds its `/tick` call to the journal at 10 s, times it, and
+keeps the outcome outside the Durable Object, as one small R2 object
+(`ops/chain-journal-liveness.json` in the evaluation bucket): the check time,
+latency, HTTP status, consecutive failures, first failure and last answer.
+`/status` bounds its own journal calls at 10 s and reports that record as
+`chain_journal_liveness` with a verdict: `ok`, `slow` (an answer over 3 s),
+`unresponsive` (the last tick failed or timed out), `stale` (no tick for 3
+minutes: the cron itself is not running) or `unknown`. The evaluation Worker
+(`EVAL_ROLE = "eval"`) binds the same bucket and probes its own ChainJournal,
+so it keeps its own record at `ops/eval/chain-journal-liveness.json` and never
+reads or writes the coordinator's; one shared record would let either
+Worker's answered tick reset the other's failures and hide a stopped cron.
+The counter
+`chain_journal_starts` counts every construction of the instance (a deploy,
+an eviction or the Wasm rebuild after a trap). TESTNET.md has the runbook.
+
+The crate denies `unwrap`, `expect`, `panic!` and unchecked indexing outside
+tests (`clippy::unwrap_used`, `expect_used`, `panic`, `indexing_slicing`); the
+one deliberate panic is the testnet trap drill, and the one `expect` is HMAC's
+constructor, which accepts any key length.
+
+## Durable Objects and storage
+
+**ChainJournal** holds one chain's observations. Its instance name is
+`chain-journal/testnet/<genesis>`. Migrations run once when an instance starts,
+inside one transaction. The ChainJournal refuses a schema from another class
+and a newer stored schema, and a failed upgrade rolls back.
+
+- **Schema v1:** deliveries, reconciliation tasks, the cursor, the notified and
+  RPC heads, and counters.
+- **Schema v2:** migrates v1 in place. It adds the delivered block to
+  `deliveries`, drops `reconcile_tasks`, and adds `block_events`,
+  `finalized_blocks`, `faults`, `watchdog`, `mode_transitions`, `claims`,
+  `rpc_budget` and `rpc_audits`.
+- **Schema v3:** migrates v2 in place. It adds `rpc_confirmed` and seeds it at
+  the retained anchor, the only RPC evidence v2 kept by height. The next
+  passing head audit raises it.
+
+- **Schema v4:** adds the signing journal (below): `signer`, `sign_targets`,
+  `runtime_cache`, `chain_schedule`, `commit_ops`, `sign_attempts`, `sign_log`
+  and `sign_drills`. Signing starts paused (`operator_hold`). On testnet the
+  live v3 journal migrated in place on 2026-10-30.
+- **Schema v5:** failure accounting. `signer` gains the block its head
+  runtime was reported at (seeded from the stored metadata's block), the RPC
+  backoff, the last error, a re-learn counter and signing's RPC sub-budget
+  window; `sign_failures` holds per-subject failures; `commit_ops` gains
+  `diagnostic`. The live v4 journal migrated in place on 2026-10-30.
+
+**EvalCohort** is the cohort authority at `eval-cohort/testnet/<genesis>/<netuid>`
+(see [Hidden evaluation](#hidden-evaluation-m4)), and the separate load-rehearsal
+instance at the same name plus `/load`. Schema v2 migrated the v1 stub in place:
+it dropped `cohort_state` and added `eval_obs`, `cohorts`, `phase_log`,
+`pool_used`, `pool_groups_used`, `docs`, `gen_usage`, `jobs`, `chunks`, `preds`,
+`receipts`, `receipt_objects` and `eval_targets`. Schema v3 added the
+active-tempo clock, abandonment and per-chunk attempt bookkeeping. Schema v4
+(fan-out) adds `lanes`, `lane_events` and `batch_shards`, chunk holders, claim
+generations, reconciliation and crash counts, generation fences, backoff,
+throttling and budget reservations, job-scoped faults, summaries and bundles,
+and the load instance's hold flag; it rebuilds `jobs` to allow `faulted`.
+Without `EVAL_ROLE = "eval"` it is never kicked and stays empty.
+
+The lane objects (eval deployment only): **AScorer** is a scoring lane at
+`a-scorer/testnet/{main,load}/lane-<k>` that owns one `a-scorer-testnet`
+Container instance; **EvalLane** runs generation, summary and bundle lanes at
+`eval-lane/testnet/{main,load}/<kind>-<k>`; **GenLimiter** holds the shared
+Workers AI token buckets in memory; **SpendLedger** holds the monthly spend
+ledger (SQLite). Lanes keep only their assignment `(seq, gen)`, metering and
+container bookkeeping; no text.
+
+## Hidden evaluation (M4)
+
+Testnet only, with `EVAL_ROLE = "eval"`. A cohort is a frozen operator plan
+(`eval::plan`): n cases per model, the human_only/mixed/model_only mix, K
+tempos with admission and transition minimums, the pool, the generators and
+their budget, the roster (R_k, optional R_{k-1}, entrants), the burn identity
+and an optional per-kind shortfall tolerance (`max_kind_shortfall_permille`,
+at most 50; absent means 0). Plans `slop_ninja_eval_cohort_plan_v1` (stored
+cohorts only) and `_v2` use `testnet-reward-v0` with an allow-list and the
+40/40/20 mix; the deployed main instance no longer queues new v2 plans
+(`Ceilings::accept_reward_v0` is off; the engine's plumbing tests still drive
+them). Plan `_v3` and the probe plan `slop_ninja_eval_probe_plan_v1` run
+`reward-v1` (see **Reward-v1 cohorts** below); their mix
+is a parameter (launch 20/55/25).
+
+**Heartbeat and steps.** Every webhook delivery kicks both cohort instances
+(`main` and `load`) with the RPC-confirmed watermark; every watchdog tick also
+reads `SubtensorModule.SubnetEpochIndex` and `LastEpochBlock` for the netuid at
+the confirmed block hash (one `state_queryStorageAt` call, charged to the shared
+RPC budget). The kick records both monotonically, advances boundary phases and,
+when work is runnable, arms the cohort object's alarm. The alarm runs the root
+steps (draw, seal, package, ledger settlement), each a claim, its I/O and a
+commit, and then one **sweep** of the lane table; it re-arms about every 10 s
+while a heartbeat arrived in the last 10 minutes, so coordinator silence pauses
+progress and the next heartbeat resumes the same cohort. Nothing is skipped
+because time passed.
+
+**Fan-out lanes.** Every bulk step runs as a fan-out job of lanes: challenge
+generation, paired scoring, receipt bundling and per-job score summaries. A
+lane is a Durable Object whose alarm runs the lane loop, so each lane has its
+own invocation limits (6 connections, 10,000 subrequests, its own CPU budget,
+a 15-minute alarm wall). The cohort object stays the only authority:
+
+- **Planning.** At generation start (after the draw) the cohort plans
+  G = min(plan cap, ceil(pending / items per lane)) generation lanes and the
+  scoring lanes; at the end of scoring, one summary and one bundle lane per
+  job. A scoring job is one scored artifact (R_k, R_{k-1}, each entrant) and
+  gets W = max(1, min(clamp(ceil(n / lane_docs), 1, C), floor(cap / J))) lanes,
+  C its chunk count and cap the smallest of the plan's lane cap, the
+  deployment's `MAX_SCORE_LANES` (equal to the Container `max_instances`) and
+  the lanes the scoring budget affords. Lane i of a job prefers chunks
+  [floor(i C / W), floor((i + 1) C / W)) and steals any unclaimed chunk of its
+  job. When J exceeds the cap, every job gets one lane and live lanes are held
+  at the cap.
+- **Dispatch.** The sweep gives each due lane `gen + 1` in a transaction and
+  only then sends its kick `{v, instance, seq, kind, lane, gen, name}` (ids
+  only) through the `eval-lanes-queue-testnet` Queue, 100 per
+  `sendBatch`, or directly (at most 6 at a time) if `sendBatch` throws. The
+  queue consumer calls the lane's `/kick`; a lane keeps the lexicographically
+  larger `(seq, gen)`, so duplicates and stale kicks are no-ops and lane names
+  can be reused across cohorts. A lane is due when it is pending within the
+  live cap, kicked but unseen for 30 s, silent past its staleness bound
+  (3 leases) with work left, paused while heartbeats are fresh again, or done
+  while its job has claimable work and no live lane. Lanes report at alarm
+  entry and at least every 20 s of a cold path or a wait, so a slow start is
+  never mistaken for a lost kick, and a lane superseded by its own newer kick
+  exits without stopping its container (the newer alarm reuses it). An
+  isolation run records each document's outcome as it resolves, which also
+  refreshes the lane; a scoring lane's staleness bound is three times the
+  larger of the lease and the plan's single-document limit. Authoritative
+  plans need a lease of at least 30 s.
+- **Request bounds.** A chunk request is bounded by its claim's lease less
+  15 s, and at least 5 s, so a lane's commit is never later than its own
+  claim. A request that outlives the bound is a timeout: its container is
+  destroyed and the chunk is re-run in isolation. A single-document request in
+  isolation is bounded by the plan's declared `doc_timeout_ms` (a resource
+  limit, independent of the lease).
+- **Lane limits are plan parameters** (`fanout.score`, required in new plans):
+  `step_budget_ms` (a lane starts no step, whether a chunk, a restart or a
+  single-document request, that could end past it, and the budget plus one
+  lease fits the platform's 15-minute alarm wall), `doc_timeout_ms`,
+  `artifact_max_mib` and `load_ms_per_mib` (the artifact stream and the model
+  load each get `artifact_max_mib x load_ms_per_mib`), and
+  `artifact_failures_before_model_error`. Plans stored before 2026-10-31 read
+  with the values earlier versions compiled in. A lane gives up starting after
+  `failures_before_pause` consecutive infrastructure start failures.
+- **Claims and fences.** A lane claims through the existing lease tables and
+  commits through the cohort, one transaction each. A commit lands only from
+  the holder of the chunk's latest claim; an identical repeated commit answers
+  `already`. A claim with no fresh heartbeat (or, on the load instance, under
+  the operator hold) answers `Paused`; lanes then stop their containers and do
+  not re-arm.
+- **Spend.** Lanes report cumulative metering (container provisioned time and
+  CPU, lane Durable Object time) with every report and commit. Each sweep
+  checks measured spend, a bound for lanes presumed dead, and the remaining
+  work's upper bound against the plan's `scoring_budget_microusd`; exceeding
+  it faults the cohort (`scoring_budget`, terminal) and stops its lanes.
+- **Status.** `/eval/status` reports, per cohort, lane counts by kind and
+  status, kicks and re-kicks, starts and start failures, lost and reconciled
+  attempts, fenced commits, hand-back and attribution events (in all and per
+  job), each job's isolated crashes and artifact failures, cold-path,
+  cold-path CPU and chunk-time percentiles, host CPU models, generation call
+  times and throttles, the timeline, and spend against the budget and the
+  ledger.
+
+**Active tempos.** The phase minimums count active tempos, not raw epoch-index
+differences (`fresh_heartbeat_single_increment_v1`): an observed increase of
+the index credits one active tempo when the previous heartbeat is at most
+10 minutes old, and none after silence; a jump of several tempos credits at
+most one. Tempos that pass while the eval Worker is silent are counted as
+uncredited on `/eval/status` and never consume a minimum, so after an outage the
+cohort resumes and advances at later boundaries.
+
+**Phases.**
+
+| Phase | Moves on |
+| --- | --- |
+| `queued` | the first epoch-index increment after queueing (and after the previous cohort closed or was abandoned): opens, roster frozen, `opened_block` = that epoch's block |
+| `admission` | active tempos >= opened + admission tempos |
+| `generating` | the last generation item resolves and the batch meets the plan's kind counts within the tolerance |
+| `sealing` | the batch, its index and the signed manifest are stored |
+| `scoring` | every job's every task resolved |
+| `packaging` | receipt index, package, target and components are stored |
+| `transition` | active tempos >= opened + K and >= packaged + transition tempos: the target activates |
+| `closed` | private texts are deleted from Durable Object storage |
+| `abandoned` | (operator, from a faulted work phase) no target; private texts deleted; later cohorts may open |
+
+A fault pauses the cohort with its state intact. Two kinds:
+
+- **Resumable** (outages): `generation_unavailable` (an item's 10th consecutive
+  Workers AI outage) and `scorer_unavailable` (6 consecutive scorer failures
+  that never reached the model). `POST /eval/clear {"label"}` resumes the same
+  cohort with fresh outage allowances; no attempt, answer or receipt is reset.
+- **Terminal under the frozen plan:** `unresolved_infrastructure` (every one of
+  a chunk's `max_attempts` has a receipt and none resolved it),
+  `generation_budget` (not one more item fits the budget), `draw_shortfall`
+  and `batch_shortfall` (the pool or generation cannot meet the plan's kind
+  counts within its tolerance). A clear would fault again at once, so it is
+  refused with `abandon_required`. `POST /eval/abandon {"label", "reason"}`
+  (a content-free code) ends the cohort without a target: the calculation
+  target stays the previous cohort's, every receipt and the phase log stay, its
+  drawn humans stay used, and the next queued cohort opens at the next
+  boundary. Elapsed time never abandons a cohort.
+
+**Humans.** The pool is the allow-listed Dev-iter `human_only` rows exported by
+[`tools/a-testnet-eval-manifest`](../../tools/a-testnet-eval-manifest/README.md)
+`pool`: a content-free manifest and private shards in the eval bucket. The draw
+(`whole_group_domain_proportional_v1`) takes whole source groups, domain
+quotas proportional to what remains, and never a row or group any earlier
+cohort used. The never-reuse set has two durable copies: the Durable Object's
+tables, which commit with the cohort's documents, and a ledger outside it, one
+content-free entry per cohort beside the pool
+(`pools/<pool>/used/<label>.<authority>.json`: row IDs, text digests and
+groups, with the writing authority). The entry is written before the draw
+commits; a draw avoids the union of both copies and refuses to draw if the
+ledger cannot be listed, read or parsed. A new or emptied authority (another
+Durable Object namespace after T13 is removed, a deleted Worker) therefore
+still never reuses a drawn human. Before drawing, the cohort checks the plan's
+kind counts: a pool that cannot supply the humans, or their sentences the
+mixed cases, beyond the tolerance pauses it (`draw_shortfall`) with nothing
+drawn, exposed or marked used.
+
+**Generation** (Workers AI, `eval::textgen`). Each drawn human is a
+`human_only` case and the parent of one `mixed` case: 10, 40 or 80 % of its
+sentences (start, middle or end, by private digest) are rewritten by a
+generator and spliced back (`sentence_splice_v1`), with the exact final byte
+span and the realized share `words(model) / words(final)`
+(`unicode_split_whitespace_v1`); at least one human sentence remains.
+`model_only` cases are written from scratch from a domain register and a topic
+(`register_topic_scratch_v1`), with no human text in the prompt. Generators
+rotate by private digest; each item's next generator is stored. Generation
+lanes first acquire grants from the deployment's shared `GenLimiter` (a global
+token bucket and one per model, 290 a minute plus a burst of 10 each, with AIMD
+on throttles), then claim items whose next generator is granted, each under a
+claim token and a lease and reserving its upper-bound cost (a claim succeeds
+only if spent plus reserved plus its bound fits the plan budget), run up to
+`inflight_per_lane` calls, refund unused grants, and commit. A result whose
+claim is no longer the item's latest records its usage and is discarded. A
+rejected answer (preamble, markup, thinking, unchanged, length, or empty after
+generating tokens) retries on the next generator, at most 4 answers per item,
+as does a model the provider no longer serves (5007, 3042). A throttle (a 429
+or 3040 by error text, since the Rust binding exposes neither status nor
+code) uses no answer and keeps the generator: the item backs off from 2 s to
+60 s, until its accumulated throttling passes the plan's `max_throttle_ms`,
+after which a throttle counts as an outage. An outage (a transport failure, or
+no text and no generated tokens) uses no answer: the item backs off from 5 s
+doubling to 120 s, and its 10th consecutive outage (about 10 minutes) pauses
+the cohort, so an outage can never drop cases or change the mix.
+
+**Pre-start.** With `prestart_lead_ms` set, once the generation tail is
+projected (pending items times the mean time per resolved item) to end within
+that lead, the sweep kicks the scoring lanes once: they start their containers
+and load their artifacts while generation finishes, hold no claim, and wait
+for the seal; a lane that waits past `prestart_wait_ms` after loading stops
+its container and is kicked again when scoring starts. Nothing is warm at
+rest. The assignment a pre-started lane read had no manifest digest yet, so
+its first claim re-reads it before scoring. A start the platform leaves
+unplaced costs `SCORER_START_WAIT_MS` and a retry, so a lead shorter than
+that bound plus a cold path does not hide it.
+
+**Seal.** Generation ends only if the ready documents meet the plan's per-kind
+counts within the declared tolerance (`kind_shortfall_permille_v1`); otherwise
+the cohort pauses (`batch_shortfall`) before anything is sealed. Ready
+documents get task indices 0..n-1, each its own reward group (the plain mean
+over the self-weighting batch). The batch goes to the eval bucket as
+64-document JSONL shards plus a text-free index (labels, spans, digests, and
+the plan's, realized and missing counts per kind); the evaluation-set digest
+binds the plan bytes and the index, so any shortfall is bound into the
+manifest. The v1
+cohort manifest is signed with the package key and stored in the receipts
+bucket.
+
+**Scoring.** One job per roster artifact, each on W scoring lanes. A scoring
+lane reports at alarm entry, starts its container with Internet access off,
+waits for it to answer (bounded by `SCORER_START_WAIT_MS`), checks its build
+identity (the scorer binary's and ONNX Runtime's SHA-256 against the pinned
+`SCORER_BINARY_SHA256` and `SCORER_ORT_SHA256`), streams the artifact's
+content-addressed parts from the eval bucket (3 in flight) and loads it,
+reporting every 20 s and holding no claim; it sets the container's inactivity
+timeout so the instance survives between its alarm invocations. It then claims
+chunks (`chunk_docs` tasks), reads their texts from the sealed batch shards in
+the eval bucket (never through the cohort object), checks every text digest
+against the claim, scores, stores the private results object
+(`cohorts/<label>/results/...`, eval bucket) and then the receipt object, and
+commits. The commit rebuilds the receipt object from the committed outcomes,
+the claim and the cohort seed and refuses a mismatch. A lane works until its
+job has no claimable chunk (then stops its container) or its step budget is
+spent (then re-arms at once). The lane's decisions for each claimed chunk are
+one function, `lane_logic::run_chunk`, which the Worker runs over R2, the
+cohort routes and its container, and the native tests run over a simulation.
+Every attempt gets a v1 `AttemptReceipt`:
+
+- each chunk keeps its highest allocated attempt, the highest attempt whose
+  receipts committed, and a claim fence. An expired claim whose attempt may
+  have stored its objects is first claimed for **reconciliation**: the lane
+  fetches the results object and the receipt object, rebuilds the receipt
+  object, and commits the stored answer with no compute if the bytes match
+  (re-storing the receipt object, a pure function of the results, if only it
+  is missing). Only a confirmed absence of the results object records the
+  attempt lost; a read error hands the claim back for a later retry, counted
+  as a scorer failure. The next attempt's object carries an
+  infrastructure-error receipt for a lost attempt; consecutive losses each get
+  one receipt. A late commit from an expired claim is fenced;
+- **hand-back before dispatch.** A claim whose documents never reached the
+  model goes back with no attempt spent and no receipt (`/lane/give-back`): a
+  batch shard that cannot be read or does not match, a missing cohort
+  manifest digest, a scorer that refused the request (409 or 503), or an
+  isolation restart that fails. Each counts a scorer failure, so an outage
+  pauses the cohort (`scorer_unavailable`, resumable by a clear) instead of
+  spending attempts. A put that keeps failing after dispatch (retried while
+  the lease has time) releases the claim with its attempt allocated, for
+  reconciliation;
+- **crash evidence.** Only container death is a crash: the container stopped
+  or stopped answering `/healthz` after the call, or a request outlived its
+  bound and was destroyed. A dispatched request that failed while the
+  container stayed up and ready with the artifact is an infrastructure error,
+  retried as a new attempt without isolation. The scorer aborts on any panic,
+  so a panic is a death;
+- **crash isolation.** After a crash the chunk's next claim runs its
+  unresolved documents alone, from a freshly restarted instance, recording
+  each outcome with the cohort as it resolves (`/lane/iso-progress`, which
+  renews the lease). A document that kills its instance is not attributed
+  yet: a fresh instance is started, must first score a fixed synthetic
+  control document, and then runs the document alone again. Only if this
+  second run kills the proven instance too is it a `model_error` for that
+  document of that job only (utility 0 there); if it answers, its answer is
+  the outcome. A run checks its step budget, and whether a newer kick
+  superseded the lane, before every step; when either stops it, it hands the
+  attempt back (`/lane/iso-yield`) with everything it recorded, and the next
+  claim continues the same attempt number, never recomputing a recorded
+  document. A lane that dies mid-run is continued the same way after its
+  lease;
+- **artifact attribution.** A load that fails or outlasts its allowance, a
+  container that dies during the load, missing or rejected parts, or a
+  control document that a freshly restarted instance cannot score, are
+  artifact failures when they happen on a freshly started instance
+  (`/lane/artifact-failure`). After `artifact_failures_before_model_error` of
+  them with no prediction of that job committed in between, an entrant's
+  unresolved documents are `model_error`s, committed without a container, and
+  the cohort proceeds. A manifest over `artifact_max_mib` or not matching its
+  package digest attributes at once. Reference artifacts are never
+  attributed: their failures count as scorer failures and pause the cohort;
+- under the v1 manifest `max_attempts` bounds attempt numbers. When the last
+  one is spent, a record-only claim writes the remaining lost receipts
+  (`...-attempt-N-lost.bin`) and that **job alone** faults
+  (`unresolved_infrastructure`): the other lanes finish, and the cohort pauses
+  at the end of scoring, since packaging needs every job.
+
+**Receipts** are stored as chunk objects (`slop_ninja_receipt_chunk_v1`:
+`u32_le(len) || receipt` repeated). At packaging, one bundle lane per job
+concatenates the job's referenced chunk objects into
+`receipts/bundle-job-<j>.bin` (itself a valid chunk object), checks every
+receipt against the job's receipt rows, and reports its digest and count. The
+v1 receipt index binds every receipt's own digest and length, so
+`ReceiptIndex::verify_object` checks receipts cut from bundles;
+`chunk-map.json` lists each bundle's key, digest, length and count. Result
+salts derive from the private seed and the attempt ID.
+
+**Scorer containers.** One per scoring lane, started on demand and stopped by
+the lane when its job is done or the cohort pauses. Each instance serves one
+artifact for one cohort: before using a running instance the lane reads its
+`/healthz`, and destroys one bound to another package or cohort, or whose load
+of this artifact failed, without counting a start failure. Lanes name their
+cohort label on load and score when the scorer reports `single_use`, and the
+operator scorer probe names none. A `refused <code>` reply is a definitive
+artifact failure, except a failed load's `refused object`, which can also be
+the instance's own read fault and counts only on a fresh instance; 409
+`instance_bound`, 409 `missing_parts` and 507
+`insufficient_memory` are the platform's (`eval/scorer_client.rs`).
+`AScorer`'s idle alarm stops an instance after 120 s without use as a
+backstop; a stop whose `destroy()` is refused, or which still reads as
+running, is re-checked with backoff (30 s doubling to 5 min). At the end of
+scoring the sweep stops any lane that has not reported its container stopped.
+
+**Package.** One summary lane per job reads its job's prediction rows with
+their labels in pages and writes a private summary
+(`cohorts/<label>/summaries/job-<j>.json`, eval bucket, deleted with the
+private texts): the utility, outcome counts, content-free components and the
+involvement vector, with the row count and a digest of the rows read, which
+the cohort recomputes from its own rows before accepting it. The packaging
+root step reads the summaries (checked against the reported digests),
+recomputes every utility from the involvement vectors and the private labels,
+builds the sorted receipt index from the receipt rows in pages, and hands
+`PackageInputs` to a `RewardPolicy`. `RewardV0` is the only rule (the reward-v1 mapping is under
+review): R_k's utility is the baseline and entrants' utilities are published.
+The package, its calculation target (predecessor: the last activated target)
+and the index are signed with the package and receipt keys. These are the T12
+trust roots that the native validator and the coordinator are configured with
+(`PACKAGE_PUBLIC_KEY`, `RECEIPT_PUBLIC_KEY`, pinned in
+[`testnet-trust.json`](testnet-trust.json)): the eval Worker refuses to sign
+unless its secrets derive exactly the configured roots. `components.json` adds
+content-free diagnostics per job: Brier by kind, share error, attribution label
+rates, the paired Brier gain over R_k with a source-group clustered SE, and
+pairwise prediction RMS, plus the published `crash_rule` and `artifact_rule`
+and per job its isolated crashes and any recorded artifact failure. Exact
+packages, or RMS at most 0.01, form one near-duplicate cluster. Copies of one
+artifact scored on different lanes are not bitwise identical: their
+predictions differed by an RMS of about 10^-8 on 2026-10-31 (TESTNET.md), so
+under `testnet-reward-v0` a copy can land on either side of R_k by noise. R_{k-1} is scored on the same batch when the plan names
+one. The v1 manifest has no predecessor field, so R_{k-1} is listed among the
+manifest's scored artifacts (its receipts verify) and never credited; manifest
+v2 should name it separately. While R_k is R_0 there is no predecessor.
+
+**Spend guards and the tracking ledger.** Evaluation spend per cohort is
+bounded by the Container `max_instances` (equal to `MAX_SCORE_LANES`), the
+plan's lane caps and the per-cohort `scoring_budget_microusd` (checked at
+admission against the plan's own upper bound, J x n x `doc_ub` + lanes x
+`cold_ub`, with every entrant's probe and audit documents counted, and at
+every sweep against measured spend plus the remaining bound). These are
+runaway guards for one cohort. The `SpendLedger` tracks; it never refuses or
+pauses anything for spend. A plan's generation and scoring budgets are
+recorded as a reservation before it queues (keyed by the billing cycle from
+`BILLING_CYCLE_DAY`: 1, calendar months, a user decision), a finished
+cohort's measured spend is charged once, operator probes settle their
+measured cost under their own keys, and each admission run settles its
+instance time at the cohort's Container rates (`<instance>:<label>:admission:
+<ms>`). Every open reservation counts toward the cycle's total, whatever
+cycle it was made in. The ledger status reports the cycle's settled and
+reserved totals and `over_threshold` once they pass the deploy-time alert
+threshold; an operator alert keys on that flag. The `SpendLedger` object
+(`src/cf_lanes.rs`) still reads that threshold under its earlier name,
+`MONTHLY_CAP_MICROUSD`, and answers `monthly_cap_not_configured` (recording
+nothing) on testnet without it: until it reads `SPEND_ALERT_MICROUSD`
+through `ledger::alert_threshold` (a lane-client change), deploys pass the
+threshold as `MONTHLY_CAP_MICROUSD`. A label already queued never touches the
+ledger again, a refused queue releases only a reservation its own request
+made, and a ledger outage only leaves a record missing; it never delays
+evaluation. Rates and bounds are the plan's `fanout.cost`; none is a
+compiled-in constant.
+
+**Admission.** A `reward-v1` plan with an `admission` block is admitted by
+the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
+
+- The window opens at the cohort's opening boundary and closes at the
+  boundary that reaches the admission minimum (`cutoff_block`, that
+  boundary's first block). Part size, part count, the validity window and
+  the roster cap are plan parameters; the object bound derives from the
+  plan's artifact spec (`SpecBounds`: the largest served graph class, the
+  pinned tokenizer, the spec's JSON budget and the protocol header bound),
+  and the scoring lanes size their load allowance from the same spec
+  (`fanout.score.artifact_spec`, replacing the tuned `artifact_max_mib`).
+  Admission plans name spec v2 (`admission::ADMISSION_SPECS`): runs load
+  through the scorer's probe route, which admits by spec v2, so `/plan` and
+  `/template` refuse any other spec (`admission_spec_unsupported`).
+- Requests are signed by the hotkey they concern. The Worker verifies the
+  signature and body digest statelessly before forwarding; the cohort object
+  checks them again against the RPC-confirmed cursor. Sessions (one per
+  hotkey and commitment, so a hotkey's sessions are bounded by its
+  commitments), attempts, parts (with their R2 tags) and each hotkey's last
+  refused request live in the cohort object; part bodies stream from the
+  request to R2's `uploadPart` and never pass through Rust.
+- Verification is durable work of the cohort's alarm, each step resumed
+  after an eviction or redeploy: the multipart completion (stage
+  `complete`; issued again until R2's outcome is recorded; R2's definitive
+  part refusal ends the session as `object_mismatch`, anything else retries
+  with a backoff), framing (stage `frame`) and the blob copies (`blobs`).
+  Framing is the protocol reader (the header record, decoded once within
+  `MAX_ARTIFACT_HEADER_LEN`; object and file digests and lengths), the
+  spec's header-only file-table checks, the scorer's content-addressed
+  slices and parts manifest, and `SubmissionUpload::admit` against the
+  logged commitment. Framing attempts that end without an outcome are
+  counted; an upload whose framing is cut off
+  `artifact_failures_before_model_error` times is refused
+  (`artifact_invalid`, `framing_incomplete`). No parser of graph or
+  role-file bytes runs here; the header record is decoded in this Worker,
+  which holds the package and receipt keys (see "Not yet implemented").
+- The verdict comes from an admission run on the scorer Container: a fresh
+  single-use instance per try loads the parts (the scorer's own admission,
+  graph pre-parse included) and scores the control document. One run per
+  hotkey and commitment. A verdict records the `SCORER_BINARY_SHA256` and
+  spec it was reached on (rule (b)); when either differs from the
+  deployment's, it runs again, refusals included, and its session waits on
+  it. Only a definitive `refused <code>` refuses. A host fault the scorer
+  files under `object`, a load that failed, died or outlasted its
+  allowance, and a control document that did not score count on fresh
+  instances toward the plan's `artifact_failures_before_model_error`.
+  Everything else (placement, `insufficient_memory`, the coordinator's own
+  manifest or blobs, transport, a code this build does not know) is the
+  platform's: retried with a doubling backoff from 60 s to the 15-minute
+  run lease, and reported in the admission status (`platform_retries`) for
+  alerting. Runs count against `MAX_SCORE_LANES` together with the live
+  scoring lanes.
+- The roster freezes at a tempo boundary once its work is in: every
+  completed upload verified or refused, every verdict in on the
+  deployment's build, the commitment snapshot at `cutoff_block - 1` read.
+  Ready within the epoch the window closed in, it freezes then; ready later,
+  at the next boundary (`admission_closed_epoch` is that boundary). Until
+  then the cohort waits in `admission`, never skipped. Sessions whose
+  commitment a later one replaced, whose registration changed, or whose
+  commitment shares its extrinsic with another hotkey's (a batch) are
+  refused; the rest are ranked by `(block, extrinsic)`, the first
+  `roster_cap` admitted, the rest marked overflow for the next cohort. The
+  admitted roster, with each opening's nonce, extrinsic index and object, is
+  written into the stored plan (so the seal binds it), and the cohort moves
+  to `generating`. The decision is computed before anything is written; a
+  frozen plan the engine refuses faults the cohort (`roster_freeze_refused`)
+  instead of failing every step.
+- **Ways out.** `POST /eval/session/refuse` (`{session, reason}`, main
+  instance) refuses one stalled session with a recorded reason
+  (`check_failed`, `operator:<reason>`), and its pending verdict with it.
+  `POST /eval/abandon` also abandons a faulted cohort in `admission`: its
+  window closes for good and its live sessions are refused.
+- **Clean-up.** After the freeze (or an abandonment), sessions that ended
+  without admission lose their objects, the blobs their own copies created
+  and the parts manifest they wrote, unless another session still uses
+  them; `closure-artifacts.json` beside the closure names the admitted
+  objects for publication after the close.
+- **The commitment log** (`eval::commitments`) runs from the cron tick on
+  the RPC-confirmed watermark, within its own share of the per-minute RPC
+  budget (`READER_RPC_CALLS_PER_MINUTE`; by default the budget less the
+  heartbeat's four calls and the tick's epoch read), each call also
+  reserved in the shared budget, at most one large read a round: the
+  snapshot first, then resolutions oldest first, then the poll. While a
+  cohort admits, at most once a minute, it reads the subnet's
+  `Commitments.CommitmentOf` keys and values (with `System.
+  LastRuntimeUpgrade`); for each new commitment, its block's hash, then
+  `System.Events` and `Uids` at that block (the extrinsic index of the last
+  `Commitments.Commitment` event for the hotkey), then
+  `BlockAtRegistration`; at the cutoff, the snapshot. Storage decodes by
+  name from the runtime's own V15 metadata, kept beside the log and re-read
+  when `LastRuntimeUpgrade` reports another spec. Every read at a past
+  block also reads `LastRuntimeUpgrade` there: a resolution under another
+  runtime ends as unresolvable (`runtime_changed`), and the snapshot is
+  decoded with the metadata read at its own block. Failures stay local: a
+  value or event list that does not decode, an extrinsic that committed for
+  several hotkeys (`shared_extrinsic`) and state the node no longer keeps
+  (`state_discarded`) end that commitment's resolution as unresolvable and
+  never abort the round; a key listing whose block is gone restarts at the
+  head; a snapshot whose block is gone faults the closing cohort
+  (`snapshot_state_discarded`) for the operator. Later state is never
+  substituted.
+- **Fresh stock** is drawn only when the frozen roster holds an admitted
+  outside entrant (a hotkey not in the plan's `operator_hotkeys`, whose
+  content is not already published, whose artifact loaded and scored the
+  control document) and the plan's `admission.fresh_pool` names the pool;
+  a plan with a fresh pool must list the operator's hotkeys. Every other
+  cohort draws only `EXPOSED_POOLS`.
+
+**Standing template and calendar.** `POST /eval/template` installs one
+template (`slop_ninja_eval_cohort_template_v1`: a `label_prefix` and a v3
+plan with an `admission` block and no entrants), checked at its own roster
+cap and with a predecessor reference: the plan validates with that many
+admitted entrants, its scoring budget covers their upper bound with two
+references, and its package step fits the memory model
+(`arena_routes::package_fits`). It must run the testnet plan defaults of the
+2026-11-01 ruling: `lane_docs >= n` (one scoring lane per artifact),
+`prestart_lead_ms = 0`, and `reward_v1.incentive` with its provisional-gates
+flag. When nothing is queued and the latest cohort is in its transition (or
+closed or abandoned), the cohort object queues the next cohort from it,
+numbered after the last and labelled `<label_prefix>-<cohort>`, naming the
+references its seal will meet: a promotion in the cohort now in its
+transition (the promoted entrant as R_k, that cohort's reference as
+R_{k-1}), else the chain `reference_state` holds, else (no chain yet) the
+template's own. A reinstalled template never resets the chain; the install
+reply names the next references and their source. The engine opens the
+queued cohort at the boundary where the previous one closes, so cohorts run
+back to back on tempo boundaries (`GET /eval/calendar`). A template plan the
+engine refuses, or a chain the store cannot name, pauses the template with
+the reason. A seal whose plan names other references than the chain faults
+the cohort (`reference_chain_mismatch`) rather than retrying.
+
+**Load instance.** `eval-cohort/testnet/<genesis>/<netuid>/load` accepts only
+`slop_ninja_eval_load_plan_v1`: it re-scores an existing sealed batch through
+its text-free index (lanes read the source's private shards), against
+synthetic, never-registered identities, up to `LOAD_ROSTER_CAP`. It goes from
+`sealing` straight to `scoring` (no boundary), and from `packaging` to
+`closed` with no transition, no calculation target and no write to the pool's
+used set. It signs with keys derived from `EVAL_PRIVATE_SEED`
+(`slop_ninja.eval/load-signing/v1/{package,receipt}`), never the T12 roots, and
+reports them on `/eval/load/status`; its objects sit under
+`cohorts/load-<label>/`. Fault hooks in the plan (`faults`): lanes that
+destroy their container mid-request once, lanes that stop after their puts
+before the commit, lanes whose alarm throws after a claim, dropped and
+duplicated kicks, documents that crash their container every time, jobs
+whose every request (the control included) kills the container, a document
+that kills it once in isolation, jobs whose artifact load fails, a window of
+batch-shard read failures after scoring starts (an R2 read outage), and a
+lease shorter than a chunk call. `POST /eval/load/hold` makes every claim
+answer `Paused`, as silence does, without stopping the heartbeat.
+
+**Reward-v1 cohorts (plan v3).** `eval::v3` runs a `reward-v1` cohort through
+the same phases, lanes and receipts, with every rule value a plan parameter
+bound into the signed manifest (`reward_v1`: `sigma` and its basis, the
+reward-intent lease, rewrite-source reuse `max_uses` and `min_gap`, the probe
+versions in use, the gate policy, the canary policy, generation spares and
+the output contract); none is compiled in. Differences from the v2 engine:
+
+- **Draw.** Pure-human negatives are fresh and scored once. Each mixed child's
+  parent is, in order, a same-cohort negative (one child per parent per
+  cohort), an earlier passage with fewer than `max_uses` parent uses whose
+  last use is at least `min_gap` cohorts earlier (oldest first), or fresh
+  stock used only as a parent, never as a task. Same-cohort reuse counts
+  toward the limit, and a reused parent avoids its earlier children's
+  generators where the plan offers another. Two fresh canary audit draws and
+  every probe version's documents join the cohort's documents. Mixed and
+  model-only items carry spares; the seal keeps exactly each kind's planned
+  count by private rank, so the manifest's mix is exact.
+- **Tasks.** The batch is tasks `[0, n)`, then the probe versions in version
+  order, then audit draws A and B. References score the batch only; every
+  executed entrant scores every task. An entrant whose inference content is
+  already published is refused unexecuted.
+- **Package.** `reward_v1::finalize` with the cohort's measurements: the
+  public-copy statistics on the batch and the probes, the share, attribution
+  and loose false-positive gates on the entrant's own cohort documents, and
+  the promotion audits (the strict tier on audit draw A, the canary, a
+  re-audit on draw B after a first flag). Testnet has no canary anchors, so
+  no canary statistic is computed; flags come only from the plan's drill list
+  (reason `canary.drill`). The manifest (v4), package (v4), target, receipt
+  index and published index are stored under `cohorts/<label>/` in the
+  receipts bucket.
+- **Closure.** At the closing boundary the cohort's inference contents and
+  canonical fingerprints join the published index (`published-contents-after.bin`,
+  `fingerprint-index-after.bin`), a promotion advances the reference chain
+  `R_k`, `R_k-1`, and a signed `CohortClosure` (`closure.signed`) records the
+  phase epochs and every entrant's opening; the target activates there.
+- **Probe builds.** A probe plan draws, generates and seals a probe version
+  like a batch, with each kind's count by largest remainder over the mix,
+  scores the references on it, records their fingerprints and the private
+  probe record, and closes with no package or target.
+
+`/eval/status` reports the regime under `reward`: the rule, the active target
+and whether it is the launch burn row, and the reference chain's contents.
+`examples/reward_v1_verify.rs` verifies a stored `reward-v1` cohort as a
+validator would (records, receipt chunks, published index, recomputed
+outcome, closure and an authorization) and writes the active-target bundle
+(`slop_ninja.reward_v1_bundle/v1`) in two forms: the validator's, with the
+receipt index, and the coordinator's, without it (a Durable Object value is
+bounded at 2 MB; the coordinator produced the receipts). The `launch` mode
+writes the launch burn bundle.
+
+**Verification.** `examples/eval_verify.rs` checks a stored package from the
+receipts bucket as a validator would and writes a T12 bundle for the native
+validator. Pass the keys pinned in `testnet-trust.json`, never the
+`keys.json` the Worker writes beside the package (that file is only compared
+against the pin):
+
+```sh
+cargo run --manifest-path subnet/coordinator/Cargo.toml --example eval_verify -- \
+  DIR PACKAGE_PUBLIC_KEY RECEIPT_PUBLIC_KEY --snapshot 0:OWNER_HOTKEY:REG --snapshot 3:MINER_HOTKEY:REG
+```
+
+**Rehearsal tooling.** `examples/slop_ninja_eval_ops.rs` writes load plans
+(R_0 and copies owned by synthetic, never-registered identities, checked with
+the coordinator's own parser), gates a deploy or a load run on both instances'
+status (refused while a cohort generates, seals, scores or packages, and a
+load run also while the main instance has a cohort queued or in admission),
+and summarizes status documents, Worker tails and package components (whether
+copies of R_k tie). It reads files only; the operator's shell fetches them.
+
+```sh
+cargo run --manifest-path subnet/coordinator/Cargo.toml --example slop_ninja_eval_ops -- \
+  load-plan --label load-x --cohort 1010 --copies 2 --max-lanes 64 --budget-usd 2 \
+  --source-label <sealed cohort> --source-index index.json --source-tasks 1000 --reference r0-artifact.json
+cargo run ... -- gate --for load main-status.json load-status.json
+```
+
+The two October 30 rehearsals before the T12 signing change were signed with
+the eval Worker's own keys (`earlier_eval_keys` in the trust file): they verify
+only under those keys, and a configured validator refuses them.
+
+**Testnet shortcuts.**
+
+- **T13 (`separate_eval_worker`).** Evaluation runs as the separate Worker
+  `slop-ninja-eval-testnet` (its own journal, webhook subscription and cron), so
+  parallel coordinator deploys cannot interrupt a cohort. Removed when the
+  coordinator Worker hosts `EvalCohort` itself. That move starts a new Durable
+  Object namespace with an empty used set: keep the eval bucket's
+  `pools/<pool>/used/` ledger (the draw reads it), and before deleting this
+  Worker confirm every cohort's used rows appear there (`/eval/status`
+  `pool_rows_used` against the ledger's rows).
+- **`testnet_operator_roster`.** A plan without an `admission` block keeps
+  the operator-declared roster (artifacts already in the eval bucket), for
+  rehearsals. Coordinator-opened cohorts admit their rosters.
+- **`testnet_plumbing_only` pool.** Dev-iter humans are exposed by design;
+  scores test plumbing, not quality, and the pool holds 570 humans. The
+  `reward-v1` rehearsal pool adds 4,593 public-candidate humans
+  (`pool-public-candidate`: rows whose every experiment role was consumed
+  Test, held or diagnostic), exposed in the same sense.
+
+## Configuration and naming
+
+`wrangler.toml` is tracked and holds no account ID; Wrangler resolves the
+account from the operator's existing login. Deploy only the testnet environment:
+
+```sh
+WRANGLER_WRITE_LOGS=false wrangler deploy --env testnet \
+  --tag testnet --message "slop-ninja coordinator testnet"
+```
+
+Every Cloudflare name carries the testnet marker:
+
+- **Worker:** `slop-ninja-coordinator-testnet`, on workers.dev, with no preview
+  URLs.
+- **Top level:** a local-only shell named
+  `slop-ninja-coordinator-local-testnet`, with no vars, bindings, triggers or
+  workers.dev route. An accidental default deploy is still marked testnet and
+  cannot overwrite the real Worker.
+- **Durable Objects:** bindings `CHAIN_JOURNAL_TESTNET` and
+  `EVAL_COHORT_TESTNET`, which the code derives from `NETWORK`. Namespaces are
+  `slop-ninja-coordinator-testnet_ChainJournal` and `_EvalCohort`. The class
+  names stay `ChainJournal` and `EvalCohort`, because Wrangler takes them from
+  the exported Rust types.
+- **R2 buckets** (private): `receipts-bucket-testnet` and
+  `eval-bucket-testnet`, bound as `RECEIPTS_TESTNET` and `EVAL_TESTNET`. The
+  coordinator writes only the liveness object to the evaluation bucket. Create
+  them before the first deploy, and confirm that the public dev URL is
+  disabled and that no custom domain exists.
+- **Vars:** `NETWORK = "testnet"`, which the build requires, plus the testnet
+  genesis, `SUBNET_NETUID = "601"`, the RPC URL and the watchdog settings.
+- **Tags:** Wrangler 4.154 has no Worker-tags setting in its configuration
+  schema. Deploys carry the version tag and message above instead.
+
+Content logging (`observability`) is off.
+
+Signing vars: `COORDINATOR_HOTKEY_SS58` (the public coordinator hotkey; the
+secret must derive it), `PACKAGE_PUBLIC_KEY`, `RECEIPT_PUBLIC_KEY` and
+`AUTHORIZATION_PUBLIC_KEY` (the public T12 trust roots, the same ones the native
+validator configures; not chain keys), `WEIGHTS_VERSION_KEY` (default 0),
+`SIGN_ERA_PERIOD` (a power of two, default 64), `SIGN_COMMIT_OFFSET`
+(default 12) and `SIGN_RPC_CALLS_PER_MINUTE` (default and maximum: the shared
+budget minus four).
+
+Install these secrets with `wrangler secret put --env testnet <NAME>`, reading
+each value from stdin:
+
+| Secret | Value |
+| --- | --- |
+| `RTAO_WEBHOOK_SIGNING_SECRET` | the 64-hex `signing_secret` returned at registration |
+| `RTAO_WEBHOOK_SUBSCRIPTION_ID` | the `0x` subscription ID |
+| `COORDINATOR_STATUS_TOKEN` | at least 32 random bytes |
+| `COORDINATOR_OPERATOR_TOKEN` | at least 32 random bytes |
+| `COORDINATOR_HOTKEY_SEED` | the coordinator hotkey's `0x` 32-byte sr25519 mini-secret (`secretSeed`), piped from the wallet file |
+
+A secret change deploys a new Worker version. A Durable Object instance that
+started before it can still see the old environment; on 2026-10-30 the first
+signing step after the secret upload paused with `hotkey_secret_unavailable`,
+and an operator `resume` a minute later signed.
+
+The resource inventory, with account-specific identifiers and teardown commands,
+is kept outside git.
+
+**Testnet-only guards.**
+
+- `testnet_only_genesis` (`config::TESTNET_ONLY_GENESIS`): the build refuses any
+  `CHAIN_GENESIS` but testnet.
+- `config::NETWORK`: the build refuses any `NETWORK` but `testnet`.
+- The default RPC is the public OpenTensor testnet endpoint.
+
+These are removed when the coordinator passes Finney qualification after
+milestone M7.
+
+## Not yet implemented
+
+- **Arena: the fan-out lane objects.** `AScorer`, `EvalLane`, `GenLimiter`
+  and `SpendLedger` (`src/cf_lanes.rs`) keep their worker-macros exports, so
+  their handlers run with no scope current; their allocations spill out of
+  the glue partition, counted (`glue_spills`), until they get hand-written
+  exports like the other classes. The arena runs in `Observe` mode (step 1);
+  `Enforce` waits for the step-0 measurements (the JS reserve through the
+  inspector, the painted stack), the poisoned-pool recycle for its durable
+  intent and stop rule, and the step-9 testnet load gate. Streaming
+  packaging, seal and bundle verification (design steps 4 to 8), a
+  per-role memory model (both Workers share one, so the coordinator
+  Worker's quarantine budget is sized by the eval package step), a re-fit
+  of the package and seal footprints on the reward-v1 steps, and witnesses
+  for the continuation, cron, queue and signing routes are still to come.
+
+- **Cohort control in the coordinator Worker.** The scheduling hook still has
+  no due operations; testnet cohorts run in the eval Worker (T13), and the
+  coordinator's signing target is the operator-installed T12 bundle.
+- **Score publication to validators (M5/M6).** Packages, targets and receipts
+  are stored and signed, but no validator fetches them from R2 yet; the T12
+  bundle is the bridge.
+- **Admission, open items.** Verdict runs use the scorer lane's operator
+  probe route (`AScorer /run`): it loads with no named spec (so spec v2), no
+  cohort label, the probe's 180 s load wait rather than the cohort's
+  spec-derived allowance, and replies with a code but not the lane client's
+  definitive flag. A dedicated admission route on the scorer lane, running
+  `prepare(.., Some(label))` under the cohort's `LaneLimits` and naming the
+  spec, is a lane-client change; until it lands, admission plans are spec
+  v2 only and an artifact that loads in more than the cohort's allowance
+  but within 180 s is admitted and then times out in its scoring lanes.
+  The header record is decoded in the eval Worker, which holds the package
+  and receipt keys; moving that decode and the parts-manifest derivation
+  into the scorer Container (or the upload routes into a key-free Worker)
+  needs the lane-client change or a new resource, and the routes stay off
+  (`ADMISSION_ROUTES`) outside operator drills until then. Per-hotkey and
+  per-IP rate limits (`rate_limited`) are not enforced; the stateless
+  signature check and the `hotkeys` allow-list keep unsigned and unlisted
+  load away from the cohort object, the unsigned cohort read excepted.
+  Framing is one non-resumable step that hashes the object four times; its
+  CPU and peak memory at the spec's largest object are not measured on the
+  load instance (`ADMISSION_STEP_BYTES` and `COMMITMENTS_CONTROL_BYTES` are
+  estimates). The cron, not the per-block delivery, drives the commitment
+  reader. A full 40-entrant template fits the coordinator's memory model,
+  but its target and carrier receipts exceed the native validator's 64 MiB
+  bundle bound by W7's estimate (about 34 entrants); bundle schema v3 is the
+  fix. The span outputs are not served.
+- **Fresh stock.** No cohort has had an admitted outside entrant, so every
+  draw so far is from `EXPOSED_POOLS` (testnet pool v1 and the
+  public-candidate refill), where a row may be drawn again (never-drawn rows
+  first, never twice in one cohort, the rewrite-source reuse limit and gap
+  kept); a plan naming any other pool is refused at queue time, and the draw
+  faults (`fresh_stock_refused`) unless the frozen roster unlocks the plan's
+  fresh pool.
+- **Receipt retention.** Detailed receipts and their chunk objects are kept;
+  nothing deletes them yet. The rule to implement (whitepaper 07b): a
+  cohort's detailed receipts and index are deleted only once cohorts N+1 and
+  N+2 have completed (the coordinator's durable completion) and N's target
+  has been superseded; a target kept live through no-target cohorts keeps its
+  receipts, and chunk objects are never deleted while their target is active.
+- **Published-index rebuilds.** Validators and the coordinator's signing path
+  check the published index a bundle carries against the signed manifest
+  binding (and that a carrier's index extends it), but do not rebuild it from
+  every closed cohort's packages; they trust the coordinator's index.
+- **Bundle and receipt bounds that grow.** A `reward-v1` bundle embeds the
+  whole published index, which grows with every closed cohort. The
+  coordinator stores a bundle in one Durable Object value (2,000,000 bytes),
+  which the published index alone outgrows at about 5,000 published
+  artifacts (about 130 full testnet cohorts); binding the index by digest and
+  keeping it in R2 or chunked rows is still to do. The flat receipt index is
+  bounded by the canonical sequence bound (2^20 entries), and plans are
+  refused when a cohort's receipts could exceed it.
+- **Authorization issue and renewal.** Reward-intent and launch
+  authorizations are signed by the operator tool (`reward_v1_verify`) under
+  the T12 authorization key and installed with the bundle; nothing issues
+  per-tempo renewals yet, so a bundle commits only within its lease. The
+  coordinator checks each bundle against the target it holds active
+  (`sign_held_target`, recorded from checked closures), so a replaced target
+  or the launch bundle after the first activation is refused; until a
+  renewal names the active target, a holder that has not seen a newer bundle
+  keeps its held target to the end of its lease.
+- **Native validators during the burn regime.** rtao holds a row whose
+  positive entries are only the owner hotkey's (or the validator's own) UID,
+  so a native validator commits nothing while the active row is all burn
+  (the launch row, or a target whose credited miners all left) and its
+  previous weights stay on chain; it defers each such tempo (exit 75) rather
+  than halting. The coordinator commits burn rows itself.
+- **Lookup canary.** No anchors exist on testnet; the canary statistic is not
+  computed and flags come only from the plan's drill list.
+- **Fan-out stage 2.** Job ledgers (one Durable Object per scored job) and a
+  two-level receipt index are not implemented; the flat v1 index and one
+  cohort object hold every receipt row, which fits the testnet rosters
+  measured (TESTNET.md).
+- **The 1-vCPU instance type and ENAM placement constraint.** Not qualified;
+  scoring lanes use standard-4 with no placement constraint.
+- **Signing limits** (see [Signing](#signing-m3)): mechanism 0 only; one RPC
+  endpoint; `CheckMetadataHash` stays disabled, as for rtao's keyfile signer;
+  a block's writer runtime is learned at its parent, which the journal must
+  retain; the journal assumes exclusive use of the hotkey and faults on any
+  foreign nonce use; no MEV shielding (not required for this path). The fake
+  chain does not enforce mortality or check signatures, so the era-expiry path
+  rests on the live drill (TESTNET.md). Every signing round claims and
+  releases the claim, so its generation grows by about one per block.
+- **Liveness alerting.** The liveness record and `/status` verdict detect a
+  wedged ChainJournal, but nothing pages an operator yet, and a wedged
+  instance still needs the redeploy in the runbook. A panic is recovered by
+  workers-rs on the next request (qualified live); `state.abort()` is not. The
+  instance is also constructed more often than deploys alone explain (see
+  TESTNET.md); `/status` reports its age, requests and Wasm memory so the
+  cause can be narrowed.
+- **Pruning.** Deliveries, block events and the retained chain are small but
+  kept indefinitely: about 7,200 rows each per day.
+- **Launch qualification of lag.** One 15-minute primary window and one
+  fallback drill were measured on 2026-10-30 ([TESTNET.md](TESTNET.md)); longer
+  runs, provider outages and public RPC throttling of Workers egress remain
+  unmeasured.
+
+## Checks
+
+These ran on `build-host` (Linux, Rust 1.99.1, worker-build 0.8.7, Wrangler
+4.154.0), last on 2026-10-31, each as one Cargo job under the shared lock:
+
+```sh
+cargo test --manifest-path subnet/coordinator/Cargo.toml
+cargo clippy --manifest-path subnet/coordinator/Cargo.toml --all-targets -- -D warnings
+cargo clippy --manifest-path subnet/coordinator/Cargo.toml --release \
+  --target wasm32-unknown-unknown -- -D warnings
+cargo test --release --manifest-path subnet/coordinator/parity/Cargo.toml
+(cd subnet/coordinator && worker-build --release)
+```
+
+**On main, 2026-10-31,** after the M3 signing, M4 evaluation and fan-out
+branches were merged and the liveness record was keyed by deployment role:
+164 native tests passed, the 4 parity tests passed, and Clippy passed with
+warnings denied natively and for `wasm32-unknown-unknown`. The four tests
+added with the role key cover the `EVAL_ROLE` parse, the two keys, a
+simulated wedge and stopped cron on the coordinator while the evaluation
+Worker keeps answering, and a source check that the Worker reads and writes
+the record only under its own role.
+The crate denies `unwrap`, `expect`, `panic!` and unchecked indexing outside
+tests (M3); the hidden-evaluation modules, their Durable Objects and their
+routes are exempt until converted. The branch records follow.
+
+**Native, M3 branch: 98 tests passed.** Beyond the heartbeat suite below:
+
+- `chain` (10): the commit call and both signing payloads equal rtao's golden
+  bytes; the signed extrinsic verifies and decodes back to the call and nonce;
+  storage keys and defaults by name; the mortal era; the payload is upstream's
+  SCALE and decrypts with a published quicknet round signature; rtao's round
+  vector; epoch arithmetic; the runtime API metadata wrapper; seed errors carry
+  fixed codes only.
+- `signing` (27), against a fake chain whose every storage value, block body
+  and event list is encoded by name from the runtime that executed that
+  block. Runtimes are per block: an upgrade enacted in block `E` puts the new
+  code in `E`'s post-state, so the version and metadata reported at `E` are
+  the new runtime's, while `E`'s storage, events and `LastRuntimeUpgrade` are
+  the old one's. The second runtime is the recorded metadata with
+  `frame_system`'s `ExtrinsicSuccess` and `ExtrinsicFailed` indices swapped,
+  so a block decoded with the wrong runtime visibly fails. Nothing is
+  read or signed while paused; one commit per epoch with read-back, the reveal
+  observed at the predicted block with matching weights, and the next epoch's
+  own operation and nonce; an uncertain reply reconciled without resending;
+  eviction after sending recovered as uncertain, never resent; a lost
+  submission waits for era expiry before a second attempt with the same nonce;
+  a stale holder's mark and outcome are fenced; duplicate wakeups take one
+  claim; a late drand pulse is found by the queue search and a commit dropped
+  without a reveal event is reported; an existing chain commit refuses a second one; a disabled flag pauses
+  without fallback; a pool rejection fails the epoch without retry; foreign
+  nonce use is a fault that needs a clear; per-epoch identities; content-free
+  status. Added with the failure accounting: an upgrade enacted in the
+  inclusion block, which the nonce search also probes as a midpoint, is
+  decoded with its writer, and nothing is ever asked of that block's own
+  version or metadata (the runtime is learned once, at a parent); an upgrade
+  enacted in the reveal block, likewise; an upgrade during reconciliation
+  fetches each runtime's metadata once and the next epoch signs with the new
+  runtime; undecodable inclusion events settle after five reads into
+  `events_unverifiable` with the nonce floor advanced and the next epoch
+  committing; a reveal search that cannot finish (unretained blocks) never
+  starves the next commit and settles as `reveal_unverifiable`; an RPC error
+  (429) ends the round and backs off; unparsable metadata is refetched at most
+  six times in 40 blocks; signing's RPC share leaves the heartbeat four calls;
+  reveal checks and probes are logged; a reveal search cut short by a
+  three-step round continues from its stored bounds with no abandoned steps;
+  v4 storage upgrades with its signing journal intact.
+- `liveness` (1): consecutive failures, verdicts and staleness of the
+  ChainJournal's external liveness record.
+- `target`, `rpc` and `config` additions: bundle and trust-root refusals,
+  block-pinned reads, submission reply classification, signing configuration.
+
+**Parity: 4 tests passed** against rtao `b5553a76` natively (see
+[Wasm path](#wasm-path)).
+
+**Wasm.** Clippy passed on both targets, with the panic lints denied.
+`worker-build` produced `index.js` 31.5 kB and `index_bg.wasm` 2,039,481 bytes
+(664.2 KiB gzip as uploaded, against the 10 MB compressed Workers Paid limit).
+Startup time is 7 ms.
+
+**Native, fan-out branch: 116 tests passed** (2026-10-31, after the fan-out review fixes; 105
+for the fan-out lanes, 83 after the M4 review fixes, 54 before M4). The evaluation tests run whole cohorts against
+SQLite through a simulated lane runtime (a queue carrying content-free kicks,
+lane objects that keep the larger `(seq, gen)`, alarm loops with per-run
+claim budgets, and both buckets), with the real engine:
+
+- a cohort end to end through generation lanes (a rejected output retried on
+  the next generator), the seal, scoring lanes, summary and bundle lanes and
+  packaging, every bundled receipt verified against the index and the
+  package, the burn row for copies of R_k, closing at opened + K with its
+  spend settled once, and a second cohort that reuses no human;
+- failure semantics: lease expiry reconciled with no compute when the expired
+  attempt's objects are durable and recorded lost (attempt 2 resolving) when
+  they are not; a crashed lane re-kicked once stale, its old generation
+  fenced; a container crash or OOM isolating the chunk, with a crash that
+  kills a proven fresh instance a second time a model error for that job's
+  document only and a transient crash never attributed; an isolation run cut
+  short by its step budget handed back and continued under the same attempt;
+  an entrant that crashes on everything, or never loads, becoming model errors
+  after the declared failures while a reference that never loads pauses; an
+  R2 read outage before dispatch pausing with no attempt spent and the same
+  cohort resuming; reconciliation read errors and a missing receipt object
+  never losing a durable answer; a failure with the container up never
+  isolating; an isolation restart that fails spending no attempt; duplicate kicks and
+  every fourth kick lost, with one receipt per task; the re-kick livelock
+  regression (a lane reporting through a 60 s cold path never re-kicked by
+  10 s sweeps, a silent one re-kicked after 30 s); coordinator silence pausing
+  lanes at their next claim with the same cohort resuming, and the load
+  instance's hold doing the same;
+- generation: throttles using no attempt and keeping the generator, every
+  reservation released; concurrent claims never reserving past the budget; a
+  late result from an expired claim fenced with its usage recorded;
+- a job that spends every attempt faulting alone while the others finish,
+  then the cohort pausing; the scoring budget faulting the cohort once
+  measured spend would exceed it, and a plan whose budget is below its own
+  upper bound refused; requests that never reached the model returning their
+  attempt numbers until a pause and a clear; a generation outage pausing with
+  no case dropped; batch and draw shortfalls within or beyond the tolerance;
+  the durable used ledger; phase minimums ignoring silent tempos; the pre-start
+  kicking every scoring lane once during the generation tail, holding no
+  claim; load mode re-scoring a sealed batch with no target; and the v3 store
+  migrating to v7 in place;
+- the lane planner at its edges (J above the cap, C not divisible by W), the
+  cost bounds, the token buckets (no 60 s window above rate plus burst; AIMD),
+  billing cycles and the monthly ledger (idempotent settles, repeated
+  reservations reported, open reservations across a cycle boundary), chunk builds
+  identical in lane and cohort, bundle verification, shard and claim digests,
+  and the isolation procedure (reproduction on a proven fresh instance, a
+  one-off failure, a control that fails, a restart that fails, the step
+  budget and a continuation);
+- R_{k-1} scored but never credited;
+- twox128 and XXH64 vectors and the epoch reply bound to its block;
+- sentence splitting, span selection, splicing and word share, and output
+  validation; plan validation and the shortfall tolerance; the draw,
+  proportional quotas and the used ledger (v1 entries without an authority
+  always count; only an authority's own write-ahead entry is redrawn); outcome
+  mapping, components and paired SE; chunk encoding and verification; the v0
+  policy, signing and the row.
+
+Webhook and configuration:
+
+- HMAC framing against an independently computed vector, field and skew
+  enforcement, and body validation
+- the testnet genesis and network guards, settings bounds, RPC URL rules and
+  bearer-token comparison
+
+Journal:
+
+- migrations v1→v6 and v2→v6 in place (the watermark seeded at the anchor),
+  and rollback of a failed upgrade
+- webhook blocks staying provisional until a head audit, an audit point or an
+  RPC list at or below the RPC head confirms them; a contradicting audit never
+  confirming; and a re-anchor dropping the watermark
+- dedup by delivery ID and by (stream, block hash), and rollback of a failed
+  ingest
+- parent-linked advance, gap detection and hash-list backfill
+- durable parent-mismatch, hash-conflict, RPC-junction and RPC-head faults that
+  pause until cleared or re-anchored
+- RPC head audits
+
+Heartbeat, against a fake chain:
+
+- no RPC call for a delivery without a gap
+- bounded gap rounds with carry-over
+- overlapping invocations skipping a held claim, and stale holders fenced
+- silence entering fallback and ticks walking to the head, then a return to
+  primary with redelivered blocks deduplicated
+- per-tick bounds, behind-with-live-webhooks fallback and `caught_up`
+- one head read per tick, and the shared budget
+- pause on a fault, one scheduling step per new delivery, and content-free status
+- scheduling held at the watermark until the tick's head read confirms the
+  delivered blocks (no extra RPC), and fallback blocks confirmed as they apply
+
+RPC parsing uses the response shapes recorded from the public testnet endpoint.
+
+**Wasm, fan-out branch.** Clippy passed on both targets (2026-10-31). The
+`no_runtime_gates` lint
+(`cargo test --manifest-path subnet/Cargo.toml --test no_runtime_gates`)
+passed.
+
+The 2026-10-29 local-runtime runs (`wrangler dev --env testnet --local`) of the
+heartbeat are in git history; the M3 signing path was exercised live on
+testnet instead ([TESTNET.md](TESTNET.md)).

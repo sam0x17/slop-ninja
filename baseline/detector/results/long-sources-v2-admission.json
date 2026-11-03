@@ -1,0 +1,60 @@
+{
+  "book_authors_used_as_summary_authors": false,
+  "corpus_sha256": "ecaad984a0dc5d9e9d6252cf795bff870c6b73ba5585b623652eec83953a6ebe",
+  "dataset": {
+    "collections": {
+      "cmu-books-historical": 30
+    },
+    "evidence": {
+      "historical_proxy": 30
+    },
+    "licenses": {
+      "CC-BY-SA-3.0": 30
+    },
+    "origins": {
+      "human_only": 30
+    },
+    "records": 30,
+    "source_groups": 30,
+    "splits": {
+      "unassigned": 30
+    },
+    "words_max": 1557,
+    "words_min": 1227
+  },
+  "decisions": {
+    "Long quotation requires separate review": 12,
+    "No full historical match": 53,
+    "Source notice requires separate review: copyright": 4,
+    "Source notice requires separate review: fair use": 1,
+    "admitted": 30
+  },
+  "decisions_sha256": "60aee5cb7291641278ba14c6624e8a3b2a898b6143d8abb9f4b27546e05a9321",
+  "exclude_corpora": [
+    {
+      "corpus_sha256": "195a632721f370f84b5ab3bc8c71a5e7f620fdb1c3a4796e04c639cef2887ad4"
+    }
+  ],
+  "executable_sha256": "629e7162e087f33dea13ae64af9eeaefb7b7d45a27b3d4302fef0365dc1d875b",
+  "experiment_splits_assigned": false,
+  "generator_calls": 0,
+  "historical_ledger_sha256": "62a4f08c839fdbc05700a224187933910bfa6cf1d94aabecdb6a367527822e8f",
+  "input_sha256": "94516c64d1b4ac6b8b397ef106ee598b43d0e5364ffd8305edc945dce04f4305",
+  "pangram_calls": 0,
+  "policy_sha256": "92665509fb026bd8d6d478d2ee5f5f75886882aa889bf6c7966096663241f79d",
+  "qualification": "Historical proxies, conservative notice/quotation screen; no strong provenance or detector qualification claim.",
+  "review_inputs": [
+    {
+      "plan_sha256": "e2c269255493c512d3b8844f0c7abf319f94b1834f52379ad485691f94948eaa",
+      "results_sha256": "3dd7a93b53dda321444ac0b9e50dc0e627fb68e73da0b065b38e98dc8f56adea"
+    }
+  ],
+  "reviewed": 100,
+  "schema": "slop_ninja_cmu_long_admission_summary_v2",
+  "split_report": null,
+  "status": "complete",
+  "word_range": [
+    1200,
+    1600
+  ]
+}

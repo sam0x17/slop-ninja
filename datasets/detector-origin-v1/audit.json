@@ -1,0 +1,33 @@
+{
+  "records": 432,
+  "source_groups": 128,
+  "origins": {
+    "human_only": 128,
+    "model_only": 176,
+    "mixed": 128
+  },
+  "evidence": {
+    "historical_proxy": 128,
+    "recorded_model_generation": 128,
+    "recorded_model_revision": 48,
+    "model_edit_of_historical_proxy": 128
+  },
+  "splits": {
+    "development": 57,
+    "train": 375
+  },
+  "collections": {
+    "cmu-books-historical": 174,
+    "hc3-wiki-historical": 66,
+    "plos_one": 105,
+    "wikinews": 87
+  },
+  "licenses": {
+    "CC-BY-2.5": 87,
+    "CC-BY-4.0": 105,
+    "CC-BY-SA-3.0": 72,
+    "CC-BY-SA-4.0": 168
+  },
+  "words_min": 82,
+  "words_max": 586
+}

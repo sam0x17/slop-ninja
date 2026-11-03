@@ -1,0 +1,1496 @@
+{
+  "at": "2026-09-15T11:33:12.146847+00:00",
+  "bindings": {
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/plan.json": "3aeb92e49d9526f69e5756fe93409b57214b7bbdd2579c694495b1985c6a916f",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/015880fb869c03be024bb3ed9b8d1ee706770d941ab956090a1328ed6fb71e80.body": "8c815c140d8e81bfb3a4afa2abcbf57101c78292b98ea66ef1f3d75af06ac12a",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/015880fb869c03be024bb3ed9b8d1ee706770d941ab956090a1328ed6fb71e80.json": "d86200891e214f3999af98be39dd3116d2ed8ccd7d50613958a244fdf7bf6898",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/038942bbacc20d2b3da7d2e4747db57110447338aa415a0a3278e473b126a13c.body": "b3a6d50a3d8819dea2bc6622f3f108f5489846be055ce4a8681da6fad4ae31b7",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/038942bbacc20d2b3da7d2e4747db57110447338aa415a0a3278e473b126a13c.json": "625ec2b6bf225f3e959e4e882e3e1c8b4e4e82dd8f92a6b0484c48a401f264dd",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/0480736e244f3d242d9e473267c2f442d3f37dd65b8964aa7401787767a5a51e.body": "3f772a84afdc6aa5f37d175d2980b5e52daf18af5d35ce82d45f5b0a9cf91026",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/0480736e244f3d242d9e473267c2f442d3f37dd65b8964aa7401787767a5a51e.json": "dfdb24dc3feb765181451ac2595e0d25a48831e89b1e65b7091c3b03a4de14e2",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/0d9e64023c87292b98614adea900669adc4a5584413f6951e56bff73c30229f6.body": "24487f88cf89a371d07f74c0fa085bec8ce712d4937c6d66eabd7dea48d58957",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/0d9e64023c87292b98614adea900669adc4a5584413f6951e56bff73c30229f6.json": "02f28dad2dd6415b8ae9801f9dff9c7d919504343b9166c0c9fe34c6dfac952c",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/0e614afdad9c3072cf7349a800a38e9788f4ca4299e3dedf552292d09c6217c8.body": "6269506bd06b639c18a44582c5ba6eb0c290de208304766e23d484f42ff07e74",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/0e614afdad9c3072cf7349a800a38e9788f4ca4299e3dedf552292d09c6217c8.json": "4ee12f7d0167e03d5bb7338bb5039bafc1cd86e4fc721000b7c090f56da96b47",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/148ab8228664bf3f8b31f1fa8fb048dcc7f461c3b6c180c05c3dbe81eb29bada.body": "d42227db4027e1723641263ab2c2de90c4651fd0c6aa18cdc654833e581ef3f2",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/148ab8228664bf3f8b31f1fa8fb048dcc7f461c3b6c180c05c3dbe81eb29bada.json": "a8d0aac13e0819de7a0f0b6859e7ea127a1db20e9f8bed1cc6da6eccdcf77b46",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/1895be01e915407fa2d52d824a071174b62a14f4c0e455c785c1cb88bb31a524.body": "907f423053324bc20b22acb4e0b0400a73a146937657a0b0b52759526179495b",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/1895be01e915407fa2d52d824a071174b62a14f4c0e455c785c1cb88bb31a524.json": "f209f68f1eb14dc5bbe917004c48019b2890b983f89f6c1c37907216e521d35e",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/1ecf30660db821db4ddc92da7d219ec14e8c8a5456abd0c890847701dc919e0b.body": "16a1ffa9a2489e2cb3e62ef60846e920915e8cb8377472344221dabe887b4c53",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/1ecf30660db821db4ddc92da7d219ec14e8c8a5456abd0c890847701dc919e0b.json": "f0bc37e6029b4cd69ab9460da7a9d7323db339f9087bc7e2adc013a9b75b0d59",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/219719a326de72af8ccb8b926f4eae7801560172b94ddb44bf5f8f15e18b5335.body": "629ec6adcab1e5e97f4bee11185ae97402610a8f60ee8def57c5a82260f61f0e",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/219719a326de72af8ccb8b926f4eae7801560172b94ddb44bf5f8f15e18b5335.json": "97b490b350e91ddaf7cb14a2d5618ca995c7951256c5a586339e241f46d69ca1",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/235ade9f965428ce5b6d7076b54d3388ee21c096444dc60807e647fe8f28cbb6.body": "1ed126a9e5ced73e6324c9ef25f5ad9b20c8787b7f64b17770e967b84964d87c",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/235ade9f965428ce5b6d7076b54d3388ee21c096444dc60807e647fe8f28cbb6.json": "12c60fd10e67a270faadde94f11172d75224d973f9ec9707cd4667c7976f6669",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/23f0e178ca0854e1510ef82eee6a096b2785e5854252b1abc855d61378e41615.body": "ea263445c09faa2b476d7d961eb09e943af584db44e7135142b66d1936ee3590",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/23f0e178ca0854e1510ef82eee6a096b2785e5854252b1abc855d61378e41615.json": "277a02bd98511fdaa3dbeb61cc403099d00d3e9797e82e9d5b134197a5724c0e",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/27357ad3578faf4af3141ed620ca76e1d0bdccb5f5d9fd909bef6297cc4a2b73.body": "3a47c668e0bfc1dacb4be550fc2c802fea3434ca05576367923362e4293c17c0",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/27357ad3578faf4af3141ed620ca76e1d0bdccb5f5d9fd909bef6297cc4a2b73.json": "4d19da918944a5c3b663d007c47f7c17ca363649006d2339935dcb416aef85a2",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/3011d32bd93c931417b660273aeab2a99816c69e461f14f63acfd9f2ca7204ab.body": "1324656d8314d45e838953aafb20f6856d376b0dbe3f9c7e242d49574f067a9b",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/3011d32bd93c931417b660273aeab2a99816c69e461f14f63acfd9f2ca7204ab.json": "abc3a8eab62e7ca3815482c79c9ce985cafea4e959d9cb071c9f77f0975858e1",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/35df655cb12abe8c08cf0cce65217124b52a60b165228cd422a330ded063b2bb.body": "4846970a30e33fb15fde13cb32c860f285f9c637561a699b182cbc9166c39085",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/35df655cb12abe8c08cf0cce65217124b52a60b165228cd422a330ded063b2bb.json": "534ad34265490c604d7e849efb5a28edebeaa0dfec0491f375ed59e8e6acd2ea",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/35fc5fdec1237b91c162651a359e30a8196473e911f1060f97e6bad0c352d98c.body": "a0ba1f2397322693d59fbf3ba662069dc9276f277577c7962a06f7eab8d7ec40",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/35fc5fdec1237b91c162651a359e30a8196473e911f1060f97e6bad0c352d98c.json": "0501c7d88e581972d3a945549473c4cc90a2b2b62e5037cd0f9253cdadccbfb4",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/3b5bf399f46b14ce5697c1bff21df8b9472a38a865e39dc3c7d7054cd33bd282.body": "2e6a4a1eaefee8ddcba4a8fe41f0e854135514a86e0584230c65b8734a771ba6",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/3b5bf399f46b14ce5697c1bff21df8b9472a38a865e39dc3c7d7054cd33bd282.json": "8638ac424ef6782b9d441da55a53ff15ef03a3efdce6586d31217b80d71fc4d1",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/3b8bce0a4fbe4d4a6e4810e2ade50d20bb40fd7352c9631f4047813617ef85b1.body": "860894616cfe514d3ba2fe3deec5c310723081b6001f4e5dbf762cfd38f4584d",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/3b8bce0a4fbe4d4a6e4810e2ade50d20bb40fd7352c9631f4047813617ef85b1.json": "42c61b19e6f0b61a60a14e5f56ef1f67eb8c2d843c549a0a74192775d42cc4ce",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/3c40b949d906ea2ef5a99289e534cc5e76c8b10c09e549dc420f2b6d08fd9b00.body": "a077d98fb5471a3d6111e950d5debce516f90637634278f24ed5c03bb13ebff9",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/3c40b949d906ea2ef5a99289e534cc5e76c8b10c09e549dc420f2b6d08fd9b00.json": "9c02f709ba4661929cbbdde4e2a219c1225a634138f558aa11bfdecc28d788d8",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/42d6249b6a911cec83acc85337ad89dd59abcc03f7dca7a2a63d2fbf213d09c4.body": "b473d309a779ac7d9017d3c786c2889c7cc562ad4e79bec0d1d0a3b065d92307",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/42d6249b6a911cec83acc85337ad89dd59abcc03f7dca7a2a63d2fbf213d09c4.json": "409c601ab1d3ed581519e5ac2fb241141fd06fea16329ce1ace8e9a0073348cb",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/443db37fa5d8b2f5a0bc7d5b08c952f3d70a9651706b329565a0f11cb27627d9.body": "4e74afc869f82e93b78627e40f6eb776b15f3dbbea66f5e81b787977aed73dc7",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/443db37fa5d8b2f5a0bc7d5b08c952f3d70a9651706b329565a0f11cb27627d9.json": "de5ca94d855b1b93a6fd8e2a2874dd4e1f27a00b7ee75d19215a92f8fa8fa8a3",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/4a8950fe8bab626b8d6edebc179dca8aa4dfbd56f0b799a47ac2b1dca04f457a.body": "a9cfb6f2daf436c589916d8ad18b1e076852a265a9fc69b0b073f5c88a39c67e",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/4a8950fe8bab626b8d6edebc179dca8aa4dfbd56f0b799a47ac2b1dca04f457a.json": "b8df4b97fc98a9599cae13ec639f49dafc45a004e93db84c239798a6d588a67d",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/4e0828108bb6dfb5ecf3fe4d0d766b5943044df2439383742584bac3b0df4845.body": "881252c71b691fafb57db031d13a298e33fda7801ea5f7558506c323b0e97239",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/4e0828108bb6dfb5ecf3fe4d0d766b5943044df2439383742584bac3b0df4845.json": "a3711d728433183c1f7c1e95a086261d93d8bbc3386d096942e75fe55c5a5fa4",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/4f45bde8bfbc5eb30cff1056082ef4997ce7247ccaafe1a9a6c7223574f7f84f.body": "1933250b22d0fa1b48769a27875f6d15c3b9d953b5a29bc5b4f6bfd4f86def8d",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/4f45bde8bfbc5eb30cff1056082ef4997ce7247ccaafe1a9a6c7223574f7f84f.json": "0e77d977a7dd524efc11f5a186f4ea85dc028cb265263ca7dfcce926fe152c98",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/4fc4dbd98eb8e9fd04c34f72e7f17beaff55fb125def2cedb5af89e585980b6f.body": "263fdda6cb94cf8bf33605ff9107b9aa2d95ca69d658af849e300188ec3d50c7",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/4fc4dbd98eb8e9fd04c34f72e7f17beaff55fb125def2cedb5af89e585980b6f.json": "3d82aaca82b2b1ad1cbe890d7f80e31920847af8f74b49c2f15a1a783c55d9ed",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/5069c4282fc0a0a72555fbc06cc061e23a1f8a9a23bfc3210c267780af51ab18.body": "8f4c8a350ed2217f6d3e6bd87ed3ec6217cfdc52377579cc04d812fc09a69b6b",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/5069c4282fc0a0a72555fbc06cc061e23a1f8a9a23bfc3210c267780af51ab18.json": "1689bf2b498532fb16ba2f5cee0351df4d0cb023ce528c68983e1e42b56b3a66",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/5513d89884f143e9ce94cd8748441b6b29e41d7aaa4ea1c7ea5ca13a1a33c4f2.body": "381c54bbca91d54caf4cd1be267f38fc624e5c182e8e04123a77b86a2b9b048f",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/5513d89884f143e9ce94cd8748441b6b29e41d7aaa4ea1c7ea5ca13a1a33c4f2.json": "1cfab743abd9ca092f21f2c502d362327e9fe803ef795996da49b997675e0f95",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/56299b91a002edd77c8018ac9c7dd03c1d8371c7a3d05fc2f6f61fcb7fce1508.body": "637905c3ebcb881917bd856605208db3001e2aa717f2ef89823e70d04aa20f2a",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/56299b91a002edd77c8018ac9c7dd03c1d8371c7a3d05fc2f6f61fcb7fce1508.json": "27688d540dd55effbcbeda8554e56fd6a1b02d3320fc69059b715451930e9eb2",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/5c06ce0dfc5d35dfb16566bc77a90155256741f2e5b7783619d117fe7705b12f.body": "3914d3824bd64e18231cb35ddc726da54805548db3b174ae7a3610eac3fadfe9",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/5c06ce0dfc5d35dfb16566bc77a90155256741f2e5b7783619d117fe7705b12f.json": "e7cd67e80843acdc790b5660d2a4a6c7d3efe1499cc67ed96c362464b20eb658",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/7241f2c2d803d08898cb3aca542e42dfac6b7dab4c3ad8a5ad5a4976bfaf3aec.body": "80324fc7a0dd6c7e273ab16890c7c48a2dd5e23ff00929274dea249844428cd3",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/7241f2c2d803d08898cb3aca542e42dfac6b7dab4c3ad8a5ad5a4976bfaf3aec.json": "988273474a1f97bd16a72d54bc9fd260207437bf466ea353ff921577b126ebd5",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/78406546dcca407286d25555ee79d6e30c8612c1daace3d1130375b9dafd637a.body": "41f2d7c5b16584b0fb85fca6b07a91874840ad8e3e3e7732c8fa51986f82a161",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/78406546dcca407286d25555ee79d6e30c8612c1daace3d1130375b9dafd637a.json": "0200d189f4d2ec76f96771b3cae2728ef32cef75683463161c477e4cbefae5db",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/78436c4667b5bddf7b87e21355a04cb99ec74b9e127f6c175c573ce62adf1163.body": "67c71e759c358647318d13e01d5f295aad5464e19fd092b234b1c7233ad0df9d",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/78436c4667b5bddf7b87e21355a04cb99ec74b9e127f6c175c573ce62adf1163.json": "8575fddc2c2a4efbdbfaceaaeeb17cc0918d08b1d20e56c809fd5c57ee46116d",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/7920c29b1b61613ec9338676394988aa574ebafe8f426b459c8b5a0907a2c8f3.body": "5b60ba8391cf8ed00b9db13167376964b10034cab3bf2edc18fbcd74510792c7",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/7920c29b1b61613ec9338676394988aa574ebafe8f426b459c8b5a0907a2c8f3.json": "58e734636ec1328a3139c054c28e2ce115d6d0cccd0bf9c24014da3c762b5cf6",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/7b6101a9faabab9d583a84b94505e5607806dfb9d5b8faa8bc16cb35ea5d6c99.body": "c23290b7c6c1b71e6d883e1779a125378c759a6b6d15216cce42bdfa3a014b81",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/7b6101a9faabab9d583a84b94505e5607806dfb9d5b8faa8bc16cb35ea5d6c99.json": "25e0435515e00a1f97d9c882fbb4ac6ff34c48cd2e8aa9ef9e97126b98527a0a",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/80387cb061652db05c900c2323e57b54a3b487240e5f2b82c015ab948a0f73bd.body": "ded08314f6de5dd48aa960edcb25f689e7a28217eb93624eee18828e13e80c38",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/80387cb061652db05c900c2323e57b54a3b487240e5f2b82c015ab948a0f73bd.json": "8f249116a31a1819dc85e69b08999a56ec7e05ea1047d47e0e1892e30e38ab4c",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/8c8882c7873e1170b7a9658fd79733e2cb5f85c87372ff89eab3c51149c1852c.body": "d3dbd1ed9f94a63a3c125ba472f37b94f74056aca75a8960ae5352b821cde5e5",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/8c8882c7873e1170b7a9658fd79733e2cb5f85c87372ff89eab3c51149c1852c.json": "9f4554b0b9585a71502bd031acdf993c78ebbb92ce07fb89257a803badc1cae4",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/943cae82a0b553ea561418099a6b7efd7c75671df8b2d7028b0530930b9b0962.body": "4b84932117690de4b9c1d3fc716a42cb4a738dcc72c1f5ff390020bbef3c0dcd",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/943cae82a0b553ea561418099a6b7efd7c75671df8b2d7028b0530930b9b0962.json": "6e94a15a0ee8a00786f5b5096fe4e7cf4cbd9a29769c279de095490552e5929a",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/95030b2b13c874158315a83c8f620f1ec0d86da880ce6d93bbd9fba411982a03.body": "c77beea7d35473db612685b74a8d8eedc0bc69b0f308690517b6357abb2b5670",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/95030b2b13c874158315a83c8f620f1ec0d86da880ce6d93bbd9fba411982a03.json": "13d9443cb74c338ef8ad076b0855c4449624461afddb6786662d3d00d27d6c2c",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/9ee503478f92dd8d1f1df771269899e841e2593c468055a2ba76158a8df2508f.body": "3a0777130f017dd48454b3d5e1d35360ceb7aa0fd692fe510e4fe9210fc92a74",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/9ee503478f92dd8d1f1df771269899e841e2593c468055a2ba76158a8df2508f.json": "226a0c8e6a2d31f3b30f203cbc3ba541276bc4740c4a15755db38f8c312c00ef",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/a79d3561bda7522422cc61071750cd9fb6aba6320cf480156be0133ee0d3c0ff.body": "c0940c0a1fc6eacd8978792df77f6e0eebf08be17381116a804bcbc7607faf43",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/a79d3561bda7522422cc61071750cd9fb6aba6320cf480156be0133ee0d3c0ff.json": "d3e58ea73058189847897c2208575086cd5275c7d00e3ee2af3f045df813c60d",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/af4da51a754fe15a7eb4d7f365c1288c7338dd026f583ca3662c10338c463444.body": "1025fa265c99ab4b92190bd705345a893191d5cece8d156954d7cc231822dbda",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/af4da51a754fe15a7eb4d7f365c1288c7338dd026f583ca3662c10338c463444.json": "17cb4990f486c8ca12b02631586f3815261c32af8cd07f9f1c44e0292369ba7c",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/aff2fbbfbae5d3ff624459d2de17f84ccc8f81a30a4f7c8964b0769e9ecacc38.body": "5ef9cfcc6fa5093072bec6d01d046629b1f720b4ea87f33ae0a08692e02457e5",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/aff2fbbfbae5d3ff624459d2de17f84ccc8f81a30a4f7c8964b0769e9ecacc38.json": "f8b381bc2c7c9061f9b387a1da2e3944904b3824ab99ff94d5d94c8bad66370c",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b0fd9feaa18cbc7fd04e7d5959d0abaf1c6ec112b3c1a32469dd7aedc54a7ee8.body": "d4767e8acdd6552fdb6789b2078b00a0ecb72827a8819e25eb06bd98a7bb94da",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b0fd9feaa18cbc7fd04e7d5959d0abaf1c6ec112b3c1a32469dd7aedc54a7ee8.json": "0d024bc6b6e919105c106f9f49941fa9bdaee110500a1c1af8c92c1c4484b9c4",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b1b8cc7085273b8ecdf43142cbaa300911d89a80d9602eeba08195a372b57079.body": "5184bf4e3b30e55ae34f965edbb0ce501f1904007bc8706a7cb75c435fa537c5",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b1b8cc7085273b8ecdf43142cbaa300911d89a80d9602eeba08195a372b57079.json": "8c0f84e35fa3e76001fb336d7404321c75424284927ad415759569852e2be65b",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b3decc156f0ad39303f15b5e893c81d61722ab3ce4c97c63949bc8118f47ce11.body": "ea3c6d2f316a079820f91c36d182cd2d7a912bdd37bb78e0a21f410f463aeb74",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b3decc156f0ad39303f15b5e893c81d61722ab3ce4c97c63949bc8118f47ce11.json": "31b756f27503e46b7d0084bba3807a0f1dd073ca690b88ecf52dfbf08a337e10",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b55255db4a4cbadbebd51281cd9bb451360b96a90e1effbeb86efa98abd66f9b.body": "50186d7ade87dfd97d1f724a711a803a7d2fd6d74edffffb064a05d8e8aa04e0",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b55255db4a4cbadbebd51281cd9bb451360b96a90e1effbeb86efa98abd66f9b.json": "529727d3aef038a8612e6237e4c04e92d01e73b0f1230264c14e944700cc8b9f",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b83951dbd6c578a8caf38248b4e98832edaa7bf520b1cccf88bb582ce3d52aed.body": "522a90cc8adf7b58a7ff58177fdaff7282eeb956fd83623b846ec3abd7d387dd",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/b83951dbd6c578a8caf38248b4e98832edaa7bf520b1cccf88bb582ce3d52aed.json": "bb56a2b3ed2c173eefd8595968cbced600b98df78bc7c9226dc0ec92e385782a",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/bb73eb81a1d8091d45e96684d78ad78a56d24c914f2cb7a63d9027160fbdfcae.body": "935edfaea9c4d7a5dd3448ac9c7d1e5be71f9273308d943279464a13a9586286",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/bb73eb81a1d8091d45e96684d78ad78a56d24c914f2cb7a63d9027160fbdfcae.json": "16e9d7f5cbe7e3e6653bf971300169e20f94b241a1c8a43e2726a4bc324cedd2",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/c1454daf53727e2d96e413444a51a6fa70a11a769a39f02a75ea47733e684be6.body": "443bdc1eda6b30fcccc5b2e20e3606fcba05f2ed013766887653f8a7e7b2e936",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/c1454daf53727e2d96e413444a51a6fa70a11a769a39f02a75ea47733e684be6.json": "3e06b7f10104d5e7489951847ab4eba094233c57d3c69a0f2631c21484bb652f",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/c17b2492d1318f514c5e0093adbc7363e7197ed71360419ee0c5705056c2b4ff.body": "eb8225ec4f8367bc31af4050fd192cb0374f7fab0b662e4ef2c89e721e9fbe2b",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/c17b2492d1318f514c5e0093adbc7363e7197ed71360419ee0c5705056c2b4ff.json": "636670c81e2be8b972c420bf8a56ee02d9cc2869a968944649b78db6245894ab",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/ca017f80708e36400dadc1e464311bb21bae09a2fbec417f2e4842657bd89309.body": "ff4d9bfd7711027cee4ae54b4f25088c16a09fcd33380851bb9015355913036d",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/ca017f80708e36400dadc1e464311bb21bae09a2fbec417f2e4842657bd89309.json": "ebebd97df809b913ea10a4127a73d254390af32a0389a5161bfadc5f407dade3",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/cb80bb2fad64258c073feca064c07c0d45f0b97463115e9850145b39d731817e.body": "95e8612e956fce5882395ead8b525bdecd959f3de48d7dc8623c64ea7559f6d2",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/cb80bb2fad64258c073feca064c07c0d45f0b97463115e9850145b39d731817e.json": "15521b38f658f5efa93afd320f3cf1902725a53507f7a7706a0af1f7a1af903a",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/d04f8210623b0c08a2ab274f0077cef7ffac65a866ff806fb76bf6cd2c49d638.body": "79e3963855eb9869962028e8afe24219dc13ca98462163cc32fbba476e766091",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/d04f8210623b0c08a2ab274f0077cef7ffac65a866ff806fb76bf6cd2c49d638.json": "6bdfbf02bcea4ca6e23b890ea09ce591187884bf2873fc308d47cc36b7cee500",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/d9c04055c020843b0e84a617413b147b35fd5a7baf5a3f1ecf96cdd48af34509.body": "2465d695ea1e873966fea8cd88a44eb967edc8f0c5b22d4cdb0202f88ff6a8c6",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/d9c04055c020843b0e84a617413b147b35fd5a7baf5a3f1ecf96cdd48af34509.json": "1cf72e9e232b2540733ae02c2261bb101bd8a179f5c661753223b332312ea760",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/dac9a686f50cddffe4733c082f26478e35ac6ebc777147878407d48f7b1eb558.body": "5c0a79f010a0f18978a0cdf8a6eb63011606c38ac1dcdd5eeabccee97859a7c8",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/dac9a686f50cddffe4733c082f26478e35ac6ebc777147878407d48f7b1eb558.json": "030825480fb4ad4680157033f0addaf2de05adb2f0e2c5cd4da6f62f25c8f8d6",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/e433ba3bcff79a7536aa3c04a6cb6571818dc4e47ad3995fc47ca812355adf34.body": "f0b733a4abff13b464edc173244f16958891e8f8b0b0738a8da05a86e7ec4f54",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/e433ba3bcff79a7536aa3c04a6cb6571818dc4e47ad3995fc47ca812355adf34.json": "e0af2ceee5847872eda23e960f1dfd81b678883a1f09a2f93e622d0d416cc6d0",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/ea80112b6046dd6bf930544a624e2a0187429413132dbeb7c375501706d297e3.body": "ee3fc6edd4a08f6219dec49c4fe8de4a6e207f808136b98b2b6c63ca907785f3",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/ea80112b6046dd6bf930544a624e2a0187429413132dbeb7c375501706d297e3.json": "c256192b2f777386bae7689ec181143076d74a9693e847867d3ae23f24f1c953",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f13638cc9a401fa9b8baae2d65975030c2ce1cfd70b2e0fb33d6ad82f24ecaa6.body": "414e15eabb8510fe1cb474515d26104db80d836a3bb44b263a0d3634edeef60d",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f13638cc9a401fa9b8baae2d65975030c2ce1cfd70b2e0fb33d6ad82f24ecaa6.json": "f6599e16645cef372522616c0702d3e848d8b209609296e28af3e3826288aae6",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f4551faa27655b45e6bc2590f80826cb51cd53ead69129e5544efcdc95a30b78.body": "aea59f91936e587700a7350b481709f7e7e1823b22ab64a4bd4a38e6b7d23630",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f4551faa27655b45e6bc2590f80826cb51cd53ead69129e5544efcdc95a30b78.json": "7cfd0515ea77315e9f08a9f7f4923fb7c215f582f84d1bf3988973c0667c1595",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f82c4fc742c506b01d4756930cacfe5401da8e6b263a92b6c30e2432df3c04cb.body": "c3e782f76d8977fcf5d3c86552b62bc2beed3707820ed4f8b6e6d6f5d1657cc9",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f82c4fc742c506b01d4756930cacfe5401da8e6b263a92b6c30e2432df3c04cb.json": "d53a58485b9f5747a66a8aa73bd327e2bf8d817261d147bc680f1bf4179c2a71",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f88ae316aecf2eec3fb7e0bbe79d78352885dc2d6189852a15587b98267bab62.body": "239be312136fdee4cac258dc8a206e18bc6969612b89d27cb60896613df20028",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f88ae316aecf2eec3fb7e0bbe79d78352885dc2d6189852a15587b98267bab62.json": "7b7e6f4bacd539cb7f548772eef05296f9d3bf5ebf31c4218c757772b1835a9e",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f9d06190f68519456c0de2e9c4fbda6cbb33e6688bf58cd2d4230572bcc1e5c4.body": "5247ed7683e73826edf92c51219135829b29c24f463d3007b3e922b74e6ffdf7",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/f9d06190f68519456c0de2e9c4fbda6cbb33e6688bf58cd2d4230572bcc1e5c4.json": "50dfaf587fca1d8661febd19c52b58a844d9caf39dcb228012c2a0467188390d",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/fc8e203ad2b24df97eab07eb568f4c1e6e512d0be49f19d6723140807fdff14b.body": "6a708aa6123c9d28918399b756a633dc5ef96a761fa4f3ff77f245376f5732f4",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/raw/fc8e203ad2b24df97eab07eb568f4c1e6e512d0be49f19d6723140807fdff14b.json": "ac447b7fbea3819d9c5107d7be56ae7b67b8f01b151249dc549448d8ff90170a",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/records.json": "88ba5f33757d72d78a1b43bad01829102b130be3f74bee6d8ac1514a442d02e7",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/source-manifest.json": "697c3f128ded603475ca18e164a5208ab1e4471420d36011af74ca4ab2b70b29",
+    "~/slop_ninja_runs/a_robustness_v1/global-voices-source-screen-v1/legacy-cache/summary.json": "93cabb8b645d596f83fbabd9367b6069148f5cc44d2205d44fb6e8b184fbcead"
+  },
+  "commercial_training_admitted": false,
+  "cutoff_exclusive": "2022-11-01T00:00:00Z",
+  "date_and_legacy_eligible_works": 174,
+  "distinct_publication_years": {
+    "2012": 4,
+    "2013": 6,
+    "2014": 8,
+    "2015": 30,
+    "2016": 35,
+    "2017": 44,
+    "2018": 23,
+    "2019": 20,
+    "2020": 35,
+    "2021": 33,
+    "2022": 33,
+    "2023": 72,
+    "2024": 156,
+    "2025": 224,
+    "2026": 97
+  },
+  "distinct_works": 820,
+  "eligible_by_author_account": {
+    "https://globalvoices.org/author/carolina-rumuat/": 26,
+    "https://globalvoices.org/author/eduardo-avila/": 24,
+    "https://globalvoices.org/author/flora-thomas/": 34,
+    "https://globalvoices.org/author/prudence-nyamishana/": 32,
+    "https://globalvoices.org/author/psubhashish/": 26,
+    "https://globalvoices.org/author/sydney-allen/": 11,
+    "https://globalvoices.org/author/umaimaahmed/": 21
+  },
+  "eligible_in_prior_author_experiment": 79,
+  "historical_bytes_independently_verified": false,
+  "legacy_eligible_observations": 456,
+  "legacy_exclusion_counts_overlap": {
+    "api_author_differs": 97,
+    "archive_credit_not_single_english_writer": 321,
+    "duplicate_extracted_text": 4,
+    "origin_notice_requires_review": 102,
+    "retained_length_outside_plan": 59
+  },
+  "manual_review_complete": false,
+  "model_calls": 0,
+  "new_source_requests": 0,
+  "observations": 840,
+  "ordered_publication_and_modification_before_cutoff": 250,
+  "packet_sha256": "572c9f9cc5f5e3efd755fc688bb7308339f9914b73c59f937f79c70220806b16",
+  "pangram_calls": 0,
+  "protocol_sha256": "7af017a190904e448c8e9a7e20ff139bd88a99e003a6162e7dc41dfecd684d8c",
+  "publication_and_modification_before_cutoff": 253,
+  "published_before_cutoff": 264,
+  "schema": "slop_ninja_global_voices_source_screen_v1",
+  "selected": [
+    {
+      "author_id": "https://globalvoices.org/author/umaimaahmed/",
+      "date": "2022-08-25",
+      "id": "gv:769472",
+      "selection_sha256": "011fe8a445e8334eccf5ae56f47005fb85a8db671d98893310b13208ba6f3d2b",
+      "source_url": "https://globalvoices.org/2022/08/25/youtube-is-temporarily-blocked-during-former-pms-political-rally-in-pakistan/",
+      "text_sha256": "a81f0ece9daa108c27e604895b54abe69816285c1e0be629da384faf08725a58"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+      "date": "2017-05-22",
+      "id": "gv:614081",
+      "selection_sha256": "02c7868d898cc6fbc159d8a3711d1d16f9c2f85a42ce6dc1b9f69301b48d97a7",
+      "source_url": "https://globalvoices.org/2017/05/22/helping-write-the-story-of-sex-workers-in-uganda/",
+      "text_sha256": "19ee0c1716dfe13ffbcfe208c63ac192f959f509fe6867e75a5e0b23f6f3dfa2"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/eduardo-avila/",
+      "date": "2016-12-09",
+      "id": "gv:594642",
+      "selection_sha256": "041b6737a4faaf6b4203b2bba1901eeaf859d57c0075e4133ee4fe4648a86d27",
+      "source_url": "https://globalvoices.org/2016/12/09/digital-activists-meet-up-offline-to-promote-bolivias-language-diversity-online/",
+      "text_sha256": "ba4042ab993f237060e7c216376f19995d5ba1f12293d7a0c24e13558bc09643"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/umaimaahmed/",
+      "date": "2020-06-29",
+      "id": "gv:711372",
+      "selection_sha256": "042adb41efb2e26d5b70233295f131b8d7871d5f1037a8e23e307bb1f26481e0",
+      "source_url": "https://globalvoices.org/2020/06/29/students-arrested-for-demanding-internet-facilities-in-balochistan/",
+      "text_sha256": "27fb78a2d6bdb5f94785c90d0dcc458e8999b68cf0143d530be7699c67a8c1ab"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+      "date": "2016-01-24",
+      "id": "gv:555064",
+      "selection_sha256": "055989b598801f74dca33c4df2f7c6d66dbf20f6790c92913df693dc471d2a51",
+      "source_url": "https://globalvoices.org/2016/01/24/ugandans-take-a-dig-at-president-museveni-with-30-year-old-photos/",
+      "text_sha256": "e398fde924923a1aca9f8773974bce098ec6f29038431466e6e59b8004e6b9a6"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+      "date": "2018-11-26",
+      "id": "gv:662657",
+      "selection_sha256": "0574df7bb85390d351a5084262b78eef62bda9141bc294ec3b080e8e1b3710ee",
+      "source_url": "https://globalvoices.org/2018/11/26/indonesian-school-teacher-faces-jail-time-for-documenting-sexual-harassment/",
+      "text_sha256": "d1fa1718b9cdd0333d141d2b2da968c88a584eb79c9902ea300110da8aa2b788"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+      "date": "2016-02-10",
+      "id": "gv:557838",
+      "selection_sha256": "0895f8edd48504313688ef69ba18e27cb3f19fe978cc5d87fd83c01b30fdd66d",
+      "source_url": "https://globalvoices.org/2016/02/10/the-power-of-social-media-in-ugandas-2016-elections/",
+      "text_sha256": "16a2a335ed6e84af0ec2821e100e16dc266a22ac5a0a50ca9e9e12566bc9be67"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/flora-thomas/",
+      "date": "2021-07-29",
+      "id": "gv:742458",
+      "selection_sha256": "0a33caf34d4cad18953a9829482796a656180840f27897537ca3f689a63f4a6d",
+      "source_url": "https://globalvoices.org/2021/07/29/journalist-working-remotely-in-barbados-shares-her-experience-of-street-harassment/",
+      "text_sha256": "da72caa26851f47c0365b5e6cceb680722d20da262ce6dff9cb6f52e3981ef73"
+    }
+  ],
+  "selected_for_review": 8,
+  "selection_requires_ordered_timestamps": true,
+  "source_sha256": "8284d72ac678005b30f284c28cb10c09445f5bcca6754e10d2d1e22b5c904e91",
+  "timestamp_flags": [
+    {
+      "author_id": "https://globalvoices.org/author/gabriela-mesones-rojo/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:818092"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/gabriela-mesones-rojo/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:852842"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/gabriela-mesones-rojo/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:853177"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/gabriela-mesones-rojo/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:854002"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/filip-noubel/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:832017"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/filip-noubel/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:829444"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/filip-noubel/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:833734"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/filip-noubel/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:835451"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/filip-noubel/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:841608"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/filip-noubel/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:839891"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/filip-noubel/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:844778"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/filip-noubel/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:849964"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/filip-noubel/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:851120"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:798621"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:799551"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:816481"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:816551"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:818092"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:818611"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:819411"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:828112"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:829974"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:830535"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:831090"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836575"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836764"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:837896"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/melissa-vida/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:845072"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:821017"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:824760"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:825796"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:827004"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:829490"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:833734"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:835211"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:835799"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836633"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836922"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:839891"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:842714"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:843301"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/jcbrunet/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:845355"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/umaimaahmed/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:850563"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/carolina-rumuat/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836448"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/sydney-allen/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:852365"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/zita-zage/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:821974"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/zita-zage/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:831982"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/zita-zage/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:832191"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/lully-posada/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:464828"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/lully-posada/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:560012"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/lully-posada/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:852842"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/psubhashish/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:851490"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:841407"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:842801"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:842864"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:843695"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:844336"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:844688"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:844778"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:844986"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:845263"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:845223"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:846857"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:849102"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:849524"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:849964"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:850348"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:850745"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:850933"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:850824"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:851120"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:851284"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:851304"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:851497"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:851820"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:852163"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:853192"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:853320"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:854467"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:854470"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:856671"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:856581"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:856768"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/laura-dunne/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:857060"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:833880"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:833889"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:834359"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:834438"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:835018"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:835711"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836528"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836971"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:837761"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:838855"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:841508"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:844794"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:847477"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:847905"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:848596"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:849154"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:849955"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:850211"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:850637"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:853027"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:853425"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:854240"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:854604"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:855732"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/mong/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:857909"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/flora-thomas/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:829390"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/prudence-nyamishana/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:506993"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:825866"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:834228"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836408"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:846723"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:848166"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:848284"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/janine-mendes-franco/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:855839"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:798013"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:826242"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:835296"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:842252"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:841936"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:841253"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:846305"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:849585"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:854845"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:856167"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:856458"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/liam-anderson/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:857068"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:831625"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:831682"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:833012"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:833183"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:835303"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836028"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836537"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836861"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:837700"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:838222"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:838233"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:838143"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:839547"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:839964"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:840744"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:840965"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:841553"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:841991"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:842807"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:843345"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:843982"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:844618"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:845475"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:846291"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/arzu-geybullayeva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:847187"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:825969"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:829445"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:832203"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:832902"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:833251"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:834448"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:834424"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:836586"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:839245"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:840541"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:844283"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:844995"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:849986"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/daria-dergacheva/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:854565"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/rezwan/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:820155"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/rezwan/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:825624"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/rezwan/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:835833"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/rezwan/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:840039"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/rezwan/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:842931"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/rezwan/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:846831"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/rezwan/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:848821"
+    },
+    {
+      "author_id": "https://globalvoices.org/author/rezwan/",
+      "flags": [
+        "modification_before_publication"
+      ],
+      "id": "gv:852365"
+    }
+  ],
+  "training_changed": false,
+  "verified_saved_responses": 62
+}

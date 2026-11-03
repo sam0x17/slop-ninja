@@ -1,0 +1,26 @@
+{
+  "schema": "slop_ninja_feature_diagnostics_preparation_v1",
+  "prepared_at": "2026-09-14T20:26:54Z",
+  "candidates": 11,
+  "hosted_requests": 96,
+  "grammar_requests": 26,
+  "grammar_gradient_controls": 9,
+  "best_by_development": {
+    "combined": "combined-512",
+    "grammar": "grammar-512",
+    "word": "word-1024"
+  },
+  "diagnostic_scores_used_in_selection": false,
+  "provider_calls": false,
+  "policy_sha256": "e4601e5c35413e55094beb665f7fababb9234d496cbfe9ad8c69fad93f8cd6ad",
+  "bindings_sha256": "5fc9aeea6b8997793637677b8a664ad6d80d09635a4f40014306864870538e9e",
+  "bound_files": 206,
+  "tools": {
+    "ml/checkpoints.py": "1918bd1a5727fc537c4d208f427e931b3fa707a3dceafa9bd26c4f3f89892745",
+    "ml/common.py": "fd02ec4d13bde1dd4b78cef05082f6ba988bce04212468ce470b95a5791b83ef",
+    "ml/feature_batch.py": "7f7dccab1f924e1b9db0926d351c5e7c2100bb372ca1c64ea520b7e1bc85ece9",
+    "ml/feature_nn.py": "32e0ab43a8ed3d2775d2929b1f9a696f09d5ea2ec6c30cf6f700f09e78447a38",
+    "tools/feature_report": "512e745e33e783adbab4cad17aad99b776f2b36a4d0be3373f10f08015c2cfa0",
+    "tools/slop_ninja_detector": "33dfb4d9a45914033b5999c0f0cc4bc4f67610fcef12a0bb2a02f7dbcbe943ac"
+  }
+}

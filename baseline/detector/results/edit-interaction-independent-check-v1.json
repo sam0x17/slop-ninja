@@ -1,0 +1,33 @@
+{
+  "schema": "slop_ninja_edit_interaction_independent_check_v1",
+  "states": 16,
+  "dimensions": 4,
+  "all_five_scales_and_subsets_match": true,
+  "all_contextual_ranges_match": true,
+  "absolute_check_tolerance": 1.0e-10,
+  "zero_probabilities_clipped": false,
+  "method": "Independent Ruby ratio/log reconstruction and direct signed-subset enumeration, compared with Rust stable log-sum-exp and in-place subset transform.",
+  "focus": [
+    {
+      "mask": 7,
+      "actual_probability": 0.039699905416153265,
+      "probability_from_additive_class_logits": 0.7243451153809757,
+      "model_logit_residual": -7.357423782348631,
+      "mixed_logit_residual": -8.250678598880766,
+      "highest_order_model_coefficient": -1.5623025149106984
+    },
+    {
+      "mask": 15,
+      "actual_probability": 0.07261035935815807,
+      "probability_from_additive_class_logits": 0.7530191508442113,
+      "model_logit_residual": -6.616684436798094,
+      "mixed_logit_residual": -7.156664609909054,
+      "highest_order_model_coefficient": -0.9951807111501694
+    }
+  ],
+  "report_sha256": "0c99eca7870f4743c640585ae7d640632486409c95fc1a6e39d38c4515e5ee38",
+  "script_sha256": "c827210d0472da4d6b78469782334cf468af17c043b2662e8ab6fd443bd90b8a",
+  "model_calls": 0,
+  "provider_calls": 0,
+  "training_admission": false
+}

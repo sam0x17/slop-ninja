@@ -1,0 +1,445 @@
+{
+  "schema": "slop_ninja.plos_section_preparation_summary.v1",
+  "status": "prepared for further admission review; no corpus records admitted",
+  "host": "mac_studio",
+  "inventory_sha256": "b362b54f6f315e9b4666efe67ab82ac5c0042f806e9529524074d31ec3cc1862",
+  "policy_sha256": "8726ff1edcfe6f727744a5ec67936b850371660ee3f3911a238bccf3f615aa84",
+  "source_sha256": "5c675579a931a358163ab13936e3cb3d02da2fcb6bfde77ab0da3ccdd0455408",
+  "binary_sha256": "8b2a9d6037b7413cd8b1c3d7a333020acfe6106dd673c1aa8afe5918adac955c",
+  "cargo_manifest_sha256": "66c63a234099fe807f013fa81f8432b84e67bc09e27989277dcb8ebc938efa0e",
+  "cargo_lock_sha256": "b88f3294b3a48a6045019d842ba60e597fc55d07923a2fc6e40a1fdd72e13a6a",
+  "preparation_sha256": "69e5081d3f80c442a305d8df9d6dd8e4a50c8f44d9b57e29bc360abbb0124ca4",
+  "candidate_count": 33,
+  "prepared_count": 14,
+  "unsupported_or_invalid_count": 19,
+  "failure_counting": "First unsupported construct per candidate; these counts do not enumerate every unsupported construct in its section.",
+  "unsupported_first_constructs": {
+    "superscript": 7,
+    "subscript": 3,
+    "non_bibliographic_cross_reference": 4,
+    "nested_section": 3,
+    "external_link": 1,
+    "inline_formula": 1
+  },
+  "preparation_method": "Verify the fixed inventory, exclusion inputs and capture hashes; preserve direct whole paragraphs, visible bibliography citation labels and their target bindings; reject unhandled structure rather than omit it. Supported projections must match the inventory's paragraph projection hashes.",
+  "tokenizer_audit": {
+    "script_sha256": "5ac6ef12df46922df7e36fc6344ff81a5ba8c57d066fcee0c50c34059bb23594",
+    "result_sha256": "7f964dbbabe2e44661fcc4f18dafa3a90e271dec5b31100541a0903d71cac065",
+    "common_py_sha256": "ca4818d2245c6861f464ce494775ee7916a0198e6d2879fca09f2a75f16f1005",
+    "checkpoint_pin_sha256": "57ca5bc56f8e89044216f3fba0172418bccebbf741b2145b17de7fe6da881757",
+    "tokenizer_files_verified_against_pin": true,
+    "includes_special_tokens": true,
+    "truncation": false,
+    "counted": 14,
+    "unrendered_not_counted": 19,
+    "a_token_limit": 2048,
+    "within_limit": 14,
+    "above_limit": 0,
+    "minimum_tokens": 854,
+    "maximum_tokens": 1698,
+    "model_loaded": false,
+    "model_executed": false
+  },
+  "manual_rendering_reviews": [
+    {
+      "doi": "10.1371/journal.pone.0200967",
+      "complete_rendering_read": true,
+      "paragraphs": 6,
+      "text_sha256": "5166b4cd58d30d4443eea361aba5692aba41edb25b553c68faadb31c8ecaef7b",
+      "a_tokens": 1029,
+      "attributed_authors_checked": [
+        "Phuntila Tharabenjasin",
+        "Noel Pabalan",
+        "Hamdi Jarjanazi"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "finding": "The six paragraphs retain the contradictory Gly428Ser/Gly482Ser identifiers, power/endurance distinctions, variable prior findings and qualified novelty claim. Citation range 12–14 remains in the health-impact paragraph; sampled endpoint bindings resolve to references 12 and 14 in this article.",
+      "final_admission": false
+    },
+    {
+      "doi": "10.1371/journal.pone.0203248",
+      "complete_rendering_read": true,
+      "paragraphs": 8,
+      "text_sha256": "06aadd5e82d6d5ce2cee3f4126c5034560977a28bb20dbbd4e1ae14a77aea83f",
+      "a_tokens": 1348,
+      "attributed_authors_checked": [
+        "Daniel Marten van Es",
+        "Tomas Knapen"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "finding": "The eight paragraphs retain opposed implicit/explicit-learning predictions, gain-up/gain-down and awareness distinctions, the scanning subtype relationship and the source's awkward wording. Citation range 4–6 remains associated with the adaptation discussion; sampled endpoint bindings resolve to references 4 and 6 in this article.",
+      "final_admission": false
+    },
+    {
+      "doi": "10.1371/journal.pone.0203246",
+      "complete_rendering_read": true,
+      "paragraphs": 5,
+      "text_sha256": "ff76be4f50764c086100ae8f9d873051b679e3f8e298ca413077fff67ac7d6ff",
+      "a_tokens": 854,
+      "attributed_authors_checked": [
+        "Vijay S. Nori",
+        "Christopher A. Hane",
+        "David C. Martin",
+        "Alexander D. Kravetz",
+        "Darshak M. Sanghavi"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "8",
+        "target_ids": [
+          "pone.0203246.ref008"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The five paragraphs retain the population and cost estimates, prior model cohort sizes and performance measures, data-availability limitations, and the final comparison objective. Source spacing before citation 1 and the varying cStatistic spelling remain; the potential value of early identification remains qualified.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0199340",
+      "complete_rendering_read": true,
+      "paragraphs": 5,
+      "text_sha256": "0b7b11a8512787a93801cb4e56a4844c77823e0977a8496a7e66996baf8cf937",
+      "a_tokens": 931,
+      "attributed_authors_checked": [
+        "Alexandria M. Jensen",
+        "Jason R. Tregellas",
+        "Brianne Sutton",
+        "Fuyong Xing",
+        "Debashis Ghosh"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "11",
+        "target_ids": [
+          "pone.0199340.ref011"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The five paragraphs retain the distinction between mass-univariate, time-series and network approaches; spatial-correlation limitations; the proposed resistance-perturbation kernel; the association hypothesis; and the simulation/COBRE-I work order. The claims about information loss and computational expense remain the authors' claims, without independent validation.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0202453",
+      "complete_rendering_read": true,
+      "paragraphs": 7,
+      "text_sha256": "a97fe30a4bc47e5011b871e1d7bd5fb9dfcd5933e01b7d950423a6f56da695d4",
+      "a_tokens": 1154,
+      "attributed_authors_checked": [
+        "Long-Sun Ro",
+        "Chih-Chao Yang",
+        "Rong-Kuo Lyu",
+        "Kon-Ping Lin",
+        "Tzung-Chang Tsai",
+        "Shiang-Ru Lu",
+        "Kuo-Hsuan Chang",
+        "Li-Chieh Huang",
+        "Ching-Piao Tsai"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "20",
+        "target_ids": [
+          "pone.0202453.ref020"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The seven paragraphs retain CIS/MS/NMO distinctions, conversion-rate ranges, the assay-dependent qualification, the unavailable anti-MOG test, and the primary and secondary objectives. The distinction between lifetime MS risk and CIS conversion remains. The quoted risk-factor names are labels; source punctuation and awkward agreement are preserved.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0200673",
+      "complete_rendering_read": true,
+      "paragraphs": 5,
+      "text_sha256": "14c1edf8f64ad78f58070a478470cf67b73561bef3054cae2fbd3b15fa20e36e",
+      "a_tokens": 1204,
+      "attributed_authors_checked": [
+        "Richard A. Lewis",
+        "Abdul Wahab",
+        "Giselda Bucca",
+        "Emma E. Laing",
+        "Carla S. Möller-Levet",
+        "Andrzej Kierzek",
+        "Colin P. Smith"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "19",
+        "target_ids": [
+          "pone.0200673.ref019"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The five paragraphs retain the separate genes, phosphorylation and dephosphorylation roles, promoter locations and expression contrast, negative binding evidence and later ChIP findings. The source's repeated is in the P2 paragraph, missing final period there and differing SCO identifiers remain uncorrected. Master is a short descriptive label, not a reproduced passage.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0204197",
+      "complete_rendering_read": true,
+      "paragraphs": 4,
+      "text_sha256": "e39a2cc4ecceab136ffce2baac3012281b6e53ada8327867c99529997dd0651a",
+      "a_tokens": 945,
+      "attributed_authors_checked": [
+        "Louis M. Luttrell",
+        "Moahad S. Dar",
+        "Diane Gesty-Palmer",
+        "Hesham M. El-Shewy",
+        "Katherine M. Robinson",
+        "Courtney J. Haycraft",
+        "Jeremy L. Barth"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "10",
+        "target_ids": [
+          "pone.0204197.ref010"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The four paragraphs retain the in-vivo snapshot versus synchronized in-vitro contrast, sensitivity/specificity tradeoff, transcriptional limitations, four sampling stages and the correlational pathway claim. Greek letters and pathway abbreviations remain readable. Quotation marks identify terminology and metaphors rather than a reproduced external passage.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0201998",
+      "complete_rendering_read": true,
+      "paragraphs": 4,
+      "text_sha256": "c2c91d8d6a2a353e5e3fe5778101ef82310a01d2fc428e2b82142df2939a8838",
+      "a_tokens": 919,
+      "attributed_authors_checked": [
+        "Paul D. Bons",
+        "Catherine C. Bauer",
+        "Hervé Bocherens",
+        "Tamara de Riese",
+        "Dorothée G. Drucker",
+        "Michael Francken",
+        "Lumila Menéndez",
+        "Alexandra Uhl",
+        "Boudewijn P. van Milligen",
+        "Christoph Wißing"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "39",
+        "target_ids": [
+          "pone.0201998.ref039"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The four paragraphs retain competing explanations for migration, the population-size argument, prior model assumptions and the proposed neutral stochastic model. The explicit limit against reconstructing the actual spread of modern humans and the null-hypothesis purpose remain. The source's awkward wording and short quoted map label remain unchanged.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0201196",
+      "complete_rendering_read": true,
+      "paragraphs": 7,
+      "text_sha256": "6d051d51b40f0e6ba14d1ef001d0585d981ebffa66f6406405cb2707eeeef8ee",
+      "a_tokens": 1698,
+      "attributed_authors_checked": [
+        "Holly F. Hope",
+        "George M. Binkley",
+        "Sally Fenton",
+        "George D. Kitas",
+        "Suzanne M. M. Verstappen",
+        "Deborah P. M. Symmons"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "26",
+        "target_ids": [
+          "pone.0201196.ref026"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The seven paragraphs retain the distinction between primary and secondary prevention, different mortality and event endpoints, risk ratios and confidence intervals, adherence thresholds, intentional/unintentional non-adherence and the review objective. The less-than sign in the Hedges-g comparison is correctly decoded from XML. The article metadata links a formal companion comment, so DOI-only independence is insufficient.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "Companion DOI 10.1371/journal.pone.0205138 requires relationship/overlap resolution before admission."
+    },
+    {
+      "doi": "10.1371/journal.pone.0203732",
+      "complete_rendering_read": true,
+      "paragraphs": 5,
+      "text_sha256": "c6878f2d9818da057a7b07882c093edd05bbafebdbf08821f837a780decdd2a4",
+      "a_tokens": 1151,
+      "attributed_authors_checked": [
+        "Michael S. Studivan",
+        "Gillian Milstein",
+        "Joshua D. Voss"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "38",
+        "target_ids": [
+          "pone.0203732.ref038"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The five paragraphs retain the taxonomic reassignment, diurnal/nocturnal morphotypes, counterexamples to depth alone, genotype/environment interaction, missing environmental data and final morphology/symbiont/genetics comparison. Taxon emphasis is removed without losing names; approximate depth ranges and citation ranges remain. The source agreement error in the intracolony-variation sentence is uncorrected.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0203974",
+      "complete_rendering_read": true,
+      "paragraphs": 4,
+      "text_sha256": "9aa118dcd0b3eaeb765ea1e768945e7ea9a4f4023980c1b08dd65026c4f12cbf",
+      "a_tokens": 1374,
+      "attributed_authors_checked": [
+        "HanShin Jo",
+        "Yang-Yen Ou",
+        "Chun-Chia Kung"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "35",
+        "target_ids": [
+          "pone.0203974.ref035"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The four paragraphs retain the hedonic/eudaimonic theories and their overlap, the authors' criticism of monetary reward as wellbeing, three picture conditions and the stated imaging hypotheses. First-person qualifications, grammatical errors and repeated wording remain. Quoted content consists of short concept labels and descriptors; no extended externally attributed passage was identified.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0197924",
+      "complete_rendering_read": true,
+      "paragraphs": 6,
+      "text_sha256": "ae1373084edf5626f930409df626b60bf63de37521de7ae417c14818e9a9d831",
+      "a_tokens": 1168,
+      "attributed_authors_checked": [
+        "Uwe Konerding",
+        "Tom Bowen",
+        "Sylvia G. Elkhuizen",
+        "Raquel Faubel",
+        "Paul Forte",
+        "Eleftheria Karampli",
+        "Tomi Malmström",
+        "Elpida Pavi",
+        "Paulus Torkki"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "44",
+        "target_ids": [
+          "pone.0197924.ref044"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The six paragraphs retain the proposed index definition, universality and length objectives, SERVQUAL's two modules and 22 items, reasons for using perception alone and the added communication item. The six countries and two patient groups remain. The introduction discusses the instrument but does not reproduce its item wording; quoted words are module or feature labels.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0204187",
+      "complete_rendering_read": true,
+      "paragraphs": 7,
+      "text_sha256": "531f52aa0a6f0c0ed7419116e7941dc9d4bfd24b71bfdee37d542e8cafd96070",
+      "a_tokens": 1160,
+      "attributed_authors_checked": [
+        "Jonas Lander",
+        "Holger Langhof",
+        "Marie-Luise Dierks"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "22",
+        "target_ids": [
+          "pone.0204187.ref022"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The seven paragraphs retain the distinctions between patients and the public, involvement stages, types of representativeness, practical limits and the qualified novelty claim. Paragraph three contains two externally attributed multiword quotations, unlike its surrounding short labels. Their bibliography targets resolve, but separate reuse evidence remains unresolved under the commercial-license admission policy; keep the whole section pending.",
+      "quotation_review": "Two externally attributed passages require separate review; section pending and unchanged.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    },
+    {
+      "doi": "10.1371/journal.pone.0200118",
+      "complete_rendering_read": true,
+      "paragraphs": 5,
+      "text_sha256": "a9f92fc5c289bf5bcc0d068ec4557b9522b09a7f06604d604b783d87125df5ce",
+      "a_tokens": 1331,
+      "attributed_authors_checked": [
+        "A. A. Adnan",
+        "J. Diels",
+        "J. M. Jibrin",
+        "A. Y. Kamara",
+        "P. Craufurd",
+        "A. S. Shaibu",
+        "I. B. Mohammed",
+        "Z. E. H. Tonnang"
+      ],
+      "permission_notice": "The captured article notice states CC BY 4.0 reuse with author/source credit.",
+      "sampled_citation": {
+        "visible_label": "21",
+        "target_ids": [
+          "pone.0200118.ref021"
+        ]
+      },
+      "final_admission": false,
+      "finding": "The five paragraphs retain the Nigerian maize context, genotype/environment interaction, costs of direct calibration, alternative estimation methods and the three study objectives. The ten varieties, two calibration-data sources, grain yield and tissue/grain nitrogen outcomes remain. The multiplication sign and roman-numbered objectives are readable; no extended external quotation was identified.",
+      "quotation_review": "No extended externally attributed passage identified in the complete introduction; short labels and terminology retained where present.",
+      "related_work_review": "No related-item element was recorded in the captured article metadata; this does not replace corpus overlap screening."
+    }
+  ],
+  "manual_review_scope": "One assistant read all 14 complete supported renderings (78 paragraphs), all credited author lists and captured permission notices. Four earlier citation endpoint bindings and the final visible citation in each of the 12 later sections were inspected. Three selected raw paragraphs were compared with the renderings: the repeated-word/gene paragraph in 0200673, the less-than entity in 0201196, and the attributed-quotation paragraph in 0204187. Earlier full JATS introduction reviews remain separate. This does not validate scientific claims or certify grammatical parses.",
+  "validation": {
+    "cargo_fmt_check": "passed on Studio",
+    "cargo_test_locked": "passed on Studio with existing ignored tests retained",
+    "cargo_clippy_all_targets_deny_warnings": "passed on Studio",
+    "example_tests": "Two tests passed: paragraph/citation/range preservation and rejection of lost content or invalid reference resolution.",
+    "source_binary_policy_bindings_rechecked_after_run": true
+  },
+  "admitted_records": 0,
+  "split_assigned": false,
+  "network_calls": 0,
+  "model_calls": 0,
+  "active_training_inputs_changed": false,
+  "limitations": [
+    "Rendering support and tokenizer fit are preparation results, not evidence of detector quality or broad grammar correctness.",
+    "The 14 renderable candidates are a subset selected by supported markup; they do not represent every scientific writing format.",
+    "Current publisher captures remain weak historical supervision with unverified historical byte identity and no documented human-only workflow.",
+    "Related-work and text-overlap checks, final attribution and the identified quotation disposition are still required before admission; all 14 supported renderings have been read."
+  ],
+  "manual_review_followups": {
+    "remaining_supported_renderings_to_read": 0,
+    "related_work_flagged_dois": [
+      "10.1371/journal.pone.0201196"
+    ],
+    "quotation_rights_pending_dois": [
+      "10.1371/journal.pone.0204187"
+    ],
+    "remaining_before_admission": [
+      "Resolve related-work membership and exact, normalized and substantial shared-passage overlap against existing corpora and source groups.",
+      "Complete item-level attribution and quotation dispositions, retaining pending sections whole.",
+      "Create explicit unsplit historical-proxy records only after those checks; active training/evaluation inputs remain frozen."
+    ]
+  },
+  "quotation_rights_research": {
+    "checked_date_utc": "2026-09-14",
+    "scope": "Follow-up on bibliography targets 18 and 21 in the third paragraph of 10.1371/journal.pone.0204187; separate from the zero-network preparation run.",
+    "direct_http_captures": 2,
+    "sources": [
+      {
+        "reference": 18,
+        "doi": "10.2147/PPA.S135457",
+        "url": "https://www.dovepress.com/questioning-patient-engagement-research-scientists-perceptions-of-the--peer-reviewed-fulltext-article-PPA",
+        "body_sha256": "d6955d115d0f7adbb07d62c1f7177a7acbb28217d6398eb3711c227dfec9f405",
+        "observation": "The publisher page specifies CC BY-NC 3.0 and directs commercial-use requests to separate terms."
+      },
+      {
+        "reference": 21,
+        "doi": "10.1111/1467-9566.12483",
+        "url": "https://research.aston.ac.uk/en/publications/disentangling-patient-and-public-involvement-in-healthcare-decisi/",
+        "body_sha256": "aa69d0bcb9b572d4f67e3cf6132210ca73a342adf842aefc00a6c958f78e2a92",
+        "observation": "The author-institution record lists the accepted manuscript; no licence for the published quotation is recorded."
+      }
+    ],
+    "decision": "Retain the whole section as pending under the explicit-license corpus policy; no text is silently deleted."
+  },
+  "network_calls_scope": "The network_calls field counts the frozen Rust preparation only; later manual rights research is recorded separately."
+}

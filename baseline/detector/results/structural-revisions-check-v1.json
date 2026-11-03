@@ -1,0 +1,12 @@
+{
+  "schema": "slop_ninja_structural_revision_report_check_v1",
+  "report_sha256": "5dcf5e3eeb1c401330e0684064e473463ee593f7f00382355cd219a10a5d3a4e",
+  "checked_rows": 29,
+  "complete_cubes": 3,
+  "probabilities_flags_and_raw_logit_contrasts_match": true,
+  "fast_subset_transform_matches_direct_enumeration": true,
+  "tolerance": 1.0e-10,
+  "news_accepted_drop_pp": 18.09682885678381,
+  "script_sha256": "0da5a418a241404f3bc696322ea6212ac446d997d498c3f00a3ab94e67a817f6",
+  "provider_calls": 0
+}

@@ -1,0 +1,206 @@
+{
+  "schema": "slop_ninja_gpt_oss_pilot_prompt_check_v1",
+  "model_loaded": false,
+  "model_calls": 0,
+  "sources": 4,
+  "requests": 24,
+  "all_source_bytes_preserved": true,
+  "date": "2026-09-15",
+  "reasoning": "medium",
+  "template_sha256": "0d899fe3f326e4d37306f69ac38d6be8efd9fcdb5d71f3b76fc2c5d47f62bb67",
+  "tokenizer_tokens_match_rendered_text": true,
+  "rows": [
+    {
+      "task": "3024817d6b22285ea2235f9f84a1422034afff7d7d0519627642039bd8da42a6",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "profile": "source-matched",
+      "prompt_tokens": 729,
+      "rendered_sha256": "0ad516d2d5a51346318388d7ad285d429a319ec08264400be29cc23e2daafd06",
+      "archive_sha256": "3f9ffec8baf64a2c28bf178693222dff43018c60b98209e20e559ba480963207"
+    },
+    {
+      "task": "35246f61e4cbf9e03b0113294c31c5c4e8195b699282b199fbc7962adee668b3",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "profile": "source-matched",
+      "prompt_tokens": 622,
+      "rendered_sha256": "f69fc9f3bce109481fd767cbedad21edfa3c3ef154fc6df3fcdff51276e3acf8",
+      "archive_sha256": "0a45b862caa4192e3c1b32d487d9ccc956fcf25bd61226fe5e8e6f2a3e25677f"
+    },
+    {
+      "task": "5e229d3458cb6540446c0ef0d7b49fe91178868e0e048622f8fec69fc756a974",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "profile": "source-matched",
+      "prompt_tokens": 607,
+      "rendered_sha256": "9733fb1435c300c9e17c4d56317ed6e79d68f5a49e97c1d7ddd4ef9bc6aa9dea",
+      "archive_sha256": "f562b3a1976ec6d9f0190c3b4663fa84e04386848f26febeba3c0314c99dd8d4"
+    },
+    {
+      "task": "75b8e760542dc1f8fa5cf55e2092d6d0f45f1ebae0f8fa8d12407c48a9a43bc8",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "profile": "source-matched",
+      "prompt_tokens": 620,
+      "rendered_sha256": "c926722ba515df6ce2a823c4736010301a55054ed8e148fef59b0aa749303ced",
+      "archive_sha256": "ee5f057d8dc003264b7f5cde84f39cc30b3514014043f14f84bbf4adcd040dbc"
+    },
+    {
+      "task": "3a8168af13c1d599fbcb73f11402600360b2b2d40a740db9973b86f140182acb",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "profile": "plain",
+      "prompt_tokens": 610,
+      "rendered_sha256": "0901124e6001a68563161fbfbcb79a49e339559deb3c6ce05f888d423f787b96",
+      "archive_sha256": "7ae477e725d6cdebf44be54976c16a8f2f7c153ec7d3d4cbe1ce53594ae2edab"
+    },
+    {
+      "task": "c90cb1ca660b19cfc3301a665ba503561a0c97643c51377ed90abd5ce1262dfb",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "profile": "plain",
+      "prompt_tokens": 625,
+      "rendered_sha256": "2ca5bfa9238795ae4bf1ee3fea440d2c8f98e8c5477d5cfab696f8448ae7d0dd",
+      "archive_sha256": "4e12959290d471967324715924b7b94b4408be6da599283744b4247b8534d81f"
+    },
+    {
+      "task": "ece5de87dfc937da21fe6e446a9fd94f0f296849cba9bb9a2e98fc3deb80e9b9",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "profile": "plain",
+      "prompt_tokens": 623,
+      "rendered_sha256": "b324006da7ed09407fc1f948cf5c966e5ae30b458459e81c24238da622031698",
+      "archive_sha256": "35a8552280bf1d6c57ac5c53a575d42e96ff3536334ed706b17e260f9489fe0c"
+    },
+    {
+      "task": "f60759cf0352eb0303879d78084e45880502e44d46ff914d6bd76b573bf9f70b",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "profile": "plain",
+      "prompt_tokens": 732,
+      "rendered_sha256": "3ebf759f3b8c228b58e347ca6f9b4e15d4c4f4936326c07d2345865f670e066b",
+      "archive_sha256": "d4d2f180a677955b14af72a5730bf4ce8302255e86dee0e4214938363f6921f2"
+    },
+    {
+      "task": "2df67f3756b9439bb67fe0a0b399a7236d9062c3761b87c4f9e0d13d87d31599",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "profile": "informal",
+      "prompt_tokens": 634,
+      "rendered_sha256": "1ad245b1aec361705ee482189b083f7a97adb05e2bca41fea3cee023f2300593",
+      "archive_sha256": "1b3736fb0f31bffc1b65f6d3a61edb04d8c685f2f391a3c3f375477cde4f0ff5"
+    },
+    {
+      "task": "be1a5c8724eaac5e0ed908cca5a37904968dc10c69a832f934bad2d6dde5aad5",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "profile": "informal",
+      "prompt_tokens": 619,
+      "rendered_sha256": "e64a11c28817314996f0dfcef2b1304f65cb771b2933f7c7591bab98c8a4dcd0",
+      "archive_sha256": "b80ad04afdbc7b0c8c5c686c6ec8083642f31a1ae6084d30507c5f0197b66afb"
+    },
+    {
+      "task": "f6d74d76d63081bd60a5fd8a83a589c5215ab9853f1c5cf7250f013b51cba1a7",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "profile": "informal",
+      "prompt_tokens": 741,
+      "rendered_sha256": "6f54bf5ca699d88abe905227b710fc37896d8cadbe08168c43f35add277b78d3",
+      "archive_sha256": "e2aebe060a6f4978fec0a8a014970b65cd262e24d80e6a3057eaf219d3878823"
+    },
+    {
+      "task": "f8dc75dc3b3ee2179fe9d1fc2354df574ac9a65a5a60df7e790f9399995ef254",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "profile": "informal",
+      "prompt_tokens": 632,
+      "rendered_sha256": "fe6a60c7e307b26ae72817d420bd88aa162b439111e63ba6e47e30561155b13f",
+      "archive_sha256": "37584de61be613ee7bb442de98d9cc5c596692d2a29c8d80916965f9af6c2680"
+    },
+    {
+      "task": "0afa7984964e96f5600d8b0da2de4c6c7e89d37b0ebac1fc0f1bdd1c3632aace",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "profile": "direct",
+      "prompt_tokens": 621,
+      "rendered_sha256": "c7d1e67f40874f809387e23744b2012ec34e57f22111a66911af318a4b7cfd36",
+      "archive_sha256": "10a2854725ad22ef786bb0bedefb45f490693b96b866e10c61d225d9d3f3adc4"
+    },
+    {
+      "task": "3d6f66e845e66aa34bc6f36557b9ffca846f68e3813b301ae96d24feea594dee",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "profile": "direct",
+      "prompt_tokens": 636,
+      "rendered_sha256": "f2c615a3b4d4ae95dd215e8f4fc3b4d90533bc597b466fe9e0c1639e0a14db60",
+      "archive_sha256": "90d139e3087769fb7716f44be113038871cb4b75272266b0e1c79f72793d0922"
+    },
+    {
+      "task": "8a701157744f777ac25711ebfb8af7882cd06b5763a91e77fb0ac2dd43bd3ece",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "profile": "direct",
+      "prompt_tokens": 634,
+      "rendered_sha256": "9a81cc5933eaafd54e792922f2da320442b427bcf0208d9bb66c749f9a729e93",
+      "archive_sha256": "9e09d1eb7487fe2e68ba6526603e6f21564832f40c864f0d85b8f3340fdad0eb"
+    },
+    {
+      "task": "ee3080e074071749579a6441f73a5e8befabf8e90fa62052378ba7317486bc0f",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "profile": "direct",
+      "prompt_tokens": 743,
+      "rendered_sha256": "20c4a70fd21151a1d4d190bfb53ef63fec09ab208e8f81d173b6b2c8ce97c504",
+      "archive_sha256": "6b6b39132fd6e610573d93012fae6d23af5cc2f17faa154b2db2ef9658f93a18"
+    },
+    {
+      "task": "63d1292f53c20e3bc0fa69fbed2fdbac0f53fa7ea18a5e655ba201d006962069",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "profile": "anti-ai",
+      "prompt_tokens": 656,
+      "rendered_sha256": "a95f51f98e00c3051099c2b42e5afdf14ea86985e2d8f46733c6a40cf42ab04e",
+      "archive_sha256": "68ce89eea723c0deb8307bb9c1a2d674f0140035f46a0807b277011d33d16838"
+    },
+    {
+      "task": "644b3ad9e487584a50458804b3a521481ca6804693ef4ca569bcf5248ba28a3d",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "profile": "anti-ai",
+      "prompt_tokens": 643,
+      "rendered_sha256": "abca6efc55f7ceaf7539e7c34af7030f0848fae124d5b6147dcbd703d5abdb7b",
+      "archive_sha256": "cd1c7d082b475507757ae32721ba5872aac34f2119e3b7ad1bb0adf737bed8d5"
+    },
+    {
+      "task": "b74ecddcba0a5fd4d44f135ce0f2bf6e9412bfb67f026b229c32caea6834d577",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "profile": "anti-ai",
+      "prompt_tokens": 765,
+      "rendered_sha256": "cc7c1bde67b48655e1881925ee0c86d3f09b5dbaca1f35596fc88e174304de71",
+      "archive_sha256": "5ad112259cde44178a1623c9342d19e1ae3580dbc89db3c4fc4e18a26de6715d"
+    },
+    {
+      "task": "f3ce57fb1336a66a1528bb153ce09755bc174c15087e278c1ef8820c00ef5d85",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "profile": "anti-ai",
+      "prompt_tokens": 658,
+      "rendered_sha256": "364a34b6a3944a795194815a98cac4d4153d9b1a0a66a8ed39c06c2ca458da0b",
+      "archive_sha256": "c007684b9f9d7fb732e7809f277dec8e164de9236e95baa4f17572fc397672cf"
+    },
+    {
+      "task": "43ade6b454e85280cbf2830ccfe3f3d1dd059db049359d2b94a57a0b3c8d14a3",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "profile": "fix-slop",
+      "prompt_tokens": 1031,
+      "rendered_sha256": "2f75b09777b7afc9682eae287d4a0da480b1b48fd25fcde9ec766371fbf13113",
+      "archive_sha256": "2dbf63da6ea78ea2f8ad2f39f75cfe0588ef09db6c55034a124afa0246c1b8e9"
+    },
+    {
+      "task": "64ee50de70349ba58e8f7d1e97a4bfe967914ca0ad76a6ac81f1b379f03d2b7b",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "profile": "fix-slop",
+      "prompt_tokens": 922,
+      "rendered_sha256": "6c807709f384ffe6a54981c76ab52d320d694c57c5ff869f45ac8b7942aedefc",
+      "archive_sha256": "1ce1708675a96c5e9f3685d6f3e79a486c91aae9c20115fc65c795c2316a8436"
+    },
+    {
+      "task": "91df8cac3adbbec77884b6e2669b2e92e719892e873fde01eb1e373763ee723c",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "profile": "fix-slop",
+      "prompt_tokens": 924,
+      "rendered_sha256": "8b7ee65a75d8fe6cae918c0d3798966e661fc1988685816b7bb525015253bb93",
+      "archive_sha256": "a76c9c5e8d3e2a81f821fa242f7b214f21f4dc486377a7d1b566d9791fbb6502"
+    },
+    {
+      "task": "f82fc3ca6a27bff108402ccaf35f3ba1f6cfba4f6632a119f97f2f0aee0c434b",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "profile": "fix-slop",
+      "prompt_tokens": 909,
+      "rendered_sha256": "e0302bb2499ea99db2f4dec9e776df084f9c7da8295ffc0427ee11dd84cea90c",
+      "archive_sha256": "569ad62848a7c5180e219cb6256e70df931f99507b17be0cddc56b93612f76f5"
+    }
+  ]
+}

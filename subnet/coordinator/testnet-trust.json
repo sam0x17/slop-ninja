@@ -1,0 +1,15 @@
+{
+  "schema": "slop_ninja_testnet_trust_roots_v1",
+  "network": "testnet",
+  "netuid": 601,
+  "note": "Testnet shortcut T12 trust roots: public Ed25519 application keys, never chain keys. The native validator (package.trusted_keys) and the coordinator Worker (PACKAGE_PUBLIC_KEY, RECEIPT_PUBLIC_KEY, AUTHORIZATION_PUBLIC_KEY) are configured with these; the eval Worker signs manifests, packages, targets and receipt indexes only under them. A verifier pins these keys, never the keys.json a cohort publishes beside its package.",
+  "package_public_key": "5005405e110f8d602efdc1839251443da5385f9ff3766b970d9c42e7686af90b",
+  "receipt_public_key": "6ecf3eadbae4eaaa139c04e2d8699ab976b1b873acf47a45301c9a2d01e4ffaa",
+  "authorization_public_key": "6615d6c2dfddb125e94e2e7d3822a1a828654b3a9dd4663abbeae8c87db0b212",
+  "earlier_eval_keys": {
+    "note": "The eval Worker's own keys before it signed under the T12 roots (until 2026-10-30). No configured validator trusts them; the two cohorts below verify only under them.",
+    "package_public_key": "e527c231543888926215ba77a38a6a27c206d8bd63d40fe493f694f7932c6cda",
+    "receipt_public_key": "2f104c471a52068174438785f6bd4286760a102d4bdd6565057a4eeca6a9701e",
+    "cohorts": ["testnet-m4-rehearsal-1-k4-n200", "testnet-m4-rehearsal-2-k4-n1000"]
+  }
+}

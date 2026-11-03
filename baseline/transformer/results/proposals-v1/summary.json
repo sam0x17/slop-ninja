@@ -1,0 +1,832 @@
+{
+  "schema": "slop_ninja_b_local_proposal_results_v1",
+  "implementation_commit": "a236126",
+  "context": "Same adaptive synthetic workshop notice and two imperfect attributed Global Voices references. No held-out source or author result.",
+  "bindings": {
+    "plan-v2.json": "b072e33a66174a6bfa80d32217b7297754e7e346c89b18ea6a03af5fca5b6c9e",
+    "protocol.json": "3f2d747c33d5e9c1499b1087090da56271afbfba151edb47a8d72adfee5e0678",
+    "model-spec.json": "3414dfa384a96e4fecee59e05fae7e78a292153d6c2a659f2d4b867a3b7f3e79",
+    "generator-verification.json": "53c009b649f538042e927b80fe1a1a91d359e491c56f7ae1dde3d2d99206cf7a",
+    "loaded-model.json": "26f669f717645c56a012f4bba5079ad53c5efc4e41c8dba8568577032485f2a1",
+    "generation-v1/candidates.jsonl": "2641a4754fa6f417d6b96620d55879312b98ad981792a3598448b8773254396f",
+    "detector-requests.jsonl": "fd889726f8c1934f02d248ddb526688f6c48375c9f0b492cc39c3843b08add29",
+    "detector-scores.jsonl": "cf31913be3dd43f85b63ffb8b273f6b60f837859aada821537d16bb5de79016f",
+    "repair-protocol.json": "895a28d62f57c2696d2f8a816cff307a347930f92cbb194ef059a05c892b3716",
+    "menu-repair/plan.json": "04d66be44d2d51d3af2fbc4537a8776ad15712ac5d617814fdc20b483cdfd253",
+    "scores-repair.jsonl": "c6303dbcc4e91273d3a4bc215022b031a9d619ff52edd23c3420c342a0224385",
+    "review-three-edits.json": "2639420e8968ee2515b0c920d6014223af80d6f64329d6dfa6f204ec6496e8a7",
+    "review-explicit-referent.json": "f981f92401c5874f6e5b677f20b72551db8c8c67e0329ca46f88be7ea13fbfde",
+    "order-repair.json": "a5760389568e03e81af8bdcb3c39fc2e3a1db7bd39734df902161d13ff556de4",
+    "external-report.json": "7b76a969c983a57ab15c11a67fd42d14d2ae4f2cb6b64deee4d6820b4f0c50f1"
+  },
+  "generation_cells": [
+    {
+      "id": "lexical-references",
+      "generation_status": "ok",
+      "request_sha256": "8f26f551851725f85ec22c299d96102a6e20f9573e62c3f59c8f25086180e3d2",
+      "output_sha256": "0c95540f13fdf88b17ba510c0ce33d13820ddd38280f88dc82d524e2f87f88e8",
+      "seconds": 65.911284792,
+      "usage": {
+        "completion_tokens": 486,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "prompt_tokens": 2131,
+        "total_tokens": 2617
+      },
+      "mechanically_accepted": 0,
+      "mechanical_rejections": [
+        {
+          "id": "proposal-01",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-02",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-03",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-04",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-05",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-06",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-07",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-08",
+          "reason": "Span exceeds declared word limit"
+        }
+      ]
+    },
+    {
+      "id": "lexical-measured",
+      "generation_status": "ok",
+      "request_sha256": "aaa8d7c3bd74cc2b2c625ffcd696e43fad1c71907f5227ce524da86bb62a8abd",
+      "output_sha256": "80201125ca604db4d56421c577c1aef03e61c6e86c79098487a6b370317aa808",
+      "seconds": 87.414803916,
+      "usage": {
+        "completion_tokens": 600,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "prompt_tokens": 4030,
+        "total_tokens": 4630
+      },
+      "mechanically_accepted": 0,
+      "mechanical_rejections": [
+        {
+          "id": "proposal-01",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-02",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-03",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-04",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-05",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-06",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-07",
+          "reason": "Span exceeds declared word limit"
+        },
+        {
+          "id": "proposal-08",
+          "reason": "Span exceeds declared word limit"
+        }
+      ]
+    },
+    {
+      "id": "clause-references",
+      "generation_status": "ok",
+      "request_sha256": "05bd25a2d1d603b18adc5d7be57fb503f075bff5158c55bdc99c256920fe2ecd",
+      "output_sha256": "92dfb078e45e42959526d2834ac87b3433bcb40c17659bd7b83820595073d4d7",
+      "seconds": 91.09276525,
+      "usage": {
+        "completion_tokens": 678,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "prompt_tokens": 2132,
+        "total_tokens": 2810
+      },
+      "mechanically_accepted": 8,
+      "mechanical_rejections": [],
+      "states": 93,
+      "excluded_by_individual_review": [
+        "proposal-01",
+        "proposal-05"
+      ],
+      "lowest_a_any": {
+        "a_probability": 0.029159395555859016,
+        "a_reduction": 0.9193081938164646,
+        "choices": [
+          "proposal-03",
+          "proposal-07",
+          "proposal-08"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.102082366119085,
+        "function_grammar_distance": 1.2259150205263287,
+        "id": "61537719e8bfe704af7ce0ce16cd020194bde8420744406ea564b42c882daf1e",
+        "nonadditive_a_effect": -0.7809919331435419,
+        "style_reduction": 0.030747289317634152
+      },
+      "lowest_a_after_individual_review": {
+        "a_probability": 0.029159395555859016,
+        "a_reduction": 0.9193081938164646,
+        "choices": [
+          "proposal-03",
+          "proposal-07",
+          "proposal-08"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.102082366119085,
+        "function_grammar_distance": 1.2259150205263287,
+        "id": "61537719e8bfe704af7ce0ce16cd020194bde8420744406ea564b42c882daf1e",
+        "nonadditive_a_effect": -0.7809919331435419,
+        "style_reduction": 0.030747289317634152
+      },
+      "individual_review": {
+        "schema": "slop_ninja_b_proposal_editorial_review_v1",
+        "request_id": "clause-references",
+        "output_sha256": "92dfb078e45e42959526d2834ac87b3433bcb40c17659bd7b83820595073d4d7",
+        "reviewer": "Codex assistant",
+        "method": "Individual exact source replacements reviewed before new A/Pangram scores; prior adaptive experiments known. Full combinations remain unreviewed. Not independent certification.",
+        "proposals": [
+          {
+            "id": "proposal-01",
+            "meaning": true,
+            "no_obvious_quality_regression": false,
+            "notes": "Before to prior to retains timing but adds bureaucratic phrasing; no claimed cleanup."
+          },
+          {
+            "id": "proposal-02",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "Covers to includes preserves booking scope; neutral word choice."
+          },
+          {
+            "id": "proposal-03",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "Required induction remains explicit and experience exception is retained; neutral recasting of agency."
+          },
+          {
+            "id": "proposal-04",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "Removes the aim-of/is-to nominal construction; functional process subject remains an editorial concern, not a new fact."
+          },
+          {
+            "id": "proposal-05",
+            "meaning": false,
+            "no_obvious_quality_regression": true,
+            "notes": "Can use states availability; might use shifts toward uncertain uptake. Do not accept that modal change as demonstrated preservation."
+          },
+          {
+            "id": "proposal-06",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "After to past retains the exact lateness threshold; neutral wording."
+          },
+          {
+            "id": "proposal-07",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "Nonautomatic cancellation retained, with nominal phrasing. Neutral probe, no independent evidence of cleanup."
+          },
+          {
+            "id": "proposal-08",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "Fronts the trial goal and retains the explicit absence of a guarantee; possible topic clarity benefit."
+          }
+        ]
+      }
+    },
+    {
+      "id": "clause-measured",
+      "generation_status": "ok",
+      "request_sha256": "000eaf737d07ff5bac792554e621ed9b841eab46edd78cae3f6f50848171641d",
+      "output_sha256": "f405644d7836304560786b7572e100df914b0ec259b5308eacc417a4bebea919",
+      "seconds": 101.8568035,
+      "usage": {
+        "completion_tokens": 721,
+        "completion_tokens_details": {
+          "reasoning_tokens": 0
+        },
+        "prompt_tokens": 4031,
+        "total_tokens": 4752
+      },
+      "mechanically_accepted": 8,
+      "mechanical_rejections": [],
+      "states": 93,
+      "excluded_by_individual_review": [
+        "proposal-01",
+        "proposal-02",
+        "proposal-03",
+        "proposal-04"
+      ],
+      "lowest_a_any": {
+        "a_probability": 0.866925809772866,
+        "a_reduction": 0.08154177959945752,
+        "choices": [
+          "proposal-02",
+          "proposal-03"
+        ],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.0972799579984518,
+        "function_grammar_distance": 1.2139216560844315,
+        "id": "2b0b11a755843a8b95019e8d41912c6f6e68a94079817fb9e549885863ea9bf0",
+        "nonadditive_a_effect": -0.032878191625645314,
+        "style_reduction": 0.0427406537595314
+      },
+      "lowest_a_after_individual_review": {
+        "a_probability": 0.9484675893723236,
+        "a_reduction": 0.0,
+        "choices": [],
+        "editorial_status": "unreviewed",
+        "eligible_output": false,
+        "full_word_grammar_distance": 1.1232895785033783,
+        "function_grammar_distance": 1.2566623098439629,
+        "id": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+        "nonadditive_a_effect": 0.0,
+        "style_reduction": 0.0
+      },
+      "individual_review": {
+        "schema": "slop_ninja_b_proposal_editorial_review_v1",
+        "request_id": "clause-measured",
+        "output_sha256": "f405644d7836304560786b7572e100df914b0ec259b5308eacc417a4bebea919",
+        "reviewer": "Codex assistant",
+        "method": "Individual exact source replacements reviewed before new A/Pangram scores; prior adaptive experiments known. Full combinations remain unreviewed. Not independent certification.",
+        "proposals": [
+          {
+            "id": "proposal-01",
+            "meaning": true,
+            "no_obvious_quality_regression": false,
+            "notes": "Permission retained as ability in context, but prior to is more bureaucratic; no cleanup demonstrated."
+          },
+          {
+            "id": "proposal-02",
+            "meaning": false,
+            "no_obvious_quality_regression": true,
+            "notes": "Drops only: bench inclusion and laser exclusion no longer state that no other equipment is covered."
+          },
+          {
+            "id": "proposal-03",
+            "meaning": false,
+            "no_obvious_quality_regression": true,
+            "notes": "Omits elsewhere from the explicitly preserved experience exception. Generic prior experience is not full retention of that detail."
+          },
+          {
+            "id": "proposal-04",
+            "meaning": true,
+            "no_obvious_quality_regression": false,
+            "notes": "Preserves stated aim, but provide/method adds bureaucratic phrasing and removes access wording. Do not select as an editorial improvement."
+          },
+          {
+            "id": "proposal-05",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "Cancel remains a request and enables another member to use the session; neutral softer phrasing. Full passage needs referent review."
+          },
+          {
+            "id": "proposal-06",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "Cancellation remains free; neutral recasting. The claimed passive construction in the model rationale is incorrect."
+          },
+          {
+            "id": "proposal-07",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "Keeps more-than-15 condition, waiting-list recipient and may. Fronting the condition is a concrete organizational alternative."
+          },
+          {
+            "id": "proposal-08",
+            "meaning": true,
+            "no_obvious_quality_regression": true,
+            "notes": "Nonautomatic result remains attached to late arrival in context. Full passage must retain the threshold separately."
+          }
+        ]
+      }
+    }
+  ],
+  "generation_calls": 4,
+  "requested_alternatives": 32,
+  "mechanically_accepted_alternatives": 16,
+  "a_requests": 201,
+  "a_unique_texts_in_this_comparison": 197,
+  "repair_states": 16,
+  "repair_reason": "The best initial clause combination scored 0.029159395555859016 on A, but full-source review caught possible nonexclusivity loss from an aim to the goal. It was not selected or sent to Pangram. Restored a goal and tested explicit arrangements referent. This is an adaptive assisted repair, not unmodified model output.",
+  "selected_repairs": [
+    {
+      "selection": "three-edits",
+      "state_id": "e3efd7ffba06f7f7aa729b07accbb3eeb50eebe29963dfa278da94dacb5324b2",
+      "review": {
+        "plan_sha256": "04d66be44d2d51d3af2fbc4537a8776ad15712ac5d617814fdc20b483cdfd253",
+        "state_id": "e3efd7ffba06f7f7aa729b07accbb3eeb50eebe29963dfa278da94dacb5324b2",
+        "reviewer": "Codex assistant",
+        "method": "Full-root, complete-candidate assistant review after A scores, before any Pangram score on these exact texts. Not independent or blinded validation. Earlier full review required restoring nonexclusivity before selection.",
+        "meaning": true,
+        "target_tone": true,
+        "readability": true,
+        "cleanup": true,
+        "author_fit": true,
+        "notes": "Full text compared with the original root and current parent. Retains 7-day opening, permission and 90-minute maximum, workbench-only scope and laser exclusion, separate induction even after similar-machine experience elsewhere, request to cancel and its availability reason, no fee, more-than-15-minute threshold, possible waiting-list reassignment and nonautomatic cancellation. Retains 6-week provisional trial, staff review of waiting times and feedback, nonexclusive shorter-wait aim without guarantee, and continuing safety rules. No new procedure, command, penalty or certainty. Ordinary connected explanatory tone retained; passive induction and nominal cancellation are acceptable contextual variants. The aim is fronted next to its qualification; this is an editorial judgment, not a score-based quality claim. Reference fit remains provisional with only two imperfect excerpts, not independently established writer identity. This three-edit state is a comparison for the explicit-referent refinement, not a claim that neutral synonym or grammar changes alone improve prose."
+      }
+    },
+    {
+      "selection": "explicit-referent",
+      "state_id": "e60db1ad31b151db2b72a77d5c8830cbb7be7dc499a1be213dc6bca4b87d3786",
+      "review": {
+        "plan_sha256": "04d66be44d2d51d3af2fbc4537a8776ad15712ac5d617814fdc20b483cdfd253",
+        "state_id": "e60db1ad31b151db2b72a77d5c8830cbb7be7dc499a1be213dc6bca4b87d3786",
+        "reviewer": "Codex assistant",
+        "method": "Full-root, complete-candidate assistant review after A scores, before any Pangram score on these exact texts. Not independent or blinded validation. Earlier full review required restoring nonexclusivity before selection.",
+        "meaning": true,
+        "target_tone": true,
+        "readability": true,
+        "cleanup": true,
+        "author_fit": true,
+        "notes": "Full text compared with the original root and current parent. Retains 7-day opening, permission and 90-minute maximum, workbench-only scope and laser exclusion, separate induction even after similar-machine experience elsewhere, request to cancel and its availability reason, no fee, more-than-15-minute threshold, possible waiting-list reassignment and nonautomatic cancellation. Retains 6-week provisional trial, staff review of waiting times and feedback, nonexclusive shorter-wait aim without guarantee, and continuing safety rules. No new procedure, command, penalty or certainty. Ordinary connected explanatory tone retained; passive induction and nominal cancellation are acceptable contextual variants. The aim is fronted next to its qualification; this is an editorial judgment, not a score-based quality claim. Reference fit remains provisional with only two imperfect excerpts, not independently established writer identity. Concrete added cleanup: keep these arrangements names the object of the staff decision and removes the competing waiting-times/feedback antecedents of them. This clarity gain is preferred even though A is higher than the three-edit version."
+      }
+    }
+  ],
+  "order_representation": {
+    "space_id": "884e6b51cbfb6b16617660134f621116029e2f3b5c8897d8404f6a312bd5c8ee",
+    "feature_schema": "grammar-features-v1;nfc-lowercase-letter-apostrophe-v1;alphabetic-parse-token-v1;syntax-families-v1;grammar-sentence-order-v2;factorized-opening-pos-2-root-frame-morph-length;quartiles-4;length-bins-8-16-32;blank-line-paragraphs",
+    "states": [
+      {
+        "id": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+        "choices": [],
+        "base_function_grammar_distance": 1.2566623098439629,
+        "order_distance": 0.8519889029217411,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2566623098439629,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.2222391967018187,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1687050070108458,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0735653803295253,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "7d6df76dc5e0c84af9e35e342b4a18abbe99e68c225ab7c9db11aea25aafe2d0",
+        "choices": [
+          "proposal-03"
+        ],
+        "base_function_grammar_distance": 1.2312440332921966,
+        "order_distance": 0.8515880071615702,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2312440332921966,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.1987017543826377,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1481602395239003,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.058575458684701,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "93a9630e9fd491a0c50c4dddc7aaa242ba4f8cdd5129a04b03309e7d298eb336",
+        "choices": [
+          "proposal-07"
+        ],
+        "base_function_grammar_distance": 1.2505812310110875,
+        "order_distance": 0.8613759463510956,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2505812310110875,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.2172735624816267,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1655287176882287,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0737602004892557,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "430bd762c2b493509f77afdd4c7e303002e3c112a5c418e737f61a61c2e3b31d",
+        "choices": [
+          "proposal-08-nonexclusive"
+        ],
+        "base_function_grammar_distance": 1.257031174235362,
+        "order_distance": 0.8546333333646007,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.257031174235362,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.2227650833865713,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1694849564548155,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0748315001658217,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "2920a77aa22685b4d492a7d53297a2cda925414cf478766cd5f9ec98f7cd7436",
+        "choices": [
+          "explicit-arrangements"
+        ],
+        "base_function_grammar_distance": 1.2530272953273476,
+        "order_distance": 0.8519889029217411,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2530272953273476,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.2188757818670493,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.16577413112574,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0714388674901523,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "e2269625321e5a2d0a985703718a77c9c6f001b1cad4ec038107fa921added80",
+        "choices": [
+          "proposal-03",
+          "proposal-07"
+        ],
+        "base_function_grammar_distance": 1.2253072696794765,
+        "order_distance": 0.860979421468288,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2253072696794765,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.1938880479490623,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1451440170978482,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0589295229903737,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "aaba7f884f7622717ec32bf8f007fdfdbd89320b6699fbd215abd76386136645",
+        "choices": [
+          "proposal-03",
+          "proposal-08-nonexclusive"
+        ],
+        "base_function_grammar_distance": 1.2313729807375167,
+        "order_distance": 0.8542336786485949,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2313729807375167,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.1990091716476183,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1487551339176574,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0597156683346498,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "345749e2b034543a775a1c95df77f8b90e15dc3ef7fd3e7c3930340ceaf350bf",
+        "choices": [
+          "proposal-03",
+          "explicit-arrangements"
+        ],
+        "base_function_grammar_distance": 1.2066504317949969,
+        "order_distance": 0.8515880071615702,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2066504317949969,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.175978295501277,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.128407941260005,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0443197303729512,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "c76d5cd86addfa231627ad5fa76c48632c5e0b7ccebbd8c99d8aff47a93d9139",
+        "choices": [
+          "proposal-07",
+          "proposal-08-nonexclusive"
+        ],
+        "base_function_grammar_distance": 1.251715869775134,
+        "order_distance": 0.8639916462260165,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.251715869775134,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.2185079044704892,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1669253854348511,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0754706373014706,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "e033d3df1a4d278742074e4d80333ad70db393ea03c28cb8aabc3e691d2c8f40",
+        "choices": [
+          "proposal-07",
+          "explicit-arrangements"
+        ],
+        "base_function_grammar_distance": 1.2470836917358061,
+        "order_distance": 0.8613759463510956,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2470836917358061,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.2140398728498545,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.162714681632221,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0717243710828015,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "7e16e45b58e1184ffc06b96afdee817f815d2fcc731c2775f174b70aa6f5c5a0",
+        "choices": [
+          "proposal-08-nonexclusive",
+          "explicit-arrangements"
+        ],
+        "base_function_grammar_distance": 1.253443111053047,
+        "order_distance": 0.8546333333646007,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.253443111053047,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.219445563701593,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1665930130552078,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0727343024123517,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "e3efd7ffba06f7f7aa729b07accbb3eeb50eebe29963dfa278da94dacb5324b2",
+        "choices": [
+          "proposal-03",
+          "proposal-07",
+          "proposal-08-nonexclusive"
+        ],
+        "base_function_grammar_distance": 1.2259954534015123,
+        "order_distance": 0.8635963223566694,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2259954534015123,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.1947126128838927,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.146188593041248,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0603922528359833,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "6d82be53c55c5d1b5fde7fc4b35a68fd16a0118798dd91c86101d0beefff2452",
+        "choices": [
+          "proposal-03",
+          "proposal-07",
+          "explicit-arrangements"
+        ],
+        "base_function_grammar_distance": 1.2007526745378896,
+        "order_distance": 0.860979421468288,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2007526745378896,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.1712193830739366,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1254672941073802,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0447709197718327,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "e2ae9240a0f2c1c6da9ccbf53c93d5587efd8b2df37dc0cc97878f300ce934dd",
+        "choices": [
+          "proposal-03",
+          "proposal-08-nonexclusive",
+          "explicit-arrangements"
+        ],
+        "base_function_grammar_distance": 1.2068250782247765,
+        "order_distance": 0.8542336786485949,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2068250782247765,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.1763314202480377,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1290477720223162,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0455003460472285,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "a959165777893880f6cf519d1254efce45235888644238f72e1bff5873adac65",
+        "choices": [
+          "proposal-07",
+          "proposal-08-nonexclusive",
+          "explicit-arrangements"
+        ],
+        "base_function_grammar_distance": 1.2482656732401887,
+        "order_distance": 0.8639916462260165,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2482656732401887,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.2153183238829397,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1641502413474911,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.0734637291818767,
+            "order_weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "e60db1ad31b151db2b72a77d5c8830cbb7be7dc499a1be213dc6bca4b87d3786",
+        "choices": [
+          "proposal-03",
+          "proposal-07",
+          "proposal-08-nonexclusive",
+          "explicit-arrangements"
+        ],
+        "base_function_grammar_distance": 1.2014969090472434,
+        "order_distance": 0.8635963223566694,
+        "fixed_weight_mixtures": [
+          {
+            "distance": 1.2014969090472434,
+            "order_weight": 0.0
+          },
+          {
+            "distance": 1.1720986310903483,
+            "order_weight": 0.1
+          },
+          {
+            "distance": 1.1265636994127546,
+            "order_weight": 0.25
+          },
+          {
+            "distance": 1.046277551713226,
+            "order_weight": 0.5
+          }
+        ]
+      }
+    ]
+  },
+  "external_observations": 4,
+  "joint_detector_success_observations": 0,
+  "maximum_pangram_human_fraction": 0.0,
+  "budget": {
+    "ledger": "spend is recorded in the private ledger",
+    "billing_verified": false
+  },
+  "validation": "Ten B tests, formatting and clippy passed on Studio. One focused proposal guard test added. Real installed spaCy integration and all four recorded local generation calls completed. No Linux rerun or attestation claim.",
+  "execution": "All model generation/inference, parsing, tests/builds and Python bookkeeping ran on Studio. Only lightweight HTTP and the authoritative ledger ran on laptop. Owned generator was unloaded after four calls.",
+  "next_requirement": "Evaluate assembled long documents including books, with complete coverage, frozen context policy, cross-section preservation and consistent author voice. Current short-source results cannot establish that.",
+  "limits": "No independent fidelity or author-fit validation, trained B weights, demonstrated Pangram success or book-length capability. Measured prompts were worse in this single four-cell comparison, not evidence that measured guidance is generally harmful."
+}

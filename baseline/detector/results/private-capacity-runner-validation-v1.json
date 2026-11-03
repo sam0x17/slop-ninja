@@ -1,0 +1,43 @@
+{
+  "schema": "slop_ninja_private_capacity_runner_validation_v1",
+  "at": "2026-09-15T07:30:06Z",
+  "execution_host": "Mac Studio",
+  "os_arch": "macOS arm64",
+  "cargo_fmt": "passed",
+  "cargo_test_all_targets": "passed",
+  "cargo_clippy": "passed_with_warnings_denied",
+  "example_build": "passed",
+  "assertions": [
+    "Capacity evidence cannot be silently omitted or supplied to an ordinary base plan.",
+    "Cross-size reports retain candidate roles, comparison direction, corpus/view identity and original operating points.",
+    "Private derived comparisons preserve source versions, role pairing and separate thresholds.",
+    "A whole-document observation cannot be replaced by a low-scoring window."
+  ],
+  "live_checks": {
+    "incomplete_large_public_comparison": "rejected_before_output_creation_or_model_invocation",
+    "completed_base_artifacts": "preflight_passed_with_original_public_review_and_thresholds",
+    "preflight_only_record": "explicitly_not_a_completed_private_comparison",
+    "preflight_logs_empty": true
+  },
+  "capacity_private_execution_complete": false,
+  "full_capacity_path_validation": "pending_large_fit_public_cross_size_and_private_results",
+  "base_private_evidence_checker_live_validation": false,
+  "linux_execution": "unverified",
+  "nlp_or_model_code_changed": false,
+  "detector_calls": 0,
+  "provider_calls": 0,
+  "training_admission": false,
+  "reference_promoted": false,
+  "retained_build_issue": "Initial build could not find the capacity protocol in the editable Studio mirror. Copied the existing unchanged tracked protocol, then rebuilt and ran the required checks in revision-2.",
+  "bindings": {
+    "private_origin_transfer": "a9ac05b50c10fd1fa754211b5ebab8be1908d377a21c8fae3dd91204573e1c72",
+    "source/private_origin_transfer.rs": "47c7bd7ba1e13ecc12df12662cfd49a2e081b42de58e302d4bc97308bedc7dad",
+    "source/private_origin_transfer/capacity.rs": "fd2f19631bf6ed67de295259294921bb25447cec5ab31709b68d99af6f9853c8",
+    "source/CAPACITY_PRIVATE_TRANSFER_V1.md": "83450bb76c52eb1ad58c79cc6ecd0c7979aa7d2d92b72d8afd88e8788e5a0736",
+    "source/ORIGIN_PRIVATE_TRANSFER_V1.md": "a8780c9e75756530979f307da00f31982f5c244fb5e3757653f7fdfadcd30af8",
+    "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests.log": "3222e584af0bea25cb6d7d7874f235d992573b751ef8d1ee3a5ad5b6d5f8cf10",
+    "clippy.log": "ba29420680ad1d0e0f067f0db72e5154742fef945b0763ad7ed4dc7109bab0e9",
+    "build.log": "7da1d37bef8643fb0afb50b8a32c0b38723fdc933cabe2074a463a0225e78666"
+  }
+}

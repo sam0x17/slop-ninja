@@ -1,0 +1,76 @@
+{
+  "schema": "slop_ninja_markdown_transformer_manual_review_v1",
+  "reviewer": "Codex assistant",
+  "independent_human_annotation": false,
+  "host": "mac_studio",
+  "platform": "macOS-26.5.2-arm64",
+  "python": "3.12.14",
+  "spacy": "3.8.16",
+  "parser_model": "en_core_web_trf@3.8.0",
+  "parser_asset_sha256": "d92fc1f65e76182fcfaac41f3fffa2e38d422a934dc69fb479ab18b659db6bfd",
+  "view_version": "slop_ninja_commonmark_text_view_v1",
+  "policy_sha256": "30b074fb73ece2866d38f9f82b2d15c54d314ead7751ad78d5cac0fc31145d27",
+  "inputs_sha256": "46c5a6ad12f79ba3181c97efe1517e51512df49e912ee2f4b8fed8cedb1b3249",
+  "comparison_binary_sha256": "137d8df1ab94e04ff59fa35d52b0c33c343fcf84e70c95030b5c4ff7b2401e69",
+  "comparison_sha256": "bc880f98a7b7be2ef87a85d7ebeaf0440d70b300519751ca8509c0fd9554142d",
+  "small_comparison_sha256": "ef9143da4e2d760fab7582fa39d99f4af98607bbb8ba10b571a89b5918d2350d",
+  "bindings_sha256": "478be63b7f64598f571d5a1fd12b7f0566352f533a10f89d538eb6d95d3eed19",
+  "projection_audit_sha256": "f25f44a45d442d9b0d83800c566114edc2e548f0c74314f544542246eb5220cb",
+  "observed_runtime_sha256": "8472556b585b81e50641dd39934f431b21052845026ebe00269552d5a28d46da",
+  "scope": "Same nine known development inputs as the small-parser Markdown comparison: one complete Train model-only document and eight synthetic inputs. Read every input and all 18 raw/rendered POS/tag/dependency/head tables from this transformer run. This is a targeted comparison, not an independent gold annotation or corpus accuracy estimate.",
+  "rendered_tokens": 215,
+  "verbatim_projected_tokens": 212,
+  "all_verbatim_projection_bytes_verified": true,
+  "cases": [
+    {
+      "id": "train-full-document",
+      "source_group": "wikipedia:page:1001127",
+      "source_text_sha256": "352bdfda3366c4d9fd66f0c2a59adf5a0e11f33c94733283a88b17a6c98990f1",
+      "finding": "The raw transformer also loses the main predicate inside a fused Markdown token. Rendering recovers the finite VBD root, its subject and the following participial clause. It also reunites the final period with that sentence: eight raw sentence spans become seven rendered spans.",
+      "comparison_with_small_parser": "In both raw and rendered text, the transformer recovers the contrast between two predicate nouns under the embedded copula, the free-relative clause as the main copula's subject, and contracted negation. These improvements relative to the small parser are not caused by Markdown rendering.",
+      "remaining_errors": "The plural lexical item in the final parenthesis receives a singular noun tag, where the rendered small parser had the plural tag. Explanatory and semicolon-separated independent clauses retain problematic ccomp links. The contrasting adjective pair also retains an implausible modifier attachment.",
+      "complete_parse_certified": false
+    },
+    {
+      "ids": [
+        "synthetic-emphasis",
+        "synthetic-strong",
+        "synthetic-underscore",
+        "synthetic-without-markup"
+      ],
+      "finding": "All three rendered formatting variants exactly match the unformatted transformer control, including the main verb's VBD tag and ROOT relation and the noun subject. The small rendered parser found that root and subject but incorrectly tagged the finite verb VBN. All three raw formatted transformer inputs still lose the main predicate.",
+      "emphasis_variants_equal_plain_control": true,
+      "finite_tag_repaired_relative_to_small_rendered": true
+    },
+    {
+      "id": "synthetic-simple",
+      "finding": "Raw and rendered transformer annotations match each other and the small parser's rendered annotation, ignoring parser identity."
+    },
+    {
+      "id": "entities-and-word-internal-emphasis",
+      "finding": "Rendered transformer and small-parser annotations match, ignoring identity. Both source projections remain deliberately nonverbatim for the decoded entity and the word crossing emphasis delimiters. The small-clause dependency convention was inspected but not independently adjudicated."
+    },
+    {
+      "id": "code-and-link-label",
+      "finding": "Rendering removes URL syntax from the grammatical object: the link label is correctly attached to the opening verb. Inline code remains visible but protected. The raw transformer gives multiple URL tokens object relations."
+    },
+    {
+      "id": "literal-unclosed-markup",
+      "finding": "The underscore-containing term is now a coordinated noun, correcting the small parser's interjection tag. The literal asterisk receives a spurious noun/subject analysis and attracts its own modifiers. Raw and rendered transformer annotations are identical because the input remains literal."
+    }
+  ],
+  "validation": {
+    "existing_binary_reused": true,
+    "bound_files_preflight_and_postflight": "passed",
+    "installed_spacy_comparison": "completed_on_studio_with_manual_review",
+    "additional_rust_tests": "not_run_no_code_change",
+    "execution": "CPU with two OpenMP/BLAS threads, reduced process priority",
+    "linux_execution": "unverified"
+  },
+  "limitations": "The adapter and stronger parser repair different failures in these selected examples. Some annotations regress relative to the smaller parser. This supports further controlled parser comparison, not a corpus-wide switch or a claim that grammar features now generalize for A. Existing spaces would need consistent reannotation and fitting before comparison.",
+  "default_parser_changed": false,
+  "active_fits_or_spaces_changed": false,
+  "detector_calls": 0,
+  "model_fitted": false,
+  "parse_accuracy": null
+}

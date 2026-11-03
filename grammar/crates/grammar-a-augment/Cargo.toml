@@ -1,0 +1,22 @@
+[package]
+name = "grammar-a-augment"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Class-blind, seeded text noise for A: recorded augmented training copies of bundle rows and consistency probes, with exact span remapping; human form-injection twins (gen_form_inject_v1) and their variant audit"
+
+[lib]
+name = "grammar_a_augment"
+
+[[bin]]
+name = "slop_ninja_a_augment"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+grammar-a-form = { path = "../grammar-a-form" }
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

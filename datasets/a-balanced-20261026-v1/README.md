@@ -1,0 +1,13 @@
+# Slop Ninja fresh balanced non-Test cohort
+
+This authorized public projection contains 937 records from 54 source works: 215 Train queries, 288 Development queries, 414 Calibration queries, and 20 independent references. All Test text remains unopened and absent. The references retain their actual `frozen_split`; never use references for fitting, normalization, vocabulary construction or query scoring. Keep whole works and descendants in their frozen partitions.
+
+The historical human labels are public-domain author proxies, not authenticated human-only workflows. Grammar and pretraining exposure remain conservative and unknown. Publication makes these records exposed research data, not a future hidden benchmark. Publication does not change the original fitting inputs or hashes.
+
+Exact text, SHA256, source author/title/URLs, original composition-date uncertainty, acquisition hashes, excerpt bounds, generation prompts, sampler settings, original/quantizer identities, runtime hashes, response and attempt hashes, and exact replacement-span share evidence survive the field-allowlisted projection. A complete rewrite remains mixed contribution history even at unit replacement share. Requested edit percentages are not realized share targets. Raw provider logs, full source books, weights, filesystem locators and Test prose are absent.
+
+Three failed Phi generation tasks remain in `failures.json`; they have no substitute text or fabricated labels. The 12 Train references present in both input files appear once. `generators.json`, `NOTICE.md` and `licenses/` distinguish original model licenses from quantization evidence and source/output rights.
+
+Author excerpts rely on recorded **US** public-domain determinations. New generated text and curation are offered under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) to the extent rights exist, subject to underlying rights and generator terms. The code license does not replace these text terms. Preserve provenance and notices; see [the model ShareAlike policy](../../baseline/detector/SHARE_ALIKE_POLICY.md).
+
+The separate Rust `publish_balanced_snapshot` example pins the exact input manifest, checks the non-Test roster, rights, source/group bindings, exact text and spans, parentage, references, licenses and an explicit field allowlist. It never opens source books, model weights or raw provider attempts. Reproduce with `publish_balanced_snapshot REPO COHORT NEW_DATASETS_CHILD`; validate this copy with `sha256sum -c SHA256SUMS`. The original historical publisher is unchanged. Pangram observations are absent and never become training labels.

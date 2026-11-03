@@ -1,0 +1,3869 @@
+{
+  "changed_assumptions": {
+    "fixed_credits_changed_stake": {
+      "honest_stake_after": 0.7,
+      "honest_stake_before": 0.8,
+      "miner_share_after": 0.2631578947368421,
+      "miner_share_before": 0.23809523809523808
+    },
+    "scope": "Sensitivity examples, not a demonstrated way for an attacker to cause these state changes. Membership, eligibility, actual filters and native timing need separate enforcement.",
+    "unsafe_exclusion_and_renormalization": {
+      "credit_after": 0.5,
+      "credit_before": 0.2,
+      "miner_share_after": 0.5555555555555556,
+      "miner_share_before": 0.23809523809523808
+    }
+  },
+  "classic_current_only": {
+    "bad_rows_per_grid": 5151,
+    "groups": [
+      {
+        "coalition_credit": 0.1,
+        "honest_stake": 0.6,
+        "maximum_combined_share": 0.25000000000000006,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.2,
+        "honest_stake": 0.6,
+        "maximum_combined_share": 0.3,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.4,
+        "honest_stake": 0.6,
+        "maximum_combined_share": 0.39999999999999997,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.7,
+        "honest_stake": 0.6,
+        "maximum_combined_share": 0.5568181818181818,
+        "split_spread": 1.1102230246251565e-16
+      },
+      {
+        "coalition_credit": 0.9,
+        "honest_stake": 0.6,
+        "maximum_combined_share": 0.65625,
+        "split_spread": 1.1102230246251565e-16
+      },
+      {
+        "coalition_credit": 0.1,
+        "honest_stake": 0.7,
+        "maximum_combined_share": 0.20000000000000007,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.2,
+        "honest_stake": 0.7,
+        "maximum_combined_share": 0.25,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.4,
+        "honest_stake": 0.7,
+        "maximum_combined_share": 0.35,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.7,
+        "honest_stake": 0.7,
+        "maximum_combined_share": 0.5,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.9,
+        "honest_stake": 0.7,
+        "maximum_combined_share": 0.6030927835051547,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.1,
+        "honest_stake": 0.8,
+        "maximum_combined_share": 0.15000000000000002,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.2,
+        "honest_stake": 0.8,
+        "maximum_combined_share": 0.19999999999999996,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.4,
+        "honest_stake": 0.8,
+        "maximum_combined_share": 0.29999999999999993,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.7,
+        "honest_stake": 0.8,
+        "maximum_combined_share": 0.44999999999999996,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.9,
+        "honest_stake": 0.8,
+        "maximum_combined_share": 0.5510204081632654,
+        "split_spread": 1.1102230246251565e-16
+      },
+      {
+        "coalition_credit": 0.1,
+        "honest_stake": 0.9,
+        "maximum_combined_share": 0.10000000000000003,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.2,
+        "honest_stake": 0.9,
+        "maximum_combined_share": 0.14999999999999997,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.4,
+        "honest_stake": 0.9,
+        "maximum_combined_share": 0.24999999999999994,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.7,
+        "honest_stake": 0.9,
+        "maximum_combined_share": 0.39999999999999997,
+        "split_spread": 0.0
+      },
+      {
+        "coalition_credit": 0.9,
+        "honest_stake": 0.9,
+        "maximum_combined_share": 0.49999999999999994,
+        "split_spread": 1.1102230246251565e-16
+      }
+    ],
+    "legacy_bonds_fully_clipped": true,
+    "limitations": "Frozen identical post-filter honest rows, fixed eligible identities and stake, current fully clipped classic bonds only; no native rounding, withholding, cost or future-round proof.",
+    "maximum_split_spread": 1.1102230246251565e-16,
+    "maximum_witness_error": 1.6653345369377348e-16,
+    "new_bond_fraction": 1,
+    "optimal_combined_share": "(c+1-s)/2 for c<=s; c*(2-s)/(2*(s+(1-s)*c)) for c>s",
+    "splits_per_group": 11,
+    "status": "Candidate configuration, NOT a deployment recommendation"
+  },
+  "classic_dividend_search": {
+    "bad_stake": 0.2,
+    "bad_weight_grid_step": 0.005,
+    "cases": [
+      {
+        "cases": [
+          {
+            "fixed_row_combined_share": 0.125,
+            "fixed_row_miner_share": 0.23809523809523808,
+            "fixed_row_validator_share": 0.011904761904761904,
+            "grid_maximum_coalition_miner_share": 0.23809523809523808,
+            "grid_maximum_coalition_validator_share": 0.011904761904761904,
+            "grid_maximum_combined_share": 0.125,
+            "grid_optimal_bad_row": [
+              0.05,
+              0.95,
+              0.0
+            ],
+            "honest_row": [
+              0.05,
+              0.15000000000000002,
+              0.8
+            ],
+            "same_fixed_bad_row": [
+              0.5,
+              0.5,
+              0
+            ]
+          },
+          {
+            "fixed_row_combined_share": 0.1369047619047619,
+            "fixed_row_miner_share": 0.23809523809523808,
+            "fixed_row_validator_share": 0.03571428571428571,
+            "grid_maximum_coalition_miner_share": 0.23809523809523808,
+            "grid_maximum_coalition_validator_share": 0.03571428571428571,
+            "grid_maximum_combined_share": 0.1369047619047619,
+            "grid_optimal_bad_row": [
+              0.15,
+              0.85,
+              0.0
+            ],
+            "honest_row": [
+              0.15,
+              0.05000000000000002,
+              0.8
+            ],
+            "same_fixed_bad_row": [
+              0.5,
+              0.5,
+              0
+            ]
+          }
+        ],
+        "new_bond_fraction": 0.0,
+        "old_bad_bond_shares": [
+          0.2,
+          0,
+          0
+        ],
+        "optimized_combined_share_gain": 0.01190476190476189
+      },
+      {
+        "cases": [
+          {
+            "fixed_row_combined_share": 0.12678571428571428,
+            "fixed_row_miner_share": 0.23809523809523808,
+            "fixed_row_validator_share": 0.015476190476190475,
+            "grid_maximum_coalition_miner_share": 0.23809523809523808,
+            "grid_maximum_coalition_validator_share": 0.015476190476190475,
+            "grid_maximum_combined_share": 0.12678571428571428,
+            "grid_optimal_bad_row": [
+              0.05,
+              0.95,
+              0.0
+            ],
+            "honest_row": [
+              0.05,
+              0.15000000000000002,
+              0.8
+            ],
+            "same_fixed_bad_row": [
+              0.5,
+              0.5,
+              0
+            ]
+          },
+          {
+            "fixed_row_combined_share": 0.13749999999999998,
+            "fixed_row_miner_share": 0.23809523809523808,
+            "fixed_row_validator_share": 0.036904761904761905,
+            "grid_maximum_coalition_miner_share": 0.23809523809523808,
+            "grid_maximum_coalition_validator_share": 0.036904761904761905,
+            "grid_maximum_combined_share": 0.13749999999999998,
+            "grid_optimal_bad_row": [
+              0.15,
+              0.85,
+              0.0
+            ],
+            "honest_row": [
+              0.15,
+              0.05000000000000002,
+              0.8
+            ],
+            "same_fixed_bad_row": [
+              0.5,
+              0.5,
+              0
+            ]
+          }
+        ],
+        "new_bond_fraction": 0.1,
+        "old_bad_bond_shares": [
+          0.2,
+          0,
+          0
+        ],
+        "optimized_combined_share_gain": 0.010714285714285704
+      },
+      {
+        "cases": [
+          {
+            "fixed_row_combined_share": 0.13392857142857142,
+            "fixed_row_miner_share": 0.23809523809523808,
+            "fixed_row_validator_share": 0.029761904761904753,
+            "grid_maximum_coalition_miner_share": 0.2,
+            "grid_maximum_coalition_validator_share": 0.10499999999999998,
+            "grid_maximum_combined_share": 0.1525,
+            "grid_optimal_bad_row": [
+              0.05,
+              0.15,
+              0.8
+            ],
+            "honest_row": [
+              0.05,
+              0.15000000000000002,
+              0.8
+            ],
+            "same_fixed_bad_row": [
+              0.5,
+              0.5,
+              0
+            ]
+          },
+          {
+            "fixed_row_combined_share": 0.13988095238095238,
+            "fixed_row_miner_share": 0.23809523809523808,
+            "fixed_row_validator_share": 0.04166666666666666,
+            "grid_maximum_coalition_miner_share": 0.2,
+            "grid_maximum_coalition_validator_share": 0.11499999999999999,
+            "grid_maximum_combined_share": 0.1575,
+            "grid_optimal_bad_row": [
+              0.15,
+              0.05,
+              0.8
+            ],
+            "honest_row": [
+              0.15,
+              0.05000000000000002,
+              0.8
+            ],
+            "same_fixed_bad_row": [
+              0.5,
+              0.5,
+              0
+            ]
+          }
+        ],
+        "new_bond_fraction": 0.5,
+        "old_bad_bond_shares": [
+          0.2,
+          0,
+          0
+        ],
+        "optimized_combined_share_gain": 0.0050000000000000044
+      },
+      {
+        "cases": [
+          {
+            "fixed_row_combined_share": 0.14285714285714285,
+            "fixed_row_miner_share": 0.23809523809523808,
+            "fixed_row_validator_share": 0.0476190476190476,
+            "grid_maximum_coalition_miner_share": 0.2,
+            "grid_maximum_coalition_validator_share": 0.19999999999999996,
+            "grid_maximum_combined_share": 0.19999999999999998,
+            "grid_optimal_bad_row": [
+              0.05,
+              0.15,
+              0.8
+            ],
+            "honest_row": [
+              0.05,
+              0.15000000000000002,
+              0.8
+            ],
+            "same_fixed_bad_row": [
+              0.5,
+              0.5,
+              0
+            ]
+          },
+          {
+            "fixed_row_combined_share": 0.14285714285714285,
+            "fixed_row_miner_share": 0.23809523809523808,
+            "fixed_row_validator_share": 0.0476190476190476,
+            "grid_maximum_coalition_miner_share": 0.2,
+            "grid_maximum_coalition_validator_share": 0.19999999999999996,
+            "grid_maximum_combined_share": 0.19999999999999998,
+            "grid_optimal_bad_row": [
+              0.15,
+              0.05,
+              0.8
+            ],
+            "honest_row": [
+              0.15,
+              0.05000000000000002,
+              0.8
+            ],
+            "same_fixed_bad_row": [
+              0.5,
+              0.5,
+              0
+            ]
+          }
+        ],
+        "new_bond_fraction": 1.0,
+        "old_bad_bond_shares": [
+          0.2,
+          0,
+          0
+        ],
+        "optimized_combined_share_gain": 0.0
+      }
+    ],
+    "history": "One earlier A-only support epoch from empty classic bonds produces the old 0.2/0/0 normalized shares in exact arithmetic. Native fixtures quantize a supplied historical state; they do not execute that earlier epoch.",
+    "limitation": "This search is a finite grid. The companion economic audit supplies an analytic optimum for the 0.1 fixture; production arithmetic is checked separately.",
+    "model": "Ideal classic Yuma with fully clipped bond deltas and normalized historical columns; equal miner/dividend buckets, owner cut omitted.",
+    "rows_searched_per_case": 20301
+  },
+  "failure_economics": {
+    "assumptions": {
+      "bond_condition": "Only independently certified attributable default burns the responsible endpoint's irreversibly reserved bond outside this modeled coalition.",
+      "compensation_condition": "One attributable defaulter; the other endpoint has independently certified valid work. Fixed flat cap, no claimed-cost reimbursement.",
+      "cost_grid_each_role": [
+        0,
+        25,
+        100,
+        200
+      ],
+      "declared_cost_bound_each_role": 200,
+      "default_funding": "All unearned principal burns; no same-epoch redistribution or selected rollover.",
+      "excluded": "Gas, liquidity/time value, native emissions, external transfers, registration costs, future eligibility changes and arbitrary third-party ownership are not modeled.",
+      "ownership_bits": {
+        "a": 2,
+        "b": 4,
+        "sponsor": 1
+      },
+      "partner_compensation": 25,
+      "pot": 100,
+      "success_awards_a_b": [
+        40,
+        60
+      ]
+    },
+    "bad_b_quality_or_unattributed_void": {
+      "awards": [
+        0,
+        0
+      ],
+      "bond_burn": [
+        0,
+        0
+      ],
+      "principal_burn": 100
+    },
+    "collateral": {
+      "bond_each_role_ticket": 200,
+      "concurrent_tickets": 3,
+      "required_reserved_total": 1200,
+      "reuse_shortfall": 800,
+      "reusing_one_two_role_reservation": 400,
+      "roles_reserved_each_ticket": 2
+    },
+    "limits": "A finite bounded-cost fixture can show deterrence of its attributable defaults. It does not prove truthful private execution, sound certificates, Sybil resistance, all-strategy profit resistance or actual native payout conservation.",
+    "ownership_and_cost_comparisons": [
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 0,
+        "maximum_gain": null,
+        "owner_mask": 0,
+        "profitable_cases": 0,
+        "refundable_failure": true,
+        "witness": null
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 0,
+        "maximum_gain": null,
+        "owner_mask": 1,
+        "profitable_cases": 0,
+        "refundable_failure": true,
+        "witness": null
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 160,
+        "owner_mask": 2,
+        "profitable_cases": 8,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            0,
+            25
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 0,
+          "default": "A",
+          "gain": 160,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 235,
+        "owner_mask": 3,
+        "profitable_cases": 16,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            0,
+            25
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 0,
+          "default": "A",
+          "gain": 235,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 140,
+        "owner_mask": 4,
+        "profitable_cases": 8,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": 140,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 215,
+        "owner_mask": 5,
+        "profitable_cases": 16,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": 215,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 48,
+        "maximum_gain": 300,
+        "owner_mask": 6,
+        "profitable_cases": 26,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            0,
+            0
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 200,
+          "default": "Both",
+          "gain": 300,
+          "principal_burn": 0,
+          "sponsor_refund": 100
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 48,
+        "maximum_gain": 400,
+        "owner_mask": 7,
+        "profitable_cases": 39,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            0,
+            0
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 200,
+          "default": "Both",
+          "gain": 400,
+          "principal_burn": 0,
+          "sponsor_refund": 100
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 0,
+        "maximum_gain": null,
+        "owner_mask": 0,
+        "profitable_cases": 0,
+        "refundable_failure": true,
+        "witness": null
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 0,
+        "maximum_gain": null,
+        "owner_mask": 1,
+        "profitable_cases": 0,
+        "refundable_failure": true,
+        "witness": null
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": -40,
+        "owner_mask": 2,
+        "profitable_cases": 0,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            0,
+            25
+          ],
+          "bond_burn": [
+            200,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 0,
+          "default": "A",
+          "gain": -40,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 35,
+        "owner_mask": 3,
+        "profitable_cases": 4,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            0,
+            25
+          ],
+          "bond_burn": [
+            200,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 0,
+          "default": "A",
+          "gain": 35,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": -60,
+        "owner_mask": 4,
+        "profitable_cases": 0,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            200
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": -60,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 15,
+        "owner_mask": 5,
+        "profitable_cases": 4,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            200
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": 15,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 48,
+        "maximum_gain": -75,
+        "owner_mask": 6,
+        "profitable_cases": 0,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            200
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": -75,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 48,
+        "maximum_gain": 0,
+        "owner_mask": 7,
+        "profitable_cases": 0,
+        "refundable_failure": true,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            200
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": 0,
+          "principal_burn": 0,
+          "sponsor_refund": 75
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 0,
+        "maximum_gain": null,
+        "owner_mask": 0,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": null
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 0,
+        "maximum_gain": null,
+        "owner_mask": 1,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": null
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 160,
+        "owner_mask": 2,
+        "profitable_cases": 8,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            0,
+            25
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 0,
+          "default": "A",
+          "gain": 160,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 160,
+        "owner_mask": 3,
+        "profitable_cases": 8,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            0,
+            25
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 0,
+          "default": "A",
+          "gain": 160,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 140,
+        "owner_mask": 4,
+        "profitable_cases": 8,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": 140,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": 140,
+        "owner_mask": 5,
+        "profitable_cases": 8,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": 140,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 48,
+        "maximum_gain": 300,
+        "owner_mask": 6,
+        "profitable_cases": 26,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            0,
+            0
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 200,
+          "default": "Both",
+          "gain": 300,
+          "principal_burn": 100,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 0,
+        "controlled_strategy_cases": 48,
+        "maximum_gain": 300,
+        "owner_mask": 7,
+        "profitable_cases": 26,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            0,
+            0
+          ],
+          "bond_burn": [
+            0,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 200,
+          "default": "Both",
+          "gain": 300,
+          "principal_burn": 100,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 0,
+        "maximum_gain": null,
+        "owner_mask": 0,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": null
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 0,
+        "maximum_gain": null,
+        "owner_mask": 1,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": null
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": -40,
+        "owner_mask": 2,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            0,
+            25
+          ],
+          "bond_burn": [
+            200,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 0,
+          "default": "A",
+          "gain": -40,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": -40,
+        "owner_mask": 3,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            0,
+            25
+          ],
+          "bond_burn": [
+            200,
+            0
+          ],
+          "cost_a": 200,
+          "cost_b": 0,
+          "default": "A",
+          "gain": -40,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": -60,
+        "owner_mask": 4,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            200
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": -60,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 16,
+        "maximum_gain": -60,
+        "owner_mask": 5,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            200
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": -60,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 48,
+        "maximum_gain": -75,
+        "owner_mask": 6,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            200
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": -75,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      },
+      {
+        "bond_per_endpoint": 200,
+        "controlled_strategy_cases": 48,
+        "maximum_gain": -75,
+        "owner_mask": 7,
+        "profitable_cases": 0,
+        "refundable_failure": false,
+        "witness": {
+          "awards": [
+            25,
+            0
+          ],
+          "bond_burn": [
+            0,
+            200
+          ],
+          "cost_a": 0,
+          "cost_b": 200,
+          "default": "B",
+          "gain": -75,
+          "principal_burn": 75,
+          "sponsor_refund": 0
+        }
+      }
+    ],
+    "same_owner_cost_saving": {
+      "bond": 0,
+      "costs_a_b": [
+        200,
+        25
+      ],
+      "default": "A",
+      "gain": 125,
+      "owner_mask": 6,
+      "refundable": false
+    },
+    "sponsor_a_refund_attack": {
+      "costs_a_b": [
+        0,
+        25
+      ],
+      "irreversible_funding_gain": -40,
+      "owner_mask": 3,
+      "refundable_gain": 35
+    },
+    "status": "authorized hypothesis comparison; not adopted settlement or native-cash simulation",
+    "unproven_fake_execution": {
+      "b_cost_after": 0,
+      "b_cost_before": 200,
+      "b_gain": 200,
+      "bond_burn": 0,
+      "certified_attributable_fault": false,
+      "limit": "An unproven on-time execution claim cannot trigger the modeled default bond; this assumes the claimed shortcut leaves all certified evidence unchanged.",
+      "payout_verdict_unchanged": true
+    }
+  },
+  "pinned_native_math": {
+    "current_only_classic_fixtures": [
+      {
+        "active_stake": {
+          "i32f32_bits": [
+            3435973836,
+            858993459,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.7999999998137355,
+            0.19999999995343387,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "alpha_new": {
+          "i32f32_bits": [
+            4294967296
+          ],
+          "values": [
+            1.0
+          ]
+        },
+        "bonds_for_dividends": [
+          [
+            {
+              "i32f32_bits": 3435973836,
+              "uid": 2,
+              "value": 0.7999999998137355
+            },
+            {
+              "i32f32_bits": 3435973839,
+              "uid": 3,
+              "value": 0.8000000005122274
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858993459,
+              "uid": 2,
+              "value": 0.19999999995343387
+            },
+            {
+              "i32f32_bits": 858993456,
+              "uid": 3,
+              "value": 0.19999999925494194
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "bonds_moving_average": 0,
+        "bonds_penalty": 65535,
+        "branch": "classic",
+        "clipped_weights": [
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "coalition_gross_emission_units": 142858802,
+        "coalition_gross_epoch_share": 0.14285880303941667,
+        "coalition_gross_epoch_share_bits": 613573887,
+        "coalition_miner_incentive": 0.23809800553135574,
+        "coalition_miner_incentive_bits": 1022623147,
+        "coalition_validator_dividend": 0.04761960078030825,
+        "consensus": {
+          "i32f32_bits": [
+            0,
+            0,
+            214750986,
+            644252958,
+            3435963350
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.050000610295683146,
+            0.15000183088704944,
+            0.7999975583516061
+          ]
+        },
+        "dividends": {
+          "i32f32_bits": [
+            4090442667,
+            204524628,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.9523803989868611,
+            0.04761960078030825,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "encoded_weight_rows_u16": [
+          [
+            4096,
+            12288,
+            65535
+          ],
+          [
+            65535,
+            65535,
+            0
+          ]
+        ],
+        "honest_input_ratio": [
+          5,
+          15,
+          80
+        ],
+        "incentives": {
+          "i32f32_bits": [
+            0,
+            0,
+            255655786,
+            766967361,
+            3272344148
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.05952450120821595,
+            0.1785735043231398,
+            0.7619019942358136
+          ]
+        },
+        "kappa": 32767,
+        "liquid_alpha_on": false,
+        "malicious_input_ratio": [
+          1,
+          1,
+          0
+        ],
+        "miner_emission_units": [
+          0,
+          0,
+          29762250,
+          89286752,
+          380950997
+        ],
+        "new_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ],
+            [
+              3,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "normalized_weights": [
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 2,
+              "value": 0.5
+            },
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 3,
+              "value": 0.5
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_loaded_bonds": [
+          [
+            {
+              "i32f32_bits": 3436005294,
+              "uid": 2,
+              "value": 0.8000073242001235
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 3,
+              "value": 1.0
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858962001,
+              "uid": 2,
+              "value": 0.1999926755670458
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "validator_emission_units": [
+          476190199,
+          23809800,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "active_stake": {
+          "i32f32_bits": [
+            3435973836,
+            858993459,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.7999999998137355,
+            0.19999999995343387,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "alpha_new": {
+          "i32f32_bits": [
+            4294967296
+          ],
+          "values": [
+            1.0
+          ]
+        },
+        "bonds_for_dividends": [
+          [
+            {
+              "i32f32_bits": 3435973839,
+              "uid": 2,
+              "value": 0.8000000005122274
+            },
+            {
+              "i32f32_bits": 3435973836,
+              "uid": 3,
+              "value": 0.7999999998137355
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858993456,
+              "uid": 2,
+              "value": 0.19999999925494194
+            },
+            {
+              "i32f32_bits": 858993459,
+              "uid": 3,
+              "value": 0.19999999995343387
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "bonds_moving_average": 0,
+        "bonds_penalty": 65535,
+        "branch": "classic",
+        "clipped_weights": [
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "coalition_gross_emission_units": 142858802,
+        "coalition_gross_epoch_share": 0.14285880303941667,
+        "coalition_gross_epoch_share_bits": 613573887,
+        "coalition_miner_incentive": 0.23809800553135574,
+        "coalition_miner_incentive_bits": 1022623147,
+        "coalition_validator_dividend": 0.04761960078030825,
+        "consensus": {
+          "i32f32_bits": [
+            0,
+            0,
+            644252958,
+            214750986,
+            3435963350
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.15000183088704944,
+            0.050000610295683146,
+            0.7999975583516061
+          ]
+        },
+        "dividends": {
+          "i32f32_bits": [
+            4090442667,
+            204524628,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.9523803989868611,
+            0.04761960078030825,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "encoded_weight_rows_u16": [
+          [
+            12288,
+            4096,
+            65535
+          ],
+          [
+            65535,
+            65535,
+            0
+          ]
+        ],
+        "honest_input_ratio": [
+          15,
+          5,
+          80
+        ],
+        "incentives": {
+          "i32f32_bits": [
+            0,
+            0,
+            766967361,
+            255655786,
+            3272344148
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.1785735043231398,
+            0.05952450120821595,
+            0.7619019942358136
+          ]
+        },
+        "kappa": 32767,
+        "liquid_alpha_on": false,
+        "malicious_input_ratio": [
+          1,
+          1,
+          0
+        ],
+        "miner_emission_units": [
+          0,
+          0,
+          89286752,
+          29762250,
+          380950997
+        ],
+        "new_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ],
+            [
+              3,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "normalized_weights": [
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 2,
+              "value": 0.5
+            },
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 3,
+              "value": 0.5
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_loaded_bonds": [
+          [
+            {
+              "i32f32_bits": 3436005294,
+              "uid": 2,
+              "value": 0.8000073242001235
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 3,
+              "value": 1.0
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858962001,
+              "uid": 2,
+              "value": 0.1999926755670458
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "validator_emission_units": [
+          476190199,
+          23809800,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "active_stake": {
+          "i32f32_bits": [
+            3435973836,
+            858993459,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.7999999998137355,
+            0.19999999995343387,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "alpha_new": {
+          "i32f32_bits": [
+            4294967296
+          ],
+          "values": [
+            1.0
+          ]
+        },
+        "bonds_for_dividends": [
+          [
+            {
+              "i32f32_bits": 3435973836,
+              "uid": 2,
+              "value": 0.7999999998137355
+            },
+            {
+              "i32f32_bits": 3435973839,
+              "uid": 3,
+              "value": 0.8000000005122274
+            },
+            {
+              "i32f32_bits": 3435973837,
+              "uid": 4,
+              "value": 0.8000000000465661
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858993459,
+              "uid": 2,
+              "value": 0.19999999995343387
+            },
+            {
+              "i32f32_bits": 858993456,
+              "uid": 3,
+              "value": 0.19999999925494194
+            },
+            {
+              "i32f32_bits": 858993458,
+              "uid": 4,
+              "value": 0.19999999972060323
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "bonds_moving_average": 0,
+        "bonds_penalty": 65535,
+        "branch": "classic",
+        "clipped_weights": [
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "coalition_gross_emission_units": 200001218,
+        "coalition_gross_epoch_share": 0.20000121975317597,
+        "coalition_gross_epoch_share_bits": 858998698,
+        "coalition_miner_incentive": 0.2000024407170713,
+        "coalition_miner_incentive_bits": 859003942,
+        "coalition_validator_dividend": 0.19999999925494194,
+        "consensus": {
+          "i32f32_bits": [
+            0,
+            0,
+            214750986,
+            644252958,
+            3435963350
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.050000610295683146,
+            0.15000183088704944,
+            0.7999975583516061
+          ]
+        },
+        "dividends": {
+          "i32f32_bits": [
+            3435973839,
+            858993456,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.8000000005122274,
+            0.19999999925494194,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "encoded_weight_rows_u16": [
+          [
+            4096,
+            12288,
+            65535
+          ],
+          [
+            4096,
+            12288,
+            65535
+          ]
+        ],
+        "honest_input_ratio": [
+          5,
+          15,
+          80
+        ],
+        "incentives": {
+          "i32f32_bits": [
+            0,
+            0,
+            214750985,
+            644252957,
+            3435963352
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.0500006100628525,
+            0.1500018306542188,
+            0.7999975588172674
+          ]
+        },
+        "kappa": 32767,
+        "liquid_alpha_on": false,
+        "malicious_input_ratio": [
+          5,
+          15,
+          80
+        ],
+        "miner_emission_units": [
+          0,
+          0,
+          25000304,
+          75000915,
+          399998779
+        ],
+        "new_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ],
+            [
+              3,
+              16383
+            ],
+            [
+              4,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "normalized_weights": [
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_loaded_bonds": [
+          [
+            {
+              "i32f32_bits": 3436005294,
+              "uid": 2,
+              "value": 0.8000073242001235
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 3,
+              "value": 1.0
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858962001,
+              "uid": 2,
+              "value": 0.1999926755670458
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "validator_emission_units": [
+          400000000,
+          99999999,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "active_stake": {
+          "i32f32_bits": [
+            3435973836,
+            858993459,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.7999999998137355,
+            0.19999999995343387,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "alpha_new": {
+          "i32f32_bits": [
+            4294967296
+          ],
+          "values": [
+            1.0
+          ]
+        },
+        "bonds_for_dividends": [
+          [
+            {
+              "i32f32_bits": 3435973839,
+              "uid": 2,
+              "value": 0.8000000005122274
+            },
+            {
+              "i32f32_bits": 3435973836,
+              "uid": 3,
+              "value": 0.7999999998137355
+            },
+            {
+              "i32f32_bits": 3435973837,
+              "uid": 4,
+              "value": 0.8000000000465661
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858993456,
+              "uid": 2,
+              "value": 0.19999999925494194
+            },
+            {
+              "i32f32_bits": 858993459,
+              "uid": 3,
+              "value": 0.19999999995343387
+            },
+            {
+              "i32f32_bits": 858993458,
+              "uid": 4,
+              "value": 0.19999999972060323
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "bonds_moving_average": 0,
+        "bonds_penalty": 65535,
+        "branch": "classic",
+        "clipped_weights": [
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "coalition_gross_emission_units": 200001218,
+        "coalition_gross_epoch_share": 0.20000121975317597,
+        "coalition_gross_epoch_share_bits": 858998698,
+        "coalition_miner_incentive": 0.2000024407170713,
+        "coalition_miner_incentive_bits": 859003942,
+        "coalition_validator_dividend": 0.19999999925494194,
+        "consensus": {
+          "i32f32_bits": [
+            0,
+            0,
+            644252958,
+            214750986,
+            3435963350
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.15000183088704944,
+            0.050000610295683146,
+            0.7999975583516061
+          ]
+        },
+        "dividends": {
+          "i32f32_bits": [
+            3435973839,
+            858993456,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.8000000005122274,
+            0.19999999925494194,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "encoded_weight_rows_u16": [
+          [
+            12288,
+            4096,
+            65535
+          ],
+          [
+            12288,
+            4096,
+            65535
+          ]
+        ],
+        "honest_input_ratio": [
+          15,
+          5,
+          80
+        ],
+        "incentives": {
+          "i32f32_bits": [
+            0,
+            0,
+            644252957,
+            214750985,
+            3435963352
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.1500018306542188,
+            0.0500006100628525,
+            0.7999975588172674
+          ]
+        },
+        "kappa": 32767,
+        "liquid_alpha_on": false,
+        "malicious_input_ratio": [
+          15,
+          5,
+          80
+        ],
+        "miner_emission_units": [
+          0,
+          0,
+          75000915,
+          25000304,
+          399998779
+        ],
+        "new_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ],
+            [
+              3,
+              16383
+            ],
+            [
+              4,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "normalized_weights": [
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_loaded_bonds": [
+          [
+            {
+              "i32f32_bits": 3436005294,
+              "uid": 2,
+              "value": 0.8000073242001235
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 3,
+              "value": 1.0
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858962001,
+              "uid": 2,
+              "value": 0.1999926755670458
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "validator_emission_units": [
+          400000000,
+          99999999,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "current_only_classic_u16_split_sensitivity": [
+      {
+        "fixed_concentrated_row_gross": 0.14285880303941667,
+        "fixed_concentrated_row_units": 142858801,
+        "honest_A_ratio_over_100": 1,
+        "matching_row_gross": 0.20000121998600662,
+        "matching_row_units": 200001219
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285215944983065,
+        "fixed_concentrated_row_units": 142852158,
+        "honest_A_ratio_over_100": 2,
+        "matching_row_gross": 0.1999963370617479,
+        "matching_row_units": 199996335
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880280658603,
+        "fixed_concentrated_row_units": 142858802,
+        "honest_A_ratio_over_100": 3,
+        "matching_row_gross": 0.20000121998600662,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880257375538,
+        "fixed_concentrated_row_units": 142858801,
+        "honest_A_ratio_over_100": 4,
+        "matching_row_gross": 0.20000121975317597,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880303941667,
+        "fixed_concentrated_row_units": 142858802,
+        "honest_A_ratio_over_100": 5,
+        "matching_row_gross": 0.20000121975317597,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880303941667,
+        "fixed_concentrated_row_units": 142858802,
+        "honest_A_ratio_over_100": 6,
+        "matching_row_gross": 0.20000121998600662,
+        "matching_row_units": 200001219
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285215944983065,
+        "fixed_concentrated_row_units": 142852158,
+        "honest_A_ratio_over_100": 7,
+        "matching_row_gross": 0.19999633682891726,
+        "matching_row_units": 199996335
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880257375538,
+        "fixed_concentrated_row_units": 142858801,
+        "honest_A_ratio_over_100": 8,
+        "matching_row_gross": 0.20000121952034533,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880257375538,
+        "fixed_concentrated_row_units": 142858802,
+        "honest_A_ratio_over_100": 9,
+        "matching_row_gross": 0.20000121998600662,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880280658603,
+        "fixed_concentrated_row_units": 142858802,
+        "honest_A_ratio_over_100": 10,
+        "matching_row_gross": 0.20000121975317597,
+        "matching_row_units": 200001219
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880257375538,
+        "fixed_concentrated_row_units": 142858802,
+        "honest_A_ratio_over_100": 11,
+        "matching_row_gross": 0.20000121998600662,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880257375538,
+        "fixed_concentrated_row_units": 142858801,
+        "honest_A_ratio_over_100": 12,
+        "matching_row_gross": 0.20000121952034533,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285215944983065,
+        "fixed_concentrated_row_units": 142852158,
+        "honest_A_ratio_over_100": 13,
+        "matching_row_gross": 0.19999633682891726,
+        "matching_row_units": 199996335
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880303941667,
+        "fixed_concentrated_row_units": 142858802,
+        "honest_A_ratio_over_100": 14,
+        "matching_row_gross": 0.20000121998600662,
+        "matching_row_units": 200001219
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880303941667,
+        "fixed_concentrated_row_units": 142858802,
+        "honest_A_ratio_over_100": 15,
+        "matching_row_gross": 0.20000121975317597,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880257375538,
+        "fixed_concentrated_row_units": 142858801,
+        "honest_A_ratio_over_100": 16,
+        "matching_row_gross": 0.20000121975317597,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880280658603,
+        "fixed_concentrated_row_units": 142858802,
+        "honest_A_ratio_over_100": 17,
+        "matching_row_gross": 0.20000121998600662,
+        "matching_row_units": 200001218
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285215944983065,
+        "fixed_concentrated_row_units": 142852158,
+        "honest_A_ratio_over_100": 18,
+        "matching_row_gross": 0.1999963370617479,
+        "matching_row_units": 199996335
+      },
+      {
+        "fixed_concentrated_row_gross": 0.14285880303941667,
+        "fixed_concentrated_row_units": 142858801,
+        "honest_A_ratio_over_100": 19,
+        "matching_row_gross": 0.20000121998600662,
+        "matching_row_units": 200001219
+      }
+    ],
+    "emission_budget_units": 1000000000,
+    "filters_assumed": "All validators active/permitted; no diagonal votes; no registration or commitment masks; no owner exception used; no UID churn",
+    "historical_bond_fixtures": [
+      {
+        "active_stake": {
+          "i32f32_bits": [
+            3435973836,
+            858993459,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.7999999998137355,
+            0.19999999995343387,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "alpha_new": {
+          "i32f32_bits": [
+            429496730
+          ],
+          "values": [
+            0.10000000009313226
+          ]
+        },
+        "bonds_for_dividends": [
+          [
+            {
+              "i32f32_bits": 3436002150,
+              "uid": 2,
+              "value": 0.8000065921805799
+            },
+            {
+              "i32f32_bits": 4209067950,
+              "uid": 3,
+              "value": 0.9799999999813735
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858965145,
+              "uid": 2,
+              "value": 0.19999340758658946
+            },
+            {
+              "i32f32_bits": 85899345,
+              "uid": 3,
+              "value": 0.019999999785795808
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "bonds_moving_average": 900000,
+        "bonds_penalty": 65535,
+        "branch": "classic",
+        "clipped_weights": [
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "coalition_gross_emission_units": 126786990,
+        "coalition_gross_epoch_share": 0.1267869914881885,
+        "coalition_gross_epoch_share_bits": 544545982,
+        "coalition_miner_incentive": 0.23809800553135574,
+        "coalition_miner_incentive_bits": 1022623147,
+        "coalition_validator_dividend": 0.015475977677851915,
+        "consensus": {
+          "i32f32_bits": [
+            0,
+            0,
+            214750986,
+            644252958,
+            3435963350
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.050000610295683146,
+            0.15000183088704944,
+            0.7999975583516061
+          ]
+        },
+        "dividends": {
+          "i32f32_bits": [
+            4228498477,
+            66468818,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.9845240220893174,
+            0.015475977677851915,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "encoded_weight_rows_u16": [
+          [
+            4096,
+            12288,
+            65535
+          ],
+          [
+            65535,
+            65535,
+            0
+          ]
+        ],
+        "honest_input_ratio": [
+          5,
+          15,
+          80
+        ],
+        "incentives": {
+          "i32f32_bits": [
+            0,
+            0,
+            255655786,
+            766967361,
+            3272344148
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.05952450120821595,
+            0.1785735043231398,
+            0.7619019942358136
+          ]
+        },
+        "kappa": 32767,
+        "liquid_alpha_on": false,
+        "malicious_input_ratio": [
+          1,
+          1,
+          0
+        ],
+        "miner_emission_units": [
+          0,
+          0,
+          29762250,
+          89286752,
+          380950997
+        ],
+        "new_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ],
+            [
+              3,
+              1337
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "normalized_weights": [
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 2,
+              "value": 0.5
+            },
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 3,
+              "value": 0.5
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_loaded_bonds": [
+          [
+            {
+              "i32f32_bits": 3436005294,
+              "uid": 2,
+              "value": 0.8000073242001235
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 3,
+              "value": 1.0
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858962001,
+              "uid": 2,
+              "value": 0.1999926755670458
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "validator_emission_units": [
+          492262010,
+          7737988,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "active_stake": {
+          "i32f32_bits": [
+            3435973836,
+            858993459,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.7999999998137355,
+            0.19999999995343387,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "alpha_new": {
+          "i32f32_bits": [
+            429496730
+          ],
+          "values": [
+            0.10000000009313226
+          ]
+        },
+        "bonds_for_dividends": [
+          [
+            {
+              "i32f32_bits": 3436002150,
+              "uid": 2,
+              "value": 0.8000065921805799
+            },
+            {
+              "i32f32_bits": 4209067950,
+              "uid": 3,
+              "value": 0.9799999999813735
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858965145,
+              "uid": 2,
+              "value": 0.19999340758658946
+            },
+            {
+              "i32f32_bits": 85899345,
+              "uid": 3,
+              "value": 0.019999999785795808
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "bonds_moving_average": 900000,
+        "bonds_penalty": 65535,
+        "branch": "classic",
+        "clipped_weights": [
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "coalition_gross_emission_units": 137501008,
+        "coalition_gross_epoch_share": 0.1375010092742741,
+        "coalition_gross_epoch_share_bits": 590562338,
+        "coalition_miner_incentive": 0.23809800553135574,
+        "coalition_miner_incentive_bits": 1022623147,
+        "coalition_validator_dividend": 0.03690401348285377,
+        "consensus": {
+          "i32f32_bits": [
+            0,
+            0,
+            644252958,
+            214750986,
+            3435963350
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.15000183088704944,
+            0.050000610295683146,
+            0.7999975583516061
+          ]
+        },
+        "dividends": {
+          "i32f32_bits": [
+            4136465764,
+            158501531,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.9630959862843156,
+            0.03690401348285377,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "encoded_weight_rows_u16": [
+          [
+            12288,
+            4096,
+            65535
+          ],
+          [
+            65535,
+            65535,
+            0
+          ]
+        ],
+        "honest_input_ratio": [
+          15,
+          5,
+          80
+        ],
+        "incentives": {
+          "i32f32_bits": [
+            0,
+            0,
+            766967361,
+            255655786,
+            3272344148
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.1785735043231398,
+            0.05952450120821595,
+            0.7619019942358136
+          ]
+        },
+        "kappa": 32767,
+        "liquid_alpha_on": false,
+        "malicious_input_ratio": [
+          1,
+          1,
+          0
+        ],
+        "miner_emission_units": [
+          0,
+          0,
+          89286752,
+          29762250,
+          380950997
+        ],
+        "new_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ],
+            [
+              3,
+              1337
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "normalized_weights": [
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 2,
+              "value": 0.5
+            },
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 3,
+              "value": 0.5
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_loaded_bonds": [
+          [
+            {
+              "i32f32_bits": 3436005294,
+              "uid": 2,
+              "value": 0.8000073242001235
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 3,
+              "value": 1.0
+            },
+            {
+              "i32f32_bits": 4294967296,
+              "uid": 4,
+              "value": 1.0
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 858962001,
+              "uid": 2,
+              "value": 0.1999926755670458
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_stored_bonds_u16": [
+          [
+            [
+              2,
+              65535
+            ],
+            [
+              3,
+              65535
+            ],
+            [
+              4,
+              65535
+            ]
+          ],
+          [
+            [
+              2,
+              16383
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "validator_emission_units": [
+          481547993,
+          18452006,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "active_stake": {
+          "i32f32_bits": [
+            3435973836,
+            858993459,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.7999999998137355,
+            0.19999999995343387,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "alpha_new": {
+          "i32f32_bits": [
+            429496730
+          ],
+          "values": [
+            0.10000000009313226
+          ]
+        },
+        "bonds_for_dividends": [
+          [
+            {
+              "i32f32_bits": 407992662,
+              "uid": 2,
+              "value": 0.09499319409951568
+            },
+            {
+              "i32f32_bits": 450942859,
+              "uid": 3,
+              "value": 0.10499331611208618
+            },
+            {
+              "i32f32_bits": 3435913803,
+              "uid": 4,
+              "value": 0.799986022291705
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 407992662,
+              "uid": 2,
+              "value": 0.09499319409951568
+            },
+            {
+              "i32f32_bits": 64425295,
+              "uid": 3,
+              "value": 0.015000182902440429
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "bonds_moving_average": 900000,
+        "bonds_penalty": 65535,
+        "branch": "yuma3",
+        "clipped_weights": [
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "coalition_gross_emission_units": 125824352,
+        "coalition_gross_epoch_share": 0.1258243527263403,
+        "coalition_gross_epoch_share_bits": 540411480,
+        "coalition_miner_incentive": 0.23809800553135574,
+        "coalition_miner_incentive_bits": 1022623147,
+        "coalition_validator_dividend": 0.013550700386986136,
+        "consensus": {
+          "i32f32_bits": [
+            0,
+            0,
+            214750986,
+            644252958,
+            3435963350
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.050000610295683146,
+            0.15000183088704944,
+            0.7999975583516061
+          ]
+        },
+        "dividends": {
+          "i32f32_bits": [
+            4236767480,
+            58199815,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.9864492993801832,
+            0.013550700386986136,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "encoded_weight_rows_u16": [
+          [
+            4096,
+            12288,
+            65535
+          ],
+          [
+            65535,
+            65535,
+            0
+          ]
+        ],
+        "honest_input_ratio": [
+          5,
+          15,
+          80
+        ],
+        "incentives": {
+          "i32f32_bits": [
+            0,
+            0,
+            255655786,
+            766967361,
+            3272344148
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.05952450120821595,
+            0.1785735043231398,
+            0.7619019942358136
+          ]
+        },
+        "kappa": 32767,
+        "liquid_alpha_on": false,
+        "malicious_input_ratio": [
+          1,
+          1,
+          0
+        ],
+        "miner_emission_units": [
+          0,
+          0,
+          29762250,
+          89286752,
+          380950997
+        ],
+        "new_stored_bonds_u16": [
+          [
+            [
+              2,
+              6225
+            ],
+            [
+              3,
+              6880
+            ],
+            [
+              4,
+              52427
+            ]
+          ],
+          [
+            [
+              2,
+              6225
+            ],
+            [
+              3,
+              983
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "normalized_weights": [
+          [
+            {
+              "i32f32_bits": 214750986,
+              "uid": 2,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 644252958,
+              "uid": 3,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 2,
+              "value": 0.5
+            },
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 3,
+              "value": 0.5
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_loaded_bonds": [
+          [
+            {
+              "i32f32_bits": 429463961,
+              "uid": 2,
+              "value": 0.09999237046577036
+            },
+            {
+              "i32f32_bits": 429463961,
+              "uid": 3,
+              "value": 0.09999237046577036
+            },
+            {
+              "i32f32_bits": 3435908299,
+              "uid": 4,
+              "value": 0.7999847407918423
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 429463961,
+              "uid": 2,
+              "value": 0.09999237046577036
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_stored_bonds_u16": [
+          [
+            [
+              2,
+              6553
+            ],
+            [
+              3,
+              6553
+            ],
+            [
+              4,
+              52427
+            ]
+          ],
+          [
+            [
+              2,
+              6553
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "validator_emission_units": [
+          493224649,
+          6775350,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "active_stake": {
+          "i32f32_bits": [
+            3435973836,
+            858993459,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.7999999998137355,
+            0.19999999995343387,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "alpha_new": {
+          "i32f32_bits": [
+            429496730
+          ],
+          "values": [
+            0.10000000009313226
+          ]
+        },
+        "bonds_for_dividends": [
+          [
+            {
+              "i32f32_bits": 450942859,
+              "uid": 2,
+              "value": 0.10499331611208618
+            },
+            {
+              "i32f32_bits": 407992662,
+              "uid": 3,
+              "value": 0.09499319409951568
+            },
+            {
+              "i32f32_bits": 3435913803,
+              "uid": 4,
+              "value": 0.799986022291705
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 450942859,
+              "uid": 2,
+              "value": 0.10499331611208618
+            },
+            {
+              "i32f32_bits": 21475098,
+              "uid": 3,
+              "value": 0.005000060889869928
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "bonds_moving_average": 900000,
+        "bonds_penalty": 65535,
+        "branch": "yuma3",
+        "clipped_weights": [
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "coalition_gross_emission_units": 131439278,
+        "coalition_gross_epoch_share": 0.13143927929922938,
+        "coalition_gross_epoch_share_bits": 564527406,
+        "coalition_miner_incentive": 0.23809800553135574,
+        "coalition_miner_incentive_bits": 1022623147,
+        "coalition_validator_dividend": 0.024780553532764316,
+        "consensus": {
+          "i32f32_bits": [
+            0,
+            0,
+            644252958,
+            214750986,
+            3435963350
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.15000183088704944,
+            0.050000610295683146,
+            0.7999975583516061
+          ]
+        },
+        "dividends": {
+          "i32f32_bits": [
+            4188535628,
+            106431667,
+            0,
+            0,
+            0
+          ],
+          "values": [
+            0.975219446234405,
+            0.024780553532764316,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "encoded_weight_rows_u16": [
+          [
+            12288,
+            4096,
+            65535
+          ],
+          [
+            65535,
+            65535,
+            0
+          ]
+        ],
+        "honest_input_ratio": [
+          15,
+          5,
+          80
+        ],
+        "incentives": {
+          "i32f32_bits": [
+            0,
+            0,
+            766967361,
+            255655786,
+            3272344148
+          ],
+          "values": [
+            0.0,
+            0.0,
+            0.1785735043231398,
+            0.05952450120821595,
+            0.7619019942358136
+          ]
+        },
+        "kappa": 32767,
+        "liquid_alpha_on": false,
+        "malicious_input_ratio": [
+          1,
+          1,
+          0
+        ],
+        "miner_emission_units": [
+          0,
+          0,
+          89286752,
+          29762250,
+          380950997
+        ],
+        "new_stored_bonds_u16": [
+          [
+            [
+              2,
+              6880
+            ],
+            [
+              3,
+              6225
+            ],
+            [
+              4,
+              52427
+            ]
+          ],
+          [
+            [
+              2,
+              6880
+            ],
+            [
+              3,
+              327
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "normalized_weights": [
+          [
+            {
+              "i32f32_bits": 644252958,
+              "uid": 2,
+              "value": 0.15000183088704944
+            },
+            {
+              "i32f32_bits": 214750986,
+              "uid": 3,
+              "value": 0.050000610295683146
+            },
+            {
+              "i32f32_bits": 3435963350,
+              "uid": 4,
+              "value": 0.7999975583516061
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 2,
+              "value": 0.5
+            },
+            {
+              "i32f32_bits": 2147483648,
+              "uid": 3,
+              "value": 0.5
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_loaded_bonds": [
+          [
+            {
+              "i32f32_bits": 429463961,
+              "uid": 2,
+              "value": 0.09999237046577036
+            },
+            {
+              "i32f32_bits": 429463961,
+              "uid": 3,
+              "value": 0.09999237046577036
+            },
+            {
+              "i32f32_bits": 3435908299,
+              "uid": 4,
+              "value": 0.7999847407918423
+            }
+          ],
+          [
+            {
+              "i32f32_bits": 429463961,
+              "uid": 2,
+              "value": 0.09999237046577036
+            }
+          ],
+          [],
+          [],
+          []
+        ],
+        "old_stored_bonds_u16": [
+          [
+            [
+              2,
+              6553
+            ],
+            [
+              3,
+              6553
+            ],
+            [
+              4,
+              52427
+            ]
+          ],
+          [
+            [
+              2,
+              6553
+            ]
+          ],
+          [],
+          [],
+          []
+        ],
+        "validator_emission_units": [
+          487609723,
+          12390276,
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "liquid_alpha_enabled_tested": false,
+    "runtime_executed": false,
+    "schema": "slop_ninja/native-shared-pool-replay-v1",
+    "scope": "Production math functions with explicit post-filter inputs and branch orchestration; no live state or SDK runtime execution",
+    "source_checks": {
+      "import_replacements": 5,
+      "passed": true,
+      "sources": [
+        {
+          "path": "math.rs",
+          "sha256": "a445d0da2e66654cefb16965d3b0cef712f6414c8b8c594a658fd4c17eb698c2"
+        },
+        {
+          "path": "math_standalone.rs",
+          "sha256": "860ed4bdef9df29f2f7e0d761ba24645cb367284ec366dd652c2bc727d186639"
+        },
+        {
+          "path": "run_epoch.rs",
+          "sha256": "222c57244ad24ebaffe79430c4e6b1897d87d2710f591bff3f2c284bd4a2f0a3"
+        }
+      ]
+    },
+    "uids": [
+      "honest_validator",
+      "coalition_validator",
+      "coalition_A",
+      "coalition_B",
+      "outside_miner"
+    ],
+    "upstream_commit": "67dcf7f791dc495064c293f080a0702cb433e51e"
+  },
+  "schema": "slop_ninja/shared-pool-gameability-v1",
+  "shared_pool_miner_envelope": {
+    "bad_weight_grid_step": 0.01,
+    "bound": "c / (s + (1-s)*c)",
+    "cases": 3245130,
+    "coalition_credit_fractions": [
+      0.05,
+      0.2,
+      0.4,
+      0.7,
+      0.9
+    ],
+    "examples": [
+      {
+        "honest_row": [
+          0.0,
+          0.2,
+          0.8
+        ],
+        "maximum_coalition_miner_share": 0.23809523809523808,
+        "optimal_bad_row": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      {
+        "honest_row": [
+          0.05,
+          0.15000000000000002,
+          0.8
+        ],
+        "maximum_coalition_miner_share": 0.23809523809523808,
+        "optimal_bad_row": [
+          0.25,
+          0.7500000000000001,
+          0.0
+        ]
+      },
+      {
+        "honest_row": [
+          0.15,
+          0.05000000000000002,
+          0.8
+        ],
+        "maximum_coalition_miner_share": 0.23809523809523808,
+        "optimal_bad_row": [
+          0.7499999999999999,
+          0.25000000000000006,
+          0.0
+        ]
+      },
+      {
+        "honest_row": [
+          0.2,
+          0.0,
+          0.8
+        ],
+        "maximum_coalition_miner_share": 0.23809523809523808,
+        "optimal_bad_row": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      }
+    ],
+    "fixed_arbitrary_bad_row_counterexample": {
+      "bad_row": [
+        1,
+        0,
+        0
+      ],
+      "share_after": 0.2631578947368421,
+      "share_before": 0.19999999999999998
+    },
+    "honest_stakes": [
+      0.51,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "internal_splits_per_fraction": 21,
+    "maximum_error_at_explicit_optimal_witness": 2.220446049250313e-16,
+    "maximum_floating_excess_over_bound": 1.1102230246251565e-16,
+    "scope": "Ideal post-filter miner incentives only; fixed membership, stake, complete matching honest rows, fixed outside coordinates and clipping ceiling; no dividends or net cost claim."
+  },
+  "split_pool": {
+    "after": 0.13563617590463228,
+    "before": 0.13157894736842105,
+    "coalition_combined_credit_fraction": 0.2,
+    "equal_mechanism_shares": true,
+    "increase_percentage_points": 0.4057228536211238
+  },
+  "status": "Synthetic experiment; proposed settlement remains under evaluation"
+}

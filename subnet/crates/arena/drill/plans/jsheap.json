@@ -1,0 +1,84 @@
+{
+  "compatibility_date": "2026-10-01",
+  "variants": [
+    "arena"
+  ],
+  "selftest": false,
+  "scenarios": [
+    {
+      "name": "lane",
+      "shapes": [
+        1000
+      ],
+      "invocations": 200,
+      "gc_every": 20
+    },
+    {
+      "name": "s4000",
+      "shapes": [
+        4000
+      ],
+      "invocations": 80,
+      "gc_every": 10
+    },
+    {
+      "name": "s8000",
+      "shapes": [
+        8000
+      ],
+      "invocations": 80,
+      "gc_every": 10
+    },
+    {
+      "name": "s13000",
+      "shapes": [
+        13000
+      ],
+      "invocations": 80,
+      "gc_every": 10
+    },
+    {
+      "name": "s20000",
+      "shapes": [
+        20000
+      ],
+      "invocations": 80,
+      "gc_every": 10
+    },
+    {
+      "name": "s26000",
+      "shapes": [
+        26000
+      ],
+      "invocations": 80,
+      "gc_every": 10
+    },
+    {
+      "name": "s41000",
+      "shapes": [
+        41000
+      ],
+      "invocations": 60,
+      "gc_every": 10
+    },
+    {
+      "name": "s65000",
+      "shapes": [
+        65000
+      ],
+      "invocations": 40,
+      "gc_every": 5
+    },
+    {
+      "name": "trap",
+      "shapes": [
+        13000
+      ],
+      "invocations": 100,
+      "trap_every": 10,
+      "trap_offset": 5,
+      "gc_every": 10
+    }
+  ],
+  "note": "JS-heap measurement plan: run it against a measurement build (unmeasured-model, an envelope above 65,000 receipts) with --inspect; a production model refuses shapes outside its envelope"
+}

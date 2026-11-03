@@ -1,0 +1,62 @@
+{
+  "schema": "slop_ninja_a_structural_revision_review_v1",
+  "plan_sha256": "e56a173858671e4c2fdeb89c3f521d0eeb4b5e22a924302d3a3dd4f3c01d6ddb",
+  "reviewer": "Codex assistant; not independent human gold",
+  "complete_human_roots_read": 4,
+  "complete_model_parents_read": 4,
+  "complete_captured_proposals_read": 4,
+  "complete_materialized_states_read": 24,
+  "detector_scores_seen": false,
+  "judgment_scope": "Fidelity and prose quality relative to the immediate model parent. The separate parent review records earlier generation errors relative to the human root. Admissible here does not mean the full passage is factually corrected or independently approved.",
+  "score_policy": "Score all 24 materialized states, the unchanged model parent of the rejected proposal, and all four human roots. Retain editorial failures separately. Use frozen V6 CPU and its existing thresholds. No provider calls or training admission.",
+  "cases": [
+    {
+      "id": "000",
+      "admissible_masks": [],
+      "semantic_failure_masks": [1, 2, 3, 5, 6, 7],
+      "quality_concern_masks": [4],
+      "notes": [
+        "The nominalization adds an unsupported motivational claim: excellence and aspiration drive him. It also makes the account more abstract.",
+        "The passive removes the reflexive recipient. Teaching himself becomes teaching languages with no recipient stated, losing self-education and adding awkward through comparing phrasing.",
+        "The supplementary which clause leaves competing event/noun attachment readings and removes the additive also. The generator incorrectly calls this comma-delimited relative restrictive. Mask 4 is a reference/flow concern; no clear new factual contradiction is asserted.",
+        "Reading all combined states found no repair of these problems by the other edits. The remaining plot, quantities and named entities retain the parent bytes."
+      ]
+    },
+    {
+      "id": "001",
+      "admissible_masks": [],
+      "semantic_failure_masks": [],
+      "quality_concern_masks": [],
+      "mechanical_status": "rejected",
+      "notes": [
+        "All three kind values have an undeclared kind_ prefix. The nominalization and voice alternatives also replace the identical source span, violating nonoverlap independently of the enum error.",
+        "The raw response remains unchanged. No alias correction, overlap choice, resubmission or replacement passage was made. Only its existing parent and human root are controls for scoring.",
+        "The fronted adjunct moved to the sentence end could attach to the nearby defects or integrated parts rather than the testing method; this proposed text has not been admitted or assembled."
+      ]
+    },
+    {
+      "id": "002",
+      "admissible_masks": [1, 4, 5],
+      "semantic_failure_masks": [2, 3, 6, 7],
+      "quality_concern_masks": [],
+      "notes": [
+        "The detection nominalization retains the locations, event and inference of widespread circulation. Its past-tense indicated remains consistent with the reported detection event.",
+        "The active recast promotes the samples from locations of detection to entities that detect the virus. This changes the participant relation and produces misleading agency. Every state containing that edit fails.",
+        "The higher-prevalence recast retains the adult/under-one-year comparison. Was observed makes the study's reporting context explicit without adding a new measurement, direction or certainty claim. It is a noun-phrase/result-presentation recast with a reporting passive, rather than simple adjunct fronting.",
+        "Masks 1, 4 and 5 retain the immediate parent's claims and formal research register at comparable readability. Its earlier source errors remain unchanged."
+      ]
+    },
+    {
+      "id": "003",
+      "admissible_masks": [2],
+      "semantic_failure_masks": [1, 3, 5, 7],
+      "quality_concern_masks": [4, 6],
+      "notes": [
+        "The nominalization adds a critical-to-early-development claim and repetition. In full context, the retained As a co-founder adjunct now precedes a matrix subject headed by role, producing a dangling modifier. This problem would be missed by reading only the replacement span.",
+        "The appointment passive retains Mobutu as appointing agent and Tshisekedi as appointee, including repeated appointments, relationship trouble and brief tenure. The later he resolves naturally to the main subject/appointee in this sentence. Mask 2 is admissible relative to its parent.",
+        "The where clause explicitly ties the nickname to a location with competing Kasai/Kinshasa attachment possibilities. The parent only says locally; the new relative narrows that relation without enough support. Masks 4 and 6 remain unresolved quality/reference concerns.",
+        "All combined states were read. The voice edit does not repair the nominalization or location problems. The parent's existing political chronology errors remain recorded separately."
+      ]
+    }
+  ]
+}

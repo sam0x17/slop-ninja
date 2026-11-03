@@ -1,0 +1,11 @@
+{
+  "schema": "slop_ninja_global_voices_manual_review_check_v1",
+  "at": "2026-09-15T12:00:46Z",
+  "review_sha256": "4e13111832bba88f9117e6ddab52564e1a14da4596f6905e2ce3ff1e74295c90",
+  "packet_sha256": "572c9f9cc5f5e3efd755fc688bb7308339f9914b73c59f937f79c70220806b16",
+  "reviewed_works": 8,
+  "selection_order_and_identity_match": true,
+  "referenced_paragraph_dispositions_match": true,
+  "semantic_judgments": "manual_assistant_review_not_automatically_proven",
+  "commercial_admission_review_complete": false
+}

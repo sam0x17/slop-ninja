@@ -1,0 +1,2026 @@
+{
+  "accounting": {
+    "cliff_scope": "The final mandatory denominator is already fixed at 100, and 11 failures are irreversible. No future eligibility, probation/recovery benefit, customer fees, or penalties enter this toy payoff. Current emissions alone then favor abandoning remaining costly work.",
+    "dilution_examples": [
+      {
+        "aggregate_mandatory_gate": true,
+        "all_committed_interfaces_and_aggregate_gate": false,
+        "blended_a_gate": true,
+        "mandatory_interface_a_failures": 2,
+        "mandatory_interface_a_requests": 10,
+        "mandatory_interface_b_successes": 100,
+        "minimum_paid_successes_to_pass_blended_a": 10,
+        "separate_mandatory_a_gate": false
+      },
+      {
+        "aggregate_mandatory_gate": false,
+        "all_committed_interfaces_and_aggregate_gate": false,
+        "blended_a_gate": true,
+        "mandatory_interface_a_failures": 10,
+        "mandatory_interface_a_requests": 10,
+        "mandatory_interface_b_successes": 0,
+        "minimum_paid_successes_to_pass_blended_a": 90,
+        "separate_mandatory_a_gate": false
+      },
+      {
+        "aggregate_mandatory_gate": true,
+        "all_committed_interfaces_and_aggregate_gate": false,
+        "blended_a_gate": true,
+        "mandatory_interface_a_failures": 20,
+        "mandatory_interface_a_requests": 100,
+        "mandatory_interface_b_successes": 1000,
+        "minimum_paid_successes_to_pass_blended_a": 100,
+        "separate_mandatory_a_gate": false
+      }
+    ],
+    "exact_threshold": "N>0 and 10F<=N. Exactly 10% failure passes; N=0 supplies no availability evidence.",
+    "irrecoverable_cliff": [
+      {
+        "already_failed": 11,
+        "current_epoch_emission_credit": 0,
+        "final_failures": 100,
+        "fixed_total_obligations": 100,
+        "future_same_class_successes_needed_without_new_failures": 900,
+        "gate": false,
+        "payoff_from_current_emissions_minus_remaining_cost": 0,
+        "proposed_recovery_deficit": 900,
+        "remaining_completed": 0,
+        "remaining_obligations": 89,
+        "unit_service_cost": 1
+      },
+      {
+        "already_failed": 11,
+        "current_epoch_emission_credit": 0,
+        "final_failures": 12,
+        "fixed_total_obligations": 100,
+        "future_same_class_successes_needed_without_new_failures": 20,
+        "gate": false,
+        "payoff_from_current_emissions_minus_remaining_cost": -88,
+        "proposed_recovery_deficit": 20,
+        "remaining_completed": 88,
+        "remaining_obligations": 89,
+        "unit_service_cost": 1
+      },
+      {
+        "already_failed": 11,
+        "current_epoch_emission_credit": 0,
+        "final_failures": 11,
+        "fixed_total_obligations": 100,
+        "future_same_class_successes_needed_without_new_failures": 10,
+        "gate": false,
+        "payoff_from_current_emissions_minus_remaining_cost": -89,
+        "proposed_recovery_deficit": 10,
+        "remaining_completed": 89,
+        "remaining_obligations": 89,
+        "unit_service_cost": 1
+      }
+    ],
+    "low_task_counts": [
+      {
+        "maximum_failures_passing": null,
+        "one_failure_pass": false,
+        "requests": 0,
+        "two_failures_pass": false,
+        "zero_failures_pass": false
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 1,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 2,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 3,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 4,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 5,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 6,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 7,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 8,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 0,
+        "one_failure_pass": false,
+        "requests": 9,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 10,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 11,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 12,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 13,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 14,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 15,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 16,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 17,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 18,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 1,
+        "one_failure_pass": true,
+        "requests": 19,
+        "two_failures_pass": false,
+        "zero_failures_pass": true
+      },
+      {
+        "maximum_failures_passing": 2,
+        "one_failure_pass": true,
+        "requests": 20,
+        "two_failures_pass": true,
+        "zero_failures_pass": true
+      }
+    ],
+    "minimum_paid_successes_formula": "max(0,10*mandatory_failures-mandatory_requests)",
+    "paid_successes_count_in_separate_mandatory_gate": false,
+    "recovery_proposal": {
+      "abandon_remaining_89_deficit": 900,
+      "after_healthy_epoch_then_11_of_100_failures": 10,
+      "after_nine_successes": 1,
+      "after_ten_subsequent_same_class_successes": 0,
+      "complete_remaining_89_deficit": 10,
+      "current_failed_epoch_credit_restored": false,
+      "healthy_epoch_does_not_bank_credit": 0,
+      "limit": "Continuing now reduces future recovery work if future eligibility has value and probation capacity is available. This is not an equilibrium guarantee; fresh identity/slot acquisition remains outside the model.",
+      "no_assigned_work_preserves_deficit": 10,
+      "paid_or_other_class_successes_reduce_deficit": false,
+      "recurrence": "D_e=max(0,D_previous+10F_e-N_e), separately per mandatory interface/class, initial zero; current availability and qualification gates remain separate."
+    },
+    "unavailable_committed_interface_policy": "No automatic pass from aggregate service on another interface."
+  },
+  "config": {
+    "b_batch_size": 10,
+    "cartel_uid_counts": [
+      0,
+      10,
+      20,
+      30,
+      50
+    ],
+    "comparison_reserves": "Only initial common detector panels and B batches are modeled. No shared-matrix fallback or reserve simulation. Actual reserve order must exclude the initial panel and every frozen B batch UID before issuance.",
+    "hash": "Real SHA-256 over canonical u32-length-prefixed fields; seed is a synthetic chain ID, netuid=1. Domain separation for peers/panels/batches/reviewers; hash ties broken by UID. Roster membership is excluded from each hash.",
+    "membership": "Fixed before all draws. One coordinated coalition may own several UIDs. Strongest-UID control is an exogenous scenario, not a qualification/identity proof.",
+    "ordered_fallbacks": 2,
+    "ordering": "Requester=slot modulo 100; lifetime index=floor(slot/100); requested interface=index modulo 2. All issued slots consumed even when abandoned. Same seed draws reused across cartel shares/strategies for paired comparison.",
+    "reviewers": "Already-filtered separate validator roster with UIDs 1000..1099, disjoint from every A/B UID. Same conditional cartel share; its first M identities collude. Hash binds the actual first B submitter UID. Model one scored submission per comparison, each receiving all three reviews; this does not simulate every entry of the whole B batch or real-world eligibility filtering.",
+    "seeds": [
+      0,
+      17,
+      29
+    ],
+    "slots_per_seed": 10000,
+    "synthetic_roster": "100 UIDs qualified for both logical interfaces; capacity reserved for every possible stage, with no time/cost model. This does not validate deployed joint mechanism/UID capacity.",
+    "theory": "Uniform independent digest ranks imply sampling without replacement. Combinatorial formulas validate empirical draws under that model; they are not protocol security proofs.",
+    "total_permitted_peers": 3,
+    "uids": 100
+  },
+  "panels": [
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 0,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 0,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0,
+      "joint_theory": 0.0,
+      "majority_with_other_cartel_uid_in_b_batch": 0,
+      "median_panel_cartel_majority": 0,
+      "median_panel_majority_fraction": 0.0,
+      "median_panel_majority_theory": 0.0,
+      "modeled_cartel_submitters": 0,
+      "reviewer_cartel_majority": 0,
+      "reviewer_majority_fraction": 0.0,
+      "reviewer_majority_theory": 0.0,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 0,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 0,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 10155,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 10,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0047,
+      "joint_theory": 0.005525714762101748,
+      "majority_with_other_cartel_uid_in_b_batch": 47,
+      "median_panel_cartel_majority": 97,
+      "median_panel_majority_fraction": 0.0097,
+      "median_panel_majority_theory": 0.00927643784786642,
+      "modeled_cartel_submitters": 989,
+      "reviewer_cartel_majority": 243,
+      "reviewer_majority_fraction": 0.0243,
+      "reviewer_majority_theory": 0.025788497217068645,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 0,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 22,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 9173,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 10,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.1016,
+      "joint_theory": 0.1035083652189364,
+      "majority_with_other_cartel_uid_in_b_batch": 1016,
+      "median_panel_cartel_majority": 1698,
+      "median_panel_majority_fraction": 0.1698,
+      "median_panel_majority_theory": 0.17439703153988867,
+      "modeled_cartel_submitters": 910,
+      "reviewer_cartel_majority": 243,
+      "reviewer_majority_fraction": 0.0243,
+      "reviewer_majority_theory": 0.025788497217068645,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 0,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 17,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 20306,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 20,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.032,
+      "joint_theory": 0.034680438098658506,
+      "majority_with_other_cartel_uid_in_b_batch": 320,
+      "median_panel_cartel_majority": 372,
+      "median_panel_majority_fraction": 0.0372,
+      "median_panel_majority_theory": 0.039167182024324884,
+      "modeled_cartel_submitters": 2010,
+      "reviewer_cartel_majority": 983,
+      "reviewer_majority_fraction": 0.0983,
+      "reviewer_majority_theory": 0.10105132962275819,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 0,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 189,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 19271,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 20,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.3012,
+      "joint_theory": 0.3080790320019036,
+      "majority_with_other_cartel_uid_in_b_batch": 3012,
+      "median_panel_cartel_majority": 3417,
+      "median_panel_majority_fraction": 0.3417,
+      "median_panel_majority_theory": 0.34858792001649147,
+      "modeled_cartel_submitters": 1907,
+      "reviewer_cartel_majority": 983,
+      "reviewer_majority_fraction": 0.0983,
+      "reviewer_majority_theory": 0.10105132962275819,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 0,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 183,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 30295,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 30,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0835,
+      "joint_theory": 0.08724774700010855,
+      "majority_with_other_cartel_uid_in_b_batch": 835,
+      "median_panel_cartel_majority": 869,
+      "median_panel_majority_fraction": 0.0869,
+      "median_panel_majority_theory": 0.08967223252937538,
+      "modeled_cartel_submitters": 2969,
+      "reviewer_cartel_majority": 2120,
+      "reviewer_majority_fraction": 0.212,
+      "reviewer_majority_theory": 0.21341991341991343,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 0,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 668,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 29328,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 30,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.4848,
+      "joint_theory": 0.48821024100716637,
+      "majority_with_other_cartel_uid_in_b_batch": 4848,
+      "median_panel_cartel_majority": 4999,
+      "median_panel_majority_fraction": 0.4999,
+      "median_panel_majority_theory": 0.5021645021645021,
+      "modeled_cartel_submitters": 2875,
+      "reviewer_cartel_majority": 2120,
+      "reviewer_majority_fraction": 0.212,
+      "reviewer_majority_theory": 0.21341991341991343,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 0,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 653,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 50431,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 50,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.2459,
+      "joint_theory": 0.2523602453526461,
+      "majority_with_other_cartel_uid_in_b_batch": 2459,
+      "median_panel_cartel_majority": 2461,
+      "median_panel_majority_fraction": 0.2461,
+      "median_panel_majority_theory": 0.25252525252525254,
+      "modeled_cartel_submitters": 4993,
+      "reviewer_cartel_majority": 5023,
+      "reviewer_majority_fraction": 0.5023,
+      "reviewer_majority_theory": 0.5,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 0,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 2532,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 49351,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 50,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.7426,
+      "joint_theory": 0.746946724522407,
+      "majority_with_other_cartel_uid_in_b_batch": 7426,
+      "median_panel_cartel_majority": 7432,
+      "median_panel_majority_fraction": 0.7432,
+      "median_panel_majority_theory": 0.7474747474747475,
+      "modeled_cartel_submitters": 4876,
+      "reviewer_cartel_majority": 5023,
+      "reviewer_majority_fraction": 0.5023,
+      "reviewer_majority_theory": 0.5,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 0,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 2485,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 0,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 0,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0,
+      "joint_theory": 0.0,
+      "majority_with_other_cartel_uid_in_b_batch": 0,
+      "median_panel_cartel_majority": 0,
+      "median_panel_majority_fraction": 0.0,
+      "median_panel_majority_theory": 0.0,
+      "modeled_cartel_submitters": 0,
+      "reviewer_cartel_majority": 0,
+      "reviewer_majority_fraction": 0.0,
+      "reviewer_majority_theory": 0.0,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 17,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 0,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 10147,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 10,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.005,
+      "joint_theory": 0.005525714762101748,
+      "majority_with_other_cartel_uid_in_b_batch": 50,
+      "median_panel_cartel_majority": 88,
+      "median_panel_majority_fraction": 0.0088,
+      "median_panel_majority_theory": 0.00927643784786642,
+      "modeled_cartel_submitters": 985,
+      "reviewer_cartel_majority": 259,
+      "reviewer_majority_fraction": 0.0259,
+      "reviewer_majority_theory": 0.025788497217068645,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 17,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 27,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 9163,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 10,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.1006,
+      "joint_theory": 0.1035083652189364,
+      "majority_with_other_cartel_uid_in_b_batch": 1006,
+      "median_panel_cartel_majority": 1719,
+      "median_panel_majority_fraction": 0.1719,
+      "median_panel_majority_theory": 0.17439703153988867,
+      "modeled_cartel_submitters": 875,
+      "reviewer_cartel_majority": 259,
+      "reviewer_majority_fraction": 0.0259,
+      "reviewer_majority_theory": 0.025788497217068645,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 17,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 26,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 20275,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 20,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0352,
+      "joint_theory": 0.034680438098658506,
+      "majority_with_other_cartel_uid_in_b_batch": 352,
+      "median_panel_cartel_majority": 391,
+      "median_panel_majority_fraction": 0.0391,
+      "median_panel_majority_theory": 0.039167182024324884,
+      "modeled_cartel_submitters": 1998,
+      "reviewer_cartel_majority": 1079,
+      "reviewer_majority_fraction": 0.1079,
+      "reviewer_majority_theory": 0.10105132962275819,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 17,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 194,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 19251,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 20,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.3028,
+      "joint_theory": 0.3080790320019036,
+      "majority_with_other_cartel_uid_in_b_batch": 3028,
+      "median_panel_cartel_majority": 3410,
+      "median_panel_majority_fraction": 0.341,
+      "median_panel_majority_theory": 0.34858792001649147,
+      "modeled_cartel_submitters": 1900,
+      "reviewer_cartel_majority": 1079,
+      "reviewer_majority_fraction": 0.1079,
+      "reviewer_majority_theory": 0.10105132962275819,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 17,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 188,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 30565,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 30,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0884,
+      "joint_theory": 0.08724774700010855,
+      "majority_with_other_cartel_uid_in_b_batch": 884,
+      "median_panel_cartel_majority": 901,
+      "median_panel_majority_fraction": 0.0901,
+      "median_panel_majority_theory": 0.08967223252937538,
+      "modeled_cartel_submitters": 3044,
+      "reviewer_cartel_majority": 2181,
+      "reviewer_majority_fraction": 0.2181,
+      "reviewer_majority_theory": 0.21341991341991343,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 17,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 659,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 29533,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 30,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.4866,
+      "joint_theory": 0.48821024100716637,
+      "majority_with_other_cartel_uid_in_b_batch": 4866,
+      "median_panel_cartel_majority": 4983,
+      "median_panel_majority_fraction": 0.4983,
+      "median_panel_majority_theory": 0.5021645021645021,
+      "modeled_cartel_submitters": 2939,
+      "reviewer_cartel_majority": 2181,
+      "reviewer_majority_fraction": 0.2181,
+      "reviewer_majority_theory": 0.21341991341991343,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 17,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 636,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 50693,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 50,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.2497,
+      "joint_theory": 0.2523602453526461,
+      "majority_with_other_cartel_uid_in_b_batch": 2497,
+      "median_panel_cartel_majority": 2497,
+      "median_panel_majority_fraction": 0.2497,
+      "median_panel_majority_theory": 0.25252525252525254,
+      "modeled_cartel_submitters": 5043,
+      "reviewer_cartel_majority": 5009,
+      "reviewer_majority_fraction": 0.5009,
+      "reviewer_majority_theory": 0.5,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 17,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 2499,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 49714,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 50,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.7486,
+      "joint_theory": 0.746946724522407,
+      "majority_with_other_cartel_uid_in_b_batch": 7486,
+      "median_panel_cartel_majority": 7489,
+      "median_panel_majority_fraction": 0.7489,
+      "median_panel_majority_theory": 0.7474747474747475,
+      "modeled_cartel_submitters": 4965,
+      "reviewer_cartel_majority": 5009,
+      "reviewer_majority_fraction": 0.5009,
+      "reviewer_majority_theory": 0.5,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 17,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 2467,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 0,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 0,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0,
+      "joint_theory": 0.0,
+      "majority_with_other_cartel_uid_in_b_batch": 0,
+      "median_panel_cartel_majority": 0,
+      "median_panel_majority_fraction": 0.0,
+      "median_panel_majority_theory": 0.0,
+      "modeled_cartel_submitters": 0,
+      "reviewer_cartel_majority": 0,
+      "reviewer_majority_fraction": 0.0,
+      "reviewer_majority_theory": 0.0,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 29,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 0,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 10117,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 10,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0059,
+      "joint_theory": 0.005525714762101748,
+      "majority_with_other_cartel_uid_in_b_batch": 59,
+      "median_panel_cartel_majority": 99,
+      "median_panel_majority_fraction": 0.0099,
+      "median_panel_majority_theory": 0.00927643784786642,
+      "modeled_cartel_submitters": 1030,
+      "reviewer_cartel_majority": 252,
+      "reviewer_majority_fraction": 0.0252,
+      "reviewer_majority_theory": 0.025788497217068645,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 29,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 19,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 9084,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 10,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0984,
+      "joint_theory": 0.1035083652189364,
+      "majority_with_other_cartel_uid_in_b_batch": 984,
+      "median_panel_cartel_majority": 1663,
+      "median_panel_majority_fraction": 0.1663,
+      "median_panel_majority_theory": 0.17439703153988867,
+      "modeled_cartel_submitters": 942,
+      "reviewer_cartel_majority": 252,
+      "reviewer_majority_fraction": 0.0252,
+      "reviewer_majority_theory": 0.025788497217068645,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 29,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 19,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 20119,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 20,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0363,
+      "joint_theory": 0.034680438098658506,
+      "majority_with_other_cartel_uid_in_b_batch": 363,
+      "median_panel_cartel_majority": 416,
+      "median_panel_majority_fraction": 0.0416,
+      "median_panel_majority_theory": 0.039167182024324884,
+      "modeled_cartel_submitters": 2025,
+      "reviewer_cartel_majority": 998,
+      "reviewer_majority_fraction": 0.0998,
+      "reviewer_majority_theory": 0.10105132962275819,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 29,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 193,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 19094,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 20,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.3013,
+      "joint_theory": 0.3080790320019036,
+      "majority_with_other_cartel_uid_in_b_batch": 3013,
+      "median_panel_cartel_majority": 3423,
+      "median_panel_majority_fraction": 0.3423,
+      "median_panel_majority_theory": 0.34858792001649147,
+      "modeled_cartel_submitters": 1914,
+      "reviewer_cartel_majority": 998,
+      "reviewer_majority_fraction": 0.0998,
+      "reviewer_majority_theory": 0.10105132962275819,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 29,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 181,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 30246,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 30,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.0881,
+      "joint_theory": 0.08724774700010855,
+      "majority_with_other_cartel_uid_in_b_batch": 881,
+      "median_panel_cartel_majority": 904,
+      "median_panel_majority_fraction": 0.0904,
+      "median_panel_majority_theory": 0.08967223252937538,
+      "modeled_cartel_submitters": 3011,
+      "reviewer_cartel_majority": 2122,
+      "reviewer_majority_fraction": 0.2122,
+      "reviewer_majority_theory": 0.21341991341991343,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 29,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 638,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 29218,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 30,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.4824,
+      "joint_theory": 0.48821024100716637,
+      "majority_with_other_cartel_uid_in_b_batch": 4824,
+      "median_panel_cartel_majority": 4947,
+      "median_panel_majority_fraction": 0.4947,
+      "median_panel_majority_theory": 0.5021645021645021,
+      "modeled_cartel_submitters": 2904,
+      "reviewer_cartel_majority": 2122,
+      "reviewer_majority_fraction": 0.2122,
+      "reviewer_majority_theory": 0.21341991341991343,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 29,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 622,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 50609,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 50,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.2541,
+      "joint_theory": 0.2523602453526461,
+      "majority_with_other_cartel_uid_in_b_batch": 2541,
+      "median_panel_cartel_majority": 2543,
+      "median_panel_majority_fraction": 0.2543,
+      "median_panel_majority_theory": 0.25252525252525254,
+      "modeled_cartel_submitters": 5069,
+      "reviewer_cartel_majority": 5049,
+      "reviewer_majority_fraction": 0.5049,
+      "reviewer_majority_theory": 0.5,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 29,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": false,
+      "targeted_bad_submissions_on_known_captured_reviewers": 2568,
+      "trials": 10000
+    },
+    {
+      "all_modeled_submissions_receive_three_reviews": true,
+      "attack": "Every assigned service answers on time. Dishonest panel/reviewer answers only on favorable known majority assignments can control a median/majority while passing availability. Honest votes=0 and cartel votes=1 in this stylized capture indicator.",
+      "availability_gate_detects_fabricated_quality": false,
+      "cartel_b_batch_entries": 49564,
+      "cartel_fulfillment_fraction": 1.0,
+      "cartel_uids": 50,
+      "exact_panel_uid_exclusion_always_holds": true,
+      "joint_fraction": 0.743,
+      "joint_theory": 0.746946724522407,
+      "majority_with_other_cartel_uid_in_b_batch": 7430,
+      "median_panel_cartel_majority": 7438,
+      "median_panel_majority_fraction": 0.7438,
+      "median_panel_majority_theory": 0.7474747474747475,
+      "modeled_cartel_submitters": 4966,
+      "reviewer_cartel_majority": 5049,
+      "reviewer_majority_fraction": 0.5049,
+      "reviewer_majority_theory": 0.5,
+      "reviewer_uids_disjoint_from_all_involved_a_b_uids": true,
+      "seed": 29,
+      "strongest": "UID 0 fixed, chosen before any draw",
+      "strongest_cartel": true,
+      "targeted_bad_submissions_on_known_captured_reviewers": 2519,
+      "trials": 10000
+    }
+  ],
+  "schema": "slopninja-assignment-gameability-v1",
+  "service": [
+    {
+      "cartel_requester_slots": 0,
+      "cartel_uids": 0,
+      "choose_any_three": {
+        "favorable": 0,
+        "fraction": null,
+        "theory": null
+      },
+      "mandatory_first": {
+        "favorable": 0,
+        "fraction": null,
+        "theory": null
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10000,
+        "cartel_successful_answers_that_may_still_lie": 0,
+        "completed_tickets": 10000,
+        "count": 0,
+        "exhausted_tickets": 0,
+        "failures_if_incorrectly_erased_after_success": 0,
+        "max_observed_provider_interface_failure_rate": 0.0,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 0
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 0,
+        "uids_failing_at_least_one_interface": 0,
+        "uids_passing_aggregate": 0
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 0,
+        "favorable_fraction_of_delivered": null,
+        "incorrect_delivered_only_gate_would_pass": 0,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 0
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 0,
+        "favorable": 0,
+        "favorable_fraction_of_delivered": null,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 0
+      },
+      "seed": 0
+    },
+    {
+      "cartel_requester_slots": 1000,
+      "cartel_uids": 10,
+      "choose_any_three": {
+        "favorable": 275,
+        "fraction": 0.275,
+        "theory": 0.25099936881969287
+      },
+      "mandatory_first": {
+        "favorable": 107,
+        "fraction": 0.107,
+        "theory": 0.09090909090909091
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10097,
+        "cartel_successful_answers_that_may_still_lie": 996,
+        "completed_tickets": 9999,
+        "count": 98,
+        "exhausted_tickets": 1,
+        "failures_if_incorrectly_erased_after_success": 3,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 89
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 100,
+        "uids_failing_at_least_one_interface": 7,
+        "uids_passing_aggregate": 10
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 107,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 10,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 893
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 900,
+        "favorable": 107,
+        "favorable_fraction_of_delivered": 0.11888888888888889,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 100
+      },
+      "seed": 0
+    },
+    {
+      "cartel_requester_slots": 2000,
+      "cartel_uids": 20,
+      "choose_any_three": {
+        "favorable": 972,
+        "fraction": 0.486,
+        "theory": 0.4761841006318178
+      },
+      "mandatory_first": {
+        "favorable": 382,
+        "fraction": 0.191,
+        "theory": 0.1919191919191919
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10186,
+        "cartel_successful_answers_that_may_still_lie": 1890,
+        "completed_tickets": 9997,
+        "count": 189,
+        "exhausted_tickets": 3,
+        "failures_if_incorrectly_erased_after_success": 9,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 160
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 200,
+        "uids_failing_at_least_one_interface": 14,
+        "uids_passing_aggregate": 20
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 382,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 20,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 1618
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 1800,
+        "favorable": 382,
+        "favorable_fraction_of_delivered": 0.21222222222222223,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 200
+      },
+      "seed": 0
+    },
+    {
+      "cartel_requester_slots": 3000,
+      "cartel_uids": 30,
+      "choose_any_three": {
+        "favorable": 1997,
+        "fraction": 0.6656666666666666,
+        "theory": 0.6510019190431562
+      },
+      "mandatory_first": {
+        "favorable": 901,
+        "fraction": 0.30033333333333334,
+        "theory": 0.29292929292929293
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10273,
+        "cartel_successful_answers_that_may_still_lie": 2858,
+        "completed_tickets": 9992,
+        "count": 281,
+        "exhausted_tickets": 8,
+        "failures_if_incorrectly_erased_after_success": 24,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 224
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 300,
+        "uids_failing_at_least_one_interface": 18,
+        "uids_passing_aggregate": 30
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 901,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 30,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 2099
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 2700,
+        "favorable": 901,
+        "favorable_fraction_of_delivered": 0.3337037037037037,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 300
+      },
+      "seed": 0
+    },
+    {
+      "cartel_requester_slots": 5000,
+      "cartel_uids": 50,
+      "choose_any_three": {
+        "favorable": 4364,
+        "fraction": 0.8728,
+        "theory": 0.8750390502967822
+      },
+      "mandatory_first": {
+        "favorable": 2510,
+        "fraction": 0.502,
+        "theory": 0.494949494949495
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10414,
+        "cartel_successful_answers_that_may_still_lie": 4800,
+        "completed_tickets": 9954,
+        "count": 460,
+        "exhausted_tickets": 46,
+        "failures_if_incorrectly_erased_after_success": 138,
+        "max_observed_provider_interface_failure_rate": 0.09803921568627451,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 268
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 500,
+        "uids_failing_at_least_one_interface": 32,
+        "uids_passing_aggregate": 50
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 2510,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 50,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 2490
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 4500,
+        "favorable": 2510,
+        "favorable_fraction_of_delivered": 0.5577777777777778,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 500
+      },
+      "seed": 0
+    },
+    {
+      "cartel_requester_slots": 0,
+      "cartel_uids": 0,
+      "choose_any_three": {
+        "favorable": 0,
+        "fraction": null,
+        "theory": null
+      },
+      "mandatory_first": {
+        "favorable": 0,
+        "fraction": null,
+        "theory": null
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10000,
+        "cartel_successful_answers_that_may_still_lie": 0,
+        "completed_tickets": 10000,
+        "count": 0,
+        "exhausted_tickets": 0,
+        "failures_if_incorrectly_erased_after_success": 0,
+        "max_observed_provider_interface_failure_rate": 0.0,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 0
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 0,
+        "uids_failing_at_least_one_interface": 0,
+        "uids_passing_aggregate": 0
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 0,
+        "favorable_fraction_of_delivered": null,
+        "incorrect_delivered_only_gate_would_pass": 0,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 0
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 0,
+        "favorable": 0,
+        "favorable_fraction_of_delivered": null,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 0
+      },
+      "seed": 17
+    },
+    {
+      "cartel_requester_slots": 1000,
+      "cartel_uids": 10,
+      "choose_any_three": {
+        "favorable": 239,
+        "fraction": 0.239,
+        "theory": 0.25099936881969287
+      },
+      "mandatory_first": {
+        "favorable": 88,
+        "fraction": 0.088,
+        "theory": 0.09090909090909091
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10092,
+        "cartel_successful_answers_that_may_still_lie": 927,
+        "completed_tickets": 10000,
+        "count": 92,
+        "exhausted_tickets": 0,
+        "failures_if_incorrectly_erased_after_success": 0,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 89
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 100,
+        "uids_failing_at_least_one_interface": 3,
+        "uids_passing_aggregate": 10
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 88,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 10,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 912
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 900,
+        "favorable": 88,
+        "favorable_fraction_of_delivered": 0.09777777777777778,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 100
+      },
+      "seed": 17
+    },
+    {
+      "cartel_requester_slots": 2000,
+      "cartel_uids": 20,
+      "choose_any_three": {
+        "favorable": 971,
+        "fraction": 0.4855,
+        "theory": 0.4761841006318178
+      },
+      "mandatory_first": {
+        "favorable": 370,
+        "fraction": 0.185,
+        "theory": 0.1919191919191919
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10178,
+        "cartel_successful_answers_that_may_still_lie": 1834,
+        "completed_tickets": 9999,
+        "count": 179,
+        "exhausted_tickets": 1,
+        "failures_if_incorrectly_erased_after_success": 3,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 158
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 200,
+        "uids_failing_at_least_one_interface": 7,
+        "uids_passing_aggregate": 20
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 370,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 20,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 1630
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 1800,
+        "favorable": 370,
+        "favorable_fraction_of_delivered": 0.20555555555555555,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 200
+      },
+      "seed": 17
+    },
+    {
+      "cartel_requester_slots": 3000,
+      "cartel_uids": 30,
+      "choose_any_three": {
+        "favorable": 1987,
+        "fraction": 0.6623333333333333,
+        "theory": 0.6510019190431562
+      },
+      "mandatory_first": {
+        "favorable": 872,
+        "fraction": 0.2906666666666667,
+        "theory": 0.29292929292929293
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10261,
+        "cartel_successful_answers_that_may_still_lie": 2809,
+        "completed_tickets": 9988,
+        "count": 273,
+        "exhausted_tickets": 12,
+        "failures_if_incorrectly_erased_after_success": 36,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 203
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 300,
+        "uids_failing_at_least_one_interface": 12,
+        "uids_passing_aggregate": 30
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 872,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 30,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 2128
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 2700,
+        "favorable": 872,
+        "favorable_fraction_of_delivered": 0.32296296296296295,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 300
+      },
+      "seed": 17
+    },
+    {
+      "cartel_requester_slots": 5000,
+      "cartel_uids": 50,
+      "choose_any_three": {
+        "favorable": 4379,
+        "fraction": 0.8758,
+        "theory": 0.8750390502967822
+      },
+      "mandatory_first": {
+        "favorable": 2451,
+        "fraction": 0.4902,
+        "theory": 0.494949494949495
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10410,
+        "cartel_successful_answers_that_may_still_lie": 4685,
+        "completed_tickets": 9962,
+        "count": 448,
+        "exhausted_tickets": 38,
+        "failures_if_incorrectly_erased_after_success": 114,
+        "max_observed_provider_interface_failure_rate": 0.09803921568627451,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 269
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 500,
+        "uids_failing_at_least_one_interface": 32,
+        "uids_passing_aggregate": 50
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 2451,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 50,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 2549
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 4500,
+        "favorable": 2451,
+        "favorable_fraction_of_delivered": 0.5446666666666666,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 500
+      },
+      "seed": 17
+    },
+    {
+      "cartel_requester_slots": 0,
+      "cartel_uids": 0,
+      "choose_any_three": {
+        "favorable": 0,
+        "fraction": null,
+        "theory": null
+      },
+      "mandatory_first": {
+        "favorable": 0,
+        "fraction": null,
+        "theory": null
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10000,
+        "cartel_successful_answers_that_may_still_lie": 0,
+        "completed_tickets": 10000,
+        "count": 0,
+        "exhausted_tickets": 0,
+        "failures_if_incorrectly_erased_after_success": 0,
+        "max_observed_provider_interface_failure_rate": 0.0,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 0
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 0,
+        "uids_failing_at_least_one_interface": 0,
+        "uids_passing_aggregate": 0
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 0,
+        "favorable_fraction_of_delivered": null,
+        "incorrect_delivered_only_gate_would_pass": 0,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 0
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 0,
+        "favorable": 0,
+        "favorable_fraction_of_delivered": null,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 0
+      },
+      "seed": 29
+    },
+    {
+      "cartel_requester_slots": 1000,
+      "cartel_uids": 10,
+      "choose_any_three": {
+        "favorable": 241,
+        "fraction": 0.241,
+        "theory": 0.25099936881969287
+      },
+      "mandatory_first": {
+        "favorable": 86,
+        "fraction": 0.086,
+        "theory": 0.09090909090909091
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10093,
+        "cartel_successful_answers_that_may_still_lie": 933,
+        "completed_tickets": 10000,
+        "count": 93,
+        "exhausted_tickets": 0,
+        "failures_if_incorrectly_erased_after_success": 0,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 86
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 100,
+        "uids_failing_at_least_one_interface": 2,
+        "uids_passing_aggregate": 10
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 86,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 10,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 914
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 900,
+        "favorable": 86,
+        "favorable_fraction_of_delivered": 0.09555555555555556,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 100
+      },
+      "seed": 29
+    },
+    {
+      "cartel_requester_slots": 2000,
+      "cartel_uids": 20,
+      "choose_any_three": {
+        "favorable": 932,
+        "fraction": 0.466,
+        "theory": 0.4761841006318178
+      },
+      "mandatory_first": {
+        "favorable": 376,
+        "fraction": 0.188,
+        "theory": 0.1919191919191919
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10181,
+        "cartel_successful_answers_that_may_still_lie": 1881,
+        "completed_tickets": 9996,
+        "count": 185,
+        "exhausted_tickets": 4,
+        "failures_if_incorrectly_erased_after_success": 12,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 154
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 200,
+        "uids_failing_at_least_one_interface": 13,
+        "uids_passing_aggregate": 20
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 376,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 20,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 1624
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 1800,
+        "favorable": 376,
+        "favorable_fraction_of_delivered": 0.2088888888888889,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 200
+      },
+      "seed": 29
+    },
+    {
+      "cartel_requester_slots": 3000,
+      "cartel_uids": 30,
+      "choose_any_three": {
+        "favorable": 1982,
+        "fraction": 0.6606666666666666,
+        "theory": 0.6510019190431562
+      },
+      "mandatory_first": {
+        "favorable": 904,
+        "fraction": 0.30133333333333334,
+        "theory": 0.29292929292929293
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10261,
+        "cartel_successful_answers_that_may_still_lie": 2832,
+        "completed_tickets": 9986,
+        "count": 275,
+        "exhausted_tickets": 14,
+        "failures_if_incorrectly_erased_after_success": 42,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 205
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 300,
+        "uids_failing_at_least_one_interface": 18,
+        "uids_passing_aggregate": 30
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 904,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 30,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 2096
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 2700,
+        "favorable": 904,
+        "favorable_fraction_of_delivered": 0.3348148148148148,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 300
+      },
+      "seed": 29
+    },
+    {
+      "cartel_requester_slots": 5000,
+      "cartel_uids": 50,
+      "choose_any_three": {
+        "favorable": 4384,
+        "fraction": 0.8768,
+        "theory": 0.8750390502967822
+      },
+      "mandatory_first": {
+        "favorable": 2512,
+        "fraction": 0.5024,
+        "theory": 0.494949494949495
+      },
+      "provider_selective_failures": {
+        "all_providers_pass_per_interface_and_aggregate": true,
+        "attempts": 10409,
+        "cartel_successful_answers_that_may_still_lie": 4766,
+        "completed_tickets": 9952,
+        "count": 457,
+        "exhausted_tickets": 48,
+        "failures_if_incorrectly_erased_after_success": 144,
+        "max_observed_provider_interface_failure_rate": 0.1,
+        "strategy": "Cartel providers decline noncartel requesters in canonical slot order, with budget floor(initial assignments/10) separately per interface. Extra fallback attempts increase the denominator but not the attack budget.",
+        "tickets_recovered_by_fallback": 255
+      },
+      "requester_abandonment_aggregate_only": {
+        "skipped_issued_slots": 500,
+        "uids_failing_at_least_one_interface": 34,
+        "uids_passing_aggregate": 50
+      },
+      "requester_abandonment_all_unfavorable": {
+        "cartel_requesters_passing_correct_gate": 0,
+        "delivered": 2512,
+        "favorable_fraction_of_delivered": 1.0,
+        "incorrect_delivered_only_gate_would_pass": 50,
+        "new_free_draws": 0,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 2488
+      },
+      "requester_abandonment_capped": {
+        "all_cartel_requesters_pass": true,
+        "all_interfaces_and_aggregate_pass": true,
+        "delivered": 4500,
+        "favorable": 2512,
+        "favorable_fraction_of_delivered": 0.5582222222222222,
+        "provider_failures_charged_for_undelivered_payload": 0,
+        "skipped_issued_slots": 500
+      },
+      "seed": 29
+    }
+  ],
+  "size_sensitivity": [
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 0,
+      "panel_majority_probability": 0.0,
+      "reviewer_majority_probability": 0.0,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 0,
+      "panel_majority_probability": 0.0,
+      "reviewer_majority_probability": 0.0,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 0,
+      "panel_majority_probability": 0.0,
+      "reviewer_majority_probability": 0.0,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 0,
+      "panel_majority_probability": 0.0,
+      "reviewer_majority_probability": 0.0,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 10,
+      "panel_majority_probability": 0.00927643784786642,
+      "reviewer_majority_probability": 0.025788497217068645,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 10,
+      "panel_majority_probability": 0.17439703153988867,
+      "reviewer_majority_probability": 0.025788497217068645,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 10,
+      "panel_majority_probability": 0.0028929097412160737,
+      "reviewer_majority_probability": 0.00663791289711761,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 10,
+      "panel_majority_probability": 0.04034294130023144,
+      "reviewer_majority_probability": 0.00663791289711761,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 10,
+      "panel_majority_probability": 0.0007541061471401689,
+      "reviewer_majority_probability": 0.001605433852233127,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 10,
+      "panel_majority_probability": 0.009267383198069752,
+      "reviewer_majority_probability": 0.001605433852233127,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 10,
+      "panel_majority_probability": 0.00017202724639287973,
+      "reviewer_majority_probability": 0.0003517254506235813,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 10,
+      "panel_majority_probability": 0.001969009288699896,
+      "reviewer_majority_probability": 0.0003517254506235813,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.039167182024324884,
+      "reviewer_majority_probability": 0.1010513296227582,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.34858792001649147,
+      "reviewer_majority_probability": 0.1010513296227582,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.025211349769523557,
+      "reviewer_majority_probability": 0.053202761892010786,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.1651684103819597,
+      "reviewer_majority_probability": 0.053202761892010786,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.014449440666812897,
+      "reviewer_majority_probability": 0.028126468837151003,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.08283458151850344,
+      "reviewer_majority_probability": 0.028126468837151003,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.007895465035865464,
+      "reviewer_majority_probability": 0.01469881144691724,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 20,
+      "panel_majority_probability": 0.041912197091124336,
+      "reviewer_majority_probability": 0.01469881144691724,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 30,
+      "panel_majority_probability": 0.08967223252937538,
+      "reviewer_majority_probability": 0.21341991341991343,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 30,
+      "panel_majority_probability": 0.5021645021645021,
+      "reviewer_majority_probability": 0.21341991341991343,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 30,
+      "panel_majority_probability": 0.08169879948230463,
+      "reviewer_majority_probability": 0.15760588209041818,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 30,
+      "panel_majority_probability": 0.33472240817601645,
+      "reviewer_majority_probability": 0.15760588209041818,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 30,
+      "panel_majority_probability": 0.06668172080283462,
+      "reviewer_majority_probability": 0.11793812708804455,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 30,
+      "panel_majority_probability": 0.23753640842020105,
+      "reviewer_majority_probability": 0.11793812708804455,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 30,
+      "panel_majority_probability": 0.05260358209663508,
+      "reviewer_majority_probability": 0.08858371021128804,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 30,
+      "panel_majority_probability": 0.17253734247881164,
+      "reviewer_majority_probability": 0.08858371021128804,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 50,
+      "panel_majority_probability": 0.25252525252525254,
+      "reviewer_majority_probability": 0.5,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.0,
+      "cartel_uids": 50,
+      "panel_majority_probability": 0.7474747474747475,
+      "reviewer_majority_probability": 0.5,
+      "size": 3,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 50,
+      "panel_majority_probability": 0.31630740393626994,
+      "reviewer_majority_probability": 0.5,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 1.6666666666666667,
+      "cartel_uids": 50,
+      "panel_majority_probability": 0.6836925960637301,
+      "reviewer_majority_probability": 0.5,
+      "size": 5,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 50,
+      "panel_majority_probability": 0.3485341751755208,
+      "reviewer_majority_probability": 0.5000000000000001,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 2.3333333333333335,
+      "cartel_uids": 50,
+      "panel_majority_probability": 0.6514658248244792,
+      "reviewer_majority_probability": 0.5000000000000001,
+      "size": 7,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 50,
+      "panel_majority_probability": 0.36889248496375726,
+      "reviewer_majority_probability": 0.5,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": false
+    },
+    {
+      "calls_relative_to_three": 3.0,
+      "cartel_uids": 50,
+      "panel_majority_probability": 0.6311075150362427,
+      "reviewer_majority_probability": 0.5,
+      "size": 9,
+      "source": "Exact without-replacement calculation; sizes above three not hash-simulated.",
+      "strongest_cartel": true
+    }
+  ]
+}

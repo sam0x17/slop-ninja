@@ -1,0 +1,121 @@
+{
+  "schema": "slop_ninja_pangram_revision_collection_v1",
+  "date": "2026-09-13",
+  "status": "provider_collection_complete_detector_comparison_pending",
+  "protocol": "../PANGRAM_REVISION_V6.md",
+  "cohort": {
+    "split": "test",
+    "unique_texts": 162,
+    "source_families": 18,
+    "records_sha256": "1b06538d11fc770fbf6c68b5b9cdb95f12463ebbc6f37e7d518ad8aa08859475",
+    "plan_sha256": "5699a1348650f14d5d5747428c25bcc1760c76eb40651ddb139d789d63db6df3",
+    "payload_sha256": "405e6fe5dc3211529e3aea5a9810258c8f5a1e6f6b19201b21ab94828132ad1c",
+    "annotations_sha256": "3bdcc69b1875ccebaadf3307cbb104bbc502cb7399336ab3952f0f0065fde5ea",
+    "returned_versions": [
+      "4.0"
+    ],
+    "succeeded": 162,
+    "failed": 0,
+    "echo_counts": {
+      "exact": 53,
+      "whitespace_only": 109
+    },
+    "source_soft_hyphen_removal_allowed": false
+  },
+  "score_definition": {
+    "combined_fraction": "fraction_ai + fraction_ai_assisted",
+    "flag_rule": "combined_fraction >= 0.10",
+    "hundred_percent_bin_absolute_tolerance": 0.00001,
+    "original_fraction_values_preserved": true
+  },
+  "observations": {
+    "by_origin": [
+      {
+        "origin": "human_only",
+        "rows": 18,
+        "flags_at_10_percent": 0,
+        "min_combined_fraction": 0,
+        "max_combined_fraction": 0,
+        "mean_ai_fraction": 0,
+        "mean_assisted_fraction": 0,
+        "histogram": {
+          "100": 0,
+          "below_60": 18,
+          "60_70": 0,
+          "70_80": 0,
+          "80_90": 0,
+          "90_below_100": 0
+        }
+      },
+      {
+        "origin": "mixed",
+        "rows": 36,
+        "flags_at_10_percent": 34,
+        "min_combined_fraction": 0,
+        "max_combined_fraction": 1,
+        "mean_ai_fraction": 0.011234901017612882,
+        "mean_assisted_fraction": 0.842737385382255,
+        "histogram": {
+          "100": 24,
+          "below_60": 6,
+          "60_70": 0,
+          "70_80": 0,
+          "80_90": 5,
+          "90_below_100": 1
+        }
+      },
+      {
+        "origin": "model_only",
+        "rows": 108,
+        "flags_at_10_percent": 108,
+        "min_combined_fraction": 0.7631579041481018,
+        "max_combined_fraction": 1.0000000298023224,
+        "mean_ai_fraction": 0.22758665694682687,
+        "mean_assisted_fraction": 0.7683715903096728,
+        "histogram": {
+          "100": 106,
+          "below_60": 0,
+          "60_70": 0,
+          "70_80": 1,
+          "80_90": 1,
+          "90_below_100": 0
+        }
+      }
+    ]
+  },
+  "collection_totals": {
+    "train": {
+      "texts": 581,
+      "source_families": 155,
+      "hosted_research_only_texts": 96
+    },
+    "development": {
+      "texts": 57,
+      "source_families": 19
+    },
+    "test": {
+      "texts": 162,
+      "source_families": 18
+    },
+    "unique_annotated_texts": 800,
+    "source_families": 192
+  },
+  "budget": {
+    "ledger": "spend is recorded in the private ledger",
+    "cumulative_jobs": 9,
+    "actual_billing_verified": false
+  },
+  "findings": [
+    "All 108 model-only texts were flagged; 106 fall in the approximately 100% combined-content bin.",
+    "All 18 human controls received zero combined AI/AI-assisted content.",
+    "Eight of 144 nonhuman texts fall between 60% and approximately 100%: two model-only and six mixed-origin texts. Desired score diversity remains limited."
+  ],
+  "limits": [
+    "Descriptive Pangram-only inspection of the complete frozen cohort; the paired v5/v6 comparison is pending.",
+    "The 162 texts share 18 source families and include multiple revisions; they are not 162 independent samples.",
+    "The 100% bin uses the declared numerical tolerance. Original combined fractions can slightly exceed one because of provider floating-point values.",
+    "Origin labels come from recorded generation and editing workflows. AI-assisted content scores do not establish human participation.",
+    "These Test observations remain outside fitting. No score filtering, candidate switching or threshold changes followed collection.",
+    "Per-record provider outputs and job archives remain in ignored storage; this file contains aggregates."
+  ]
+}

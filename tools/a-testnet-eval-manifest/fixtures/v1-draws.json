@@ -1,0 +1,179 @@
+{
+ "schema": "slop_ninja_testnet_pool_v1_recorded_draws_v1",
+ "note": "Content-free draw summaries the testnet coordinator recorded for testnet-human-pool-v1 (status snapshots of 2026-10-30 and 2026-10-31). Group counts depend on the private cohort seed and are not replayed.",
+ "engine": {
+  "source": "subnet/coordinator/src/eval/{pool.rs,textgen.rs}",
+  "commit": "9051a52a7b397256a8183fc850fdd3204fc49bcf",
+  "pool_rs_sha256": "7a1d4cf2e5ef4a694da651d4f8fbf4ed0235785bfbe7a8674f119a28aecf4bce",
+  "textgen_rs_sha256": "5dea719755f013ebc8938ac35f583edba62b69e60eaf7da72c342e08925c06f7",
+  "cohorts": [
+   "testnet-m4-rehearsal-3-k3-n10",
+   "testnet-m4-drill-4-shortfall-n4000"
+  ],
+  "note": "Rehearsal 3 and the shortfall drill drew after the deploy of this commit; rehearsals 1 and 2 drew on earlier deploys, whose nearest commit is `earlier`.",
+  "earlier": {
+   "commit": "d456f5d2b44afe3e08e7b8738d2c891047920402",
+   "pool_rs_sha256": "a2d5b7e9b14eaa0e654235567e546d3187b2e1fa5ab7856fae3a2dc2abcd4e8a",
+   "textgen_rs_sha256": "5dea719755f013ebc8938ac35f583edba62b69e60eaf7da72c342e08925c06f7",
+   "cohorts": [
+    "testnet-m4-rehearsal-1-k4-n200",
+    "testnet-m4-rehearsal-2-k4-n1000"
+   ],
+   "difference": "pool.rs adds the durable used-row ledger; the manifest parser, rank, proportional and draw are byte-identical, and textgen.rs is the same file"
+  }
+ },
+ "pool": {
+  "pool_id": "testnet-human-pool-v1",
+  "manifest_sha256": "6b3eb450108fe626ddf8d21bc95d5ec3ad204aa2f2b67e24158849c41e9ca464",
+  "rows": 570,
+  "source_groups": 505,
+  "by_domain": {
+   "fineweb": 75,
+   "global_voices": 75,
+   "plos": 85,
+   "project_gutenberg": 85,
+   "us_federal_register": 65,
+   "wikinews": 25,
+   "wikipedia": 160
+  }
+ },
+ "cohorts": [
+  {
+   "label": "testnet-m4-rehearsal-1-k4-n200",
+   "cohort": 1,
+   "n": 200,
+   "mix": [
+    40,
+    40,
+    20
+   ],
+   "max_kind_shortfall_permille": 0,
+   "draw": {
+    "available_before": 570,
+    "humans": 80,
+    "groups": 71,
+    "quotas": {
+     "fineweb": 11,
+     "global_voices": 11,
+     "plos": 12,
+     "project_gutenberg": 12,
+     "us_federal_register": 9,
+     "wikinews": 3,
+     "wikipedia": 22
+    },
+    "mixed": 80,
+    "scratch": 40,
+    "shortfall": 0
+   },
+   "phase": "closed"
+  },
+  {
+   "label": "testnet-m4-rehearsal-2-k4-n1000",
+   "cohort": 2,
+   "n": 1000,
+   "mix": [
+    40,
+    40,
+    20
+   ],
+   "max_kind_shortfall_permille": 0,
+   "draw": {
+    "available_before": 490,
+    "humans": 400,
+    "groups": 356,
+    "quotas": {
+     "fineweb": 52,
+     "global_voices": 52,
+     "plos": 60,
+     "project_gutenberg": 59,
+     "us_federal_register": 46,
+     "wikinews": 18,
+     "wikipedia": 113
+    },
+    "mixed": 400,
+    "scratch": 200,
+    "shortfall": 0
+   },
+   "phase": "closed"
+  },
+  {
+   "label": "testnet-m4-rehearsal-3-k3-n10",
+   "cohort": 3,
+   "n": 10,
+   "mix": [
+    40,
+    40,
+    20
+   ],
+   "max_kind_shortfall_permille": 0,
+   "draw": {
+    "available_before": 90,
+    "humans": 4,
+    "groups": 4,
+    "quotas": {
+     "fineweb": 1,
+     "global_voices": 0,
+     "plos": 1,
+     "project_gutenberg": 1,
+     "us_federal_register": 0,
+     "wikinews": 0,
+     "wikipedia": 1
+    },
+    "mixed": 4,
+    "scratch": 2,
+    "shortfall": 0
+   },
+   "counts": {
+    "plan": [
+     4,
+     4,
+     2
+    ],
+    "have": [
+     4,
+     4,
+     2
+    ],
+    "shortfall": [
+     0,
+     0,
+     0
+    ]
+   },
+   "phase": "closed"
+  },
+  {
+   "label": "testnet-m4-drill-4-shortfall-n4000",
+   "cohort": 4,
+   "n": 4000,
+   "mix": [
+    40,
+    40,
+    20
+   ],
+   "max_kind_shortfall_permille": 0,
+   "counts": {
+    "plan": [
+     1600,
+     1600,
+     800
+    ],
+    "have": [
+     86,
+     86,
+     800
+    ],
+    "shortfall": [
+     1514,
+     1514,
+     0
+    ]
+   },
+   "phase": "abandoned"
+  }
+ ],
+ "used_after": {
+  "rows": 484,
+  "remaining": 86
+ }
+}

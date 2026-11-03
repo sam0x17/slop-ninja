@@ -1,0 +1,105 @@
+{
+  "schema": "slop_ninja.plos_section_manual_review.v1",
+  "inventory_sha256": "b362b54f6f315e9b4666efe67ab82ac5c0042f806e9529524074d31ec3cc1862",
+  "scope": "Three complete cached JATS introductions and their publication/history/permissions metadata; no remainder-of-article, PDF or NLP-parse review",
+  "selection": {
+    "filter": "Absent from frozen exclusion inputs; section in 650..1600 whitespace words; English research article, 2019 publication year, explicit CC BY link.",
+    "order": "Ascending raw_section_sha256; first three qualifying sections",
+    "pool_size": 33
+  },
+  "reviewer": "One assistant reading every selected introduction",
+  "complete_introductions_read": 3,
+  "paragraphs_read": 21,
+  "source_text_modified": false,
+  "admitted_records": 0,
+  "split_assigned": false,
+  "detector_scores_opened": false,
+  "model_calls": 0,
+  "network_calls": 0,
+  "reviews": [
+    {
+      "doi": "10.1371/journal.pone.0200967",
+      "raw_file": "caae967dc8cee2c81ec0dcbee87b44324827610ba886300923fe810f758fc9d3.body",
+      "raw_sha256": "8e015c98ac1ef8a2bc77d2725b6007e5069db54e4f104b57438d72bef5de9bbe",
+      "section_sha256": "03ba789ba855db0d83ffeb720f8c9b73e7e70339ce592b697c6017a95c8f5106",
+      "paragraphs": 6,
+      "whitespace_words": 781,
+      "publication_date": "2019-01-09",
+      "received_date": "2018-06-24",
+      "accepted_date": "2018-12-18",
+      "copyright_holder": "Tharabenjasin et al",
+      "license_url": "http://creativecommons.org/licenses/by/4.0/",
+      "section_boundary": "Six complete paragraphs under the introduction heading; no figure, table, formula or footnote container in the selected section.",
+      "rendering_observations": [
+        "Italicized gene/protein names remain distinct character strings when projected into plain text. Numbered citation links and ranges remain attached to their claims."
+      ],
+      "source_prose_findings": [
+        "The title and parts of the introduction use Gly428Ser, while other passages use Gly482Ser. Preserve and flag this inconsistency; this review does not establish the intended identifier.",
+        "Several sentences use awkward agreement or relative-clause constructions, including the sentence linking the need for synthesis to meta-analysis. Their presence does not establish model authorship."
+      ],
+      "meaning_constraints": [
+        "Retain separate power/endurance findings, study limitations and the qualified statement about the review's novelty. Do not make discrepant prior findings agree by rewriting them."
+      ]
+    },
+    {
+      "doi": "10.1371/journal.pone.0203248",
+      "raw_file": "1139e7666ba87d2c1f0a6ab453d934dbea78392571edb4a9903d2a24568cf11a.body",
+      "raw_sha256": "6e4d783b8a1bfb746b4183b120cd3502d68fed2711cb6189fb61faed2f31160e",
+      "section_sha256": "0db58b08869e3bbce80269043db4a195904916595a7d976bc0fb59b4c9f7b4cc",
+      "paragraphs": 8,
+      "whitespace_words": 1013,
+      "publication_date": "2019-01-16",
+      "received_date": "2018-08-16",
+      "accepted_date": "2018-12-18",
+      "copyright_holder": "van Es, Knapen",
+      "license_url": "http://creativecommons.org/licenses/by/4.0/",
+      "section_boundary": "Eight complete introduction paragraphs; no figure, table, formula or footnote container in the selected section.",
+      "rendering_observations": [
+        "Citation lists/ranges, parenthetical definitions and two opposed predictions are visible in the XML.",
+        "Single quotation marks identify terms and response labels such as one-shot, seen and unseen. These instances are not presented as externally attributed passages."
+      ],
+      "source_prose_findings": [
+        "The phrase during the executing of the saccade is awkward in the source.",
+        "Scanning is used before the final paragraph explicitly identifies scanning saccades as a type of voluntary saccade. A later edit should preserve that subtype relationship."
+      ],
+      "meaning_constraints": [
+        "Retain both opposed predictions linking reactive/voluntary adaptation to implicit/explicit learning, their separate theoretical rationales, and the stated purpose of resolving them.",
+        "Preserve the distinct gain-up/gain-down and awareness predictions, rather than treating all fast/slow learning contrasts as the same claim."
+      ]
+    },
+    {
+      "doi": "10.1371/journal.pone.0203980",
+      "raw_file": "d4373488c37ca2329ff99d41daf20fa9ca0167502175bc14c75779d944603d70.body",
+      "raw_sha256": "08b3368bd01a9c02532c31cec30bb9ec7458a8dc2ccd2e3541d4c56f44d9d324",
+      "section_sha256": "1e330a294fe3e790b1e6189787f38e9f63c8502a449507d947a425055ceffacf",
+      "paragraphs": 7,
+      "whitespace_words": 1284,
+      "publication_date": "2019-01-29",
+      "received_date": "2018-08-29",
+      "accepted_date": "2019-01-15",
+      "copyright_holder": "Bubak et al",
+      "license_url": "http://creativecommons.org/licenses/by/4.0/",
+      "section_boundary": "Seven complete introduction paragraphs; no figure, table, formula or footnote container in the selected section.",
+      "rendering_observations": [
+        "Subscript receptor labels and italic species names occur despite the absence of formula markup. Plain-text rendering needs an explicit notation policy.",
+        "Citation brackets and ranges contain qualifications and counterexamples that must stay associated with the relevant claims."
+      ],
+      "source_prose_findings": [
+        "The final paragraph leaves the parenthesis beginning after socio-environmental manipulation unclosed before the list of experimental methods continues.",
+        "The final sentence combines the plural subject results with the singular verb highlights."
+      ],
+      "meaning_constraints": [
+        "Preserve the distinctions among species, sexes, receptor subtypes, behavioral intensity, contest duration and experimental context.",
+        "Keep uncertainty and exceptions: the source argues against a single uniform effect and identifies unresolved relationships."
+      ]
+    }
+  ],
+  "shared_findings": [
+    "All three cached permission notices explicitly describe reuse under CC BY 4.0 with author/source attribution. This is stronger evidence than a bare license link, but is not a complete item or dataset admission review.",
+    "The current JATS contains publication and submission/acceptance dates. It does not by itself establish that these exact bytes existed at that historical date.",
+    "No externally attributed verbatim passage was identified in the selected introductions during this reading. This finding covers only those sections and does not replace a whole-item rights check.",
+    "Human-reference candidates can contain conventional technical transitions, passive constructions and prose defects. Their label basis must remain separate from such stylistic observations.",
+    "No grammatical parse was executed or certified. The findings are manual readings of source prose and markup, with no detector-quality estimate."
+  ],
+  "next_action": "Before admission, settle historical-version evidence, source attribution and related-text exclusions, then define a faithful citation/notation rendering policy and audit uncapped A-tokenizer lengths. Preserve source errors as observations rather than silently correcting them."
+}

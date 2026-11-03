@@ -1,0 +1,41 @@
+{
+  "schema": "slop_ninja_boundary_space_preflight_v1",
+  "at": "2026-09-15T14:42:57Z",
+  "plan_sha256": "7dddd4b1f7234e08fdbd08b7e1395b7fa9864c0e9b6ecd1d0cd580f7a9e9b36a",
+  "requests_sha256": "2b734722841a8f1afca97a95bd95e50673fbe2d8e0cd01bdd51d5cedcf3f9cf6",
+  "source_sha256": "ced36ece6ecfddc975260a7e8db9675f0b90129fa308145c9a6148134bea99e0",
+  "protocol_sha256": "c0a1e754ed6ee9227f2584b166ec83ec6dc11ae06b400e5df248a32645bf2621",
+  "binary_sha256": "7224fb1282f11bc294b19fb0a3219502b9f62e82308cc94b6c79876bbeecda96",
+  "prior_register_packet_sha256": "6d6542888c3a7eb3146e5e0de10518b144043a0efe9cf2b9f36c2230f4b6e15e",
+  "same_sixteen_roots": true,
+  "all_descendants_retained": true,
+  "paired_views_independently_verified": true,
+  "rows": 126,
+  "families": 16,
+  "origins": {
+    "human_only": 16,
+    "model_only": 71,
+    "mixed": 39
+  },
+  "requests_per_model": 252,
+  "models": 3,
+  "planned_observations": 756,
+  "checks": {
+    "fmt": "passed",
+    "all_target_tests": "passed",
+    "clippy": "passed_with_warnings_denied",
+    "release_build": "passed"
+  },
+  "logs": {
+    "fmt-final": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests-final": "04ba7aa54ff7e3f21c05be8293aee5a9ad283b69317d895da34e4f4582cec979",
+    "clippy-final": "5040e0c291c87163e0b65236438c2d6f993cb1c42200568883ad2a04b3605d84",
+    "build": "9837b4b1e78d8ee692b3943cf887fbba1986c5b920fd675db0ec016a71694457",
+    "prepare": "94dbb88e7a5c701ce8d96c0c28fca5c65c77c1a851881103010513dcbe7d3a27"
+  },
+  "execution_host": "Mac Studio",
+  "runtime": "CPU float32 eager, batch one, one thread, no truncation",
+  "linux_execution": "unverified",
+  "new_training_records": 0,
+  "provider_calls": 0
+}

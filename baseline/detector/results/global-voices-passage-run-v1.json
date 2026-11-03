@@ -1,0 +1,188 @@
+{
+  "at": "2026-09-15T13:13:06.430470+00:00",
+  "binary_sha256": "f9eac5426e1c412a02a391838bb4d77035e8d854cec0631cb9151431c9d03b75",
+  "boundaries_sha256": "08504ecdeb0a5c24d2a97f146f86909f685ea1b6e22051531780ede39ee376ac",
+  "cargo_lock_sha256": "e340e9857dc9bef57849ba50d31a39ddfd83369ea8f9613ec1e9efc654803cb3",
+  "lib_source_sha256": "bc5c1ca54a7c355bbff9db26c53e0b885da17b6a11cbfda4bf32b316af707de3",
+  "manual_review_complete": false,
+  "model_calls": 0,
+  "origin_assigned": false,
+  "pangram_calls": 0,
+  "passage_source_sha256": "52366af101c42b7d58107310a7f4a90f56f9d3ac6ec530bdf122db8f4cfa7c55",
+  "protocol_sha256": "23907e3711ba3e528a2e729f2da602e00b107f6cb34bfa5503c936021aa73275",
+  "runner_source_sha256": "11ab5f22f981ef69fad72b4e70b215fb583a4a936f15cc91af403ba5e6843f84",
+  "schema": "slop_ninja_global_voices_passage_candidates_v1",
+  "source_run_sha256": "f1067f94436860803ea01562f8d0de00ddc8ace42c4dc019e6dcde5f742750a1",
+  "training_admitted": false,
+  "view_source_sha256": "01a79dd424c277bdb936b5099fe4d2860e77e9f80853fad4993d314c1904845e",
+  "works": [
+    {
+      "candidate_artifact": "gv-769472.json",
+      "candidate_artifact_sha256": "0a31e2c97f1c81d17fb42fb507377b6871e5832484dfa9f85be490a98d7d0b3b",
+      "id": "gv:769472",
+      "result": {
+        "end_node_exclusive": 20,
+        "paragraphs": 2,
+        "start_node": 10,
+        "status": "materialized_unreviewed",
+        "text_sha256": "738d8a4cd439884b7e74277e1c9c20a66b06bd7905ea594211cfefeb27431f77",
+        "words_unicode_whitespace": 183
+      },
+      "selection": {
+        "first_paragraph": 1,
+        "id": "gv:769472",
+        "last_paragraph": 2,
+        "reason": "Opening political context before the first introduction to a social post; preserve and review the source's date inconsistency."
+      },
+      "source_artifact_sha256": "5f3ab3e06151b40b50c8a97413360ab8afa2ae40b7770017a2175320e19f0c3a",
+      "source_html_sha256": "9cc6458cba6a5eeab6de060a0f31a7dba1202ec58b7ca4ab250e3fd8858b8798"
+    },
+    {
+      "candidate_artifact": "gv-614081.json",
+      "candidate_artifact_sha256": "fc7cc32008c7b25c20fc5c6da4a1a33b2cfadf7ca8863d521df3292cf9c223ee",
+      "id": "gv:614081",
+      "result": {
+        "end_node_exclusive": 15,
+        "paragraphs": 2,
+        "start_node": 7,
+        "status": "materialized_unreviewed",
+        "text_sha256": "c0816e4df69c0fa9f0e540967446053d8069d25893ce3112dce49928827aa669",
+        "words_unicode_whitespace": 217
+      },
+      "selection": {
+        "first_paragraph": 1,
+        "id": "gv:614081",
+        "last_paragraph": 2,
+        "reason": "First-person motivation and arrival narrative identified in the earlier source review as a possible contiguous excerpt."
+      },
+      "source_artifact_sha256": "d38c7256b4c414c0ee89896436e5bb442723c6843727fff57de03d3c7a46b2c1",
+      "source_html_sha256": "6c4da58ac27a892c4139bf4422cba30e31b18d9a8986d3f9fbb81ba67ed65498"
+    },
+    {
+      "candidate_artifact": "gv-594642.json",
+      "candidate_artifact_sha256": "10f1a48fdbe58eb38f4be3209756586bd3754f2cf2cab38985990a59a88e6930",
+      "id": "gv:594642",
+      "result": {
+        "end_node_exclusive": 33,
+        "paragraphs": 4,
+        "start_node": 7,
+        "status": "materialized_unreviewed",
+        "text_sha256": "7a377a1ebd0297ea2e48aa577382e5e926341ab655d4339bd34fdaf9f4d8cc09",
+        "words_unicode_whitespace": 182
+      },
+      "selection": {
+        "first_paragraph": 1,
+        "id": "gv:594642",
+        "last_paragraph": 4,
+        "reason": "Workshop background and location before the Participants heading."
+      },
+      "source_artifact_sha256": "65b9a473965aedb4441b765a5e7c7f8db150a2653652cdff660f6128a981cf8e",
+      "source_html_sha256": "9c0cbf7ea5e0d5df47689c3f09c01174c45e2be24b79fd0febd23d648bf6a135"
+    },
+    {
+      "candidate_artifact": "gv-711372.json",
+      "candidate_artifact_sha256": "de4a25ddcac48733842b5e19ed88d646c368af87986e6056e50ae80fc9afeec1",
+      "id": "gv:711372",
+      "result": {
+        "end_node_exclusive": 25,
+        "paragraphs": 1,
+        "start_node": 14,
+        "status": "materialized_unreviewed",
+        "text_sha256": "84f802dfab799c87a1b9501024a94337ec0d4877a837f29ffa463f993e19f9fe",
+        "words_unicode_whitespace": 57
+      },
+      "selection": {
+        "first_paragraph": 1,
+        "id": "gv:711372",
+        "last_paragraph": 1,
+        "reason": "Opening explanation of access barriers; the next paragraph introduces an embedded post. Keep this short nomination explicit."
+      },
+      "source_artifact_sha256": "9f515b4e06c5b4a2b265de4754090d45428041a825e1f7ea227922385dd3ae64",
+      "source_html_sha256": "4da1998f9ed8b430c648d5bda53bf10da5ac674878e7644bcd9d8b5c97b5bf18"
+    },
+    {
+      "candidate_artifact": "gv-555064.json",
+      "candidate_artifact_sha256": "3fc27b3cd9c792e1411c4f80c1241d1d03b2acb4f8a5b96342cbeeea3912a5de",
+      "id": "gv:555064",
+      "result": {
+        "end_node_exclusive": 57,
+        "paragraphs": 4,
+        "start_node": 7,
+        "status": "materialized_unreviewed",
+        "text_sha256": "a57d905fa215f3d072aa1330e86af8f838662317611aac4a9bcbdc71bcbdab28",
+        "words_unicode_whitespace": 199
+      },
+      "selection": {
+        "first_paragraph": 1,
+        "id": "gv:555064",
+        "last_paragraph": 4,
+        "reason": "Historical, electoral and economic context before the introduction to the social-post sequence. Quoted allegation terms remain in narration."
+      },
+      "source_artifact_sha256": "0a3882077dd9a2a63c93188b3f7d7b54fc005c18dde3e887f0c0842324ea57d6",
+      "source_html_sha256": "aefad8ad236e0b46c86b0259ac42fd74ba0e3eeb834b497289887047d0975209"
+    },
+    {
+      "candidate_artifact": "gv-662657.json",
+      "candidate_artifact_sha256": "074ea9c077e8ecdb20dfb99510d12e5155b594017bb37913f32f75088e197673",
+      "id": "gv:662657",
+      "result": {
+        "end_node_exclusive": 30,
+        "paragraphs": 5,
+        "start_node": 7,
+        "status": "materialized_unreviewed",
+        "text_sha256": "86dbe1b686e6665eb5afe3b254a8bd877f76b8066b10c8aa818124709ab31bdf",
+        "words_unicode_whitespace": 288
+      },
+      "selection": {
+        "first_paragraph": 1,
+        "id": "gv:662657",
+        "last_paragraph": 5,
+        "reason": "Opening case narrative before the comic factbox; the name and reason for not reporting remain with their context."
+      },
+      "source_artifact_sha256": "dde1a1fb7c6c68e42ecc3599ab6a4906ee2a158872ada8fbcf863c04345b004a",
+      "source_html_sha256": "064d65527ac72edf4dec71d786ce035006d44eb114541fa6699ce5b078d63763"
+    },
+    {
+      "candidate_artifact": "gv-557838.json",
+      "candidate_artifact_sha256": "c8e7dd61e0a3197ad25a5d08226bd0ddc89522855c85a1945d481e33d02f073a",
+      "id": "gv:557838",
+      "result": {
+        "end_node_exclusive": 33,
+        "paragraphs": 3,
+        "start_node": 7,
+        "status": "materialized_unreviewed",
+        "text_sha256": "d28db248e0a096ec4abceec45edfa3b75ac3244f034c4710812f62b50987876b",
+        "words_unicode_whitespace": 136
+      },
+      "selection": {
+        "first_paragraph": 1,
+        "id": "gv:557838",
+        "last_paragraph": 3,
+        "reason": "Interview introduction before the first turn; review whether this is usable without the interview itself, rather than automatically approving it."
+      },
+      "source_artifact_sha256": "fac12edd7799b19b0a135bf18545745ab3f4f4f269369b7379e09a83449618c3",
+      "source_html_sha256": "b5e913b527ef6bed56a61995d2c4a16208a430ae5ffb6d8f0e8827f04abab6ef"
+    },
+    {
+      "candidate_artifact": "gv-742458.json",
+      "candidate_artifact_sha256": "c3ac8b608587aaeba4f2ba6749168f76cdef5679c022ce6c02fda1f43427df56",
+      "id": "gv:742458",
+      "result": {
+        "end_node_exclusive": 25,
+        "paragraphs": 1,
+        "start_node": 14,
+        "status": "materialized_unreviewed",
+        "text_sha256": "4bbb6dcb41c3b86bfa15186a67b34b63e6f0b6a4f9ad302e13d060ca1de6c102",
+        "words_unicode_whitespace": 61
+      },
+      "selection": {
+        "first_paragraph": 1,
+        "id": "gv:742458",
+        "last_paragraph": 1,
+        "reason": "Opening context before the next paragraph introduces the journalist's quoted account. Keep the short nomination and its limitations explicit."
+      },
+      "source_artifact_sha256": "7115ae29e8f715eb84ee53b85b24b173a533d69e64082ae5b003db4dffd40a27",
+      "source_html_sha256": "9616bcf39e8a3182a94eb693b2a21bdcb562f822619e4e57c7aa24fe239802c9"
+    }
+  ]
+}

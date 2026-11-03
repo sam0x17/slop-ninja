@@ -1,0 +1,113 @@
+{
+ "schema": "slop_ninja_a_public_recipe_v1",
+ "base_model": {
+  "repository": "answerdotai/ModernBERT-base",
+  "revision": "8949b909ec900327062f0ebf497f51aef5e6f0c8",
+  "license": "Apache-2.0",
+  "files": {
+   "config.json": "1609d59e627c33eaed524b4f01e546d42e84190a079a5a5ded84b212c41c324f",
+   "model.safetensors": "340ac08b74eef0d7bdec2d7981a6a3d4249bf0e6aab60634b72ad02c2b8023a9",
+   "special_tokens_map.json": "ea97ecdbcc73713039d8d64dbb05e3689495c96657fbd9a18f5bed381be81049",
+   "tokenizer.json": "9fd55248d51d33976b324fc11592e28071da7d41e0e9401dfb7082e30574b7b1",
+   "tokenizer_config.json": "3cd2017ff46d0a527e5d39cae39272eccfa1f19bb9f89b05d166aab2e38354e2"
+  }
+ },
+ "pinned": {
+  "tokenizer_sha256": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
+  "tokenizer_bytes": 3583228,
+  "classifier_config_sha256": "aa0bc1f9448c024aa2c3a84f51290a80f7cb7d065f76e8df778821369c8fa373",
+  "ai_roster_file": "ai-roster.json",
+  "ai_roster_sha256": "2e1c6f39d0f313959a43c6478843934633fb812ad0b109c4245faeb6ee37fa55"
+ },
+ "bundle": {
+  "rule": "slop_ninja_a_public_bundle_v1",
+  "inputs": [
+   {
+    "file": "datasets/a-encoder-20261026-v1/train.jsonl",
+    "sha256": "b5f6e71b48c32a95f6394d3f882afb90957c0f800131f6806c95bf4d8505624f",
+    "split": "train"
+   },
+   {
+    "file": "datasets/a-encoder-20261026-v1/development.jsonl",
+    "sha256": "58f0b9fcabfcf14a4677b3343dcd06edf2b360d4ea10f17fb275078402d9c3c8",
+    "split": "dev_iter"
+   },
+   {
+    "file": "datasets/a-encoder-20261026-v1/calibration.jsonl",
+    "sha256": "79a794caa3fc76cec5d0f4c1446a3591fc825c96142ef0f49312fe100db17b85",
+    "split": "cal"
+   },
+   {
+    "file": "datasets/a-balanced-20261026-v1/train.jsonl",
+    "sha256": "081c0a0258f9d3df62657d83541a50f0435c2335610eb9ae1f6cda15362851a4",
+    "split": "train"
+   },
+   {
+    "file": "datasets/a-balanced-20261026-v1/development.jsonl",
+    "sha256": "64fb984b1ecec5daf56d1d7278796c9dffd9aade42d451a67d30e574fb748ab2",
+    "split": "dev_iter"
+   },
+   {
+    "file": "datasets/a-balanced-20261026-v1/calibration.jsonl",
+    "sha256": "c6c4e4c16752e4923d7e5fbb5f23be2e76a6485cc212d088a23e8ce4fb3b6360",
+    "split": "cal"
+   },
+   {
+    "file": "datasets/a-supervised-20261026-v1/train.jsonl",
+    "sha256": "5d3ea78c825484110f1ba8c369299ee65f880fc4076d22c62eb353215492781e",
+    "split": "train"
+   },
+   {
+    "file": "datasets/a-supervised-20261026-v1/development.jsonl",
+    "sha256": "81f51e931fe75cf5b3aef3bf1d7b538958735a8b2c83113591b417518800bf92",
+    "split": "dev_iter"
+   },
+   {
+    "file": "datasets/a-supervised-20261026-v1/calibration.jsonl",
+    "sha256": "fc821d8cb3e20241e020292e9397acab53ecf1fcac10e3e929e47b6150528cbd",
+    "split": "cal"
+   },
+   {
+    "file": "datasets/a-retained-train-20261026-v1/records.jsonl",
+    "sha256": "1d23ea7deaa964ce6f4f59fbe77e5884e4604dda2d4b29a7122c6974b6f0e38f",
+    "split": "train"
+   },
+   {
+    "file": "datasets/a-train-augmentation-20261026-v1/records.jsonl",
+    "sha256": "24a768129905a23652eb82876c5f06f31756d6c79f238252e672bbe7a5893216",
+    "split": "train"
+   }
+  ],
+  "split_field": {
+   "train": "train",
+   "dev_iter": "development",
+   "cal": "calibration"
+  },
+  "generator_labels": [
+   {
+    "identity_contains": "Qwen3.6-35B-A3B",
+    "label": "qwen3.6"
+   },
+   {
+    "identity_contains": "Phi-4-mini-instruct",
+    "label": "phi4"
+   },
+   {
+    "identity_contains": "gemma-3-4b-it",
+    "label": "gemma3"
+   },
+   {
+    "identity_contains": "Mistral-Small-3.2-24B-Instruct-2506",
+    "label": "mistral-small-3.2"
+   },
+   {
+    "identity_contains": "Qwen3-30B-A3B-Instruct-2507",
+    "label": "qwen3-30b-a3b-2507"
+   },
+   {
+    "identity_contains": "Olmo-3-7B-Instruct",
+    "label": "olmo-3-7b"
+   }
+  ]
+ }
+}

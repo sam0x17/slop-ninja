@@ -1,0 +1,606 @@
+{
+  "schema": "slop_ninja_train_fit_error_selection_v1",
+  "at": "2026-09-15T13:29:21Z",
+  "policy": "After all six completed reports and aggregate inspection, before this error-text read: maximum calibrated wrong-class probability across all six reports, separately for each human collection and the four model/mixed confusion directions. Tie by ascending ID. Keep duplicate slot selections explicitly. Descriptive Train error review, not held-out evaluation or representative sampling.",
+  "train_sha256": "023d6e5428236502e877bac0afe0e9e9ee4aa9d10ab38eb940ca8e915cf7502e",
+  "reports": [
+    {
+      "report": "~/slop_ninja_runs/a_robustness_v1/train-fit-diagnostic-v1/inference/v6-raw/report.json",
+      "role": "v6",
+      "sha256": "a3e7c1b4c6d7cb9eaac8b29ff899397bd6164f367c756b553f285b3192ed890b",
+      "view": "raw"
+    },
+    {
+      "report": "~/slop_ninja_runs/a_robustness_v1/train-fit-diagnostic-v1/inference/v6-whitespace/report.json",
+      "role": "v6",
+      "sha256": "935ad5ae6d30792a013a97b303dd2b2cc763b92dc90bf658b001d93adeeaa58a",
+      "view": "whitespace"
+    },
+    {
+      "report": "~/slop_ninja_runs/a_robustness_v1/train-fit-diagnostic-v1/inference/control-raw/report.json",
+      "role": "control",
+      "sha256": "ad27ee51d38e788faa042a715d1bfe57175f451fd87caee70857aa94c14d81a6",
+      "view": "raw"
+    },
+    {
+      "report": "~/slop_ninja_runs/a_robustness_v1/train-fit-diagnostic-v1/inference/control-whitespace/report.json",
+      "role": "control",
+      "sha256": "af0b6ba24b4796cf6a3183f0619a88d45ca337e0a6e72a136536e97277ac14c0",
+      "view": "whitespace"
+    },
+    {
+      "report": "~/slop_ninja_runs/a_robustness_v1/train-fit-diagnostic-v1/inference/consistency-raw/report.json",
+      "role": "consistency",
+      "sha256": "e7ad2961f2e830df85b001fe47dc6ae24d93570ee3570e7a8468486110e4c9d2",
+      "view": "raw"
+    },
+    {
+      "report": "~/slop_ninja_runs/a_robustness_v1/train-fit-diagnostic-v1/inference/consistency-whitespace/report.json",
+      "role": "consistency",
+      "sha256": "18f8c67009e07e4a570a5b7805804fd2a8b946abc074bd74c21af48a2b7e2df6",
+      "view": "whitespace"
+    }
+  ],
+  "slots": [
+    {
+      "slot": "human-max-ai/cmu-books-historical",
+      "id": "cmu-books:5504833:4554119bb3bec65d",
+      "origin": "human_only",
+      "source_group": "wikipedia:page:5504833",
+      "text_sha256": "4554119bb3bec65dd381ff6b9f3d65efafc9446eae14bef113c4dec047308a74",
+      "selection_score": 0.9771390749720071,
+      "scores": [
+        {
+          "role": "v6",
+          "view": "raw",
+          "probabilities": [
+            0.8575469146291629,
+            0.0736788680494167,
+            0.06877421732142062
+          ],
+          "selection_score": 0.14245308537083734
+        },
+        {
+          "role": "v6",
+          "view": "whitespace",
+          "probabilities": [
+            0.028154688253540873,
+            0.3445815408272298,
+            0.6272637709192294
+          ],
+          "selection_score": 0.9718453117464592
+        },
+        {
+          "role": "control",
+          "view": "raw",
+          "probabilities": [
+            0.0662943171317999,
+            0.15934090609174134,
+            0.7743647767764589
+          ],
+          "selection_score": 0.9337056828682002
+        },
+        {
+          "role": "control",
+          "view": "whitespace",
+          "probabilities": [
+            0.04507391823254431,
+            0.1686833492646735,
+            0.7862427325027822
+          ],
+          "selection_score": 0.9549260817674556
+        },
+        {
+          "role": "consistency",
+          "view": "raw",
+          "probabilities": [
+            0.12752371291904022,
+            0.1063098265538551,
+            0.7661664605271046
+          ],
+          "selection_score": 0.8724762870809597
+        },
+        {
+          "role": "consistency",
+          "view": "whitespace",
+          "probabilities": [
+            0.022860925027992807,
+            0.028899528481086702,
+            0.9482395464909205
+          ],
+          "selection_score": 0.9771390749720071
+        }
+      ]
+    },
+    {
+      "slot": "human-max-ai/hc3-wiki-historical",
+      "id": "hc3-wiki:daa19c307578a113792cc11bfd64e78633e977e4263ae0a18c19fff0026a63a0:0",
+      "origin": "human_only",
+      "source_group": "wikipedia:page:481262",
+      "text_sha256": "f5f093faeed6420b7cd3c7d58ffe775f2162bbc9c61a2745354c7856dd220a33",
+      "selection_score": 0.9420799855946491,
+      "scores": [
+        {
+          "role": "v6",
+          "view": "raw",
+          "probabilities": [
+            0.2405950003735707,
+            0.10568174122842637,
+            0.653723258398003
+          ],
+          "selection_score": 0.7594049996264294
+        },
+        {
+          "role": "v6",
+          "view": "whitespace",
+          "probabilities": [
+            0.3050466980482643,
+            0.13503522539000215,
+            0.5599180765617335
+          ],
+          "selection_score": 0.6949533019517357
+        },
+        {
+          "role": "control",
+          "view": "raw",
+          "probabilities": [
+            0.057920014405351064,
+            0.09939205390967319,
+            0.8426879316849759
+          ],
+          "selection_score": 0.9420799855946491
+        },
+        {
+          "role": "control",
+          "view": "whitespace",
+          "probabilities": [
+            0.10845468229034741,
+            0.09914236783866873,
+            0.7924029498709838
+          ],
+          "selection_score": 0.8915453177096525
+        },
+        {
+          "role": "consistency",
+          "view": "raw",
+          "probabilities": [
+            0.6461053237189583,
+            0.02176553384955942,
+            0.3321291424314823
+          ],
+          "selection_score": 0.3538946762810417
+        },
+        {
+          "role": "consistency",
+          "view": "whitespace",
+          "probabilities": [
+            0.7901446255205066,
+            0.02282741838787127,
+            0.1870279560916222
+          ],
+          "selection_score": 0.20985537447949348
+        }
+      ]
+    },
+    {
+      "slot": "human-max-ai/plos_one",
+      "id": "plos:10.1371/journal.pone.0208384:abstract:94868201f5034070",
+      "origin": "human_only",
+      "source_group": "doi:10.1371/journal.pone.0208384",
+      "text_sha256": "94868201f50340703f2ea23dc754e7d9c9d46a58afcd47f7ba0a44e86092ea98",
+      "selection_score": 0.9298413756418513,
+      "scores": [
+        {
+          "role": "v6",
+          "view": "raw",
+          "probabilities": [
+            0.3120141897123392,
+            0.183648324851223,
+            0.5043374854364377
+          ],
+          "selection_score": 0.6879858102876608
+        },
+        {
+          "role": "v6",
+          "view": "whitespace",
+          "probabilities": [
+            0.3120141897123392,
+            0.183648324851223,
+            0.5043374854364377
+          ],
+          "selection_score": 0.6879858102876608
+        },
+        {
+          "role": "control",
+          "view": "raw",
+          "probabilities": [
+            0.0701586243581487,
+            0.2694975882738286,
+            0.6603437873680228
+          ],
+          "selection_score": 0.9298413756418513
+        },
+        {
+          "role": "control",
+          "view": "whitespace",
+          "probabilities": [
+            0.0701586243581487,
+            0.2694975882738286,
+            0.6603437873680228
+          ],
+          "selection_score": 0.9298413756418513
+        },
+        {
+          "role": "consistency",
+          "view": "raw",
+          "probabilities": [
+            0.24146463718149955,
+            0.11892780424558752,
+            0.6396075585729131
+          ],
+          "selection_score": 0.7585353628185005
+        },
+        {
+          "role": "consistency",
+          "view": "whitespace",
+          "probabilities": [
+            0.24146463718149955,
+            0.11892780424558752,
+            0.6396075585729131
+          ],
+          "selection_score": 0.7585353628185005
+        }
+      ]
+    },
+    {
+      "slot": "human-max-ai/wikinews",
+      "id": "wikinews:2840087:4504156:09742b507aae6ee3",
+      "origin": "human_only",
+      "source_group": "wikinews:2840087",
+      "text_sha256": "09742b507aae6ee325e11df7e4d4612501a876d0fe6086bf0d806b4d61b4ddfb",
+      "selection_score": 0.9148404810751667,
+      "scores": [
+        {
+          "role": "v6",
+          "view": "raw",
+          "probabilities": [
+            0.15245802563169558,
+            0.27697080029278,
+            0.5705711740755244
+          ],
+          "selection_score": 0.8475419743683044
+        },
+        {
+          "role": "v6",
+          "view": "whitespace",
+          "probabilities": [
+            0.3471466603240814,
+            0.2372919847059789,
+            0.4155613549699399
+          ],
+          "selection_score": 0.6528533396759189
+        },
+        {
+          "role": "control",
+          "view": "raw",
+          "probabilities": [
+            0.08515951892483335,
+            0.17350447445484182,
+            0.7413360066203248
+          ],
+          "selection_score": 0.9148404810751667
+        },
+        {
+          "role": "control",
+          "view": "whitespace",
+          "probabilities": [
+            0.8192526405243263,
+            0.05455882607723667,
+            0.12618853339843694
+          ],
+          "selection_score": 0.1807473594756736
+        },
+        {
+          "role": "consistency",
+          "view": "raw",
+          "probabilities": [
+            0.3327078256622916,
+            0.057701135439618786,
+            0.6095910388980895
+          ],
+          "selection_score": 0.6672921743377083
+        },
+        {
+          "role": "consistency",
+          "view": "whitespace",
+          "probabilities": [
+            0.8800137828963932,
+            0.014616821101170152,
+            0.10536939600243667
+          ],
+          "selection_score": 0.11998621710360682
+        }
+      ]
+    },
+    {
+      "slot": "model-max-human",
+      "id": "generation:3e44602735ec0e71082197c6943850e3830e4287cc62060f3ac5dbde7968d2b0",
+      "origin": "model_only",
+      "source_group": "wikipedia:page:461509",
+      "text_sha256": "80eedb8da1637b6b418af501a376a4c9798206894ad8a90f8a42e70e78098af9",
+      "selection_score": 0.9948098236154314,
+      "scores": [
+        {
+          "role": "v6",
+          "view": "raw",
+          "probabilities": [
+            0.9948098236154314,
+            0.003182185746759872,
+            0.002007990637808788
+          ],
+          "selection_score": 0.9948098236154314
+        },
+        {
+          "role": "v6",
+          "view": "whitespace",
+          "probabilities": [
+            0.9948098236154314,
+            0.003182185746759872,
+            0.002007990637808788
+          ],
+          "selection_score": 0.9948098236154314
+        },
+        {
+          "role": "control",
+          "view": "raw",
+          "probabilities": [
+            0.2753034955460074,
+            0.3625362282224653,
+            0.3621602762315272
+          ],
+          "selection_score": 0.2753034955460074
+        },
+        {
+          "role": "control",
+          "view": "whitespace",
+          "probabilities": [
+            0.2753034955460074,
+            0.3625362282224653,
+            0.3621602762315272
+          ],
+          "selection_score": 0.2753034955460074
+        },
+        {
+          "role": "consistency",
+          "view": "raw",
+          "probabilities": [
+            0.011768677320116244,
+            0.16363664272234626,
+            0.8245946799575373
+          ],
+          "selection_score": 0.011768677320116244
+        },
+        {
+          "role": "consistency",
+          "view": "whitespace",
+          "probabilities": [
+            0.011768677320116244,
+            0.16363664272234626,
+            0.8245946799575373
+          ],
+          "selection_score": 0.011768677320116244
+        }
+      ]
+    },
+    {
+      "slot": "model-max-mixed",
+      "id": "generation:ee87b4d00eedf948731ab9121655fc94123c28ba84a5dc0ef21deb21f3799549",
+      "origin": "model_only",
+      "source_group": "wikipedia:page:25230784",
+      "text_sha256": "91416dab274828a0540db4b9dd5e78c34487426b997a170ca3ed9bf22608f722",
+      "selection_score": 0.9462098725718888,
+      "scores": [
+        {
+          "role": "v6",
+          "view": "raw",
+          "probabilities": [
+            0.048204142518238215,
+            0.10790125367889522,
+            0.8438946038028664
+          ],
+          "selection_score": 0.8438946038028664
+        },
+        {
+          "role": "v6",
+          "view": "whitespace",
+          "probabilities": [
+            0.048204142518238215,
+            0.10790125367889522,
+            0.8438946038028664
+          ],
+          "selection_score": 0.8438946038028664
+        },
+        {
+          "role": "control",
+          "view": "raw",
+          "probabilities": [
+            0.019777994801683067,
+            0.037051991966644555,
+            0.9431700132316722
+          ],
+          "selection_score": 0.9431700132316722
+        },
+        {
+          "role": "control",
+          "view": "whitespace",
+          "probabilities": [
+            0.019777994801683067,
+            0.037051991966644555,
+            0.9431700132316722
+          ],
+          "selection_score": 0.9431700132316722
+        },
+        {
+          "role": "consistency",
+          "view": "raw",
+          "probabilities": [
+            0.015463971879476133,
+            0.03832615554863486,
+            0.9462098725718888
+          ],
+          "selection_score": 0.9462098725718888
+        },
+        {
+          "role": "consistency",
+          "view": "whitespace",
+          "probabilities": [
+            0.015463971879476133,
+            0.03832615554863486,
+            0.9462098725718888
+          ],
+          "selection_score": 0.9462098725718888
+        }
+      ]
+    },
+    {
+      "slot": "mixed-max-human",
+      "id": "generation:6374fe523bb7166f273a9a05c90ba02bfb36e50c814d1fbd1e499c566e28b556",
+      "origin": "mixed",
+      "source_group": "wikipedia:page:669675",
+      "text_sha256": "7d8ae71ccd5042063908b96cb053a3e2b4ef047d6742eb727e463a3b13090073",
+      "selection_score": 0.9601127087923347,
+      "scores": [
+        {
+          "role": "v6",
+          "view": "raw",
+          "probabilities": [
+            0.8468702924051611,
+            0.061522761159350174,
+            0.09160694643548874
+          ],
+          "selection_score": 0.8468702924051611
+        },
+        {
+          "role": "v6",
+          "view": "whitespace",
+          "probabilities": [
+            0.8869329603140679,
+            0.05374155343904624,
+            0.05932548624688607
+          ],
+          "selection_score": 0.8869329603140679
+        },
+        {
+          "role": "control",
+          "view": "raw",
+          "probabilities": [
+            0.9483469227236133,
+            0.013949779422200995,
+            0.037703297854185566
+          ],
+          "selection_score": 0.9483469227236133
+        },
+        {
+          "role": "control",
+          "view": "whitespace",
+          "probabilities": [
+            0.9601127087923347,
+            0.012682039260480343,
+            0.027205251947185153
+          ],
+          "selection_score": 0.9601127087923347
+        },
+        {
+          "role": "consistency",
+          "view": "raw",
+          "probabilities": [
+            0.03781256737591637,
+            0.06657791359053962,
+            0.895609519033544
+          ],
+          "selection_score": 0.03781256737591637
+        },
+        {
+          "role": "consistency",
+          "view": "whitespace",
+          "probabilities": [
+            0.07036928981434398,
+            0.0633546926848063,
+            0.8662760175008497
+          ],
+          "selection_score": 0.07036928981434398
+        }
+      ]
+    },
+    {
+      "slot": "mixed-max-model",
+      "id": "generation:a2201b0851c3db0dee9967de48954aec1a47927274600d9c775e12e236f993a8",
+      "origin": "mixed",
+      "source_group": "wikipedia:page:13039654",
+      "text_sha256": "9fd6b84aea8c688fb891f5fc2c968214a4d4df3a38f5697a8f0137a59cae235b",
+      "selection_score": 0.9506556130036842,
+      "scores": [
+        {
+          "role": "v6",
+          "view": "raw",
+          "probabilities": [
+            0.003331869719452031,
+            0.8909360090439369,
+            0.10573212123661098
+          ],
+          "selection_score": 0.8909360090439369
+        },
+        {
+          "role": "v6",
+          "view": "whitespace",
+          "probabilities": [
+            0.0025828590998208333,
+            0.9506556130036842,
+            0.04676152789649498
+          ],
+          "selection_score": 0.9506556130036842
+        },
+        {
+          "role": "control",
+          "view": "raw",
+          "probabilities": [
+            0.001953259938549318,
+            0.8679223970930422,
+            0.13012434296840855
+          ],
+          "selection_score": 0.8679223970930422
+        },
+        {
+          "role": "control",
+          "view": "whitespace",
+          "probabilities": [
+            0.0013954435396507348,
+            0.9324849668642085,
+            0.06611958959614074
+          ],
+          "selection_score": 0.9324849668642085
+        },
+        {
+          "role": "consistency",
+          "view": "raw",
+          "probabilities": [
+            0.006519251972974166,
+            0.6432842735389004,
+            0.35019647448812535
+          ],
+          "selection_score": 0.6432842735389004
+        },
+        {
+          "role": "consistency",
+          "view": "whitespace",
+          "probabilities": [
+            0.006098060539721757,
+            0.7144714085093498,
+            0.27943053095092857
+          ],
+          "selection_score": 0.7144714085093498
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "at": "2026-09-15T10:55:29.471077+00:00",
+  "campaign_sha256": "c79aacfd962a16a56bfac3c8073aa74fc0df4090675d377590a4c5b5d112ce65",
+  "detector_calls": 0,
+  "generation_status": "not_started",
+  "generator_sha256": "c6a0d8a610796474a4908116604adcdd7e33df6fa5f7beb8e02625765d29a53f",
+  "input_sha256": "461dd77d7d440c2b77091a47e08ef86ffbff6957b80497a0741c7b792c6f484a",
+  "model_calls": 0,
+  "model_spec_sha256": "7f47de78513eabdc6204af7baa9a3323bfeec65f4c55640f178f73b987b442b8",
+  "packet_sha256": "6d6542888c3a7eb3146e5e0de10518b144043a0efe9cf2b9f36c2230f4b6e15e",
+  "planned_requests": 24,
+  "plans": [
+    {
+      "path": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/plan-source-matched.json",
+      "profile": "source-matched",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/prospective-source-matched",
+      "sha256": "20b0dfafd353a9747b62c2d4566621eaa25b6bf4930c486bcb20674f8b1a5a36"
+    },
+    {
+      "path": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/plan-plain.json",
+      "profile": "plain",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/prospective-plain",
+      "sha256": "0b27250d696023d038e5971a6c1f66468b960fd0347a1173b5a617758f6790cf"
+    },
+    {
+      "path": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/plan-informal.json",
+      "profile": "informal",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/prospective-informal",
+      "sha256": "0ebaa38eca3f9a8a9dc796d2ebdddb6dba93a4a9e7c1222635af3ee2e56f7868"
+    },
+    {
+      "path": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/plan-direct.json",
+      "profile": "direct",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/prospective-direct",
+      "sha256": "540cd104172da5fee8caaf6954bdd26a89496781352b91e26b270689a7ea3ff4"
+    },
+    {
+      "path": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/plan-anti-ai.json",
+      "profile": "anti-ai",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/prospective-anti-ai",
+      "sha256": "cb726c92e2f5815aa5283103ebb9afbbc960225ccacfd53051d5a989cdc6a721"
+    },
+    {
+      "path": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/plan-fix-slop.json",
+      "profile": "fix-slop",
+      "prospective": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/prospective-fix-slop",
+      "sha256": "a7358fb32ae6d3902ee21c9ebc0e51439dec3724af9492a694ae81e00678f8b0"
+    }
+  ],
+  "profiles": [
+    "source-matched",
+    "plain",
+    "informal",
+    "direct",
+    "anti-ai",
+    "fix-slop"
+  ],
+  "protocol_sha256": "a61dcd55b6e53cbea8bd8032ed925ba65cf1bae745a696b70f6cebc26e593615",
+  "rendered_prompt_review": "pending",
+  "schema": "slop_ninja_gpt_oss_train_pilot_preparation_v1",
+  "selected": [
+    {
+      "collection": "cmu-books-historical",
+      "id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "selection_sha256": "01b2a45ab244a6d9542941d7db2161ffb63e26667f74e5066687eb996b405704",
+      "source_group": "wikipedia:page:15279338",
+      "text_sha256": "b916dbe980cbb2b6c66a6b8d8351ac130deccafb8d2c0135843fd8eff40bb131"
+    },
+    {
+      "collection": "hc3-wiki-historical",
+      "id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "selection_sha256": "01f52016d9502fb0c903b16fbaad8be43c1c969f30dac0a26f6f1de68733a63b",
+      "source_group": "wikipedia:page:7859676",
+      "text_sha256": "44a8481592c6470d36444a0dc85b56a3b11e738dc35c921db7ded6b1d92dc330"
+    },
+    {
+      "collection": "plos_one",
+      "id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "selection_sha256": "04afa43e3cf875246f4098ef6860ff6892571e1eb843b2d9255345543a6ee65e",
+      "source_group": "doi:10.1371/journal.pone.0208301",
+      "text_sha256": "6571837bc8ea414c0b659bb8f78669f7dfa2889af57b7d098b390f40b279f510"
+    },
+    {
+      "collection": "wikinews",
+      "id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "selection_sha256": "05cbce2b6d6cdea39e2780df1d4ed772d20946f646b1f9ebd48d9c57bb377b88",
+      "source_group": "wikinews:2785377",
+      "text_sha256": "be240fa8a178127fadaebc802d140ab2af884174a472905a36f169b7030269a1"
+    }
+  ],
+  "source_sha256": "eb51337ac8922f310bdbbd471e5c6bfdbedffd7e19cb4b2ba01615555fa24361",
+  "template_date": "2026-09-15",
+  "template_sha256": "0d899fe3f326e4d37306f69ac38d6be8efd9fcdb5d71f3b76fc2c5d47f62bb67",
+  "train_sha256": "023d6e5428236502e877bac0afe0e9e9ee4aa9d10ab38eb940ca8e915cf7502e",
+  "training_archive_changed": false
+}

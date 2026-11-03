@@ -1,0 +1,17 @@
+{
+  "schema": "slop_ninja_testnet_plumbing_eval_allowlist_v1",
+  "allowlist_id": "testnet-plumbing-dev-iter-v1",
+  "purpose": "testnet_plumbing_only",
+  "removed_by": "mainnet hidden evaluation on fresh, unexposed cohorts; Dev-iter is never an evaluation source outside testnet",
+  "sources": [
+    {
+      "path": "data/grammar-private/a-competitive-20261027/baseline-release/bundles/build-18b3682973982a3f/dev-iter/rows.jsonl",
+      "sha256": "a6a2dd30d5f9e73e757bab5e98a44402bdca29212f696014db6e9e1a213f2706",
+      "rows": 2873,
+      "split": "dev_iter",
+      "populations": ["primary"],
+      "bundle_manifest_path": "data/grammar-private/a-competitive-20261027/baseline-release/bundles/build-18b3682973982a3f/dev-iter/MANIFEST.json",
+      "bundle_manifest_sha256": "358c478583c57a9f525f7cb3a3fe697cf8ba43bbb17155fde4504359c69cdb2c"
+    }
+  ]
+}

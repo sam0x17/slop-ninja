@@ -1,0 +1,297 @@
+{
+  "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+  "commercial_training_admitted": false,
+  "limits": [
+    "All-model texts on 24 previously trained source families; no fresh-source or false-positive estimate.",
+    "Different operating thresholds are not matched population false-positive rates.",
+    "Pangram content fractions and A probabilities have different meanings.",
+    "Profile slices use different source families; this is not a causal style comparison."
+  ],
+  "new_training": false,
+  "overall": {
+    "human_false_positive_rate": null,
+    "paired_v6_strict": {
+      "both": 64,
+      "neither": 7,
+      "pangram_only": 21,
+      "v6_only": 4
+    },
+    "pangram_flagged_but_v6_below_10": 0,
+    "pangram_flags": 85,
+    "records": 96,
+    "source_groups": 24,
+    "v5_loose_flags": 76,
+    "v5_strict_flags": 72,
+    "v6_flags_at_half": 83,
+    "v6_loose_flags": 83,
+    "v6_strict_flags": 68
+  },
+  "pangram_fraction_policy": "One minus fraction_human, with the prior raw component sum retained and checked within 1e-5.",
+  "plan_sha256": "b7921ce3ae7e0facdb3d0876ecf129f0c909552b4de324daf1e1caf11fd34439",
+  "prior_comparison_sha256": "08c64064292f507ed18ad3f876c798ac1c8149ce5b3e990056778357ba22f294",
+  "provider_calls": 0,
+  "responses_sha256": "a089a52c6c8199af0448ec55dd19dff71f7c554eaf248f77778558a69fbce5a9",
+  "schema": "slop_ninja_hosted_v6_diagnostic_v1",
+  "slices": {
+    "collection:cmu-books-historical": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 22,
+        "neither": 0,
+        "pangram_only": 1,
+        "v6_only": 1
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 23,
+      "records": 24,
+      "source_groups": 6,
+      "v5_loose_flags": 19,
+      "v5_strict_flags": 19,
+      "v6_flags_at_half": 23,
+      "v6_loose_flags": 23,
+      "v6_strict_flags": 23
+    },
+    "collection:hc3-wiki-historical": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 14,
+        "neither": 2,
+        "pangram_only": 7,
+        "v6_only": 1
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 21,
+      "records": 24,
+      "source_groups": 6,
+      "v5_loose_flags": 15,
+      "v5_strict_flags": 13,
+      "v6_flags_at_half": 18,
+      "v6_loose_flags": 18,
+      "v6_strict_flags": 15
+    },
+    "collection:plos_one": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 16,
+        "neither": 0,
+        "pangram_only": 8,
+        "v6_only": 0
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 24,
+      "records": 24,
+      "source_groups": 6,
+      "v5_loose_flags": 22,
+      "v5_strict_flags": 20,
+      "v6_flags_at_half": 21,
+      "v6_loose_flags": 21,
+      "v6_strict_flags": 16
+    },
+    "collection:wikinews": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 12,
+        "neither": 5,
+        "pangram_only": 5,
+        "v6_only": 2
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 17,
+      "records": 24,
+      "source_groups": 6,
+      "v5_loose_flags": 20,
+      "v5_strict_flags": 20,
+      "v6_flags_at_half": 21,
+      "v6_loose_flags": 21,
+      "v6_strict_flags": 14
+    },
+    "profile:anti-ai": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 15,
+        "neither": 0,
+        "pangram_only": 0,
+        "v6_only": 1
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 15,
+      "records": 16,
+      "source_groups": 4,
+      "v5_loose_flags": 16,
+      "v5_strict_flags": 16,
+      "v6_flags_at_half": 16,
+      "v6_loose_flags": 16,
+      "v6_strict_flags": 16
+    },
+    "profile:direct": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 11,
+        "neither": 2,
+        "pangram_only": 3,
+        "v6_only": 0
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 14,
+      "records": 16,
+      "source_groups": 4,
+      "v5_loose_flags": 12,
+      "v5_strict_flags": 12,
+      "v6_flags_at_half": 12,
+      "v6_loose_flags": 12,
+      "v6_strict_flags": 11
+    },
+    "profile:fix-slop": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 5,
+        "neither": 1,
+        "pangram_only": 9,
+        "v6_only": 1
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 14,
+      "records": 16,
+      "source_groups": 4,
+      "v5_loose_flags": 11,
+      "v5_strict_flags": 10,
+      "v6_flags_at_half": 13,
+      "v6_loose_flags": 13,
+      "v6_strict_flags": 6
+    },
+    "profile:informal": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 13,
+        "neither": 0,
+        "pangram_only": 2,
+        "v6_only": 1
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 15,
+      "records": 16,
+      "source_groups": 4,
+      "v5_loose_flags": 13,
+      "v5_strict_flags": 13,
+      "v6_flags_at_half": 14,
+      "v6_loose_flags": 14,
+      "v6_strict_flags": 14
+    },
+    "profile:plain": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 8,
+        "neither": 2,
+        "pangram_only": 5,
+        "v6_only": 1
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 13,
+      "records": 16,
+      "source_groups": 4,
+      "v5_loose_flags": 12,
+      "v5_strict_flags": 10,
+      "v6_flags_at_half": 13,
+      "v6_loose_flags": 13,
+      "v6_strict_flags": 9
+    },
+    "profile:source-matched": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 12,
+        "neither": 2,
+        "pangram_only": 2,
+        "v6_only": 0
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 14,
+      "records": 16,
+      "source_groups": 4,
+      "v5_loose_flags": 12,
+      "v5_strict_flags": 11,
+      "v6_flags_at_half": 15,
+      "v6_loose_flags": 15,
+      "v6_strict_flags": 12
+    },
+    "requested_model:gpt-5.6-sol": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 18,
+        "neither": 1,
+        "pangram_only": 3,
+        "v6_only": 2
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 21,
+      "records": 24,
+      "source_groups": 24,
+      "v5_loose_flags": 21,
+      "v5_strict_flags": 21,
+      "v6_flags_at_half": 22,
+      "v6_loose_flags": 22,
+      "v6_strict_flags": 20
+    },
+    "requested_model:gpt-6-astra": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 21,
+        "neither": 1,
+        "pangram_only": 2,
+        "v6_only": 0
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 23,
+      "records": 24,
+      "source_groups": 24,
+      "v5_loose_flags": 23,
+      "v5_strict_flags": 23,
+      "v6_flags_at_half": 24,
+      "v6_loose_flags": 24,
+      "v6_strict_flags": 21
+    },
+    "requested_model:opus": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 11,
+        "neither": 2,
+        "pangram_only": 9,
+        "v6_only": 2
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 20,
+      "records": 24,
+      "source_groups": 24,
+      "v5_loose_flags": 13,
+      "v5_strict_flags": 11,
+      "v6_flags_at_half": 17,
+      "v6_loose_flags": 17,
+      "v6_strict_flags": 13
+    },
+    "requested_model:sonnet": {
+      "human_false_positive_rate": null,
+      "paired_v6_strict": {
+        "both": 14,
+        "neither": 3,
+        "pangram_only": 7,
+        "v6_only": 0
+      },
+      "pangram_flagged_but_v6_below_10": 0,
+      "pangram_flags": 21,
+      "records": 24,
+      "source_groups": 24,
+      "v5_loose_flags": 19,
+      "v5_strict_flags": 17,
+      "v6_flags_at_half": 20,
+      "v6_loose_flags": 20,
+      "v6_strict_flags": 14
+    }
+  },
+  "v5_thresholds": [
+    0.9052925262799454,
+    0.8884499969916239
+  ],
+  "v6_thresholds": [
+    0.8436493155285434,
+    0.4287369114260753
+  ]
+}

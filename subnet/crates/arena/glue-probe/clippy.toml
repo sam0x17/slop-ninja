@@ -1,0 +1,38 @@
+# The arena rules (../clippy.toml) plus the workers-rs boundary rules
+# (design §3.2 and §6). Clippy reads only the nearest clippy.toml.
+disallowed-methods = [
+    { path = "std::mem::forget", reason = "a forgotten value pins its scope's pages; use ManuallyDrop where ownership moves to the platform" },
+    { path = "std::boxed::Box::leak", reason = "a leaked box pins its scope's pages forever" },
+    { path = "std::vec::Vec::leak", reason = "a leaked vector pins its scope's pages forever" },
+    { path = "std::string::String::leak", reason = "a leaked string pins its scope's pages forever" },
+    { path = "std::panic::set_hook", reason = "the hook's box outlives the scope it is installed in" },
+    { path = "serde_json::from_value", reason = "Value trees are unbounded" },
+    { path = "serde_json::to_value", reason = "Value trees are unbounded" },
+    { path = "js_sys::Uint8Array::view", reason = "a view into linear memory can outlive the buffer or be detached by memory.grow while an async JS consumer holds it; copy with copy_to/copy_from" },
+    { path = "js_sys::Uint8Array::view_mut_raw", reason = "as Uint8Array::view" },
+    { path = "wasm_bindgen::closure::ScopedClosure::forget", reason = "a forgotten closure pins its scope's pages (`Closure<T>` is `ScopedClosure<'static, T>` in 0.2.129)" },
+    { path = "wasm_bindgen::closure::ScopedClosure::into_js_value", reason = "the closure's Rust half lives until JS collects it" },
+    { path = "worker::Request::bytes", reason = "unbounded body read; use a bounded reader" },
+    { path = "worker::Request::text", reason = "unbounded body read; use a bounded reader" },
+    { path = "worker::Request::json", reason = "unbounded body read and Value tree" },
+    { path = "worker::Response::bytes", reason = "unbounded body read; use a bounded reader" },
+    { path = "worker::Response::text", reason = "unbounded body read; use a bounded reader" },
+    { path = "worker::Response::json", reason = "unbounded body read and Value tree" },
+    { path = "worker::Context::wait_until", reason = "use arena::wait_until (child scope, deadline)" },
+    { path = "futures_util::future::select", reason = "a dropped pending JsFuture keeps its callbacks (and scope pages) until the promise settles; use AbortSignal timeouts" },
+]
+disallowed-types = [
+    { path = "serde_json::Value", reason = "unbounded tree" },
+    { path = "std::sync::OnceLock", reason = "state that outlives every scope" },
+    { path = "std::cell::OnceCell", reason = "state that outlives every scope" },
+]
+
+# Stack bounds (design §2.1, §5.1): the deepest measured stack of this
+# build's routes (`stack_high_water_bytes` in glue-probe/memory-model.json) plus any one
+# new frame, future or stack array stays within half the linked stack
+# (`stack_bytes / 2`, the stated margin), so each threshold is
+# `stack_bytes / 2 - stack_high_water_bytes`. `tests/source_scan.rs` checks
+# these against the model.
+stack-size-threshold = 520376
+future-size-threshold = 520376
+array-size-threshold = 520376

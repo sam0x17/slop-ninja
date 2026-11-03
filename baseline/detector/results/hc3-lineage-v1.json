@@ -1,0 +1,13 @@
+{
+  "counts": {
+    "matched_answers": 49,
+    "resolved_for_review": 99,
+    "unmatched_answers": 50,
+    "unresolved": 1
+  },
+  "input_sha256": "4f78105c72e7edd3b619b3b44abac1e6f8bdb42211f22e43191d4dae889e1968",
+  "plan_sha256": "e98e522230112323fa7d3cb93855f44a1dc9aa59f5e88208363bc99711850611",
+  "results_sha256": "aa2bfbf49de231146de9731d1891258092215471646067d2a0d75e5d2b749dfb",
+  "schema": "slop_ninja_hc3_lineage_review_summary_v1",
+  "training_records_exported": 0
+}

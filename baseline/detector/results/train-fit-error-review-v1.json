@@ -1,0 +1,81 @@
+{
+  "schema": "slop_ninja_train_fit_error_review_v1",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "selection_sha256": "da9cc382871664e9dde06b824e58077b49fa6ba4a09902a941e0ad322f977f66",
+  "scope": "Read all eight complete selected Train texts and the four generated texts' source passages. Selection used maximum wrong-class probability across six completed reports, with separate human collections and model/mixed error directions. These deliberately difficult examples are not representative or unseen evaluation data.",
+  "rows": [
+    {
+      "slot": "human-max-ai/cmu-books-historical",
+      "id": "cmu-books:5504833:4554119bb3bec65d",
+      "findings": [
+        "The source is a highly rhetorical narrative summary with long sentences, fantasy, emphatic role names and an extended parenthetical qualification. This register already occurs in Train.",
+        "The raw view begins with one ASCII space. The collapsed view removes only that byte; all remaining bytes match. V6 combined model/mixed probability rises from 0.1424530854 to 0.9718453117.",
+        "Both base refits assign high combined probability in both views. Their errors are not explained solely by the V6 formatting effect."
+      ]
+    },
+    {
+      "slot": "human-max-ai/hc3-wiki-historical",
+      "id": "hc3-wiki:daa19c307578a113792cc11bfd64e78633e977e4263ae0a18c19fff0026a63a0:0",
+      "findings": [
+        "The institutional history combines dates, activities and quantitative claims with promotional wording about innovation and leadership. Readability and promotional register do not change its historical-proxy evidence class.",
+        "V6 and control assign high combined probability, while consistency keeps both views below one half. This is a selected case of improvement, not evidence of general superiority."
+      ]
+    },
+    {
+      "slot": "human-max-ai/plos_one",
+      "id": "plos:10.1371/journal.pone.0208384:abstract:94868201f5034070",
+      "findings": [
+        "The research abstract uses conventional motivation, methods, findings and implications language, including claims about opportunities and challenges. It contains these patterns within the existing human-proxy Train set.",
+        "The two input views are byte-identical. All three detectors assign high combined probability, so this selected failure survives the declared whitespace normalization."
+      ]
+    },
+    {
+      "slot": "human-max-ai/wikinews",
+      "id": "wikinews:2840087:4504156:09742b507aae6ee3",
+      "findings": [
+        "The news report interleaves an incident account, building-security background and victim details. Its source status was not reclassified based on model scores or a new factual audit.",
+        "Collapsing paragraph separators lowers control's combined probability from 0.9148404811 to 0.1807473595 and consistency's from 0.6672921743 to 0.1199862171. Whitespace effects therefore occur in either direction across selected sources."
+      ]
+    },
+    {
+      "slot": "model-max-human",
+      "id": "generation:3e44602735ec0e71082197c6943850e3830e4287cc62060f3ac5dbde7968d2b0",
+      "findings": [
+        "The Qwen direct-profile draft closely follows the source's technical sequence and terminology for errors and residuals. It also adds an explanatory ending and strengthens a qualification about observability.",
+        "Recorded draft provenance supplies its model-only label. V6 assigns only 0.0051901764 combined model/mixed probability in either identical view; control and consistency detect model involvement. Technical similarity to the source does not erase generation evidence."
+      ]
+    },
+    {
+      "slot": "model-max-mixed",
+      "id": "generation:ee87b4d00eedf948731ab9121655fc94123c28ba84a5dc0ef21deb21f3799549",
+      "findings": [
+        "The OLMo source-matched draft closely follows the original character list, suspected espionage and journey. It changes reluctance to refusal and omits or broadens some source details.",
+        "All three detectors classify the draft mainly as mixed, but their combined model/mixed probabilities exceed 0.95. This is a three-class provenance error, not a failure to detect model involvement."
+      ]
+    },
+    {
+      "slot": "mixed-max-human",
+      "id": "generation:6374fe523bb7166f273a9a05c90ba02bfb36e50c814d1fbd1e499c566e28b556",
+      "findings": [
+        "The Mistral plain-profile copyedit retains the clustering explanation's progression, technical terms and historical names while rephrasing throughout. The text alone does not disclose that editing operation.",
+        "V6 and control assign low combined model/mixed probability; consistency assigns above 0.92 in both views. The record's edit provenance and historical parent support the mixed label independently of those scores."
+      ]
+    },
+    {
+      "slot": "mixed-max-model",
+      "id": "generation:a2201b0851c3db0dee9967de48954aec1a47927274600d9c775e12e236f993a8",
+      "findings": [
+        "The OLMo requested copyedit rewrites the narrative extensively and changes several relationships: the dinosaur's first target, who argues afterward and the motive for revenge. It adds self-mockery, guilt and a moral conclusion, and changes reluctant permission to apparent unconcern.",
+        "The output does not satisfy the requested light-to-moderate edit. Its process label remains mixed because it is an edit of the human-proxy parent; realized edit intensity and semantic defects need separate annotation.",
+        "All three detectors assign combined model/mixed probability above 0.99 while preferring the model-only class. This exposes a distinction between process provenance and visible rewriting intensity. It does not authorize post hoc relabeling."
+      ]
+    }
+  ],
+  "review_complete": true,
+  "source_labels_changed": false,
+  "training_recipe_changed": false,
+  "representative_error_rate_estimate": false,
+  "native_syntax_review_performed": false,
+  "new_detector_or_provider_calls": 0
+}

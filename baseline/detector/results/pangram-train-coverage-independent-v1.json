@@ -1,0 +1,21 @@
+{
+  "schema": "slop_ninja_pangram_train_coverage_independent_v1",
+  "at": "2026-09-15T09:42:33Z",
+  "report_sha256": "d198ceb81484ec5ca71ed5827e032a259e08151c2811590964cd24a1b8488f1f",
+  "checker_sha256": "abea85b0ff191cbbe4e566a8aa08daabf4140b43283548a81b6fefedac7bc1ed",
+  "rows": 3833,
+  "all_shard_rows": 5463,
+  "annotated_rows": 485,
+  "source_families": 131,
+  "generator_identities": 3,
+  "exact_provenance_echo_fraction_and_split_checks": "passed",
+  "all_slice_counts_reproduced": true,
+  "joined_fractions_and_routes_reproduced": true,
+  "unrelated_aggregates_unchanged_after_alias_correction": true,
+  "cargo_fmt": "passed_on_studio",
+  "all_target_tests": "passed_on_studio",
+  "clippy": "passed_with_warnings_denied",
+  "linux_execution": "unverified",
+  "model_calls": 0,
+  "provider_calls": 0
+}

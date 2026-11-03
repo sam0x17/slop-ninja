@@ -1,0 +1,438 @@
+{
+  "report_version": "fixed-process-grammar-deltas-v1",
+  "revision_input": "data/edit-process-v1/revisions.jsonl",
+  "revision_input_sha256": "56cab8b39d3c943d30cc64d14b08988693d7ead1b3715483929190bb9c5eb07f",
+  "split": "dev",
+  "extractor": "unslop-features-rust-v1;nfc-unicode-word-v1;sentence-heuristic-v1;spacy=3.8.16;model=en_core_web_sm@3.8.0;grammar-rules-v1;python-unicode=15.0.0",
+  "extraction_command": "target/debug/unslop features <exact pair baseline.txt or candidate.txt> --grammar",
+  "unique_texts_extracted": 8,
+  "ingestion": {
+    "database": "data/unslop.sqlite3",
+    "imported_extractions": 4,
+    "parsed_documents": 4,
+    "source_groups": 2,
+    "corpus_provenance": [
+      {
+        "corpus": "fixed-edit-process-v1",
+        "source_kind": "model",
+        "provider": "codex-cli",
+        "model": "requested:gpt-6-astra",
+        "split": "dev",
+        "documents": 4,
+        "source_groups": 2
+      }
+    ],
+    "training_profile_snapshot_unchanged": true,
+    "training_profile_snapshot_sha256": "85d43639faeb0ca2b6a91342fb86b40574846378f3d3a4d64f8d125ff1aa67b2",
+    "snapshot_definition": "SHA-256 of SQLite CLI rows ordered by document ID, extractor, family, feature, containing training document ID/corpus/split, opportunity totals, and feature counts. Computed before and after ingestion."
+  },
+  "notes": {
+    "scope": "Four immediate model-source/editor pairs from two development source families. No human original text, detector outputs, or independent quality-review documents were inspected.",
+    "rates": "Construction rates divide sentence pattern counts by parsed nonempty sentences. Pronoun-token rates divide spaCy PRON tokens by parsed lexical tokens. Rates are fractions, not percentages.",
+    "interpretation": "These counts describe one English parser's analysis. They do not establish detector effects, readability, fidelity, or a general editing rule. Both source corpora share the same two source families and are not four independent families.",
+    "model_identity": "Model values prefixed requested: are explicit CLI requests; the collector did not receive a resolved model ID."
+  },
+  "comparisons": [
+    {
+      "source_corpus": "claude-opus-rewrites-v1",
+      "source_provider": "claude-cli",
+      "source_model": "claude-opus-5",
+      "editor_provider": "codex-cli",
+      "editor_model": "requested:gpt-6-astra",
+      "group_id": "doi:10.1371/journal.pone.0186226",
+      "candidate_id": "edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b",
+      "split": "dev",
+      "source_sha256": "f5081bb711a199ac9b580e0aebb79236897c14ad2cf244de3570172a02f49295",
+      "candidate_sha256": "a9cef15c3753cf23355e0148867e69e3a6e4e4118fbecd5248c94ef845416d44",
+      "before": {
+        "lexical_words": 232,
+        "parsed_sentences": 6,
+        "parsed_lexical_tokens": 233,
+        "heuristic_mean_sentence_words": 33.142857142857146,
+        "parsed_mean_dependency_distance_tokens": 3.33920704845815,
+        "constructions": {
+          "passive_sentence": {
+            "count": 2,
+            "opportunities": 6,
+            "rate": 0.3333333333333333
+          },
+          "relative_clause_sentence": {
+            "count": 1,
+            "opportunities": 6,
+            "rate": 0.16666666666666666
+          },
+          "pronoun_subject_sentence": {
+            "count": 3,
+            "opportunities": 6,
+            "rate": 0.5
+          },
+          "first_person_reference_sentence": {
+            "count": 2,
+            "opportunities": 6,
+            "rate": 0.3333333333333333
+          }
+        },
+        "pronoun_tokens": {
+          "count": 6,
+          "opportunities": 233,
+          "rate": 0.02575107296137339
+        }
+      },
+      "after": {
+        "lexical_words": 230,
+        "parsed_sentences": 9,
+        "parsed_lexical_tokens": 231,
+        "heuristic_mean_sentence_words": 23.0,
+        "parsed_mean_dependency_distance_tokens": 2.675675675675676,
+        "constructions": {
+          "passive_sentence": {
+            "count": 0,
+            "opportunities": 9,
+            "rate": 0
+          },
+          "relative_clause_sentence": {
+            "count": 0,
+            "opportunities": 9,
+            "rate": 0
+          },
+          "pronoun_subject_sentence": {
+            "count": 2,
+            "opportunities": 9,
+            "rate": 0.2222222222222222
+          },
+          "first_person_reference_sentence": {
+            "count": 2,
+            "opportunities": 9,
+            "rate": 0.2222222222222222
+          }
+        },
+        "pronoun_tokens": {
+          "count": 4,
+          "opportunities": 231,
+          "rate": 0.017316017316017316
+        }
+      },
+      "candidate_minus_source": {
+        "lexical_words": -2,
+        "parsed_sentences": 3,
+        "parsed_lexical_tokens": -2,
+        "construction_counts": {
+          "adverbial_clause_sentence": -1,
+          "apposition_sentence": 1,
+          "complement_clause_sentence": -1,
+          "coordination_sentence": 1,
+          "copular_sentence": 1,
+          "noun_subject_sentence": 3,
+          "passive_sentence": -2,
+          "pronoun_subject_sentence": -1,
+          "relative_clause_sentence": -1
+        },
+        "construction_rates": {
+          "first_person_reference_sentence": -0.1111111111111111,
+          "passive_sentence": -0.3333333333333333,
+          "pronoun_subject_sentence": -0.2777777777777778,
+          "relative_clause_sentence": -0.16666666666666666
+        },
+        "pronoun_token_count": -2,
+        "pronoun_token_rate": -0.008435055645356074
+      }
+    },
+    {
+      "source_corpus": "claude-opus-rewrites-v1",
+      "source_provider": "claude-cli",
+      "source_model": "claude-opus-5",
+      "editor_provider": "codex-cli",
+      "editor_model": "requested:gpt-6-astra",
+      "group_id": "doi:10.1371/journal.pone.0188551",
+      "candidate_id": "edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a",
+      "split": "dev",
+      "source_sha256": "069b134ad8ae28688e90f1a70adc68ec82035f8f859a14a7f75a63b367a62963",
+      "candidate_sha256": "449df3a9fa81ae71ed9b06e5705defe44c4656f2595f7f3e4465077652833234",
+      "before": {
+        "lexical_words": 328,
+        "parsed_sentences": 16,
+        "parsed_lexical_tokens": 331,
+        "heuristic_mean_sentence_words": 20.5,
+        "parsed_mean_dependency_distance_tokens": 2.6317460317460317,
+        "constructions": {
+          "passive_sentence": {
+            "count": 4,
+            "opportunities": 16,
+            "rate": 0.25
+          },
+          "relative_clause_sentence": {
+            "count": 0,
+            "opportunities": 16,
+            "rate": 0
+          },
+          "pronoun_subject_sentence": {
+            "count": 0,
+            "opportunities": 16,
+            "rate": 0
+          },
+          "first_person_reference_sentence": {
+            "count": 0,
+            "opportunities": 16,
+            "rate": 0
+          }
+        },
+        "pronoun_tokens": {
+          "count": 1,
+          "opportunities": 331,
+          "rate": 0.0030211480362537764
+        }
+      },
+      "after": {
+        "lexical_words": 324,
+        "parsed_sentences": 17,
+        "parsed_lexical_tokens": 325,
+        "heuristic_mean_sentence_words": 19.058823529411764,
+        "parsed_mean_dependency_distance_tokens": 2.5844155844155843,
+        "constructions": {
+          "passive_sentence": {
+            "count": 4,
+            "opportunities": 17,
+            "rate": 0.23529411764705882
+          },
+          "relative_clause_sentence": {
+            "count": 1,
+            "opportunities": 17,
+            "rate": 0.058823529411764705
+          },
+          "pronoun_subject_sentence": {
+            "count": 1,
+            "opportunities": 17,
+            "rate": 0.058823529411764705
+          },
+          "first_person_reference_sentence": {
+            "count": 0,
+            "opportunities": 17,
+            "rate": 0
+          }
+        },
+        "pronoun_tokens": {
+          "count": 1,
+          "opportunities": 325,
+          "rate": 0.003076923076923077
+        }
+      },
+      "candidate_minus_source": {
+        "lexical_words": -4,
+        "parsed_sentences": 1,
+        "parsed_lexical_tokens": -6,
+        "construction_counts": {
+          "complement_clause_sentence": -1,
+          "coordination_sentence": 1,
+          "copular_sentence": 2,
+          "noun_subject_sentence": 1,
+          "pronoun_subject_sentence": 1,
+          "relative_clause_sentence": 1
+        },
+        "construction_rates": {
+          "first_person_reference_sentence": 0,
+          "passive_sentence": -0.01470588235294118,
+          "pronoun_subject_sentence": 0.058823529411764705,
+          "relative_clause_sentence": 0.058823529411764705
+        },
+        "pronoun_token_count": 0,
+        "pronoun_token_rate": 5.577504066930049e-05
+      }
+    },
+    {
+      "source_corpus": "codex-rewrites-v1",
+      "source_provider": "codex-cli",
+      "source_model": "requested:gpt-6-astra",
+      "editor_provider": "codex-cli",
+      "editor_model": "requested:gpt-6-astra",
+      "group_id": "doi:10.1371/journal.pone.0186226",
+      "candidate_id": "edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747",
+      "split": "dev",
+      "source_sha256": "a386986cf0ea8375dd13586bead6e07defdfacfe5245dd992ab00fe7aeedc707",
+      "candidate_sha256": "62bec139062c35ef9e7edf5533282e3c3f6e478b61e3f380fc930c4bcc00dabc",
+      "before": {
+        "lexical_words": 214,
+        "parsed_sentences": 9,
+        "parsed_lexical_tokens": 215,
+        "heuristic_mean_sentence_words": 21.4,
+        "parsed_mean_dependency_distance_tokens": 2.621359223300971,
+        "constructions": {
+          "passive_sentence": {
+            "count": 0,
+            "opportunities": 9,
+            "rate": 0
+          },
+          "relative_clause_sentence": {
+            "count": 0,
+            "opportunities": 9,
+            "rate": 0
+          },
+          "pronoun_subject_sentence": {
+            "count": 3,
+            "opportunities": 9,
+            "rate": 0.3333333333333333
+          },
+          "first_person_reference_sentence": {
+            "count": 2,
+            "opportunities": 9,
+            "rate": 0.2222222222222222
+          }
+        },
+        "pronoun_tokens": {
+          "count": 4,
+          "opportunities": 215,
+          "rate": 0.018604651162790697
+        }
+      },
+      "after": {
+        "lexical_words": 216,
+        "parsed_sentences": 11,
+        "parsed_lexical_tokens": 217,
+        "heuristic_mean_sentence_words": 19.636363636363637,
+        "parsed_mean_dependency_distance_tokens": 2.388349514563106,
+        "constructions": {
+          "passive_sentence": {
+            "count": 0,
+            "opportunities": 11,
+            "rate": 0
+          },
+          "relative_clause_sentence": {
+            "count": 2,
+            "opportunities": 11,
+            "rate": 0.18181818181818182
+          },
+          "pronoun_subject_sentence": {
+            "count": 5,
+            "opportunities": 11,
+            "rate": 0.45454545454545453
+          },
+          "first_person_reference_sentence": {
+            "count": 2,
+            "opportunities": 11,
+            "rate": 0.18181818181818182
+          }
+        },
+        "pronoun_tokens": {
+          "count": 5,
+          "opportunities": 217,
+          "rate": 0.02304147465437788
+        }
+      },
+      "candidate_minus_source": {
+        "lexical_words": 2,
+        "parsed_sentences": 2,
+        "parsed_lexical_tokens": 2,
+        "construction_counts": {
+          "apposition_sentence": 2,
+          "coordination_sentence": 2,
+          "noun_subject_sentence": 1,
+          "pronoun_subject_sentence": 2,
+          "relative_clause_sentence": 2
+        },
+        "construction_rates": {
+          "first_person_reference_sentence": -0.04040404040404039,
+          "passive_sentence": 0,
+          "pronoun_subject_sentence": 0.12121212121212122,
+          "relative_clause_sentence": 0.18181818181818182
+        },
+        "pronoun_token_count": 1,
+        "pronoun_token_rate": 0.004436823491587184
+      }
+    },
+    {
+      "source_corpus": "codex-rewrites-v1",
+      "source_provider": "codex-cli",
+      "source_model": "requested:gpt-6-astra",
+      "editor_provider": "codex-cli",
+      "editor_model": "requested:gpt-6-astra",
+      "group_id": "doi:10.1371/journal.pone.0188551",
+      "candidate_id": "edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31",
+      "split": "dev",
+      "source_sha256": "d5660ce4b4af7134dd525cff0fe4ae1d6a3c2f719671f89b3ed3bd5935024403",
+      "candidate_sha256": "362ca4b96e8ad7cb45b63c9ba1daa10ecad839153524a8c3f7409e14325a5c6a",
+      "before": {
+        "lexical_words": 310,
+        "parsed_sentences": 16,
+        "parsed_lexical_tokens": 311,
+        "heuristic_mean_sentence_words": 18.235294117647058,
+        "parsed_mean_dependency_distance_tokens": 2.7220338983050847,
+        "constructions": {
+          "passive_sentence": {
+            "count": 5,
+            "opportunities": 16,
+            "rate": 0.3125
+          },
+          "relative_clause_sentence": {
+            "count": 1,
+            "opportunities": 16,
+            "rate": 0.0625
+          },
+          "pronoun_subject_sentence": {
+            "count": 1,
+            "opportunities": 16,
+            "rate": 0.0625
+          },
+          "first_person_reference_sentence": {
+            "count": 0,
+            "opportunities": 16,
+            "rate": 0
+          }
+        },
+        "pronoun_tokens": {
+          "count": 4,
+          "opportunities": 311,
+          "rate": 0.012861736334405145
+        }
+      },
+      "after": {
+        "lexical_words": 301,
+        "parsed_sentences": 16,
+        "parsed_lexical_tokens": 302,
+        "heuristic_mean_sentence_words": 17.705882352941178,
+        "parsed_mean_dependency_distance_tokens": 2.769230769230769,
+        "constructions": {
+          "passive_sentence": {
+            "count": 5,
+            "opportunities": 16,
+            "rate": 0.3125
+          },
+          "relative_clause_sentence": {
+            "count": 1,
+            "opportunities": 16,
+            "rate": 0.0625
+          },
+          "pronoun_subject_sentence": {
+            "count": 1,
+            "opportunities": 16,
+            "rate": 0.0625
+          },
+          "first_person_reference_sentence": {
+            "count": 0,
+            "opportunities": 16,
+            "rate": 0
+          }
+        },
+        "pronoun_tokens": {
+          "count": 4,
+          "opportunities": 302,
+          "rate": 0.013245033112582781
+        }
+      },
+      "candidate_minus_source": {
+        "lexical_words": -9,
+        "parsed_sentences": 0,
+        "parsed_lexical_tokens": -9,
+        "construction_counts": {
+          "complement_clause_sentence": 1
+        },
+        "construction_rates": {
+          "first_person_reference_sentence": 0,
+          "passive_sentence": 0,
+          "pronoun_subject_sentence": 0,
+          "relative_clause_sentence": 0
+        },
+        "pronoun_token_count": 0,
+        "pronoun_token_rate": 0.0003832967781776369
+      }
+    }
+  ]
+}

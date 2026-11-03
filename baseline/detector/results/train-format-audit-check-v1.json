@@ -1,0 +1,87 @@
+{
+  "schema": "slop_ninja_train_format_audit_check_v1",
+  "at": "2026-09-15T13:58:53Z",
+  "report_sha256": "635b4610c916632e94a7c7c191180db9cd2712a54ca0819b2c308eb284b3c56f",
+  "source_bindings_match": true,
+  "independent_counts_and_rates_match": true,
+  "checked_rows": 3833,
+  "checked_buckets": 23,
+  "checked_features": 13,
+  "cmu_original_and_whitespace_differ_only_by_one_leading_space": true,
+  "prior_train_fit_summary_sha256": "2bef9afaf4642774c65796ca44b5b36baa14b23233e76f166e55dc6b2a2f0bb4",
+  "prior_cmu_training_metrics": [
+    {
+      "role": "v6",
+      "view": "raw",
+      "human_nll": 0.011866065162998523,
+      "human_strict_loose_flags": [
+        0,
+        1
+      ]
+    },
+    {
+      "role": "v6",
+      "view": "whitespace",
+      "human_nll": 0.12002727519047678,
+      "human_strict_loose_flags": [
+        3,
+        17
+      ]
+    },
+    {
+      "role": "control",
+      "view": "raw",
+      "human_nll": 0.05742805540990188,
+      "human_strict_loose_flags": [
+        0,
+        1
+      ]
+    },
+    {
+      "role": "control",
+      "view": "whitespace",
+      "human_nll": 0.10127407466420642,
+      "human_strict_loose_flags": [
+        1,
+        2
+      ]
+    },
+    {
+      "role": "consistency",
+      "view": "raw",
+      "human_nll": 0.04789824690093974,
+      "human_strict_loose_flags": [
+        0,
+        2
+      ]
+    },
+    {
+      "role": "consistency",
+      "view": "whitespace",
+      "human_nll": 0.11434374843873182,
+      "human_strict_loose_flags": [
+        1,
+        4
+      ]
+    }
+  ],
+  "checks": {
+    "fmt": "passed",
+    "all_target_tests": "passed",
+    "clippy": "passed_with_warnings_denied",
+    "build": "passed",
+    "audit": "passed"
+  },
+  "shell_chain_exit": 0,
+  "logs": {
+    "fmt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests": "0c3d02565ad55fd5e0153253bfff2311a944b8e38498f4a838526a06b6014b3c",
+    "clippy": "84c710843cffe2d5d593beba86fa6759477075396ae1a441df5a31e5f1d3ad00",
+    "build": "187b8d79f654c9dde6bad116aa6cf58b42cd550492f141ac7033bc7b259f6895",
+    "run": "d03817f9ed042ee56027a0f89c4981d2085318b23d3ecabab9b04ac85af1aa86"
+  },
+  "execution_host": "Mac Studio",
+  "linux_execution": "unverified",
+  "provider_calls": 0,
+  "new_inference_calls": 0
+}

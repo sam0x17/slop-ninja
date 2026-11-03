@@ -1,0 +1,33 @@
+[package]
+name = "grammar-a-pools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rights-gated human prose pools for Slop Ninja A: source adapters, prior-snapshot overlap index and deduplicating admission"
+
+[lib]
+name = "grammar_a_pools"
+
+[[bin]]
+name = "slop_ninja_a_pools"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+flate2 = "=1.1.10"
+grammar-a-form = { path = "../grammar-a-form" }
+hex.workspace = true
+pdf-extract = "=0.10.0"
+parquet = { version = "=55.2.0", default-features = false, features = ["snap", "zstd", "flate2"] }
+quick-xml = "=0.41.0"
+roxmltree.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tar = { version = "=0.4.46", default-features = false }
+zip = { workspace = true, features = ["deflate64"] }
+zstd.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

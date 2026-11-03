@@ -1,0 +1,5 @@
+[12:01] <maple> anyone around to help with the build?
+[12:02] <tern> yes, what broke 
+[12:02] <maple> the linker fails on the second step every time
+[12:03] <tern> did you clear the cache first?
+[12:04] <maple> not yet, trying now

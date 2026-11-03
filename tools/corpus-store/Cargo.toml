@@ -1,0 +1,28 @@
+[package]
+name = "slop_ninja_corpus_store"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Consolidated, content-addressed Slop Ninja corpus store (SQLite plus zstd packs)"
+
+[workspace]
+
+[[bin]]
+name = "slop_ninja_corpus"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+rayon = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip", "unbounded_depth"] }
+sha2 = "0.10"
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
+zstd = "0.13"
+
+[dev-dependencies]
+tempfile = "3"

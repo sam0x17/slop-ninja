@@ -1,0 +1,491 @@
+//! The coordinator's arena routes: identities, abandonment deadlines and
+//! control footprints for every Worker and Durable Object entry point, the
+//! shape-derived footprints of the large cohort steps, and the isolate's home
+//! scope for the two bounded in-memory caches.
+//!
+//! Compiled natively and for wasm32: the Workers entry points (`cf_arena`)
+//! and the native witness tests use the same constants, so a footprint the
+//! tests check is the one the Worker admits.
+//!
+//! Every entry point opens one scope (`slop_ninja_arena::enter`) whose heap
+//! holds what the handler allocates, and closes it when the handler ends: the
+//! per-invocation reset. A footprint is admitted before the handler runs, so
+//! a pool that cannot hold it refuses the invocation cleanly (503, a re-armed
+//! alarm, a retried batch, a skipped cron tick, or a durable cohort pause)
+//! instead of failing an allocation half way. Allocation beyond the admitted
+//! footprint is an overdraft: served from free pages and counted on `/status`
+//! in `Enforce`, refused in the strict witness tests.
+
+use slop_ninja_arena::{AsyncRoute, Route, limits};
+
+/// Route ids index the arena's fixed per-route counters (`u8` key space).
+pub mod id {
+    pub const HOOK: u8 = 1;
+    pub const HOOK_CONTINUATION: u8 = 2;
+    pub const STATUS: u8 = 3;
+    pub const OPERATOR: u8 = 4;
+    pub const EVAL: u8 = 5;
+    pub const OTHER: u8 = 6;
+    pub const SCHEDULED: u8 = 7;
+    pub const QUEUE: u8 = 8;
+    pub const ADMISSION: u8 = 9;
+    pub const JOURNAL_NEW: u8 = 10;
+    pub const JOURNAL_FETCH: u8 = 11;
+    pub const COHORT_NEW: u8 = 20;
+    pub const COHORT_FETCH: u8 = 21;
+    pub const COHORT_ALARM: u8 = 22;
+    pub const COHORT_SEAL: u8 = 23;
+    pub const COHORT_DRAW: u8 = 24;
+    pub const COHORT_PACKAGE: u8 = 25;
+    pub const COHORT_CLOSE: u8 = 26;
+    pub const COHORT_LOAD_SEAL: u8 = 27;
+    pub const COHORT_COMMITMENTS: u8 = 28;
+    pub const COHORT_ADMISSION: u8 = 29;
+    pub const HOME_STATE: u8 = 30;
+    pub const HOME_RUNTIMES: u8 = 31;
+    pub const HOME_PLANS: u8 = 32;
+}
+
+/// The deadline of an entry with no documented wall limit (Worker and
+/// Durable Object fetch: "Unlimited"). Their awaits are not all bounded by
+/// their own timeouts yet, so the bound is the longest documented wall limit
+/// of any entry kind (cron, queue and alarm handlers: 15 minutes); a scope
+/// unpolled for longer is abandoned, and a late poll still recovers it.
+pub const UNBOUNDED_FETCH_MS: u64 = limits::ALARM_MS;
+
+/// The webhook delivery: every await is bounded, so its deadline is their sum
+/// plus the CPU limit: the body read (`webhook::DELIVERY_ACK_MS`, raced in
+/// JS) and the journal's `/ingest` call with its reply
+/// (`liveness::TIMEOUT_MS`, an `AbortSignal` timeout).
+pub const R_HOOK: AsyncRoute = AsyncRoute::new(
+    id::HOOK,
+    "worker/hook",
+    crate::webhook::DELIVERY_ACK_MS + crate::liveness::TIMEOUT_MS + limits::REQUEST_CPU_MS,
+);
+/// The delivery's `waitUntil` continuation: the documented 30 s limit.
+pub const R_HOOK_CONTINUATION: AsyncRoute =
+    AsyncRoute::new(id::HOOK_CONTINUATION, "worker/hook-continuation", limits::WAIT_UNTIL_MS);
+pub const R_STATUS: AsyncRoute = AsyncRoute::new(id::STATUS, "worker/status", UNBOUNDED_FETCH_MS);
+pub const R_OPERATOR: AsyncRoute = AsyncRoute::new(id::OPERATOR, "worker/operator", UNBOUNDED_FETCH_MS);
+pub const R_EVAL: AsyncRoute = AsyncRoute::new(id::EVAL, "worker/eval", UNBOUNDED_FETCH_MS);
+pub const R_OTHER: AsyncRoute = AsyncRoute::new(id::OTHER, "worker/other", UNBOUNDED_FETCH_MS);
+pub const R_SCHEDULED: AsyncRoute = AsyncRoute::new(id::SCHEDULED, "worker/scheduled", limits::CRON_MS);
+pub const R_QUEUE: AsyncRoute = AsyncRoute::new(id::QUEUE, "worker/queue", limits::QUEUE_MS);
+/// The public admission routes: a part streams from the request to R2
+/// outside Rust, so the route holds only the signed fields and the cohort
+/// object's reply.
+pub const R_ADMISSION: AsyncRoute = AsyncRoute::new(id::ADMISSION, "worker/admission", UNBOUNDED_FETCH_MS);
+/// A Durable Object constructor's storage migration: synchronous.
+pub const R_JOURNAL_NEW: Route = Route::new(id::JOURNAL_NEW, "journal/new");
+pub const R_JOURNAL_FETCH: AsyncRoute = AsyncRoute::new(id::JOURNAL_FETCH, "journal/fetch", UNBOUNDED_FETCH_MS);
+pub const R_COHORT_NEW: Route = Route::new(id::COHORT_NEW, "cohort/new");
+pub const R_COHORT_FETCH: AsyncRoute = AsyncRoute::new(id::COHORT_FETCH, "cohort/fetch", UNBOUNDED_FETCH_MS);
+pub const R_COHORT_ALARM: AsyncRoute = AsyncRoute::new(id::COHORT_ALARM, "cohort/alarm", limits::ALARM_MS);
+/// The cohort steps: each a child of the alarm's scope (it takes the
+/// alarm's deadline), one route per step kind so `/status` reports each
+/// kind's peak pages. The seal and package steps hold their shape-derived
+/// footprints (`seal_bytes`, `package_step_bytes`), admitted physically
+/// (`ScopeRef::child_physical`); the draw, close and load-seal steps have no
+/// derived footprint yet and open with `STEP_BASE_BYTES`, their use beyond
+/// it counted as overdrafts of their own route.
+pub const R_COHORT_SEAL: Route = Route::new(id::COHORT_SEAL, "cohort/seal");
+pub const R_COHORT_DRAW: Route = Route::new(id::COHORT_DRAW, "cohort/draw");
+pub const R_COHORT_PACKAGE: Route = Route::new(id::COHORT_PACKAGE, "cohort/package");
+pub const R_COHORT_CLOSE: Route = Route::new(id::COHORT_CLOSE, "cohort/close");
+pub const R_COHORT_LOAD_SEAL: Route = Route::new(id::COHORT_LOAD_SEAL, "cohort/load-seal");
+/// The commitment reader's rounds: the stored runtime's parse and one
+/// round's replies (`COMMITMENTS_CONTROL_BYTES`).
+pub const R_COHORT_COMMITMENTS: AsyncRoute = AsyncRoute::new(id::COHORT_COMMITMENTS, "cohort/commitments", UNBOUNDED_FETCH_MS);
+/// The admission steps (framing, blob copies, verdict runs, clean-up, the
+/// calendar), each a child of the alarm (`ADMISSION_STEP_BYTES`).
+pub const R_COHORT_ADMISSION: Route = Route::new(id::COHORT_ADMISSION, "cohort/admission");
+/// The isolate's home scopes: synchronous, each opened on first use and kept
+/// for the instance's life.
+pub const R_HOME_STATE: Route = Route::new(id::HOME_STATE, "home/state");
+pub const R_HOME_RUNTIMES: Route = Route::new(id::HOME_RUNTIMES, "home/runtimes");
+pub const R_HOME_PLANS: Route = Route::new(id::HOME_PLANS, "home/plans");
+
+const KIB: usize = 1024;
+const MIB: usize = 1024 * KIB;
+
+/// Control footprints: what a route allocates besides the bodies it admits
+/// as exact blocks once their length is known (`Content-Length`, an R2
+/// object's size, an RPC reply's declared length). The witness tests
+/// (`arena_witness.rs`) run the heaviest native path of the routes they
+/// cover under `Strict` with exactly this footprint; the routes they do not
+/// cover yet (the continuation and cron RPC rounds, the queue batch, the
+/// Worker status aggregation) and the workers-rs request and response
+/// conversion the native tests cannot reach are measured on the deployed
+/// instances, whose per-route peaks `/status` reports (`Observe` mode, design
+/// migration step 1).
+/// The webhook delivery: its authenticated parse and the journal call (the
+/// body itself, at most `webhook::MAX_BODY_BYTES`, is an admitted block).
+pub const HOOK_CONTROL_BYTES: usize = 256 * KIB;
+/// The delivery continuation and the cron tick: RPC rounds and signing
+/// rounds, one call at a time (an RPC reply above the control footprint is
+/// an admitted block of its declared length).
+pub const CONTINUATION_CONTROL_BYTES: usize = 2 * MIB;
+/// The Worker's status, operator, eval and fallback routes (an operator body
+/// is an admitted block).
+pub const WORKER_CONTROL_BYTES: usize = MIB;
+/// The lane-wakeup queue batch: at most 100 content-free kicks.
+pub const QUEUE_CONTROL_BYTES: usize = 512 * KIB;
+/// A ChainJournal request: one transaction over the journal. Its heaviest
+/// path is a signing step reading the stored runtime metadata (hex text and
+/// its decoded bytes) before the runtimes home parses it: measured 31 pages
+/// natively; wasm-bindgen's string transfer holds up to four times the text
+/// while it encodes, so twice the measured peak, in whole MiB.
+pub const JOURNAL_CONTROL_BYTES: usize = 4 * MIB;
+/// A cohort-object request: one transaction, with the active plan's copy.
+/// Measured: `/plan` with the widest admitted plan 8 pages (its body is an
+/// admitted block), `/kick` 2, `/status` 3; a plan at the 512 KiB body bound
+/// parses into at most `PLAN_PARSED_BYTES` and is copied once into the plan
+/// home, so three times that, in whole MiB.
+pub const COHORT_CONTROL_BYTES: usize = 2 * MIB;
+/// The draw, close and load-seal steps' footprint until theirs are derived:
+/// the alarm's base footprint, in which they ran before they had their own
+/// routes (their measured peaks are on `/status`).
+pub const STEP_BASE_BYTES: usize = ALARM_CONTROL_BYTES;
+/// The cohort alarm's base footprint; the seal and package steps admit their
+/// shape-derived footprints (`seal_bytes`, `package_bytes`) as child scopes.
+/// Measured: picking the next work item over the widest admitted plan, 2
+/// pages; the base also holds the stepped plan's copy (`PLAN_PARSED_BYTES`)
+/// and a dispatch's kicks, so 1 MiB.
+pub const ALARM_CONTROL_BYTES: usize = MIB;
+/// An admission step: framing streams the object through one 1 MiB buffer
+/// (`cf_admission::FRAME_CHUNK_BYTES`) with the header (at most the
+/// protocol's 1 MiB `MAX_ARTIFACT_HEADER_LEN`) and the parts manifest (at
+/// most the scorer's 1 MiB manifest limit) beside it; the other steps hold
+/// less. Unmeasured: twice their sum, in whole MiB.
+pub const ADMISSION_STEP_BYTES: usize = 6 * MIB;
+/// A commitment-reader round: the parse of the stored runtime (scaled from
+/// the measured fixture parse by the largest metadata a reply can carry,
+/// half a large reply's hex) and the round's body, decoded twice
+/// (`cf_admission::READER_BODY_BYTES`). Unmeasured.
+pub const COMMITMENTS_CONTROL_BYTES: usize =
+    runtime_parse_bytes(crate::rpc::MAX_LARGE_RESPONSE_BYTES / 2) + 4 * crate::rpc::MAX_LARGE_RESPONSE_BYTES;
+/// A Durable Object constructor: its storage migration.
+pub const CONSTRUCTOR_CONTROL_BYTES: usize = 256 * KIB;
+/// The smallest route footprint: the model's `min_route_bytes`, from which
+/// the arena derives its glue tickets (checked by a test).
+pub const MIN_CONTROL_BYTES: usize = CONSTRUCTOR_CONTROL_BYTES;
+
+/// The package step's footprint for `jobs` jobs and `docs` documents.
+///
+/// An upper bound fitted to the measured linear memory of the package step
+/// (design §1.3, probe harness on 2026-10-31, n = 1,000: 29.56, 44.38, 83.31
+/// and 177.31 MiB at J = 41, 65, 129 and 257; J = 129, n = 4,000: 245.31
+/// MiB) as `base + per_receipt × J × n + per_pair × J²` through the
+/// J = 65, 129 and 257 points (rounded up): it over-estimates the J = 41 and
+/// the n = 4,000 points. The J² term is the pairwise `rms` JSON. Version
+/// `package-fit-2026-10-31`; re-fitted when the streaming package lands.
+pub const fn package_bytes(jobs: u64, docs: u64) -> usize {
+    const BASE: u64 = 10_852_353; // 10.35 MiB
+    const PER_RECEIPT: u64 = 505;
+    const PER_JOB_PAIR: u64 = 689;
+    let receipts = jobs.saturating_mul(docs);
+    let total = BASE
+        .saturating_add(PER_RECEIPT.saturating_mul(receipts))
+        .saturating_add(PER_JOB_PAIR.saturating_mul(jobs.saturating_mul(jobs)));
+    if total > usize::MAX as u64 { usize::MAX } else { total as usize }
+}
+
+/// The seal step's footprint for `docs` documents: fitted to the measured
+/// 12.69 MiB (n = 1,000) and 47.44 MiB (n = 4,000) of 1.3 KB texts (design
+/// §1.3) as `base + per_doc × n`, rounded up. Version `seal-fit-2026-10-31`.
+pub const fn seal_bytes(docs: u64) -> usize {
+    const BASE: u64 = 1_158_676; // 1.105 MiB
+    const PER_DOC: u64 = 12_148;
+    let total = BASE.saturating_add(PER_DOC.saturating_mul(docs));
+    if total > usize::MAX as u64 { usize::MAX } else { total as usize }
+}
+
+/// The pages a scope of `control` footprint bytes holds: its state page and
+/// one heap run (what `Scope::open` and `ScopeRef::child` admit).
+pub const fn scope_bytes(control: usize) -> usize {
+    let run = (control.saturating_add(slop_ninja_arena::SEGMENT_OVERHEAD)).next_multiple_of(slop_ninja_arena::PAGE);
+    slop_ninja_arena::scope_pages(run) as usize * slop_ninja_arena::PAGE
+}
+
+/// R2 operations a cohort step keeps in flight at once (`cf_eval`'s
+/// `PARALLEL`): the package step reads its job summaries this many at a
+/// time, each into its own admitted block.
+pub const STEP_READS_IN_FLIGHT: usize = 6;
+
+/// The largest object any cohort step reads whole and holds in its scope,
+/// for the kinds whose schema sets no tighter bound (pool manifests and
+/// shards, used-ledger entries, load-seal source indexes, probe records and
+/// shards, artifact files manifests): half the memory model's per-invocation
+/// JS envelope (`js_envelope_bytes`), the design's ceiling for a body a route
+/// holds whole. The largest such object on testnet is a pool shard of about
+/// 1.2 MB.
+pub const STEP_OBJECT_BYTES: usize = slop_ninja_arena::model::JS_ENVELOPE_BYTES / 2;
+
+/// The widest JSON one task adds to a job summary: one element in each of
+/// the three per-task arrays (`share_ppb` and `inv_ppb` as `4294967295,`,
+/// `roles` as `false,`).
+pub const SUMMARY_TASK_BYTES: usize = 11 + 11 + 6;
+
+/// A job summary's bound for a job of `tasks` tasks: the fixed fields and
+/// the components (`eval::engine::SUMMARY_FIXED_BYTES`) and
+/// `SUMMARY_TASK_BYTES` per task, capped at `STEP_OBJECT_BYTES`.
+pub const fn summary_bytes(tasks: u64) -> usize {
+    let b = (crate::eval::engine::SUMMARY_FIXED_BYTES as u64).saturating_add(tasks.saturating_mul(SUMMARY_TASK_BYTES as u64));
+    if b > STEP_OBJECT_BYTES as u64 { STEP_OBJECT_BYTES } else { b as usize }
+}
+
+/// The package step's child scope: its fitted heap (`package_bytes`). The
+/// summaries it reads are separate exact blocks (`package_reads_bytes`).
+pub const fn package_step_bytes(jobs: u64, docs: u64) -> usize {
+    package_bytes(jobs, docs)
+}
+
+/// The block runs the package step's own reads hold at once: at most
+/// `STEP_READS_IN_FLIGHT` summaries of a job of `tasks` tasks (a returned
+/// run is re-keyed by the next read, so the count never grows with the
+/// jobs).
+pub const fn package_reads_bytes(tasks: u64) -> usize {
+    STEP_READS_IN_FLIGHT.saturating_mul(slop_ninja_arena::block_bytes(summary_bytes(tasks), 1))
+}
+
+/// What a package step's invocation holds: the alarm's scope, the step's
+/// child scope and its in-flight summary blocks.
+pub const fn package_invocation_bytes(jobs: u64, docs: u64, tasks: u64) -> usize {
+    scope_bytes(ALARM_CONTROL_BYTES).saturating_add(scope_bytes(package_bytes(jobs, docs))).saturating_add(package_reads_bytes(tasks))
+}
+
+/// The largest package the model holds: `largest_route_bytes` of
+/// `memory-model.json` is the package invocation at the load instance's
+/// largest rehearsed shape (R_0 + 128 jobs, n = 1,000, 1,000 tasks a job),
+/// so a plan whose package would need more is refused at `/plan`
+/// (`arena_capacity`), never admitted to fail at packaging.
+pub const fn package_fits(jobs: u64, docs: u64, tasks: u64) -> bool {
+    package_invocation_bytes(jobs, docs, tasks) <= slop_ninja_arena::model::LARGEST_ROUTE_BYTES
+}
+
+/// The home scopes' footprints. Durable Object state: every co-resident
+/// ChainJournal and EvalCohort object (handles, settings and the signing
+/// configuration), at most the model's resident count
+/// (`model::GLUE_RESIDENTS`, the constructor's admission) at
+/// `HOME_STATE_INSTANCE_BYTES` each. Runtimes: the ChainJournal's
+/// parsed runtimes (`signing::PARSED_RUNTIMES` of them). Plans: the cohort
+/// object's cached plans (`eval::engine::PLAN_CACHE_PLANS` of them). Each is
+/// opened only where it is used, so the eval Worker holds no runtimes home
+/// unless its journal signs. Witness: `arena_witness_home_caches_fit` holds
+/// each cache at its entry bound under `Strict` in exactly its footprint.
+pub const HOME_STATE_BYTES: usize =
+    slop_ninja_arena::model::GLUE_RESIDENTS as usize * HOME_STATE_INSTANCE_BYTES + slop_ninja_arena::SEGMENT_OVERHEAD;
+/// One object's state in the State home: measured 416 B live (the largest,
+/// a ChainJournal with its signing configuration, local smoke run,
+/// 2026-11-01; an EvalCohort holds 24 B on testnet), rounded up to the next
+/// power of two as the margin for its chunk headers, as the glue probe's
+/// per-entry inputs are.
+pub const HOME_STATE_INSTANCE_BYTES: usize = 512;
+/// The runtimes home holds `PARSED_RUNTIMES` entries at their parse peak
+/// and one parse beside them: a chain upgrade with a full cache evicts one
+/// entry and parses the next while the other stays resident, and the
+/// evicted entry's freed chunks are scattered through the heap, so the
+/// home is sized for every entry at its peak plus the new parse
+/// (`arena_witness_a_third_runtime_loads_into_a_full_cache_within_the_home`).
+pub const HOME_RUNTIMES_BYTES: usize = RUNTIME_PARSED_BYTES * (crate::signing::PARSED_RUNTIMES + 1) + slop_ninja_arena::SEGMENT_OVERHEAD;
+pub const HOME_PLANS_BYTES: usize = PLAN_PARSED_BYTES * crate::eval::engine::PLAN_CACHE_PLANS + slop_ninja_arena::SEGMENT_OVERHEAD;
+/// One parsed chain runtime (the recorded runtime-486 metadata) with its
+/// parse transients: measured 34 pages of peak scope memory, state page
+/// included (`arena_witness_home_caches_fit`, native 64-bit, 2026-11-01).
+/// The cache evicts down to `PARSED_RUNTIMES - 1` before it parses, and
+/// parses uncached when the home lacks room (`runtime_parse_bytes`).
+pub const RUNTIME_PARSED_BYTES: usize = 34 * slop_ninja_arena::PAGE;
+/// The metadata length `RUNTIME_PARSED_BYTES` was measured with (the
+/// recorded runtime-486 fixture, `fixtures/runtime-486/testnet-486.v15.scale`).
+pub const RUNTIME_FIXTURE_METADATA_BYTES: usize = 411_830;
+
+/// The home bytes a parse of `metadata_len` bytes of metadata needs: the
+/// measured parse peak scaled by the metadata length (the cache parses
+/// uncached when the home has less room).
+pub const fn runtime_parse_bytes(metadata_len: usize) -> usize {
+    let scaled = (RUNTIME_PARSED_BYTES as u128 * metadata_len as u128).div_ceil(RUNTIME_FIXTURE_METADATA_BYTES as u128);
+    if scaled > usize::MAX as u128 { usize::MAX } else { scaled as usize }
+}
+/// One cached plan at the largest accepted plan body: the measured peak
+/// pages of the cache's copy (key and plan) of the widest plan whose JSON
+/// fits `MAX_PLAN_BODY_BYTES` (`arena_witness_home_caches_fit`).
+pub const PLAN_PARSED_BYTES: usize = 10 * slop_ninja_arena::PAGE;
+
+/// The largest plan body `/plan` accepts.
+pub const MAX_PLAN_BODY_BYTES: usize = 512 * KIB;
+
+/// The isolate's home scopes: bounded memory for what outlives an
+/// invocation, the Durable Objects' own state and the two in-memory caches
+/// (the parsed chain runtimes and the parsed plans). Each cache bounds its
+/// entries, every entry is admitted against its home's footprint, and an
+/// entry that would not fit is simply not cached (a cache miss re-reads
+/// storage, so behaviour is unchanged). Everything a request allocates
+/// otherwise stays in its own scope.
+pub mod home {
+    use super::{HOME_PLANS_BYTES, HOME_RUNTIMES_BYTES, HOME_STATE_BYTES, R_HOME_PLANS, R_HOME_RUNTIMES, R_HOME_STATE};
+    use slop_ninja_arena::{Route, Scope};
+
+    /// Which home.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Home {
+        State = 0,
+        Runtimes = 1,
+        Plans = 2,
+    }
+
+    pub const ALL: [Home; 3] = [Home::State, Home::Runtimes, Home::Plans];
+
+    impl Home {
+        pub const fn route(self) -> Route {
+            match self {
+                Home::State => R_HOME_STATE,
+                Home::Runtimes => R_HOME_RUNTIMES,
+                Home::Plans => R_HOME_PLANS,
+            }
+        }
+
+        pub const fn bytes(self) -> usize {
+            match self {
+                Home::State => HOME_STATE_BYTES,
+                Home::Runtimes => HOME_RUNTIMES_BYTES,
+                Home::Plans => HOME_PLANS_BYTES,
+            }
+        }
+    }
+
+    /// Each home's scope once it opened, and the opens refused so far.
+    type Slots = ([Option<Scope>; 3], [u32; 3]);
+
+    #[cfg(target_arch = "wasm32")]
+    struct Cell(core::cell::UnsafeCell<Slots>);
+    // SAFETY: wasm32 without atomics is single-threaded.
+    #[cfg(target_arch = "wasm32")]
+    unsafe impl Sync for Cell {}
+    #[cfg(target_arch = "wasm32")]
+    static HOMES: Cell = Cell(core::cell::UnsafeCell::new(([None, None, None], [0; 3])));
+
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread_local! {
+        static HOMES: core::cell::RefCell<Slots> = const { core::cell::RefCell::new(([None, None, None], [0; 3])) };
+    }
+
+    fn with_slots<R>(f: impl FnOnce(&mut Slots) -> R) -> R {
+        #[cfg(target_arch = "wasm32")]
+        {
+            // SAFETY: single-threaded; no reference outlives this call, and
+            // no caller re-enters (the closures never call `enter`).
+            f(unsafe { &mut *HOMES.0.get() })
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            HOMES.with(|cell| f(&mut cell.borrow_mut()))
+        }
+    }
+
+    /// Runs `f` in `home`, opened with its footprint on the first use that
+    /// can admit it. When the scope cannot be admitted, `f` is handed back
+    /// unrun (`Err(f)`): a cache then does not cache, and a Durable Object
+    /// builds its state with no scope current. A refused open is counted
+    /// (`open_failures`, on `/status`) and tried again at the next use (an
+    /// allocation-free admission), so a home refused while a large step
+    /// held the pool opens once the pool has room. `f` must not await.
+    pub fn enter<R, F: FnOnce() -> R>(home: Home, f: F) -> Result<R, F> {
+        with_slots(|(slots, failures)| {
+            let i = home as usize;
+            let (Some(slot), Some(failed)) = (slots.get_mut(i), failures.get_mut(i)) else { return Err(f) };
+            if slot.is_none() {
+                match Scope::open(home.route(), home.bytes()) {
+                    Ok(s) => {
+                        // A home never closes: marked permanent, a refusal
+                        // its pages cause is classed `Capacity`, never
+                        // `Retry`.
+                        s.set_permanent();
+                        *slot = Some(s);
+                    }
+                    Err(_) => *failed = failed.saturating_add(1),
+                }
+            }
+            match slot.as_ref() {
+                Some(s) => Ok(s.enter(f)),
+                None => Err(f),
+            }
+        })
+    }
+
+    /// A home's accounting, if it is open.
+    pub fn stats(home: Home) -> Option<slop_ninja_arena::ScopeStats> {
+        with_slots(|(slots, _)| slots.get(home as usize).and_then(|s| s.as_ref()).map(|s| s.stats()))
+    }
+
+    /// How many times opening `home` was refused.
+    pub fn open_failures(home: Home) -> u32 {
+        with_slots(|(_, failures)| failures.get(home as usize).copied().unwrap_or(0))
+    }
+
+    /// The bytes `home` can still hold: its reservation, less its state page
+    /// and its live bytes (0 when it is not open yet: it opens with its
+    /// whole footprint, so callers that enter it first see the opened value).
+    pub fn free_bytes(home: Home) -> usize {
+        stats(home).map_or(0, |st| {
+            (st.reserved_pages as usize).saturating_sub(1).saturating_mul(slop_ninja_arena::PAGE).saturating_sub(st.live)
+        })
+    }
+}
+
+/// The static data and stack the fit check below assumes: the 1 MiB linked
+/// stack plus 1 MiB of data, eight pages above the 24 pages (stack and data,
+/// page-rounded) the smoke run measures (`static_bytes` on `/status`).
+/// `examples/arena_wasm_check` fails when the built module's static end
+/// exceeds it (`__heap_base` when exported, else the end of its data
+/// segments, a lower bound: worker-build's output keeps no `__heap_base`), and
+/// the smoke run checks the deployed layout's `static_bytes` against it.
+pub const STATIC_UPPER_BYTES: usize = slop_ninja_arena::model::STACK_BYTES + MIB;
+
+// The memory model and this route table agree, checked at every build.
+const _: () = {
+    use slop_ninja_arena::model;
+    // memory-model.json `min_route_bytes` is the smallest route footprint
+    // (the arena derives its glue tickets from it).
+    assert!(model::MIN_ROUTE_BYTES == MIN_CONTROL_BYTES);
+    // `largest_route_bytes` is the package invocation at R_0 + 128,
+    // n = 1,000: that shape fits, J = 257 at n = 1,000 is refused at `/plan`.
+    assert!(model::LARGEST_ROUTE_BYTES == package_invocation_bytes(129, 1_000, 1_000));
+    assert!(package_fits(129, 1_000, 1_000));
+    assert!(!package_fits(257, 1_000, 1_000));
+    // The eval Worker during that package: static data and the stack (at
+    // most `STATIC_UPPER_BYTES`, checked on the built module), the glue
+    // partition, its state and plans homes, and room for a concurrent cohort
+    // request.
+    let static_upper = STATIC_UPPER_BYTES;
+    let glue = model::GLUE_BUDGET_PAGES as usize * slop_ninja_arena::PAGE;
+    let homes = scope_bytes(HOME_STATE_BYTES) + scope_bytes(HOME_PLANS_BYTES);
+    assert!(static_upper + glue + homes + model::LARGEST_ROUTE_BYTES + scope_bytes(COHORT_CONTROL_BYTES) <= model::LINEAR_MEMORY_BYTES);
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_package_fit_bounds_every_measured_point() {
+        const MIB_F: f64 = 1_048_576.0;
+        for (jobs, docs, measured_mib) in [(41, 1_000, 29.56), (65, 1_000, 44.38), (129, 1_000, 83.31), (257, 1_000, 177.31), (129, 4_000, 245.31)] {
+            let fit = package_bytes(jobs, docs) as f64 / MIB_F;
+            assert!(fit >= measured_mib, "J = {jobs}, n = {docs}: fit {fit:.2} MiB below the measured {measured_mib} MiB");
+            assert!(fit <= measured_mib * 1.12, "J = {jobs}, n = {docs}: fit {fit:.2} MiB far above the measured {measured_mib} MiB");
+        }
+        for (docs, measured_mib) in [(1_000, 12.69), (4_000, 47.44)] {
+            let fit = seal_bytes(docs) as f64 / MIB_F;
+            assert!(fit >= measured_mib && fit <= measured_mib * 1.02, "seal n = {docs}: fit {fit:.2} MiB, measured {measured_mib}");
+        }
+    }
+
+    #[test]
+    fn the_build_links_the_models_fixed_linear_memory() {
+        assert_eq!(
+            env!("SLOP_NINJA_LINEAR_MEMORY_BYTES").parse::<usize>().ok(),
+            Some(slop_ninja_arena::model::LINEAR_MEMORY_BYTES),
+            "build.rs links the model's fixed linear memory"
+        );
+    }
+}

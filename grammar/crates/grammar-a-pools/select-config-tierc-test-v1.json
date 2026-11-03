@@ -1,0 +1,151 @@
+{
+ "schema": "slop_ninja_a_competitive_eval_select_config_v2",
+ "split": "test",
+ "seed": "slop_ninja_a_competitive_splits_v1:2026-10-27",
+ "protocol": {
+  "path": "data/grammar-private/a-competitive-20261027/protocol-v1.json",
+  "sha256": "9ca96f5228c8a40671bb7c2c64d125cb587c7bfe534c3974cb0bf502966c8fab",
+  "sections": "splits.targets_human_documents.test, splits.excerpts.max_docs_per_group (test), splits.backfill, splits.acquisition_order, splits.rules"
+ },
+ "targets": {
+  "project_gutenberg": {
+   "test": 260
+  },
+  "wikipedia": {
+   "test": 380
+  },
+  "wikinews": {
+   "test": 160
+  },
+  "plos": {
+   "test": 260
+  },
+  "us_federal_register": {
+   "test": 200
+  },
+  "fineweb": {
+   "test": 220
+  },
+  "global_voices": {
+   "test": 220
+  },
+  "fineweb_blogs": {
+   "test": 150
+  },
+  "reddit": {
+   "test": 150
+  },
+  "ubuntu_irc": {
+   "test": 150
+  },
+  "wikipedia_talk": {
+   "test": 150
+  },
+  "wikisource": {
+   "test": 150
+  },
+  "instructional": {
+   "test": 150
+  },
+  "peer_review": {
+   "test": 150
+  },
+  "legal_opinions": {
+   "test": 150
+  },
+  "spoken_transcripts": {
+   "test": 150
+  },
+  "student_essays": {
+   "test": 150
+  },
+  "historical_manuscripts": {
+   "test": 150
+  }
+ },
+ "max_docs_per_group": {
+  "project_gutenberg": 3,
+  "wikipedia": 1,
+  "wikinews": 1,
+  "plos": 2,
+  "us_federal_register": 5,
+  "fineweb": 1,
+  "global_voices": 15,
+  "fineweb_blogs": 1,
+  "reddit": 1,
+  "ubuntu_irc": 2,
+  "wikipedia_talk": 1,
+  "wikisource": 2,
+  "instructional": 2,
+  "peer_review": 2,
+  "legal_opinions": 3,
+  "spoken_transcripts": 20,
+  "student_essays": 200,
+  "historical_manuscripts": 220
+ },
+ "protocol_minimum_human_docs": {
+  "test": 3170
+ },
+ "excluded_domains": [],
+ "reservations": {
+  "base": {
+   "dir": "data/grammar-private/a-competitive-20261027/data/splits-v4/test",
+   "sealed_sha256": "7f65f48932c79c12c377a2b5eb82ce4cf9b9fabd4a9de74c30571f6ebdeafda9",
+   "groups_sha256": "51b4b3a177e628df92c72220294acb290d8747d7aa27eeac443835fddaca5aed",
+   "manifest_sha256": "dcdf2e48132113aee4af344f4e1ff64ef88a39a9ab61ac3bacf57e3a267ee8bf",
+   "families_sha256": "6cc818803b043090173da0196673ce2b6c052e07346a00f26f35bf034ca45d9e",
+   "domains": [
+    "project_gutenberg",
+    "wikipedia",
+    "wikinews",
+    "plos",
+    "us_federal_register"
+   ],
+   "backfill_domain": "wikipedia",
+   "backfill_deficit_domains": [
+    "project_gutenberg",
+    "wikinews",
+    "plos",
+    "us_federal_register"
+   ]
+  },
+  "new-domains": {
+   "dir": "data/grammar-private/a-competitive-20261027/data/splits-v4/new-domains/test",
+   "sealed_sha256": "4a5c3f8690ee501cb078f2e77587318153e82aaa92911f941ff3409a9f63f58d",
+   "groups_sha256": "2772b3df14d6c92e2c5cfe8a5bf44864ebe248f4eb3f49686be670bef603263e",
+   "manifest_sha256": "716c0b64c280929a7eb73dd3df2f4f27efc2ac692601c619c4737dcd43f1b622",
+   "families_sha256": "cc06e3eb90d5e25be916d3e8af98276d7f07b4ad03cd2bc060ad3f9e23b133f6",
+   "domains": [
+    "fineweb",
+    "global_voices"
+   ],
+   "backfill_domain": null,
+   "backfill_deficit_domains": []
+  },
+  "new-domains-v4": {
+   "dir": "data/grammar-private/a-competitive-20261027/data/splits-v4/new-domains-v4/test",
+   "sealed_sha256": "1d10eaa2f237bf2b3f17a26ef5ca1a06b48ff258634174c3d0267eda89847551",
+   "groups_sha256": "ea786145bee1c1c1c6cf6fb5f9231edb37952a87881c406802ef7bdf72197e41",
+   "manifest_sha256": "85c87aeb4798c6079b4d96cd48edb55bb1a1d9df21ecaf0bd8457a30f11f1a02",
+   "families_sha256": "f374ad25c2aeaf36a1dd2299e542fc365512fc3c3e1c0d4f141c74c7186e5347",
+   "domains": [
+    "fineweb_blogs",
+    "reddit",
+    "ubuntu_irc",
+    "wikipedia_talk",
+    "wikisource",
+    "instructional",
+    "peer_review",
+    "legal_opinions",
+    "spoken_transcripts",
+    "student_essays",
+    "historical_manuscripts"
+   ],
+   "backfill_domain": null,
+   "backfill_deficit_domains": []
+  }
+ },
+ "backfill_rule": "only the five original domains backfill: a deficit passes to the same split's wikipedia groups in reserved order; fineweb, global_voices and the amendment-2 domains are evaluated at realised size; never from another split or reserved-unassigned groups; a split still below its minimum is evaluated at realised size with flag limits from the realised human count",
+ "acquisition_order": "per domain in reserved groups.jsonl order, stopping at the domain target",
+ "note": "Test select config for all 18 protocol domains; one select-eval run per reservation (--reservation NAME), then merge-eval; only the five original domains pass a deficit to the same split's Wikipedia groups in reserved order; fineweb, global_voices and the amendment-2 domains are evaluated at realised size."
+}

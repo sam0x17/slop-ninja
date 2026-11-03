@@ -1,0 +1,958 @@
+{
+  "schema": "slopninja-boundary-choice-fixtures-v1",
+  "id": "boundary-choice-v1",
+  "provenance": {
+    "authorship": "assistant_constructed",
+    "labels": "pre-parse engineering expectations and stated review obligations; not observed parser outcomes or human preference judgments",
+    "new_parser_calls_before_fixture_freeze": 0,
+    "corpus_or_private_text": false,
+    "reused_probe": "reused_reads_ccomp preserves the exact earlier semicolon source and its declared period counterpart",
+    "semantic_equivalence_certified": false
+  },
+  "scope": {
+    "undirected_pairs": 12,
+    "directional_cases": 24,
+    "positive_or_reused_parser_pairs": 6,
+    "explicit_exclusion_pairs": 6,
+    "canonical_display_direction": "semicolon_to_period",
+    "secondary_direction": "period_to_semicolon",
+    "counting": "Each pair contributes once to undirected eligibility; directional checks remain separate."
+  },
+  "execution": {
+    "rule_policy": "Use unchanged split_independent_semicolon and join_independent_sentences; do not change preconditions after parsing.",
+    "patch_policy": "Exact grammar_core::edits::Edit byte offsets. Join has punctuation and first-subject capitalization patches, including declared no-op capitalization; split has one separator-through-first-subject-token patch.",
+    "inverse_policy": "Each exact declared candidate is the inverse case's source, and applying that inverse case's edits must restore the original bytes.",
+    "expectation_policy": "Compare bool expected_rule_candidate with exact candidate emission; null is an explicitly exploratory parser-dependent probe and must not be counted as an expectation pass.",
+    "guard_policy": "No guard-pass labels are asserted. Run the unchanged guard separately and retain observed_preserved, changed, unresolved, unavailable correspondence and all findings.",
+    "guard_candidate_cap": "The existing guard internally uses rules::MAX_CANDIDATES=256 for rule matching; this frozen limitation remains explicit.",
+    "selection_policy": "No preference scoring, threshold selection, corpus allocation, automatic edit adoption or model fitting in this fixture.",
+    "layout_policy": "Preserve the declared separators and casing exactly; do not repair quotation, paragraph or parser failures."
+  },
+  "shared_review_obligations": [
+    "Preserve every actor, predicate, argument and qualification attached to its source claim.",
+    "Changes in punctuation and sentence-initial casing can change emphasis, rhythm and discourse interpretation; these require review.",
+    "A rule proposal or guard result is not a semantic-equivalence, readability, tonal-intent or detector certificate."
+  ],
+  "cases": [
+    {
+      "id": "transitive_second_subject_i_semicolon_to_period",
+      "pair_id": "transitive_second_subject_i",
+      "observed_form": "semicolon",
+      "inverse_case_id": "transitive_second_subject_i_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "The clerk filed the form; I signed the receipt.",
+      "candidate_text": "The clerk filed the form. I signed the receipt.",
+      "edits": [
+        {
+          "start_byte": 24,
+          "end_byte": 27,
+          "expected": "; I",
+          "replacement": ". I"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "ordinary_transitive",
+        "first_person_I"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "subject_predicate_assignment",
+          "requirement": "Keep filed the form attached to the clerk and signed the receipt attached to I."
+        },
+        {
+          "dimension": "capitalization",
+          "requirement": "Keep the pronoun I uppercase in both forms."
+        }
+      ]
+    },
+    {
+      "id": "transitive_second_subject_i_period_to_semicolon",
+      "pair_id": "transitive_second_subject_i",
+      "observed_form": "period",
+      "inverse_case_id": "transitive_second_subject_i_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "The clerk filed the form. I signed the receipt.",
+      "candidate_text": "The clerk filed the form; I signed the receipt.",
+      "edits": [
+        {
+          "start_byte": 24,
+          "end_byte": 25,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 26,
+          "end_byte": 27,
+          "expected": "I",
+          "replacement": "I"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "ordinary_transitive",
+        "first_person_I"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "subject_predicate_assignment",
+          "requirement": "Keep filed the form attached to the clerk and signed the receipt attached to I."
+        },
+        {
+          "dimension": "capitalization",
+          "requirement": "Keep the pronoun I uppercase in both forms."
+        }
+      ]
+    },
+    {
+      "id": "ordinary_intransitive_semicolon_to_period",
+      "pair_id": "ordinary_intransitive",
+      "observed_form": "semicolon",
+      "inverse_case_id": "ordinary_intransitive_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "The server stopped; the worker waited.",
+      "candidate_text": "The server stopped. The worker waited.",
+      "edits": [
+        {
+          "start_byte": 18,
+          "end_byte": 23,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "intransitive"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "independent_predicates",
+          "requirement": "Retain stopped and waited with their respective overt subjects; do not infer a causal relation."
+        }
+      ]
+    },
+    {
+      "id": "ordinary_intransitive_period_to_semicolon",
+      "pair_id": "ordinary_intransitive",
+      "observed_form": "period",
+      "inverse_case_id": "ordinary_intransitive_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "The server stopped. The worker waited.",
+      "candidate_text": "The server stopped; the worker waited.",
+      "edits": [
+        {
+          "start_byte": 18,
+          "end_byte": 19,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 20,
+          "end_byte": 23,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "intransitive"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "independent_predicates",
+          "requirement": "Retain stopped and waited with their respective overt subjects; do not infer a causal relation."
+        }
+      ]
+    },
+    {
+      "id": "copular_be_semicolon_to_period",
+      "pair_id": "copular_be",
+      "observed_form": "semicolon",
+      "inverse_case_id": "copular_be_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "The door is open; the room is quiet.",
+      "candidate_text": "The door is open. The room is quiet.",
+      "edits": [
+        {
+          "start_byte": 16,
+          "end_byte": 21,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "be",
+        "copular_complements"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "copular_assignment",
+          "requirement": "Keep open assigned to the door and quiet assigned to the room, with the same present-tense be forms."
+        },
+        {
+          "dimension": "parser_head_choice",
+          "requirement": "Record whether the parser heads the clause with be or its complement; do not infer an eligible finite head before parsing."
+        }
+      ]
+    },
+    {
+      "id": "copular_be_period_to_semicolon",
+      "pair_id": "copular_be",
+      "observed_form": "period",
+      "inverse_case_id": "copular_be_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "The door is open. The room is quiet.",
+      "candidate_text": "The door is open; the room is quiet.",
+      "edits": [
+        {
+          "start_byte": 16,
+          "end_byte": 17,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 18,
+          "end_byte": 21,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "be",
+        "copular_complements"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "copular_assignment",
+          "requirement": "Keep open assigned to the door and quiet assigned to the room, with the same present-tense be forms."
+        },
+        {
+          "dimension": "parser_head_choice",
+          "requirement": "Record whether the parser heads the clause with be or its complement; do not infer an eligible finite head before parsing."
+        }
+      ]
+    },
+    {
+      "id": "proper_subject_the_hague_semicolon_to_period",
+      "pair_id": "proper_subject_the_hague",
+      "observed_form": "semicolon",
+      "inverse_case_id": "proper_subject_the_hague_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "Paris expanded; The Hague grew.",
+      "candidate_text": "Paris expanded. The Hague grew.",
+      "edits": [
+        {
+          "start_byte": 14,
+          "end_byte": 19,
+          "expected": "; The",
+          "replacement": ". The"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "proper_subjects",
+        "The_Hague"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "proper_name",
+          "requirement": "Preserve the complete proper name The Hague and its uppercase The in both forms."
+        },
+        {
+          "dimension": "subject_predicate_assignment",
+          "requirement": "Keep expanded attached to Paris and grew attached to The Hague."
+        }
+      ]
+    },
+    {
+      "id": "proper_subject_the_hague_period_to_semicolon",
+      "pair_id": "proper_subject_the_hague",
+      "observed_form": "period",
+      "inverse_case_id": "proper_subject_the_hague_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "Paris expanded. The Hague grew.",
+      "candidate_text": "Paris expanded; The Hague grew.",
+      "edits": [
+        {
+          "start_byte": 14,
+          "end_byte": 15,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 16,
+          "end_byte": 19,
+          "expected": "The",
+          "replacement": "The"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "proper_subjects",
+        "The_Hague"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "proper_name",
+          "requirement": "Preserve the complete proper name The Hague and its uppercase The in both forms."
+        },
+        {
+          "dimension": "subject_predicate_assignment",
+          "requirement": "Keep expanded attached to Paris and grew attached to The Hague."
+        }
+      ]
+    },
+    {
+      "id": "repeated_verb_distinct_arguments_semicolon_to_period",
+      "pair_id": "repeated_verb_distinct_arguments",
+      "observed_form": "semicolon",
+      "inverse_case_id": "repeated_verb_distinct_arguments_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "The clerk checked the form; the manager checked the receipt.",
+      "candidate_text": "The clerk checked the form. The manager checked the receipt.",
+      "edits": [
+        {
+          "start_byte": 26,
+          "end_byte": 31,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "ordinary_transitive",
+        "repeated_verbs"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "argument_attribution",
+          "requirement": "Repeated checked lemmas do not make the claims interchangeable: retain clerk/form and manager/receipt assignments separately."
+        }
+      ]
+    },
+    {
+      "id": "repeated_verb_distinct_arguments_period_to_semicolon",
+      "pair_id": "repeated_verb_distinct_arguments",
+      "observed_form": "period",
+      "inverse_case_id": "repeated_verb_distinct_arguments_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "The clerk checked the form. The manager checked the receipt.",
+      "candidate_text": "The clerk checked the form; the manager checked the receipt.",
+      "edits": [
+        {
+          "start_byte": 26,
+          "end_byte": 27,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 28,
+          "end_byte": 31,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "ordinary_transitive",
+        "repeated_verbs"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "argument_attribution",
+          "requirement": "Repeated checked lemmas do not make the claims interchangeable: retain clerk/form and manager/receipt assignments separately."
+        }
+      ]
+    },
+    {
+      "id": "reused_reads_ccomp_semicolon_to_period",
+      "pair_id": "reused_reads_ccomp",
+      "observed_form": "semicolon",
+      "inverse_case_id": "reused_reads_ccomp_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "The service reads records; users check results.",
+      "candidate_text": "The service reads records. Users check results.",
+      "edits": [
+        {
+          "start_byte": 25,
+          "end_byte": 32,
+          "expected": "; users",
+          "replacement": ". Users"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The earlier semicolon source was parsed with reads as ccomp and produced no split candidate.",
+      "coverage_tags": [
+        "reused_probe",
+        "known_ccomp_failure"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "parser_attachment",
+          "requirement": "Retain any ccomp/ROOT attachment discrepancy and rule refusal as observed limitations; do not revise the pair to obtain a passing parse."
+        },
+        {
+          "dimension": "sentence_initial_noun",
+          "requirement": "The period source begins its second clause with Users; the frozen join capitalization/POS guard may independently refuse a bare common noun opener."
+        }
+      ],
+      "provenance": {
+        "kind": "reused_synthetic_probe",
+        "source_manifest": "grammar/fixtures/edit-utility-v1/manifest.json",
+        "source_case": "independent_semicolon_split",
+        "recorded_prior_observation": "The earlier semicolon source was parsed with reads as ccomp and produced no split candidate.",
+        "observation_scope": "This prior observation applies to the semicolon source. The current outputs must still be recorded, including any mismatch."
+      }
+    },
+    {
+      "id": "reused_reads_ccomp_period_to_semicolon",
+      "pair_id": "reused_reads_ccomp",
+      "observed_form": "period",
+      "inverse_case_id": "reused_reads_ccomp_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "The service reads records. Users check results.",
+      "candidate_text": "The service reads records; users check results.",
+      "edits": [
+        {
+          "start_byte": 25,
+          "end_byte": 26,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 27,
+          "end_byte": 32,
+          "expected": "Users",
+          "replacement": "users"
+        }
+      ],
+      "expected_rule_candidate": null,
+      "rule_expectation_reason": "New parser-dependent probe: the intended boundary alternative is fixed, but exact rule availability is not asserted before parsing. Record all frozen parse/precondition failures.",
+      "coverage_tags": [
+        "reused_probe",
+        "known_ccomp_failure"
+      ],
+      "linguistic_intent": {
+        "status": "plausible_boundary_choice",
+        "desired_boundary_candidate": true,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "parser_attachment",
+          "requirement": "Retain any ccomp/ROOT attachment discrepancy and rule refusal as observed limitations; do not revise the pair to obtain a passing parse."
+        },
+        {
+          "dimension": "sentence_initial_noun",
+          "requirement": "The period source begins its second clause with Users; the frozen join capitalization/POS guard may independently refuse a bare common noun opener."
+        }
+      ],
+      "provenance": {
+        "kind": "reused_synthetic_probe",
+        "source_manifest": "grammar/fixtures/edit-utility-v1/manifest.json",
+        "source_case": "independent_semicolon_split",
+        "recorded_prior_observation": "The earlier semicolon source was parsed with reads as ccomp and produced no split candidate.",
+        "observation_scope": "This prior observation applies to the semicolon source. The current outputs must still be recorded, including any mismatch."
+      }
+    },
+    {
+      "id": "negation_exclusion_semicolon_to_period",
+      "pair_id": "negation_exclusion",
+      "observed_form": "semicolon",
+      "inverse_case_id": "negation_exclusion_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "The server did not stop; the worker waited.",
+      "candidate_text": "The server did not stop. The worker waited.",
+      "edits": [
+        {
+          "start_byte": 23,
+          "end_byte": 28,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen plain_scope guard rejects dependency negation; retain any unexpected proposal as an expectation mismatch.",
+      "coverage_tags": [
+        "negation_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "qualification_review_required",
+        "desired_boundary_candidate": null,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "negation_assignment",
+          "requirement": "Keep not attached to stop; do not extend or remove polarity when grouping the clauses."
+        }
+      ]
+    },
+    {
+      "id": "negation_exclusion_period_to_semicolon",
+      "pair_id": "negation_exclusion",
+      "observed_form": "period",
+      "inverse_case_id": "negation_exclusion_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "The server did not stop. The worker waited.",
+      "candidate_text": "The server did not stop; the worker waited.",
+      "edits": [
+        {
+          "start_byte": 23,
+          "end_byte": 24,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 25,
+          "end_byte": 28,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen plain_scope guard rejects dependency negation; retain any unexpected proposal as an expectation mismatch.",
+      "coverage_tags": [
+        "negation_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "qualification_review_required",
+        "desired_boundary_candidate": null,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "negation_assignment",
+          "requirement": "Keep not attached to stop; do not extend or remove polarity when grouping the clauses."
+        }
+      ]
+    },
+    {
+      "id": "modal_exclusion_semicolon_to_period",
+      "pair_id": "modal_exclusion",
+      "observed_form": "semicolon",
+      "inverse_case_id": "modal_exclusion_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "The server might stop; the worker waited.",
+      "candidate_text": "The server might stop. The worker waited.",
+      "edits": [
+        {
+          "start_byte": 21,
+          "end_byte": 26,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen plain_scope guard rejects finite modal tags; retain any unexpected proposal as an expectation mismatch.",
+      "coverage_tags": [
+        "modal_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "qualification_review_required",
+        "desired_boundary_candidate": null,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "modal_assignment",
+          "requirement": "Keep might on stop and do not apply it to waited; preserve its exact modal strength."
+        }
+      ]
+    },
+    {
+      "id": "modal_exclusion_period_to_semicolon",
+      "pair_id": "modal_exclusion",
+      "observed_form": "period",
+      "inverse_case_id": "modal_exclusion_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "The server might stop. The worker waited.",
+      "candidate_text": "The server might stop; the worker waited.",
+      "edits": [
+        {
+          "start_byte": 21,
+          "end_byte": 22,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 23,
+          "end_byte": 26,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen plain_scope guard rejects finite modal tags; retain any unexpected proposal as an expectation mismatch.",
+      "coverage_tags": [
+        "modal_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "qualification_review_required",
+        "desired_boundary_candidate": null,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "modal_assignment",
+          "requirement": "Keep might on stop and do not apply it to waited; preserve its exact modal strength."
+        }
+      ]
+    },
+    {
+      "id": "shared_time_exclusion_semicolon_to_period",
+      "pair_id": "shared_time_exclusion",
+      "observed_form": "semicolon",
+      "inverse_case_id": "shared_time_exclusion_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "Yesterday the server stopped; the worker waited.",
+      "candidate_text": "Yesterday the server stopped. The worker waited.",
+      "edits": [
+        {
+          "start_byte": 28,
+          "end_byte": 33,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen plain-predicate check rejects the recognized temporal modifier on the first predicate rather than infer its scope.",
+      "coverage_tags": [
+        "shared_time_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "scope_review_required",
+        "desired_boundary_candidate": null,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "temporal_scope",
+          "requirement": "The fixture does not decide whether Yesterday also frames the waiting event; preserve that uncertainty."
+        }
+      ]
+    },
+    {
+      "id": "shared_time_exclusion_period_to_semicolon",
+      "pair_id": "shared_time_exclusion",
+      "observed_form": "period",
+      "inverse_case_id": "shared_time_exclusion_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "Yesterday the server stopped. The worker waited.",
+      "candidate_text": "Yesterday the server stopped; the worker waited.",
+      "edits": [
+        {
+          "start_byte": 28,
+          "end_byte": 29,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 30,
+          "end_byte": 33,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen plain-predicate check rejects the recognized temporal modifier on the first predicate rather than infer its scope.",
+      "coverage_tags": [
+        "shared_time_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "scope_review_required",
+        "desired_boundary_candidate": null,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "temporal_scope",
+          "requirement": "The fixture does not decide whether Yesterday also frames the waiting event; preserve that uncertainty."
+        }
+      ]
+    },
+    {
+      "id": "prepositional_exclusion_semicolon_to_period",
+      "pair_id": "prepositional_exclusion",
+      "observed_form": "semicolon",
+      "inverse_case_id": "prepositional_exclusion_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "The clerk worked in the office; the manager waited.",
+      "candidate_text": "The clerk worked in the office. The manager waited.",
+      "edits": [
+        {
+          "start_byte": 30,
+          "end_byte": 35,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen plain-predicate check rejects direct prepositional or oblique material; it does not infer shared scope.",
+      "coverage_tags": [
+        "prepositional_material_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "scope_review_required",
+        "desired_boundary_candidate": null,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "prepositional_scope",
+          "requirement": "Do not infer that in the office also applies to the manager's waiting or that changing the boundary leaves discourse attachment unaffected."
+        }
+      ]
+    },
+    {
+      "id": "prepositional_exclusion_period_to_semicolon",
+      "pair_id": "prepositional_exclusion",
+      "observed_form": "period",
+      "inverse_case_id": "prepositional_exclusion_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "The clerk worked in the office. The manager waited.",
+      "candidate_text": "The clerk worked in the office; the manager waited.",
+      "edits": [
+        {
+          "start_byte": 30,
+          "end_byte": 31,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 32,
+          "end_byte": 35,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen plain-predicate check rejects direct prepositional or oblique material; it does not infer shared scope.",
+      "coverage_tags": [
+        "prepositional_material_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "scope_review_required",
+        "desired_boundary_candidate": null,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "prepositional_scope",
+          "requirement": "Do not infer that in the office also applies to the manager's waiting or that changing the boundary leaves discourse attachment unaffected."
+        }
+      ]
+    },
+    {
+      "id": "quotation_exclusion_semicolon_to_period",
+      "pair_id": "quotation_exclusion",
+      "observed_form": "semicolon",
+      "inverse_case_id": "quotation_exclusion_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "\"The server stopped; the worker waited.\"",
+      "candidate_text": "\"The server stopped. The worker waited.\"",
+      "edits": [
+        {
+          "start_byte": 19,
+          "end_byte": 24,
+          "expected": "; the",
+          "replacement": ". The"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen prose_context guard refuses recognized quotation delimiters in these sources.",
+      "coverage_tags": [
+        "quotation_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "quoted_content_exclusion",
+        "desired_boundary_candidate": false,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "quotation_integrity",
+          "requirement": "The counterpart is a diagnostic contrast inside quoted material, not authorization to alter the quotation."
+        }
+      ]
+    },
+    {
+      "id": "quotation_exclusion_period_to_semicolon",
+      "pair_id": "quotation_exclusion",
+      "observed_form": "period",
+      "inverse_case_id": "quotation_exclusion_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "\"The server stopped. The worker waited.\"",
+      "candidate_text": "\"The server stopped; the worker waited.\"",
+      "edits": [
+        {
+          "start_byte": 19,
+          "end_byte": 20,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 21,
+          "end_byte": 24,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "The frozen prose_context guard refuses recognized quotation delimiters in these sources.",
+      "coverage_tags": [
+        "quotation_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "quoted_content_exclusion",
+        "desired_boundary_candidate": false,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "quotation_integrity",
+          "requirement": "The counterpart is a diagnostic contrast inside quoted material, not authorization to alter the quotation."
+        }
+      ]
+    },
+    {
+      "id": "paragraph_exclusion_semicolon_to_period",
+      "pair_id": "paragraph_exclusion",
+      "observed_form": "semicolon",
+      "inverse_case_id": "paragraph_exclusion_period_to_semicolon",
+      "rule": "split_independent_semicolon",
+      "source_text": "The server stopped;\n\nthe worker waited.",
+      "candidate_text": "The server stopped.\n\nThe worker waited.",
+      "edits": [
+        {
+          "start_byte": 18,
+          "end_byte": 24,
+          "expected": ";\n\nthe",
+          "replacement": ".\n\nThe"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "Both frozen boundary rules require exactly one space between the separator and the second subject; two newlines remain out of scope.",
+      "coverage_tags": [
+        "paragraph_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "paragraph_layout_exclusion",
+        "desired_boundary_candidate": false,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "paragraph_layout",
+          "requirement": "Retain the paragraph boundary. The semicolon across a paragraph break is a deliberate out-of-scope probe, not a recommended prose form."
+        }
+      ]
+    },
+    {
+      "id": "paragraph_exclusion_period_to_semicolon",
+      "pair_id": "paragraph_exclusion",
+      "observed_form": "period",
+      "inverse_case_id": "paragraph_exclusion_semicolon_to_period",
+      "rule": "join_independent_sentences",
+      "source_text": "The server stopped.\n\nThe worker waited.",
+      "candidate_text": "The server stopped;\n\nthe worker waited.",
+      "edits": [
+        {
+          "start_byte": 18,
+          "end_byte": 19,
+          "expected": ".",
+          "replacement": ";"
+        },
+        {
+          "start_byte": 21,
+          "end_byte": 24,
+          "expected": "The",
+          "replacement": "the"
+        }
+      ],
+      "expected_rule_candidate": false,
+      "rule_expectation_reason": "Both frozen boundary rules require exactly one space between the separator and the second subject; two newlines remain out of scope.",
+      "coverage_tags": [
+        "paragraph_exclusion"
+      ],
+      "linguistic_intent": {
+        "status": "paragraph_layout_exclusion",
+        "desired_boundary_candidate": false,
+        "semantic_equivalence_certified": false
+      },
+      "risk_expectations": [
+        {
+          "dimension": "paragraph_layout",
+          "requirement": "Retain the paragraph boundary. The semicolon across a paragraph break is a deliberate out-of-scope probe, not a recommended prose form."
+        }
+      ]
+    }
+  ]
+}

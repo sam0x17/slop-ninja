@@ -1,0 +1,47 @@
+{
+  "schema": "slop_ninja_blog_entity_substitution_v1",
+  "host": "mac_studio",
+  "selection": "The same three posts from the completed manual follow-up, including one with no encoded entities. No new source selection or detector-score selection.",
+  "source_documents": 3,
+  "literal_entities": 10,
+  "variants": 25,
+  "annotations": 50,
+  "parser": "en_core_web_trf@3.8.0, spaCy 3.8.16",
+  "case_builder_source_sha256": "782f0fcda30ed8eca3c461a9b41ea920cb9edcd0133b77752dd10da36f67ab00",
+  "case_builder_sha256": "e243ac1dbe7bb6e84b2088ee3497bdd1a64ec2e016169e45b1d6703cbf30d640",
+  "parser_runner_sha256": "137d8df1ab94e04ff59fa35d52b0c33c343fcf84e70c95030b5c4ff7b2401e69",
+  "intervention": "Rust emits the raw text, all entities decoded, each occurrence decoded alone, and all occurrences decoded except each one. The entity-free source has one unchanged variant. The only substitution is literal &nbsp; to U+00A0; all variants must render to the same control text.",
+  "verification": {
+    "input_and_executable_bindings_passed": true,
+    "independent_substitution_byte_check_passed": true,
+    "all_three_raw_controls_equal_previous_annotations": true,
+    "all_25_rendered_controls_equal_previous_annotations": true,
+    "rust_format_tests_all_target_clippy_passed": true,
+    "nlp_and_checks_run_on_studio": true
+  },
+  "manual_scope": "The three full source texts and original comparisons were already read. This follow-up inspected every distinct changed annotation among matched tokens wholly within the unchanged prefix before the first entity, added token spans there, and the affected sentence-boundary evidence. Other variant annotations were not exhaustively judged.",
+  "findings": [
+    {
+      "case": "diary",
+      "observation": "Decoding either of the first two entities alone reproduces the earlier erroneous result-coordination analysis in unchanged preceding text. Decoding any of the other three alone does not. Some combinations also change an elliptical fragment's root; that fragment permits competing analyses and is not counted as a proven regression.",
+      "tokenization_caution": "Decoding the first entity exposes a preceding word and period as separate tokens. Original tokens crossing the prefix boundary are outside the matched-token comparison, so added prefix spans are reported separately."
+    },
+    {
+      "case": "question_compilation",
+      "observation": "Only the fully decoded variant removes the two inspected content-sentence starts before the trailing entities. None of the five single substitutions or five all-except-one variants removes them. The affected independent question and closing sentence become clausal complements of an earlier question's predicate.",
+      "qualification": "This establishes an interaction among the tested changes. It does not exhaust all subsets, prove a globally minimal cause, or establish a relationship to detector scores. Other changed tags and relations include improvements inside an already incorrect merged span."
+    },
+    {
+      "case": "unchanged_control",
+      "observation": "The entity-free source reproduces its prior annotations exactly. All rendered controls across all sources also reproduce their prior token and sentence arrays, including known errors."
+    }
+  ],
+  "interpretation": "Consistent input rendering removes sensitivity to these alternative entity spellings in this comparison, but the common rendered parse still contains grammatical errors. Single-edit probes would miss the observed boundary interaction. A feature pipeline needs a fixed input policy and separate manual syntax validation.",
+  "parse_accuracy": null,
+  "detector_calls": 0,
+  "training_admission": false,
+  "parser_default_changed": false,
+  "feature_space_changed": false,
+  "private_text_or_identifying_manifest_in_repository": false,
+  "limitations": "This is a targeted development diagnostic on previously inspected posts. It does not estimate corpus-wide robustness, validate an English grammar, demonstrate better A accuracy, or certify gradients for B. Linux execution has not been qualified for the new example."
+}

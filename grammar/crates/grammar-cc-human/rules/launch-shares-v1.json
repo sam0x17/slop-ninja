@@ -1,0 +1,23 @@
+{
+  "id": "cc_launch_shares_v1",
+  "status": "superseded",
+  "note": "RECOMMENDATION.md section 1 launch shares (share caps on the rules-v1 frames, lookup-v1). The era-v1 mock batch drew its parents at these shares.",
+  "shares": {
+    "email": 0.7,
+    "essays": 27.8,
+    "fiction": 2.5,
+    "forum": 8.5,
+    "legal": 7.5,
+    "news": 27.5,
+    "reviews": 10.0,
+    "speech": 3.5,
+    "technical": 12.0
+  },
+  "email_split": {
+    "press_release": 0.65,
+    "list_mail": 0.05
+  },
+  "derivation": {
+    "rule": "share caps of the rules-v1 frames (lookup-v1, g = 0.44); freed email points to news and essays"
+  }
+}

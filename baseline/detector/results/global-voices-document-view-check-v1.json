@@ -1,0 +1,87 @@
+{
+  "schema": "slop_ninja_global_voices_document_view_check_v1",
+  "at": "2026-09-15T12:38:06Z",
+  "checker_sha256": "531a4ab5d27fcc9c6db60b2b16eb2d3948725d4939ed5ea6c9c7a79f6c74c280",
+  "run_report_sha256": "f1067f94436860803ea01562f8d0de00ddc8ace42c4dc019e6dcde5f742750a1",
+  "manual_review_sha256": "581566b1fb67944a7c300934afa3de14fa3d4c373977c0956bcd02918a350478",
+  "packet_sha256": "572c9f9cc5f5e3efd755fc688bb7308339f9914b73c59f937f79c70220806b16",
+  "review_projection_sha256": "053424d6e189c8f8f973746f43c4aea418db91dcf14998a4b8ea93941bc58e4b",
+  "implementation_bindings_match": true,
+  "commit_source_matches_compiled_sources": true,
+  "totals": {
+    "works": 8,
+    "nodes": 1623,
+    "regions": 319,
+    "paragraphs": 233,
+    "old_retained_paragraphs": 97,
+    "old_excluded_paragraphs": 136
+  },
+  "works": [
+    {
+      "id": "gv:769472",
+      "artifact_sha256": "5f3ab3e06151b40b50c8a97413360ab8afa2ae40b7770017a2175320e19f0c3a",
+      "nodes": 352,
+      "regions": 59,
+      "paragraphs": 45,
+      "source_and_projection_match": true
+    },
+    {
+      "id": "gv:614081",
+      "artifact_sha256": "d38c7256b4c414c0ee89896436e5bb442723c6843727fff57de03d3c7a46b2c1",
+      "nodes": 111,
+      "regions": 28,
+      "paragraphs": 21,
+      "source_and_projection_match": true
+    },
+    {
+      "id": "gv:594642",
+      "artifact_sha256": "65b9a473965aedb4441b765a5e7c7f8db150a2653652cdff660f6128a981cf8e",
+      "nodes": 144,
+      "regions": 33,
+      "paragraphs": 22,
+      "source_and_projection_match": true
+    },
+    {
+      "id": "gv:711372",
+      "artifact_sha256": "9f515b4e06c5b4a2b265de4754090d45428041a825e1f7ea227922385dd3ae64",
+      "nodes": 322,
+      "regions": 47,
+      "paragraphs": 35,
+      "source_and_projection_match": true
+    },
+    {
+      "id": "gv:555064",
+      "artifact_sha256": "0a3882077dd9a2a63c93188b3f7d7b54fc005c18dde3e887f0c0842324ea57d6",
+      "nodes": 276,
+      "regions": 54,
+      "paragraphs": 39,
+      "source_and_projection_match": true
+    },
+    {
+      "id": "gv:662657",
+      "artifact_sha256": "dde1a1fb7c6c68e42ecc3599ab6a4906ee2a158872ada8fbcf863c04345b004a",
+      "nodes": 126,
+      "regions": 30,
+      "paragraphs": 22,
+      "source_and_projection_match": true
+    },
+    {
+      "id": "gv:557838",
+      "artifact_sha256": "fac12edd7799b19b0a135bf18545745ab3f4f4f269369b7379e09a83449618c3",
+      "nodes": 124,
+      "regions": 33,
+      "paragraphs": 22,
+      "source_and_projection_match": true
+    },
+    {
+      "id": "gv:742458",
+      "artifact_sha256": "7115ae29e8f715eb84ee53b85b24b173a533d69e64082ae5b003db4dffd40a27",
+      "nodes": 168,
+      "regions": 35,
+      "paragraphs": 27,
+      "source_and_projection_match": true
+    }
+  ],
+  "semantic_judgments": "manual_assistant_review_not_automatically_proven",
+  "parse_accuracy_estimate": null
+}

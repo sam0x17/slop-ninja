@@ -1,0 +1,1031 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-09-08T21:17:01.346122+00:00",
+  "reviewer_type": "assistant",
+  "reviewed_by_human": false,
+  "detector_results_consulted": false,
+  "human_originals_consulted": false,
+  "review_scope": "Four fixed-process development outputs from two source families; each compared only with its immediate Codex or Opus input. No score records or human-original metadata consulted.",
+  "candidate_mutations_performed": false,
+  "all_source_and_candidate_hashes_verified": true,
+  "source_groups": 2,
+  "reviewed_outputs": 4,
+  "assistant_preservation_passes": 4,
+  "human_certified_passes": 0,
+  "reviews": [
+    {
+      "candidate_id": "edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b",
+      "group_id": "doi:10.1371/journal.pone.0186226",
+      "source_corpus": "claude-opus-rewrites-v1",
+      "source_sha256": "f5081bb711a199ac9b580e0aebb79236897c14ad2cf244de3570172a02f49295",
+      "candidate_sha256": "a9cef15c3753cf23355e0148867e69e3a6e4e4118fbecd5248c94ef845416d44",
+      "source_words": 231,
+      "candidate_words": 231,
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "human_originals_consulted": false,
+      "detector_results_consulted": false,
+      "claim_inventory": [
+        {
+          "claim_id": "forest-purpose",
+          "dimension": "argumentation",
+          "status": "retained",
+          "finding": "Quantification of both biomass compartments at species and stand levels remains necessary for understanding carbon budgets/dynamics and supporting management/ecosystem functions. Opus also preserves the explicit assessment-of-function formulation.",
+          "source_evidence": "above- and below-ground biomass",
+          "candidate_evidence": "above- and below-ground biomass"
+        },
+        {
+          "claim_id": "forest-sample",
+          "dimension": "numbers_methods",
+          "status": "retained",
+          "finding": "Destructive sampling, total sample, per-species range and species count are unchanged.",
+          "source_evidence": "122 trees",
+          "candidate_evidence": "122 trees"
+        },
+        {
+          "claim_id": "forest-species",
+          "dimension": "entities_scope",
+          "status": "retained",
+          "finding": "All 12 species names, their order and the supplied P. koraiensis abbreviation are unchanged.",
+          "source_evidence": [
+            "Acer mandshuricum",
+            "Acer mono",
+            "Betula platyphylla",
+            "Carpinus cordata",
+            "Fraxinus mandshurica",
+            "Juglans mandshurica",
+            "Maackia amurensis",
+            "P. koraiensis",
+            "Populus ussuriensis",
+            "Quercus mongolica",
+            "Tilia amurensis",
+            "Ulmus japonica"
+          ],
+          "candidate_evidence": [
+            "Acer mandshuricum",
+            "Acer mono",
+            "Betula platyphylla",
+            "Carpinus cordata",
+            "Fraxinus mandshurica",
+            "Juglans mandshurica",
+            "Maackia amurensis",
+            "P. koraiensis",
+            "Populus ussuriensis",
+            "Quercus mongolica",
+            "Tilia amurensis",
+            "Ulmus japonica"
+          ]
+        },
+        {
+          "claim_id": "forest-region",
+          "dimension": "scope",
+          "status": "retained",
+          "finding": "Mixed coniferous/broadleaved forests, Northeastern China and the claim about the country's largest natural-forest expanse are retained. Splitting the sentence does not move the sampled trees to another setting.",
+          "source_evidence": "Northeastern China",
+          "candidate_evidence": "Northeastern China"
+        },
+        {
+          "claim_id": "forest-models",
+          "dimension": "methods_scope",
+          "status": "retained",
+          "finding": "Component allocation, diameter as independent variable, individual-species models and pooled-species models are preserved.",
+          "source_evidence": "diameter as the independent variable",
+          "candidate_evidence": "diameter as the independent variable"
+        },
+        {
+          "claim_id": "forest-component-shares",
+          "dimension": "numbers_results",
+          "status": "retained",
+          "finding": "The all-species scope, component order and all percentages remain: stems 57.1%, coarse roots 21.3%, branches 18.7%, foliage 2.9%.",
+          "source_evidence": "Across all species",
+          "candidate_evidence": "Across all species"
+        },
+        {
+          "claim_id": "forest-significance",
+          "dimension": "quantifiers_results",
+          "status": "retained",
+          "finding": "Log transformation and significance for every biomass component remain. The candidate retains the source's singular/plural model formulation rather than silently changing it.",
+          "source_evidence": "statistically significant for every biomass component",
+          "candidate_evidence": "statistically significant for every biomass component"
+        },
+        {
+          "claim_id": "forest-predictive-comparisons",
+          "dimension": "logical_scope_results",
+          "status": "retained",
+          "finding": "Species-specific versus general pooled models remains one comparison; stem/root/above-ground/total versus branch/foliage remains the other. No effect magnitude or causal explanation is added.",
+          "source_evidence": "branch and foliage biomass",
+          "candidate_evidence": "branch and foliage biomass"
+        },
+        {
+          "claim_id": "forest-contribution",
+          "dimension": "argumentation_scope",
+          "status": "retained",
+          "finding": "Added trees, species and locations still extend prior work on the same forest type. Carbon budgets/dynamics, thinning, harvesting and northeastern China remain in the research implications.",
+          "source_evidence": "thinning and harvesting in northeastern China",
+          "candidate_evidence": "thinning and harvesting in northeastern China"
+        }
+      ],
+      "entity_number_method_outcome_checks": [
+        {
+          "text": "122 trees",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "9–12",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "12 species",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "57.1%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "21.3%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "18.7%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "2.9%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Acer mandshuricum",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Acer mono",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Betula platyphylla",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Carpinus cordata",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Fraxinus mandshurica",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Juglans mandshurica",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Maackia amurensis",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "P. koraiensis",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Populus ussuriensis",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Quercus mongolica",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Tilia amurensis",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Ulmus japonica",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        }
+      ],
+      "quantifier_hedge_scope_checks": [
+        {
+          "feature": "essential/dependency relationship",
+          "status": "retained",
+          "evidence": "The opening still treats biomass quantification as necessary for the stated understanding."
+        },
+        {
+          "feature": "all/every versus per-species scope",
+          "status": "retained",
+          "evidence": "All-species allocation and every-component significance remain distinct from species-specific fitting."
+        },
+        {
+          "feature": "greater/higher predictive power",
+          "status": "retained",
+          "evidence": "Both directional comparisons remain; no absolute accuracy or causality is claimed."
+        }
+      ],
+      "argumentation_findings": [
+        "Research motivation, methods, results and implications remain in the same logical sequence.",
+        "No material addition, omission or strengthening was found relative to the immediate model input."
+      ],
+      "tone_findings": [
+        "Scientific register and first-person methods are retained.",
+        "No casual phrasing, added enthusiasm or unrequested skepticism appears.",
+        "The candidate retains the source's inferential strength and stated research implications."
+      ],
+      "readability_assessment": {
+        "status": "modestly_improved",
+        "human_confirmed": false,
+        "evidence": [
+          "Splitting the species/location sentence makes the sampling information easier to follow.",
+          "Methodological and concluding content remains in the same scientific sequence.",
+          "Separating the opening dependency chain and the significance/predictive-power claims reduces sentence nesting."
+        ]
+      },
+      "new_or_missing_claims": [],
+      "preservation_pass_recommendation": true,
+      "failure_reasons": [],
+      "human_readability_certified": false,
+      "notes": "This review concerns fidelity to the immediate supplied model text, not factual correctness or agreement with an unavailable human source. Candidate text was not edited."
+    },
+    {
+      "candidate_id": "edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a",
+      "group_id": "doi:10.1371/journal.pone.0188551",
+      "source_corpus": "claude-opus-rewrites-v1",
+      "source_sha256": "069b134ad8ae28688e90f1a70adc68ec82035f8f859a14a7f75a63b367a62963",
+      "candidate_sha256": "449df3a9fa81ae71ed9b06e5705defe44c4656f2595f7f3e4465077652833234",
+      "source_words": 332,
+      "candidate_words": 323,
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "human_originals_consulted": false,
+      "detector_results_consulted": false,
+      "claim_inventory": [
+        {
+          "claim_id": "cardiac-background",
+          "dimension": "scope_hedges",
+          "status": "retained",
+          "finding": "Ischemic heart disease, cardiac rehabilitation and nonpharmacological exercise intervention remain. Opus retains is regarded as rather than converting it to a direct assertion.",
+          "source_evidence": "nonpharmacological intervention",
+          "candidate_evidence": "nonpharmacological intervention"
+        },
+        {
+          "claim_id": "cardiac-gap",
+          "dimension": "scope_methods",
+          "status": "retained",
+          "finding": "SCT remains aerobic interval exercise combined with alternating resistance sets; the investigation gap remains restricted to reduced left ventricular function following MI.",
+          "source_evidence": "has not been thoroughly investigated",
+          "candidate_evidence": "has not been thoroughly investigated"
+        },
+        {
+          "claim_id": "cardiac-primary-aim",
+          "dimension": "argumentation_methods",
+          "status": "retained",
+          "finding": "Novel combined aerobic-resistance training, improvement of cardiac function and randomized comparison with CAT on mechanical cardiac function remain. The Opus sentence split describes the trial comparison without claiming success.",
+          "source_evidence": "mechanical cardiac function",
+          "candidate_evidence": "mechanical cardiac function"
+        },
+        {
+          "claim_id": "cardiac-other-aims",
+          "dimension": "scope",
+          "status": "retained",
+          "finding": "Aerobic fitness, manual strength and QoL comparisons in men after MI, plus SCT safety and feasibility, remain.",
+          "source_evidence": "manual strength",
+          "candidate_evidence": "manual strength"
+        },
+        {
+          "claim_id": "cardiac-randomization",
+          "dimension": "numbers_methods",
+          "status": "retained",
+          "finding": "Twenty-nine men, 12 weeks, random assignment, CAT 15 and SCT 14 are retained.",
+          "source_evidence": "Twenty-nine men",
+          "candidate_evidence": "Twenty-nine men"
+        },
+        {
+          "claim_id": "cardiac-exercise-protocol",
+          "dimension": "numbers_methods",
+          "status": "retained",
+          "finding": "CAT 60–70% and SCT 75–85% heart-rate reserve remain correctly assigned. Intermittent resistance training remains specific to SCT. Opus repeats the previously elliptical heart-rate-reserve unit explicitly.",
+          "source_evidence": "heart rate reserve",
+          "candidate_evidence": "heart rate reserve"
+        },
+        {
+          "claim_id": "cardiac-outcome-measures",
+          "dimension": "scope_methods",
+          "status": "retained",
+          "finding": "Echocardiography remains primary; aerobic fitness, strength and QoL remain secondary. No assessment is promoted or omitted.",
+          "source_evidence": "primary outcome measure",
+          "candidate_evidence": "primary outcome measure"
+        },
+        {
+          "claim_id": "cardiac-analysis",
+          "dimension": "methods",
+          "status": "retained",
+          "finding": "Paired t-tests and Cohen's d effect size remain; the ES abbreviation is preserved.",
+          "source_evidence": "paired t-tests",
+          "candidate_evidence": "paired t-tests"
+        },
+        {
+          "claim_id": "cardiac-echo-results",
+          "dimension": "numbers_results_scope",
+          "status": "retained",
+          "finding": "Only SCT has significant echocardiographic changes: lower E/e and higher ejection fraction, P<0.05. The candidate does not infer a significant between-group difference from this within-group statement.",
+          "source_evidence": "ejection fraction",
+          "candidate_evidence": "ejection fraction"
+        },
+        {
+          "claim_id": "cardiac-fitness-results",
+          "dimension": "numbers_results_scope",
+          "status": "retained",
+          "finding": "Only SCT has significant aerobic-fitness improvement, expressed as increased maximal metabolic equivalent with the same threshold.",
+          "source_evidence": "maximal metabolic equivalent",
+          "candidate_evidence": "maximal metabolic equivalent"
+        },
+        {
+          "claim_id": "cardiac-qol-result",
+          "dimension": "results_scope",
+          "status": "retained",
+          "finding": "The SCT improvement exceeds CAT for the physical component of QoL. The candidate does not add statistical significance to this comparison.",
+          "source_evidence": "physical component of QoL",
+          "candidate_evidence": "physical component of QoL"
+        },
+        {
+          "claim_id": "cardiac-adverse-events",
+          "dimension": "quantifiers_results",
+          "status": "retained",
+          "finding": "No adverse events in either program is retained with the source's distinction between events occurred (Opus) and events observed (Codex).",
+          "source_evidence": "No adverse events",
+          "candidate_evidence": "No adverse events"
+        },
+        {
+          "claim_id": "cardiac-conclusion",
+          "dimension": "hedges_argumentation",
+          "status": "retained",
+          "finding": "Both programs can benefit post-MI men; SCT may provide greater benefit for the same three outcomes, with echocardiography qualifying mechanical function. Feasibility and safety remain as stated by the immediate source.",
+          "source_evidence": "SCT may",
+          "candidate_evidence": "SCT may"
+        }
+      ],
+      "entity_number_method_outcome_checks": [
+        {
+          "text": "Twenty-nine",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "12 weeks",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "n = 15",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "n = 14",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "60%–70%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "75%–85%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "P<0.05",
+          "source_occurrences": 2,
+          "candidate_occurrences": 2,
+          "status": "retained"
+        },
+        {
+          "text": "E/e'",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "paired t-tests",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "manual strength",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "maximal metabolic equivalent",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "physical QoL",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        }
+      ],
+      "quantifier_hedge_scope_checks": [
+        {
+          "feature": "investigation gap population",
+          "status": "retained",
+          "evidence": "The gap remains specific to reduced left ventricular function after MI."
+        },
+        {
+          "feature": "only SCT",
+          "status": "retained",
+          "evidence": "Both echocardiographic and aerobic-fitness significance remain limited to SCT."
+        },
+        {
+          "feature": "may confer/provide",
+          "status": "retained",
+          "evidence": "Potential superiority remains hedged in the conclusion."
+        },
+        {
+          "feature": "no adverse events in either program",
+          "status": "retained",
+          "evidence": "Neither program loses its no-event statement; observed versus occurred follows the immediate source."
+        }
+      ],
+      "argumentation_findings": [
+        "Research motivation, methods, results and implications remain in the same logical sequence.",
+        "No material addition, omission or strengthening was found relative to the immediate model input."
+      ],
+      "tone_findings": [
+        "Formal clinical-study register remains.",
+        "Cautious comparative conclusions and the original safety/feasibility wording remain.",
+        "The revision adds no advice to patients or other material outside the study abstract."
+      ],
+      "readability_assessment": {
+        "status": "slightly_improved",
+        "human_confirmed": false,
+        "evidence": [
+          "The abstract keeps its five-paragraph organization and study sequence.",
+          "The SCT definition and the primary aim/comparison are easier to parse after reorganization.",
+          "The exercise intensities now each name the heart-rate-reserve unit; the resistance component remains explicit."
+        ]
+      },
+      "new_or_missing_claims": [],
+      "preservation_pass_recommendation": true,
+      "failure_reasons": [],
+      "human_readability_certified": false,
+      "notes": "This review concerns fidelity to the immediate supplied model text, not factual correctness or agreement with an unavailable human source. Candidate text was not edited."
+    },
+    {
+      "candidate_id": "edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747",
+      "group_id": "doi:10.1371/journal.pone.0186226",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "a386986cf0ea8375dd13586bead6e07defdfacfe5245dd992ab00fe7aeedc707",
+      "candidate_sha256": "62bec139062c35ef9e7edf5533282e3c3f6e478b61e3f380fc930c4bcc00dabc",
+      "source_words": 216,
+      "candidate_words": 218,
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "human_originals_consulted": false,
+      "detector_results_consulted": false,
+      "claim_inventory": [
+        {
+          "claim_id": "forest-purpose",
+          "dimension": "argumentation",
+          "status": "retained",
+          "finding": "Quantification of both biomass compartments at species and stand levels remains necessary for understanding carbon budgets/dynamics and supporting management/ecosystem functions. Opus also preserves the explicit assessment-of-function formulation.",
+          "source_evidence": "above- and below-ground biomass",
+          "candidate_evidence": "above- and below-ground biomass"
+        },
+        {
+          "claim_id": "forest-sample",
+          "dimension": "numbers_methods",
+          "status": "retained",
+          "finding": "Destructive sampling, total sample, per-species range and species count are unchanged.",
+          "source_evidence": "122 trees",
+          "candidate_evidence": "122 trees"
+        },
+        {
+          "claim_id": "forest-species",
+          "dimension": "entities_scope",
+          "status": "retained",
+          "finding": "All 12 species names, their order and the supplied P. koraiensis abbreviation are unchanged.",
+          "source_evidence": [
+            "Acer mandshuricum",
+            "Acer mono",
+            "Betula platyphylla",
+            "Carpinus cordata",
+            "Fraxinus mandshurica",
+            "Juglans mandshurica",
+            "Maackia amurensis",
+            "P. koraiensis",
+            "Populus ussuriensis",
+            "Quercus mongolica",
+            "Tilia amurensis",
+            "Ulmus japonica"
+          ],
+          "candidate_evidence": [
+            "Acer mandshuricum",
+            "Acer mono",
+            "Betula platyphylla",
+            "Carpinus cordata",
+            "Fraxinus mandshurica",
+            "Juglans mandshurica",
+            "Maackia amurensis",
+            "P. koraiensis",
+            "Populus ussuriensis",
+            "Quercus mongolica",
+            "Tilia amurensis",
+            "Ulmus japonica"
+          ]
+        },
+        {
+          "claim_id": "forest-region",
+          "dimension": "scope",
+          "status": "retained",
+          "finding": "Mixed coniferous/broadleaved forests, Northeastern China and the claim about the country's largest natural-forest expanse are retained. Splitting the sentence does not move the sampled trees to another setting.",
+          "source_evidence": "Northeastern China",
+          "candidate_evidence": "Northeastern China"
+        },
+        {
+          "claim_id": "forest-models",
+          "dimension": "methods_scope",
+          "status": "retained",
+          "finding": "Component allocation, diameter as independent variable, individual-species models and pooled-species models are preserved.",
+          "source_evidence": "diameter as the independent variable",
+          "candidate_evidence": "diameter as the independent variable"
+        },
+        {
+          "claim_id": "forest-component-shares",
+          "dimension": "numbers_results",
+          "status": "retained",
+          "finding": "The all-species scope, component order and all percentages remain: stems 57.1%, coarse roots 21.3%, branches 18.7%, foliage 2.9%.",
+          "source_evidence": "Across all species",
+          "candidate_evidence": "Across all species"
+        },
+        {
+          "claim_id": "forest-significance",
+          "dimension": "quantifiers_results",
+          "status": "retained",
+          "finding": "Log transformation and significance for every biomass component remain. The candidate retains the source's singular/plural model formulation rather than silently changing it.",
+          "source_evidence": "statistically significant for every biomass component",
+          "candidate_evidence": "statistically significant for every biomass component"
+        },
+        {
+          "claim_id": "forest-predictive-comparisons",
+          "dimension": "logical_scope_results",
+          "status": "retained",
+          "finding": "Species-specific versus general pooled models remains one comparison; stem/root/above-ground/total versus branch/foliage remains the other. No effect magnitude or causal explanation is added.",
+          "source_evidence": "branch and foliage biomass",
+          "candidate_evidence": "branch and foliage biomass"
+        },
+        {
+          "claim_id": "forest-contribution",
+          "dimension": "argumentation_scope",
+          "status": "retained",
+          "finding": "Added trees, species and locations still extend prior work on the same forest type. Carbon budgets/dynamics, thinning, harvesting and northeastern China remain in the research implications.",
+          "source_evidence": "thinning and harvesting in northeastern China",
+          "candidate_evidence": "thinning and harvesting in northeastern China"
+        }
+      ],
+      "entity_number_method_outcome_checks": [
+        {
+          "text": "122 trees",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "9–12",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "12 tree species",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "57.1%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "21.3%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "18.7%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "2.9%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Acer mandshuricum",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Acer mono",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Betula platyphylla",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Carpinus cordata",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Fraxinus mandshurica",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Juglans mandshurica",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Maackia amurensis",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "P. koraiensis",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Populus ussuriensis",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Quercus mongolica",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Tilia amurensis",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "Ulmus japonica",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        }
+      ],
+      "quantifier_hedge_scope_checks": [
+        {
+          "feature": "essential/dependency relationship",
+          "status": "retained",
+          "evidence": "The opening still treats biomass quantification as necessary for the stated understanding."
+        },
+        {
+          "feature": "all/every versus per-species scope",
+          "status": "retained",
+          "evidence": "All-species allocation and every-component significance remain distinct from species-specific fitting."
+        },
+        {
+          "feature": "greater/higher predictive power",
+          "status": "retained",
+          "evidence": "Both directional comparisons remain; no absolute accuracy or causality is claimed."
+        }
+      ],
+      "argumentation_findings": [
+        "Research motivation, methods, results and implications remain in the same logical sequence.",
+        "No material addition, omission or strengthening was found relative to the immediate model input."
+      ],
+      "tone_findings": [
+        "Scientific register and first-person methods are retained.",
+        "No casual phrasing, added enthusiasm or unrequested skepticism appears.",
+        "The candidate retains the source's inferential strength and stated research implications."
+      ],
+      "readability_assessment": {
+        "status": "modestly_improved",
+        "human_confirmed": false,
+        "evidence": [
+          "Splitting the species/location sentence makes the sampling information easier to follow.",
+          "Methodological and concluding content remains in the same scientific sequence.",
+          "The opening which supports has a broad grammatical antecedent; its purpose relation is still understandable, but that local change is not clearly better than the source."
+        ]
+      },
+      "new_or_missing_claims": [],
+      "preservation_pass_recommendation": true,
+      "failure_reasons": [],
+      "human_readability_certified": false,
+      "notes": "This review concerns fidelity to the immediate supplied model text, not factual correctness or agreement with an unavailable human source. Candidate text was not edited."
+    },
+    {
+      "candidate_id": "edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31",
+      "group_id": "doi:10.1371/journal.pone.0188551",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "d5660ce4b4af7134dd525cff0fe4ae1d6a3c2f719671f89b3ed3bd5935024403",
+      "candidate_sha256": "362ca4b96e8ad7cb45b63c9ba1daa10ecad839153524a8c3f7409e14325a5c6a",
+      "source_words": 316,
+      "candidate_words": 307,
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "human_originals_consulted": false,
+      "detector_results_consulted": false,
+      "claim_inventory": [
+        {
+          "claim_id": "cardiac-background",
+          "dimension": "scope_hedges",
+          "status": "retained",
+          "finding": "Ischemic heart disease, cardiac rehabilitation and nonpharmacological exercise intervention remain. Opus retains is regarded as rather than converting it to a direct assertion.",
+          "source_evidence": "nonpharmacological intervention",
+          "candidate_evidence": "nonpharmacological intervention"
+        },
+        {
+          "claim_id": "cardiac-gap",
+          "dimension": "scope_methods",
+          "status": "retained",
+          "finding": "SCT remains aerobic interval exercise combined with alternating resistance sets; the investigation gap remains restricted to reduced left ventricular function following MI.",
+          "source_evidence": "have not been thoroughly investigated",
+          "candidate_evidence": "have not been thoroughly investigated"
+        },
+        {
+          "claim_id": "cardiac-primary-aim",
+          "dimension": "argumentation_methods",
+          "status": "retained",
+          "finding": "Novel combined aerobic-resistance training, improvement of cardiac function and randomized comparison with CAT on mechanical cardiac function remain. The Opus sentence split describes the trial comparison without claiming success.",
+          "source_evidence": "mechanical cardiac function",
+          "candidate_evidence": "mechanical cardiac function"
+        },
+        {
+          "claim_id": "cardiac-other-aims",
+          "dimension": "scope",
+          "status": "retained",
+          "finding": "Aerobic fitness, manual strength and QoL comparisons in men after MI, plus SCT safety and feasibility, remain.",
+          "source_evidence": "manual strength",
+          "candidate_evidence": "manual strength"
+        },
+        {
+          "claim_id": "cardiac-randomization",
+          "dimension": "numbers_methods",
+          "status": "retained",
+          "finding": "Twenty-nine men, 12 weeks, random assignment, CAT 15 and SCT 14 are retained.",
+          "source_evidence": "Twenty-nine men",
+          "candidate_evidence": "Twenty-nine men"
+        },
+        {
+          "claim_id": "cardiac-exercise-protocol",
+          "dimension": "numbers_methods",
+          "status": "retained",
+          "finding": "CAT 60–70% and SCT 75–85% heart-rate reserve remain correctly assigned. Intermittent resistance training remains specific to SCT. Opus repeats the previously elliptical heart-rate-reserve unit explicitly.",
+          "source_evidence": "heart rate reserve",
+          "candidate_evidence": "heart rate reserve"
+        },
+        {
+          "claim_id": "cardiac-outcome-measures",
+          "dimension": "scope_methods",
+          "status": "retained",
+          "finding": "Echocardiography remains primary; aerobic fitness, strength and QoL remain secondary. No assessment is promoted or omitted.",
+          "source_evidence": "primary outcome measure",
+          "candidate_evidence": "primary outcome measure"
+        },
+        {
+          "claim_id": "cardiac-analysis",
+          "dimension": "methods",
+          "status": "retained",
+          "finding": "Paired t-tests and Cohen's d effect size remain; the ES abbreviation is preserved.",
+          "source_evidence": "paired t-tests",
+          "candidate_evidence": "paired t-tests"
+        },
+        {
+          "claim_id": "cardiac-echo-results",
+          "dimension": "numbers_results_scope",
+          "status": "retained",
+          "finding": "Only SCT has significant echocardiographic changes: lower E/e and higher ejection fraction, P<0.05. The candidate does not infer a significant between-group difference from this within-group statement.",
+          "source_evidence": "ejection fraction",
+          "candidate_evidence": "ejection fraction"
+        },
+        {
+          "claim_id": "cardiac-fitness-results",
+          "dimension": "numbers_results_scope",
+          "status": "retained",
+          "finding": "Only SCT has significant aerobic-fitness improvement, expressed as increased maximal metabolic equivalent with the same threshold.",
+          "source_evidence": "maximal metabolic equivalent",
+          "candidate_evidence": "maximal metabolic equivalent"
+        },
+        {
+          "claim_id": "cardiac-qol-result",
+          "dimension": "results_scope",
+          "status": "retained",
+          "finding": "The SCT improvement exceeds CAT for the physical component of QoL. The candidate does not add statistical significance to this comparison.",
+          "source_evidence": "physical component of QoL",
+          "candidate_evidence": "physical component of QoL"
+        },
+        {
+          "claim_id": "cardiac-adverse-events",
+          "dimension": "quantifiers_results",
+          "status": "retained",
+          "finding": "No adverse events in either program is retained with the source's distinction between events occurred (Opus) and events observed (Codex).",
+          "source_evidence": "No adverse events",
+          "candidate_evidence": "No adverse events"
+        },
+        {
+          "claim_id": "cardiac-conclusion",
+          "dimension": "hedges_argumentation",
+          "status": "retained",
+          "finding": "Both programs can benefit post-MI men; SCT may provide greater benefit for the same three outcomes, with echocardiography qualifying mechanical function. Feasibility and safety remain as stated by the immediate source.",
+          "source_evidence": "SCT may",
+          "candidate_evidence": "SCT may"
+        }
+      ],
+      "entity_number_method_outcome_checks": [
+        {
+          "text": "Twenty-nine",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "12 weeks",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "n = 15",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "n = 14",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "60%–70%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "75%–85%",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "P < 0.05",
+          "source_occurrences": 2,
+          "candidate_occurrences": 2,
+          "status": "retained"
+        },
+        {
+          "text": "E/e′",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "paired t-tests",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "manual strength",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "maximal metabolic equivalent",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        },
+        {
+          "text": "physical QoL",
+          "source_occurrences": 1,
+          "candidate_occurrences": 1,
+          "status": "retained"
+        }
+      ],
+      "quantifier_hedge_scope_checks": [
+        {
+          "feature": "investigation gap population",
+          "status": "retained",
+          "evidence": "The gap remains specific to reduced left ventricular function after MI."
+        },
+        {
+          "feature": "only SCT",
+          "status": "retained",
+          "evidence": "Both echocardiographic and aerobic-fitness significance remain limited to SCT."
+        },
+        {
+          "feature": "may confer/provide",
+          "status": "retained",
+          "evidence": "Potential superiority remains hedged in the conclusion."
+        },
+        {
+          "feature": "no adverse events in either program",
+          "status": "retained",
+          "evidence": "Neither program loses its no-event statement; observed versus occurred follows the immediate source."
+        }
+      ],
+      "argumentation_findings": [
+        "Research motivation, methods, results and implications remain in the same logical sequence.",
+        "No material addition, omission or strengthening was found relative to the immediate model input."
+      ],
+      "tone_findings": [
+        "Formal clinical-study register remains.",
+        "Cautious comparative conclusions and the original safety/feasibility wording remain.",
+        "The revision adds no advice to patients or other material outside the study abstract."
+      ],
+      "readability_assessment": {
+        "status": "slightly_improved",
+        "human_confirmed": false,
+        "evidence": [
+          "The abstract keeps its five-paragraph organization and study sequence.",
+          "The results use direct verbs for the E/e decrease, ejection-fraction increase and fitness improvement.",
+          "Most of the source is unchanged, so this is a limited local readability improvement."
+        ]
+      },
+      "new_or_missing_claims": [],
+      "preservation_pass_recommendation": true,
+      "failure_reasons": [],
+      "human_readability_certified": false,
+      "notes": "This review concerns fidelity to the immediate supplied model text, not factual correctness or agreement with an unavailable human source. Candidate text was not edited."
+    }
+  ]
+}

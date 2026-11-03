@@ -1,0 +1,1348 @@
+{
+  "batches": [
+    {
+      "accepted_before_exclusions": 2154,
+      "audit_counts": {
+        "accepted_before_exclusions": 2154,
+        "ai_identities": {
+          "Qwen/Qwen3.6-35B-A3B:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3": 960,
+          "microsoft/Phi-4-mini-instruct:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2": 948,
+          "null": 196
+        },
+        "evidence_files_modified": false,
+        "excluded": [
+          {
+            "id": "local-6a92de76b338e528a36d8c8c",
+            "normalized_text_sha256": "001c4196f9b64a68f4c604fa23209cf6088d8fd1e97affe9e663ad3084a1eb94",
+            "parent_id": "train-retained-human-668bf8418587346c8864b7af79bd8f222ff6ffd493fa05ccc254b4af3358c4de",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "be2f8dd319bc237dd4bea9697922ed660dfe38386ba69fc1e825b79028804d98"
+          },
+          {
+            "id": "local-2105f4b15996c4a8a12efda2",
+            "normalized_text_sha256": "001c4196f9b64a68f4c604fa23209cf6088d8fd1e97affe9e663ad3084a1eb94",
+            "parent_id": "train-retained-human-6f77a4f59718a1ffa2618fb67d178fc061833d925063ab0235afc0a337d5ab7c",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "be2f8dd319bc237dd4bea9697922ed660dfe38386ba69fc1e825b79028804d98"
+          },
+          {
+            "id": "local-f15da2d360cdc97d994c91e6",
+            "normalized_text_sha256": "091dc229bc30e315cd682de556fb0e2054367586e7bf4fb31d972250d48c55eb",
+            "parent_id": "train-retained-human-b943011e3979e71f844609d850cf576402b55140751edce0003d97588f0ceeeb",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "afe0415bcf1779a624f0639cb7ba60fabc339c98c7e12aadb81dfd629a6412b6"
+          },
+          {
+            "id": "local-bd1312d73c510b306556b27c",
+            "normalized_text_sha256": "108c2a4228132a5bf7c1552aabc3cd341186afe505d2b750283904777b99f4fd",
+            "parent_id": "train-retained-human-796602739b6d9d431b49df6faf8f7c2a33d44895f66cfbca29cbbdb26c44eb4a",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "b85a93b98b34036152cf5bab9419293a51011d8d292fac15c541d1df2fdc4aab"
+          },
+          {
+            "id": "local-ea806a15887da690811be650",
+            "normalized_text_sha256": "1bf3e4c0afffa845af1a92da157a0f9f2a7b8610540cae4cfd18fa14f583f9cf",
+            "parent_id": "train-retained-human-d9e0a99d0a999228ea43be5ba07ced791d5c939aa920a405091e4f0e400e4d5e",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "cc92e3da9e6ce26c39ba1df2b8cbdc5727db2923b15c04fdbb9012259e783b93"
+          },
+          {
+            "id": "local-87c3a5e7d81a853ac917069e",
+            "normalized_text_sha256": "26a27a44915d280c6029b3f8b09436bc4c0a5577cf9ad6691364285d55b775a9",
+            "parent_id": "train-retained-human-23d1d56ee5994541cf87dc4349b3e2a3b34c0ddc14cca2a5e034cae545b5a86f",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "e97ee5211f6110353477901c6ca211bb087b92dc3ef55866cdfc898857351987"
+          },
+          {
+            "id": "local-4049624508a19f5d0002aa16",
+            "normalized_text_sha256": "2c9aa374c20a09afa22f69320414b7d568e6898838f34e8319321f933b7b7b3d",
+            "parent_id": "train-retained-human-35840258b1873d00cd7d7fcd83391ebfafbb55f2178a6392749ed030684b28e5",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "571755be787f2937d21f25c42d9adc8e541c9e1634428e9753e7caf31bc1ed39"
+          },
+          {
+            "id": "local-45aca579fb7a54475cd10972",
+            "normalized_text_sha256": "2c9aa374c20a09afa22f69320414b7d568e6898838f34e8319321f933b7b7b3d",
+            "parent_id": "train-retained-human-dea712bf8a8140b7065a21832ae83a728e15535dadcd2ca1a18d33ada0a61861",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "571755be787f2937d21f25c42d9adc8e541c9e1634428e9753e7caf31bc1ed39"
+          },
+          {
+            "id": "local-b7aab61e072597ed0080a4bc",
+            "normalized_text_sha256": "2e6ebd963b98b03ac800acf2c76f5d0d4c1a3b09d34e78fa86b29ac005a0d661",
+            "parent_id": "train-retained-human-9e408e6c973da4c705781c6dff3afd4a2bb53abfc85c3af0cb213f3a54fc9d6a",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "ae16243fdda70640df566d6c79c23e4a622a5e22eba9dbf832f87b741fbf79ed"
+          },
+          {
+            "id": "local-b42957fde8ef98202247f5b2",
+            "normalized_text_sha256": "2e6ebd963b98b03ac800acf2c76f5d0d4c1a3b09d34e78fa86b29ac005a0d661",
+            "parent_id": "train-retained-human-0e1521a11425faee4aa87b23bf63c812579a325a5b343b1bb63eed4fd278856a",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "ae16243fdda70640df566d6c79c23e4a622a5e22eba9dbf832f87b741fbf79ed"
+          },
+          {
+            "id": "local-f3f8f3c898d979d82270be2b",
+            "normalized_text_sha256": "2f79c6f5fc503b32094a92f22b050625ff1c1df562785c88cbae809ea8db3491",
+            "parent_id": "train-retained-human-82e67553789a75dd9b6584980ade89391b3c71bfb01e79067c73a0562c193984",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "5380020fd17d918a98b6885f3e48a6c0b650f98c0c0c3dc7f9d5e3bdb92c0af0"
+          },
+          {
+            "id": "local-f1a888563a2c441d77419479",
+            "normalized_text_sha256": "2f79c6f5fc503b32094a92f22b050625ff1c1df562785c88cbae809ea8db3491",
+            "parent_id": "train-retained-human-ac91d6f69d101e1a310ebdb4c10016e56df81eb323aa6b2f32ba59c31bc51fb2",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "5380020fd17d918a98b6885f3e48a6c0b650f98c0c0c3dc7f9d5e3bdb92c0af0"
+          },
+          {
+            "id": "local-7482ea63b321578462bcc921",
+            "normalized_text_sha256": "314194f51664a8247bd7865283077f1748d3a3b0e8d9bb6457dc61d29c4e3d41",
+            "parent_id": "train-retained-human-c799b13f0d0a2049d3f490d8ca3f383982623141966d0b330b946b5cca1ffb69",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "728838ac8a155994cd2255e4d26d84bf34c286a02807d1ecc1ca92d5ed782a3c"
+          },
+          {
+            "id": "local-1536a043d5aebe4242a6ff8c",
+            "normalized_text_sha256": "48414f1e72c94b94a005259e2be56fb1ec464696584d0ab8c07fdda87e90dbc3",
+            "parent_id": "train-retained-human-19db4dfb21668e1e8289d6fdd29929aff4b3f42a73705f8ea3a1e57d85757980",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "48414f1e72c94b94a005259e2be56fb1ec464696584d0ab8c07fdda87e90dbc3"
+          },
+          {
+            "id": "local-fc1917e9c25b7c79b66fbc77",
+            "normalized_text_sha256": "4b4490adc7ae453cb1dfd1cbbea3c25b0002824f48559f987da75172ae445c39",
+            "parent_id": "train-retained-human-9e408e6c973da4c705781c6dff3afd4a2bb53abfc85c3af0cb213f3a54fc9d6a",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "4b4490adc7ae453cb1dfd1cbbea3c25b0002824f48559f987da75172ae445c39"
+          },
+          {
+            "id": "local-c49ff75b9d3029bdb7f023e8",
+            "normalized_text_sha256": "4b4490adc7ae453cb1dfd1cbbea3c25b0002824f48559f987da75172ae445c39",
+            "parent_id": "train-retained-human-0e1521a11425faee4aa87b23bf63c812579a325a5b343b1bb63eed4fd278856a",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "4b4490adc7ae453cb1dfd1cbbea3c25b0002824f48559f987da75172ae445c39"
+          },
+          {
+            "id": "local-22de0238e3cdc18f38226513",
+            "normalized_text_sha256": "514a153a7a90a95b39792088d1f7dd07ede6f20491d59db1f0185726e44c45fe",
+            "parent_id": "train-retained-human-e2b7f8974311b6ec0bc410cd1928ff13e857168117d012ca4a6b96493b2fb3f2",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "98c8ee260abbcfc9f0f3ad22fc19d7991222bbac91d55a6822fe7209bc579eff"
+          },
+          {
+            "id": "local-3d2221df85e95ba2e5bdcffe",
+            "normalized_text_sha256": "514a153a7a90a95b39792088d1f7dd07ede6f20491d59db1f0185726e44c45fe",
+            "parent_id": "train-retained-human-18d8d92eaeaa27ca9ac9fe22a14077ede75c7b3d44b2a21a6c28cf5b13e4ec15",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "98c8ee260abbcfc9f0f3ad22fc19d7991222bbac91d55a6822fe7209bc579eff"
+          },
+          {
+            "id": "local-bfd576929934460a1bf71291",
+            "normalized_text_sha256": "55ffbb3fd0927a31c49b15ff27fb6b3833242f840e193c61cf0179b9b505bf6a",
+            "parent_id": "train-retained-human-e2b7f8974311b6ec0bc410cd1928ff13e857168117d012ca4a6b96493b2fb3f2",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "bdca591eebccc21048a29241c884d3b384f2cf63e49f8c3fba8f3fcc52a89a3e"
+          },
+          {
+            "id": "local-266d69aea44ebeeaea228499",
+            "normalized_text_sha256": "55ffbb3fd0927a31c49b15ff27fb6b3833242f840e193c61cf0179b9b505bf6a",
+            "parent_id": "train-retained-human-18d8d92eaeaa27ca9ac9fe22a14077ede75c7b3d44b2a21a6c28cf5b13e4ec15",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "bdca591eebccc21048a29241c884d3b384f2cf63e49f8c3fba8f3fcc52a89a3e"
+          },
+          {
+            "id": "local-966484a2036bc8acca68b0d3",
+            "normalized_text_sha256": "57c9ab25bc9af7ed89107151874a7d7ba5ee229f35f3c1906d587e18f5cb1d03",
+            "parent_id": "train-retained-human-0f12a848c9dad984520c0f2407dbf2104bd2bcff7ba7f0daafb0e4ed1c8b1dee",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "eb48d501d3b793ab636ecd70b60eda06ec9dc9df973308d701fe1cf0e0f882be"
+          },
+          {
+            "id": "local-b874ef363638af445171b197",
+            "normalized_text_sha256": "57c9ab25bc9af7ed89107151874a7d7ba5ee229f35f3c1906d587e18f5cb1d03",
+            "parent_id": "train-retained-human-46ef821cb5654898f9c63a3895b154e0062eb43b34564096f48a37ece12986f5",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "eb48d501d3b793ab636ecd70b60eda06ec9dc9df973308d701fe1cf0e0f882be"
+          },
+          {
+            "id": "local-c759da6cf7c2cef00ad17f44",
+            "normalized_text_sha256": "6199f23892aee2554b7be61f1dae44c2dad9bbd9b6ad2196084a58f846738fb2",
+            "parent_id": "train-retained-human-7eb320c10b1eefc3d7514c5cf0005b2a188f5ba93b25c653a67e40791e487bce",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "5652ffd05616788495718b590874958f242086d51f78635945a5fc0bac43ae43"
+          },
+          {
+            "id": "local-bce312febd48e9e578c38db3",
+            "normalized_text_sha256": "6199f23892aee2554b7be61f1dae44c2dad9bbd9b6ad2196084a58f846738fb2",
+            "parent_id": "train-retained-human-667f3f5edc2a02ebe807b07a3f9c1334f757f2f6c6bbe7e4ed9aacae9553210e",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "5652ffd05616788495718b590874958f242086d51f78635945a5fc0bac43ae43"
+          },
+          {
+            "id": "local-53decd66981f38f31d68fb30",
+            "normalized_text_sha256": "828a17469272a98159823ecf265686598fa577708fa6975ee28b3d95179bbe01",
+            "parent_id": "train-retained-human-0f12a848c9dad984520c0f2407dbf2104bd2bcff7ba7f0daafb0e4ed1c8b1dee",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "f4157cf3c15a1e03c74caf44638e16b90cc410f0d08bed84976db76e27f4cf62"
+          },
+          {
+            "id": "local-a08fdf7bdc241b48d7a81ae4",
+            "normalized_text_sha256": "828a17469272a98159823ecf265686598fa577708fa6975ee28b3d95179bbe01",
+            "parent_id": "train-retained-human-46ef821cb5654898f9c63a3895b154e0062eb43b34564096f48a37ece12986f5",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "f4157cf3c15a1e03c74caf44638e16b90cc410f0d08bed84976db76e27f4cf62"
+          },
+          {
+            "id": "local-68dd401a14872b633d7de007",
+            "normalized_text_sha256": "9294670458a690fdc4388612887221b2b97a67f44cbef6d04d98c4c2d6d6324c",
+            "parent_id": "train-retained-human-8a007349045abcd689ae77a1be707d68632fae5d4446b4d7dce866b5b72236ca",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "9294670458a690fdc4388612887221b2b97a67f44cbef6d04d98c4c2d6d6324c"
+          },
+          {
+            "id": "local-96bda714f4eada6754fb13bf",
+            "normalized_text_sha256": "9310a16e7094954ff13157fa37627bb07332a509c3f4110d8bbb03c1c65ca0fc",
+            "parent_id": "train-retained-human-27ce68775c206ab3d1207d6b71a69da0a8e761fbe5628b7c457c7414786baa0b",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "c65d50debb5b530ecfa2e99dadffbcee02eb13229d6f08095d2acc2abadff55a"
+          },
+          {
+            "id": "local-0d5db65bade1b36f005a2c86",
+            "normalized_text_sha256": "a293f77ed9aaa688ab78cf21f5bfbcc5c07a255d4a94e7ca94c28d72ee5250f9",
+            "parent_id": "train-retained-human-81204d85e3b9e41aa12b0f439654d3109ce98ee7a76432cc0f81a400a960e7ab",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "d24082f6f3205208e7e8ff5a42bf3cb1661bca66b60d6fb2c7f558fcf6577923"
+          },
+          {
+            "id": "local-1d14a77ca38500a8095500f4",
+            "normalized_text_sha256": "ab10b9d8e215dc70a957a1636df658eac16e771a352b50df4c11f00a66b09660",
+            "parent_id": "train-retained-human-91267ec69bd3e1bf63783318c2cf7f63d7e67f421df4004f7f52d471d4887eec",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "60f87bf6bb72df6a223605be59ed53dca82f20273a4d9fda0d61bcfad2e89088"
+          },
+          {
+            "id": "local-51d4140ba22834e668f06a15",
+            "normalized_text_sha256": "ab10b9d8e215dc70a957a1636df658eac16e771a352b50df4c11f00a66b09660",
+            "parent_id": "train-retained-human-c223368113f582ef1c5211428bf3703341c91c6ac13e28ae77204371a39312cf",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "60f87bf6bb72df6a223605be59ed53dca82f20273a4d9fda0d61bcfad2e89088"
+          },
+          {
+            "id": "local-f3088bf7a330e20346df2ef8",
+            "normalized_text_sha256": "b57a46023abca0fe0a6b70f61213d7e9289ff728172feae9b14a62b27bf38c4c",
+            "parent_id": "train-retained-human-fde6793afe08412cfcc2e476904039acb284a307a9afbd722c8e962580dff9f9",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "b57a46023abca0fe0a6b70f61213d7e9289ff728172feae9b14a62b27bf38c4c"
+          },
+          {
+            "id": "local-f5210088ce55832808d916db",
+            "normalized_text_sha256": "b57a46023abca0fe0a6b70f61213d7e9289ff728172feae9b14a62b27bf38c4c",
+            "parent_id": "train-retained-human-2d5884f7f9e6f032df6034c1a149cd619ffeafbb34203011f74569851a7bdb13",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "b57a46023abca0fe0a6b70f61213d7e9289ff728172feae9b14a62b27bf38c4c"
+          },
+          {
+            "id": "local-c07dc19380caf305bb3b043e",
+            "normalized_text_sha256": "bb65a93b91656c408f1a540bd137b616df3a14753c467e390c42e2647fe13601",
+            "parent_id": "train-retained-human-ed9e7824d99c771448e4c80715dd808e4415177e5b18c099e6191f9ca20e0f78",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "6c6c20e2beb6fa1939a6383f1474445f5d55e4ef390c813521643301affa9745"
+          },
+          {
+            "id": "local-1ba23803ecd5b77beb34828e",
+            "normalized_text_sha256": "cd163f4035c1389de94965cc7f3777773e0c9bcf337c16cdea0b3328166836c9",
+            "parent_id": "train-retained-human-91267ec69bd3e1bf63783318c2cf7f63d7e67f421df4004f7f52d471d4887eec",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "26cd4b4725792ea6ec49b79206765a86232b505cc0db591f16eaca5c9617cd32"
+          },
+          {
+            "id": "local-132c8eaeafc690cf53eab41b",
+            "normalized_text_sha256": "cd163f4035c1389de94965cc7f3777773e0c9bcf337c16cdea0b3328166836c9",
+            "parent_id": "train-retained-human-c223368113f582ef1c5211428bf3703341c91c6ac13e28ae77204371a39312cf",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "26cd4b4725792ea6ec49b79206765a86232b505cc0db591f16eaca5c9617cd32"
+          },
+          {
+            "id": "local-2f9a8c19bd834a77f2840711",
+            "normalized_text_sha256": "ce3e5b157163873750dd7bab21cb112f14528cf781a1aaa48925977973bb3778",
+            "parent_id": "train-retained-human-44a344eef7caad251d2785b031c4398d35a4b256117a15b4ad1b5de7fed1dcac",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "853ac528b03875eef1e4cb7db2da74889967dae1dede6176192ab782eca56844"
+          },
+          {
+            "id": "local-f35f987749c3a8716dda441b",
+            "normalized_text_sha256": "ce3e5b157163873750dd7bab21cb112f14528cf781a1aaa48925977973bb3778",
+            "parent_id": "train-retained-human-d729290bb4bd5c99c98742917dd86bf1d7dd4d235ab455a8343bae2f69f1ee17",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "853ac528b03875eef1e4cb7db2da74889967dae1dede6176192ab782eca56844"
+          },
+          {
+            "id": "local-5ba52a4c729a9328a65d3b18",
+            "normalized_text_sha256": "ce50a64ca5c0f8afdfa204cbfd32ac13216ada2b62c5bd1d656df233232b0952",
+            "parent_id": "train-retained-human-668bf8418587346c8864b7af79bd8f222ff6ffd493fa05ccc254b4af3358c4de",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "ce50a64ca5c0f8afdfa204cbfd32ac13216ada2b62c5bd1d656df233232b0952"
+          },
+          {
+            "id": "local-b0834cd7544c12d1c09c1959",
+            "normalized_text_sha256": "ce50a64ca5c0f8afdfa204cbfd32ac13216ada2b62c5bd1d656df233232b0952",
+            "parent_id": "train-retained-human-6f77a4f59718a1ffa2618fb67d178fc061833d925063ab0235afc0a337d5ab7c",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "ce50a64ca5c0f8afdfa204cbfd32ac13216ada2b62c5bd1d656df233232b0952"
+          },
+          {
+            "id": "local-425152e02b2bff53e9f26c17",
+            "normalized_text_sha256": "dafae7f03a31ddbf9b98c008b468b47e9c3fdb19adc388168407c6a18446eedc",
+            "parent_id": "train-retained-human-27ce68775c206ab3d1207d6b71a69da0a8e761fbe5628b7c457c7414786baa0b",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "e98c6f3f5fea0da3622bacb2565508a4348e7062a18d8e2aa8a101433a93e864"
+          },
+          {
+            "id": "local-19c670ba14b55b437f44cfcc",
+            "normalized_text_sha256": "e19f37538d3fff19be88ca4893bddace3fc49bf0118b3aec2f93a115486d9bce",
+            "parent_id": "train-retained-human-8e0dea7b594eb43bf02bf8b06ac7cd2c1d5f89bbfaf47dd00b2e1d0978c2899f",
+            "reason": "normalized_text_matches_old_protected_population",
+            "retained_generation_evidence": true,
+            "text_sha256": "e19f37538d3fff19be88ca4893bddace3fc49bf0118b3aec2f93a115486d9bce"
+          },
+          {
+            "id": "local-344fd4d5fb37b531d666b397",
+            "normalized_text_sha256": "f7d9ba11fcf19e95a06201c067da2a969449124a3ffb08e139a07274108fcb13",
+            "parent_id": "train-retained-human-44a344eef7caad251d2785b031c4398d35a4b256117a15b4ad1b5de7fed1dcac",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "f7d9ba11fcf19e95a06201c067da2a969449124a3ffb08e139a07274108fcb13"
+          },
+          {
+            "id": "local-9a89b5d14a686509fb2de647",
+            "normalized_text_sha256": "f7d9ba11fcf19e95a06201c067da2a969449124a3ffb08e139a07274108fcb13",
+            "parent_id": "train-retained-human-d729290bb4bd5c99c98742917dd86bf1d7dd4d235ab455a8343bae2f69f1ee17",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "f7d9ba11fcf19e95a06201c067da2a969449124a3ffb08e139a07274108fcb13"
+          },
+          {
+            "id": "local-1395bc93834f332d28abefec",
+            "normalized_text_sha256": "f7ed408546f923d43dd9c99655ca13b632abf051463893d047f017382c8b9ac5",
+            "parent_id": "train-retained-human-fde6793afe08412cfcc2e476904039acb284a307a9afbd722c8e962580dff9f9",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "d32c15a5c2c48a48e57d99971669d8e4e33471df66e01bffec03c5e6374a392d"
+          },
+          {
+            "id": "local-11746aea24f1cb33580c02f8",
+            "normalized_text_sha256": "f7ed408546f923d43dd9c99655ca13b632abf051463893d047f017382c8b9ac5",
+            "parent_id": "train-retained-human-2d5884f7f9e6f032df6034c1a149cd619ffeafbb34203011f74569851a7bdb13",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "d32c15a5c2c48a48e57d99971669d8e4e33471df66e01bffec03c5e6374a392d"
+          },
+          {
+            "id": "local-15543c8c6ec4484f4eb6ee39",
+            "normalized_text_sha256": "fcdffcb0ae213b6fab62521055323d98cc4f521c2c53779861e39ed68e3544f4",
+            "parent_id": "train-retained-human-82e67553789a75dd9b6584980ade89391b3c71bfb01e79067c73a0562c193984",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "58ee5d54848de7b3ce1fa24920cf37eae31dcb17b1e09064a9e37807d009501d"
+          },
+          {
+            "id": "local-334ca82ee4485d4b1a17d836",
+            "normalized_text_sha256": "fcdffcb0ae213b6fab62521055323d98cc4f521c2c53779861e39ed68e3544f4",
+            "parent_id": "train-retained-human-ac91d6f69d101e1a310ebdb4c10016e56df81eb323aa6b2f32ba59c31bc51fb2",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "58ee5d54848de7b3ce1fa24920cf37eae31dcb17b1e09064a9e37807d009501d"
+          },
+          {
+            "id": "local-438e2de1af285e06af2894cf",
+            "normalized_text_sha256": "ff90c15b163e6fa5648111b5a3883c13a7102761ba51d8f10cde995e8ef7dcca",
+            "parent_id": "train-retained-human-35840258b1873d00cd7d7fcd83391ebfafbb55f2178a6392749ed030684b28e5",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "a32e672f44e8c211a0d5855343672c7ac879bab437b13950e6c2a511643cb8a1"
+          },
+          {
+            "id": "local-47d3e5fbc7bb0e004b74b86b",
+            "normalized_text_sha256": "ff90c15b163e6fa5648111b5a3883c13a7102761ba51d8f10cde995e8ef7dcca",
+            "parent_id": "train-retained-human-dea712bf8a8140b7065a21832ae83a728e15535dadcd2ca1a18d33ada0a61861",
+            "reason": "duplicate_generated_normalized_text",
+            "retained_generation_evidence": true,
+            "text_sha256": "a32e672f44e8c211a0d5855343672c7ac879bab437b13950e6c2a511643cb8a1"
+          }
+        ],
+        "full_rewrite_mixed_share_one_rows": 392,
+        "generators": [
+          {
+            "accepted": 979,
+            "binding_sha256": "e683194d7b5db844e2da107aeb1714fb7847eb4bdd2d2c8645dedd5d42a9ed88",
+            "complete": true,
+            "config_sha256": "fc3f44298af6443f1de0ef031a55270caec98272a06d776faeee21c8d18e7d5d",
+            "failed": 1,
+            "failures": [
+              {
+                "id": "local-08750affff275afd321edf16",
+                "mode": "controlled_rewrite",
+                "parent_id": "train-retained-human-35840258b1873d00cd7d7fcd83391ebfafbb55f2178a6392749ed030684b28e5",
+                "reason": "no_accepted_response_after_bounded_attempts",
+                "requested_span_percent": 10
+              }
+            ],
+            "generator": "Qwen/Qwen3.6-35B-A3B:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+            "input_sha256": "764164018292a1290bd9db94f1d5ed50486902f519bbf6b7f8ff4bb0f16cfab1",
+            "report": {
+              "accepted": 979,
+              "binding_sha256": "e683194d7b5db844e2da107aeb1714fb7847eb4bdd2d2c8645dedd5d42a9ed88",
+              "complete": true,
+              "failures": [
+                {
+                  "id": "local-08750affff275afd321edf16",
+                  "mode": "controlled_rewrite",
+                  "parent_id": "train-retained-human-35840258b1873d00cd7d7fcd83391ebfafbb55f2178a6392749ed030684b28e5",
+                  "reason": "no_accepted_response_after_bounded_attempts",
+                  "requested_span_percent": 10
+                }
+              ],
+              "input_sha256": "764164018292a1290bd9db94f1d5ed50486902f519bbf6b7f8ff4bb0f16cfab1",
+              "records_sha256": "58af6c7e1837fffc1126aea496d04de0017856acd649d0b535f2a4d3ab35f4bd",
+              "schema": "slop_ninja_controlled_generation_report_v2",
+              "test_opened": false
+            },
+            "requested": 980,
+            "slot": "known_model_1"
+          },
+          {
+            "accepted": 979,
+            "binding_sha256": "97b6f013030a6d8d8ad6530145ae68b6ede7249bdaad382e713a67d2dfaa9c1b",
+            "complete": true,
+            "config_sha256": "3fc69820a9a81998b5f11b8a275819a6cd534536009e0cdb9d10f01b77e98109",
+            "failed": 1,
+            "failures": [
+              {
+                "id": "local-f263fa12cbe0b0a76fce5f51",
+                "mode": "controlled_rewrite",
+                "parent_id": "train-retained-human-c799b13f0d0a2049d3f490d8ca3f383982623141966d0b330b946b5cca1ffb69",
+                "reason": "no_accepted_response_after_bounded_attempts",
+                "requested_span_percent": 10
+              }
+            ],
+            "generator": "microsoft/Phi-4-mini-instruct:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2",
+            "input_sha256": "764164018292a1290bd9db94f1d5ed50486902f519bbf6b7f8ff4bb0f16cfab1",
+            "report": {
+              "accepted": 979,
+              "binding_sha256": "97b6f013030a6d8d8ad6530145ae68b6ede7249bdaad382e713a67d2dfaa9c1b",
+              "complete": true,
+              "failures": [
+                {
+                  "id": "local-f263fa12cbe0b0a76fce5f51",
+                  "mode": "controlled_rewrite",
+                  "parent_id": "train-retained-human-c799b13f0d0a2049d3f490d8ca3f383982623141966d0b330b946b5cca1ffb69",
+                  "reason": "no_accepted_response_after_bounded_attempts",
+                  "requested_span_percent": 10
+                }
+              ],
+              "input_sha256": "764164018292a1290bd9db94f1d5ed50486902f519bbf6b7f8ff4bb0f16cfab1",
+              "records_sha256": "36ccde230fcea841992af48212b24163e2b1d0ca53b9b8003c0c66139f8e2042",
+              "schema": "slop_ninja_controlled_generation_report_v2",
+              "test_opened": false
+            },
+            "requested": 980,
+            "slot": "known_model_2"
+          }
+        ],
+        "included": 2104,
+        "origins": {
+          "human_only": 196,
+          "mixed": 1566,
+          "model_only": 342
+        },
+        "protected_population_count": 3,
+        "requested_generation_tasks": 1960,
+        "requested_roots": 196,
+        "root_admission": {
+          "admitted": 196,
+          "batch_id": "large-batch-v1-retained",
+          "excluded": 0,
+          "exclusion_audit_sha256": "b8e0308ab86a27da49c19d3dee9d979537b166c04d7bfd70db33502e04266735",
+          "exclusions_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "plan_sha256": "ad86986537394bc823784289c429f53bfb974d85a841e345c8c28bb61499a7fa",
+          "protocol_sha256": "ece048fe90a2e22411ab6ea4b9f670d7a4afa781e1f66cc66705972eee1d50e7",
+          "requested": 196,
+          "requests_sha256": "5ceb39c661a06c53d12f6ebc3fbbf42d807517e21fc5f9152308240f4a1107dd",
+          "schema": "slop_ninja_retained_train_roots_v1",
+          "selection_sha256": "7a900a1ec0f267e3f8c8254b0ec1d86755d11b73e8f10826f7079c527f9b6270"
+        },
+        "schema": "slop_ninja_train_augmentation_audit_v1",
+        "test_text_opened": false,
+        "unknown_human_identity_rows": 2104
+      },
+      "batch": "retained196",
+      "excluded": [
+        {
+          "id": "local-6a92de76b338e528a36d8c8c",
+          "normalized_text_sha256": "001c4196f9b64a68f4c604fa23209cf6088d8fd1e97affe9e663ad3084a1eb94",
+          "parent_id": "train-retained-human-668bf8418587346c8864b7af79bd8f222ff6ffd493fa05ccc254b4af3358c4de",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "be2f8dd319bc237dd4bea9697922ed660dfe38386ba69fc1e825b79028804d98"
+        },
+        {
+          "id": "local-2105f4b15996c4a8a12efda2",
+          "normalized_text_sha256": "001c4196f9b64a68f4c604fa23209cf6088d8fd1e97affe9e663ad3084a1eb94",
+          "parent_id": "train-retained-human-6f77a4f59718a1ffa2618fb67d178fc061833d925063ab0235afc0a337d5ab7c",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "be2f8dd319bc237dd4bea9697922ed660dfe38386ba69fc1e825b79028804d98"
+        },
+        {
+          "id": "local-f15da2d360cdc97d994c91e6",
+          "normalized_text_sha256": "091dc229bc30e315cd682de556fb0e2054367586e7bf4fb31d972250d48c55eb",
+          "parent_id": "train-retained-human-b943011e3979e71f844609d850cf576402b55140751edce0003d97588f0ceeeb",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "afe0415bcf1779a624f0639cb7ba60fabc339c98c7e12aadb81dfd629a6412b6"
+        },
+        {
+          "id": "local-bd1312d73c510b306556b27c",
+          "normalized_text_sha256": "108c2a4228132a5bf7c1552aabc3cd341186afe505d2b750283904777b99f4fd",
+          "parent_id": "train-retained-human-796602739b6d9d431b49df6faf8f7c2a33d44895f66cfbca29cbbdb26c44eb4a",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "b85a93b98b34036152cf5bab9419293a51011d8d292fac15c541d1df2fdc4aab"
+        },
+        {
+          "id": "local-ea806a15887da690811be650",
+          "normalized_text_sha256": "1bf3e4c0afffa845af1a92da157a0f9f2a7b8610540cae4cfd18fa14f583f9cf",
+          "parent_id": "train-retained-human-d9e0a99d0a999228ea43be5ba07ced791d5c939aa920a405091e4f0e400e4d5e",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "cc92e3da9e6ce26c39ba1df2b8cbdc5727db2923b15c04fdbb9012259e783b93"
+        },
+        {
+          "id": "local-87c3a5e7d81a853ac917069e",
+          "normalized_text_sha256": "26a27a44915d280c6029b3f8b09436bc4c0a5577cf9ad6691364285d55b775a9",
+          "parent_id": "train-retained-human-23d1d56ee5994541cf87dc4349b3e2a3b34c0ddc14cca2a5e034cae545b5a86f",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "e97ee5211f6110353477901c6ca211bb087b92dc3ef55866cdfc898857351987"
+        },
+        {
+          "id": "local-4049624508a19f5d0002aa16",
+          "normalized_text_sha256": "2c9aa374c20a09afa22f69320414b7d568e6898838f34e8319321f933b7b7b3d",
+          "parent_id": "train-retained-human-35840258b1873d00cd7d7fcd83391ebfafbb55f2178a6392749ed030684b28e5",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "571755be787f2937d21f25c42d9adc8e541c9e1634428e9753e7caf31bc1ed39"
+        },
+        {
+          "id": "local-45aca579fb7a54475cd10972",
+          "normalized_text_sha256": "2c9aa374c20a09afa22f69320414b7d568e6898838f34e8319321f933b7b7b3d",
+          "parent_id": "train-retained-human-dea712bf8a8140b7065a21832ae83a728e15535dadcd2ca1a18d33ada0a61861",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "571755be787f2937d21f25c42d9adc8e541c9e1634428e9753e7caf31bc1ed39"
+        },
+        {
+          "id": "local-b7aab61e072597ed0080a4bc",
+          "normalized_text_sha256": "2e6ebd963b98b03ac800acf2c76f5d0d4c1a3b09d34e78fa86b29ac005a0d661",
+          "parent_id": "train-retained-human-9e408e6c973da4c705781c6dff3afd4a2bb53abfc85c3af0cb213f3a54fc9d6a",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "ae16243fdda70640df566d6c79c23e4a622a5e22eba9dbf832f87b741fbf79ed"
+        },
+        {
+          "id": "local-b42957fde8ef98202247f5b2",
+          "normalized_text_sha256": "2e6ebd963b98b03ac800acf2c76f5d0d4c1a3b09d34e78fa86b29ac005a0d661",
+          "parent_id": "train-retained-human-0e1521a11425faee4aa87b23bf63c812579a325a5b343b1bb63eed4fd278856a",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "ae16243fdda70640df566d6c79c23e4a622a5e22eba9dbf832f87b741fbf79ed"
+        },
+        {
+          "id": "local-f3f8f3c898d979d82270be2b",
+          "normalized_text_sha256": "2f79c6f5fc503b32094a92f22b050625ff1c1df562785c88cbae809ea8db3491",
+          "parent_id": "train-retained-human-82e67553789a75dd9b6584980ade89391b3c71bfb01e79067c73a0562c193984",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "5380020fd17d918a98b6885f3e48a6c0b650f98c0c0c3dc7f9d5e3bdb92c0af0"
+        },
+        {
+          "id": "local-f1a888563a2c441d77419479",
+          "normalized_text_sha256": "2f79c6f5fc503b32094a92f22b050625ff1c1df562785c88cbae809ea8db3491",
+          "parent_id": "train-retained-human-ac91d6f69d101e1a310ebdb4c10016e56df81eb323aa6b2f32ba59c31bc51fb2",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "5380020fd17d918a98b6885f3e48a6c0b650f98c0c0c3dc7f9d5e3bdb92c0af0"
+        },
+        {
+          "id": "local-7482ea63b321578462bcc921",
+          "normalized_text_sha256": "314194f51664a8247bd7865283077f1748d3a3b0e8d9bb6457dc61d29c4e3d41",
+          "parent_id": "train-retained-human-c799b13f0d0a2049d3f490d8ca3f383982623141966d0b330b946b5cca1ffb69",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "728838ac8a155994cd2255e4d26d84bf34c286a02807d1ecc1ca92d5ed782a3c"
+        },
+        {
+          "id": "local-1536a043d5aebe4242a6ff8c",
+          "normalized_text_sha256": "48414f1e72c94b94a005259e2be56fb1ec464696584d0ab8c07fdda87e90dbc3",
+          "parent_id": "train-retained-human-19db4dfb21668e1e8289d6fdd29929aff4b3f42a73705f8ea3a1e57d85757980",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "48414f1e72c94b94a005259e2be56fb1ec464696584d0ab8c07fdda87e90dbc3"
+        },
+        {
+          "id": "local-fc1917e9c25b7c79b66fbc77",
+          "normalized_text_sha256": "4b4490adc7ae453cb1dfd1cbbea3c25b0002824f48559f987da75172ae445c39",
+          "parent_id": "train-retained-human-9e408e6c973da4c705781c6dff3afd4a2bb53abfc85c3af0cb213f3a54fc9d6a",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "4b4490adc7ae453cb1dfd1cbbea3c25b0002824f48559f987da75172ae445c39"
+        },
+        {
+          "id": "local-c49ff75b9d3029bdb7f023e8",
+          "normalized_text_sha256": "4b4490adc7ae453cb1dfd1cbbea3c25b0002824f48559f987da75172ae445c39",
+          "parent_id": "train-retained-human-0e1521a11425faee4aa87b23bf63c812579a325a5b343b1bb63eed4fd278856a",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "4b4490adc7ae453cb1dfd1cbbea3c25b0002824f48559f987da75172ae445c39"
+        },
+        {
+          "id": "local-22de0238e3cdc18f38226513",
+          "normalized_text_sha256": "514a153a7a90a95b39792088d1f7dd07ede6f20491d59db1f0185726e44c45fe",
+          "parent_id": "train-retained-human-e2b7f8974311b6ec0bc410cd1928ff13e857168117d012ca4a6b96493b2fb3f2",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "98c8ee260abbcfc9f0f3ad22fc19d7991222bbac91d55a6822fe7209bc579eff"
+        },
+        {
+          "id": "local-3d2221df85e95ba2e5bdcffe",
+          "normalized_text_sha256": "514a153a7a90a95b39792088d1f7dd07ede6f20491d59db1f0185726e44c45fe",
+          "parent_id": "train-retained-human-18d8d92eaeaa27ca9ac9fe22a14077ede75c7b3d44b2a21a6c28cf5b13e4ec15",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "98c8ee260abbcfc9f0f3ad22fc19d7991222bbac91d55a6822fe7209bc579eff"
+        },
+        {
+          "id": "local-bfd576929934460a1bf71291",
+          "normalized_text_sha256": "55ffbb3fd0927a31c49b15ff27fb6b3833242f840e193c61cf0179b9b505bf6a",
+          "parent_id": "train-retained-human-e2b7f8974311b6ec0bc410cd1928ff13e857168117d012ca4a6b96493b2fb3f2",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "bdca591eebccc21048a29241c884d3b384f2cf63e49f8c3fba8f3fcc52a89a3e"
+        },
+        {
+          "id": "local-266d69aea44ebeeaea228499",
+          "normalized_text_sha256": "55ffbb3fd0927a31c49b15ff27fb6b3833242f840e193c61cf0179b9b505bf6a",
+          "parent_id": "train-retained-human-18d8d92eaeaa27ca9ac9fe22a14077ede75c7b3d44b2a21a6c28cf5b13e4ec15",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "bdca591eebccc21048a29241c884d3b384f2cf63e49f8c3fba8f3fcc52a89a3e"
+        },
+        {
+          "id": "local-966484a2036bc8acca68b0d3",
+          "normalized_text_sha256": "57c9ab25bc9af7ed89107151874a7d7ba5ee229f35f3c1906d587e18f5cb1d03",
+          "parent_id": "train-retained-human-0f12a848c9dad984520c0f2407dbf2104bd2bcff7ba7f0daafb0e4ed1c8b1dee",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "eb48d501d3b793ab636ecd70b60eda06ec9dc9df973308d701fe1cf0e0f882be"
+        },
+        {
+          "id": "local-b874ef363638af445171b197",
+          "normalized_text_sha256": "57c9ab25bc9af7ed89107151874a7d7ba5ee229f35f3c1906d587e18f5cb1d03",
+          "parent_id": "train-retained-human-46ef821cb5654898f9c63a3895b154e0062eb43b34564096f48a37ece12986f5",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "eb48d501d3b793ab636ecd70b60eda06ec9dc9df973308d701fe1cf0e0f882be"
+        },
+        {
+          "id": "local-c759da6cf7c2cef00ad17f44",
+          "normalized_text_sha256": "6199f23892aee2554b7be61f1dae44c2dad9bbd9b6ad2196084a58f846738fb2",
+          "parent_id": "train-retained-human-7eb320c10b1eefc3d7514c5cf0005b2a188f5ba93b25c653a67e40791e487bce",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "5652ffd05616788495718b590874958f242086d51f78635945a5fc0bac43ae43"
+        },
+        {
+          "id": "local-bce312febd48e9e578c38db3",
+          "normalized_text_sha256": "6199f23892aee2554b7be61f1dae44c2dad9bbd9b6ad2196084a58f846738fb2",
+          "parent_id": "train-retained-human-667f3f5edc2a02ebe807b07a3f9c1334f757f2f6c6bbe7e4ed9aacae9553210e",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "5652ffd05616788495718b590874958f242086d51f78635945a5fc0bac43ae43"
+        },
+        {
+          "id": "local-53decd66981f38f31d68fb30",
+          "normalized_text_sha256": "828a17469272a98159823ecf265686598fa577708fa6975ee28b3d95179bbe01",
+          "parent_id": "train-retained-human-0f12a848c9dad984520c0f2407dbf2104bd2bcff7ba7f0daafb0e4ed1c8b1dee",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "f4157cf3c15a1e03c74caf44638e16b90cc410f0d08bed84976db76e27f4cf62"
+        },
+        {
+          "id": "local-a08fdf7bdc241b48d7a81ae4",
+          "normalized_text_sha256": "828a17469272a98159823ecf265686598fa577708fa6975ee28b3d95179bbe01",
+          "parent_id": "train-retained-human-46ef821cb5654898f9c63a3895b154e0062eb43b34564096f48a37ece12986f5",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "f4157cf3c15a1e03c74caf44638e16b90cc410f0d08bed84976db76e27f4cf62"
+        },
+        {
+          "id": "local-68dd401a14872b633d7de007",
+          "normalized_text_sha256": "9294670458a690fdc4388612887221b2b97a67f44cbef6d04d98c4c2d6d6324c",
+          "parent_id": "train-retained-human-8a007349045abcd689ae77a1be707d68632fae5d4446b4d7dce866b5b72236ca",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "9294670458a690fdc4388612887221b2b97a67f44cbef6d04d98c4c2d6d6324c"
+        },
+        {
+          "id": "local-96bda714f4eada6754fb13bf",
+          "normalized_text_sha256": "9310a16e7094954ff13157fa37627bb07332a509c3f4110d8bbb03c1c65ca0fc",
+          "parent_id": "train-retained-human-27ce68775c206ab3d1207d6b71a69da0a8e761fbe5628b7c457c7414786baa0b",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "c65d50debb5b530ecfa2e99dadffbcee02eb13229d6f08095d2acc2abadff55a"
+        },
+        {
+          "id": "local-0d5db65bade1b36f005a2c86",
+          "normalized_text_sha256": "a293f77ed9aaa688ab78cf21f5bfbcc5c07a255d4a94e7ca94c28d72ee5250f9",
+          "parent_id": "train-retained-human-81204d85e3b9e41aa12b0f439654d3109ce98ee7a76432cc0f81a400a960e7ab",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "d24082f6f3205208e7e8ff5a42bf3cb1661bca66b60d6fb2c7f558fcf6577923"
+        },
+        {
+          "id": "local-1d14a77ca38500a8095500f4",
+          "normalized_text_sha256": "ab10b9d8e215dc70a957a1636df658eac16e771a352b50df4c11f00a66b09660",
+          "parent_id": "train-retained-human-91267ec69bd3e1bf63783318c2cf7f63d7e67f421df4004f7f52d471d4887eec",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "60f87bf6bb72df6a223605be59ed53dca82f20273a4d9fda0d61bcfad2e89088"
+        },
+        {
+          "id": "local-51d4140ba22834e668f06a15",
+          "normalized_text_sha256": "ab10b9d8e215dc70a957a1636df658eac16e771a352b50df4c11f00a66b09660",
+          "parent_id": "train-retained-human-c223368113f582ef1c5211428bf3703341c91c6ac13e28ae77204371a39312cf",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "60f87bf6bb72df6a223605be59ed53dca82f20273a4d9fda0d61bcfad2e89088"
+        },
+        {
+          "id": "local-f3088bf7a330e20346df2ef8",
+          "normalized_text_sha256": "b57a46023abca0fe0a6b70f61213d7e9289ff728172feae9b14a62b27bf38c4c",
+          "parent_id": "train-retained-human-fde6793afe08412cfcc2e476904039acb284a307a9afbd722c8e962580dff9f9",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "b57a46023abca0fe0a6b70f61213d7e9289ff728172feae9b14a62b27bf38c4c"
+        },
+        {
+          "id": "local-f5210088ce55832808d916db",
+          "normalized_text_sha256": "b57a46023abca0fe0a6b70f61213d7e9289ff728172feae9b14a62b27bf38c4c",
+          "parent_id": "train-retained-human-2d5884f7f9e6f032df6034c1a149cd619ffeafbb34203011f74569851a7bdb13",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "b57a46023abca0fe0a6b70f61213d7e9289ff728172feae9b14a62b27bf38c4c"
+        },
+        {
+          "id": "local-c07dc19380caf305bb3b043e",
+          "normalized_text_sha256": "bb65a93b91656c408f1a540bd137b616df3a14753c467e390c42e2647fe13601",
+          "parent_id": "train-retained-human-ed9e7824d99c771448e4c80715dd808e4415177e5b18c099e6191f9ca20e0f78",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "6c6c20e2beb6fa1939a6383f1474445f5d55e4ef390c813521643301affa9745"
+        },
+        {
+          "id": "local-1ba23803ecd5b77beb34828e",
+          "normalized_text_sha256": "cd163f4035c1389de94965cc7f3777773e0c9bcf337c16cdea0b3328166836c9",
+          "parent_id": "train-retained-human-91267ec69bd3e1bf63783318c2cf7f63d7e67f421df4004f7f52d471d4887eec",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "26cd4b4725792ea6ec49b79206765a86232b505cc0db591f16eaca5c9617cd32"
+        },
+        {
+          "id": "local-132c8eaeafc690cf53eab41b",
+          "normalized_text_sha256": "cd163f4035c1389de94965cc7f3777773e0c9bcf337c16cdea0b3328166836c9",
+          "parent_id": "train-retained-human-c223368113f582ef1c5211428bf3703341c91c6ac13e28ae77204371a39312cf",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "26cd4b4725792ea6ec49b79206765a86232b505cc0db591f16eaca5c9617cd32"
+        },
+        {
+          "id": "local-2f9a8c19bd834a77f2840711",
+          "normalized_text_sha256": "ce3e5b157163873750dd7bab21cb112f14528cf781a1aaa48925977973bb3778",
+          "parent_id": "train-retained-human-44a344eef7caad251d2785b031c4398d35a4b256117a15b4ad1b5de7fed1dcac",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "853ac528b03875eef1e4cb7db2da74889967dae1dede6176192ab782eca56844"
+        },
+        {
+          "id": "local-f35f987749c3a8716dda441b",
+          "normalized_text_sha256": "ce3e5b157163873750dd7bab21cb112f14528cf781a1aaa48925977973bb3778",
+          "parent_id": "train-retained-human-d729290bb4bd5c99c98742917dd86bf1d7dd4d235ab455a8343bae2f69f1ee17",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "853ac528b03875eef1e4cb7db2da74889967dae1dede6176192ab782eca56844"
+        },
+        {
+          "id": "local-5ba52a4c729a9328a65d3b18",
+          "normalized_text_sha256": "ce50a64ca5c0f8afdfa204cbfd32ac13216ada2b62c5bd1d656df233232b0952",
+          "parent_id": "train-retained-human-668bf8418587346c8864b7af79bd8f222ff6ffd493fa05ccc254b4af3358c4de",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "ce50a64ca5c0f8afdfa204cbfd32ac13216ada2b62c5bd1d656df233232b0952"
+        },
+        {
+          "id": "local-b0834cd7544c12d1c09c1959",
+          "normalized_text_sha256": "ce50a64ca5c0f8afdfa204cbfd32ac13216ada2b62c5bd1d656df233232b0952",
+          "parent_id": "train-retained-human-6f77a4f59718a1ffa2618fb67d178fc061833d925063ab0235afc0a337d5ab7c",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "ce50a64ca5c0f8afdfa204cbfd32ac13216ada2b62c5bd1d656df233232b0952"
+        },
+        {
+          "id": "local-425152e02b2bff53e9f26c17",
+          "normalized_text_sha256": "dafae7f03a31ddbf9b98c008b468b47e9c3fdb19adc388168407c6a18446eedc",
+          "parent_id": "train-retained-human-27ce68775c206ab3d1207d6b71a69da0a8e761fbe5628b7c457c7414786baa0b",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "e98c6f3f5fea0da3622bacb2565508a4348e7062a18d8e2aa8a101433a93e864"
+        },
+        {
+          "id": "local-19c670ba14b55b437f44cfcc",
+          "normalized_text_sha256": "e19f37538d3fff19be88ca4893bddace3fc49bf0118b3aec2f93a115486d9bce",
+          "parent_id": "train-retained-human-8e0dea7b594eb43bf02bf8b06ac7cd2c1d5f89bbfaf47dd00b2e1d0978c2899f",
+          "reason": "normalized_text_matches_old_protected_population",
+          "retained_generation_evidence": true,
+          "text_sha256": "e19f37538d3fff19be88ca4893bddace3fc49bf0118b3aec2f93a115486d9bce"
+        },
+        {
+          "id": "local-344fd4d5fb37b531d666b397",
+          "normalized_text_sha256": "f7d9ba11fcf19e95a06201c067da2a969449124a3ffb08e139a07274108fcb13",
+          "parent_id": "train-retained-human-44a344eef7caad251d2785b031c4398d35a4b256117a15b4ad1b5de7fed1dcac",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "f7d9ba11fcf19e95a06201c067da2a969449124a3ffb08e139a07274108fcb13"
+        },
+        {
+          "id": "local-9a89b5d14a686509fb2de647",
+          "normalized_text_sha256": "f7d9ba11fcf19e95a06201c067da2a969449124a3ffb08e139a07274108fcb13",
+          "parent_id": "train-retained-human-d729290bb4bd5c99c98742917dd86bf1d7dd4d235ab455a8343bae2f69f1ee17",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "f7d9ba11fcf19e95a06201c067da2a969449124a3ffb08e139a07274108fcb13"
+        },
+        {
+          "id": "local-1395bc93834f332d28abefec",
+          "normalized_text_sha256": "f7ed408546f923d43dd9c99655ca13b632abf051463893d047f017382c8b9ac5",
+          "parent_id": "train-retained-human-fde6793afe08412cfcc2e476904039acb284a307a9afbd722c8e962580dff9f9",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "d32c15a5c2c48a48e57d99971669d8e4e33471df66e01bffec03c5e6374a392d"
+        },
+        {
+          "id": "local-11746aea24f1cb33580c02f8",
+          "normalized_text_sha256": "f7ed408546f923d43dd9c99655ca13b632abf051463893d047f017382c8b9ac5",
+          "parent_id": "train-retained-human-2d5884f7f9e6f032df6034c1a149cd619ffeafbb34203011f74569851a7bdb13",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "d32c15a5c2c48a48e57d99971669d8e4e33471df66e01bffec03c5e6374a392d"
+        },
+        {
+          "id": "local-15543c8c6ec4484f4eb6ee39",
+          "normalized_text_sha256": "fcdffcb0ae213b6fab62521055323d98cc4f521c2c53779861e39ed68e3544f4",
+          "parent_id": "train-retained-human-82e67553789a75dd9b6584980ade89391b3c71bfb01e79067c73a0562c193984",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "58ee5d54848de7b3ce1fa24920cf37eae31dcb17b1e09064a9e37807d009501d"
+        },
+        {
+          "id": "local-334ca82ee4485d4b1a17d836",
+          "normalized_text_sha256": "fcdffcb0ae213b6fab62521055323d98cc4f521c2c53779861e39ed68e3544f4",
+          "parent_id": "train-retained-human-ac91d6f69d101e1a310ebdb4c10016e56df81eb323aa6b2f32ba59c31bc51fb2",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "58ee5d54848de7b3ce1fa24920cf37eae31dcb17b1e09064a9e37807d009501d"
+        },
+        {
+          "id": "local-438e2de1af285e06af2894cf",
+          "normalized_text_sha256": "ff90c15b163e6fa5648111b5a3883c13a7102761ba51d8f10cde995e8ef7dcca",
+          "parent_id": "train-retained-human-35840258b1873d00cd7d7fcd83391ebfafbb55f2178a6392749ed030684b28e5",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "a32e672f44e8c211a0d5855343672c7ac879bab437b13950e6c2a511643cb8a1"
+        },
+        {
+          "id": "local-47d3e5fbc7bb0e004b74b86b",
+          "normalized_text_sha256": "ff90c15b163e6fa5648111b5a3883c13a7102761ba51d8f10cde995e8ef7dcca",
+          "parent_id": "train-retained-human-dea712bf8a8140b7065a21832ae83a728e15535dadcd2ca1a18d33ada0a61861",
+          "reason": "duplicate_generated_normalized_text",
+          "retained_generation_evidence": true,
+          "text_sha256": "a32e672f44e8c211a0d5855343672c7ac879bab437b13950e6c2a511643cb8a1"
+        }
+      ],
+      "generation_reports": [
+        {
+          "accepted": 979,
+          "binding_sha256": "e683194d7b5db844e2da107aeb1714fb7847eb4bdd2d2c8645dedd5d42a9ed88",
+          "complete": true,
+          "config_sha256": "fc3f44298af6443f1de0ef031a55270caec98272a06d776faeee21c8d18e7d5d",
+          "failed": 1,
+          "failures": [
+            {
+              "id": "local-08750affff275afd321edf16",
+              "mode": "controlled_rewrite",
+              "parent_id": "train-retained-human-35840258b1873d00cd7d7fcd83391ebfafbb55f2178a6392749ed030684b28e5",
+              "reason": "no_accepted_response_after_bounded_attempts",
+              "requested_span_percent": 10
+            }
+          ],
+          "generator": "Qwen/Qwen3.6-35B-A3B:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+          "input_sha256": "764164018292a1290bd9db94f1d5ed50486902f519bbf6b7f8ff4bb0f16cfab1",
+          "report": {
+            "accepted": 979,
+            "binding_sha256": "e683194d7b5db844e2da107aeb1714fb7847eb4bdd2d2c8645dedd5d42a9ed88",
+            "complete": true,
+            "failures": [
+              {
+                "id": "local-08750affff275afd321edf16",
+                "mode": "controlled_rewrite",
+                "parent_id": "train-retained-human-35840258b1873d00cd7d7fcd83391ebfafbb55f2178a6392749ed030684b28e5",
+                "reason": "no_accepted_response_after_bounded_attempts",
+                "requested_span_percent": 10
+              }
+            ],
+            "input_sha256": "764164018292a1290bd9db94f1d5ed50486902f519bbf6b7f8ff4bb0f16cfab1",
+            "records_sha256": "58af6c7e1837fffc1126aea496d04de0017856acd649d0b535f2a4d3ab35f4bd",
+            "schema": "slop_ninja_controlled_generation_report_v2",
+            "test_opened": false
+          },
+          "requested": 980,
+          "slot": "known_model_1"
+        },
+        {
+          "accepted": 979,
+          "binding_sha256": "97b6f013030a6d8d8ad6530145ae68b6ede7249bdaad382e713a67d2dfaa9c1b",
+          "complete": true,
+          "config_sha256": "3fc69820a9a81998b5f11b8a275819a6cd534536009e0cdb9d10f01b77e98109",
+          "failed": 1,
+          "failures": [
+            {
+              "id": "local-f263fa12cbe0b0a76fce5f51",
+              "mode": "controlled_rewrite",
+              "parent_id": "train-retained-human-c799b13f0d0a2049d3f490d8ca3f383982623141966d0b330b946b5cca1ffb69",
+              "reason": "no_accepted_response_after_bounded_attempts",
+              "requested_span_percent": 10
+            }
+          ],
+          "generator": "microsoft/Phi-4-mini-instruct:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2",
+          "input_sha256": "764164018292a1290bd9db94f1d5ed50486902f519bbf6b7f8ff4bb0f16cfab1",
+          "report": {
+            "accepted": 979,
+            "binding_sha256": "97b6f013030a6d8d8ad6530145ae68b6ede7249bdaad382e713a67d2dfaa9c1b",
+            "complete": true,
+            "failures": [
+              {
+                "id": "local-f263fa12cbe0b0a76fce5f51",
+                "mode": "controlled_rewrite",
+                "parent_id": "train-retained-human-c799b13f0d0a2049d3f490d8ca3f383982623141966d0b330b946b5cca1ffb69",
+                "reason": "no_accepted_response_after_bounded_attempts",
+                "requested_span_percent": 10
+              }
+            ],
+            "input_sha256": "764164018292a1290bd9db94f1d5ed50486902f519bbf6b7f8ff4bb0f16cfab1",
+            "records_sha256": "36ccde230fcea841992af48212b24163e2b1d0ca53b9b8003c0c66139f8e2042",
+            "schema": "slop_ninja_controlled_generation_report_v2",
+            "test_opened": false
+          },
+          "requested": 980,
+          "slot": "known_model_2"
+        }
+      ],
+      "metadata_exclusions": null,
+      "original_audit_sha256": "acb4e34804914624b65042cef73224e0549745e8891ab44a098d4976511f23b6",
+      "original_manifest_sha256": "b11e7f74664b3fdf68d060ae2aac32a63055777a5041740721bac3c1e17b5d69",
+      "original_records_sha256": "63172c072543c8b7a77e3a5c10f652d2cf0fed7234b9884ee2025d718f450e1e",
+      "records": 2104,
+      "requested_generation_records": 1960,
+      "requested_human_records": 196,
+      "requested_records": 2156,
+      "root_admission": {
+        "admitted": 196,
+        "batch_id": "large-batch-v1-retained",
+        "excluded": 0,
+        "exclusion_audit_sha256": "b8e0308ab86a27da49c19d3dee9d979537b166c04d7bfd70db33502e04266735",
+        "exclusions_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "plan_sha256": "ad86986537394bc823784289c429f53bfb974d85a841e345c8c28bb61499a7fa",
+        "protocol_sha256": "ece048fe90a2e22411ab6ea4b9f670d7a4afa781e1f66cc66705972eee1d50e7",
+        "requested": 196,
+        "requests_sha256": "5ceb39c661a06c53d12f6ebc3fbbf42d807517e21fc5f9152308240f4a1107dd",
+        "schema": "slop_ninja_retained_train_roots_v1",
+        "selection_sha256": "7a900a1ec0f267e3f8c8254b0ec1d86755d11b73e8f10826f7079c527f9b6270"
+      },
+      "source_admission_exclusions": null,
+      "source_admission_requested": null,
+      "source_families": 196
+    },
+    {
+      "accepted_before_exclusions": 261,
+      "audit_counts": {
+        "accepted_before_exclusions": 261,
+        "excluded": [],
+        "generation_failures": 0,
+        "generators": [
+          {
+            "accepted": 116,
+            "binding_sha256": "c21996667a38b25bfc4d83ade320a72bd574b9b8ef5f86f9c5739eee2e5b17ba",
+            "complete": true,
+            "config_sha256": "fc3f44298af6443f1de0ef031a55270caec98272a06d776faeee21c8d18e7d5d",
+            "failed": 0,
+            "failures": [],
+            "generator": "Qwen/Qwen3.6-35B-A3B:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+            "input_sha256": "a0b0e3d1d4f7a7df1c7c61bd8c1e0e990bcf8782fc5f055413c1ff28f72cc367",
+            "report": {
+              "accepted": 116,
+              "binding_sha256": "c21996667a38b25bfc4d83ade320a72bd574b9b8ef5f86f9c5739eee2e5b17ba",
+              "complete": true,
+              "failures": [],
+              "input_sha256": "a0b0e3d1d4f7a7df1c7c61bd8c1e0e990bcf8782fc5f055413c1ff28f72cc367",
+              "records_sha256": "cffc1fa622ee60146c283422693d6611ee37a9a729ae210a1c76e0f3da247226",
+              "schema": "slop_ninja_controlled_generation_report_v2",
+              "test_opened": false
+            },
+            "requested": 116,
+            "slot": "known_model_1"
+          },
+          {
+            "accepted": 116,
+            "binding_sha256": "154a37fcfe5c385f14222b262a409a1271de7bfe440a95114847a29dab21761c",
+            "complete": true,
+            "config_sha256": "3fc69820a9a81998b5f11b8a275819a6cd534536009e0cdb9d10f01b77e98109",
+            "failed": 0,
+            "failures": [],
+            "generator": "microsoft/Phi-4-mini-instruct:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2",
+            "input_sha256": "a0b0e3d1d4f7a7df1c7c61bd8c1e0e990bcf8782fc5f055413c1ff28f72cc367",
+            "report": {
+              "accepted": 116,
+              "binding_sha256": "154a37fcfe5c385f14222b262a409a1271de7bfe440a95114847a29dab21761c",
+              "complete": true,
+              "failures": [],
+              "input_sha256": "a0b0e3d1d4f7a7df1c7c61bd8c1e0e990bcf8782fc5f055413c1ff28f72cc367",
+              "records_sha256": "45e96f907e0da96ca9dcc1511381b103150bd0a3d85d354787691609dd09756c",
+              "schema": "slop_ninja_controlled_generation_report_v2",
+              "test_opened": false
+            },
+            "requested": 116,
+            "slot": "known_model_2"
+          }
+        ],
+        "included": 261,
+        "later_union_must_recheck_generated_batches": true,
+        "metadata_exclusions": [
+          {
+            "pg_id": 62979,
+            "reasons": [
+              "alias_review: Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly says only three planned books and part of the fourth were written and that preliminary notes are printed in full. Percy Lubbock is separately credited for prefatory material (marcrel:aui). This is an unfinished narrative plus notes, not a qualified standalone complete novel under this batch's rule; narrative-only admission would require a separately reviewed scope. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            ],
+            "review": {
+              "aliases": [
+                "ivory tower",
+                "the ivory tower"
+              ],
+              "decision": "exclude",
+              "pg_id": 62979,
+              "reason": "Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly says only three planned books and part of the fourth were written and that preliminary notes are printed in full. Percy Lubbock is separately credited for prefatory material (marcrel:aui). This is an unfinished narrative plus notes, not a qualified standalone complete novel under this batch's rule; narrative-only admission would require a separately reviewed scope. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            }
+          },
+          {
+            "pg_id": 63369,
+            "reasons": [
+              "alias_review: Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly identifies an unfinished novel and prints its notes in full; tableOfContents lists The sense of the past and Notes for the sense of the past. Percy Lubbock is credited as editor. Reserve the narrative and notes together; this combined fragment/notes edition is outside the standalone-novel batch. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            ],
+            "review": {
+              "aliases": [
+                "sense of the past",
+                "the sense of the past",
+                "notes for the sense of the past"
+              ],
+              "decision": "exclude",
+              "pg_id": 63369,
+              "reason": "Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly identifies an unfinished novel and prints its notes in full; tableOfContents lists The sense of the past and Notes for the sense of the past. Percy Lubbock is credited as editor. Reserve the narrative and notes together; this combined fragment/notes edition is outside the standalone-novel batch. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            }
+          },
+          {
+            "pg_id": 66156,
+            "reasons": [
+              "alias_review: Established known-author key joseph_conrad matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE / UNRESOLVED: the retained RDF supplies the novel title, author and subject categories but does not resolve the unfinished/posthumous-edition and contained-material question for Suspense. There is no authoritative contents/completeness note in the retained item metadata; its automatically generated synopsis is insufficient to settle that question. Conservatively withhold this family pending bibliographic clarification, without inspecting prose. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            ],
+            "review": {
+              "aliases": [
+                "suspense",
+                "suspense a napoleonic novel"
+              ],
+              "decision": "exclude",
+              "pg_id": 66156,
+              "reason": "Established known-author key joseph_conrad matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE / UNRESOLVED: the retained RDF supplies the novel title, author and subject categories but does not resolve the unfinished/posthumous-edition and contained-material question for Suspense. There is no authoritative contents/completeness note in the retained item metadata; its automatically generated synopsis is insufficient to settle that question. Conservatively withhold this family pending bibliographic clarification, without inspecting prose. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            }
+          }
+        ],
+        "prospective_roots_manifest": {
+          "sha256": "e5e6965d7a25db9ed2ea345ec4af283c879f7e0e4acd5d5a7e7ab123b320bc1c"
+        },
+        "protected_population_count": 3,
+        "requested_book_candidates": 32,
+        "requested_generation_tasks": 232,
+        "requested_roots": 29,
+        "schema": "slop_ninja_book_augmentation_audit_v1",
+        "source_admission_exclusions": [
+          {
+            "pg_id": 62979,
+            "reasons": [
+              "alias_review: Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly says only three planned books and part of the fourth were written and that preliminary notes are printed in full. Percy Lubbock is separately credited for prefatory material (marcrel:aui). This is an unfinished narrative plus notes, not a qualified standalone complete novel under this batch's rule; narrative-only admission would require a separately reviewed scope. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            ],
+            "review": {
+              "aliases": [
+                "ivory tower",
+                "the ivory tower"
+              ],
+              "decision": "exclude",
+              "pg_id": 62979,
+              "reason": "Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly says only three planned books and part of the fourth were written and that preliminary notes are printed in full. Percy Lubbock is separately credited for prefatory material (marcrel:aui). This is an unfinished narrative plus notes, not a qualified standalone complete novel under this batch's rule; narrative-only admission would require a separately reviewed scope. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            }
+          },
+          {
+            "pg_id": 63369,
+            "reasons": [
+              "alias_review: Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly identifies an unfinished novel and prints its notes in full; tableOfContents lists The sense of the past and Notes for the sense of the past. Percy Lubbock is credited as editor. Reserve the narrative and notes together; this combined fragment/notes edition is outside the standalone-novel batch. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            ],
+            "review": {
+              "aliases": [
+                "sense of the past",
+                "the sense of the past",
+                "notes for the sense of the past"
+              ],
+              "decision": "exclude",
+              "pg_id": 63369,
+              "reason": "Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly identifies an unfinished novel and prints its notes in full; tableOfContents lists The sense of the past and Notes for the sense of the past. Percy Lubbock is credited as editor. Reserve the narrative and notes together; this combined fragment/notes edition is outside the standalone-novel batch. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            }
+          },
+          {
+            "pg_id": 66156,
+            "reasons": [
+              "alias_review: Established known-author key joseph_conrad matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE / UNRESOLVED: the retained RDF supplies the novel title, author and subject categories but does not resolve the unfinished/posthumous-edition and contained-material question for Suspense. There is no authoritative contents/completeness note in the retained item metadata; its automatically generated synopsis is insufficient to settle that question. Conservatively withhold this family pending bibliographic clarification, without inspecting prose. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            ],
+            "review": {
+              "aliases": [
+                "suspense",
+                "suspense a napoleonic novel"
+              ],
+              "decision": "exclude",
+              "pg_id": 66156,
+              "reason": "Established known-author key joseph_conrad matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE / UNRESOLVED: the retained RDF supplies the novel title, author and subject categories but does not resolve the unfinished/posthumous-edition and contained-material question for Suspense. There is no authoritative contents/completeness note in the retained item metadata; its automatically generated synopsis is insufficient to settle that question. Conservatively withhold this family pending bibliographic clarification, without inspecting prose. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+            }
+          }
+        ],
+        "source_admission_requested": 32,
+        "test_text_opened": false
+      },
+      "batch": "books29",
+      "excluded": [],
+      "generation_reports": [
+        {
+          "accepted": 116,
+          "binding_sha256": "c21996667a38b25bfc4d83ade320a72bd574b9b8ef5f86f9c5739eee2e5b17ba",
+          "complete": true,
+          "config_sha256": "fc3f44298af6443f1de0ef031a55270caec98272a06d776faeee21c8d18e7d5d",
+          "failed": 0,
+          "failures": [],
+          "generator": "Qwen/Qwen3.6-35B-A3B:649d7508507b84638732c4f52c24c8b15843c6dca2f3ff793ae07c14a67ebbb3",
+          "input_sha256": "a0b0e3d1d4f7a7df1c7c61bd8c1e0e990bcf8782fc5f055413c1ff28f72cc367",
+          "report": {
+            "accepted": 116,
+            "binding_sha256": "c21996667a38b25bfc4d83ade320a72bd574b9b8ef5f86f9c5739eee2e5b17ba",
+            "complete": true,
+            "failures": [],
+            "input_sha256": "a0b0e3d1d4f7a7df1c7c61bd8c1e0e990bcf8782fc5f055413c1ff28f72cc367",
+            "records_sha256": "cffc1fa622ee60146c283422693d6611ee37a9a729ae210a1c76e0f3da247226",
+            "schema": "slop_ninja_controlled_generation_report_v2",
+            "test_opened": false
+          },
+          "requested": 116,
+          "slot": "known_model_1"
+        },
+        {
+          "accepted": 116,
+          "binding_sha256": "154a37fcfe5c385f14222b262a409a1271de7bfe440a95114847a29dab21761c",
+          "complete": true,
+          "config_sha256": "3fc69820a9a81998b5f11b8a275819a6cd534536009e0cdb9d10f01b77e98109",
+          "failed": 0,
+          "failures": [],
+          "generator": "microsoft/Phi-4-mini-instruct:01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2",
+          "input_sha256": "a0b0e3d1d4f7a7df1c7c61bd8c1e0e990bcf8782fc5f055413c1ff28f72cc367",
+          "report": {
+            "accepted": 116,
+            "binding_sha256": "154a37fcfe5c385f14222b262a409a1271de7bfe440a95114847a29dab21761c",
+            "complete": true,
+            "failures": [],
+            "input_sha256": "a0b0e3d1d4f7a7df1c7c61bd8c1e0e990bcf8782fc5f055413c1ff28f72cc367",
+            "records_sha256": "45e96f907e0da96ca9dcc1511381b103150bd0a3d85d354787691609dd09756c",
+            "schema": "slop_ninja_controlled_generation_report_v2",
+            "test_opened": false
+          },
+          "requested": 116,
+          "slot": "known_model_2"
+        }
+      ],
+      "metadata_exclusions": [
+        {
+          "pg_id": 62979,
+          "reasons": [
+            "alias_review: Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly says only three planned books and part of the fourth were written and that preliminary notes are printed in full. Percy Lubbock is separately credited for prefatory material (marcrel:aui). This is an unfinished narrative plus notes, not a qualified standalone complete novel under this batch's rule; narrative-only admission would require a separately reviewed scope. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          ],
+          "review": {
+            "aliases": [
+              "ivory tower",
+              "the ivory tower"
+            ],
+            "decision": "exclude",
+            "pg_id": 62979,
+            "reason": "Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly says only three planned books and part of the fourth were written and that preliminary notes are printed in full. Percy Lubbock is separately credited for prefatory material (marcrel:aui). This is an unfinished narrative plus notes, not a qualified standalone complete novel under this batch's rule; narrative-only admission would require a separately reviewed scope. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          }
+        },
+        {
+          "pg_id": 63369,
+          "reasons": [
+            "alias_review: Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly identifies an unfinished novel and prints its notes in full; tableOfContents lists The sense of the past and Notes for the sense of the past. Percy Lubbock is credited as editor. Reserve the narrative and notes together; this combined fragment/notes edition is outside the standalone-novel batch. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          ],
+          "review": {
+            "aliases": [
+              "sense of the past",
+              "the sense of the past",
+              "notes for the sense of the past"
+            ],
+            "decision": "exclude",
+            "pg_id": 63369,
+            "reason": "Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly identifies an unfinished novel and prints its notes in full; tableOfContents lists The sense of the past and Notes for the sense of the past. Percy Lubbock is credited as editor. Reserve the narrative and notes together; this combined fragment/notes edition is outside the standalone-novel batch. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          }
+        },
+        {
+          "pg_id": 66156,
+          "reasons": [
+            "alias_review: Established known-author key joseph_conrad matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE / UNRESOLVED: the retained RDF supplies the novel title, author and subject categories but does not resolve the unfinished/posthumous-edition and contained-material question for Suspense. There is no authoritative contents/completeness note in the retained item metadata; its automatically generated synopsis is insufficient to settle that question. Conservatively withhold this family pending bibliographic clarification, without inspecting prose. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          ],
+          "review": {
+            "aliases": [
+              "suspense",
+              "suspense a napoleonic novel"
+            ],
+            "decision": "exclude",
+            "pg_id": 66156,
+            "reason": "Established known-author key joseph_conrad matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE / UNRESOLVED: the retained RDF supplies the novel title, author and subject categories but does not resolve the unfinished/posthumous-edition and contained-material question for Suspense. There is no authoritative contents/completeness note in the retained item metadata; its automatically generated synopsis is insufficient to settle that question. Conservatively withhold this family pending bibliographic clarification, without inspecting prose. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          }
+        }
+      ],
+      "original_audit_sha256": "9ec84e2a2870f129ead743e43177fcec05dccd949c57477a5212aeb3e6e0f208",
+      "original_manifest_sha256": "e4b051a649fdd994bc8992b8e922b98a4425d9a4a6f246b14c0ad316752db02a",
+      "original_records_sha256": "932f8cf6064da0fa7fcd232b6ed66a353dcc8126af23967f0e117458ad10dcc6",
+      "records": 261,
+      "requested_generation_records": 232,
+      "requested_human_records": 29,
+      "requested_records": 261,
+      "root_admission": null,
+      "source_admission_exclusions": [
+        {
+          "pg_id": 62979,
+          "reasons": [
+            "alias_review: Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly says only three planned books and part of the fourth were written and that preliminary notes are printed in full. Percy Lubbock is separately credited for prefatory material (marcrel:aui). This is an unfinished narrative plus notes, not a qualified standalone complete novel under this batch's rule; narrative-only admission would require a separately reviewed scope. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          ],
+          "review": {
+            "aliases": [
+              "ivory tower",
+              "the ivory tower"
+            ],
+            "decision": "exclude",
+            "pg_id": 62979,
+            "reason": "Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly says only three planned books and part of the fourth were written and that preliminary notes are printed in full. Percy Lubbock is separately credited for prefatory material (marcrel:aui). This is an unfinished narrative plus notes, not a qualified standalone complete novel under this batch's rule; narrative-only admission would require a separately reviewed scope. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          }
+        },
+        {
+          "pg_id": 63369,
+          "reasons": [
+            "alias_review: Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly identifies an unfinished novel and prints its notes in full; tableOfContents lists The sense of the past and Notes for the sense of the past. Percy Lubbock is credited as editor. Reserve the narrative and notes together; this combined fragment/notes edition is outside the standalone-novel batch. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          ],
+          "review": {
+            "aliases": [
+              "sense of the past",
+              "the sense of the past",
+              "notes for the sense of the past"
+            ],
+            "decision": "exclude",
+            "pg_id": 63369,
+            "reason": "Established known-author key henry_james matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE: RDF explicitly identifies an unfinished novel and prints its notes in full; tableOfContents lists The sense of the past and Notes for the sense of the past. Percy Lubbock is credited as editor. Reserve the narrative and notes together; this combined fragment/notes edition is outside the standalone-novel batch. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          }
+        },
+        {
+          "pg_id": 66156,
+          "reasons": [
+            "alias_review: Established known-author key joseph_conrad matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE / UNRESOLVED: the retained RDF supplies the novel title, author and subject categories but does not resolve the unfinished/posthumous-edition and contained-material question for Suspense. There is no authoritative contents/completeness note in the retained item metadata; its automatically generated synopsis is insufficient to settle that question. Conservatively withhold this family pending bibliographic clarification, without inspecting prose. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          ],
+          "review": {
+            "aliases": [
+              "suspense",
+              "suspense a napoleonic novel"
+            ],
+            "decision": "exclude",
+            "pg_id": 66156,
+            "reason": "Established known-author key joseph_conrad matches the frozen human-profile roster and the retained sole-creator RDF; English and US public-domain metadata verified. EXCLUDE / UNRESOLVED: the retained RDF supplies the novel title, author and subject categories but does not resolve the unfinished/posthumous-edition and contained-material question for Suspense. There is no authoritative contents/completeness note in the retained item metadata; its automatically generated synopsis is insufficient to settle that question. Conservatively withhold this family pending bibliographic clarification, without inspecting prose. No PGID/title-alias collision found against the 72 fresh reservations, 26 prior-pilot works or 513 original-V6 Wikipedia title reservations/source credits; synopsis titles reserve their underlying book families, not separate synopsis-only families. No acquisition admission from this review."
+          }
+        }
+      ],
+      "source_admission_requested": 32,
+      "source_families": 29
+    }
+  ],
+  "complete": true,
+  "records": 2365,
+  "schema": "slop_ninja_retained_train_publication_audit_v1",
+  "source_families": 225,
+  "test_text_opened": false
+}

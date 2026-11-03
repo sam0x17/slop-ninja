@@ -1,0 +1,37 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="151 853 952 208" width="952" height="208" role="img" aria-labelledby="snw-logo-title snw-logo-description">
+  <title id="snw-logo-title">Slop Ninja — outlined wordmark</title>
+  <desc id="snw-logo-description">Rebuilt as editable native SVG paths and smooth gradients from the approved Slop Ninja artwork. No embedded raster images, scripts, linked assets, or font dependencies. Exterior background is transparent; intentional black face and document areas are preserved. Primary colorway is intended for dark backgrounds.</desc>
+  <defs>
+    <linearGradient id="snw-ninja-lettering-gradient" gradientUnits="userSpaceOnUse" x1="836.762" y1="843.648" x2="877.185" y2="1045.763">
+      <stop offset="0.000" stop-color="#4cfbc5"/>
+      <stop offset="0.100" stop-color="#48fac4"/>
+      <stop offset="0.200" stop-color="#42fac3"/>
+      <stop offset="0.300" stop-color="#3cfbc1"/>
+      <stop offset="0.400" stop-color="#39fac0"/>
+      <stop offset="0.500" stop-color="#34fabe"/>
+      <stop offset="0.600" stop-color="#30fabd"/>
+      <stop offset="0.700" stop-color="#30fabd"/>
+      <stop offset="0.800" stop-color="#28faba"/>
+      <stop offset="0.900" stop-color="#22fab7"/>
+      <stop offset="1.000" stop-color="#20f9b6"/>
+    </linearGradient>
+  </defs>
+  <g id="snw-wordmark" aria-label="Slop Ninja">
+    <g id="snw-slop-lettering" fill="#FCFCFD">
+      <path d="M222 876 H309 Q312 876 311 881 C308 887 296 900 288 905 H222 C216 905 213 909 213 915 C213 921 216 924 222 924 H276 C301 924 318 939 318 959 C318 982 302 998 277 998 H171 L193 969 H276 C283 969 286 966 286 960 C286 954 283 950 276 950 H220 C195 950 180 940 180 916 C180 894 198 876 222 876 Z" fill="#FCFCFD" fill-rule="evenodd" id="snw-letter-S"/>
+      <path d="M328 875 H359 V998 H341 C333 998 328 990 328 980 Z" fill="#FCFCFD" fill-rule="evenodd" id="snw-letter-l"/>
+      <path d="M403 909 H455 C475 909 489 924 489 943 V964 C489 983 475 998 455 998 H403 C383 998 369 983 369 964 V943 C369 924 383 909 403 909 Z M409 936 H448 C454 936 458 940 458 946 V961 C458 967 454 971 448 971 H409 C403 971 399 967 399 961 V946 C399 940 403 936 409 936 Z" fill="#FCFCFD" fill-rule="evenodd" id="snw-letter-o"/>
+      <path d="M500 909 H571 C596 909 612 925 612 949 V958 C612 983 596 998 571 998 H530 V1031 H500 Z M530 936 H566 C576 936 582 941 582 950 V958 C582 966 577 972 568 972 H546 L530 997 Z" fill="#FCFCFD" fill-rule="evenodd" id="snw-letter-p"/>
+    </g>
+    <g id="snw-ninja-lettering">
+      <path d="M642 877 H679 Q684 877 687 882 L749 955 V877 H780 V977 C780 993 774 1000 760 1000 H754 C744 1000 739 996 731 986 L673 913 V983 C673 994 669 1000 661 1000 H642 Z" fill="url(#snw-ninja-lettering-gradient)" fill-rule="evenodd" id="snw-letter-N"/>
+      <path d="M831 909 H890 C912 909 926 923 926 946 V1000 H911 C901 1000 896 998 896 988 V948 C896 939 891 935 883 935 H872 C864 935 860 940 860 949 V1000 H831 Z" fill="url(#snw-ninja-lettering-gradient)" fill-rule="evenodd" id="snw-letter-n"/>
+      <path d="M936 910 H965 V999 C965 1026 948 1040 923 1040 H894 L912 1015 H925 C933 1015 936 1009 936 1000 Z" fill="url(#snw-ninja-lettering-gradient)" fill-rule="evenodd" id="snw-letter-j"/>
+      <path d="M979 909 H1044 C1068 909 1082 923 1082 945 V1001 H1053 L1052 994 C1043 1000 1036 1001 1024 1001 H1006 C985 1001 974 991 974 973 C974 956 987 945 1008 945 H1052 C1052 940 1049 934 1042 934 H996 Q993 934 991 931 Z M1010 965 H1052 V978 H1010 C1005 978 1002 975 1002 972 C1002 968 1006 965 1010 965 Z" fill="url(#snw-ninja-lettering-gradient)" fill-rule="evenodd" id="snw-letter-a"/>
+      <rect id="snw-letter-i-stem" x="792" y="910" width="29" height="90" fill="url(#snw-ninja-lettering-gradient)"/>
+      <rect id="snw-letter-i-dot" x="792" y="878" width="29" height="24" fill="url(#snw-ninja-lettering-gradient)"/>
+      <rect id="snw-letter-j-dot" x="936" y="878" width="29" height="24" fill="url(#snw-ninja-lettering-gradient)"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,11 @@
+{
+  "all_non_payload_tree_entries_identical": true,
+  "commits": 2379,
+  "compressed_bytes": 9426109,
+  "decoded_bytes": 144690596,
+  "distinct_payload_blobs": 31,
+  "distinct_tree_pairs": 2407,
+  "every_transformed_blob_restores_exactly": true,
+  "payload_tree_entries": 31,
+  "schema": "slop_ninja_dataset_history_audit_v1"
+}

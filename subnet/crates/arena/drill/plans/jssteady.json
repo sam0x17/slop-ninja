@@ -1,0 +1,60 @@
+{
+  "note": "JS-side measurement plan. It ran (round2/plat1, round2/steady-*) on the modules built for the previous model (arena-drill-2026-10-31, envelope 26,000 receipts), whose JS check admitted every shape here; the JS heap does not depend on the pool. Under the current model (envelope 20,000) the 26,000-receipt invocations are refused before allocating; rerun it on a measurement build whose model admits them (SLOP_NINJA_MEMORY_MODEL). Each scenario ran as its own plan, the four concurrently.",
+  "compatibility_date": "2026-10-01",
+  "variants": [
+    "arena"
+  ],
+  "selftest": false,
+  "scenarios": [
+    {
+      "name": "package20k",
+      "shapes": [
+        20000
+      ],
+      "invocations": 5000,
+      "gc_every": 100,
+      "expect": {
+        "within_ceiling": true,
+        "statuses.0": 5000
+      }
+    },
+    {
+      "name": "packagestream20k",
+      "shapes": [
+        20000
+      ],
+      "flags": 1,
+      "invocations": 5000,
+      "gc_every": 100,
+      "expect": {
+        "within_ceiling": true,
+        "statuses.0": 5000
+      }
+    },
+    {
+      "name": "package26k",
+      "shapes": [
+        26000
+      ],
+      "invocations": 5000,
+      "gc_every": 100,
+      "expect": {
+        "within_ceiling": true,
+        "statuses.0": 5000
+      }
+    },
+    {
+      "name": "packagestream26k",
+      "shapes": [
+        26000
+      ],
+      "flags": 1,
+      "invocations": 5000,
+      "gc_every": 100,
+      "expect": {
+        "within_ceiling": true,
+        "statuses.0": 5000
+      }
+    }
+  ]
+}

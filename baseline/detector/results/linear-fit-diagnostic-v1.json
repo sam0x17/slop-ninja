@@ -1,0 +1,3407 @@
+{
+  "schema": "slop_ninja_linear_fit_diagnostic_v1",
+  "status": "development_only_diagnostic_not_a_model_release",
+  "classifier_source_commit": "631184809c241f79a3db9575db598f48169d492f",
+  "original_recipe": {
+    "status": "diagnostic_replay",
+    "input_sha256": "a765568b817b8f1ca9cbd05b959aa2ab559e234f33381cf710b3445ecdf71172",
+    "note": "NumPy FP64 replay using the original frozen coordinates and optimizer recipe; reduction order can differ from Rust. No calibration or Test rows loaded; no new deployable artifact or promotion.",
+    "numpy_version": "2.5.3",
+    "candidates": {
+      "word": {
+        "original_artifact_id": "9184f1644c309879e0f1fe74cd97b011765cd8f71649cb75a98cf475f3c74af9",
+        "config": {
+          "features": {
+            "mode": "word",
+            "max_coordinates": 8192,
+            "min_document_frequency": 2,
+            "scale_floor": 0.01
+          },
+          "epochs": 300,
+          "learning_rate": 0.03,
+          "l2": 0.01,
+          "patience": 25
+        },
+        "dimensions": 8192,
+        "best_epoch": 1,
+        "epochs_run": 26,
+        "history": [
+          {
+            "epoch": 0,
+            "train": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681091
+            },
+            "development": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681093
+            }
+          },
+          {
+            "epoch": 1,
+            "train": {
+              "log_loss": 0.378972015774074,
+              "accuracy": 0.8948948948948949,
+              "max_abs_logit": 20.115101223829882,
+              "mean_entropy": 0.11482962238066242
+            },
+            "development": {
+              "log_loss": 0.6502477375484611,
+              "accuracy": 0.8333333333333334,
+              "max_abs_logit": 13.170282765539714,
+              "mean_entropy": 0.4284363426147204
+            }
+          },
+          {
+            "epoch": 2,
+            "train": {
+              "log_loss": 0.5682019654309761,
+              "accuracy": 0.8888888888888888,
+              "max_abs_logit": 30.030285983168632,
+              "mean_entropy": 0.05007801806271636
+            },
+            "development": {
+              "log_loss": 2.648920557444316,
+              "accuracy": 0.5555555555555556,
+              "max_abs_logit": 16.48926240174087,
+              "mean_entropy": 0.15224310982884123
+            }
+          },
+          {
+            "epoch": 3,
+            "train": {
+              "log_loss": 0.31166416362434707,
+              "accuracy": 0.9459459459459459,
+              "max_abs_logit": 38.42710838168065,
+              "mean_entropy": 0.039384128049186215
+            },
+            "development": {
+              "log_loss": 1.9761994288920919,
+              "accuracy": 0.6388888888888888,
+              "max_abs_logit": 19.153969926474204,
+              "mean_entropy": 0.1278867368013041
+            }
+          },
+          {
+            "epoch": 4,
+            "train": {
+              "log_loss": 0.07458533508836332,
+              "accuracy": 0.9819819819819819,
+              "max_abs_logit": 42.67069656158574,
+              "mean_entropy": 0.021131782982329695
+            },
+            "development": {
+              "log_loss": 1.6605352586411977,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 23.494162108365035,
+              "mean_entropy": 0.1298709559752839
+            }
+          },
+          {
+            "epoch": 5,
+            "train": {
+              "log_loss": 0.03867550676911306,
+              "accuracy": 0.987987987987988,
+              "max_abs_logit": 48.433911028482775,
+              "mean_entropy": 0.021069051057919144
+            },
+            "development": {
+              "log_loss": 1.6232264347907586,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 26.932447964090805,
+              "mean_entropy": 0.14034261665604725
+            }
+          },
+          {
+            "epoch": 6,
+            "train": {
+              "log_loss": 0.022855518429489952,
+              "accuracy": 0.990990990990991,
+              "max_abs_logit": 55.06755130818605,
+              "mean_entropy": 0.010600952944300319
+            },
+            "development": {
+              "log_loss": 1.6498246030333625,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 29.608274236655785,
+              "mean_entropy": 0.12903309025286652
+            }
+          },
+          {
+            "epoch": 7,
+            "train": {
+              "log_loss": 0.03181158258505005,
+              "accuracy": 0.984984984984985,
+              "max_abs_logit": 60.65811385000296,
+              "mean_entropy": 0.014226341885247932
+            },
+            "development": {
+              "log_loss": 1.7591884708642092,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 31.737294560084454,
+              "mean_entropy": 0.10723816848121734
+            }
+          },
+          {
+            "epoch": 8,
+            "train": {
+              "log_loss": 0.030789916131163792,
+              "accuracy": 0.990990990990991,
+              "max_abs_logit": 63.693901538519555,
+              "mean_entropy": 0.008087830063523805
+            },
+            "development": {
+              "log_loss": 1.6770906040890865,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 33.571397790681814,
+              "mean_entropy": 0.10535738286382754
+            }
+          },
+          {
+            "epoch": 9,
+            "train": {
+              "log_loss": 0.007803200905989421,
+              "accuracy": 0.996996996996997,
+              "max_abs_logit": 66.03884188186466,
+              "mean_entropy": 0.013373395759520448
+            },
+            "development": {
+              "log_loss": 1.615970263512767,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 35.11747785563466,
+              "mean_entropy": 0.09767993834776129
+            }
+          },
+          {
+            "epoch": 10,
+            "train": {
+              "log_loss": 0.005530841547565039,
+              "accuracy": 0.996996996996997,
+              "max_abs_logit": 67.86192301397617,
+              "mean_entropy": 0.009588157337268139
+            },
+            "development": {
+              "log_loss": 1.5297771979196924,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 36.40325786965793,
+              "mean_entropy": 0.09295895676438286
+            }
+          },
+          {
+            "epoch": 11,
+            "train": {
+              "log_loss": 0.0019382882105862733,
+              "accuracy": 1.0,
+              "max_abs_logit": 69.18825728288027,
+              "mean_entropy": 0.005140352777309084
+            },
+            "development": {
+              "log_loss": 1.4544872723585558,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 37.46294029730599,
+              "mean_entropy": 0.09333162186191964
+            }
+          },
+          {
+            "epoch": 12,
+            "train": {
+              "log_loss": 0.0010259532737386856,
+              "accuracy": 1.0,
+              "max_abs_logit": 70.04500782606453,
+              "mean_entropy": 0.00419849719648637
+            },
+            "development": {
+              "log_loss": 1.4108855878852042,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 38.31104011877335,
+              "mean_entropy": 0.09902641874175194
+            }
+          },
+          {
+            "epoch": 13,
+            "train": {
+              "log_loss": 0.00500132952028453,
+              "accuracy": 0.996996996996997,
+              "max_abs_logit": 70.47764487709146,
+              "mean_entropy": 0.008313087601080765
+            },
+            "development": {
+              "log_loss": 1.3751373788328385,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 38.948929914902,
+              "mean_entropy": 0.11171612266992488
+            }
+          },
+          {
+            "epoch": 14,
+            "train": {
+              "log_loss": 0.0021449970305160914,
+              "accuracy": 1.0,
+              "max_abs_logit": 70.52952000247008,
+              "mean_entropy": 0.005722183631623861
+            },
+            "development": {
+              "log_loss": 1.3866741506945228,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 39.3773131759251,
+              "mean_entropy": 0.12884466777504155
+            }
+          },
+          {
+            "epoch": 15,
+            "train": {
+              "log_loss": 0.000584114227740516,
+              "accuracy": 1.0,
+              "max_abs_logit": 70.23636341374697,
+              "mean_entropy": 0.0026429462423419644
+            },
+            "development": {
+              "log_loss": 1.373862283404887,
+              "accuracy": 0.7777777777777778,
+              "max_abs_logit": 39.60024186321442,
+              "mean_entropy": 0.14374302440908746
+            }
+          },
+          {
+            "epoch": 16,
+            "train": {
+              "log_loss": 0.00023440871320604516,
+              "accuracy": 1.0,
+              "max_abs_logit": 69.62597562461053,
+              "mean_entropy": 0.001332952385591613
+            },
+            "development": {
+              "log_loss": 1.3589238943157484,
+              "accuracy": 0.75,
+              "max_abs_logit": 39.6258498443877,
+              "mean_entropy": 0.15164106336793515
+            }
+          },
+          {
+            "epoch": 17,
+            "train": {
+              "log_loss": 0.0001519597039096799,
+              "accuracy": 1.0,
+              "max_abs_logit": 70.69014582503937,
+              "mean_entropy": 0.0009606433527665199
+            },
+            "development": {
+              "log_loss": 1.3505765104895984,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 39.462119446686245,
+              "mean_entropy": 0.15085855132860448
+            }
+          },
+          {
+            "epoch": 18,
+            "train": {
+              "log_loss": 0.00018018441725528892,
+              "accuracy": 1.0,
+              "max_abs_logit": 71.75323060302772,
+              "mean_entropy": 0.0010898029620598389
+            },
+            "development": {
+              "log_loss": 1.3531470488961101,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 39.11878371344255,
+              "mean_entropy": 0.1438686134345718
+            }
+          },
+          {
+            "epoch": 19,
+            "train": {
+              "log_loss": 0.0003297076212743403,
+              "accuracy": 1.0,
+              "max_abs_logit": 72.32752289704668,
+              "mean_entropy": 0.001769814395897754
+            },
+            "development": {
+              "log_loss": 1.3615780014508105,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 38.60930026537977,
+              "mean_entropy": 0.13743249668195706
+            }
+          },
+          {
+            "epoch": 20,
+            "train": {
+              "log_loss": 0.0008158371459449684,
+              "accuracy": 1.0,
+              "max_abs_logit": 72.24381797656723,
+              "mean_entropy": 0.0026374271054750297
+            },
+            "development": {
+              "log_loss": 1.3445325676628883,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 37.9505443261836,
+              "mean_entropy": 0.14455647306753305
+            }
+          },
+          {
+            "epoch": 21,
+            "train": {
+              "log_loss": 0.00043289563276346785,
+              "accuracy": 1.0,
+              "max_abs_logit": 70.06573324649905,
+              "mean_entropy": 0.002026000729877119
+            },
+            "development": {
+              "log_loss": 1.318355067382515,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 37.16710683717432,
+              "mean_entropy": 0.15441697545397248
+            }
+          },
+          {
+            "epoch": 22,
+            "train": {
+              "log_loss": 0.0005339241309215265,
+              "accuracy": 1.0,
+              "max_abs_logit": 67.44776054685555,
+              "mean_entropy": 0.002200577742612054
+            },
+            "development": {
+              "log_loss": 1.3088467841787188,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 36.28229516885445,
+              "mean_entropy": 0.149125022219703
+            }
+          },
+          {
+            "epoch": 23,
+            "train": {
+              "log_loss": 0.00033561952540371896,
+              "accuracy": 1.0,
+              "max_abs_logit": 64.67228706658878,
+              "mean_entropy": 0.0015491055217636226
+            },
+            "development": {
+              "log_loss": 1.3001423894182205,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 35.311183606321876,
+              "mean_entropy": 0.14220149345648486
+            }
+          },
+          {
+            "epoch": 24,
+            "train": {
+              "log_loss": 0.00015528616387988474,
+              "accuracy": 1.0,
+              "max_abs_logit": 61.80407500214438,
+              "mean_entropy": 0.0010044314632291543
+            },
+            "development": {
+              "log_loss": 1.2885061220755771,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 34.25674042364079,
+              "mean_entropy": 0.13872710323924983
+            }
+          },
+          {
+            "epoch": 25,
+            "train": {
+              "log_loss": 0.00014735035215792427,
+              "accuracy": 1.0,
+              "max_abs_logit": 58.87175684384342,
+              "mean_entropy": 0.0010017125767849042
+            },
+            "development": {
+              "log_loss": 1.273570801223646,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 33.134531530967756,
+              "mean_entropy": 0.13765308420411823
+            }
+          },
+          {
+            "epoch": 26,
+            "train": {
+              "log_loss": 0.00016563337359047344,
+              "accuracy": 1.0,
+              "max_abs_logit": 55.89830756058551,
+              "mean_entropy": 0.0011282282124898417
+            },
+            "development": {
+              "log_loss": 1.25195422839809,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 31.96168197134029,
+              "mean_entropy": 0.13854134539259452
+            }
+          }
+        ],
+        "mean_train_squared_norm": 5441.001490835153
+      },
+      "grammar": {
+        "original_artifact_id": "2f3fc8e48d3b1d3ebfcd84cfb33160cb177deca7998e3d286e135ca501853ac2",
+        "config": {
+          "features": {
+            "mode": "grammar",
+            "max_coordinates": 8192,
+            "min_document_frequency": 2,
+            "scale_floor": 0.01
+          },
+          "epochs": 300,
+          "learning_rate": 0.03,
+          "l2": 0.01,
+          "patience": 25
+        },
+        "dimensions": 8192,
+        "best_epoch": 0,
+        "epochs_run": 25,
+        "history": [
+          {
+            "epoch": 0,
+            "train": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681091
+            },
+            "development": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681093
+            }
+          },
+          {
+            "epoch": 1,
+            "train": {
+              "log_loss": 0.2775171444986115,
+              "accuracy": 0.9459459459459459,
+              "max_abs_logit": 51.71318203267421,
+              "mean_entropy": 0.035597126216660946
+            },
+            "development": {
+              "log_loss": 3.8036162769133828,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 20.47908514827648,
+              "mean_entropy": 0.15278381805170171
+            }
+          },
+          {
+            "epoch": 2,
+            "train": {
+              "log_loss": 0.8697606138303599,
+              "accuracy": 0.9009009009009009,
+              "max_abs_logit": 62.128820990817935,
+              "mean_entropy": 0.03973958402533632
+            },
+            "development": {
+              "log_loss": 6.155601658192646,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 34.690750232829636,
+              "mean_entropy": 0.08314193179583879
+            }
+          },
+          {
+            "epoch": 3,
+            "train": {
+              "log_loss": 0.07010857776057494,
+              "accuracy": 0.990990990990991,
+              "max_abs_logit": 80.75422256833659,
+              "mean_entropy": 0.00933587447252958
+            },
+            "development": {
+              "log_loss": 4.29974538646677,
+              "accuracy": 0.5555555555555556,
+              "max_abs_logit": 26.818667606029145,
+              "mean_entropy": 0.16981511924119924
+            }
+          },
+          {
+            "epoch": 4,
+            "train": {
+              "log_loss": 0.12156493726368992,
+              "accuracy": 0.972972972972973,
+              "max_abs_logit": 101.94634402384912,
+              "mean_entropy": 0.01587281574939778
+            },
+            "development": {
+              "log_loss": 9.358073456855903,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 40.202135849119415,
+              "mean_entropy": 0.05504227779416666
+            }
+          },
+          {
+            "epoch": 5,
+            "train": {
+              "log_loss": 0.006057415184935287,
+              "accuracy": 1.0,
+              "max_abs_logit": 117.34067607265423,
+              "mean_entropy": 0.01383384840594045
+            },
+            "development": {
+              "log_loss": 10.405591675912461,
+              "accuracy": 0.5,
+              "max_abs_logit": 46.447931595457426,
+              "mean_entropy": 0.05638494439951955
+            }
+          },
+          {
+            "epoch": 6,
+            "train": {
+              "log_loss": 0.006419138561464233,
+              "accuracy": 1.0,
+              "max_abs_logit": 131.29806082920737,
+              "mean_entropy": 0.011747442453375397
+            },
+            "development": {
+              "log_loss": 10.930890580554653,
+              "accuracy": 0.5,
+              "max_abs_logit": 53.18487539089948,
+              "mean_entropy": 0.08089619920095306
+            }
+          },
+          {
+            "epoch": 7,
+            "train": {
+              "log_loss": 0.0009254853893488186,
+              "accuracy": 1.0,
+              "max_abs_logit": 142.71605907236625,
+              "mean_entropy": 0.003939859737189109
+            },
+            "development": {
+              "log_loss": 11.30120635069578,
+              "accuracy": 0.5,
+              "max_abs_logit": 59.86963092861962,
+              "mean_entropy": 0.05179815702345863
+            }
+          },
+          {
+            "epoch": 8,
+            "train": {
+              "log_loss": 0.0012528326023317784,
+              "accuracy": 1.0,
+              "max_abs_logit": 151.81759585753355,
+              "mean_entropy": 0.00432628758841919
+            },
+            "development": {
+              "log_loss": 11.694464737408875,
+              "accuracy": 0.4722222222222222,
+              "max_abs_logit": 65.49308179699369,
+              "mean_entropy": 0.03740014244531949
+            }
+          },
+          {
+            "epoch": 9,
+            "train": {
+              "log_loss": 0.0008905742451846786,
+              "accuracy": 1.0,
+              "max_abs_logit": 158.43902132045383,
+              "mean_entropy": 0.0031092382067442166
+            },
+            "development": {
+              "log_loss": 11.924734362288195,
+              "accuracy": 0.4722222222222222,
+              "max_abs_logit": 69.98381254323475,
+              "mean_entropy": 0.03380412701248506
+            }
+          },
+          {
+            "epoch": 10,
+            "train": {
+              "log_loss": 0.0031982212801564846,
+              "accuracy": 0.996996996996997,
+              "max_abs_logit": 163.32858005903645,
+              "mean_entropy": 0.0033062353987275673
+            },
+            "development": {
+              "log_loss": 12.06071310834138,
+              "accuracy": 0.4444444444444444,
+              "max_abs_logit": 73.49729233214296,
+              "mean_entropy": 0.043132888375509416
+            }
+          },
+          {
+            "epoch": 11,
+            "train": {
+              "log_loss": 0.0002314177081625857,
+              "accuracy": 1.0,
+              "max_abs_logit": 166.43596256109248,
+              "mean_entropy": 0.0013631605734780448
+            },
+            "development": {
+              "log_loss": 12.179627840698025,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 75.87430293945157,
+              "mean_entropy": 0.02192896062227041
+            }
+          },
+          {
+            "epoch": 12,
+            "train": {
+              "log_loss": 0.00020146480708922815,
+              "accuracy": 1.0,
+              "max_abs_logit": 168.3551369947758,
+              "mean_entropy": 0.0012823914973037814
+            },
+            "development": {
+              "log_loss": 12.26340488306456,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 77.61526381699944,
+              "mean_entropy": 0.00857224100433173
+            }
+          },
+          {
+            "epoch": 13,
+            "train": {
+              "log_loss": 0.00030190337560162924,
+              "accuracy": 1.0,
+              "max_abs_logit": 169.1891144070621,
+              "mean_entropy": 0.001769741998567519
+            },
+            "development": {
+              "log_loss": 12.297888418061582,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 78.76246722905464,
+              "mean_entropy": 0.004962066558857833
+            }
+          },
+          {
+            "epoch": 14,
+            "train": {
+              "log_loss": 0.00038809901512718356,
+              "accuracy": 1.0,
+              "max_abs_logit": 168.9670194620693,
+              "mean_entropy": 0.0021353761984338857
+            },
+            "development": {
+              "log_loss": 12.281638397737225,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 79.33679184173396,
+              "mean_entropy": 0.003980996176644199
+            }
+          },
+          {
+            "epoch": 15,
+            "train": {
+              "log_loss": 0.0003374388741923536,
+              "accuracy": 1.0,
+              "max_abs_logit": 167.76235399076788,
+              "mean_entropy": 0.0019691448474564843
+            },
+            "development": {
+              "log_loss": 12.21563456819608,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 79.37840279346827,
+              "mean_entropy": 0.0038373132713337313
+            }
+          },
+          {
+            "epoch": 16,
+            "train": {
+              "log_loss": 0.0003669236675372469,
+              "accuracy": 1.0,
+              "max_abs_logit": 165.7827013474515,
+              "mean_entropy": 0.0019943451976058577
+            },
+            "development": {
+              "log_loss": 12.104693517494269,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 78.98055339607379,
+              "mean_entropy": 0.004203429703188561
+            }
+          },
+          {
+            "epoch": 17,
+            "train": {
+              "log_loss": 0.00034213140426070577,
+              "accuracy": 1.0,
+              "max_abs_logit": 163.17754678210792,
+              "mean_entropy": 0.0018288276473878724
+            },
+            "development": {
+              "log_loss": 11.95082172223689,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 78.22331918072611,
+              "mean_entropy": 0.00515786726607343
+            }
+          },
+          {
+            "epoch": 18,
+            "train": {
+              "log_loss": 0.00022901250515227237,
+              "accuracy": 1.0,
+              "max_abs_logit": 160.03747361205322,
+              "mean_entropy": 0.0014020846448873688
+            },
+            "development": {
+              "log_loss": 11.761805229862896,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 77.16540947481079,
+              "mean_entropy": 0.007024766982649055
+            }
+          },
+          {
+            "epoch": 19,
+            "train": {
+              "log_loss": 0.00022995056315155887,
+              "accuracy": 1.0,
+              "max_abs_logit": 156.43107977797175,
+              "mean_entropy": 0.0014251669982747257
+            },
+            "development": {
+              "log_loss": 11.55130386900887,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 75.84809067004876,
+              "mean_entropy": 0.01025132458117482
+            }
+          },
+          {
+            "epoch": 20,
+            "train": {
+              "log_loss": 0.00044232606637551857,
+              "accuracy": 1.0,
+              "max_abs_logit": 152.39885807905713,
+              "mean_entropy": 0.0021226449067059915
+            },
+            "development": {
+              "log_loss": 11.32344292486011,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 74.28413880696554,
+              "mean_entropy": 0.015235811578619493
+            }
+          },
+          {
+            "epoch": 21,
+            "train": {
+              "log_loss": 0.0005164459003429617,
+              "accuracy": 1.0,
+              "max_abs_logit": 147.91839706059662,
+              "mean_entropy": 0.0023078726853178557
+            },
+            "development": {
+              "log_loss": 11.061317194401063,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 72.42279036271715,
+              "mean_entropy": 0.022485850047534697
+            }
+          },
+          {
+            "epoch": 22,
+            "train": {
+              "log_loss": 0.0002602566544647727,
+              "accuracy": 1.0,
+              "max_abs_logit": 143.03638050901858,
+              "mean_entropy": 0.0015560935368075335
+            },
+            "development": {
+              "log_loss": 10.760541314891404,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 70.27297114923233,
+              "mean_entropy": 0.03270926409551053
+            }
+          },
+          {
+            "epoch": 23,
+            "train": {
+              "log_loss": 0.000191158679815018,
+              "accuracy": 1.0,
+              "max_abs_logit": 137.9036627106738,
+              "mean_entropy": 0.0012603936535392133
+            },
+            "development": {
+              "log_loss": 10.45564835746961,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 67.95733866192393,
+              "mean_entropy": 0.045727866748519176
+            }
+          },
+          {
+            "epoch": 24,
+            "train": {
+              "log_loss": 0.00018681004435157334,
+              "accuracy": 1.0,
+              "max_abs_logit": 132.59590847219997,
+              "mean_entropy": 0.0012315076123440504
+            },
+            "development": {
+              "log_loss": 10.15883917497734,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 65.52701176795334,
+              "mean_entropy": 0.06142729981491129
+            }
+          },
+          {
+            "epoch": 25,
+            "train": {
+              "log_loss": 0.00019702982741510216,
+              "accuracy": 1.0,
+              "max_abs_logit": 127.16081480913387,
+              "mean_entropy": 0.001283365955620811
+            },
+            "development": {
+              "log_loss": 9.875500520323799,
+              "accuracy": 0.4166666666666667,
+              "max_abs_logit": 63.009515765675644,
+              "mean_entropy": 0.07954213236745218
+            }
+          }
+        ],
+        "mean_train_squared_norm": 6353.368101848092
+      },
+      "combined": {
+        "original_artifact_id": "ca51791149300799ba34575d9abdb93b6fbadf63869fb9b686e1c19dd93b911e",
+        "config": {
+          "features": {
+            "mode": "combined",
+            "max_coordinates": 8192,
+            "min_document_frequency": 2,
+            "scale_floor": 0.01
+          },
+          "epochs": 300,
+          "learning_rate": 0.03,
+          "l2": 0.01,
+          "patience": 25
+        },
+        "dimensions": 8192,
+        "best_epoch": 0,
+        "epochs_run": 25,
+        "history": [
+          {
+            "epoch": 0,
+            "train": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681091
+            },
+            "development": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681093
+            }
+          },
+          {
+            "epoch": 1,
+            "train": {
+              "log_loss": 0.33020742975580436,
+              "accuracy": 0.9429429429429429,
+              "max_abs_logit": 51.52209620423226,
+              "mean_entropy": 0.028737371115120217
+            },
+            "development": {
+              "log_loss": 2.8380665179576465,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 22.50512602789761,
+              "mean_entropy": 0.1331306293888344
+            }
+          },
+          {
+            "epoch": 2,
+            "train": {
+              "log_loss": 1.5871637343245268,
+              "accuracy": 0.8558558558558559,
+              "max_abs_logit": 63.44594605121278,
+              "mean_entropy": 0.034660055089484824
+            },
+            "development": {
+              "log_loss": 5.00584162784492,
+              "accuracy": 0.5277777777777778,
+              "max_abs_logit": 50.493715669829555,
+              "mean_entropy": 0.10016751811829347
+            }
+          },
+          {
+            "epoch": 3,
+            "train": {
+              "log_loss": 0.5732436230758835,
+              "accuracy": 0.8978978978978979,
+              "max_abs_logit": 85.06112627749114,
+              "mean_entropy": 0.03881086929802269
+            },
+            "development": {
+              "log_loss": 6.855315673973273,
+              "accuracy": 0.6388888888888888,
+              "max_abs_logit": 37.99245360196587,
+              "mean_entropy": 0.013061535072763199
+            }
+          },
+          {
+            "epoch": 4,
+            "train": {
+              "log_loss": 0.43896583829440255,
+              "accuracy": 0.933933933933934,
+              "max_abs_logit": 124.65394999254917,
+              "mean_entropy": 0.017122133982716472
+            },
+            "development": {
+              "log_loss": 9.515282733273809,
+              "accuracy": 0.5555555555555556,
+              "max_abs_logit": 57.3779606917934,
+              "mean_entropy": 0.04797544664451812
+            }
+          },
+          {
+            "epoch": 5,
+            "train": {
+              "log_loss": 0.7088899931007185,
+              "accuracy": 0.8858858858858859,
+              "max_abs_logit": 152.46941938848497,
+              "mean_entropy": 0.04043160680518711
+            },
+            "development": {
+              "log_loss": 11.716570405734023,
+              "accuracy": 0.4722222222222222,
+              "max_abs_logit": 75.61871070284292,
+              "mean_entropy": 0.05956713651164317
+            }
+          },
+          {
+            "epoch": 6,
+            "train": {
+              "log_loss": 4.211027882664901e-05,
+              "accuracy": 1.0,
+              "max_abs_logit": 149.6820289540264,
+              "mean_entropy": 0.00028813439753121373
+            },
+            "development": {
+              "log_loss": 9.10963954446169,
+              "accuracy": 0.5,
+              "max_abs_logit": 70.81495246448421,
+              "mean_entropy": 0.08464234236204615
+            }
+          },
+          {
+            "epoch": 7,
+            "train": {
+              "log_loss": 0.005389732890505477,
+              "accuracy": 0.996996996996997,
+              "max_abs_logit": 146.71094478920094,
+              "mean_entropy": 0.0030015276183734084
+            },
+            "development": {
+              "log_loss": 7.84564851346973,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 66.3659458372379,
+              "mean_entropy": 0.043505291773013426
+            }
+          },
+          {
+            "epoch": 8,
+            "train": {
+              "log_loss": 0.022113690328292437,
+              "accuracy": 0.990990990990991,
+              "max_abs_logit": 143.57952835690028,
+              "mean_entropy": 0.009619717893427438
+            },
+            "development": {
+              "log_loss": 7.552318412677593,
+              "accuracy": 0.5277777777777778,
+              "max_abs_logit": 62.20819294763065,
+              "mean_entropy": 0.07486384970127619
+            }
+          },
+          {
+            "epoch": 9,
+            "train": {
+              "log_loss": 0.03875248696189465,
+              "accuracy": 0.987987987987988,
+              "max_abs_logit": 141.21615707501118,
+              "mean_entropy": 0.008484728241361515
+            },
+            "development": {
+              "log_loss": 7.773210203983696,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 59.195134337846675,
+              "mean_entropy": 0.03868986680483897
+            }
+          },
+          {
+            "epoch": 10,
+            "train": {
+              "log_loss": 0.003929061764792801,
+              "accuracy": 1.0,
+              "max_abs_logit": 140.49286574389373,
+              "mean_entropy": 0.00879214045654461
+            },
+            "development": {
+              "log_loss": 7.782317455307382,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 58.10264813016398,
+              "mean_entropy": 0.02980705126734408
+            }
+          },
+          {
+            "epoch": 11,
+            "train": {
+              "log_loss": 0.0025414928049724444,
+              "accuracy": 1.0,
+              "max_abs_logit": 140.02347336472866,
+              "mean_entropy": 0.007017889858691389
+            },
+            "development": {
+              "log_loss": 7.735858671835718,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 57.314204661963714,
+              "mean_entropy": 0.02532332232899102
+            }
+          },
+          {
+            "epoch": 12,
+            "train": {
+              "log_loss": 0.0031750217863300554,
+              "accuracy": 1.0,
+              "max_abs_logit": 139.52691111925677,
+              "mean_entropy": 0.006768009465962885
+            },
+            "development": {
+              "log_loss": 7.589381281596581,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 56.6465761114383,
+              "mean_entropy": 0.039469260667982155
+            }
+          },
+          {
+            "epoch": 13,
+            "train": {
+              "log_loss": 0.0006342454953761044,
+              "accuracy": 1.0,
+              "max_abs_logit": 139.12177719599478,
+              "mean_entropy": 0.0027922838769770374
+            },
+            "development": {
+              "log_loss": 7.341035896861178,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 56.78445935733345,
+              "mean_entropy": 0.04782575710251611
+            }
+          },
+          {
+            "epoch": 14,
+            "train": {
+              "log_loss": 0.0008953929563237451,
+              "accuracy": 1.0,
+              "max_abs_logit": 138.4264783914971,
+              "mean_entropy": 0.0031284933972794155
+            },
+            "development": {
+              "log_loss": 7.091858979197009,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 58.96512513624989,
+              "mean_entropy": 0.04660333334650098
+            }
+          },
+          {
+            "epoch": 15,
+            "train": {
+              "log_loss": 0.0005134781833809127,
+              "accuracy": 1.0,
+              "max_abs_logit": 137.52071404531083,
+              "mean_entropy": 0.002216766453945139
+            },
+            "development": {
+              "log_loss": 6.803373650016599,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 60.764116257074875,
+              "mean_entropy": 0.02902253544528932
+            }
+          },
+          {
+            "epoch": 16,
+            "train": {
+              "log_loss": 0.00029804253284891467,
+              "accuracy": 1.0,
+              "max_abs_logit": 136.3624175693061,
+              "mean_entropy": 0.0015343348275113008
+            },
+            "development": {
+              "log_loss": 6.5225931055154245,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 62.214409126096825,
+              "mean_entropy": 0.028978671236288032
+            }
+          },
+          {
+            "epoch": 17,
+            "train": {
+              "log_loss": 0.0003436759117359949,
+              "accuracy": 1.0,
+              "max_abs_logit": 134.93611695351586,
+              "mean_entropy": 0.00157296015401233
+            },
+            "development": {
+              "log_loss": 6.255739903965438,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 63.34546954535025,
+              "mean_entropy": 0.028517344750488824
+            }
+          },
+          {
+            "epoch": 18,
+            "train": {
+              "log_loss": 0.00030536868606155585,
+              "accuracy": 1.0,
+              "max_abs_logit": 133.28409625036042,
+              "mean_entropy": 0.0013934390674957596
+            },
+            "development": {
+              "log_loss": 6.0003237146839945,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 64.18390567262556,
+              "mean_entropy": 0.021336491487307322
+            }
+          },
+          {
+            "epoch": 19,
+            "train": {
+              "log_loss": 0.000173203972760879,
+              "accuracy": 1.0,
+              "max_abs_logit": 131.4320628456221,
+              "mean_entropy": 0.0009008284635814839
+            },
+            "development": {
+              "log_loss": 5.727969406870681,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 64.75396553304043,
+              "mean_entropy": 0.01909044762886388
+            }
+          },
+          {
+            "epoch": 20,
+            "train": {
+              "log_loss": 8.48402967358023e-05,
+              "accuracy": 1.0,
+              "max_abs_logit": 129.3754191097635,
+              "mean_entropy": 0.00051600043420158
+            },
+            "development": {
+              "log_loss": 5.456537022263621,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 65.07791907321722,
+              "mean_entropy": 0.024884810643600555
+            }
+          },
+          {
+            "epoch": 21,
+            "train": {
+              "log_loss": 4.7633443037309194e-05,
+              "accuracy": 1.0,
+              "max_abs_logit": 127.11854190923218,
+              "mean_entropy": 0.00032987495500198447
+            },
+            "development": {
+              "log_loss": 5.20113885358244,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 65.17635408871162,
+              "mean_entropy": 0.037289755851640065
+            }
+          },
+          {
+            "epoch": 22,
+            "train": {
+              "log_loss": 4.2329380227022076e-05,
+              "accuracy": 1.0,
+              "max_abs_logit": 124.67835414267839,
+              "mean_entropy": 0.00030407455238673617
+            },
+            "development": {
+              "log_loss": 4.9642037383506095,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 65.06839833328365,
+              "mean_entropy": 0.05425616463587443
+            }
+          },
+          {
+            "epoch": 23,
+            "train": {
+              "log_loss": 9.945180504669595e-05,
+              "accuracy": 1.0,
+              "max_abs_logit": 122.07765647363557,
+              "mean_entropy": 0.0005908921532045612
+            },
+            "development": {
+              "log_loss": 4.72759502594447,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 64.77163215749448,
+              "mean_entropy": 0.07246174876971699
+            }
+          },
+          {
+            "epoch": 24,
+            "train": {
+              "log_loss": 0.0005759615276937406,
+              "accuracy": 1.0,
+              "max_abs_logit": 119.3418089774611,
+              "mean_entropy": 0.0018936989400385863
+            },
+            "development": {
+              "log_loss": 4.508429522711449,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 64.29703415171554,
+              "mean_entropy": 0.08774126437482552
+            }
+          },
+          {
+            "epoch": 25,
+            "train": {
+              "log_loss": 0.000642159904524084,
+              "accuracy": 1.0,
+              "max_abs_logit": 116.48978103724129,
+              "mean_entropy": 0.0022945152852143756
+            },
+            "development": {
+              "log_loss": 4.330458959817595,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 63.60542872050727,
+              "mean_entropy": 0.09601806689571156
+            }
+          }
+        ],
+        "mean_train_squared_norm": 7586.618004132953
+      }
+    }
+  },
+  "smaller_step_diagnostic": {
+    "status": "diagnostic_replay",
+    "input_sha256": "a765568b817b8f1ca9cbd05b959aa2ab559e234f33381cf710b3445ecdf71172",
+    "note": "NumPy FP64 replay using the original frozen coordinates and optimizer recipe; reduction order can differ from Rust. No calibration or Test rows loaded; no new deployable artifact or promotion.",
+    "numpy_version": "2.5.3",
+    "learning_rate_override": 0.001,
+    "candidates": {
+      "word": {
+        "original_artifact_id": "9184f1644c309879e0f1fe74cd97b011765cd8f71649cb75a98cf475f3c74af9",
+        "config": {
+          "features": {
+            "mode": "word",
+            "max_coordinates": 8192,
+            "min_document_frequency": 2,
+            "scale_floor": 0.01
+          },
+          "epochs": 300,
+          "learning_rate": 0.001,
+          "l2": 0.01,
+          "patience": 25
+        },
+        "dimensions": 8192,
+        "best_epoch": 44,
+        "epochs_run": 69,
+        "history": [
+          {
+            "epoch": 0,
+            "train": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681091
+            },
+            "development": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681093
+            }
+          },
+          {
+            "epoch": 1,
+            "train": {
+              "log_loss": 0.8648255204030987,
+              "accuracy": 0.8948948948948949,
+              "max_abs_logit": 1.7324952531735047,
+              "mean_entropy": 1.0676405412539915
+            },
+            "development": {
+              "log_loss": 1.0194206487506814,
+              "accuracy": 0.8333333333333334,
+              "max_abs_logit": 1.5010013045638324,
+              "mean_entropy": 1.0927733124026116
+            }
+          },
+          {
+            "epoch": 2,
+            "train": {
+              "log_loss": 0.6711262672429786,
+              "accuracy": 0.993993993993994,
+              "max_abs_logit": 2.165913363255125,
+              "mean_entropy": 1.0113620407617592
+            },
+            "development": {
+              "log_loss": 0.952299526395249,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 1.7048368936077232,
+              "mean_entropy": 1.0758854049623998
+            }
+          },
+          {
+            "epoch": 3,
+            "train": {
+              "log_loss": 0.5188470065207189,
+              "accuracy": 0.996996996996997,
+              "max_abs_logit": 2.6114674451170865,
+              "mean_entropy": 0.9266930240616628
+            },
+            "development": {
+              "log_loss": 0.8911199916986114,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 1.9871370972632407,
+              "mean_entropy": 1.0567827720510297
+            }
+          },
+          {
+            "epoch": 4,
+            "train": {
+              "log_loss": 0.39965708992940496,
+              "accuracy": 1.0,
+              "max_abs_logit": 2.9712019478369154,
+              "mean_entropy": 0.8288591398956591
+            },
+            "development": {
+              "log_loss": 0.8361137924919526,
+              "accuracy": 0.75,
+              "max_abs_logit": 2.317443514443542,
+              "mean_entropy": 1.037385766779716
+            }
+          },
+          {
+            "epoch": 5,
+            "train": {
+              "log_loss": 0.3093657038650382,
+              "accuracy": 1.0,
+              "max_abs_logit": 3.2833362378845794,
+              "mean_entropy": 0.7267931548001536
+            },
+            "development": {
+              "log_loss": 0.790898326583888,
+              "accuracy": 0.75,
+              "max_abs_logit": 2.637781822544546,
+              "mean_entropy": 1.013784722834422
+            }
+          },
+          {
+            "epoch": 6,
+            "train": {
+              "log_loss": 0.24033881575502367,
+              "accuracy": 1.0,
+              "max_abs_logit": 3.5807862398312635,
+              "mean_entropy": 0.6285019383199547
+            },
+            "development": {
+              "log_loss": 0.7538608022947767,
+              "accuracy": 0.75,
+              "max_abs_logit": 2.922516096340356,
+              "mean_entropy": 0.9870617767581591
+            }
+          },
+          {
+            "epoch": 7,
+            "train": {
+              "log_loss": 0.18805181623613632,
+              "accuracy": 1.0,
+              "max_abs_logit": 3.8778968343653766,
+              "mean_entropy": 0.539298623621662
+            },
+            "development": {
+              "log_loss": 0.7237135894490564,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 3.1736013421444715,
+              "mean_entropy": 0.9589517469689325
+            }
+          },
+          {
+            "epoch": 8,
+            "train": {
+              "log_loss": 0.1485854977007011,
+              "accuracy": 1.0,
+              "max_abs_logit": 4.167853900701462,
+              "mean_entropy": 0.4619272880357742
+            },
+            "development": {
+              "log_loss": 0.6989907720583444,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 3.4013197057413738,
+              "mean_entropy": 0.931640191555946
+            }
+          },
+          {
+            "epoch": 9,
+            "train": {
+              "log_loss": 0.11860878392489524,
+              "accuracy": 1.0,
+              "max_abs_logit": 4.436815769092574,
+              "mean_entropy": 0.39613115140162314
+            },
+            "development": {
+              "log_loss": 0.6781794644287173,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 3.613739897587255,
+              "mean_entropy": 0.9064260381531438
+            }
+          },
+          {
+            "epoch": 10,
+            "train": {
+              "log_loss": 0.09564701314805123,
+              "accuracy": 1.0,
+              "max_abs_logit": 4.675679932820491,
+              "mean_entropy": 0.3405290829927577
+            },
+            "development": {
+              "log_loss": 0.6602216920667896,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 3.8147237222352,
+              "mean_entropy": 0.8835078684201451
+            }
+          },
+          {
+            "epoch": 11,
+            "train": {
+              "log_loss": 0.07794579365069762,
+              "accuracy": 1.0,
+              "max_abs_logit": 4.883269668264692,
+              "mean_entropy": 0.29379843893055946
+            },
+            "development": {
+              "log_loss": 0.644613024972428,
+              "accuracy": 0.75,
+              "max_abs_logit": 4.005238308849598,
+              "mean_entropy": 0.8625811254216567
+            }
+          },
+          {
+            "epoch": 12,
+            "train": {
+              "log_loss": 0.06422098995795536,
+              "accuracy": 1.0,
+              "max_abs_logit": 5.0637524824594635,
+              "mean_entropy": 0.25475436289400116
+            },
+            "development": {
+              "log_loss": 0.6311558698534655,
+              "accuracy": 0.75,
+              "max_abs_logit": 4.184983387085441,
+              "mean_entropy": 0.843315587104986
+            }
+          },
+          {
+            "epoch": 13,
+            "train": {
+              "log_loss": 0.05350860832200318,
+              "accuracy": 1.0,
+              "max_abs_logit": 5.223091050839464,
+              "mean_entropy": 0.22222962084968825
+            },
+            "development": {
+              "log_loss": 0.6196816343651236,
+              "accuracy": 0.75,
+              "max_abs_logit": 4.353399033035984,
+              "mean_entropy": 0.8255304893499024
+            }
+          },
+          {
+            "epoch": 14,
+            "train": {
+              "log_loss": 0.04508125131699795,
+              "accuracy": 1.0,
+              "max_abs_logit": 5.404438763426647,
+              "mean_entropy": 0.19511584691418699
+            },
+            "development": {
+              "log_loss": 0.6099536068815149,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 4.5101038803302655,
+              "mean_entropy": 0.8091640707574327
+            }
+          },
+          {
+            "epoch": 15,
+            "train": {
+              "log_loss": 0.03838902676845515,
+              "accuracy": 1.0,
+              "max_abs_logit": 5.570541128048322,
+              "mean_entropy": 0.17244564762554176
+            },
+            "development": {
+              "log_loss": 0.6017078504395164,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 4.655016938264801,
+              "mean_entropy": 0.7941813228439245
+            }
+          },
+          {
+            "epoch": 16,
+            "train": {
+              "log_loss": 0.03301959965195814,
+              "accuracy": 1.0,
+              "max_abs_logit": 5.721058239623099,
+              "mean_entropy": 0.15341820555864577
+            },
+            "development": {
+              "log_loss": 0.5947143839209299,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 4.788343495889848,
+              "mean_entropy": 0.7805128869754445
+            }
+          },
+          {
+            "epoch": 17,
+            "train": {
+              "log_loss": 0.028669601999294272,
+              "accuracy": 1.0,
+              "max_abs_logit": 5.857152865441913,
+              "mean_entropy": 0.13738574915176024
+            },
+            "development": {
+              "log_loss": 0.5888001413867691,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 4.910515484323714,
+              "mean_entropy": 0.7680465751195997
+            }
+          },
+          {
+            "epoch": 18,
+            "train": {
+              "log_loss": 0.025117998293207405,
+              "accuracy": 1.0,
+              "max_abs_logit": 5.9800719689341735,
+              "mean_entropy": 0.12382830369780273
+            },
+            "development": {
+              "log_loss": 0.5838375647514421,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 5.022123982786177,
+              "mean_entropy": 0.7566494336511738
+            }
+          },
+          {
+            "epoch": 19,
+            "train": {
+              "log_loss": 0.022201133346125217,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.0910668920038535,
+              "mean_entropy": 0.11232649789119502
+            },
+            "development": {
+              "log_loss": 0.5797227965803144,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.1238579851088435,
+              "mean_entropy": 0.7461930639994363
+            }
+          },
+          {
+            "epoch": 20,
+            "train": {
+              "log_loss": 0.019793343519155286,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.19134028210593,
+              "mean_entropy": 0.10253761424101243
+            },
+            "development": {
+              "log_loss": 0.5763593079145982,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.21645422751183,
+              "mean_entropy": 0.736569070186366
+            }
+          },
+          {
+            "epoch": 21,
+            "train": {
+              "log_loss": 0.01779482093363878,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.282013746615789,
+              "mean_entropy": 0.09417779146150015
+            },
+            "development": {
+              "log_loss": 0.57365052654475,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.300658943956751,
+              "mean_entropy": 0.72769380417336
+            }
+          },
+          {
+            "epoch": 22,
+            "train": {
+              "log_loss": 0.01612521609891234,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.3641106584369105,
+              "mean_entropy": 0.08701035702487964
+            },
+            "development": {
+              "log_loss": 0.5714989579144296,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.377200530670117,
+              "mean_entropy": 0.7195061866254202
+            }
+          },
+          {
+            "epoch": 23,
+            "train": {
+              "log_loss": 0.014720231956805618,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.4385495374446435,
+              "mean_entropy": 0.08083844641923915
+            },
+            "development": {
+              "log_loss": 0.5698084929899551,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.446771310564039,
+              "mean_entropy": 0.7119623873720581
+            }
+          },
+          {
+            "epoch": 24,
+            "train": {
+              "log_loss": 0.01352915507093868,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.5061445218041225,
+              "mean_entropy": 0.07549970013127055
+            },
+            "development": {
+              "log_loss": 0.568487696232156,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.510016461728052,
+              "mean_entropy": 0.7050298551192402
+            }
+          },
+          {
+            "epoch": 25,
+            "train": {
+              "log_loss": 0.012512482065524586,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.56761039315396,
+              "mean_entropy": 0.07086149552365348
+            },
+            "development": {
+              "log_loss": 0.5674529508021934,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.567528366542448,
+              "mean_entropy": 0.698682007966369
+            }
+          },
+          {
+            "epoch": 26,
+            "train": {
+              "log_loss": 0.011639577007278728,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.6235703457913235,
+              "mean_entropy": 0.06681614617546229
+            },
+            "development": {
+              "log_loss": 0.5666309563080889,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.619844919475577,
+              "mean_entropy": 0.692894129499456
+            }
+          },
+          {
+            "epoch": 27,
+            "train": {
+              "log_loss": 0.010886542749558263,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.674565211485721,
+              "mean_entropy": 0.06327618396473103
+            },
+            "development": {
+              "log_loss": 0.565960359120408,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.66745060295301,
+              "mean_entropy": 0.6876405858508087
+            }
+          },
+          {
+            "epoch": 28,
+            "train": {
+              "log_loss": 0.010234461526051916,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.721063226976148,
+              "mean_entropy": 0.060170068468016966
+            },
+            "development": {
+              "log_loss": 0.5653924401926632,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.710779380672,
+              "mean_entropy": 0.6828932592309189
+            }
+          },
+          {
+            "epoch": 29,
+            "train": {
+              "log_loss": 0.009668059802916825,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.763469711683102,
+              "mean_entropy": 0.05743859642742164
+            },
+            "development": {
+              "log_loss": 0.5648908937886299,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.75021866959431,
+              "mean_entropy": 0.6786209896378113
+            }
+          },
+          {
+            "epoch": 30,
+            "train": {
+              "log_loss": 0.009174764607510528,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.802136238486238,
+              "mean_entropy": 0.05503210963840322
+            },
+            "development": {
+              "log_loss": 0.564430826294121,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.786113838105765,
+              "mean_entropy": 0.6747897768190457
+            }
+          },
+          {
+            "epoch": 31,
+            "train": {
+              "log_loss": 0.008744068187057889,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.837369044703531,
+              "mean_entropy": 0.05290844459870776
+            },
+            "development": {
+              "log_loss": 0.5639971764133576,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.818772836748794,
+              "mean_entropy": 0.6713634930774811
+            }
+          },
+          {
+            "epoch": 32,
+            "train": {
+              "log_loss": 0.008367106029626302,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.86943655136517,
+              "mean_entropy": 0.05103147801477593
+            },
+            "development": {
+              "log_loss": 0.5635827930629163,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.8484706971546165,
+              "mean_entropy": 0.6683048802269123
+            }
+          },
+          {
+            "epoch": 33,
+            "train": {
+              "log_loss": 0.008036368013643231,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.898575943441999,
+              "mean_entropy": 0.049370099222447575
+            },
+            "development": {
+              "log_loss": 0.5631864022881057,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.875453734302871,
+              "mean_entropy": 0.665576641798302
+            }
+          },
+          {
+            "epoch": 34,
+            "train": {
+              "log_loss": 0.007745487156045608,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.924998819540608,
+              "mean_entropy": 0.04789746172292602
+            },
+            "development": {
+              "log_loss": 0.5628106576035117,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.89994335988229,
+              "mean_entropy": 0.6631424871349993
+            }
+          },
+          {
+            "epoch": 35,
+            "train": {
+              "log_loss": 0.007489072740035675,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.948895954435544,
+              "mean_entropy": 0.046590405080231274
+            },
+            "development": {
+              "log_loss": 0.562460413278419,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.92213946505273,
+              "mean_entropy": 0.6609680308430281
+            }
+          },
+          {
+            "epoch": 36,
+            "train": {
+              "log_loss": 0.007262569793666897,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.970441238335679,
+              "mean_entropy": 0.04542897677493097
+            },
+            "development": {
+              "log_loss": 0.5621413015199366,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.942223364577209,
+              "mean_entropy": 0.659021493821774
+            }
+          },
+          {
+            "epoch": 37,
+            "train": {
+              "log_loss": 0.007062135702758688,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.989794868002669,
+              "mean_entropy": 0.04439601332405142
+            },
+            "development": {
+              "log_loss": 0.5618586430308705,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.960360315895835,
+              "mean_entropy": 0.6572741870783277
+            }
+          },
+          {
+            "epoch": 38,
+            "train": {
+              "log_loss": 0.0068845296352552056,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.007105870162821,
+              "mean_entropy": 0.04347676033642873
+            },
+            "development": {
+              "log_loss": 0.5616166818953023,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.976701640103664,
+              "mean_entropy": 0.6557007849796606
+            }
+          },
+          {
+            "epoch": 39,
+            "train": {
+              "log_loss": 0.006727013275758251,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.022514039239258,
+              "mean_entropy": 0.04265852406624949
+            },
+            "development": {
+              "log_loss": 0.5614181115115263,
+              "accuracy": 0.75,
+              "max_abs_logit": 5.991386479793286,
+              "mean_entropy": 0.6542794106146139
+            }
+          },
+          {
+            "epoch": 40,
+            "train": {
+              "log_loss": 0.006587262915000842,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.036151370608549,
+              "mean_entropy": 0.04193035434998278
+            },
+            "development": {
+              "log_loss": 0.5612638465304828,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.004543233243229,
+              "mean_entropy": 0.6529915639617382
+            }
+          },
+          {
+            "epoch": 41,
+            "train": {
+              "log_loss": 0.0064632934720273505,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.048143068182976,
+              "mean_entropy": 0.041282761941714874
+            },
+            "development": {
+              "log_loss": 0.5611529930627583,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.0162907066750915,
+              "mean_entropy": 0.6518219257287473
+            }
+          },
+          {
+            "epoch": 42,
+            "train": {
+              "log_loss": 0.006353394790611625,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.05860820165318,
+              "mean_entropy": 0.04070747338491097
+            },
+            "development": {
+              "log_loss": 0.5610829721059528,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.026739026963008,
+              "mean_entropy": 0.6507580682880534
+            }
+          },
+          {
+            "epoch": 43,
+            "train": {
+              "log_loss": 0.006256079911911978,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.067660084505553,
+              "mean_entropy": 0.040197224878806795
+            },
+            "development": {
+              "log_loss": 0.5610497561113498,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.03599035663446,
+              "mean_entropy": 0.6497901019974667
+            }
+          },
+          {
+            "epoch": 44,
+            "train": {
+              "log_loss": 0.00617004434791139,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.075406439114164,
+              "mean_entropy": 0.03974559422581386
+            },
+            "development": {
+              "log_loss": 0.5610481837331823,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.044139451449414,
+              "mean_entropy": 0.6489102817249136
+            }
+          },
+          {
+            "epoch": 45,
+            "train": {
+              "log_loss": 0.006094134888487832,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.08194940985303,
+              "mean_entropy": 0.039346867694049256
+            },
+            "development": {
+              "log_loss": 0.561072322008176,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.051274098407319,
+              "mean_entropy": 0.6481125953367558
+            }
+          },
+          {
+            "epoch": 46,
+            "train": {
+              "log_loss": 0.006027326223866254,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.0873854792866195,
+              "mean_entropy": 0.038995936932823244
+            },
+            "development": {
+              "log_loss": 0.5611158482983568,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.057475468809721,
+              "mean_entropy": 0.6473923534690502
+            }
+          },
+          {
+            "epoch": 47,
+            "train": {
+              "log_loss": 0.0059687036091132534,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.091805336071009,
+              "mean_entropy": 0.03868822008605766
+            },
+            "development": {
+              "log_loss": 0.5611724266904828,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.062818417113934,
+              "mean_entropy": 0.6467457979056334
+            }
+          },
+          {
+            "epoch": 48,
+            "train": {
+              "log_loss": 0.005917449878504281,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.095293736265458,
+              "mean_entropy": 0.0384196009597081
+            },
+            "development": {
+              "log_loss": 0.5612360558494591,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.0673717518822805,
+              "mean_entropy": 0.6461697439670224
+            }
+          },
+          {
+            "epoch": 49,
+            "train": {
+              "log_loss": 0.005872835301932911,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.097929392394516,
+              "mean_entropy": 0.03818638046059332
+            },
+            "development": {
+              "log_loss": 0.5613013682257217,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.071198500315329,
+              "mean_entropy": 0.6456612700823033
+            }
+          },
+          {
+            "epoch": 50,
+            "train": {
+              "log_loss": 0.005834209050778783,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.099784916953038,
+              "mean_entropy": 0.03798523544285239
+            },
+            "development": {
+              "log_loss": 0.5613638644482379,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.074356182827671,
+              "mean_entropy": 0.6452174649016069
+            }
+          },
+          {
+            "epoch": 51,
+            "train": {
+              "log_loss": 0.005800991389601508,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.10092683930121,
+              "mean_entropy": 0.037813181419818015
+            },
+            "development": {
+              "log_loss": 0.5614200717913789,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.076897109065795,
+              "mean_entropy": 0.6448352388299364
+            }
+          },
+          {
+            "epoch": 52,
+            "train": {
+              "log_loss": 0.005772666093478722,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.101415707285282,
+              "mean_entropy": 0.037667537098274514
+            },
+            "development": {
+              "log_loss": 0.5614676215401535,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.078868701871139,
+              "mean_entropy": 0.6445112028486377
+            }
+          },
+          {
+            "epoch": 53,
+            "train": {
+              "log_loss": 0.005748772950698612,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.1013062776934515,
+              "mean_entropy": 0.03754589010465529
+            },
+            "development": {
+              "log_loss": 0.5615052463849993,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.080313851144719,
+              "mean_entropy": 0.644241613228622
+            }
+          },
+          {
+            "epoch": 54,
+            "train": {
+              "log_loss": 0.00572890048774278,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.100647793071191,
+              "mean_entropy": 0.03744606435643724
+            },
+            "development": {
+              "log_loss": 0.5615327050101039,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.081271295541269,
+              "mean_entropy": 0.6440223766142441
+            }
+          },
+          {
+            "epoch": 55,
+            "train": {
+              "log_loss": 0.0057126792077278055,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.099484336710584,
+              "mean_entropy": 0.03736609012843143
+            },
+            "development": {
+              "log_loss": 0.5615506461606014,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.081776026547561,
+              "mean_entropy": 0.6438491063669693
+            }
+          },
+          {
+            "epoch": 56,
+            "train": {
+              "log_loss": 0.005699775654986393,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.0978552529899686,
+              "mean_entropy": 0.037304177935528905
+            },
+            "development": {
+              "log_loss": 0.5615604281763322,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.081859706876193,
+              "mean_entropy": 0.643717218342869
+            }
+          },
+          {
+            "epoch": 57,
+            "train": {
+              "log_loss": 0.005689887528600695,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.095795616816092,
+              "mean_entropy": 0.03725869698539609
+            },
+            "development": {
+              "log_loss": 0.5615639119671078,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.08155109328192,
+              "mean_entropy": 0.6436220526648134
+            }
+          },
+          {
+            "epoch": 58,
+            "train": {
+              "log_loss": 0.005682739910164504,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.0933367337861615,
+              "mean_entropy": 0.03722815832155559
+            },
+            "development": {
+              "log_loss": 0.5615632456231583,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.08087645289119,
+              "mean_entropy": 0.6435590076266217
+            }
+          },
+          {
+            "epoch": 59,
+            "train": {
+              "log_loss": 0.005678082498598332,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.090506651849571,
+              "mean_entropy": 0.037211202092805415
+            },
+            "development": {
+              "log_loss": 0.5615606574768081,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.079859961901559,
+              "mean_entropy": 0.6435236725790273
+            }
+          },
+          {
+            "epoch": 60,
+            "train": {
+              "log_loss": 0.0056756876056013855,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.087330665646151,
+              "mean_entropy": 0.03720658784535923
+            },
+            "development": {
+              "log_loss": 0.561558271800107,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.07852407600773,
+              "mean_entropy": 0.6435119483221273
+            }
+          },
+          {
+            "epoch": 61,
+            "train": {
+              "log_loss": 0.0056753485921031835,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.0838317962041994,
+              "mean_entropy": 0.03721318647279597
+            },
+            "development": {
+              "log_loss": 0.5615579578742776,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.07688986307631,
+              "mean_entropy": 0.6435201459086142
+            }
+          },
+          {
+            "epoch": 62,
+            "train": {
+              "log_loss": 0.005676878430623328,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.08003123111822,
+              "mean_entropy": 0.03722997252105574
+            },
+            "development": {
+              "log_loss": 0.5615612193484772,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.074977290335987,
+              "mean_entropy": 0.6435450575510864
+            }
+          },
+          {
+            "epoch": 63,
+            "train": {
+              "log_loss": 0.00568010815148069,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.075948713470995,
+              "mean_entropy": 0.03725601588787819
+            },
+            "development": {
+              "log_loss": 0.5615691270087846,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.072805460563639,
+              "mean_entropy": 0.6435839962363897
+            }
+          },
+          {
+            "epoch": 64,
+            "train": {
+              "log_loss": 0.005684885047142238,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.071602871368494,
+              "mean_entropy": 0.037290472468201996
+            },
+            "development": {
+              "log_loss": 0.5615822945948925,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.070392794294477,
+              "mean_entropy": 0.6436348034338585
+            }
+          },
+          {
+            "epoch": 65,
+            "train": {
+              "log_loss": 0.005691070635961009,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.067011483755907,
+              "mean_entropy": 0.037332573838585896
+            },
+            "development": {
+              "log_loss": 0.5616008943116673,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.067757157800338,
+              "mean_entropy": 0.643695826758456
+            }
+          },
+          {
+            "epoch": 66,
+            "train": {
+              "log_loss": 0.005698538492929736,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.062191681920208,
+              "mean_entropy": 0.03738161651285273
+            },
+            "development": {
+              "log_loss": 0.5616247062707626,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.064915939280086,
+              "mean_entropy": 0.6437658714958651
+            }
+          },
+          {
+            "epoch": 67,
+            "train": {
+              "log_loss": 0.005707172118626926,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.057160089519303,
+              "mean_entropy": 0.037436951546731434
+            },
+            "development": {
+              "log_loss": 0.5616531942888128,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.061886078194784,
+              "mean_entropy": 0.6438441314516136
+            }
+          },
+          {
+            "epoch": 68,
+            "train": {
+              "log_loss": 0.0057168630291724,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.051932906904001,
+              "mean_entropy": 0.037497975288326595
+            },
+            "development": {
+              "log_loss": 0.5616855992653789,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.058684054775722,
+              "mean_entropy": 0.6439301056256689
+            }
+          },
+          {
+            "epoch": 69,
+            "train": {
+              "log_loss": 0.005727509214301942,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.046525947758438,
+              "mean_entropy": 0.037564121889821854
+            },
+            "development": {
+              "log_loss": 0.5617210407711485,
+              "accuracy": 0.75,
+              "max_abs_logit": 6.055325848283857,
+              "mean_entropy": 0.6440235077347239
+            }
+          }
+        ],
+        "mean_train_squared_norm": 5441.001490835153
+      },
+      "grammar": {
+        "original_artifact_id": "2f3fc8e48d3b1d3ebfcd84cfb33160cb177deca7998e3d286e135ca501853ac2",
+        "config": {
+          "features": {
+            "mode": "grammar",
+            "max_coordinates": 8192,
+            "min_document_frequency": 2,
+            "scale_floor": 0.01
+          },
+          "epochs": 300,
+          "learning_rate": 0.001,
+          "l2": 0.01,
+          "patience": 25
+        },
+        "dimensions": 8192,
+        "best_epoch": 7,
+        "epochs_run": 32,
+        "history": [
+          {
+            "epoch": 0,
+            "train": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681091
+            },
+            "development": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681093
+            }
+          },
+          {
+            "epoch": 1,
+            "train": {
+              "log_loss": 0.7263203801385447,
+              "accuracy": 0.9459459459459459,
+              "max_abs_logit": 2.711654017779131,
+              "mean_entropy": 1.0222182672096223
+            },
+            "development": {
+              "log_loss": 0.986377445474393,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 1.744628050655058,
+              "mean_entropy": 1.0666197398278578
+            }
+          },
+          {
+            "epoch": 2,
+            "train": {
+              "log_loss": 0.492471193470679,
+              "accuracy": 0.984984984984985,
+              "max_abs_logit": 3.4881169881018685,
+              "mean_entropy": 0.8796930704739983
+            },
+            "development": {
+              "log_loss": 0.9173606733858869,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 2.155929400820286,
+              "mean_entropy": 1.0377936258472464
+            }
+          },
+          {
+            "epoch": 3,
+            "train": {
+              "log_loss": 0.32405968308164723,
+              "accuracy": 0.996996996996997,
+              "max_abs_logit": 4.615674623365885,
+              "mean_entropy": 0.7192242281301064
+            },
+            "development": {
+              "log_loss": 0.888232084711873,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 2.4781080940877884,
+              "mean_entropy": 0.9792737900798798
+            }
+          },
+          {
+            "epoch": 4,
+            "train": {
+              "log_loss": 0.22138440256041675,
+              "accuracy": 1.0,
+              "max_abs_logit": 5.68450953247726,
+              "mean_entropy": 0.5777175983023258
+            },
+            "development": {
+              "log_loss": 0.894320807370575,
+              "accuracy": 0.5555555555555556,
+              "max_abs_logit": 3.0649204140691513,
+              "mean_entropy": 0.9189522524162798
+            }
+          },
+          {
+            "epoch": 5,
+            "train": {
+              "log_loss": 0.1490631194671509,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.333340659502651,
+              "mean_entropy": 0.45390622921509904
+            },
+            "development": {
+              "log_loss": 0.8757629040767632,
+              "accuracy": 0.5555555555555556,
+              "max_abs_logit": 3.3670947781887044,
+              "mean_entropy": 0.8904874460751638
+            }
+          },
+          {
+            "epoch": 6,
+            "train": {
+              "log_loss": 0.10112884783617197,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.726265919796102,
+              "mean_entropy": 0.3521956637985283
+            },
+            "development": {
+              "log_loss": 0.851428757236466,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 3.500476447950621,
+              "mean_entropy": 0.8704607756951206
+            }
+          },
+          {
+            "epoch": 7,
+            "train": {
+              "log_loss": 0.07207995534121767,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.067783545034262,
+              "mean_entropy": 0.2761995094550401
+            },
+            "development": {
+              "log_loss": 0.8411867063412864,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 3.61772781162512,
+              "mean_entropy": 0.8456982103698366
+            }
+          },
+          {
+            "epoch": 8,
+            "train": {
+              "log_loss": 0.05270857364491871,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.453691032998531,
+              "mean_entropy": 0.2186985453402341
+            },
+            "development": {
+              "log_loss": 0.8416201536531666,
+              "accuracy": 0.6388888888888888,
+              "max_abs_logit": 3.7893798468849145,
+              "mean_entropy": 0.8190228452531634
+            }
+          },
+          {
+            "epoch": 9,
+            "train": {
+              "log_loss": 0.03868042271987684,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.886351487258283,
+              "mean_entropy": 0.1733613832598974
+            },
+            "development": {
+              "log_loss": 0.8465271337288441,
+              "accuracy": 0.6388888888888888,
+              "max_abs_logit": 4.013556058878523,
+              "mean_entropy": 0.7939804622360499
+            }
+          },
+          {
+            "epoch": 10,
+            "train": {
+              "log_loss": 0.028730329201462654,
+              "accuracy": 1.0,
+              "max_abs_logit": 8.334486916488622,
+              "mean_entropy": 0.13815813403502075
+            },
+            "development": {
+              "log_loss": 0.8553179063484521,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 4.2630063212111535,
+              "mean_entropy": 0.7704015596855848
+            }
+          },
+          {
+            "epoch": 11,
+            "train": {
+              "log_loss": 0.021876848369873074,
+              "accuracy": 1.0,
+              "max_abs_logit": 8.768270491159024,
+              "mean_entropy": 0.11161566292009399
+            },
+            "development": {
+              "log_loss": 0.8680841798648604,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 4.5123752357789435,
+              "mean_entropy": 0.7479118834293552
+            }
+          },
+          {
+            "epoch": 12,
+            "train": {
+              "log_loss": 0.017137794268412724,
+              "accuracy": 1.0,
+              "max_abs_logit": 9.169036357179149,
+              "mean_entropy": 0.09177011633735405
+            },
+            "development": {
+              "log_loss": 0.8835694526110933,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 4.745486161538684,
+              "mean_entropy": 0.7268632589287246
+            }
+          },
+          {
+            "epoch": 13,
+            "train": {
+              "log_loss": 0.013767211801105267,
+              "accuracy": 1.0,
+              "max_abs_logit": 9.528320314432202,
+              "mean_entropy": 0.0767514733567723
+            },
+            "development": {
+              "log_loss": 0.9000434899621591,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 4.954471405410164,
+              "mean_entropy": 0.707702714818015
+            }
+          },
+          {
+            "epoch": 14,
+            "train": {
+              "log_loss": 0.011287813452305515,
+              "accuracy": 1.0,
+              "max_abs_logit": 9.8444808828869,
+              "mean_entropy": 0.06515577054998799
+            },
+            "development": {
+              "log_loss": 0.9161681841198231,
+              "accuracy": 0.5555555555555556,
+              "max_abs_logit": 5.137052224068295,
+              "mean_entropy": 0.6906026729691881
+            }
+          },
+          {
+            "epoch": 15,
+            "train": {
+              "log_loss": 0.009412380074253697,
+              "accuracy": 1.0,
+              "max_abs_logit": 10.119734052920652,
+              "mean_entropy": 0.056033853186035536
+            },
+            "development": {
+              "log_loss": 0.9311926197991198,
+              "accuracy": 0.5555555555555556,
+              "max_abs_logit": 5.294148378562137,
+              "mean_entropy": 0.6754862255837092
+            }
+          },
+          {
+            "epoch": 16,
+            "train": {
+              "log_loss": 0.007965405710149247,
+              "accuracy": 1.0,
+              "max_abs_logit": 10.358125627584714,
+              "mean_entropy": 0.04875449337144023
+            },
+            "development": {
+              "log_loss": 0.9448003355381789,
+              "accuracy": 0.5555555555555556,
+              "max_abs_logit": 5.428237782403787,
+              "mean_entropy": 0.6621603562976243
+            }
+          },
+          {
+            "epoch": 17,
+            "train": {
+              "log_loss": 0.006833164539102534,
+              "accuracy": 1.0,
+              "max_abs_logit": 10.564299642558858,
+              "mean_entropy": 0.04288311904791369
+            },
+            "development": {
+              "log_loss": 0.9569095779068493,
+              "accuracy": 0.5555555555555556,
+              "max_abs_logit": 5.542358000163847,
+              "mean_entropy": 0.6504129563335913
+            }
+          },
+          {
+            "epoch": 18,
+            "train": {
+              "log_loss": 0.00593700334985156,
+              "accuracy": 1.0,
+              "max_abs_logit": 10.742820073968149,
+              "mean_entropy": 0.03810532423496644
+            },
+            "development": {
+              "log_loss": 0.9675383152678297,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 5.639554582187399,
+              "mean_entropy": 0.6400554172886532
+            }
+          },
+          {
+            "epoch": 19,
+            "train": {
+              "log_loss": 0.00521995643027889,
+              "accuracy": 1.0,
+              "max_abs_logit": 10.89784201908378,
+              "mean_entropy": 0.03418463768473854
+            },
+            "development": {
+              "log_loss": 0.9767390474424974,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 5.722611056235667,
+              "mean_entropy": 0.6309312047430535
+            }
+          },
+          {
+            "epoch": 20,
+            "train": {
+              "log_loss": 0.0046398222322261914,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.032987569725863,
+              "mean_entropy": 0.030939598418767846
+            },
+            "development": {
+              "log_loss": 0.9845771803468248,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 5.793943409921363,
+              "mean_entropy": 0.6229102621444133
+            }
+          },
+          {
+            "epoch": 21,
+            "train": {
+              "log_loss": 0.004165127640889535,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.151332307433929,
+              "mean_entropy": 0.028230175645335774
+            },
+            "development": {
+              "log_loss": 0.9911286921665996,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 5.855583338685303,
+              "mean_entropy": 0.6158805340617045
+            }
+          },
+          {
+            "epoch": 22,
+            "train": {
+              "log_loss": 0.003772408919820908,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.255445516238124,
+              "mean_entropy": 0.025948481939044178
+            },
+            "development": {
+              "log_loss": 0.996482643704963,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 5.909204719292397,
+              "mean_entropy": 0.6097412236833413
+            }
+          },
+          {
+            "epoch": 23,
+            "train": {
+              "log_loss": 0.0034441944185035693,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.347451932046573,
+              "mean_entropy": 0.024011649292113527
+            },
+            "development": {
+              "log_loss": 1.0007422661065366,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 5.956167677434722,
+              "mean_entropy": 0.6043987953310799
+            }
+          },
+          {
+            "epoch": 24,
+            "train": {
+              "log_loss": 0.0031674554831347093,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.429098078433057,
+              "mean_entropy": 0.022356089957054244
+            },
+            "development": {
+              "log_loss": 1.0040231163751867,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 5.997566786923384,
+              "mean_entropy": 0.5997652479647203
+            }
+          },
+          {
+            "epoch": 25,
+            "train": {
+              "log_loss": 0.0029324202692543266,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.501815029566254,
+              "mean_entropy": 0.020932865151057804
+            },
+            "development": {
+              "log_loss": 1.0064489044596576,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 6.034276917450969,
+              "mean_entropy": 0.595757817915897
+            }
+          },
+          {
+            "epoch": 26,
+            "train": {
+              "log_loss": 0.0027316814101416755,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.566774225828059,
+              "mean_entropy": 0.01970401967828509
+            },
+            "development": {
+              "log_loss": 1.0081461890205383,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 6.066994029363575,
+              "mean_entropy": 0.5922993702820688
+            }
+          },
+          {
+            "epoch": 27,
+            "train": {
+              "log_loss": 0.0025595387371309757,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.624935422477808,
+              "mean_entropy": 0.01863975381274977
+            },
+            "development": {
+              "log_loss": 1.0092390318752842,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 6.096270148690705,
+              "mean_entropy": 0.589318970476756
+            }
+          },
+          {
+            "epoch": 28,
+            "train": {
+              "log_loss": 0.002411524491618214,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.677087023204574,
+              "mean_entropy": 0.017716294794648736
+            },
+            "development": {
+              "log_loss": 1.0098443612955321,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 6.122542678816713,
+              "mean_entropy": 0.5867523461624808
+            }
+          },
+          {
+            "epoch": 29,
+            "train": {
+              "log_loss": 0.0022840658169786068,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.723879547450453,
+              "mean_entropy": 0.0169143295402467
+            },
+            "development": {
+              "log_loss": 1.0100684447324204,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 6.146158598607887,
+              "mean_entropy": 0.5845421111091876
+            }
+          },
+          {
+            "epoch": 30,
+            "train": {
+              "log_loss": 0.002174247641542457,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.765853138574833,
+              "mean_entropy": 0.016217871215125898
+            },
+            "development": {
+              "log_loss": 1.0100045962433288,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 6.167394224656752,
+              "mean_entropy": 0.5826377252078835
+            }
+          },
+          {
+            "epoch": 31,
+            "train": {
+              "log_loss": 0.0020796472604655554,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.803460016478061,
+              "mean_entropy": 0.015613450830681374
+            },
+            "development": {
+              "log_loss": 1.009732058947205,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 6.186471216462739,
+              "mean_entropy": 0.580995221579431
+            }
+          },
+          {
+            "epoch": 32,
+            "train": {
+              "log_loss": 0.001998219167340227,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.83708270360487,
+              "mean_entropy": 0.015089546026263527
+            },
+            "development": {
+              "log_loss": 1.0093158962407889,
+              "accuracy": 0.5833333333333334,
+              "max_abs_logit": 6.2035694484789605,
+              "mean_entropy": 0.5795767567551856
+            }
+          }
+        ],
+        "mean_train_squared_norm": 6353.368101848092
+      },
+      "combined": {
+        "original_artifact_id": "ca51791149300799ba34575d9abdb93b6fbadf63869fb9b686e1c19dd93b911e",
+        "config": {
+          "features": {
+            "mode": "combined",
+            "max_coordinates": 8192,
+            "min_document_frequency": 2,
+            "scale_floor": 0.01
+          },
+          "epochs": 300,
+          "learning_rate": 0.001,
+          "l2": 0.01,
+          "patience": 25
+        },
+        "dimensions": 8192,
+        "best_epoch": 9,
+        "epochs_run": 34,
+        "history": [
+          {
+            "epoch": 0,
+            "train": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681091
+            },
+            "development": {
+              "log_loss": 1.0986122886681096,
+              "accuracy": 0.3333333333333333,
+              "max_abs_logit": 1.098612288668112,
+              "mean_entropy": 1.0986122886681093
+            }
+          },
+          {
+            "epoch": 1,
+            "train": {
+              "log_loss": 0.7080170429122994,
+              "accuracy": 0.9429429429429429,
+              "max_abs_logit": 2.7501438519701313,
+              "mean_entropy": 1.0114417877348598
+            },
+            "development": {
+              "log_loss": 0.9341769567874663,
+              "accuracy": 0.6111111111111112,
+              "max_abs_logit": 1.8121627466424282,
+              "mean_entropy": 1.0599890736937974
+            }
+          },
+          {
+            "epoch": 2,
+            "train": {
+              "log_loss": 0.472897788157981,
+              "accuracy": 0.96996996996997,
+              "max_abs_logit": 3.6153403026837614,
+              "mean_entropy": 0.8566980463902074
+            },
+            "development": {
+              "log_loss": 0.8339173373037075,
+              "accuracy": 0.6388888888888888,
+              "max_abs_logit": 2.626993643434446,
+              "mean_entropy": 1.0132892455801328
+            }
+          },
+          {
+            "epoch": 3,
+            "train": {
+              "log_loss": 0.31231274727250247,
+              "accuracy": 0.990990990990991,
+              "max_abs_logit": 4.965504832157789,
+              "mean_entropy": 0.6895831897344362
+            },
+            "development": {
+              "log_loss": 0.7980586901354099,
+              "accuracy": 0.6388888888888888,
+              "max_abs_logit": 2.8350061051947506,
+              "mean_entropy": 0.9166891484148394
+            }
+          },
+          {
+            "epoch": 4,
+            "train": {
+              "log_loss": 0.2112796234442792,
+              "accuracy": 0.996996996996997,
+              "max_abs_logit": 6.074319004986215,
+              "mean_entropy": 0.5538761692246346
+            },
+            "development": {
+              "log_loss": 0.7648585047847535,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 3.4734558200399857,
+              "mean_entropy": 0.8672817767134224
+            }
+          },
+          {
+            "epoch": 5,
+            "train": {
+              "log_loss": 0.13889819875785903,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.592870838708891,
+              "mean_entropy": 0.43143610698052165
+            },
+            "development": {
+              "log_loss": 0.7047896771517244,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 3.66872760843464,
+              "mean_entropy": 0.8457493450491869
+            }
+          },
+          {
+            "epoch": 6,
+            "train": {
+              "log_loss": 0.09772150407983882,
+              "accuracy": 1.0,
+              "max_abs_logit": 6.9412186143207215,
+              "mean_entropy": 0.3384013464977781
+            },
+            "development": {
+              "log_loss": 0.6683426701467496,
+              "accuracy": 0.75,
+              "max_abs_logit": 3.8886465478654055,
+              "mean_entropy": 0.8160099654764212
+            }
+          },
+          {
+            "epoch": 7,
+            "train": {
+              "log_loss": 0.07165966462647852,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.3996560497846815,
+              "mean_entropy": 0.2689309030807032
+            },
+            "development": {
+              "log_loss": 0.6518942941718358,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 4.244273602534892,
+              "mean_entropy": 0.7818685394031257
+            }
+          },
+          {
+            "epoch": 8,
+            "train": {
+              "log_loss": 0.051236489563067325,
+              "accuracy": 1.0,
+              "max_abs_logit": 7.977773245223203,
+              "mean_entropy": 0.21125200020386703
+            },
+            "development": {
+              "log_loss": 0.6380890926487479,
+              "accuracy": 0.75,
+              "max_abs_logit": 4.504962421656797,
+              "mean_entropy": 0.7535659017607776
+            }
+          },
+          {
+            "epoch": 9,
+            "train": {
+              "log_loss": 0.03712583794472743,
+              "accuracy": 1.0,
+              "max_abs_logit": 8.586092119327814,
+              "mean_entropy": 0.16637910275346682
+            },
+            "development": {
+              "log_loss": 0.6322449475875158,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 4.696283327836035,
+              "mean_entropy": 0.7259430497697309
+            }
+          },
+          {
+            "epoch": 10,
+            "train": {
+              "log_loss": 0.02799763688396332,
+              "accuracy": 1.0,
+              "max_abs_logit": 9.153813963316349,
+              "mean_entropy": 0.13359290692331155
+            },
+            "development": {
+              "log_loss": 0.6356441835227404,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 5.015845889676877,
+              "mean_entropy": 0.6978494215545996
+            }
+          },
+          {
+            "epoch": 11,
+            "train": {
+              "log_loss": 0.021800358027962787,
+              "accuracy": 1.0,
+              "max_abs_logit": 9.64878362590921,
+              "mean_entropy": 0.10935986315248288
+            },
+            "development": {
+              "log_loss": 0.6435950437351922,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 5.321773125287169,
+              "mean_entropy": 0.6718226887409366
+            }
+          },
+          {
+            "epoch": 12,
+            "train": {
+              "log_loss": 0.01733690497066094,
+              "accuracy": 1.0,
+              "max_abs_logit": 10.066333998322577,
+              "mean_entropy": 0.09089185295005292
+            },
+            "development": {
+              "log_loss": 0.6524614990943184,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 5.575451279711926,
+              "mean_entropy": 0.649211512070321
+            }
+          },
+          {
+            "epoch": 13,
+            "train": {
+              "log_loss": 0.014048853307438313,
+              "accuracy": 1.0,
+              "max_abs_logit": 10.415408000865652,
+              "mean_entropy": 0.0766181889172671
+            },
+            "development": {
+              "log_loss": 0.6609581450410381,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 5.782753504279484,
+              "mean_entropy": 0.6298289113214712
+            }
+          },
+          {
+            "epoch": 14,
+            "train": {
+              "log_loss": 0.011612522626662737,
+              "accuracy": 1.0,
+              "max_abs_logit": 10.709110037446862,
+              "mean_entropy": 0.06553307603347329
+            },
+            "development": {
+              "log_loss": 0.6687358670132019,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 5.953210607308352,
+              "mean_entropy": 0.6130771222309501
+            }
+          },
+          {
+            "epoch": 15,
+            "train": {
+              "log_loss": 0.009781736454214074,
+              "accuracy": 1.0,
+              "max_abs_logit": 10.959900340306467,
+              "mean_entropy": 0.05683269347697028
+            },
+            "development": {
+              "log_loss": 0.6754521842654356,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 6.096009963843916,
+              "mean_entropy": 0.5985305743183958
+            }
+          },
+          {
+            "epoch": 16,
+            "train": {
+              "log_loss": 0.008366771952328175,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.177846426026154,
+              "mean_entropy": 0.04986193133023531
+            },
+            "development": {
+              "log_loss": 0.6806743825775291,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 6.218526706304804,
+              "mean_entropy": 0.5859688526458889
+            }
+          },
+          {
+            "epoch": 17,
+            "train": {
+              "log_loss": 0.0072360921513028986,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.370408785491293,
+              "mean_entropy": 0.044136032887326225
+            },
+            "development": {
+              "log_loss": 0.6840810062207887,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 6.326122594560591,
+              "mean_entropy": 0.5752455370499738
+            }
+          },
+          {
+            "epoch": 18,
+            "train": {
+              "log_loss": 0.006307832589221153,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.542822723724866,
+              "mean_entropy": 0.03933282169133752
+            },
+            "development": {
+              "log_loss": 0.6856037659557749,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 6.422438337288447,
+              "mean_entropy": 0.5661960239528558
+            }
+          },
+          {
+            "epoch": 19,
+            "train": {
+              "log_loss": 0.005534233143376782,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.698626102053465,
+              "mean_entropy": 0.03525336187652299
+            },
+            "development": {
+              "log_loss": 0.685430808977937,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 6.509809199951865,
+              "mean_entropy": 0.5586156447936592
+            }
+          },
+          {
+            "epoch": 20,
+            "train": {
+              "log_loss": 0.004886895225046708,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.84015264826791,
+              "mean_entropy": 0.031775327512852225
+            },
+            "development": {
+              "log_loss": 0.6839214530622866,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 6.589655566368439,
+              "mean_entropy": 0.5522773006203076
+            }
+          },
+          {
+            "epoch": 21,
+            "train": {
+              "log_loss": 0.0043466519788289935,
+              "accuracy": 1.0,
+              "max_abs_logit": 11.96893246254883,
+              "mean_entropy": 0.02881600742895423
+            },
+            "development": {
+              "log_loss": 0.6814994286068781,
+              "accuracy": 0.6666666666666666,
+              "max_abs_logit": 6.662800028679072,
+              "mean_entropy": 0.5469576914771674
+            }
+          },
+          {
+            "epoch": 22,
+            "train": {
+              "log_loss": 0.003898142245940956,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.08599166269993,
+              "mean_entropy": 0.026309759729680145
+            },
+            "development": {
+              "log_loss": 0.6785666041892475,
+              "accuracy": 0.6944444444444444,
+              "max_abs_logit": 6.729703855065409,
+              "mean_entropy": 0.5424567366811663
+            }
+          },
+          {
+            "epoch": 23,
+            "train": {
+              "log_loss": 0.0035276097323258815,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.192062990989475,
+              "mean_entropy": 0.024197437002589653
+            },
+            "development": {
+              "log_loss": 0.6754516024665667,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 6.7906320915486456,
+              "mean_entropy": 0.5386068202518941
+            }
+          },
+          {
+            "epoch": 24,
+            "train": {
+              "log_loss": 0.0032223778509502103,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.287725775117327,
+              "mean_entropy": 0.022423155672185786
+            },
+            "development": {
+              "log_loss": 0.6723905624062607,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 6.845762050166465,
+              "mean_entropy": 0.5352740264904708
+            }
+          },
+          {
+            "epoch": 25,
+            "train": {
+              "log_loss": 0.0029709553065507973,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.373493827152279,
+              "mean_entropy": 0.020934481165798022
+            },
+            "development": {
+              "log_loss": 0.6695304612802849,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 6.8952501722719015,
+              "mean_entropy": 0.5323547236274302
+            }
+          },
+          {
+            "epoch": 26,
+            "train": {
+              "log_loss": 0.0027632422360015433,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.449867106176729,
+              "mean_entropy": 0.019683605511448668
+            },
+            "development": {
+              "log_loss": 0.6669449128274967,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 6.939270047544549,
+              "mean_entropy": 0.5297701907411752
+            }
+          },
+          {
+            "epoch": 27,
+            "train": {
+              "log_loss": 0.002590641721569696,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.517359282882907,
+              "mean_entropy": 0.01862836850785007
+            },
+            "development": {
+              "log_loss": 0.6646545790575126,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 6.978031382856386,
+              "mean_entropy": 0.5274609561199699
+            }
+          },
+          {
+            "epoch": 28,
+            "train": {
+              "log_loss": 0.00244604644546728,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.576509857530567,
+              "mean_entropy": 0.017732752953137972
+            },
+            "development": {
+              "log_loss": 0.6626470892407308,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 7.011786884319175,
+              "mean_entropy": 0.5253817089446287
+            }
+          },
+          {
+            "epoch": 29,
+            "train": {
+              "log_loss": 0.0023237300942231163,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.62788668359301,
+              "mean_entropy": 0.016966857400673305
+            },
+            "development": {
+              "log_loss": 0.6608936938644512,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 7.04083174386167,
+              "mean_entropy": 0.5234971477887488
+            }
+          },
+          {
+            "epoch": 30,
+            "train": {
+              "log_loss": 0.002219183223782422,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.672082723155288,
+              "mean_entropy": 0.01630648064089151
+            },
+            "development": {
+              "log_loss": 0.6593615482243729,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 7.065498779905413,
+              "mean_entropy": 0.5217788536694674
+            }
+          },
+          {
+            "epoch": 31,
+            "train": {
+              "log_loss": 0.0021289258824262526,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.70970949508208,
+              "mean_entropy": 0.01573246813899596
+            },
+            "development": {
+              "log_loss": 0.6580215823941876,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 7.0861511792046485,
+              "mean_entropy": 0.5202031264572048
+            }
+          },
+          {
+            "epoch": 32,
+            "train": {
+              "log_loss": 0.0020503189035292533,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.74138880076582,
+              "mean_entropy": 0.015229945166679543
+            },
+            "development": {
+              "log_loss": 0.6568525191943394,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 7.103174082594162,
+              "mean_entropy": 0.518749641952717
+            }
+          },
+          {
+            "epoch": 33,
+            "train": {
+              "log_loss": 0.001981387288794359,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.767743762769962,
+              "mean_entropy": 0.014787527965209227
+            },
+            "development": {
+              "log_loss": 0.655841889209849,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 7.116965818473991,
+              "mean_entropy": 0.5174007455979206
+            }
+          },
+          {
+            "epoch": 34,
+            "train": {
+              "log_loss": 0.0019206632098725605,
+              "accuracy": 1.0,
+              "max_abs_logit": 12.789389864213527,
+              "mean_entropy": 0.01439657486864701
+            },
+            "development": {
+              "log_loss": 0.6549849690107787,
+              "accuracy": 0.7222222222222222,
+              "max_abs_logit": 7.127929312334645,
+              "mean_entropy": 0.5161411868475483
+            }
+          }
+        ],
+        "mean_train_squared_norm": 7586.618004132953
+      }
+    }
+  },
+  "original_records_sha256": {
+    "replay-results.json": "844fbc07f4ce99265373dbc13cac4ca5cacaa82fe353834cfb64ca081a51c71f",
+    "small-step-results.json": "e0d8dcf8ee8d3305080e910903d4f14c0826db9405e1c5a73379349d3168f704"
+  }
+}

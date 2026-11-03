@@ -1,0 +1,73 @@
+[package]
+name = "slop_ninja_validator"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Native Slop Ninja validator"
+
+[dependencies]
+anyhow = "1"
+futures = "0.3"
+sha2 = "0.10"
+tokio-util = "0.7"
+slop-ninja-protocol = { path = "../protocol" }
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+http = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "signal", "sync", "time"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "std"] }
+url = "2"
+slop-ninja-subnet = { path = "../.." }
+rtao-client = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-neuron = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44", default-features = false, features = ["validator"] }
+rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44", features = ["serde"] }
+rtao-rpc = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-intents = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-tx = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-metagraph = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-btauth = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+rtao-wallet = { git = "https://github.com/sam0x17/rtao", rev = "b5553a76ff67f0f54350472ef0306f225e8a4c44" }
+# The published-package fetcher (HTTPS to the public status host); versions
+# and features match rtao's and the miner client's.
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.8"
+# Drill proxy only (feature testnet-drills); versions and features match rtao's.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"], optional = true }
+blake2 = { version = "0.10", optional = true }
+
+[features]
+# Testnet drill tooling (shortcut T13): SLOP_NINJA_DRILL_FAULT crash hooks,
+# honored only on the test network, and the slop_ninja_drill_proxy binary.
+testnet-drills = ["dep:tokio-tungstenite", "dep:blake2", "tokio/net"]
+
+[dev-dependencies]
+tempfile = "3"
+# Test-only: attempt hashes are BLAKE2b-256 of the signed bytes.
+blake2 = "0.10"
+slop-ninja-subnet = { path = "../..", features = ["offline-test-hooks"] }
+slop-ninja-protocol = { path = "../protocol", features = ["fixtures"] }
+
+[[bin]]
+name = "slop_ninja_validator"
+path = "src/main.rs"
+
+# Testnet shortcut T12: build a coordinator-signed fixture package.
+[[bin]]
+name = "slop_ninja_fixture_package"
+path = "src/bin/fixture_package.rs"
+
+# Testnet drills (T13): a loopback JSON-RPC WebSocket proxy that injects
+# faults around extrinsic submission. Built only with testnet-drills.
+[[bin]]
+name = "slop_ninja_drill_proxy"
+path = "src/bin/drill_proxy.rs"
+required-features = ["testnet-drills"]

@@ -1,0 +1,284 @@
+{
+  "schema": "slop_ninja_global_voices_document_view_manual_review_v1",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "packet_sha256": "572c9f9cc5f5e3efd755fc688bb7308339f9914b73c59f937f79c70220806b16",
+  "review_projection_sha256": "053424d6e189c8f8f973746f43c4aea418db91dcf14998a4b8ea93941bc58e4b",
+  "view_source_sha256": "01a79dd424c277bdb936b5099fe4d2860e77e9f80853fad4993d314c1904845e",
+  "source_review": "global-voices-source-manual-review-v1.json",
+  "reviewed_works": 8,
+  "reviewed_regions": 319,
+  "scope": "Read every new region's owned decoded text, roles, parent, subtree endpoint, child regions, paragraph ordinal and legacy exclusion. Compare with the previous full review of the same eight cached article bodies and old extracts. Inspect all 15 media nodes' source/alt/title/type attributes, one complete inline hashtag and line-break subtree, and an interview label's formatting nodes. No new complete raw-HTML reread or inspection of every inline attribute; source identity and paragraph crosswalks are checked separately. An earlier combined projection output was truncated and not used; all eight projections were subsequently read in separate complete outputs.",
+  "document_structure_review_complete_for_packet": true,
+  "rows": [
+    {
+      "id": "gv:769472",
+      "regions_reviewed": 59,
+      "inspected_node_ids": [
+        2,
+        3,
+        4,
+        27,
+        48,
+        87,
+        126,
+        161,
+        163,
+        179,
+        196,
+        206,
+        225,
+        251,
+        271,
+        285,
+        299,
+        340,
+        349
+      ],
+      "findings": [
+        "All 12 embedded-post blockquotes retain their paragraph children and attribution text. Seven introductions retain their following material. Paragraph 43 retains its historical comparison and quoted term together.",
+        "The complete paragraph-22 subtree retains adjacent hashtag anchors, an explicit br, newline text, the Urdu hashtag and declared lang attribute. That attribute is metadata, not verified language identification. Concatenating text nodes alone is not a rendered-text view.",
+        "The opening 2002 date remains unchanged. The photo and caption remain separate children of their wrapper."
+      ]
+    },
+    {
+      "id": "gv:614081",
+      "regions_reviewed": 28,
+      "inspected_node_ids": [
+        2,
+        3,
+        4,
+        16,
+        19,
+        37,
+        49,
+        77,
+        80,
+        90,
+        95,
+        99,
+        104,
+        108
+      ],
+      "findings": [
+        "The woman's introduction, nickname and room remain before the paragraph referring to her. The nickname no longer removes surrounding narration.",
+        "Two social posts and three other blockquotes retain their regions, attribution text and neighboring introductions. The final conditional promise remains outside the preceding quotation.",
+        "Nonbreaking spaces, informal punctuation and the photo credit remain unchanged. Structural classes do not establish who composed quoted words."
+      ]
+    },
+    {
+      "id": "gv:594642",
+      "regions_reviewed": 33,
+      "inspected_node_ids": [
+        34,
+        43,
+        60,
+        66,
+        84,
+        85,
+        87,
+        96,
+        97,
+        108,
+        109,
+        120,
+        126,
+        127,
+        138
+      ],
+      "findings": [
+        "All three headings retain their places. The activist's projects and quoted ballot choices precede the video and the following activist.",
+        "All six media elements remain, including empty paragraph wrappers around a screenshot, two videos and an audio player. Their source URLs and available alt/title attributes survive; their contents were not fetched or interpreted.",
+        "The dentist-video introduction retains its following media node. Translation remains a topic, with no inferred translation provenance for this article."
+      ]
+    },
+    {
+      "id": "gv:711372",
+      "regions_reviewed": 47,
+      "inspected_node_ids": [
+        2,
+        4,
+        5,
+        38,
+        60,
+        78,
+        94,
+        130,
+        156,
+        180,
+        206,
+        227,
+        230,
+        265,
+        286
+      ],
+      "findings": [
+        "Eight social-post blockquotes retain their contents after the narration. Capitals, nonstandard punctuation, misspellings and line breaks survive without English normalization.",
+        "Paragraph 19 retains the official statement, chief minister's response and subsequent release of all students. Paragraph 24 keeps its quoted slogan and introduction to the next post.",
+        "Both headings and the photo/credit wrapper remain. Source grammar and spelling defects are unchanged."
+      ]
+    },
+    {
+      "id": "gv:555064",
+      "regions_reviewed": 54,
+      "inspected_node_ids": [
+        2,
+        3,
+        4,
+        43,
+        61,
+        79,
+        99,
+        119,
+        136,
+        148,
+        151,
+        165,
+        182,
+        199,
+        217,
+        231,
+        246,
+        260,
+        263
+      ],
+      "findings": [
+        "All 13 social-post regions retain their paragraph children and attribution text. The final introduction retains its following post.",
+        "The economic and campaign context in paragraph 4 survives alongside quoted phrases. The comparison labels in paragraph 18 remain with their introduction.",
+        "Repeated-parenthesis emoticons, an ASCII face, emoji, abbreviations and hashtags survive as text observations; this does not establish pragmatic or syntactic interpretation.",
+        "Social-post images remain external references. Text retention does not establish complete visual evidence."
+      ]
+    },
+    {
+      "id": "gv:662657",
+      "regions_reviewed": 30,
+      "inspected_node_ids": [
+        2,
+        3,
+        4,
+        19,
+        31,
+        33,
+        34,
+        35,
+        41,
+        48,
+        54,
+        58,
+        88,
+        101,
+        107,
+        108,
+        111
+      ],
+      "findings": [
+        "The head master's name, naming convention and reason for not reporting remain in paragraph 4. Legal quotations and the honorific explanation retain their surrounding narration.",
+        "The factbox contains its caption wrapper and comic-translation paragraph, separately from the main narration. Its classes do not prove translation authorship or permission.",
+        "The representative's explanation remains in a blockquote after its introduction; subsequent narration falls outside it. Both headings and both image/caption pairs remain.",
+        "The questionable currency conversion remains. No factual correction, legal verification or interpretation of comic images was performed."
+      ]
+    },
+    {
+      "id": "gv:557838",
+      "regions_reviewed": 33,
+      "inspected_node_ids": [
+        34,
+        38,
+        39,
+        44,
+        47,
+        51,
+        52,
+        57,
+        60,
+        65,
+        69,
+        70,
+        71,
+        72,
+        78,
+        81,
+        85,
+        94,
+        98,
+        104,
+        108,
+        114,
+        118
+      ],
+      "question_paragraph_ordinals": [
+        4,
+        7,
+        11,
+        14,
+        16,
+        18,
+        20
+      ],
+      "answer_blockquote_node_ids": [
+        38,
+        51,
+        69,
+        85,
+        98,
+        108,
+        118
+      ],
+      "answer_paragraph_counts": [
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        1
+      ],
+      "findings": [
+        "All seven question paragraphs and seven answer blockquotes retain their order. The first three answers contain two paragraphs each, for ten answer paragraphs total. No answer paragraph belongs to the following question.",
+        "The screenshot caption between the second answer and third question remains outside both turns. Speaker labels and their strong formatting survive.",
+        "Correction to the previous source-review prose: it said two blockquotes contain multiple paragraphs; this inspection confirms three. The earlier bound artifact remains unchanged.",
+        "Speaker interpretation remains a reviewed observation, not an implemented automatic label. Source typos are unchanged."
+      ]
+    },
+    {
+      "id": "gv:742458",
+      "regions_reviewed": 35,
+      "inspected_node_ids": [
+        2,
+        4,
+        5,
+        38,
+        57,
+        74,
+        77,
+        114,
+        117,
+        133,
+        142,
+        146,
+        152,
+        155,
+        159
+      ],
+      "findings": [
+        "Six blockquotes retain their separate extents, including the five-paragraph account with nested dialogue. Internal quotation characters do not become inferred structural child quotes.",
+        "Mixed narration and quotation in paragraphs 10, 21, 23 and 24 remain. The final discussion of self-doubt follows the relevant reflection.",
+        "The narrator, quoted journalist, people within her account and separately quoted campaigner require a later attribution layer.",
+        "The photo's separate notice remains in its caption. Retention does not establish commercial admission or verification of the media."
+      ]
+    }
+  ],
+  "remaining_gaps": [
+    "The view observes document structure; it does not assign author/speaker identities, quotation-character roles, language, human origin or training eligibility.",
+    "No contiguous-excerpt selection or rendering policy is implemented. A later renderer must handle br, whitespace, inline regions, nonprose and explicit gaps without silently joining fragments.",
+    "Exact source HTML is separate from the recovered DOM. Node IDs are not original byte offsets; DOM serialization cannot reconstruct exact source markup.",
+    "All eight works were exposed before implementation. This is development inspection, not an unseen structural accuracy estimate or English grammar evaluation.",
+    "Media, linked reports, live article headers/footers and independent historical captures were not inspected. Historical-origin and commercial-admission review remain incomplete."
+  ],
+  "native_english_grammar_changed": false,
+  "default_extractor_changed": false,
+  "training_records_admitted": 0,
+  "detector_calls": 0,
+  "pangram_calls": 0,
+  "parse_accuracy_estimate": null
+}

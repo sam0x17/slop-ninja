@@ -1,0 +1,143 @@
+{
+  "schema": "unslop-style-demo-v1",
+  "fixture_provenance": "Synthetic examples; not the user’s personal writing or evidence of human authorship.",
+  "author_id": "synthetic-demo",
+  "register": "technical-explanation",
+  "training_documents": 3,
+  "source_groups": 3,
+  "heldout_documents_excluded": [
+    "fixture-holdout"
+  ],
+  "feature_extractor": "unslop-style-v1;unslop-features-rust-v1;nfc-unicode-word-v1;sentence-heuristic-v1;spacy=3.8.16;model=en_core_web_sm@3.8.0;grammar-rules-v1;python-unicode=15.0.0",
+  "feature_family_count": 13,
+  "source_sha256": "7c548642a4672a49676fc00fe0580e9670c1d9815beec5b4e4cbffb5b88402a8",
+  "profile_sha256": "ec0da82b895c5f8b88d857a9c627ec702f1c3114445018658c81b52af3a49d9c",
+  "controls_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+  "baseline_style_distance": 0.4040164173271217,
+  "max_edit_ratio": 0.3,
+  "unreviewed_recommendation": null,
+  "reviewed_recommendation": "split-preserving",
+  "candidates": [
+    {
+      "id": "wrong-claim",
+      "candidate_sha256": "d6518d2c1a3fa4b7a5051f12d2c9e69781361dc77827763eed903e07fa38daab",
+      "style_distance": 0.205907874245007,
+      "edit_ratio": 0.2391304347826087,
+      "within_edit_budget": true,
+      "review_pass": false,
+      "recommended_after_review": false,
+      "review": {
+        "candidate_id": "wrong-claim",
+        "source_sha256": "7c548642a4672a49676fc00fe0580e9670c1d9815beec5b4e4cbffb5b88402a8",
+        "candidate_sha256": "d6518d2c1a3fa4b7a5051f12d2c9e69781361dc77827763eed903e07fa38daab",
+        "profile_sha256": "ec0da82b895c5f8b88d857a9c627ec702f1c3114445018658c81b52af3a49d9c",
+        "controls_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+        "reviewer_kind": "assistant",
+        "reviewed_by_human": false,
+        "meaning_preserved": false,
+        "details_preserved": false,
+        "tone_preserved": false,
+        "readable": true,
+        "controls_satisfied": false,
+        "claim_checks": [
+          {
+            "claim": "The service keeps a second copy of each record.",
+            "status": "retained",
+            "rationale": "Service, second-copy count and the each-record scope remain explicit."
+          },
+          {
+            "claim": "If one disk fails, the service reads that second copy.",
+            "status": "retained",
+            "rationale": "The failure condition and reference to that copy remain explicit."
+          },
+          {
+            "claim": "Users can continue working while the operator replaces the failed disk.",
+            "status": "retained",
+            "rationale": "The ability to continue, operator action and while timing remain. The causal connection to reading the copy is implicit across adjacent sentences but clear in context."
+          },
+          {
+            "claim": "Protection against one disk failure does not replace a backup.",
+            "status": "contradicted",
+            "rationale": "Deleting does not reverses the central limitation: the candidate says the protection replaces a backup."
+          }
+        ],
+        "rationale": "The final sentence reverses the backup limitation and removes the original caution, changing both meaning and intended reassurance. The prose remains readable, but it fails preservation and the default requirement to retain source intent.",
+        "review_context": {
+          "synthetic_demonstration": true,
+          "style_scores_consulted": false,
+          "detector_results_consulted": false,
+          "source_and_candidate_bytes_hashed_by_reviewer": true,
+          "profile_and_controls_bindings": "digests supplied with review task",
+          "controls": "absent; preserve original tone and intent",
+          "authorship_assertion_made": false
+        }
+      }
+    },
+    {
+      "id": "split-preserving",
+      "candidate_sha256": "cef2a4c74a72349df22b186131e9b1664c6485294ff621df5f6d93cdce5ade5c",
+      "style_distance": 0.21253400239257414,
+      "edit_ratio": 0.17391304347826086,
+      "within_edit_budget": true,
+      "review_pass": true,
+      "recommended_after_review": true,
+      "review": {
+        "candidate_id": "split-preserving",
+        "source_sha256": "7c548642a4672a49676fc00fe0580e9670c1d9815beec5b4e4cbffb5b88402a8",
+        "candidate_sha256": "cef2a4c74a72349df22b186131e9b1664c6485294ff621df5f6d93cdce5ade5c",
+        "profile_sha256": "ec0da82b895c5f8b88d857a9c627ec702f1c3114445018658c81b52af3a49d9c",
+        "controls_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+        "reviewer_kind": "assistant",
+        "reviewed_by_human": false,
+        "meaning_preserved": true,
+        "details_preserved": true,
+        "tone_preserved": true,
+        "readable": true,
+        "controls_satisfied": true,
+        "claim_checks": [
+          {
+            "claim": "The service keeps a second copy of each record.",
+            "status": "retained",
+            "rationale": "Service, second-copy count and the each-record scope remain explicit."
+          },
+          {
+            "claim": "If one disk fails, the service reads that second copy.",
+            "status": "retained",
+            "rationale": "The failure condition and reference to that copy remain explicit."
+          },
+          {
+            "claim": "Users can continue working while the operator replaces the failed disk.",
+            "status": "retained",
+            "rationale": "The ability to continue, operator action and while timing remain. The causal connection to reading the copy is implicit across adjacent sentences but clear in context."
+          },
+          {
+            "claim": "Protection against one disk failure does not replace a backup.",
+            "status": "retained",
+            "rationale": "The one-failure scope and does-not-replace limitation remain explicit."
+          }
+        ],
+        "rationale": "The sentence split retains every claim and the original technical caution. The shorter sentences are grammatical and easy to follow; there are no additional requested controls.",
+        "review_context": {
+          "synthetic_demonstration": true,
+          "style_scores_consulted": false,
+          "detector_results_consulted": false,
+          "source_and_candidate_bytes_hashed_by_reviewer": true,
+          "profile_and_controls_bindings": "digests supplied with review task",
+          "controls": "absent; preserve original tone and intent",
+          "authorship_assertion_made": false
+        }
+      }
+    }
+  ],
+  "detector_calls": 0,
+  "meaning_certified_by_metric": false,
+  "reviewed_by_human": false,
+  "tests_passed": 131,
+  "fixture_files": {
+    "examples/style-samples.jsonl": "fe8fbf0cfafc983b7292d45f45b0de8a3df4d25551d9ac6cd48b4b3cb80599f0",
+    "examples/style-source.txt": "7c548642a4672a49676fc00fe0580e9670c1d9815beec5b4e4cbffb5b88402a8",
+    "examples/style-candidates.jsonl": "b9296ff11cc2617e9d72e2f4d7839024c9098de09afbeda60bc3825642c328bd"
+  },
+  "fixture_authorship": "In-session Codex assistants",
+  "external_generation_calls": 0
+}

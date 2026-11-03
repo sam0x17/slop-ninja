@@ -1,0 +1,70 @@
+# Slop Ninja native validator configuration (example).
+# Copy to ~/.config/slop_ninja_validator/<instance>.toml and edit every value.
+# Paths must be absolute. The file holds no secrets.
+
+network = "test"            # "test" or "finney"; fixes the expected genesis
+netuid = 0                  # REQUIRED: 601 on testnet. 0 is refused, so an unedited copy never runs
+weight_version = 0          # WeightsVersionKey of the subnet; subnet 601 reads 0
+journal_path = "/home/operator/.local/state/slop_ninja_validator/weights-journal.json"
+
+[wallet]
+path = "/home/operator/.bittensor/wallets"
+name = "my-wallet"
+hotkey = "my-validator"     # only <hotkey>pub.txt is read; no key is loaded
+
+[rpc]
+# The public OpenTensor testnet endpoints, until a dedicated testnet RPC
+# service is available. Primary first, then failover. Endpoints must be
+# wss:// with no credentials, path or query.
+endpoints = [
+  "wss://test.finney.opentensor.ai:443",
+  "wss://test.chain.opentensor.ai:443",
+]
+user_agent = "slop_ninja_validator/0.1 (+https://slop.ninja)"
+max_requests_per_minute = 15  # whole-process budget; public pools 429 near 25
+startup_timeout_secs = 60
+
+[recovery]
+max_rounds = 16
+
+[log]
+format = "json"   # or "text"
+level = "info"
+
+# The coordinator-signed bundle to verify before a row is enqueued. With
+# [fetch], the validator fetches it from the public status host and writes it
+# here; without [fetch], the operator installs it. Without [package], `run`
+# stops after startup. The three keys are the public Ed25519 application keys
+# (32-byte hex) from the release's testnet-trust.json (package_public_key,
+# receipt_public_key, authorization_public_key); never chain keys, and never a
+# keys.json published beside a package.
+# [package]
+# path = "/home/operator/.local/state/slop_ninja_validator/package.json"
+# [package.trusted_keys]
+# package = "<64 hex>"
+# receipt = "<64 hex>"
+# authorization = "<64 hex>"
+
+# The published-package fetcher. Requires [package]. Everything fetched is
+# checked against its listed SHA-256 and length, then verified under the
+# [package] keys; nothing is trusted because of where it came from.
+# [fetch]
+# base_url = "https://<public status host>/"  # https:// only; no credentials, query or fragment
+# poll_secs = 300     # how often a continuous run checks for a new target or authorization (at least 60); also each session's time bound
+# stall_secs = 60     # abandon a request that receives nothing this long; it resumes next time
+# cache_dir = "/home/operator/.local/state/slop_ninja_validator/public-cache"  # the default: beside the journal
+
+# Read only by `run --dispatch`. Without that flag the keyfile is never opened.
+# The file's <hotkey>pub.txt must name the same account as [wallet].
+# [dispatch]
+# hotkey_file = "/home/operator/.bittensor/wallets/my-wallet/hotkeys/my-validator"
+# Unset (the default): a continuous run. Set only to bound a drill run.
+# max_finalized_blocks = 1200
+# Unset (the default): rtao's per-hotkey jitter picks the commit block in each
+# epoch. On a public RPC endpoint with a budget of about 15 requests a minute,
+# set it late: rtao replays every block between a commit and its reveal at
+# about 14 requests a block, about one a minute, so 25-45 blocks or about
+# 23-42 minutes at 320 of 361 blocks (testnet's value), but hours early in
+# the epoch. It must be at most the subnet's Tempo, or no
+# commit ever falls due.
+# epoch_offset_blocks = 320

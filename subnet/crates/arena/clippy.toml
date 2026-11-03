@@ -1,0 +1,30 @@
+# Lint rules for the arena crate and its drill (design §3.2). The glue probe
+# has its own clippy.toml with the workers-rs rules added.
+disallowed-methods = [
+    { path = "std::mem::forget", reason = "a forgotten value pins its scope's pages; use ManuallyDrop where ownership moves to the platform" },
+    { path = "std::boxed::Box::leak", reason = "a leaked box pins its scope's pages forever" },
+    { path = "std::vec::Vec::leak", reason = "a leaked vector pins its scope's pages forever" },
+    { path = "std::string::String::leak", reason = "a leaked string pins its scope's pages forever" },
+    { path = "std::panic::set_hook", reason = "the hook's box outlives the scope it is installed in" },
+    { path = "serde_json::from_value", reason = "Value trees are unbounded; decode borrowed typed structs" },
+    { path = "serde_json::to_value", reason = "Value trees are unbounded; write typed structs to a bounded sink" },
+]
+disallowed-types = [
+    { path = "serde_json::Value", reason = "unbounded tree; use borrowed typed structs or RawValue" },
+    { path = "serde_json::Map", reason = "unbounded tree" },
+    { path = "std::sync::OnceLock", reason = "state that outlives every scope" },
+    { path = "std::cell::OnceCell", reason = "state that outlives every scope" },
+]
+disallowed-macros = [
+    { path = "serde_json::json", reason = "builds an unbounded Value tree" },
+]
+
+# Stack bounds (design §2.1, §5.1): the deepest measured stack of this
+# build's routes (`stack_high_water_bytes` in memory-model.json) plus any one
+# new frame, future or stack array stays within half the linked stack
+# (`stack_bytes / 2`, the stated margin), so each threshold is
+# `stack_bytes / 2 - stack_high_water_bytes`. `tests/source_scan.rs` checks
+# these against the model.
+stack-size-threshold = 521344
+future-size-threshold = 521344
+array-size-threshold = 521344

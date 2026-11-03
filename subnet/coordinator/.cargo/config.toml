@@ -1,0 +1,4 @@
+# The memory model the arena (and build.rs) compile into this crate: both
+# Workers built from it link the model's fixed linear memory.
+[env]
+SLOP_NINJA_MEMORY_MODEL = { value = "memory-model.json", relative = true }

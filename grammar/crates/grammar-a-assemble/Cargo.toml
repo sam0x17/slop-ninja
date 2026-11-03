@@ -1,0 +1,25 @@
+[package]
+name = "grammar-a-assemble"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Training and evaluation bundle assembly for Slop Ninja A, and consolidation of its data layout"
+
+[lib]
+name = "grammar_a_assemble"
+
+[[bin]]
+name = "slop_ninja_a_assemble"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+grammar-a-pools = { path = "../grammar-a-pools" }
+
+[dev-dependencies]
+tempfile.workspace = true

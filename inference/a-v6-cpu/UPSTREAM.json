@@ -1,0 +1,76 @@
+{
+  "schema": "slop_ninja_a_v6_cpu_source_provenance_v1",
+  "qualified_prototype": {
+    "qualification_sha256": "5398f45a1a58aa971c6c3e5572bc7129c1d91fca20b3d24524879db735982c16",
+    "original_main_rs_sha256": "c73e6ff2bcd29d3659993c563393c77130abb7fbe273b4ef6c4693ea538230d8",
+    "original_cargo_lock_sha256": "6a3b63ed9daa827ef389664817b32ef1c5dfdd59f8552c3cfe66e5401774a6b6",
+    "changes": "Wrapper extraction plus exposure of existing head.norm classifier-input tensor; unchanged model/operators. Shared A heads come from the existing grammar-a-baseline path dependency."
+  },
+  "copied_source_files_requalified": {
+    "date": "2026-10-30",
+    "scope": "Optional MKL and FP64 numeric profiles and f64 trace output added to the copied sources; the FP32 graph passed the unchanged 41-case roster against the unchanged oracle (QUALIFICATION.md).",
+    "comparison_sha256": "9d40b3c93404573f6126976fc6bae4c119b2ef5a9f61febd0680af25afc1f03d",
+    "oracle_sha256": "c272a7ffd2a579d5d3ee4126331c11284ad862af1956f74c809b22787c764c1e"
+  },
+  "copied_source_files_requalified_rotary_tables": {
+    "date": "2026-10-31",
+    "scope": "src/modernbert.rs builds each rotary angle as one float32 product (HF ModernBertRotaryEmbedding) and the FP64 profile (candle_f64_full_a_v2) widens the float32 cos/sin tables exactly. The FP32 graph's outputs are bit-identical on the unchanged 41-case roster against the unchanged oracle and on the three release reference cases; FP64 release-case errors fall (QUALIFICATION.md).",
+    "comparison_sha256": "3de5c03e56893c000fff26ee65bdec68c3c1092a9fecdbb8d0e56dc377919392",
+    "oracle_sha256": "c272a7ffd2a579d5d3ee4126331c11284ad862af1956f74c809b22787c764c1e"
+  },
+  "copied_source_files_requalified_span_tower": {
+    "date": "2026-11-01",
+    "scope": "src/modernbert.rs adds ModernBert::forward_with_branch (the hidden state entering a chosen layer with the encoder's masks, beside the unchanged final-norm states) and SpanTower (copies of the top layers with their own weights, attention kinds and rotary tables, then a copied final norm) for the spans-S2 span tower; forward is forward_with_branch without a branch. Warm-A roster (FP32 graph), the R0 release package (FP64 and FP32) and the shipped spans package (FP64, 15 synthetic and 200 local cases) are bit-identical against a build of main before the follow-up (72911dad), and every comparison passes with unchanged maxima (QUALIFICATION.md).",
+    "comparison_sha256": "b025ef453767ec023bfbefde7158215d693a3d1d0f63cad9f74834065df234b4",
+    "oracle_sha256": "c272a7ffd2a579d5d3ee4126331c11284ad862af1956f74c809b22787c764c1e"
+  },
+  "copied_source_files": {
+    "src/modernbert.rs": "f6abca9ee20f845fa38e10963318dddeedb966b6c517263ced2b67c772e30a5f",
+    "src/reference_layer_norm.rs": "20aac3ea2e5a5ab071581fbb650b119ff89dcb8335079f8b6ccca21d7933501f",
+    "src/trace.rs": "d581e9f3bc2c88858fee1569b6a6afea4bf6644902c2e666c28a8da48172ffea"
+  },
+  "candle": {
+    "version": "0.11.0",
+    "modernbert_source_commit": "12bb5d1f6350f4ea9827d9086f213feec1f0af6a",
+    "repository": "https://github.com/huggingface/candle",
+    "licenses": [
+      "licenses/CANDLE-APACHE",
+      "licenses/CANDLE-MIT"
+    ]
+  },
+  "pytorch_layer_norm_port": {
+    "commit": "08187d9e0fba026dc8217405802ab5381dc88d90",
+    "repository": "https://github.com/pytorch/pytorch",
+    "upstream_files": [
+      "aten/src/ATen/native/cpu/layer_norm_kernel.cpp",
+      "aten/src/ATen/native/cpu/moments_utils.h",
+      "aten/src/ATen/cpu/vec/vec_base.h"
+    ],
+    "license": "licenses/PYTORCH",
+    "license_sha256": "bd018feef8825e88181c84eb7e3aa4eafb8f08a20d9fd6ef948569610c4a3e43",
+    "copied_comment_relative_path": "The preserved source comment points to its former sidecar evidence directory; the license is retained here at licenses/PYTORCH."
+  },
+  "encoder": {
+    "artifact_id": "506b1c66a6a2ffc4eb4e50b9b057657ce0e5b6f04cff8caf3df496c956dc0d5f",
+    "manifest_sha256": "b68b6ba35892d5fd0cafcac49c4cde5d23c0f9a16aa8448e54f4b1684be3f70b",
+    "weight_sha256": "88bb0eda753ae3c6a9dc31c266e4ec24459937b77d07c27a609aa11ccdba36c0",
+    "weights_distributed_in_this_crate": false
+  },
+  "synthetic_fixture_sha256": "bc961fbd2b337b5e11872a3461d02555e7af8cafb79363e2d6c24d37f53f2451",
+  "selected_warm_weights_sha256": "f8bcb42532b5575bd90a46f320d1d99a9e0e18c655e94f0260c72bffa346b5a1",
+  "selected_contract_file_sha256": "33fa8f55666474058eec8c8bf2fed2cb46279e27aa5c244076be7874462bf49f",
+  "selected_contract_compact_sha256": "07be1109f824409dab0714084c2e67dc0c89379bc964f42f30c1b3d4bb4a6a9e",
+  "pytorch_2_9_1_numeric_profile": {
+    "commit": "5811a8d7da873dd699ff6687092c225caffcf1bb",
+    "repository": "https://github.com/pytorch/pytorch",
+    "feature": "mkl",
+    "upstream_files": [
+      "aten/src/ATen/native/cpu/SoftMaxKernel.cpp",
+      "aten/src/ATen/cpu/vec/functional_base.h",
+      "aten/src/ATen/native/cpu/moments_utils.h"
+    ],
+    "license": "licenses/PYTORCH-2.9.1",
+    "license_sha256": "a8a2c6b67cf8a597ffaa5c82380a6bd1b82629c0417e00673d8013d662eb500a",
+    "scope": "Separate Linux CPU profile; same fitted weights and fixed gates. Six runs pass 44 fixed synthetic CUDA-reference cases each, including 2048-token and unsupported-input boundaries. Cloudflare serving remains unqualified."
+  }
+}

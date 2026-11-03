@@ -1,0 +1,1 @@
+The files that are stored locally remain available. The service reads records, and users check the results. The backup does not protect both copies from a fire.

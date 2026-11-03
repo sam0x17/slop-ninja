@@ -1,0 +1,15 @@
+src/failure.rs
+src/main.rs
+src/native.rs
+upstream/manifest.json
+upstream/math_standalone.rs
+upstream/source/Cargo.lock
+upstream/source/Cargo.toml
+upstream/source/LICENSE
+upstream/source/pallets/subtensor/src/epoch/math.rs
+upstream/source/pallets/subtensor/src/epoch/run_epoch.rs
+upstream/source/pallets/subtensor/src/subnets/uids.rs
+upstream/source/pallets/subtensor/src/subnets/weights.rs
+upstream/source/primitives/safe-math/Cargo.toml
+upstream/source/primitives/safe-math/src/lib.rs
+upstream/verify.sh

@@ -1,0 +1,207 @@
+{
+  "schema": "slop_ninja_voice_probes_v6_report_v1",
+  "at": "2026-09-15T05:38:47Z",
+  "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+  "temperature": 1.8776105792643432,
+  "rows": [
+    {
+      "id": "000",
+      "source_group": "wikipedia:page:2620456",
+      "collection": "cmu-books-historical",
+      "generator_revision": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+      "review": {
+        "id": "000",
+        "judgment": "admissible",
+        "meaning_preserved": true,
+        "tone_preserved": true,
+        "notes": "Economic hardship remains the cause, Nat the affected person, and the present-tense necessity covers leaving school and beginning the same indenture. The chandler description stays attached to the same phrase. Subject case changes from him to He are required by the recast. The narrative focus and reading difficulty remain comparable; the additional He opening is a minor cadence change."
+      },
+      "parent": {
+        "text_sha256": "b81eab58c17f4c33a1cf93d382c26009d70507497040334b8a47b39286ebc359",
+        "probabilities": [
+          0.007576263971082065,
+          0.747952670029331,
+          0.2444710659995869
+        ],
+        "probability": 0.9924237360289179,
+        "token_count": 318,
+        "strict_flag": true,
+        "loose_flag": true,
+        "model_human_logit": 8.62258768081665,
+        "mixed_human_logit": 6.522963285446166
+      },
+      "candidate": {
+        "text_sha256": "c72271d0a231e3915dbb9248f416e1fd21e419a9be47319400337a96053aea5d",
+        "probabilities": [
+          0.008323847653947636,
+          0.728203330467888,
+          0.26347282187816434
+        ],
+        "probability": 0.9916761523460523,
+        "token_count": 320,
+        "strict_flag": true,
+        "loose_flag": true,
+        "model_human_logit": 8.395652532577515,
+        "mixed_human_logit": 6.486817121505737
+      },
+      "human_control": {
+        "text_sha256": "8bd8a53ccf82f4fec64529189f609d4a11996a772ba06fe684fa7cdd582657b2",
+        "probabilities": [
+          0.9969685916657277,
+          0.0019913917220047996,
+          0.0010400166122675135
+        ],
+        "probability": 0.003031408334272313,
+        "token_count": 336,
+        "strict_flag": false,
+        "loose_flag": false,
+        "model_human_logit": -11.67101240158081,
+        "mixed_human_logit": -12.890702724456785
+      },
+      "candidate_minus_parent": {
+        "probability_points": -0.0747583682865538,
+        "model_human_logit": -0.22693514823913574,
+        "mixed_human_logit": -0.0361461639404288
+      }
+    },
+    {
+      "id": "001",
+      "source_group": "wikipedia:page:768799",
+      "collection": "hc3-wiki-historical",
+      "generator_revision": "mlx-community/Olmo-3-7B-Instruct-4bit@d732c91ae02e90cd5d86e810fbeb9741794b4dd9",
+      "review": {
+        "id": "001",
+        "judgment": "admissible",
+        "meaning_preserved": true,
+        "tone_preserved": true,
+        "notes": "The conditional design context, can modality, effectiveness claim, missing/unimplemented distinction and testing procedure survive. Both parent and candidate are dense technical sentences; the recast remains grammatical and comparably readable in context. It does not correct the parent's earlier strengthening of assessment to effective uncovering."
+      },
+      "parent": {
+        "text_sha256": "8da2baa0e50ee06c44d8d973ee2dd9a6a13e6118300e119afa79065b99bb6fc3",
+        "probabilities": [
+          0.008195156057963181,
+          0.6656248335452103,
+          0.3261800103968266
+        ],
+        "probability": 0.9918048439420368,
+        "token_count": 227,
+        "strict_flag": true,
+        "loose_flag": true,
+        "model_human_logit": 8.256197214126587,
+        "mixed_human_logit": 6.916941165924072
+      },
+      "candidate": {
+        "text_sha256": "ef8d84969af695b6b9e067eddc1504b6ec3e284e6c84dec0d997ae68e67520c0",
+        "probabilities": [
+          0.008528507101490423,
+          0.6469594039111236,
+          0.3445120889873859
+        ],
+        "probability": 0.9914714928985096,
+        "token_count": 229,
+        "strict_flag": true,
+        "loose_flag": true,
+        "model_human_logit": 8.127930641174316,
+        "mixed_human_logit": 6.944746136665345
+      },
+      "human_control": {
+        "text_sha256": "4d9083c7f6fa1bb0255a206c3e565ac0fe26fea7874dd1449d6629c594cfb5ae",
+        "probabilities": [
+          0.9821504756495795,
+          0.005742921349241636,
+          0.012106603001178778
+        ],
+        "probability": 0.017849524350420413,
+        "token_count": 292,
+        "strict_flag": false,
+        "loose_flag": false,
+        "model_human_logit": -9.654253959655762,
+        "mixed_human_logit": -8.253963947296143
+      },
+      "candidate_minus_parent": {
+        "probability_points": -0.03333510435272746,
+        "model_human_logit": -0.1282665729522705,
+        "mixed_human_logit": 0.02780497074127286
+      }
+    },
+    {
+      "id": "002",
+      "source_group": "doi:10.1371/journal.pone.0208674",
+      "collection": "plos_one",
+      "generator_revision": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+      "review": {
+        "id": "002",
+        "judgment": "quality_concern",
+        "meaning_preserved": true,
+        "tone_preserved": true,
+        "notes": "The same preliminary observations indicate the same potential correlation, with the caveat requiring further investigation retained. The original parent already introduced lower chick survival as the correlation direction. The recast preserves this claim, but its long fronted subject delays the predicate and is harder to process than the parent. Keep it separate from accepted editing results even if A decreases."
+      },
+      "parent": {
+        "text_sha256": "69ce8c48513ae2eeabaef6ec200bf01109d99f66356ce9fe20fe161fda1ece46",
+        "probabilities": [
+          0.025825772954881764,
+          0.5062558623574618,
+          0.4679183646876566
+        ],
+        "probability": 0.9741742270451184,
+        "token_count": 342,
+        "strict_flag": true,
+        "loose_flag": true,
+        "model_human_logit": 5.587148070335388,
+        "mixed_human_logit": 5.439289331436158
+      },
+      "candidate": {
+        "text_sha256": "196f0502c2bda7bad4ff6145a5c9dda8569bfcf743762811bcaac2f3edf67746",
+        "probabilities": [
+          0.029266694266429107,
+          0.475245767566416,
+          0.4954875381671549
+        ],
+        "probability": 0.970733305733571,
+        "token_count": 344,
+        "strict_flag": true,
+        "loose_flag": true,
+        "model_human_logit": 5.233617782592773,
+        "mixed_human_logit": 5.311933159828186
+      },
+      "human_control": {
+        "text_sha256": "f82ea672a44a8488ed6aae5464931a419753609ebdbaa52efdcc184fd02a60f4",
+        "probabilities": [
+          0.9984474715741233,
+          0.0006937962359034764,
+          0.0008587321899731977
+        ],
+        "probability": 0.0015525284258766743,
+        "token_count": 419,
+        "strict_flag": false,
+        "loose_flag": false,
+        "model_human_logit": -13.653568267822266,
+        "mixed_human_logit": -13.253113746643068
+      },
+      "candidate_minus_parent": {
+        "probability_points": -0.34409213115473847,
+        "model_human_logit": -0.35353028774261475,
+        "mixed_human_logit": -0.12735617160797208
+      }
+    }
+  ],
+  "thresholds_strictly_greater_than": [
+    0.8436493155285434,
+    0.4287369114260753
+  ],
+  "new_inputs": 3,
+  "cached_inputs": 6,
+  "admissible_edits": 2,
+  "quality_concerns": 1,
+  "bindings": {
+    "preflight.json": "87273addf394e71c0f9a77ec86efd7754a532a873c8a830ea9b4b5d92e05b7ec",
+    "review.json": "e62ad10adf9c5f5c05af9afaf502616b27bd903c98dd683f4caf298af53c421d",
+    "controls.json": "f725a451d313c663d7a5009f1f4924cd314c7629c11857ba59a0f498566f3827",
+    "responses.jsonl": "1c0894ec2444c76e15721bc2061926870fcdc99e3b90dcf5e5785648edfa9023",
+    "completion.json": "dd1e0c05c70f70383762d23619c579f72668dd3f3ad4e34bcbaba18278a52dfa",
+    "report.rb": "f5310b875a1a70556bb0d76bcb15be02ad53785c2410f6311b083da3d3d3735c"
+  },
+  "training_admission": false,
+  "provider_calls": 0,
+  "limits": "Three familiar Train parents, one predeclared manual voice recast each, with unedited historical human controls. Selected after a large news result; no untouched-source estimate, abstract syntax isolation, Pangram transfer measurement or reference promotion."
+}

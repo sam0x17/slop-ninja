@@ -1,0 +1,95 @@
+{
+  "schema": "slop_ninja/subtensor-source-bundle-v1",
+  "repository": "https://github.com/opentensor/subtensor",
+  "commit": "67dcf7f791dc495064c293f080a0702cb433e51e",
+  "selection": "git ls-remote HEAD; repository HEAD rather than a claimed deployed runtime",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "local_path": "source/Cargo.lock",
+      "upstream_path": "Cargo.lock",
+      "sha256": "701071d3259e361325daa51dfa6f4768aa65bfceebf100d898d2f00060d73214",
+      "bytes": 521848,
+      "url": "https://raw.githubusercontent.com/opentensor/subtensor/67dcf7f791dc495064c293f080a0702cb433e51e/Cargo.lock"
+    },
+    {
+      "local_path": "source/Cargo.toml",
+      "upstream_path": "Cargo.toml",
+      "sha256": "06effe5c030c76b80b6b8eeb336f4006bedf50c38d9bce3858487e40448d52b1",
+      "bytes": 41661,
+      "url": "https://raw.githubusercontent.com/opentensor/subtensor/67dcf7f791dc495064c293f080a0702cb433e51e/Cargo.toml"
+    },
+    {
+      "local_path": "source/LICENSE",
+      "upstream_path": "LICENSE",
+      "sha256": "ce46a3c2599448e6989685edf7a58cdc5c22aa6dffbb24d4d2386dd0469a84e6",
+      "bytes": 10759,
+      "url": "https://raw.githubusercontent.com/opentensor/subtensor/67dcf7f791dc495064c293f080a0702cb433e51e/LICENSE"
+    },
+    {
+      "local_path": "source/pallets/subtensor/src/epoch/math.rs",
+      "upstream_path": "pallets/subtensor/src/epoch/math.rs",
+      "sha256": "a445d0da2e66654cefb16965d3b0cef712f6414c8b8c594a658fd4c17eb698c2",
+      "bytes": 51750,
+      "url": "https://raw.githubusercontent.com/opentensor/subtensor/67dcf7f791dc495064c293f080a0702cb433e51e/pallets/subtensor/src/epoch/math.rs"
+    },
+    {
+      "local_path": "source/pallets/subtensor/src/epoch/run_epoch.rs",
+      "upstream_path": "pallets/subtensor/src/epoch/run_epoch.rs",
+      "sha256": "222c57244ad24ebaffe79430c4e6b1897d87d2710f591bff3f2c284bd4a2f0a3",
+      "bytes": 69329,
+      "url": "https://raw.githubusercontent.com/opentensor/subtensor/67dcf7f791dc495064c293f080a0702cb433e51e/pallets/subtensor/src/epoch/run_epoch.rs"
+    },
+    {
+      "local_path": "source/pallets/subtensor/src/subnets/uids.rs",
+      "upstream_path": "pallets/subtensor/src/subnets/uids.rs",
+      "sha256": "35a3f7e36e7f1730a7cb9695f8bbb8ad536d513427151b983842b5298e37ca40",
+      "bytes": 23644,
+      "url": "https://raw.githubusercontent.com/opentensor/subtensor/67dcf7f791dc495064c293f080a0702cb433e51e/pallets/subtensor/src/subnets/uids.rs"
+    },
+    {
+      "local_path": "source/pallets/subtensor/src/subnets/weights.rs",
+      "upstream_path": "pallets/subtensor/src/subnets/weights.rs",
+      "sha256": "11e81b703f3a65fe308a3cd1aeaf9e71e84519e26793b5e29a28993daa11526a",
+      "bytes": 56552,
+      "url": "https://raw.githubusercontent.com/opentensor/subtensor/67dcf7f791dc495064c293f080a0702cb433e51e/pallets/subtensor/src/subnets/weights.rs"
+    },
+    {
+      "local_path": "source/primitives/safe-math/Cargo.toml",
+      "upstream_path": "primitives/safe-math/Cargo.toml",
+      "sha256": "24cc3d872f93270d26180951a0622f9db41ee739173284515e5382b2672d829a",
+      "bytes": 393,
+      "url": "https://raw.githubusercontent.com/opentensor/subtensor/67dcf7f791dc495064c293f080a0702cb433e51e/primitives/safe-math/Cargo.toml"
+    },
+    {
+      "local_path": "source/primitives/safe-math/src/lib.rs",
+      "upstream_path": "primitives/safe-math/src/lib.rs",
+      "sha256": "670db41bcf28d25143984ebad62db6de4bf7a174dd7584e2358345ba7cb809b9",
+      "bytes": 12104,
+      "url": "https://raw.githubusercontent.com/opentensor/subtensor/67dcf7f791dc495064c293f080a0702cb433e51e/primitives/safe-math/src/lib.rs"
+    }
+  ],
+  "adapter": {
+    "path": "math_standalone.rs",
+    "sha256": "860ed4bdef9df29f2f7e0d761ba24645cb367284ec366dd652c2bc727d186639",
+    "changes": "Five import-path replacements only; verify.sh reproduces and compares them. All production function bodies unchanged."
+  },
+  "compatibility": {
+    "path": "../src/native.rs",
+    "description": "Primitive SafeDiv plus FixedExt division method bodies copied from pinned safe-math; unrelated SDK arithmetic methods excluded",
+    "checked_add_reexports": [
+      "https://github.com/RaoFoundation/polkadot-sdk/blob/cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a/substrate/primitives/runtime/src/traits/mod.rs#L39-L44",
+      "https://github.com/RaoFoundation/polkadot-sdk/blob/cacb4310f20c7cac83eb3ccd8ed5a5ad4212608a/substrate/primitives/arithmetic/src/traits.rs#L30-L33"
+    ]
+  },
+  "dependencies": {
+    "substrate_fixed": {
+      "version": "0.6.0",
+      "git": "https://github.com/encointer/substrate-fixed.git",
+      "rev": "d5f70362f2e05b5f33fb51cd7baa825323e4e6c5"
+    },
+    "num_traits": "0.2.19",
+    "log": "0.4.28"
+  },
+  "runtime_executed": false
+}

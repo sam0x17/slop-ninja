@@ -1,0 +1,90 @@
+{
+  "schema": "slop_ninja_b_document_coverage_results_v1",
+  "authorship": "synthetic_fixture",
+  "license": "MIT",
+  "construction": "100 numbered chapters, each contains two repetitions of all pilot-v1 task sources",
+  "words": 70200,
+  "bytes": 430591,
+  "purpose": "Coverage and tokenization scaling only; no book quality or accuracy claim",
+  "external_calls": 0,
+  "whole_tokens": 84001,
+  "whole_status": "unsupported_length:84001>2048",
+  "views": {
+    "primary": {
+      "windows": 109,
+      "min_tokens": 1058,
+      "max_tokens": 1541,
+      "unsupported": 0
+    },
+    "shifted": {
+      "windows": 109,
+      "min_tokens": 1154,
+      "max_tokens": 1541,
+      "unsupported": 0
+    }
+  },
+  "distinct_supported_requests": 218,
+  "a_artifact": {
+    "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+    "manifest_sha256": "1f4700f2a1855ca9cec5d0b9fbbe830a2a07588a4e95a77a9a754bd6cc3de73f",
+    "max_tokens": 2048,
+    "runtime": "cpu_float32_eager",
+    "tokenizer_packages": {
+      "tokenizers": "0.22.2",
+      "transformers": "4.57.6"
+    },
+    "inference_runner_sha256": "402c7f3f25ad40cf9c8b23073d98778c98d5fa4b9d09d90e7db204de8c806e49"
+  },
+  "policy": "exact_utf8_whitespace_snap_768_stride_two_views_v1",
+  "bridge_sha256": "8413b39380dd03dc0ac797b489bff4b6ab2814f4a5b0ccff050bd9893dc52e80",
+  "source_sha256": "c39cce5e3db2558c9d0ac4a20bfcf92b62c88eda3213e701c9340cd384690ee9",
+  "plan_sha256": "75d971edcbf69e259a6d5618530bbbcd125b59d5aa595862b305a3dd13e7572a",
+  "platform": {
+    "system": "Darwin",
+    "machine": "arm64",
+    "macos": "26.5.2"
+  },
+  "preparation_seconds": 6.41,
+  "prepare_maximum_resident_set_size_bytes": 218251264,
+  "detector_calls_on_book": 0,
+  "planned_coverage": "all source bytes covered independently in primary and shifted views",
+  "unscored_report_coverage": [
+    {
+      "all_windows_below_0_1": null,
+      "all_windows_scored": false,
+      "maximum_window_probability": null,
+      "minimum_window_probability": null,
+      "planned_windows": 109,
+      "scored_windows": 0,
+      "unscored_byte_ranges": [
+        [
+          0,
+          430591
+        ]
+      ],
+      "view": "primary"
+    },
+    {
+      "all_windows_below_0_1": null,
+      "all_windows_scored": false,
+      "maximum_window_probability": null,
+      "minimum_window_probability": null,
+      "planned_windows": 109,
+      "scored_windows": 0,
+      "unscored_byte_ranges": [
+        [
+          0,
+          430591
+        ]
+      ],
+      "view": "shifted"
+    }
+  ],
+  "document_probability": null,
+  "unicode_check": {
+    "source_bytes": 46205,
+    "window_contexts": 34,
+    "complete_exact_utf8_coverage": true,
+    "features": "combining accent, emoji, curly quotes, NBSP, CRLF, tabs, leading/trailing whitespace"
+  }
+}

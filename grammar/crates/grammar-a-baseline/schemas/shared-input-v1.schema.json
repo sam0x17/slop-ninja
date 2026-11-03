@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Slop Ninja SharedInput v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_sha256", "x"],
+  "properties": {
+    "contract_sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+    "x": {"type": "array", "minItems": 1, "maxItems": 32768, "items": {"type": "number"}}
+  },
+  "description": "Finite numeric input. Length and contract digest must match the loaded artifact. See SHARED_CONTRACT.md for preprocessing and semantic invariants."
+}

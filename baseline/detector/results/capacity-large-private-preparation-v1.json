@@ -1,0 +1,27 @@
+{
+  "schema": "slop_ninja_capacity_private_preparation_v1",
+  "inputs_frozen": true,
+  "candidate_roles": [
+    "control",
+    "consistency"
+  ],
+  "source_groups": 1,
+  "source_versions": 3,
+  "v6_reports_reproduced_byte_for_byte": 3,
+  "public_comparison_views_unchanged": true,
+  "tokenizer_assets_identical": true,
+  "bindings_verified": 164,
+  "candidate_predictions": 0,
+  "provider_calls": 0,
+  "training_admissions": 0,
+  "auto_launch": false,
+  "large_training_started_by_preparation": false,
+  "require_successful_base_private_comparison": true,
+  "host": "mac_studio",
+  "protocol_sha256": "83450bb76c52eb1ad58c79cc6ecd0c7979aa7d2d92b72d8afd88e8788e5a0736",
+  "large_public_plan_sha256": "7f1b2668747d8053e26af76cd2a123655d092b458e962e8bd38f94dc3c7a7c84",
+  "scope": "Preparation of the two larger-backbone candidates against the same private failure case, retaining both base candidates and V6 as comparisons. Identifying plans, source text, binding manifests and scores remain in private Studio storage.",
+  "v6_replay_scope": "The original V6 reports contain direct whole-text observations; original window diagnostics were not scored. Exact replay does not add missing V6 window observations. Candidate execution must follow the complete-request protocol.",
+  "preparation_correction": "The first preflight expected tokenizer files as direct public-plan binding keys. It stopped before writing a plan or running the document reporter. The corrected preparation verifies tokenizers through the already-bound checkpoint manifests. Both attempts are retained; no source or expected hash changed.",
+  "limitations": "No fitted candidate was evaluated. This does not establish detector quality, Pangram alignment, gradient usefulness, Linux qualification or readiness to resume B optimization."
+}

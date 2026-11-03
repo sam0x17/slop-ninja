@@ -1,0 +1,227 @@
+{
+  "schema": "slop_ninja_checkpoint_capacity_runtime_v1",
+  "observed_date": "2026-09-14",
+  "status": "synthetic_runtime_only_not_detector_quality",
+  "host": "Mac Studio, macOS arm64, CPU float32 eager",
+  "encoder_frontier_rs_sha256": "88d86444a61ecca6021629e5cb2d6268acddc471836258a8a8c6105a43406806",
+  "purpose": "Verify pinned base/large loading, one synthetic optimization step, local input-embedding derivatives and offline artifact execution.",
+  "checks": [
+    {
+      "upstream_model": "answerdotai/ModernBERT-base",
+      "upstream_revision": "8949b909ec900327062f0ebf497f51aef5e6f0c8",
+      "classifier_parameters": 149607171,
+      "checkpoint_pin_sha256": "57ca5bc56f8e89044216f3fba0172418bccebbf741b2145b17de7fe6da881757",
+      "artifact_id": "82305b0a17683b6a5077a83e260ee521acc050fdd89ca1ee1f59ffbe16879fcd",
+      "smoke": {
+        "artifact_id": "82305b0a17683b6a5077a83e260ee521acc050fdd89ca1ee1f59ffbe16879fcd",
+        "checkpoint_pin_sha256": "57ca5bc56f8e89044216f3fba0172418bccebbf741b2145b17de7fe6da881757",
+        "cpu_forward_seconds": 0.33180529099990963,
+        "device": "cpu",
+        "export": {
+          "attempted": false
+        },
+        "final_test_opened": false,
+        "initial_logits": [
+          [
+            0.013246893882751465,
+            -1.3385980129241943,
+            0.4470005929470062
+          ],
+          [
+            -0.0938572958111763,
+            -1.2283731698989868,
+            0.04778242111206055
+          ]
+        ],
+        "input_gradient_probe": {
+          "absolute_error": 0.0006794929504394531,
+          "allowed_error": 0.07731440830230712,
+          "autograd_directional_derivative": 3.8407204151153564,
+          "content_gradient_norm": 3.8407211303710938,
+          "content_tokens": 16,
+          "direction": "normalized content-token gradient; special and padding tokens unchanged",
+          "embedding_shape": [
+            2,
+            11,
+            768
+          ],
+          "finite_difference_derivative": 3.841399908065796,
+          "finite_difference_epsilon": 0.001,
+          "objective": "mean logsumexp(model_only,mixed) minus human_only logit",
+          "provider_transfer_tested": false,
+          "semantic_edit_validated": false,
+          "token_id_embedding_max_logit_difference": 0.0
+        },
+        "length_limit_rejected": true,
+        "loss": 1.5352545976638794,
+        "optimizer_step_seconds": 3.0470559999994293,
+        "parameters": 149607171,
+        "reference_logits": [
+          [
+            0.6410343647003174,
+            -0.8635343313217163,
+            -0.5459393262863159
+          ],
+          [
+            -0.5178225636482239,
+            -0.3004712462425232,
+            -0.5297448635101318
+          ]
+        ],
+        "safetensors_reload_max_logit_difference": 0.0,
+        "seed": 17,
+        "software": {
+          "packages": {
+            "numpy": "2.5.3",
+            "safetensors": "0.7.0",
+            "tokenizers": "0.22.2",
+            "torch": "2.14.0",
+            "transformers": "4.57.6"
+          },
+          "platform": "macOS-26.5.2-arm64-arm-64bit",
+          "python": "3.12.14"
+        },
+        "status": "synthetic_smoke_only_not_a_detector_release",
+        "steps": 1,
+        "synthetic_labels_are_arbitrary": true
+      },
+      "bundled_inference": {
+        "process_exit_code": 0,
+        "requests": 3,
+        "valid_requests": 2,
+        "overlength_rejected": true,
+        "bundled_reference_vector_check_passed": true,
+        "current_sources_match_bundle": true,
+        "max_probability_difference_from_batched_smoke": 1.7727630774455605e-07
+      }
+    },
+    {
+      "upstream_model": "answerdotai/ModernBERT-large",
+      "upstream_revision": "45bb4654a4d5aaff24dd11d4781fa46d39bf8c13",
+      "classifier_parameters": 395834371,
+      "checkpoint_pin_sha256": "2727e31d1e1fd7cd55e0188ec4a68a067196152f745128f3619365daea8db765",
+      "artifact_id": "311b5ae3a8e3cc49e49850affb2ad087711cf408e4766fe736a63087fe1a2984",
+      "smoke": {
+        "artifact_id": "311b5ae3a8e3cc49e49850affb2ad087711cf408e4766fe736a63087fe1a2984",
+        "checkpoint_pin_sha256": "2727e31d1e1fd7cd55e0188ec4a68a067196152f745128f3619365daea8db765",
+        "cpu_forward_seconds": 0.9845016250001208,
+        "device": "cpu",
+        "export": {
+          "attempted": false
+        },
+        "final_test_opened": false,
+        "initial_logits": [
+          [
+            -0.8825733065605164,
+            1.097928524017334,
+            0.3290995955467224
+          ],
+          [
+            -0.5766140818595886,
+            0.13444091379642487,
+            -0.4892527461051941
+          ]
+        ],
+        "input_gradient_probe": {
+          "absolute_error": 0.0016474723815917969,
+          "allowed_error": 0.06194957065582275,
+          "autograd_directional_derivative": 3.0724785327911377,
+          "content_gradient_norm": 3.072476625442505,
+          "content_tokens": 16,
+          "direction": "normalized content-token gradient; special and padding tokens unchanged",
+          "embedding_shape": [
+            2,
+            11,
+            1024
+          ],
+          "finite_difference_derivative": 3.070831060409546,
+          "finite_difference_epsilon": 0.001,
+          "objective": "mean logsumexp(model_only,mixed) minus human_only logit",
+          "provider_transfer_tested": false,
+          "semantic_edit_validated": false,
+          "token_id_embedding_max_logit_difference": 0.0
+        },
+        "length_limit_rejected": true,
+        "loss": 1.5790385007858276,
+        "optimizer_step_seconds": 7.258402791999288,
+        "parameters": 395834371,
+        "reference_logits": [
+          [
+            1.103808879852295,
+            0.2417980283498764,
+            -0.7299046516418457
+          ],
+          [
+            -0.29336869716644287,
+            1.4065947532653809,
+            -1.452831506729126
+          ]
+        ],
+        "safetensors_reload_max_logit_difference": 0.0,
+        "seed": 17,
+        "software": {
+          "packages": {
+            "numpy": "2.5.3",
+            "safetensors": "0.7.0",
+            "tokenizers": "0.22.2",
+            "torch": "2.14.0",
+            "transformers": "4.57.6"
+          },
+          "platform": "macOS-26.5.2-arm64-arm-64bit",
+          "python": "3.12.14"
+        },
+        "status": "synthetic_smoke_only_not_a_detector_release",
+        "steps": 1,
+        "synthetic_labels_are_arbitrary": true
+      },
+      "bundled_inference": {
+        "process_exit_code": 0,
+        "requests": 3,
+        "valid_requests": 2,
+        "overlength_rejected": true,
+        "bundled_reference_vector_check_passed": true,
+        "current_sources_match_bundle": true,
+        "max_probability_difference_from_batched_smoke": 1.2075354015594897e-06
+      }
+    }
+  ],
+  "validation": {
+    "python_unit_checks": 12,
+    "python_unit_checks_passed": true,
+    "rust_fmt_check_passed": true,
+    "rust_cargo_test_passed": true,
+    "rust_all_targets_clippy_warnings_denied_passed": true
+  },
+  "cross_batch_diagnostic": {
+    "initial_comparison_failed_for_large": true,
+    "comparison_tolerance": 1e-06,
+    "explanation": "The initial extra check compared batch-one inference against batch-two padded smoke logits. Large differed by 1.2075354015594897e-6 probability. Batch changes are outside the canonical batch-one contract. Bundled batch-one reference checks passed at the unchanged 1e-6 tolerance. No batch-invariance qualification is claimed."
+  },
+  "limits": [
+    "Only two synthetic training texts and arbitrary labels; no corpus fit or accuracy estimate.",
+    "Embedding finite differences validate this local derivative, not semantic edits, attribution completeness or Pangram transfer.",
+    "Linux, MPS and CUDA execution of the large classifier remain unverified.",
+    "No Torch export or Rust-native encoder inference was attempted.",
+    "Current real control/consistency fits use their unchanged frozen base runtime."
+  ],
+  "external_provider_calls": 0,
+  "training_data_changed": false,
+  "detector_promoted": false,
+  "evidence_sha256": {
+    "ml/checkpoints.py": "1918bd1a5727fc537c4d208f427e931b3fa707a3dceafa9bd26c4f3f89892745",
+    "ml/common.py": "fd02ec4d13bde1dd4b78cef05082f6ba988bce04212468ce470b95a5791b83ef",
+    "ml/fetch_checkpoint.py": "7177c8de00d0691a756def01d6a39ce1d695244e3a576ee0149990392447b060",
+    "ml/smoke.py": "6b13017ef771977b8e71b60c93b0214280560c9a8e6a5aaad1e0543b674561d2",
+    "ml/test_checkpoints.py": "be14bfa6c701152287d3b8ce6345f6a1db2d9739234fa438cf06e201e5f42ed3",
+    "python-tests.log": "3c07f1cfb3bac77ece6f592fec090e6f1abdf8d8c39f0ad009a4785a95dc82c6",
+    "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "rust-tests.log": "38714ba8f79a8825640697eb4f9421f7cc1a0a1a26a644dc7895c03031803a27",
+    "clippy.log": "f9cc13cb19877c6e7cd20457771f7aa80374c76fff528d311fc0a4d32e556bf3",
+    "fetch-completion.json": "17b02becefab01baaaa1ef662f81a9d3393439edcb083661b8c65d9dce25b703",
+    "smoke-completion.json": "99a007e150c6354c1c4de68754a6f6e33919d15671364efd297f03660de35dc3",
+    "base-smoke/smoke_report.json": "66d11baa9b8cd1319288d05a7478d3489a7d99e4c0e38886e2fad66ac20dfb3f",
+    "large-smoke/smoke_report.json": "f1fc6f0f264c76fba01d0fa366ac98a4f5cf8fe825fc687e94fae01cb33c7eb1",
+    "base-bundled-inference.stdout": "bb346e73605aa745ccd555d2717004996b68824a82231c67d8ef15184fdfbbaa",
+    "large-bundled-inference.stdout": "647f267e4db1a32ad8b531dba637aa809ee24f3975d5bc38a008d831cd13476e"
+  }
+}

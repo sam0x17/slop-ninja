@@ -1,0 +1,35 @@
+{
+  "schema": "slop_ninja_b_count_collision_audit_v1",
+  "method": "Re-extract all default Rust feature families from the three exact texts through the installed spaCy bridge. Compare entire family objects, including all counts, metrics and denominators; ignore only the expected source hash difference. Equal raw families imply equal projected counts in the same frozen space. Function-word grouping is a deterministic view of those same families.",
+  "feature_schema": "grammar-features-v1;nfc-lowercase-letter-apostrophe-v1;alphabetic-parse-token-v1;syntax-families-v1",
+  "parser_identity": "grammar-spacy-annotation-v1;spacy=3.8.16;model=en_core_web_sm@3.8.0;model-files-sha256=c99c4f7c306a310c603f9bbfb32d299e2b1199c964efe108253536432c98b68f;raw-text-v1",
+  "rows": [
+    {
+      "case": "parent",
+      "source_sha256": "a8c4945b884852b1cb62a11f8ff79d98083069970856a3bc69356e674aaded06",
+      "features_file_sha256": "c858eebf3d90c9e02606cd2530eb4383d40c4370102e91fcccec18d0bcc09147",
+      "different_families_from_parent": [],
+      "feature_families_equal_parent": true,
+      "schema_equal_parent": true,
+      "parser_equal_parent": true
+    },
+    {
+      "case": "purpose-after-details",
+      "source_sha256": "953cb9f02de64832db9d2ed54e2012709e15e355e60356520f23be7ea4bb83f0",
+      "features_file_sha256": "1f397c54620691b438dfe3e87c81e9e7a52b0d61d244bdda621ee8d50357cfa4",
+      "different_families_from_parent": [],
+      "feature_families_equal_parent": true,
+      "schema_equal_parent": true,
+      "parser_equal_parent": true
+    },
+    {
+      "case": "request-before-warning",
+      "source_sha256": "454fbea23688c82e20ed9891ec57f5be43ea32c2c131d3ee1382341391255b36",
+      "features_file_sha256": "524d6a5dea6b88b4571058758a05b20d1746742297c59d43c51570cafa37a827",
+      "different_families_from_parent": [],
+      "feature_families_equal_parent": true,
+      "schema_equal_parent": true,
+      "parser_equal_parent": true
+    }
+  ]
+}

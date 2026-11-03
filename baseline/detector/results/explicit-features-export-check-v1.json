@@ -1,0 +1,168 @@
+{
+  "schema": "slop_ninja_explicit_feature_export_check_v1",
+  "checked_at": "2026-09-14T19:37:43Z",
+  "feature_file_sha256": "ef6e1bfb1bf6ff5d5d486caa98430fb14504975cf07d0243c3f6d0dc653ddf39",
+  "records": 4903,
+  "training_rows": 3833,
+  "development_rows": 530,
+  "calibration_rows": 540,
+  "dimensions": {
+    "word": 8192,
+    "grammar": 8192,
+    "combined": 16384
+  },
+  "standalone_coordinates_frequencies_and_scales_match_combined": true,
+  "partition_hashes_and_record_counts_verified": true,
+  "held_out_test_exported": false,
+  "classifier_fitted": false,
+  "parse_accuracy": null,
+  "manifests": {
+    "word": {
+      "feature_space_sha256": "b7e43a5f3ebf45fb716361326f698ddbc5248baf2d6605899eeb1dcaa0303dd2",
+      "feature_space_file_sha256": "36f5b0eae20f1eb55516f961ca49c2f351c4f87469445cc9b1033b2eadf8823f",
+      "fitting_split": "train",
+      "partitions": {
+        "calibration": {
+          "class_counts": {
+            "human_only": 108,
+            "mixed": 108,
+            "model_only": 324
+          },
+          "file": "calibration.jsonl",
+          "records": 540,
+          "rows_with_unknown_coordinates": 540,
+          "sha256": "3b95604b982029c383e0b9524c5ee2489885f2633a49fc48c667659cd4cfd39e",
+          "source_groups": 108,
+          "unavailable_families": {
+          }
+        },
+        "development": {
+          "class_counts": {
+            "human_only": 106,
+            "mixed": 106,
+            "model_only": 318
+          },
+          "file": "development.jsonl",
+          "records": 530,
+          "rows_with_unknown_coordinates": 530,
+          "sha256": "cde98a8a3dd860bd30af1c2f65fe7229ba5f5419ab79838161a99e412a496559",
+          "source_groups": 106,
+          "unavailable_families": {
+          }
+        },
+        "train": {
+          "class_counts": {
+            "human_only": 471,
+            "mixed": 1227,
+            "model_only": 2135
+          },
+          "file": "train.jsonl",
+          "records": 3833,
+          "rows_with_unknown_coordinates": 3833,
+          "sha256": "f0a44c7f64cd19470926162bf30bbbda1c17b59ad9195a1624b17e911d286114",
+          "source_groups": 471,
+          "unavailable_families": {
+          }
+        }
+      }
+    },
+    "grammar": {
+      "feature_space_sha256": "fee48b368025dd21139d5e83bb2d1f903a3e5d2ea3b461b7b18f015da5e54bd9",
+      "feature_space_file_sha256": "738dd39a3a38a787a7d849f374fadada130759ee147a0502c9cc49d225877adb",
+      "fitting_split": "train",
+      "partitions": {
+        "calibration": {
+          "class_counts": {
+            "human_only": 108,
+            "mixed": 108,
+            "model_only": 324
+          },
+          "file": "calibration.jsonl",
+          "records": 540,
+          "rows_with_unknown_coordinates": 540,
+          "sha256": "bddee2bc192624d8999f489f761289761e9fc483aaf4ea61ba14fbd7212a986b",
+          "source_groups": 108,
+          "unavailable_families": {
+          }
+        },
+        "development": {
+          "class_counts": {
+            "human_only": 106,
+            "mixed": 106,
+            "model_only": 318
+          },
+          "file": "development.jsonl",
+          "records": 530,
+          "rows_with_unknown_coordinates": 530,
+          "sha256": "4525a983c9e00e6c15b03a2591357095a97a45f778c658d1351bb3e0af39c8d9",
+          "source_groups": 106,
+          "unavailable_families": {
+          }
+        },
+        "train": {
+          "class_counts": {
+            "human_only": 471,
+            "mixed": 1227,
+            "model_only": 2135
+          },
+          "file": "train.jsonl",
+          "records": 3833,
+          "rows_with_unknown_coordinates": 3833,
+          "sha256": "4a42fbc1e298bfb014d19987c664c16f716bfd925506370c0ee742992f2a1abb",
+          "source_groups": 471,
+          "unavailable_families": {
+          }
+        }
+      }
+    },
+    "combined": {
+      "feature_space_sha256": "aa2efaa6e3e94a27ae216cccbbd6941f3ca6eb465a99517a190b248835ee5e36",
+      "feature_space_file_sha256": "07423651adbc7dec8c94fe8021b28a1d32f375acccc79cfb9ce37a5ec13a9a0e",
+      "fitting_split": "train",
+      "partitions": {
+        "calibration": {
+          "class_counts": {
+            "human_only": 108,
+            "mixed": 108,
+            "model_only": 324
+          },
+          "file": "calibration.jsonl",
+          "records": 540,
+          "rows_with_unknown_coordinates": 540,
+          "sha256": "36356e93e86a9b533da47b93b83aed0211b2a8042baa24f9fd77aca1ef421ab9",
+          "source_groups": 108,
+          "unavailable_families": {
+          }
+        },
+        "development": {
+          "class_counts": {
+            "human_only": 106,
+            "mixed": 106,
+            "model_only": 318
+          },
+          "file": "development.jsonl",
+          "records": 530,
+          "rows_with_unknown_coordinates": 530,
+          "sha256": "499dcb4b22d278248ba793152339f34659f1f3d0801f70860fb311766fb79f04",
+          "source_groups": 106,
+          "unavailable_families": {
+          }
+        },
+        "train": {
+          "class_counts": {
+            "human_only": 471,
+            "mixed": 1227,
+            "model_only": 2135
+          },
+          "file": "train.jsonl",
+          "records": 3833,
+          "rows_with_unknown_coordinates": 3833,
+          "sha256": "431affd3091686ebea773006c1867b7da6f2fd1a59fb2c796935ad53d11bd6b5",
+          "source_groups": 471,
+          "unavailable_families": {
+          }
+        }
+      }
+    }
+  }
+}

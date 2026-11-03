@@ -1,0 +1,142 @@
+{
+  "binary": {
+    "path": "slop_ninja/grammar/target/release/examples/author_transfer",
+    "sha256": "161d86ed81be90d98c91eaa21b4350f3fe7f2d93a7897226715fc0c3cb4d4310"
+  },
+  "compiled_sources_sha256": {
+    "cargo_lock": "a15c841209a1e23687c1325eb61c71c48c5ddb53a3c728094c6ece9fa6c93b00",
+    "coordinate_inference": "657b3d4f98fc055eeb7b9763e6a11884be7afc3d9d23b904bcf3cbe57a2477b6",
+    "example": "52aac030bd78bae622e8a15918fc0e9b0a63fb02985026df05422328cdaea5a0",
+    "family_ablation_arithmetic_reference": "6daf4a779b94ca42b574ade2a0030bc31dc77b51048f92102f14042a1566df9e",
+    "features": "ff019e695baebb887942b3e5454d48eb23ed278c99ef4151a6c3153b3924d477",
+    "grammar_eval": "9434781be2c7f9bc52a4036afb76b7627ace621cc87b7ffd929c28c0a8a308d0",
+    "spacy_bridge": "73b4f897ebb3527b392b2ef91acb0f2a3ab99f93802c876bb5f03d8b65127cd5",
+    "spacy_rust": "6dcdcd7764aa2858a0f9001c4a4725f6fc9a6c0ce9c692209bb7fc9ee288fb70"
+  },
+  "input": {
+    "path": "slop_ninja/data/author-corpora/global-voices-v1/collection-v1/transfer.jsonl",
+    "sha256": "5b45af767c1524ffcc3e7c0cc413116711c644fe1f697675a006339058608b9c"
+  },
+  "models": [
+    {
+      "artifact": {
+        "path": "slop_ninja/data/author-corpora/blog-authorship-2004/scale-coordinate-inference-v1/models-treatment-v1/metric-seed-0.json",
+        "sha256": "c19c5015dbf2b091d3ec774a7b108a6f41bc88e93213bc4ac45e787a35e2b916"
+      },
+      "feature_schema": "grammar-features-v1;nfc-lowercase-letter-apostrophe-v1;alphabetic-parse-token-v1;syntax-families-v1",
+      "parser_identity": "grammar-spacy-annotation-v1;spacy=3.8.16;model=en_core_web_sm@3.8.0;raw-text-v1",
+      "provenance_sha256": {
+        "adapter_source": "093450fd77c0b0d3ca04a07b651f543268825f47688d774e0b2561c67565118c",
+        "baseline_calibration": "75e82eb907f43b21deaabd61809b3e36f6895c0a5317d299712ffa5f4a737a4e",
+        "baseline_checkpoint": "628b3184569ed1715602358db00a12eddf97518de923f83dea4c5b9819268be5",
+        "baseline_selection": "6c5fbf758bc0b095b2e2801a774c5dc084e18b3e939f10377c8ca1f01f8a9d14",
+        "catalog": "170b7f3572c910110752930c8e2d067cbb420f720ebba8fa3ac455cd6fe03b79",
+        "coordinate_checkpoint": "4d234f1f60472af7104004102f8349f55ea51d7574e1c05bd05183a89e31dc95",
+        "fixed_subset_indices": "483c24580787371ac28f14cc52a7beafa28b264fa270d99645c9c4cde0d34f19",
+        "protocol": "e5a080a9b7580c687d718f67a67cd174a2b02f6a6db0173dccfd177ddf035b08",
+        "selection": "fdfceaa808b9db8c574c163fc6ba2eed0a54ee592e4da15dc5ebc931b4fae0fe",
+        "space": "cf2e0fd83fc6711b0cf39856e0d5ddf85324b6975781d8490bb6f47cbc9b20c6",
+        "training_implementation": "c2043a4589c7087255482822e5a5a571c9577400c78dca6a50108c8f508dbb6a",
+        "training_inputs": "85604add1a9a0de7dc27e86f9974641760b520611a4b0b62870ea328098da8a4"
+      },
+      "seed": 0,
+      "source_space_id": "e8a2ebbb468c97d33c81133a9cc7d41fbb5d93bd6f09a9fbff8ba277e3703002"
+    },
+    {
+      "artifact": {
+        "path": "slop_ninja/data/author-corpora/blog-authorship-2004/scale-coordinate-inference-v1/models-treatment-v1/metric-seed-17.json",
+        "sha256": "c8abdd2a30a770eaebdb16834d9cdb448e44896680cdd24e022660d299516f85"
+      },
+      "feature_schema": "grammar-features-v1;nfc-lowercase-letter-apostrophe-v1;alphabetic-parse-token-v1;syntax-families-v1",
+      "parser_identity": "grammar-spacy-annotation-v1;spacy=3.8.16;model=en_core_web_sm@3.8.0;raw-text-v1",
+      "provenance_sha256": {
+        "adapter_source": "093450fd77c0b0d3ca04a07b651f543268825f47688d774e0b2561c67565118c",
+        "baseline_calibration": "75e82eb907f43b21deaabd61809b3e36f6895c0a5317d299712ffa5f4a737a4e",
+        "baseline_checkpoint": "d29de17019a4e7f28d12137a63140a402fb3b568b97a2785ad1201065bcd9298",
+        "baseline_selection": "6c5fbf758bc0b095b2e2801a774c5dc084e18b3e939f10377c8ca1f01f8a9d14",
+        "catalog": "170b7f3572c910110752930c8e2d067cbb420f720ebba8fa3ac455cd6fe03b79",
+        "coordinate_checkpoint": "cdad051ce71f725e260827184010bc44e344309f65b564049d007e5b9322fd76",
+        "fixed_subset_indices": "483c24580787371ac28f14cc52a7beafa28b264fa270d99645c9c4cde0d34f19",
+        "protocol": "e5a080a9b7580c687d718f67a67cd174a2b02f6a6db0173dccfd177ddf035b08",
+        "selection": "fdfceaa808b9db8c574c163fc6ba2eed0a54ee592e4da15dc5ebc931b4fae0fe",
+        "space": "cf2e0fd83fc6711b0cf39856e0d5ddf85324b6975781d8490bb6f47cbc9b20c6",
+        "training_implementation": "c2043a4589c7087255482822e5a5a571c9577400c78dca6a50108c8f508dbb6a",
+        "training_inputs": "85604add1a9a0de7dc27e86f9974641760b520611a4b0b62870ea328098da8a4"
+      },
+      "seed": 17,
+      "source_space_id": "e8a2ebbb468c97d33c81133a9cc7d41fbb5d93bd6f09a9fbff8ba277e3703002"
+    },
+    {
+      "artifact": {
+        "path": "slop_ninja/data/author-corpora/blog-authorship-2004/scale-coordinate-inference-v1/models-treatment-v1/metric-seed-29.json",
+        "sha256": "d7bbb67714beb04bf445612bafcad6a8ee7d4413934e1bb375e37f59e3a863d1"
+      },
+      "feature_schema": "grammar-features-v1;nfc-lowercase-letter-apostrophe-v1;alphabetic-parse-token-v1;syntax-families-v1",
+      "parser_identity": "grammar-spacy-annotation-v1;spacy=3.8.16;model=en_core_web_sm@3.8.0;raw-text-v1",
+      "provenance_sha256": {
+        "adapter_source": "093450fd77c0b0d3ca04a07b651f543268825f47688d774e0b2561c67565118c",
+        "baseline_calibration": "75e82eb907f43b21deaabd61809b3e36f6895c0a5317d299712ffa5f4a737a4e",
+        "baseline_checkpoint": "5ddd6590f2695e9e6ba2f20f7ae601210d0ffd2474be8fcee7fa0a956f3228b9",
+        "baseline_selection": "6c5fbf758bc0b095b2e2801a774c5dc084e18b3e939f10377c8ca1f01f8a9d14",
+        "catalog": "170b7f3572c910110752930c8e2d067cbb420f720ebba8fa3ac455cd6fe03b79",
+        "coordinate_checkpoint": "c0d21c58e0c852cf181583c6a1272ab942bedbdd70e04ef42287d2ae91eb1975",
+        "fixed_subset_indices": "483c24580787371ac28f14cc52a7beafa28b264fa270d99645c9c4cde0d34f19",
+        "protocol": "e5a080a9b7580c687d718f67a67cd174a2b02f6a6db0173dccfd177ddf035b08",
+        "selection": "fdfceaa808b9db8c574c163fc6ba2eed0a54ee592e4da15dc5ebc931b4fae0fe",
+        "space": "cf2e0fd83fc6711b0cf39856e0d5ddf85324b6975781d8490bb6f47cbc9b20c6",
+        "training_implementation": "c2043a4589c7087255482822e5a5a571c9577400c78dca6a50108c8f508dbb6a",
+        "training_inputs": "85604add1a9a0de7dc27e86f9974641760b520611a4b0b62870ea328098da8a4"
+      },
+      "seed": 29,
+      "source_space_id": "e8a2ebbb468c97d33c81133a9cc7d41fbb5d93bd6f09a9fbff8ba277e3703002"
+    }
+  ],
+  "policy": {
+    "ablation": "full uses the existing score; lexical_family_only keeps word and word_bigram calibrated terms; grammar_family_only keeps the remaining 12. Original weights, adjusted distances, spline and temperature remain fixed, without renormalization or refitting. All three require the same complete original14 profiles and gallery.",
+    "aggregation": "per-query exact-tie metrics, mean queries within author, mean supported authors, then mean the three seed summaries",
+    "annotation_cache": "retain both successful annotations and per-input parser errors; interrupted resumes reuse either under the identical plan and reject conflicting cache entries",
+    "batch_size": 32,
+    "chronology": "each author's maximum reference date is strictly earlier than its minimum query date; whole dates and source groups never cross splits",
+    "decomposition_check": {
+      "absolute_tolerance": 1e-10,
+      "per_query_target_seed": "sum of both block logits and separately sum of all signed family terms must each equal the original full logit within tolerance"
+    },
+    "family_order": [
+      "clause_head_frame",
+      "dependency",
+      "dependency_path_2",
+      "dependency_path_3",
+      "morphology_bundle",
+      "ordered_head_frame",
+      "pos",
+      "pos_bigram",
+      "pos_tag",
+      "pos_trigram",
+      "syntax_load",
+      "syntax_sentence_load",
+      "word",
+      "word_bigram"
+    ],
+    "frozen_variants": [
+      "full",
+      "lexical_family_only",
+      "grammar_family_only"
+    ],
+    "gallery_comparable_to_prior_100_author_benchmark": false,
+    "missing_query": "retain null metrics and report conditional-on-scorable coverage; never zero-fill",
+    "missing_reference": "any unavailable reference disables that author profile; any unavailable author disables complete-gallery scoring for that variant",
+    "no_fitting": true,
+    "reference_pooling": "all reference articles; equal dates then equal articles within date; raw family values averaged before frozen transforms",
+    "requested_articles": 168,
+    "requested_authors": 14,
+    "word_control": "unigram word family only; raw probabilities, same date-balanced references, squared Hellinger distance; separate coverage"
+  },
+  "python": {
+    "command": "slop_ninja/grammar/crates/grammar-eval/../../../.venv/bin/python",
+    "executable": {
+      "path": "~/.local/share/uv/python/cpython-3.12.14-macos-aarch64-none/bin/python3.12",
+      "sha256": "2d96eb826dc74db4fcd5da6dde045a6fa145e292e07e69d1bdd1a19fa90ffc22"
+    }
+  },
+  "schema": "slopninja-author-transfer-plan-v1"
+}

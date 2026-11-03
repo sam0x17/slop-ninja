@@ -1,0 +1,24 @@
+[package]
+name = "slop-ninja-admission-wire"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Wire helpers for the Slop Ninja admission API contract slop_ninja.admission/v1"
+
+# No I/O, no global state and no allocation while hashing a request message,
+# so the Workers coordinator can share it with the native miner client.
+[features]
+default = ["json"]
+# Response and error shapes as serde types.
+json = ["dep:serde"]
+
+[dependencies]
+hex = "0.4"
+serde = { version = "1", features = ["derive"], optional = true }
+sha2 = "0.10"
+slop-ninja-protocol = { path = "../../protocol" }
+
+[dev-dependencies]
+serde_json = "1"
+slop-ninja-protocol = { path = "../../protocol", features = ["fixtures"] }

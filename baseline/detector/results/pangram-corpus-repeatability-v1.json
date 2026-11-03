@@ -1,0 +1,36 @@
+{
+  "annotation_files": [
+    {
+      "sha256": "888b729e466c78546070f35455193c41286d8baed118650fc43b26791ed7e8d4"
+    },
+    {
+      "sha256": "9fd5c75361819f877baa3a3eff6d198fd61bdd4903f1e7b71d9f294f597d3520"
+    }
+  ],
+  "changed_result_paths": [
+    "/windows/*/ai_assistance_score",
+    "/windows/*/humanizer_score"
+  ],
+  "echo_counts": {
+    "exact": 60,
+    "whitespace_only": 111
+  },
+  "full_result_differences_texts": 30,
+  "full_results_identical_texts": 27,
+  "maximum_document_fraction_ranges": {
+    "flagged_content": 0.0,
+    "fraction_ai": 0.0,
+    "fraction_ai_assisted": 0.0,
+    "fraction_human": 0.0
+  },
+  "native_label_changes": 0,
+  "observations": 171,
+  "provider_versions": [
+    "4.0"
+  ],
+  "repeats_per_text": 3,
+  "schema": "slop_ninja_pangram_bulk_repeatability_v1",
+  "scope": "Same account and same-day requests; no cross-account or future-version determinism claim",
+  "texts": 57,
+  "threshold_crossings_at_0_10": 0
+}

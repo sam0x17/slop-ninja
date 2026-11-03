@@ -1,0 +1,2711 @@
+//! Whole cohorts, natively, against SQLite, with every bulk step running as
+//! fan-out lanes in a simulated lane runtime: a queue carrying content-free
+//! kicks, lane Durable Objects that order assignments by `(seq, gen)`, alarm
+//! loops, and the two buckets. The engine functions are the real ones.
+//!
+//! Covered: a cohort end to end through generation, scoring, summary and bundle
+//! lanes and packaging, with every bundled receipt verified; lease expiry and
+//! reconciliation (with and without durable objects); a lane crash and its
+//! re-kick; a container crash or OOM and the crash-isolation rule; isolation
+//! cut short by the step budget and continued; one-off failures; artifacts
+//! that crash on everything or never load; R2 read outages before dispatch and
+//! during reconciliation; duplicate and missing wakeups; the re-kick livelock
+//! regression; coordinator silence and resume; generation throttling, budgets
+//! and fences; job-scoped faults; the scoring budget; load mode; and the store
+//! migrations. Scoring lanes run the Worker's own `lane_logic::run_chunk`.
+
+use super::chain::EpochObservation;
+use super::engine::{self, EvalConfig, GenOutcome, Kick, Work};
+use super::lane_logic::{self, ChunkCtx, ChunkEnd, CohortError, Fault, LaneIo, RestartFailure, ScoreFailure};
+use super::lanes::{self, Assignment, ChunkClaim, ClaimReply, GenClaimReply, LaneKick, LaneRef, LaneReport};
+use super::plan::tests::plan;
+use super::plan::{CohortPlan, Ceilings};
+use super::pool::{self, PoolManifest, PoolRow, ShardInfo};
+use super::receipts;
+use super::textgen::{self, Reject};
+use super::v3;
+use crate::sql::{self, EVAL_COHORT_SCHEMA};
+use crate::testing::{Sqlite, tx};
+use crate::wire::{BlockRef, Id};
+use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
+use slop_ninja_protocol::{
+    AccountId, ChainBinding, NeuronIdentity, RegistrationSnapshot, Record, TESTNET_GENESIS, reward,
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+fn cfg() -> EvalConfig {
+    EvalConfig {
+        chain: ChainBinding {
+            genesis: TESTNET_GENESIS,
+            netuid: 601,
+            mechanism: 0,
+        },
+        private_seed: [5; 32],
+        instance: engine::INSTANCE_MAIN.into(),
+        max_score_lanes: 64,
+        ceilings: Ceilings { roster_cap: Some(40), accept_reward_v0: true },
+        exposed_pools: vec!["p".into()],
+        scorer_binary: String::new(),
+    }
+}
+
+fn load_cfg() -> EvalConfig {
+    EvalConfig { instance: engine::INSTANCE_LOAD.into(), ceilings: Ceilings { roster_cap: None, accept_reward_v0: true }, ..cfg() }
+}
+
+fn kick_at(db: &Sqlite, index: u64, now: u64) -> Vec<String> {
+    let block = BlockRef {
+        number: 1000 + index * 361,
+        hash: Id([index as u8; 32]),
+    };
+    let k = Kick {
+        confirmed: Some(block),
+        epoch: Some(EpochObservation {
+            block,
+            index,
+            last_epoch_block: 990 + index * 361,
+        }),
+    };
+    tx(db, |s| engine::observe(s, &k, now)).unwrap()
+}
+
+/// A heartbeat with no new epoch (a webhook delivery).
+fn heartbeat(db: &Sqlite, now: u64) {
+    tx(db, |s| engine::observe(s, &Kick::default(), now)).unwrap();
+}
+
+fn human_text(g: usize, i: usize) -> String {
+    format!(
+        "Group {g} item {i} opens with a plain first sentence about local weather. \
+The second sentence adds a detail about the harbour and the boats moored there. \
+A third sentence mentions the market that opens on Saturdays. \
+Finally the fourth sentence closes the paragraph with a note on the evening tide."
+    )
+}
+
+fn pool_fixture() -> (PoolManifest, BTreeMap<String, String>) {
+    pool_of(40)
+}
+
+/// `groups` source groups of one or two humans each (1.5 per group on average).
+fn pool_of(groups: usize) -> (PoolManifest, BTreeMap<String, String>) {
+    let mut rows = Vec::new();
+    let mut texts = BTreeMap::new();
+    for g in 0..groups {
+        let domain = if g % 3 == 0 { "wikinews" } else { "wikipedia" };
+        for i in 0..(1 + g % 2) {
+            let t = human_text(g, i);
+            let id = format!("row-{g}-{i}");
+            rows.push(PoolRow {
+                row_id: id.clone(),
+                text_sha256: hex::encode(Sha256::digest(t.as_bytes())),
+                domain: domain.into(),
+                source_group: format!("group-{g}"),
+                shard: 0,
+            });
+            texts.insert(id, t);
+        }
+    }
+    let m = PoolManifest {
+        schema: pool::POOL_SCHEMA.into(),
+        pool_id: "p".into(),
+        shards: vec![ShardInfo {
+            index: 0,
+            file: "shard-0000.jsonl".into(),
+            rows: rows.len() as u32,
+            sha256: String::new(),
+        }],
+        rows,
+    };
+    (m, texts)
+}
+
+/// A model that rewrites by reversing word order and writes scratch text of
+/// the right length.
+fn answer(it: &engine::GenItem) -> String {
+    if it.kind == "mixed" {
+        let src = it.prompt.user.split("\n\n").nth(1).unwrap().to_owned();
+        let mut w: Vec<&str> = src.split_whitespace().collect();
+        w.reverse();
+        w.join(" ")
+    } else {
+        let n: usize = it.prompt.user.split("about ").nth(2).unwrap().split(' ').next().unwrap().parse().unwrap();
+        vec!["prose"; n].join(" ")
+    }
+}
+
+fn outcome(it: &engine::GenItem, output: Result<String, Reject>) -> GenOutcome {
+    GenOutcome {
+        idx: it.idx,
+        generator: it.generator.clone(),
+        output,
+        prompt_tokens: 300,
+        completion_tokens: 200,
+        ms: 900,
+        claim: it.claim,
+    }
+}
+
+/// Scorer stand-in: involvement by kind, identical for every artifact.
+fn fake_results(db: &Sqlite, seq: i64, docs: &[(u32, String, String)]) -> Vec<Value> {
+    docs.iter()
+        .map(|(task, _, sha)| {
+            let kind: String = if *task == lane_logic::CONTROL_TASK {
+                "control".into()
+            } else {
+                db.conn
+                    .query_row("SELECT kind FROM docs WHERE seq = ?1 AND task = ?2", rusqlite::params![seq, task], |r| r.get(0))
+                    .unwrap()
+            };
+            let (c, s) = match kind.as_str() {
+                "human_only" => (12.5, 3.0),
+                "mixed" => (88.0, 40.0),
+                _ => (97.0, 93.0),
+            };
+            json!({"id": task.to_string(), "status": "ok", "text_sha256": sha, "token_count": 120,
+                "prediction": {"ai_confidence_percent": c, "ai_share_percent": s,
+                    "attribution": {"human": {"profile": "other_human"}, "ai": {"profile": "other_ai"}}}})
+        })
+        .collect()
+}
+
+/// Scorer stand-in for reward-v1 tests: predictions from the sim's hook.
+fn predicted(db: &Sqlite, seq: i64, job: i64, docs: &[(u32, String, String)], p: &dyn Fn(i64, &str, u32) -> (f64, f64)) -> Vec<Value> {
+    docs.iter()
+        .map(|(task, _, sha)| {
+            let kind: String = if *task == lane_logic::CONTROL_TASK {
+                "control".into()
+            } else {
+                db.conn
+                    .query_row("SELECT kind FROM docs WHERE seq = ?1 AND task = ?2", rusqlite::params![seq, task], |r| r.get(0))
+                    .unwrap()
+            };
+            let (c, s) = p(job, &kind, *task);
+            json!({"id": task.to_string(), "status": "ok", "text_sha256": sha, "token_count": 120,
+                "prediction": {"ai_confidence_percent": c, "ai_share_percent": s.min(c),
+                    "attribution": {"human": {"profile": "other_human"}, "ai": {"profile": "other_ai"}}}})
+        })
+        .collect()
+}
+
+// --------------------------------------------------------------- the runtime
+
+/// What the simulated scorer does with one request.
+#[derive(Clone, Debug, PartialEq)]
+enum Score {
+    Ok,
+    /// Dispatched, then the container crashed (transport error, OOM).
+    Crash,
+    /// Dispatched, and failed with the container still up and ready.
+    Fail,
+    /// The scorer refused before inference.
+    NotDispatched,
+    /// The lane's invocation dies after its claim, before any put.
+    DieBeforePut,
+    /// The lane dies after both puts, before its commit.
+    DieAfterPut,
+}
+
+/// One scorer request as the hook sees it.
+#[allow(dead_code)]
+struct Req {
+    lane: String,
+    job: i64,
+    chunk: i64,
+    attempt: u8,
+    tasks: Vec<u32>,
+    isolate: bool,
+}
+
+#[derive(Clone, Debug)]
+struct LaneDo {
+    seq: i64,
+    kind: String,
+    lane: i64,
+    generation: i64,
+    armed: bool,
+}
+
+type ScoreHook<'a> = Box<dyn FnMut(&Req) -> Score + 'a>;
+/// A lane's prepare or restart: the job and whether it is an isolation restart.
+type StartHook<'a> = Box<dyn FnMut(i64, bool) -> Result<(), RestartFailure> + 'a>;
+/// Whether an R2 operation on a key fails (`true` for a put).
+type R2Hook<'a> = Box<dyn FnMut(&str, bool) -> bool + 'a>;
+type GenHook<'a> = Box<dyn FnMut(&engine::GenItem) -> Result<String, Reject> + 'a>;
+/// reward-v1 scorer stand-in: `(job, kind, task) -> (confidence %, share %)`.
+type PredictHook<'a> = Box<dyn Fn(i64, &str, u32) -> (f64, f64) + 'a>;
+
+struct Sim<'a> {
+    db: &'a Sqlite,
+    cfg: EvalConfig,
+    now: u64,
+    pool: PoolManifest,
+    texts: BTreeMap<String, String>,
+    eval: BTreeMap<String, Vec<u8>>,
+    rcpt: BTreeMap<String, Vec<u8>>,
+    queue: Vec<LaneKick>,
+    lanes: BTreeMap<String, LaneDo>,
+    score: ScoreHook<'a>,
+    generate: GenHook<'a>,
+    /// Kicks the queue loses (every `n`th), and whether it delivers twice.
+    drop_every: Option<usize>,
+    duplicate: bool,
+    sent: usize,
+    delivered: usize,
+    /// Heartbeats arrive with every tick.
+    heartbeats: bool,
+    packages: Vec<engine::PackageBuild>,
+    tick_ms: u64,
+    calls: u32,
+    /// Claims a lane makes per alarm invocation (its step budget), and the
+    /// rate-limiter grant per model per claim.
+    claims_per_run: usize,
+    grant: u32,
+    /// Lane kinds whose alarms do not run (to inspect dispatch alone).
+    frozen: Vec<&'static str>,
+    start: StartHook<'a>,
+    r2: R2Hook<'a>,
+    /// Lanes whose container holds the artifact loaded.
+    loaded: BTreeSet<String>,
+    /// Virtual time a lane invocation spends per request and per restart,
+    /// against the plan's step budget.
+    doc_ms: u64,
+    restart_ms: u64,
+    elapsed: u64,
+    /// Restarts and isolation hand-backs seen, for assertions.
+    restarts: u32,
+    /// reward-v1: per-job predictions `(job, kind, task) -> (confidence %, share %)`.
+    predict: Option<PredictHook<'a>>,
+    packages_v3: Vec<v3::PackageV3>,
+    closures: Vec<v3::ClosureBuild>,
+}
+
+impl<'a> Sim<'a> {
+    fn new(db: &'a Sqlite, cfg: EvalConfig, now: u64) -> Self {
+        let (pool, texts) = pool_fixture();
+        Self {
+            db,
+            cfg,
+            now,
+            pool,
+            texts,
+            eval: BTreeMap::new(),
+            rcpt: BTreeMap::new(),
+            queue: Vec::new(),
+            lanes: BTreeMap::new(),
+            score: Box::new(|_| Score::Ok),
+            generate: Box::new(|it| Ok(answer(it))),
+            drop_every: None,
+            duplicate: false,
+            sent: 0,
+            delivered: 0,
+            heartbeats: true,
+            packages: Vec::new(),
+            tick_ms: 1000,
+            calls: 0,
+            claims_per_run: 500,
+            grant: 4,
+            frozen: Vec::new(),
+            start: Box::new(|_, _| Ok(())),
+            r2: Box::new(|_, _| false),
+            loaded: BTreeSet::new(),
+            doc_ms: 1_000,
+            restart_ms: 30_000,
+            elapsed: 0,
+            restarts: 0,
+            predict: None,
+            packages_v3: Vec::new(),
+            closures: Vec::new(),
+        }
+    }
+
+    /// One cohort alarm step: root steps until a sweep, then the sweep's kicks.
+    fn step(&mut self) -> bool {
+        let c = self.cfg.clone();
+        let mut progress = false;
+        for _ in 0..8 {
+            let now = self.now;
+            let Some(w) = tx(self.db, |s| engine::next_work(s, &c, now)).unwrap() else { break };
+            progress = true;
+            let is_v3 = |seq: i64| tx(self.db, |s| Ok::<_, engine::EvalError>(engine::cohort(s, seq)?.plan.is_v3())).unwrap();
+            match w {
+                Work::Draw { seq, plan } if plan.is_v3() => self.draw_v3(seq, &plan),
+                Work::Seal { seq } if is_v3(seq) => self.seal_v3(seq),
+                Work::Package { seq } if is_v3(seq) => self.package_v3(seq),
+                Work::Close { seq } => {
+                    let b = tx(self.db, |s| v3::prepare_closure(s, &c, seq)).unwrap();
+                    let digest = b.closure.digest().unwrap();
+                    tx(self.db, |s| v3::commit_closure(s, seq, &digest, 4)).unwrap();
+                    self.closures.push(b);
+                }
+                Work::Draw { seq, plan } => {
+                    let (used_rows, used_groups) = tx(self.db, engine::used_set).unwrap();
+                    let seed = engine::cohort_seed(&c.private_seed, &plan.label);
+                    let d = pool::draw(&self.pool, &used_rows, &used_groups, u64::from(plan.counts()[0]), &seed);
+                    let t: BTreeMap<String, String> =
+                        d.rows.iter().map(|r| (r.row_id.clone(), self.texts[&r.row_id].clone())).collect();
+                    tx(self.db, |s| engine::apply_draw(s, &c, seq, &d, &t, &pool::Used::default(), now)).unwrap();
+                }
+                Work::Seal { seq } => {
+                    let b = tx(self.db, |s| engine::prepare_seal(s, &c, seq)).unwrap();
+                    for (k, body) in &b.shards {
+                        self.eval.insert(k.clone(), body.clone());
+                    }
+                    self.eval.insert(b.index_key.clone(), b.index.clone());
+                    tx(self.db, |s| engine::apply_seal(s, seq, &b, 2, now)).unwrap();
+                }
+                Work::LoadSeal { seq, source } => {
+                    let index = self.eval[&source.index_key].clone();
+                    let b = tx(self.db, |s| engine::prepare_load_seal(s, &c, seq, &index)).unwrap();
+                    tx(self.db, |s| engine::apply_load_seal(s, &c, seq, &b, now)).unwrap();
+                }
+                Work::Package { seq } => {
+                    let keys: Vec<String> = self
+                        .db
+                        .conn
+                        .prepare("SELECT summary_key FROM jobs WHERE seq = ?1 ORDER BY job")
+                        .unwrap()
+                        .query_map([seq], |r| r.get(0))
+                        .unwrap()
+                        .map(Result::unwrap)
+                        .collect();
+                    let summaries: Vec<engine::JobSummary> =
+                        keys.iter().map(|k| serde_json::from_slice(&self.eval[k]).unwrap()).collect();
+                    let b = tx(self.db, |s| engine::prepare_package(s, &c, seq, &summaries)).unwrap();
+                    tx(self.db, |s| engine::commit_package(s, seq, &b, 6, now)).unwrap();
+                    self.packages.push(b);
+                }
+                Work::Dispatch { kicks, stop, .. } => {
+                    for k in kicks {
+                        self.send(k);
+                    }
+                    for name in stop {
+                        if let Some(l) = self.lanes.get_mut(&name) {
+                            l.armed = false;
+                        }
+                    }
+                    break;
+                }
+                Work::Settle { seq, microusd, .. } => {
+                    tx(self.db, |s| lanes::mark_settled(s, seq, microusd)).unwrap();
+                }
+                Work::Purge { seq, prefixes } => {
+                    self.eval.retain(|k, _| !prefixes.iter().any(|p| k.starts_with(p)));
+                    tx(self.db, |s| lanes::mark_purged(s, seq, now)).unwrap();
+                }
+                // Admission I/O is driven by the admission tests themselves.
+                Work::AdmissionVerify { .. } | Work::AdmissionLanes | Work::AdmissionCleanup => break,
+                Work::OpenNext { plan, .. } => {
+                    tx(self.db, |s| engine::queue(s, &c, &plan, now)).unwrap();
+                }
+            }
+        }
+        progress
+    }
+
+    /// Mirrors the Worker's exposed-stock draw (`cf_eval::draw_v3`).
+    fn draw_v3(&mut self, seq: i64, plan: &CohortPlan) {
+        let c = self.cfg.clone();
+        let now = self.now;
+        let used = tx(self.db, engine::used_set).unwrap();
+        let seed = engine::cohort_seed(&c.private_seed, &plan.label);
+        let [n_h, n_m, _] = plan.generated_counts();
+        let c_a = u64::from(plan.audit_humans());
+        let role = |r: &str| slop_ninja_protocol::domain_hash(&format!("slop_ninja.eval/draw-role/v1/{r}"), &seed).0;
+        let mark = |rows: &mut BTreeSet<String>, groups: &mut BTreeSet<String>, d: &pool::Draw| {
+            rows.extend(d.rows.iter().map(|r| r.row_id.clone()));
+            groups.extend(d.groups.iter().cloned());
+        };
+        let pool = self.pool.clone();
+        let mut drawn: (BTreeSet<String>, BTreeSet<String>) = Default::default();
+        let draw_exposed = |want: u64, role_seed: [u8; 32], drawn: &mut (BTreeSet<String>, BTreeSet<String>)| {
+            let mut avoid_rows = used.0.clone();
+            avoid_rows.extend(drawn.0.iter().cloned());
+            let mut avoid_groups = used.1.clone();
+            avoid_groups.extend(drawn.1.iter().cloned());
+            let mut d = pool::draw(&pool, &avoid_rows, &avoid_groups, want, &role_seed);
+            mark(&mut drawn.0, &mut drawn.1, &d);
+            let got = d.rows.len() as u64;
+            if got < want {
+                let again = pool::draw(&pool, &drawn.0, &drawn.1, want - got, &slop_ninja_protocol::domain_hash("again", &role_seed).0);
+                mark(&mut drawn.0, &mut drawn.1, &again);
+                d.rows.extend(again.rows);
+                d.groups.extend(again.groups);
+            }
+            d
+        };
+        let negatives = draw_exposed(u64::from(n_h), seed, &mut drawn);
+        let mut audits = Vec::new();
+        for (r, want) in [("audit-a", c_a), ("audit-b", u64::from(plan.audit_b_humans()))] {
+            if want == 0 {
+                audits.push(None);
+                continue;
+            }
+            audits.push(Some(draw_exposed(want, role(r), &mut drawn)));
+        }
+        let p2 = plan.clone();
+        let (earlier, ledger_all, ineligible) = if plan.is_probe_build() {
+            (Vec::new(), BTreeSet::new(), BTreeSet::new())
+        } else {
+            let earlier = tx(self.db, |s| v3::reuse_candidates(s, &p2)).unwrap();
+            let (all, ineligible) = tx(self.db, |s| v3::ledger_rows(s, &p2)).unwrap();
+            (earlier, all, ineligible)
+        };
+        let earlier: Vec<v3::ReuseCandidate> = earlier.into_iter().filter(|e| !drawn.0.contains(&e.row.row_id)).collect();
+        let mut parent_avoid = drawn.0.clone();
+        parent_avoid.extend(ledger_all.iter().cloned());
+        let fresh = pool::draw(&self.pool, &parent_avoid, &drawn.1, u64::from(n_m), &role("parents"));
+        let texts = self.texts.clone();
+        let parents = v3::choose_parents(&seed, &negatives.rows, &earlier, &fresh.rows, &texts, n_m, &ineligible);
+        let mut probe = Vec::new();
+        for p in &plan.reward_v1.as_ref().unwrap().probes {
+            let rec: v3::ProbeRecord = serde_json::from_slice(&self.eval[&p.key]).unwrap();
+            assert_eq!(lane_logic::sha_hex(&self.eval[&p.key]), p.sha256);
+            let mut by_task = BTreeMap::new();
+            for (key, sha) in &rec.shards {
+                assert_eq!(&lane_logic::sha_hex(&self.eval[key]), sha);
+                for line in std::str::from_utf8(&self.eval[key]).unwrap().lines() {
+                    let v: Value = serde_json::from_str(line).unwrap();
+                    by_task.insert(v["task"].as_u64().unwrap() as u32, v["text"].as_str().unwrap().to_owned());
+                }
+            }
+            probe.push((p.version, rec.docs.iter().map(|d| (d.clone(), by_task[&d.task].clone())).collect()));
+        }
+        let d = v3::DrawV3 {
+            negatives,
+            audit_a: audits[0].clone(),
+            audit_b: audits[1].clone(),
+            fresh: Some(fresh),
+            earlier,
+            probe,
+        };
+        tx(self.db, |s| v3::apply_draw(s, &c, seq, &d, &parents, &texts, &pool::Used::default(), now)).unwrap();
+    }
+
+    fn artifact_digests(&self, a: &super::plan::ArtifactJson) -> v3::ArtifactDigests {
+        let b = &self.eval[&a.manifest_key];
+        assert_eq!(lane_logic::sha_hex(b), a.package_sha256);
+        v3::artifact_digests(b).unwrap()
+    }
+
+    fn seal_v3(&mut self, seq: i64) {
+        let c = self.cfg.clone();
+        let now = self.now;
+        let plan = tx(self.db, |s| Ok::<_, engine::EvalError>(engine::cohort(s, seq)?.plan)).unwrap();
+        let inputs = v3::SealInputs {
+            reference: self.artifact_digests(&plan.reference),
+            predecessor: plan.previous_reference.as_ref().map(|p| self.artifact_digests(p)),
+            entrants: plan.entrants.iter().map(|a| self.artifact_digests(a)).collect(),
+        };
+        let b = tx(self.db, |s| v3::prepare_seal(s, &c, seq, &inputs)).unwrap();
+        for (k, body) in &b.shards {
+            self.eval.insert(k.clone(), body.clone());
+        }
+        self.eval.insert(b.index_key.clone(), b.index.clone());
+        if let Some((k, bytes)) = &b.probe_record {
+            self.eval.insert(k.clone(), bytes.clone());
+        }
+        tx(self.db, |s| v3::apply_seal(s, seq, &b, 2, now)).unwrap();
+    }
+
+    fn package_v3(&mut self, seq: i64) {
+        let c = self.cfg.clone();
+        let now = self.now;
+        let keys: Vec<String> = self
+            .db
+            .conn
+            .prepare("SELECT summary_key FROM jobs WHERE seq = ?1 ORDER BY job")
+            .unwrap()
+            .query_map([seq], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let summaries: Vec<engine::JobSummary> = keys.iter().map(|k| serde_json::from_slice(&self.eval[k]).unwrap()).collect();
+        let (index, _) = tx(self.db, |s| engine::receipt_index(s, seq)).unwrap();
+        let cohort = tx(self.db, |s| engine::cohort(s, seq)).unwrap();
+        if cohort.plan.is_probe_build() {
+            let v = cohort.plan.reward_v1.as_ref().unwrap().probe_version.unwrap();
+            let record = self.eval[&format!("probes/v{v}/record.json")].clone();
+            let f = tx(self.db, |s| v3::prepare_probe_finish(s, &cohort, &summaries, &record)).unwrap();
+            for (k, b) in &f.vectors {
+                self.eval.insert(k.clone(), b.clone());
+            }
+            tx(self.db, |s| v3::commit_probe_finish(s, seq, &f, now)).unwrap();
+            return;
+        }
+        let st = tx(self.db, |s| v3::state(s, seq)).unwrap();
+        let at_seal = v3::index_at_seal(&st).unwrap();
+        let (_, vkeys) = tx(self.db, v3::published_index).unwrap();
+        let mut fps = BTreeMap::new();
+        for f in &at_seal.fingerprints.entries {
+            let v = v3::vector_from_bytes(&self.eval[&vkeys[&(f.content, f.version)]]).unwrap();
+            assert_eq!(v3::vector_digest(&v), f.fingerprint);
+            fps.insert((f.content, f.version), v);
+        }
+        let (root, count) = (index.digest().unwrap(), index.count());
+        let b = tx(self.db, |s| v3::prepare_package(s, &c, &cohort, &summaries, &fps, root, count)).unwrap();
+        for (k, v) in &b.vectors {
+            self.eval.insert(k.clone(), v.clone());
+        }
+        tx(self.db, |s| v3::commit_package(s, seq, &b, 6, now)).unwrap();
+        self.packages_v3.push(b);
+    }
+
+    fn send(&mut self, k: LaneKick) {
+        self.sent += 1;
+        if self.drop_every.is_some_and(|n| self.sent.is_multiple_of(n)) {
+            return;
+        }
+        if self.duplicate {
+            self.queue.push(k.clone());
+        }
+        self.queue.push(k);
+    }
+
+    /// The queue consumer: each kick reaches its lane's `/kick`, which keeps the
+    /// lexicographically larger `(seq, gen)` and arms the alarm.
+    fn deliver(&mut self) {
+        for k in std::mem::take(&mut self.queue) {
+            self.delivered += 1;
+            let l = self.lanes.entry(k.name.clone()).or_insert(LaneDo {
+                seq: 0,
+                kind: k.kind.clone(),
+                lane: k.lane,
+                generation: 0,
+                armed: false,
+            });
+            if (k.seq, k.generation) > (l.seq, l.generation) {
+                *l = LaneDo { seq: k.seq, kind: k.kind.clone(), lane: k.lane, generation: k.generation, armed: true };
+            }
+        }
+    }
+
+    fn tick(&mut self) {
+        self.now += self.tick_ms;
+        if self.heartbeats {
+            heartbeat(self.db, self.now);
+        }
+        self.step();
+        self.deliver();
+        let names: Vec<String> = self
+            .lanes
+            .iter()
+            .filter(|(_, l)| l.armed && !self.frozen.iter().any(|k| *k == l.kind))
+            .map(|(n, _)| n.clone())
+            .collect();
+        for name in names {
+            self.run_lane(&name);
+        }
+    }
+
+    /// Ticks until the cohort `seq` leaves its work phases, or `max` ticks.
+    fn run(&mut self, seq: i64, max: usize) -> String {
+        for _ in 0..max {
+            self.tick();
+            let p = phase(self.db, seq);
+            if !matches!(p.as_str(), "generating" | "sealing" | "scoring" | "packaging") || fault_of(self.db, seq).is_some() {
+                // Settle and stop any lane still armed.
+                self.tick();
+                return p;
+            }
+        }
+        panic!("cohort {seq} did not settle: {}", phase(self.db, seq))
+    }
+
+    fn lane_ref(&self, name: &str) -> LaneRef {
+        let l = &self.lanes[name];
+        LaneRef { seq: l.seq, kind: l.kind.clone(), lane: l.lane, generation: l.generation }
+    }
+
+    fn report(&self, r: &LaneRef, state: &str, cold: Option<u64>) -> Assignment {
+        let rep = LaneReport {
+            state: state.into(),
+            cold_ms: cold,
+            cold_cpu_ms: cold.map(|_| 45_000),
+            started: cold.is_some(),
+            active_ms: 1000,
+            cpu_ms: 500,
+            do_ms: 1000,
+            container_up: !matches!(state, "done" | "paused" | "yield"),
+            code: None,
+            host: cold.map(|_| "Sim CPU".to_owned()),
+        };
+        tx(self.db, |s| lanes::lane_report(s, r, &rep, self.now)).unwrap()
+    }
+
+    fn run_lane(&mut self, name: &str) {
+        let r = self.lane_ref(name);
+        let a = self.report(&r, "starting", Some(30_000));
+        match a.status.as_str() {
+            "go" => {}
+            "wait" => return,
+            "fenced" => {
+                self.lanes.get_mut(name).unwrap().armed = false;
+                return;
+            }
+            other => {
+                self.report(&r, if other == "paused" { "paused" } else { "done" }, None);
+                self.lanes.get_mut(name).unwrap().armed = false;
+                return;
+            }
+        }
+        let end = match r.kind.as_str() {
+            "score" => self.score_loop(name, &r, &a),
+            "gen" => self.gen_loop(name, &r),
+            "summary" => self.summary_lane(&r, &a),
+            _ => self.bundle_lane(&r, &a),
+        };
+        match end {
+            End::Rearm => {}
+            End::Stop(state) => {
+                if let Some(state) = state {
+                    self.report(&r, state, None);
+                }
+                self.lanes.get_mut(name).unwrap().armed = false;
+            }
+        }
+    }
+
+    fn score_loop(&mut self, name: &str, r: &LaneRef, a: &Assignment) -> End {
+        let mut a = a.clone();
+        let mut cache = lane_logic::ShardCache::new();
+        self.elapsed = 0;
+        for _ in 0..self.claims_per_run {
+            // A newer kick replaced this loop's assignment: exit, container kept.
+            if self.lanes[name].generation != r.generation {
+                return End::Stop(None);
+            }
+            if self.elapsed > a.step_budget_ms {
+                return End::Rearm;
+            }
+            // The cold path holds no claim; an artifact that failed needs none.
+            if !a.artifact_failed && !self.loaded.contains(name) {
+                let job = a.job.unwrap();
+                self.elapsed += self.restart_ms;
+                match (self.start)(job, false) {
+                    Ok(()) => {
+                        self.loaded.insert(name.to_owned());
+                    }
+                    Err(RestartFailure::Artifact { code, definitive }) => {
+                        let f = lanes::ArtifactFailure { lane: r.clone(), job, code: code.into(), definitive };
+                        if tx(self.db, |s| lanes::artifact_failure(s, &f.lane, f.job, &f.code, f.definitive, self.now)).unwrap() {
+                            a.artifact_failed = true;
+                            continue;
+                        }
+                        return End::Rearm;
+                    }
+                    Err(RestartFailure::Infra(code)) => {
+                        let rep = LaneReport { state: "start_failed".into(), code: Some(code.into()), ..Default::default() };
+                        tx(self.db, |s| lanes::lane_report(s, r, &rep, self.now)).unwrap();
+                        return End::Rearm;
+                    }
+                }
+            }
+            let reply = tx(self.db, |s| lanes::claim_chunk(s, r, name, self.now)).unwrap();
+            match reply {
+                ClaimReply::Fenced => return End::Stop(None),
+                ClaimReply::Paused => return End::Stop(Some("paused")),
+                ClaimReply::Done => return End::Stop(Some("done")),
+                ClaimReply::Wait { .. } => return End::Rearm,
+                ClaimReply::Chunk(c) => {
+                    if c.model_error && !a.artifact_failed {
+                        a = self.report(r, "running", None);
+                    }
+                    let seed = engine::cohort_seed(&self.cfg.private_seed, &a.label);
+                    let prefix = engine::receipt_prefix(&a.label);
+                    let art = a.artifact.clone().unwrap();
+                    let cx = ChunkCtx { r, name, a: &a, art: &art, seed: &seed, prefix: &prefix };
+                    let mut io = SimIo { sim: self, lane: name.to_owned(), r: r.clone(), claim: c.clone(), a: a.clone(), die: None };
+                    match lane_logic::block_on(lane_logic::run_chunk(&mut io, &cx, &c, &mut cache)) {
+                        ChunkEnd::Next => {}
+                        ChunkEnd::Rearm(_) | ChunkEnd::Throw => return End::Rearm,
+                        ChunkEnd::Died => return End::Stop(None),
+                    }
+                }
+            }
+        }
+        End::Rearm
+    }
+
+    fn gen_loop(&mut self, name: &str, r: &LaneRef) -> End {
+        let c2 = self.cfg.clone();
+        let mut wants: Option<BTreeMap<String, u32>> = None;
+        let grant = self.grant;
+        for _ in 0..self.claims_per_run.min(50) {
+            let gens: Vec<String> = self.db.conn.query_row("SELECT plan FROM cohorts WHERE seq = ?1", [r.seq], |row| {
+                let p: String = row.get(0)?;
+                Ok(serde_json::from_str::<CohortPlan>(&p).unwrap().generators)
+            }).unwrap();
+            let grants: BTreeMap<String, u32> = match &wants {
+                Some(w) => w.iter().map(|(m, n)| (m.clone(), (*n).min(grant))).collect(),
+                None => gens.iter().map(|g| (g.clone(), grant)).collect(),
+            };
+            let reply = tx(self.db, |s| lanes::gen_claim(s, &c2, r, name, &grants, self.now)).unwrap();
+            match reply {
+                GenClaimReply::Items { items, wants: w } => {
+                    let out: Vec<GenOutcome> = items.iter().map(|it| outcome(it, (self.generate)(it))).collect();
+                    tx(self.db, |s| lanes::gen_commit(s, &c2, r, &out, self.now)).unwrap();
+                    wants = Some(w);
+                }
+                GenClaimReply::Wait { ms: 0, wants: w } => wants = Some(w),
+                GenClaimReply::Wait { .. } => return End::Rearm,
+                GenClaimReply::Done => return End::Stop(Some("done")),
+                GenClaimReply::Paused => return End::Stop(Some("paused")),
+                GenClaimReply::Fenced => return End::Stop(None),
+            }
+        }
+        End::Rearm
+    }
+
+    fn summary_lane(&mut self, r: &LaneRef, a: &Assignment) -> End {
+        let job = a.job.unwrap();
+        let mut rows = Vec::new();
+        let mut after = -1;
+        loop {
+            let page = tx(self.db, |s| engine::job_preds(s, r.seq, job, after, 7)).unwrap();
+            let last = page.last().map(|p| i64::from(p.task));
+            let n = page.len();
+            rows.extend(page);
+            match last {
+                Some(t) if n == 7 => after = t,
+                _ => break,
+            }
+        }
+        let sm = engine::summarize_job(job, &a.artifact.as_ref().unwrap().id, &rows).unwrap();
+        let bytes = serde_json::to_vec(&sm).unwrap();
+        let key = lane_logic::summary_key(&a.label, job);
+        self.eval.insert(key.clone(), bytes.clone());
+        let rep = lanes::SummaryReport { job, key, sha256: lane_logic::sha_hex(&bytes), count: sm.count, rows_sha256: sm.rows_sha256 };
+        assert!(tx(self.db, |s| lanes::summary_done(s, r, &rep, self.now)).unwrap());
+        End::Stop(None)
+    }
+
+    fn bundle_lane(&mut self, r: &LaneRef, a: &Assignment) -> End {
+        let job = a.job.unwrap();
+        let objects = tx(self.db, |s| lanes::job_objects(s, r.seq, job)).unwrap();
+        let mut bundle = Vec::new();
+        for (key, sha, _, _) in &objects {
+            let b = &self.rcpt[key];
+            assert_eq!(&lane_logic::sha_hex(b), sha);
+            bundle.extend_from_slice(b);
+        }
+        let mut expected = BTreeMap::new();
+        let mut after = 0;
+        loop {
+            let page = tx(self.db, |s| lanes::job_receipts(s, r.seq, job, after, 11)).unwrap();
+            for (_, id, sha, len) in &page {
+                let d: [u8; 32] = hex::decode(sha).unwrap().try_into().unwrap();
+                expected.insert(engine::parse_digest(id).unwrap(), (d, *len as u32));
+            }
+            match page.last() {
+                Some(p) if page.len() == 11 => after = p.0,
+                _ => break,
+            }
+        }
+        let n = receipts::verify_bundle(&bundle, &expected).unwrap();
+        let key = lane_logic::bundle_key(&a.label, job);
+        self.rcpt.insert(key.clone(), bundle.clone());
+        let rep = lanes::BundleReport { job, key, sha256: lane_logic::sha_hex(&bundle), bytes: bundle.len() as u64, receipts: n };
+        assert!(tx(self.db, |s| lanes::bundle_done(s, r, &rep, self.now)).unwrap());
+        End::Stop(None)
+    }
+}
+
+enum End {
+    Rearm,
+    Stop(Option<&'static str>),
+}
+
+/// A simulated scoring lane's world for `lane_logic::run_chunk`: the two
+/// buckets, the cohort object (through the Worker's own routes), the scorer
+/// hook and a virtual invocation clock.
+struct SimIo<'s, 'a> {
+    sim: &'s mut Sim<'a>,
+    lane: String,
+    r: LaneRef,
+    claim: ChunkClaim,
+    a: Assignment,
+    /// A lane death the scorer hook asked for, after the request.
+    die: Option<Score>,
+}
+
+impl LaneIo for SimIo<'_, '_> {
+    async fn eval_get(&mut self, key: &str) -> Result<Option<Vec<u8>>, ()> {
+        if (self.sim.r2)(key, false) { Err(()) } else { Ok(self.sim.eval.get(key).cloned()) }
+    }
+    async fn eval_put(&mut self, key: &str, body: Vec<u8>) -> Result<(), ()> {
+        if (self.sim.r2)(key, true) {
+            return Err(());
+        }
+        self.sim.eval.insert(key.to_owned(), body);
+        Ok(())
+    }
+    async fn rcpt_get(&mut self, key: &str) -> Result<Option<Vec<u8>>, ()> {
+        if (self.sim.r2)(key, false) { Err(()) } else { Ok(self.sim.rcpt.get(key).cloned()) }
+    }
+    async fn rcpt_put(&mut self, key: &str, body: Vec<u8>) -> Result<(), ()> {
+        if (self.sim.r2)(key, true) {
+            return Err(());
+        }
+        self.sim.rcpt.insert(key.to_owned(), body);
+        Ok(())
+    }
+    async fn cohort(&mut self, path: &str, body: Value) -> Result<Value, CohortError> {
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let (c, now) = (self.sim.cfg.clone(), self.sim.now);
+        let r = tx(self.sim.db, |s| lanes::scoring_route(s, &c, path, &bytes, now));
+        let v = match r {
+            Ok(Some(v)) => v,
+            Ok(None) => panic!("no scoring route {path}"),
+            Err(_) => return Err(CohortError::Refused),
+        };
+        if path == "/lane/commit" && v.get("Committed").is_some() {
+            // A lane that lost the reply retries: the exact repeat is `already`.
+            let again = tx(self.sim.db, |s| lanes::scoring_route(s, &c, path, &bytes, now)).unwrap().unwrap();
+            assert_eq!(again, json!("Already"));
+        }
+        Ok(v)
+    }
+    async fn score(&mut self, docs: &[(u32, String, String)], _: u64) -> Result<(Vec<Value>, engine::CallTiming), ScoreFailure> {
+        self.sim.calls += 1;
+        self.sim.elapsed += self.sim.doc_ms;
+        let req = Req {
+            lane: self.lane.clone(),
+            job: self.claim.job,
+            chunk: self.claim.chunk,
+            attempt: self.claim.attempt,
+            tasks: docs.iter().map(|d| d.0).collect(),
+            isolate: self.claim.isolate,
+        };
+        let results = match &self.sim.predict {
+            Some(p) => predicted(self.sim.db, self.r.seq, self.claim.job, docs, p.as_ref()),
+            None => fake_results(self.sim.db, self.r.seq, docs),
+        };
+        let ok = || (results.clone(), engine::CallTiming { call_ms: 9_000, server_ms: 8_500, load_ms: 0, cpu_ms: 30_000 });
+        match (self.sim.score)(&req) {
+            Score::Ok => Ok(ok()),
+            Score::Crash => {
+                self.sim.loaded.remove(&self.lane);
+                Err(ScoreFailure::Died)
+            }
+            Score::Fail => Err(ScoreFailure::Failed),
+            Score::NotDispatched => Err(ScoreFailure::NotDispatched),
+            die => {
+                self.die = Some(die);
+                Ok(ok())
+            }
+        }
+    }
+    async fn restart(&mut self) -> Result<(), RestartFailure> {
+        self.sim.restarts += 1;
+        self.sim.elapsed += self.sim.restart_ms;
+        self.sim.loaded.remove(&self.lane);
+        (self.sim.start)(self.claim.job, true)?;
+        self.sim.loaded.insert(self.lane.clone());
+        Ok(())
+    }
+    fn restart_bound_ms(&self) -> u64 {
+        self.sim.restart_ms
+    }
+    async fn may_run(&mut self, ms: u64) -> bool {
+        self.sim.elapsed + ms <= self.a.step_budget_ms && self.sim.lanes[&self.lane].generation == self.r.generation
+    }
+    fn now_ms(&self) -> u64 {
+        self.sim.now
+    }
+    async fn sleep(&mut self, _: u64) {}
+    async fn fault(&mut self, f: Fault) -> bool {
+        matches!((f, &self.die), (Fault::DieBeforePut, Some(Score::DieBeforePut)) | (Fault::DieAfterPut, Some(Score::DieAfterPut)))
+    }
+    async fn meter(&mut self) -> lanes::Meter {
+        lanes::Meter { active_ms: 1_000, cpu_ms: 500, do_ms: 1_000 }
+    }
+}
+
+fn phase(db: &Sqlite, seq: i64) -> String {
+    db.conn.query_row("SELECT phase FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap()
+}
+
+fn fault_of(db: &Sqlite, seq: i64) -> Option<String> {
+    db.conn.query_row("SELECT fault FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap()
+}
+
+fn status(db: &Sqlite, now: u64) -> Value {
+    tx(db, |s| engine::status(s, now)).unwrap()
+}
+
+fn open_cohort(db: &Sqlite, p: &CohortPlan, first_epoch: u64, now: u64) -> i64 {
+    let bytes = serde_json::to_vec(p).unwrap();
+    let seq = tx(db, |s| engine::queue(s, &cfg(), &bytes, now)).unwrap();
+    kick_at(db, first_epoch, now);
+    kick_at(db, first_epoch + 1, now);
+    kick_at(db, first_epoch + 2, now);
+    seq
+}
+
+/// Receipt attempt numbers and outcome tags for one task of one job.
+fn numbers(db: &Sqlite, seq: i64, job: i64, task: i64) -> Vec<(i64, i64)> {
+    db.conn
+        .prepare("SELECT number, outcome FROM receipts WHERE seq = ?1 AND job = ?2 AND task = ?3 ORDER BY number")
+        .unwrap()
+        .query_map(rusqlite::params![seq, job, task], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// Verifies a package's bundles against its index, as `eval_verify` does.
+fn verify(sim: &Sim<'_>, b: &engine::PackageBuild) -> Vec<slop_ninja_protocol::AttemptReceipt> {
+    let objects: Vec<Vec<u8>> = b.chunk_map["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| {
+            let bytes = sim.rcpt[o["key"].as_str().unwrap()].clone();
+            assert_eq!(lane_logic::sha_hex(&bytes), o["sha256"].as_str().unwrap());
+            bytes
+        })
+        .collect();
+    let v = receipts::verify_chunks(&b.index, &objects).unwrap();
+    b.package.check_receipts(&b.index).unwrap();
+    b.package.check_manifest(&b.manifest).unwrap();
+    b.target.check_package(&b.package).unwrap();
+    v
+}
+
+fn wide(n: u32, entrants: u16) -> CohortPlan {
+    let mut p = plan(n);
+    p.scorer.chunk_docs = 4;
+    p.fanout.as_mut().unwrap().score.lane_docs = 8;
+    p.entrants = (1..=entrants).map(|u| super::plan::tests::artifact(super::plan::tests::identity(u, u as u8), 0x22)).collect();
+    p.allow_list = (1..=entrants).map(|u| super::plan::tests::identity(u, u as u8)).collect();
+    p
+}
+
+// --------------------------------------------------------------------- tests
+
+#[test]
+fn a_cohort_runs_end_to_end_through_lanes_with_verifiable_bundles() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut now = 1_000_000;
+    let p = wide(20, 2);
+    let bytes = serde_json::to_vec(&p).unwrap();
+    let seq = tx(&db, |s| engine::queue(s, &cfg(), &bytes, now)).unwrap();
+    // A label queues once: the same bytes again (a retried POST) are the same
+    // cohort; other bytes under it are refused.
+    assert_eq!(tx(&db, |s| engine::queue(s, &cfg(), &bytes, now)).unwrap(), seq);
+    let mut other = p.clone();
+    other.n += 1;
+    assert!(tx(&db, |s| engine::queue(s, &cfg(), &serde_json::to_vec(&other).unwrap(), now)).is_err());
+    assert!(kick_at(&db, 10, now).is_empty());
+    assert_eq!(kick_at(&db, 11, now), ["testnet-rehearsal-1:admission"]);
+    assert_eq!(kick_at(&db, 12, now), ["testnet-rehearsal-1:generating"]);
+    now += 10;
+    let mut sim = Sim::new(&db, cfg(), now);
+    let mut first = true;
+    sim.generate = Box::new(move |it| {
+        if std::mem::take(&mut first) { Ok("Here is the rewritten passage: nothing".into()) } else { Ok(answer(it)) }
+    });
+    assert_eq!(sim.run(seq, 400), "transition");
+    let st = status(&db, sim.now);
+    let c0 = &st["cohorts"][0];
+    assert_eq!(c0["task_count"], 20);
+    assert_eq!(c0["rejects"]["preamble"], 1, "one rejected output was retried on the next generator");
+    let lanes = &c0["lanes"]["kinds"];
+    // 3 jobs x ceil(20 / 8) = 3 lanes each; 4 generation lanes; a summary and bundle lane per job.
+    assert_eq!(lanes["score"]["lanes"], 9);
+    assert_eq!(lanes["gen"]["lanes"], 3, "min(4, ceil(12 / 4))");
+    assert_eq!((lanes["summary"]["lanes"].as_i64(), lanes["bundle"]["lanes"].as_i64()), (Some(3), Some(3)));
+    assert!(c0["lanes"]["cold_ms"]["n"].as_i64().unwrap() >= 9);
+    assert!(!st.to_string().contains("harbour") && !st.to_string().contains("prose prose"), "status is content-free");
+    let b = sim.packages.pop().expect("packaged");
+    let verified = verify(&sim, &b);
+    assert_eq!(verified.len(), 60, "3 jobs x 20 tasks, one attempt each");
+    assert_eq!(b.chunk_map["objects"].as_array().unwrap().len(), 3, "one bundle per job");
+    assert_eq!(b.components["clusters"], json!([[0, 1, 2]]));
+    let id = |uid: u16, byte: u8| NeuronIdentity { uid, hotkey: AccountId([byte; 32]), registration_block: 1000 + u64::from(uid) };
+    let snap = RegistrationSnapshot {
+        chain: cfg().chain,
+        block: 5000,
+        block_hash: slop_ninja_protocol::Digest([1; 32]),
+        neurons: vec![id(0, 0xb0), id(1, 1), id(2, 2)],
+    };
+    let row = reward::derive_row(&b.target, &b.package, &snap).unwrap();
+    assert_eq!((row.entries[0].uid, row.entries[0].weight), (0, u16::MAX));
+    // The cohort closes at opened + K and its spend settles once.
+    assert!(kick_at(&db, 13, sim.now).is_empty());
+    assert!(kick_at(&db, 14, sim.now).is_empty());
+    assert_eq!(kick_at(&db, 15, sim.now), ["testnet-rehearsal-1:closed"]);
+    sim.tick();
+    sim.tick();
+    let settled: Option<i64> = db.conn.query_row("SELECT settled_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap();
+    assert!(settled.unwrap() > 0);
+    // The private results objects and summaries (per-document predictions) are gone.
+    assert!(sim.eval.keys().all(|k| !k.contains("/results/") && !k.contains("/summaries/")), "purged at close");
+    assert!(sim.eval.keys().any(|k| k.contains("/batch/")), "the sealed batch stays");
+    // A second cohort never reuses a human text or source group.
+    let mut p2 = wide(20, 1);
+    p2.cohort = 2;
+    p2.label = "testnet-rehearsal-2".into();
+    let seq2 = tx(&db, |s| engine::queue(s, &cfg(), &serde_json::to_vec(&p2).unwrap(), sim.now)).unwrap();
+    assert_eq!(kick_at(&db, 16, sim.now), ["testnet-rehearsal-2:admission"]);
+    assert_eq!(kick_at(&db, 17, sim.now), ["testnet-rehearsal-2:generating"]);
+    sim.generate = Box::new(|it| Ok(answer(it)));
+    assert_eq!(sim.run(seq2, 400), "transition");
+    let used = |seq: i64| -> BTreeSet<String> {
+        db.conn
+            .prepare("SELECT row_id FROM pool_used WHERE seq = ?1")
+            .unwrap()
+            .query_map([seq], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert!(!used(2).is_empty() && used(1).is_disjoint(&used(2)));
+    assert_eq!(sim.packages.pop().unwrap().target.predecessor, Some(b.target.digest().unwrap()));
+}
+
+#[test]
+fn lease_expiry_reconciles_durable_objects_before_any_new_attempt() {
+    for after_put in [false, true] {
+        let db = Sqlite::open();
+        sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+        let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+        let mut sim = Sim::new(&db, cfg(), 1_000_010);
+        sim.tick_ms = 5_000;
+        let mut died = false;
+        sim.score = Box::new(move |q| {
+            if q.job == 0 && q.chunk == 0 && !died {
+                died = true;
+                return if after_put { Score::DieAfterPut } else { Score::DieBeforePut };
+            }
+            Score::Ok
+        });
+        assert_eq!(sim.run(seq, 600), "transition");
+        let b = sim.packages.pop().unwrap();
+        verify(&sim, &b);
+        let st = status(&db, sim.now);
+        let score = &st["cohorts"][0]["lanes"]["kinds"]["score"];
+        if after_put {
+            // The stored attempt was committed with no compute: one receipt, attempt 1.
+            for task in 0..4 {
+                assert_eq!(numbers(&db, seq, 0, task), [(1, 1)]);
+            }
+            assert_eq!(score["reconciled"], 1);
+            assert_eq!(score["lost_attempts"], 0);
+        } else {
+            // Nothing was stored: attempt 1 is recorded lost, attempt 2 resolves it.
+            for task in 0..4 {
+                assert_eq!(numbers(&db, seq, 0, task), [(1, 5), (2, 1)]);
+            }
+            assert_eq!(score["lost_attempts"], 1);
+        }
+    }
+}
+
+#[test]
+fn a_crashed_lane_is_rekicked_and_its_old_generation_is_fenced() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 10_000;
+    sim.claims_per_run = 1;
+    // Lane 0's invocation dies on its first claim and never reports again.
+    let died = std::rc::Rc::new(std::cell::Cell::new(false));
+    let d2 = died.clone();
+    sim.score = Box::new(move |q| {
+        if q.lane.ends_with("lane-0000") && !d2.get() {
+            d2.set(true);
+            Score::DieBeforePut
+        } else {
+            Score::Ok
+        }
+    });
+    for _ in 0..200 {
+        sim.tick();
+        if died.get() {
+            break;
+        }
+    }
+    assert!(died.get());
+    let name = lanes::lane_name("main", "score", 0);
+    let r_old = sim.lane_ref(&name);
+    sim.lanes.get_mut(&name).unwrap().armed = false;
+    // The sweep re-kicks it once it is stale (3 x the 60 s lease) and work is left.
+    for _ in 0..30 {
+        sim.tick();
+    }
+    let r_new = sim.lane_ref(&name);
+    assert!(r_new.generation > r_old.generation, "re-kicked with gen + 1");
+    // The old loop, were it alive, is fenced from claims.
+    assert_eq!(tx(&db, |s| lanes::claim_chunk(s, &r_old, &name, sim.now)).unwrap(), ClaimReply::Fenced);
+    assert_eq!(sim.run(seq, 400), "transition");
+    let st = status(&db, sim.now);
+    assert!(st["cohorts"][0]["lanes"]["kinds"]["score"]["rekicks"].as_i64().unwrap() >= 1);
+    for task in 0..4 {
+        assert_eq!(numbers(&db, seq, 0, task), [(1, 5), (2, 1)], "the lost attempt has its receipt");
+    }
+    verify(&sim, &sim.packages[0]);
+}
+
+#[test]
+fn a_container_crash_isolates_and_a_reproduced_crash_counts_against_that_job_only() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 2), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    // Job 1's task 5 crashes (OOMs) its container every time, alone or not.
+    // Job 2's chunk 0 crashes once (a transient fault): isolation resolves it.
+    let mut transient = true;
+    sim.score = Box::new(move |q| {
+        if q.job == 1 && q.tasks.contains(&5) {
+            return Score::Crash;
+        }
+        if q.job == 2 && q.chunk == 0 && !q.isolate && std::mem::take(&mut transient) {
+            return Score::Crash;
+        }
+        Score::Ok
+    });
+    assert_eq!(sim.run(seq, 400), "transition", "the cohort proceeds");
+    let b = sim.packages.pop().unwrap();
+    verify(&sim, &b);
+    // Task 5 of job 1: an infrastructure error (the chunk crash), then a model error.
+    assert_eq!(numbers(&db, seq, 1, 5), [(1, 5), (2, 2)]);
+    // Its chunk-mates crashed with it, then resolved in isolation.
+    assert_eq!(numbers(&db, seq, 1, 4), [(1, 5), (2, 1)]);
+    // The same task of the other jobs is an ordinary prediction.
+    assert_eq!(numbers(&db, seq, 0, 5), [(1, 1)]);
+    assert_eq!(numbers(&db, seq, 2, 0), [(1, 5), (2, 1)], "a crash that does not reproduce is never attributed");
+    let jobs = &b.components["jobs"];
+    assert_eq!(jobs[1]["isolated_crashes"], 1);
+    assert_eq!(jobs[2]["isolated_crashes"], 0);
+    assert_eq!(b.package.scores.iter().map(|s| s.failed).collect::<Vec<_>>(), [1, 0], "utility 0 for that document only");
+    assert!(b.package.scores[0].score < b.package.baseline);
+    assert_eq!(b.package.scores[1].score, b.package.baseline);
+}
+
+#[test]
+fn duplicate_and_missing_wakeups_change_nothing_but_timing() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 5_000;
+    sim.duplicate = true;
+    sim.drop_every = Some(4);
+    assert_eq!(sim.run(seq, 800), "transition");
+    assert!(sim.delivered > sim.sent, "kicks were delivered twice");
+    let b = sim.packages.pop().unwrap();
+    assert_eq!(verify(&sim, &b).len(), 40, "no duplicate attempt: one receipt per task per job");
+    for job in 0..2 {
+        for task in 0..20 {
+            assert_eq!(numbers(&db, seq, job, task), [(1, 1)]);
+        }
+    }
+    let st = status(&db, sim.now);
+    let kinds = &st["cohorts"][0]["lanes"]["kinds"];
+    let rekicks: i64 = ["gen", "score", "summary", "bundle"].iter().map(|k| kinds[k]["rekicks"].as_i64().unwrap_or(0)).sum();
+    assert!(rekicks > 0, "the sweep re-sent the lost kicks");
+}
+
+#[test]
+fn a_slow_cold_path_that_reports_is_never_rekicked() {
+    // The review's livelock: a lane reporting `starting` at alarm entry and every
+    // 20 s of a 60 s cold path must not be re-kicked by the 10 s sweep.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.frozen = vec!["score"];
+    for _ in 0..100 {
+        sim.tick();
+        if phase(&db, seq) == "scoring" {
+            break;
+        }
+    }
+    let kicked: Vec<(i64, i64, String)> = db
+        .conn
+        .prepare("SELECT lane, gen, name FROM lanes WHERE seq = ?1 AND kind = 'score' AND status = 'kicked' ORDER BY lane")
+        .unwrap()
+        .query_map([seq], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(kicked.len(), 3);
+    let c = tx(&db, engine::active).unwrap().unwrap();
+    let cf = cfg();
+    let mut now = sim.now;
+    let (lane, generation, name) = kicked[0].clone();
+    let r = LaneRef { seq, kind: "score".into(), lane, generation };
+    let rep = |state: &str| LaneReport { state: state.into(), container_up: true, ..Default::default() };
+    // Alarm entry, 2 s after the kick, before the cold path.
+    now += 2_000;
+    assert_eq!(tx(&db, |s| lanes::lane_report(s, &r, &rep("starting"), now)).unwrap().status, "go");
+    let mut silent_rekicked = false;
+    for step in 1..=7 {
+        // 10 s sweeps across the 60 s cold path, with a report every 20 s.
+        now += 10_000;
+        heartbeat(&db, now);
+        if step % 2 == 0 {
+            tx(&db, |s| lanes::lane_report(s, &r, &rep("starting"), now)).unwrap();
+        }
+        let again = tx(&db, |s| lanes::lanes_due(s, &cf, &c, &["score"], now)).unwrap();
+        assert!(again.iter().all(|x| x.lane != lane), "re-kicked a lane that reports (step {step})");
+        silent_rekicked |= again.iter().any(|x| x.lane == kicked[1].0);
+    }
+    assert!(silent_rekicked, "a kicked lane that never reports is kicked again after 30 s");
+    // Once loaded, the reporting lane claims normally at its own generation.
+    assert!(matches!(tx(&db, |s| lanes::claim_chunk(s, &r, &name, now)).unwrap(), ClaimReply::Chunk(_)));
+}
+
+#[test]
+fn coordinator_silence_pauses_lanes_and_the_same_cohort_resumes() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(40, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 2_000;
+    sim.claims_per_run = 1;
+    for _ in 0..400 {
+        sim.tick();
+        let preds: i64 = db.conn.query_row("SELECT COUNT(*) FROM preds", [], |r| r.get(0)).unwrap();
+        if phase(&db, seq) == "scoring" && preds > 0 {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, seq), "scoring");
+    // Silence: no heartbeat for more than 10 minutes, then several more ticks.
+    sim.heartbeats = false;
+    sim.tick_ms = 11 * 60_000;
+    sim.tick();
+    sim.tick_ms = 60_000;
+    for _ in 0..5 {
+        sim.tick();
+    }
+    let st = status(&db, sim.now);
+    let c0 = &st["cohorts"][0];
+    assert_eq!(c0["phase"], "scoring", "nothing expires or is skipped");
+    let by = &c0["lanes"]["kinds"]["score"]["by_status"];
+    assert!(by["paused"].as_i64().unwrap_or(0) > 0, "lanes paused at their next claim: {by}");
+    assert!(sim.lanes.values().all(|l| !l.armed), "paused lanes do not re-arm");
+    let r = sim.lane_ref(&lanes::lane_name("main", "score", 0));
+    assert_eq!(tx(&db, |s| lanes::claim_chunk(s, &r, "x", sim.now)).unwrap(), ClaimReply::Paused);
+    // Resume: the next heartbeat's sweep re-kicks the paused lanes.
+    sim.heartbeats = true;
+    sim.tick_ms = 2_000;
+    assert_eq!(sim.run(seq, 400), "transition");
+    let b = sim.packages.pop().unwrap();
+    assert_eq!(verify(&sim, &b).len(), 80);
+}
+
+#[test]
+fn a_hold_is_silence_for_claims() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.claims_per_run = 1;
+    for _ in 0..100 {
+        sim.tick();
+        if phase(&db, seq) == "scoring" {
+            break;
+        }
+    }
+    tx(&db, |s| lanes::set_hold(s, true)).unwrap();
+    for _ in 0..20 {
+        sim.tick();
+    }
+    assert_eq!(phase(&db, seq), "scoring", "held: no claim is granted");
+    assert!(sim.lanes.values().filter(|l| l.kind == "score").all(|l| !l.armed));
+    tx(&db, |s| lanes::set_hold(s, false)).unwrap();
+    assert_eq!(sim.run(seq, 400), "transition");
+}
+
+#[test]
+fn throttles_use_no_attempt_and_keep_the_generator_and_reservations_bound_spend() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = wide(20, 0);
+    p.generators = vec!["@cf/meta/llama-3.2-3b-instruct".into(), "@cf/ibm-granite/granite-4.0-h-micro".into()];
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 3_000;
+    // Every item's first two calls are throttled.
+    let gens: std::rc::Rc<std::cell::RefCell<BTreeMap<i64, Vec<String>>>> = Default::default();
+    let g2 = gens.clone();
+    sim.generate = Box::new(move |it| {
+        let mut g = g2.borrow_mut();
+        let calls = g.entry(it.idx).or_default();
+        calls.push(it.generator.clone());
+        if calls.len() <= 2 { Err(Reject::Throttled) } else { Ok(answer(it)) }
+    });
+    assert_eq!(sim.run(seq, 800), "transition");
+    drop(sim);
+    let gens = gens.borrow();
+    let (attempts, throttles): (i64, i64) = db
+        .conn
+        .query_row("SELECT SUM(attempts), SUM(throttles) FROM docs WHERE kind != 'human_only'", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert_eq!(attempts, 12, "one answer per item: throttles used none");
+    assert_eq!(throttles, 24);
+    assert!(gens.values().all(|g| g.iter().all(|x| x == &g[0])), "the generator never rotated on a throttle");
+    let reserved: i64 = db.conn.query_row("SELECT gen_reserved_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap();
+    assert_eq!(reserved, 0, "every reservation was released");
+}
+
+#[test]
+fn concurrent_generation_claims_never_exceed_the_budget_and_late_results_are_fenced() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let (pool, texts) = pool_fixture();
+    let mut p = wide(20, 0);
+    // About three items' worth of upper bound.
+    p.generation_budget_microusd = 1_400;
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let c = cfg();
+    let now = 1_000_100;
+    let Some(Work::Draw { plan, .. }) = tx(&db, |s| engine::next_work(s, &c, now)).unwrap() else { panic!("draw") };
+    let seed = engine::cohort_seed(&c.private_seed, &plan.label);
+    let d = pool::draw(&pool, &BTreeSet::new(), &BTreeSet::new(), 8, &seed);
+    let t: BTreeMap<String, String> = d.rows.iter().map(|r| (r.row_id.clone(), texts[&r.row_id].clone())).collect();
+    assert!(tx(&db, |s| engine::apply_draw(s, &c, seq, &d, &t, &pool::Used::default(), now)).unwrap());
+    tx(&db, |s| engine::next_work(s, &c, now)).unwrap();
+    let grants: BTreeMap<String, u32> = [("@cf/meta/llama-3.2-3b-instruct".to_owned(), 20)].into();
+    let lane = |l: i64| {
+        let g: i64 = db.conn.query_row("SELECT gen FROM lanes WHERE seq = 1 AND kind = 'gen' AND lane = ?1", [l], |r| r.get(0)).unwrap();
+        LaneRef { seq, kind: "gen".into(), lane: l, generation: g }
+    };
+    let (a, b) = (lane(0), lane(1));
+    let GenClaimReply::Items { items: first, .. } = tx(&db, |s| lanes::gen_claim(s, &c, &a, "a", &grants, now)).unwrap() else { panic!() };
+    let second = tx(&db, |s| lanes::gen_claim(s, &c, &b, "b", &grants, now)).unwrap();
+    let reserved: i64 = db.conn.query_row("SELECT gen_reserved_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap();
+    assert!(reserved as u64 <= p.generation_budget_microusd);
+    assert!(!first.is_empty() && first.len() < 12);
+    assert!(matches!(second, GenClaimReply::Wait { .. }), "the budget is fully reserved: {second:?}");
+    // The first lane stalls past its lease; another claim takes the item over.
+    let later = now + 130_000;
+    heartbeat(&db, later);
+    let GenClaimReply::Items { items: retaken, .. } = tx(&db, |s| lanes::gen_claim(s, &c, &b, "b", &grants, later)).unwrap() else { panic!() };
+    assert_eq!(retaken[0].idx, first[0].idx);
+    assert!(retaken[0].claim > first[0].claim);
+    // The late result records its usage but is discarded.
+    let late = outcome(&first[0], Ok(answer(&first[0])));
+    let v = tx(&db, |s| lanes::gen_commit(s, &c, &a, &[late], later)).unwrap();
+    assert_eq!(v["fenced"], 1);
+    let (status, cost): (String, i64) = db
+        .conn
+        .query_row("SELECT d.status, c.gen_cost_microusd FROM docs d, cohorts c WHERE d.seq = 1 AND d.idx = ?1 AND c.seq = 1", [first[0].idx], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert_eq!(status, "pending");
+    assert!(cost > 0, "the spend was real");
+    let reserved: i64 = db.conn.query_row("SELECT gen_reserved_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap();
+    assert!(reserved as u64 <= p.generation_budget_microusd, "a stale reservation is replaced, never added to");
+}
+
+#[test]
+fn a_job_that_spends_every_attempt_faults_alone_and_the_cohort_pauses_at_the_end() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 2), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 5_000;
+    // Job 1's chunk 2 never stores anything: every invocation dies before its puts.
+    sim.score = Box::new(|q| if q.job == 1 && q.chunk == 2 { Score::DieBeforePut } else { Score::Ok });
+    sim.run(seq, 2_000);
+    let st = status(&db, sim.now);
+    let c0 = &st["cohorts"][0];
+    assert_eq!(c0["fault"], "unresolved_infrastructure");
+    assert_eq!(c0["job_status"], json!({"done": 2, "faulted": 1}), "the other jobs finished");
+    assert_eq!(numbers(&db, seq, 1, 8), [(1, 5), (2, 5), (3, 5)], "every allowed attempt has a receipt");
+    assert_eq!(tx(&db, |s| engine::clear_fault(s, "testnet-rehearsal-1", sim.now)).unwrap().refused, Some("abandon_required"));
+}
+
+#[test]
+fn the_scoring_budget_faults_before_spend_can_exceed_it() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = wide(20, 1);
+    let f = p.fanout.as_mut().unwrap();
+    // Exactly the plan's own upper bound, so it is admitted.
+    let ub = super::cost::nano_to_micro_ceil(super::cost::scoring_upper_bound_nanousd(2, 20, 6, &f.cost));
+    f.score.scoring_budget_microusd = ub;
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.claims_per_run = 1;
+    for _ in 0..100 {
+        sim.tick();
+        let preds: i64 = db.conn.query_row("SELECT COUNT(*) FROM preds", [], |r| r.get(0)).unwrap();
+        if preds > 0 {
+            break;
+        }
+    }
+    assert_eq!((phase(&db, seq).as_str(), fault_of(&db, seq)), ("scoring", None), "measured spend fits");
+    // The lanes' metering now says far more was spent than the bound assumed.
+    db.conn.execute("UPDATE lanes SET active_ms = 10000000 WHERE seq = 1 AND kind = 'score' AND first_seen_ms > 0", []).unwrap();
+    sim.tick();
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scoring_budget"));
+    sim.tick();
+    assert!(sim.lanes.values().filter(|l| l.kind == "score").all(|l| !l.armed), "every lane stopped");
+    assert_eq!(tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap().refused, Some("abandon_required"));
+    // A plan whose budget is below its own upper bound is refused outright.
+    let mut low = wide(20, 1);
+    low.cohort = 9;
+    low.label = "low".into();
+    low.fanout.as_mut().unwrap().score.scoring_budget_microusd = ub - 1;
+    assert_eq!(
+        tx(&db, |s| engine::queue(s, &cfg(), &serde_json::to_vec(&low).unwrap(), 5)).unwrap_err().code(),
+        "scoring budget is below the plan's upper bound"
+    );
+}
+
+#[test]
+fn load_mode_rescores_a_sealed_batch_without_a_target() {
+    // A main cohort seals a batch; the load instance re-scores it for 6 copies.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    assert_eq!(sim.run(seq, 400), "transition");
+    let index_key = "cohorts/testnet-rehearsal-1/batch/index.json".to_owned();
+    let index = sim.eval[&index_key].clone();
+    let load_db = Sqlite::open();
+    sql::migrate(&load_db, &EVAL_COHORT_SCHEMA).unwrap();
+    let base = plan(20);
+    let lp = super::plan::LoadPlan {
+        schema: super::plan::LOAD_PLAN_SCHEMA.into(),
+        cohort: 1001,
+        label: "load-copies".into(),
+        source: super::plan::LoadSource { label: "testnet-rehearsal-1".into(), index_key: index_key.clone(),
+            index_sha256: lane_logic::sha_hex(&index), tasks: 20 },
+        max_attempts: 3,
+        burn_identity: base.burn_identity.clone(),
+        allow_list: (1..=6).map(|u| super::plan::tests::identity(u, u as u8)).collect(),
+        reference: base.reference.clone(),
+        entrants: (1..=6).map(|u| super::plan::tests::artifact(super::plan::tests::identity(u, u as u8), 0x22)).collect(),
+        scorer: super::plan::Scorer { chunk_docs: 4, parallel_jobs: None },
+        fanout: super::plan::tests::fanout(8),
+        faults: Default::default(),
+    };
+    let bytes = serde_json::to_vec(&lp).unwrap();
+    assert!(tx(&load_db, |s| engine::queue(s, &cfg(), &bytes, 5)).is_err(), "the main instance refuses load plans");
+    heartbeat(&load_db, sim.now);
+    let lseq = tx(&load_db, |s| engine::queue(s, &load_cfg(), &bytes, sim.now)).unwrap();
+    assert_eq!(phase(&load_db, lseq), "sealing", "no boundary wait");
+    let mut load = Sim::new(&load_db, load_cfg(), sim.now);
+    load.eval = sim.eval.clone();
+    // The load lanes read the source's private shards; the docs hold no text.
+    let texts: i64 = load_db.conn.query_row("SELECT COUNT(*) FROM docs WHERE text IS NOT NULL", [], |r| r.get(0)).unwrap();
+    assert_eq!(texts, 0);
+    // The source's labels come from its text-free index; fake_results reads kinds from docs.
+    assert_eq!(load.run(lseq, 400), "closed");
+    let b = load.packages.pop().unwrap();
+    assert_eq!(verify(&load, &b).len(), 7 * 20);
+    assert_eq!(b.target.predecessor, None);
+    let targets: i64 = load_db.conn.query_row("SELECT COUNT(*) FROM eval_targets", [], |r| r.get(0)).unwrap();
+    assert_eq!(targets, 0, "a load cohort never activates a target");
+    assert_eq!(b.components["load"], true);
+    assert!(lanes::lane_name("load", "score", 3).starts_with("a-scorer/testnet/load/"));
+}
+
+#[test]
+fn a_spent_generation_budget_is_terminal_and_only_abandon_ends_it() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = wide(20, 0);
+    p.generation_budget_microusd = 1;
+    let seq = open_cohort(&db, &p, 1, 5_000);
+    let mut sim = Sim::new(&db, cfg(), 5_010);
+    sim.run(seq, 50);
+    let st = status(&db, sim.now);
+    assert_eq!(st["cohorts"][0]["fault"], "generation_budget");
+    let cleared = tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap();
+    assert_eq!((cleared.cleared, cleared.refused), (false, Some("abandon_required")));
+    assert!(tx(&db, |s| engine::abandon(s, &p.label, "Budget Spent", sim.now)).is_err(), "reasons are codes");
+    assert!(tx(&db, |s| engine::abandon(s, &p.label, "generation_budget_spent", sim.now)).unwrap());
+    let st = status(&db, sim.now);
+    assert_eq!(st["cohorts"][0]["phase"], "abandoned");
+    assert_eq!(st["pool_rows_used"], 8, "its drawn humans stay used");
+    // Abandonment settles its (zero) spend.
+    sim.tick();
+    let settled: Option<i64> = db.conn.query_row("SELECT settled_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap();
+    assert!(settled.is_some());
+}
+
+#[test]
+fn requests_that_never_reached_the_model_use_no_attempt_and_repeats_pause() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 3_000;
+    sim.score = Box::new(|_| Score::NotDispatched);
+    sim.run(seq, 400);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"));
+    let max_attempt: i64 = db.conn.query_row("SELECT MAX(attempt) FROM chunks", [], |r| r.get(0)).unwrap();
+    assert_eq!(max_attempt, 0, "every refused attempt number went back unused");
+    // A clear resumes the same cohort: paused lanes are kicked again.
+    assert!(tx(&db, |s| engine::clear_fault(s, "testnet-rehearsal-1", sim.now)).unwrap().cleared);
+    sim.score = Box::new(|_| Score::Ok);
+    assert_eq!(sim.run(seq, 400), "transition");
+    for task in 0..20 {
+        assert_eq!(numbers(&db, seq, 0, task), [(1, 1)]);
+    }
+}
+
+#[test]
+fn a_generation_outage_pauses_the_cohort_instead_of_dropping_cases() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 10_000;
+    sim.generate = Box::new(|_| Err(Reject::Transport));
+    sim.run(seq, 400);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("generation_unavailable"));
+    let (failed, attempts): (i64, i64) = db
+        .conn
+        .query_row("SELECT SUM(status = 'failed'), SUM(attempts) FROM docs", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert_eq!((failed, attempts), (0, 0));
+    assert!(tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap().cleared);
+    sim.generate = Box::new(|it| Ok(answer(it)));
+    assert_eq!(sim.run(seq, 400), "transition");
+}
+
+#[test]
+fn an_outage_is_no_answer_while_an_empty_answer_after_tokens_is_the_models() {
+    let g = |output, completion_tokens| GenOutcome {
+        idx: 0, generator: "x".into(), output, prompt_tokens: 10, completion_tokens, ms: 1, claim: 0,
+    };
+    assert!(engine::is_outage(&g(Err(Reject::Transport), 0)));
+    assert!(engine::is_outage(&g(Err(Reject::Empty), 0)));
+    assert!(engine::is_outage(&g(Ok("  ".into()), 0)));
+    assert!(!engine::is_outage(&g(Err(Reject::Empty), 1200)), "a reasoning model at its cap answered");
+    assert!(!engine::is_outage(&g(Err(Reject::Throttled), 0)), "a throttle is neither an answer nor an outage");
+    assert_eq!(textgen::classify_ai_error("AiError: 3040: Capacity temporarily exceeded, please try again."), Reject::Throttled);
+    assert_eq!(textgen::classify_ai_error("Error: 429 Too Many Requests"), Reject::Throttled);
+    assert_eq!(textgen::classify_ai_error("AiError: 5007: No such model"), Reject::ModelUnavailable);
+    assert_eq!(textgen::classify_ai_error("network connection lost"), Reject::Transport);
+}
+
+#[test]
+fn a_batch_short_of_the_plan_pauses_unless_within_the_declared_tolerance() {
+    for permille in [0u16, 50] {
+        let db = Sqlite::open();
+        sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+        let mut p = wide(200, 0);
+        p.max_kind_shortfall_permille = permille;
+        let seq = open_cohort(&db, &p, 10, 1_000_000);
+        let mut sim = Sim::new(&db, cfg(), 1_000_010);
+        let (pool, texts) = pool_of(120);
+        sim.pool = pool;
+        sim.texts = texts;
+        sim.tick_ms = 2_000;
+        // One mixed document is always refused (a length rejection).
+        let mut target: Option<i64> = None;
+        let dbr = &db;
+        sim.generate = Box::new(move |it| {
+            let t = *target.get_or_insert_with(|| dbr.conn.query_row("SELECT MIN(idx) FROM docs WHERE kind = 'mixed'", [], |r| r.get(0)).unwrap());
+            if it.idx == t { Ok("Approved.".into()) } else { Ok(answer(it)) }
+        });
+        let end = sim.run(seq, 2_000);
+        let st = status(&db, sim.now);
+        assert_eq!(st["cohorts"][0]["counts"]["shortfall"], json!([0, 1, 0]));
+        if permille == 0 {
+            assert_eq!(st["cohorts"][0]["fault"], "batch_shortfall");
+        } else {
+            assert_eq!(end, "transition", "5 % of 80 mixed cases is 4: the batch seals and binds the shortfall");
+            assert_eq!(st["cohorts"][0]["task_count"], 199);
+        }
+    }
+}
+
+#[test]
+fn a_draw_never_takes_a_human_the_durable_ledger_records() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let (pool, texts) = pool_fixture();
+    let now = 1_000_000u64;
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, now);
+    let c = cfg();
+    let seed = engine::cohort_seed(&c.private_seed, &p.label);
+    let d = pool::draw(&pool, &BTreeSet::new(), &BTreeSet::new(), 8, &seed);
+    let t: BTreeMap<String, String> = d.rows.iter().map(|r| (r.row_id.clone(), texts[&r.row_id].clone())).collect();
+    let mut ledger = pool::Used::default();
+    ledger.digests.insert(d.rows[0].text_sha256.clone());
+    let refused = tx(&db, |s| engine::apply_draw(s, &c, seq, &d, &t, &ledger, now));
+    assert_eq!(refused.unwrap_err().code(), "pool row or group already used");
+    assert_eq!(status(&db, now)["pool_rows_used"], 0);
+}
+
+#[test]
+fn phase_minimums_count_only_tempos_observed_while_heartbeats_are_fresh() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut now = 1_000_000u64;
+    let p = wide(20, 0); // K = 4, admission 1, transition 1
+    let bytes = serde_json::to_vec(&p).unwrap();
+    let seq = tx(&db, |s| engine::queue(s, &cfg(), &bytes, now)).unwrap();
+    assert!(kick_at(&db, 10, now).is_empty());
+    assert_eq!(kick_at(&db, 11, now), ["testnet-rehearsal-1:admission"]);
+    now += 1_800_000;
+    assert!(kick_at(&db, 16, now).is_empty(), "admission does not end on tempos nobody observed");
+    let o = tx(&db, engine::observed).unwrap();
+    assert_eq!((o.active_tempos, o.uncredited_tempos), (1, 5));
+    now += 60_000;
+    assert_eq!(kick_at(&db, 17, now), ["testnet-rehearsal-1:generating"]);
+    let mut sim = Sim::new(&db, cfg(), now);
+    assert_eq!(sim.run(seq, 400), "transition");
+    now = sim.now;
+    assert!(kick_at(&db, 18, now).is_empty());
+    now += 20 * 60_000;
+    assert!(kick_at(&db, 25, now).is_empty());
+    now += 60_000;
+    assert!(kick_at(&db, 26, now).is_empty());
+    assert_eq!(kick_at(&db, 27, now), ["testnet-rehearsal-1:closed"]);
+}
+
+#[test]
+fn the_prestart_kicks_scoring_lanes_once_during_the_generation_tail() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = wide(40, 1);
+    p.fanout.as_mut().unwrap().score.prestart_lead_ms = 120_000;
+    p.fanout.as_mut().unwrap().generation.max_lanes = 1;
+    p.fanout.as_mut().unwrap().generation.inflight_per_lane = 1;
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 10_000;
+    sim.claims_per_run = 1;
+    sim.grant = 1;
+    let mut kicked_while_generating = false;
+    for _ in 0..300 {
+        sim.tick();
+        let ph = phase(&db, seq);
+        let score_kicks: i64 = db.conn.query_row("SELECT SUM(kicks) FROM lanes WHERE seq = 1 AND kind = 'score'", [], |r| r.get(0)).unwrap_or(0);
+        if ph == "generating" && score_kicks > 0 && !kicked_while_generating {
+            kicked_while_generating = true;
+            let pending: i64 = db.conn.query_row("SELECT COUNT(*) FROM docs WHERE status = 'pending'", [], |r| r.get(0)).unwrap();
+            assert!(pending > 0, "pre-started while items remained");
+            // Pre-started lanes hold no claim: they wait for the seal.
+            let claimed: i64 = db.conn.query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0)).unwrap();
+            assert_eq!(claimed, 0);
+        }
+        if ph == "transition" {
+            break;
+        }
+    }
+    assert!(kicked_while_generating, "pre-started during the generation tail");
+    let pre: i64 = db.conn.query_row("SELECT COUNT(*) FROM lane_events WHERE seq = 1 AND kind = 'score' AND event = 'kick'", [], |r| r.get(0)).unwrap();
+    let lanes_n: i64 = db.conn.query_row("SELECT COUNT(*) FROM lanes WHERE seq = 1 AND kind = 'score'", [], |r| r.get(0)).unwrap();
+    assert_eq!(pre, lanes_n, "each lane was kicked exactly once at the pre-start (no re-kicks needed)");
+    verify(&sim, &sim.packages[0]);
+}
+
+#[test]
+fn the_v3_cohort_store_migrates_in_place_to_v7() {
+    let db = Sqlite::open();
+    let v3 = sql::Schema { family: EVAL_COHORT_SCHEMA.family, migrations: &EVAL_COHORT_SCHEMA.migrations[..3] };
+    sql::migrate(&db, &v3).unwrap();
+    let mut v1 = serde_json::to_value(plan(20)).unwrap();
+    v1["schema"] = super::plan::PLAN_SCHEMA_V1.into();
+    v1["scorer"] = json!({"chunk_docs": 32, "parallel_jobs": 2});
+    v1.as_object_mut().unwrap().remove("fanout");
+    db.conn
+        .execute(
+            "INSERT INTO cohorts (label, cohort, plan, plan_sha256, phase, phase_since_ms, queued_ms, opened_epoch,
+                closed_epoch, target_digest) VALUES ('testnet-rehearsal-1', 1, ?1, 'ab', 'closed', 1, 1, 9, 13, 'cd')",
+            [&v1.to_string()],
+        )
+        .unwrap();
+    db.conn
+        .execute(
+            "INSERT INTO jobs (seq, job, role, artifact, package_sha256, manifest_key, owner, status, chunks, done_chunks)
+             VALUES (1, 0, 'reference', 'aa', 'bb', 'k', '{}', 'done', 2, 2)",
+            [],
+        )
+        .unwrap();
+    let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    assert_eq!((report.from, report.to), (3, 11));
+    let st = status(&db, 5);
+    assert_eq!(st["cohorts"][0]["phase"], "closed");
+    assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
+    assert_eq!(st["cohorts"][0]["lanes"], Value::Null, "a v1 cohort has no lanes");
+    db.conn.execute("UPDATE jobs SET status = 'faulted' WHERE seq = 1", []).unwrap();
+}
+
+#[test]
+fn a_predecessor_reference_is_scored_on_the_same_batch_but_never_credited() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = wide(20, 1);
+    p.previous_reference = Some(super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 0x23));
+    let seq = open_cohort(&db, &p, 1, 7_000);
+    let mut sim = Sim::new(&db, cfg(), 7_010);
+    assert_eq!(sim.run(seq, 400), "transition");
+    let b = sim.packages.pop().unwrap();
+    let verified = verify(&sim, &b);
+    let prev = p.previous_reference.as_ref().unwrap().id().unwrap();
+    assert!(verified.iter().any(|r| r.artifact == prev), "R_{{k-1}} has receipts");
+    assert_eq!(b.package.scores.len(), 1, "only entrants are credited");
+    assert_eq!(b.components["jobs"][1]["role"], "previous_reference");
+}
+
+// ------------------------------------------- review of 2026-10-31: regressions
+
+fn lane_events(db: &Sqlite, seq: i64, ev: &str) -> i64 {
+    db.conn.query_row("SELECT COUNT(*) FROM lane_events WHERE seq = ?1 AND event = ?2", rusqlite::params![seq, ev], |r| r.get(0)).unwrap()
+}
+
+#[test]
+fn an_isolation_run_cut_off_by_the_step_budget_continues_under_the_same_attempt() {
+    // Finding 1: one isolation run could outlast the 15-minute alarm wall, die
+    // uncommitted and spend every attempt. Here each restart costs 120 s of a
+    // 600 s step, so a chunk of four always-crashing documents (each proved
+    // and reproduced) needs several invocations.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.restart_ms = 120_000;
+    sim.score = Box::new(|q| if q.job == 1 && q.tasks.iter().any(|t| *t < 4) { Score::Crash } else { Score::Ok });
+    assert_eq!(sim.run(seq, 2_000), "transition", "the cohort proceeds");
+    let b = sim.packages.pop().unwrap();
+    verify(&sim, &b);
+    assert!(lane_events(&db, seq, "iso_yield") >= 2, "the run was handed back and continued");
+    for task in 0..4 {
+        assert_eq!(numbers(&db, seq, 1, task), [(1, 5), (2, 2)], "one isolation attempt, whatever its invocations");
+    }
+    assert_eq!(numbers(&db, seq, 1, 4), [(1, 1)]);
+    assert_eq!(b.components["jobs"][1]["isolated_crashes"], 4);
+    let left: i64 = db.conn.query_row("SELECT COUNT(*) FROM iso_done", [], |r| r.get(0)).unwrap();
+    assert_eq!(left, 0, "progress rows end with their commit");
+}
+
+#[test]
+fn an_entrant_that_crashes_on_everything_is_model_errors_and_the_cohort_proceeds() {
+    // Finding 1's scenario: every request of job 1 kills its container, the
+    // control included. Its fresh instances cannot score the control, which
+    // counts against the artifact until it is recorded as failed.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.score = Box::new(|q| if q.job == 1 { Score::Crash } else { Score::Ok });
+    assert_eq!(sim.run(seq, 2_000), "transition");
+    let b = sim.packages.pop().unwrap();
+    verify(&sim, &b);
+    for task in 0..20 {
+        let n = numbers(&db, seq, 1, task);
+        assert_eq!(n.last().unwrap().1, 2, "task {task}: a model error ({n:?})");
+        assert!(n.len() <= 2 && n.iter().take(n.len() - 1).all(|x| x.1 == 5), "task {task}: {n:?}");
+        assert_eq!(numbers(&db, seq, 0, task), [(1, 1)]);
+    }
+    assert!(b.components["jobs"][1]["artifact_failed"].is_string());
+    assert!(b.components["jobs"][0]["artifact_failed"].is_null());
+    assert_eq!(b.package.scores[0].failed, 20);
+}
+
+#[test]
+fn an_artifact_that_never_loads_is_model_errors_and_a_reference_that_never_loads_pauses() {
+    // Finding 5: load failures were never attributed and re-kicked forever.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.start = Box::new(|job, _| if job == 1 { Err(RestartFailure::Artifact { code: "artifact load failed", definitive: false }) } else { Ok(()) });
+    assert_eq!(sim.run(seq, 800), "transition");
+    verify(&sim, &sim.packages[0]);
+    for task in 0..20 {
+        assert_eq!(numbers(&db, seq, 1, task), [(1, 2)]);
+    }
+    let st = status(&db, sim.now);
+    assert_eq!(st["cohorts"][0]["jobs"][1]["artifact_failures"], 3, "the plan's declared count, on fresh instances");
+    assert_eq!(st["cohorts"][0]["jobs"][1]["artifact_failed"], "artifact load failed");
+    // A manifest over the declared size bound attributes at once.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.start = Box::new(|job, _| {
+        if job == 1 { Err(RestartFailure::Artifact { code: "artifact over the declared size bound", definitive: true }) } else { Ok(()) }
+    });
+    assert_eq!(sim.run(seq, 800), "transition");
+    let st = status(&db, sim.now);
+    assert_eq!(st["cohorts"][0]["jobs"][1]["artifact_failures"], 1);
+    // A reference is never attributed: its failures pause the cohort, resumably.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    let broken = std::rc::Rc::new(std::cell::Cell::new(true));
+    let b2 = broken.clone();
+    sim.start = Box::new(move |job, _| {
+        if job == 0 && b2.get() { Err(RestartFailure::Artifact { code: "artifact load failed", definitive: false }) } else { Ok(()) }
+    });
+    sim.run(seq, 800);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"));
+    broken.set(false);
+    assert!(tx(&db, |s| engine::clear_fault(s, "testnet-rehearsal-1", sim.now)).unwrap().cleared);
+    assert_eq!(sim.run(seq, 800), "transition");
+    for task in 0..20 {
+        assert_eq!(numbers(&db, seq, 0, task), [(1, 1)]);
+    }
+}
+
+#[test]
+fn an_r2_read_outage_before_dispatch_pauses_without_spending_attempts_and_the_same_cohort_resumes() {
+    // Finding 2: a batch-shard read failure released the claim with its attempt
+    // allocated, so three of them faulted the cohort terminally.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 3_000;
+    let outage = std::rc::Rc::new(std::cell::Cell::new(true));
+    let o2 = outage.clone();
+    sim.r2 = Box::new(move |key, put| o2.get() && !put && key.contains("/batch/"));
+    sim.run(seq, 400);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"), "paused, resumable");
+    let (max_attempt, receipts): (i64, i64) = db
+        .conn
+        .query_row("SELECT (SELECT MAX(attempt) FROM chunks), (SELECT COUNT(*) FROM receipts)", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert_eq!((max_attempt, receipts), (0, 0), "no attempt spent, no receipt written");
+    outage.set(false);
+    assert!(tx(&db, |s| engine::clear_fault(s, "testnet-rehearsal-1", sim.now)).unwrap().cleared);
+    assert_eq!(sim.run(seq, 400), "transition");
+    for job in 0..2 {
+        for task in 0..20 {
+            assert_eq!(numbers(&db, seq, job, task), [(1, 1)]);
+        }
+    }
+}
+
+#[test]
+fn a_reconciliation_read_error_retries_and_a_durable_results_object_is_never_recomputed() {
+    // Finding 2: any R2 GET error in reconciliation counted as absence, so an
+    // attempt whose objects were durable could be recorded lost and recomputed.
+    for case in ["get_error", "receipt_put_error"] {
+        let db = Sqlite::open();
+        sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+        let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+        let mut sim = Sim::new(&db, cfg(), 1_000_010);
+        sim.tick_ms = 5_000;
+        let mut died = false;
+        if case == "get_error" {
+            // Both objects are stored, then the lane dies; the first reads fail.
+            sim.score = Box::new(move |q| {
+                if q.job == 0 && q.chunk == 0 && !std::mem::replace(&mut died, true) { Score::DieAfterPut } else { Score::Ok }
+            });
+            let mut failures = 3;
+            sim.r2 = Box::new(move |key, put| {
+                !put && key.contains("/results/job-000/chunk-0000-attempt-1") && {
+                    failures -= 1;
+                    failures >= 0
+                }
+            });
+        } else {
+            // The results object is stored; every receipt put of that attempt fails.
+            let mut failures = 7;
+            sim.r2 = Box::new(move |key, put| {
+                put && key.ends_with("/job-000/chunk-0000-attempt-1.bin") && {
+                    failures -= 1;
+                    failures >= 0
+                }
+            });
+        }
+        assert_eq!(sim.run(seq, 600), "transition", "{case}");
+        verify(&sim, &sim.packages[0]);
+        for task in 0..4 {
+            assert_eq!(numbers(&db, seq, 0, task), [(1, 1)], "{case}: committed from the durable results, no compute");
+        }
+        let st = status(&db, sim.now);
+        let score = &st["cohorts"][0]["lanes"]["kinds"]["score"];
+        assert_eq!((score["reconciled"].as_i64(), score["lost_attempts"].as_i64()), (Some(1), Some(0)), "{case}");
+    }
+}
+
+#[test]
+fn a_failure_with_the_container_up_never_isolates_and_a_one_off_isolated_failure_is_not_attributed() {
+    // Finding 4: any failure counted as a crash, and one failure in isolation
+    // was attributed without being reproduced.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    let (mut fail_once, mut crash_once, mut flaky_once) = (true, true, true);
+    sim.score = Box::new(move |q| {
+        if q.job == 0 && q.chunk == 0 && std::mem::take(&mut fail_once) {
+            return Score::Fail;
+        }
+        if q.job == 1 && q.chunk == 1 && !q.isolate && std::mem::take(&mut crash_once) {
+            return Score::Crash;
+        }
+        if q.job == 1 && q.isolate && q.tasks == [5] && std::mem::take(&mut flaky_once) {
+            return Score::Crash;
+        }
+        Score::Ok
+    });
+    assert_eq!(sim.run(seq, 800), "transition");
+    verify(&sim, &sim.packages[0]);
+    let crashes: i64 = db.conn.query_row("SELECT crashes FROM chunks WHERE seq = ?1 AND job = 0 AND chunk = 0", [seq], |r| r.get(0)).unwrap();
+    assert_eq!(crashes, 0, "a failure with the container up is not a crash");
+    assert_eq!(numbers(&db, seq, 0, 0), [(1, 5), (2, 1)]);
+    // Task 5 failed alone once, then answered on the proven fresh instance.
+    assert_eq!(numbers(&db, seq, 1, 5), [(1, 5), (2, 1)]);
+    assert_eq!(sim.packages[0].components["jobs"][1]["isolated_crashes"], 0);
+}
+
+#[test]
+fn an_isolation_restart_that_fails_hands_back_without_spending_an_attempt() {
+    // Finding 2: an isolation run whose first restart failed committed every
+    // document as an infrastructure error, a full attempt with nothing dispatched.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    let mut crash_once = true;
+    sim.score = Box::new(move |q| if q.chunk == 0 && !q.isolate && std::mem::take(&mut crash_once) { Score::Crash } else { Score::Ok });
+    let mut fails = 3;
+    sim.start = Box::new(move |_, isolation| {
+        if isolation && fails > 0 {
+            fails -= 1;
+            return Err(RestartFailure::Infra("container did not answer"));
+        }
+        Ok(())
+    });
+    assert_eq!(sim.run(seq, 800), "transition");
+    for task in 0..4 {
+        assert_eq!(numbers(&db, seq, 0, task), [(1, 5), (2, 1)]);
+    }
+}
+
+// ----------------------------------------------------- reward-v1 (plan v3)
+
+fn v3_block(probes: Vec<super::plan::ProbeRef>) -> super::plan::RewardV1Plan {
+    super::plan::RewardV1Plan {
+        sigma: 40_000_000_000_000_000,
+        sigma_basis: "synthetic test value".into(),
+        lease_tempos: 8,
+        reuse: super::plan::Reuse { max_uses: 4, min_gap: 7 },
+        probes,
+        gates: super::plan::GatePolicy {
+            operating_ppb: 500_000_000,
+            loose_fpr_max_permille: 100,
+            strict_fpr_max_permille: 50,
+            share_mae_max_ppb: 1_000_000_000,
+            attribution_min_permille: 0,
+        },
+        canary: super::plan::CanaryPolicy { draw_humans: 4, drill: Vec::new() },
+        spares_permille: 200,
+        output_contract: "slop_ninja.a.document-v2".into(),
+        probe_version: None,
+        incentive: None,
+    }
+}
+
+fn plan_v3(cohort: u64, label: &str, n: u32, reference: super::plan::ArtifactJson) -> CohortPlan {
+    let mut p = plan(n);
+    p.schema = super::plan::PLAN_SCHEMA_V3.into();
+    p.cohort = cohort;
+    p.label = label.into();
+    p.reward_rule = "reward-v1".into();
+    p.mix = super::plan::Mix { human_only: 20, mixed: 55, model_only: 25 };
+    p.k_tempos = 4;
+    p.admission_tempos = 1;
+    p.transition_tempos = 2;
+    p.scorer.chunk_docs = 4;
+    p.fanout.as_mut().unwrap().score.lane_docs = 8;
+    p.reference = reference;
+    p.entrants = Vec::new();
+    p.reward_v1 = Some(v3_block(Vec::new()));
+    p
+}
+
+/// A synthetic scorer artifact: its files manifest goes to the sim's eval
+/// bucket; `files` names each inference file's distinguishing tag.
+fn v3_artifact(sim: &mut Sim<'_>, owner: super::plan::IdentityJson, files: [u8; 5]) -> super::plan::ArtifactJson {
+    let roles = ["encoder_graph", "heads", "tokenizer", "calibration", "contract"];
+    let file_list: Vec<Value> = roles
+        .iter()
+        .zip(files)
+        .map(|(role, tag)| json!({"name": format!("{role}.bin"), "role": role, "bytes": 100 + u64::from(tag),
+            "sha256": hex::encode([tag; 32]), "parts": []}))
+        .chain(std::iter::once(json!({"name": "manifest.json", "role": "export_manifest", "bytes": 7,
+            "sha256": hex::encode([owner.uid as u8; 32]), "parts": []})))
+        .collect();
+    let m = json!({"schema": "slop_ninja_a_artifact_files_v1", "profile_id": "synthetic", "contract": "slop_ninja_full_a_contract_v2",
+        "graph": "encoder_graph.bin", "files": file_list});
+    let bytes = serde_json::to_vec(&m).unwrap();
+    let sha = lane_logic::sha_hex(&bytes);
+    let key = format!("artifacts/packages/{sha}.json");
+    sim.eval.insert(key.clone(), bytes);
+    let mut a = super::plan::tests::artifact(owner, 0);
+    a.package_sha256 = sha;
+    a.manifest_key = key;
+    a
+}
+
+/// Deterministic pseudo-noise in [-1, 1] for (model, task).
+fn noise(model: u8, task: u32) -> f64 {
+    let d = Sha256::digest([&[model][..], &task.to_le_bytes()].concat());
+    (f64::from(u16::from_le_bytes([d[0], d[1]])) / 32767.5) - 1.0
+}
+
+/// Confidence % from per-kind bases and a model's noise.
+fn model_conf(model: u8, kind: &str, task: u32, bases: (f64, f64, f64), amp: f64) -> f64 {
+    let base = match kind {
+        "human_only" | "control" => bases.0,
+        "mixed" => bases.1,
+        _ => bases.2,
+    };
+    (base + amp * noise(model, task)).clamp(1.0, 99.0)
+}
+
+fn run_to_close(sim: &mut Sim<'_>, db: &Sqlite, seq: i64, first_epoch: u64) -> u64 {
+    assert_eq!(sim.run(seq, 3_000), "transition", "fault {:?}", fault_of(db, seq));
+    let mut e = first_epoch;
+    for _ in 0..12 {
+        e += 1;
+        kick_at(db, e, sim.now);
+        sim.tick();
+        if phase(db, seq) == "closed" {
+            sim.tick();
+            return e;
+        }
+    }
+    panic!("cohort {seq} did not close: {}", phase(db, seq));
+}
+
+#[test]
+fn reward_v1_cohorts_run_end_to_end_with_probe_copies_canary_and_promotion() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut sim = Sim::new(&db, cfg(), 2_000_000);
+    let (pool, texts) = pool_of(120);
+    sim.pool = pool;
+    sim.texts = texts;
+    let id = super::plan::tests::identity;
+    // The rehearsal reference (a flattened calibration), the released model,
+    // a distinct variant, an exact copy of the reference and a near copy.
+    let weak = v3_artifact(&mut sim, id(0, 0xb0), [1, 2, 3, 4, 5]);
+    let strong = v3_artifact(&mut sim, id(11, 0xa1), [1, 2, 3, 9, 5]);
+    let variant = v3_artifact(&mut sim, id(12, 0xa2), [1, 7, 3, 9, 5]);
+    let copy = v3_artifact(&mut sim, id(13, 0xa3), [1, 2, 3, 4, 5]);
+    let near = v3_artifact(&mut sim, id(14, 0xa4), [1, 2, 3, 6, 5]);
+    let weak_conf = |kind: &str, task: u32| model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
+    // Probe build v1: R_0 is fingerprinted.
+    let mut probe = plan_v3(1, "testnet-probe-v1", 20, weak.clone());
+    probe.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    probe.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    probe.reward_v1.as_mut().unwrap().canary.draw_humans = 0;
+    sim.predict = Some(Box::new(move |_, kind, task| {
+        let c = weak_conf(kind, task);
+        (c, c * 0.4)
+    }));
+    let pseq = open_cohort(&db, &probe, 10, sim.now);
+    let end = sim.run(pseq, 3_000);
+    assert_eq!(end, "closed", "fault {:?}: {}", fault_of(&db, pseq), {
+        let st = status(&db, sim.now);
+        serde_json::to_string(&json!({"jobs": st["cohorts"][0]["jobs"], "log": st["cohorts"][0]["log"], "lanes": st["cohorts"][0]["lanes"]})).unwrap()
+    });
+    let record = sim.eval["probes/v1/record.json"].clone();
+    let probe_ref = super::plan::ProbeRef {
+        version: 1,
+        size: 20,
+        key: "probes/v1/record.json".into(),
+        sha256: lane_logic::sha_hex(&record),
+    };
+    let (index, _) = tx(&db, v3::published_index).unwrap();
+    assert_eq!((index.contents.contents.len(), index.fingerprints.entries.len()), (1, 1));
+    // Cohort A: R_0 alone produces no target (the launch burn row stays).
+    let mut a = plan_v3(2, "testnet-rv1-a", 20, weak.clone());
+    a.reward_v1.as_mut().unwrap().probes = vec![probe_ref.clone()];
+    let seq_a = open_cohort(&db, &a, 20, sim.now);
+    run_to_close(&mut sim, &db, seq_a, 22);
+    let pa = sim.packages_v3.pop().unwrap();
+    assert_eq!(pa.package.mode, slop_ninja_protocol::CutoffMode::NoTarget);
+    assert!(pa.target.is_none());
+    let ca = sim.closures.pop().unwrap();
+    ca.closure.check(&pa.manifest, &pa.package, None).unwrap();
+    // Cohort B: the released model and a variant beat R_0 by the margin; an
+    // exact copy is never executed; a near copy fails the public-copy gate;
+    // the canary flags the top head twice, so the next head is promoted.
+    let mut b = plan_v3(3, "testnet-rv1-b", 20, weak.clone());
+    b.entrants = vec![strong.clone(), variant.clone(), copy.clone(), near.clone()];
+    b.allow_list = vec![id(11, 0xa1), id(12, 0xa2), id(13, 0xa3), id(14, 0xa4)];
+    {
+        let v = b.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref.clone()];
+        v.canary.drill = vec![super::plan::CanaryDrill { hotkey: format!("0x{}", hex::encode([0xa1; 32])), flags: 2 }];
+    }
+    sim.predict = Some(Box::new(move |job, kind, task| {
+        let c = match job {
+            0 => weak_conf(kind, task),
+            1 => model_conf(2, kind, task, (3.0, 95.0, 97.0), 7.0),
+            2 => model_conf(3, kind, task, (7.0, 90.0, 94.0), 7.0),
+            _ => (weak_conf(kind, task) + 1.0).min(99.0),
+        };
+        (c, c * 0.4)
+    }));
+    let seq_b = open_cohort(&db, &b, 40, sim.now);
+    run_to_close(&mut sim, &db, seq_b, 42);
+    let pb = sim.packages_v3.pop().unwrap();
+    let p = &pb.package;
+    assert_eq!(p.mode, slop_ninja_protocol::CutoffMode::Margin);
+    let hk = |t: u8| AccountId([t; 32]);
+    assert_eq!(p.entrants[2].public_copy(), Some(slop_ninja_protocol::PublicCopy::Content));
+    assert_eq!(p.entrants[2].score, None, "an exact copy of a published artifact is never executed");
+    assert_eq!(p.entrants[3].public_copy(), Some(slop_ninja_protocol::PublicCopy::Current));
+    assert_eq!(p.promotion_audits.len(), 2);
+    assert!(p.promotion_audits[0].blocked() && p.promotion_audits[0].head == hk(0xa1));
+    assert_eq!(p.promoted, Some(hk(0xa2)), "two flags block the top head; the next head is promoted");
+    assert!(p.entrants[0].units > 0 && p.entrants[1].units > 0, "credits are paid as usual");
+    let at_seal = v3::index_at_seal(&tx(&db, |s| v3::state(s, seq_b)).unwrap()).unwrap();
+    slop_ninja_protocol::reward_v1::check_outcome(p, &at_seal).unwrap();
+    let target = pb.target.clone().unwrap();
+    target.check_package(p).unwrap();
+    let cb = sim.closures.pop().unwrap();
+    let checked = cb.closure.check(&pb.manifest, p, Some(&target)).unwrap();
+    // The index after the closure is the one the next cohort binds.
+    let after = at_seal.after_closure(p, cb.closure_fingerprints.clone()).unwrap();
+    let (now_index, _) = tx(&db, v3::published_index).unwrap();
+    assert_eq!(after, now_index);
+    // Synthetic owners are unregistered: every unit burns through the owner's UID.
+    let snapshot = slop_ninja_protocol::RegistrationSnapshotV2 {
+        chain: cfg().chain,
+        block: 9_000,
+        block_hash: slop_ninja_protocol::Digest([9; 32]),
+        owner_hotkey: hk(0xb0),
+        neurons: vec![NeuronIdentity { uid: 0, hotkey: hk(0xb0), registration_block: 1000 }],
+    };
+    let row = slop_ninja_protocol::reward_v1::derive_row(&target, Some((p, &at_seal)), &snapshot).unwrap();
+    assert_eq!(row.entries.len(), 1);
+    assert_eq!((row.entries[0].uid, row.entries[0].weight), (0, u16::MAX));
+    let _ = checked;
+    // The reward-v1 bundle a validator installs: every record signed, the
+    // receipts retained, the authorization issued at the closing boundary.
+    let fx_keys = slop_ninja_protocol::fixtures::trusted_keys();
+    let pk = slop_ninja_protocol::fixtures::package_key();
+    let signed = |b: Vec<u8>| hex::encode(b);
+    let (rindex, chunk_map) = tx(&db, |s| engine::receipt_index(s, seq_b)).unwrap();
+    let chunks: Vec<String> = chunk_map["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| hex::encode(&sim.rcpt[o["key"].as_str().unwrap()]))
+        .collect();
+    let auth = slop_ninja_protocol::RewardIntentAuthorization {
+        chain: p.chain.clone(),
+        cohort: p.cohort,
+        cohort_manifest: p.cohort_manifest,
+        score_package: p.digest().unwrap(),
+        target: target.digest().unwrap(),
+        checkpoint_generation: 1,
+        issued_epoch: cb.closure.closed_epoch,
+        expires_epoch: cb.closure.closed_epoch + u64::from(pb.manifest.schedule.lease_tempos),
+    };
+    let bundle = crate::target::BundleV2 {
+        schema: crate::target::BUNDLE_SCHEMA_V2.into(),
+        shortcut: "T12".into(),
+        source: Some(crate::target::SourceHex {
+            manifest: signed(slop_ninja_protocol::sign(pb.manifest.clone(), &pk).unwrap().to_bytes().unwrap()),
+            package: signed(slop_ninja_protocol::sign(p.clone(), &pk).unwrap().to_bytes().unwrap()),
+            target: signed(slop_ninja_protocol::sign(target.clone(), &pk).unwrap().to_bytes().unwrap()),
+            closure: signed(slop_ninja_protocol::sign(cb.closure.clone(), &pk).unwrap().to_bytes().unwrap()),
+            receipt_index: Some(signed(
+                slop_ninja_protocol::sign(rindex, &slop_ninja_protocol::fixtures::receipt_key()).unwrap().to_bytes().unwrap(),
+            )),
+            published_contents: hex::encode(at_seal.contents.to_bytes().unwrap()),
+            fingerprint_index: hex::encode(at_seal.fingerprints.to_bytes().unwrap()),
+        }),
+        authorization: crate::target::AuthorizationHex {
+            kind: "cohort".into(),
+            authorization: signed(
+                slop_ninja_protocol::sign(auth, &slop_ninja_protocol::fixtures::authorization_key()).unwrap().to_bytes().unwrap(),
+            ),
+            renewal: None,
+            carrier: None,
+        },
+        receipt_chunks: chunks,
+        carrier_receipt_chunks: Vec::new(),
+    };
+    let bytes = serde_json::to_vec(&bundle).unwrap();
+    // A holder that held the launch burn row: cohort B's target is its successor.
+    let held = slop_ninja_protocol::ActiveTarget::launch(&p.chain).unwrap();
+    let v = crate::target::verify_v2(&crate::target::parse_v2(&bytes).unwrap(), &fx_keys, &TESTNET_GENESIS.0, 601, &held).unwrap();
+    assert_eq!(v.derive_row(&snapshot).unwrap(), row, "the validator's row is the coordinator's, bit for bit");
+    let vhk = AccountId([0x66; 32]);
+    let closed = cb.closure.closed_epoch;
+    assert!(v.operation(&fx_keys, vhk, closed).is_ok());
+    assert!(v.operation(&fx_keys, vhk, closed - 1).is_err(), "never before the target activates");
+    // A tampered unit split is refused before any row exists.
+    let mut tampered = p.clone();
+    tampered.entrants[0].units -= 1;
+    tampered.entrants[1].units += 1;
+    let mut bad = bundle.clone();
+    bad.source.as_mut().unwrap().package = signed(slop_ninja_protocol::sign(tampered, &pk).unwrap().to_bytes().unwrap());
+    let bad = serde_json::to_vec(&bad).unwrap();
+    assert!(crate::target::verify_v2(&crate::target::parse_v2(&bad).unwrap(), &fx_keys, &TESTNET_GENESIS.0, 601, &held).is_err());
+    // Once the target is held, the launch bundle is refused (no rollback).
+    let launch_auth = slop_ninja_protocol::LaunchAuthorization::new(&p.chain, 1, closed).unwrap();
+    let launch = crate::target::BundleV2 {
+        schema: crate::target::BUNDLE_SCHEMA_V2.into(),
+        shortcut: "T12".into(),
+        source: None,
+        authorization: crate::target::AuthorizationHex {
+            kind: "launch".into(),
+            authorization: signed(
+                slop_ninja_protocol::sign(launch_auth, &slop_ninja_protocol::fixtures::authorization_key()).unwrap().to_bytes().unwrap(),
+            ),
+            renewal: None,
+            carrier: None,
+        },
+        receipt_chunks: Vec::new(),
+        carrier_receipt_chunks: Vec::new(),
+    };
+    let launch = serde_json::to_vec(&launch).unwrap();
+    assert!(crate::target::verify_v2(&crate::target::parse_v2(&launch).unwrap(), &fx_keys, &TESTNET_GENESIS.0, 601, &held).is_ok());
+    assert_eq!(
+        crate::target::verify_v2(&crate::target::parse_v2(&launch).unwrap(), &fx_keys, &TESTNET_GENESIS.0, 601, &v.active)
+            .unwrap_err()
+            .code,
+        "bundle_unverified"
+    );
+    // Cohort C: R_1 is the promoted variant with R_0 as its predecessor.
+    let mut c = plan_v3(4, "testnet-rv1-c", 20, variant.clone());
+    c.previous_reference = Some(weak.clone());
+    let copy_of_strong = v3_artifact(&mut sim, id(15, 0xa5), [1, 2, 3, 9, 5]);
+    c.entrants = vec![copy_of_strong];
+    c.allow_list = vec![id(15, 0xa5)];
+    c.reward_v1.as_mut().unwrap().probes = vec![probe_ref];
+    sim.predict = Some(Box::new(move |job, kind, task| {
+        let c = match job {
+            0 => model_conf(3, kind, task, (7.0, 90.0, 94.0), 7.0),
+            1 => weak_conf(kind, task),
+            _ => model_conf(2, kind, task, (3.0, 95.0, 97.0), 7.0),
+        };
+        (c, c * 0.4)
+    }));
+    let seq_c = open_cohort(&db, &c, 60, sim.now);
+    run_to_close(&mut sim, &db, seq_c, 62);
+    let pc = sim.packages_v3.pop().unwrap();
+    assert_eq!(pc.package.reference_index, 1);
+    assert_eq!(pc.package.entrants[0].public_copy(), Some(slop_ninja_protocol::PublicCopy::Content));
+    let at_seal_c = v3::index_at_seal(&tx(&db, |s| v3::state(s, seq_c)).unwrap()).unwrap();
+    slop_ninja_protocol::reward_v1::check_outcome(&pc.package, &at_seal_c).unwrap();
+    let st = status(&db, sim.now);
+    assert!(st["cohorts"].as_array().unwrap().iter().all(|c| c["fault"].is_null()));
+}
+
+/// A world with probe version 1 built over a flattened-calibration `R_0`.
+fn probe_built<'a>(db: &'a Sqlite) -> (Sim<'a>, super::plan::ArtifactJson, super::plan::ProbeRef) {
+    sql::migrate(db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut sim = Sim::new(db, cfg(), 2_000_000);
+    let (pool, texts) = pool_of(120);
+    sim.pool = pool;
+    sim.texts = texts;
+    let weak = v3_artifact(&mut sim, super::plan::tests::identity(0, 0xb0), [1, 2, 3, 4, 5]);
+    let mut probe = plan_v3(1, "testnet-probe-v1", 20, weak.clone());
+    probe.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    probe.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    probe.reward_v1.as_mut().unwrap().canary.draw_humans = 0;
+    sim.predict = Some(Box::new(|_, kind, task| {
+        let c = model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
+        (c, c * 0.4)
+    }));
+    let pseq = open_cohort(db, &probe, 10, sim.now);
+    assert_eq!(sim.run(pseq, 3_000), "closed");
+    let record = sim.eval["probes/v1/record.json"].clone();
+    let probe_ref = super::plan::ProbeRef {
+        version: 1,
+        size: 20,
+        key: "probes/v1/record.json".into(),
+        sha256: lane_logic::sha_hex(&record),
+    };
+    (sim, weak, probe_ref)
+}
+
+#[test]
+fn v3_failing_artifacts_score_zero_and_one_canary_flag_with_a_clean_reaudit_promotes() {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built(&db);
+    let id = super::plan::tests::identity;
+    let crashes = v3_artifact(&mut sim, id(21, 0xc1), [1, 2, 3, 21, 5]);
+    let never = v3_artifact(&mut sim, id(22, 0xc2), [1, 2, 3, 22, 5]);
+    let good = v3_artifact(&mut sim, id(23, 0xc3), [1, 2, 3, 23, 5]);
+    let mut p = plan_v3(2, "testnet-rv1-fail", 20, weak);
+    p.entrants = vec![crashes, never, good];
+    p.allow_list = vec![id(21, 0xc1), id(22, 0xc2), id(23, 0xc3)];
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.drill = vec![super::plan::CanaryDrill { hotkey: format!("0x{}", hex::encode([0xc3; 32])), flags: 1 }];
+    }
+    sim.predict = Some(Box::new(|job, kind, task| {
+        let c = match job {
+            0 => model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0),
+            _ => model_conf(4, kind, task, (3.0, 95.0, 97.0), 7.0),
+        };
+        (c, c * 0.4)
+    }));
+    // Job 1 kills its container on every request; job 2 never loads.
+    sim.score = Box::new(|q| if q.job == 1 { Score::Crash } else { Score::Ok });
+    sim.start = Box::new(|job, _| if job == 2 { Err(RestartFailure::Artifact { code: "artifact load failed", definitive: false }) } else { Ok(()) });
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    run_to_close(&mut sim, &db, seq, 22);
+    let b = sim.packages_v3.pop().unwrap();
+    let e = &b.package.entrants;
+    // Attributed to those artifacts only: every document a model error, score 0.
+    for k in [0, 1] {
+        assert_eq!((e[k].score.map(|s| s.get()), e[k].failed, e[k].succeeded), (Some(0), 20, 0), "entrant {k}");
+        assert!(e[k].gate_failures.iter().any(|g| g.gate == slop_ninja_protocol::Gate::HumanFalsePositive));
+    }
+    // One flag triggers a re-audit on a fresh draw; a clean re-audit promotes.
+    assert_eq!(b.package.mode, slop_ninja_protocol::CutoffMode::Margin);
+    let audit = &b.package.promotion_audits[0];
+    assert_eq!(audit.canary.len(), 2);
+    assert!(audit.canary[0].flag.as_deref() == Some(v3::DRILL_REASON) && audit.canary[1].flag.is_none());
+    assert_ne!(audit.canary[0].draw, audit.canary[1].draw);
+    assert_eq!(b.package.promoted, Some(AccountId([0xc3; 32])));
+    assert_eq!(e[2].units, u16::MAX);
+}
+
+#[test]
+fn v3_plans_validate_their_reward_v1_parameters() {
+    let none = Ceilings { roster_cap: Some(40), accept_reward_v0: false };
+    let weak = super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 0x22);
+    let probe = super::plan::ProbeRef { version: 1, size: 1024, key: "probes/v1/record.json".into(), sha256: hex::encode([1; 32]) };
+    let mut ok = plan_v3(2, "testnet-rv1-ok", 1000, weak.clone());
+    ok.reward_v1.as_mut().unwrap().probes = vec![probe.clone()];
+    // The strict tier's audit draw holds at least the cohort's 200 humans.
+    ok.reward_v1.as_mut().unwrap().canary.draw_humans = 199;
+    assert!(refused_plan(&ok, none).starts_with("reward_v1.canary.draw_humans"));
+    ok.reward_v1.as_mut().unwrap().canary.draw_humans = 200;
+    ok.validate(none).unwrap();
+    let refused = |p: CohortPlan| p.validate(none).unwrap_err().0;
+    // The mix is exact at n: 55% of 10 is not whole.
+    let mut p = ok.clone();
+    p.n = 10;
+    assert!(refused(p).starts_with("mix"));
+    let mut p = ok.clone();
+    p.mix = super::plan::Mix { human_only: 20, mixed: 55, model_only: 30 };
+    assert!(refused(p).starts_with("mix"));
+    let mut p = ok.clone();
+    p.reward_v1.as_mut().unwrap().lease_tempos = 7;
+    assert!(refused(p).starts_with("reward_v1.lease_tempos"));
+    let mut p = ok.clone();
+    p.reward_v1.as_mut().unwrap().probes.clear();
+    assert!(refused(p).starts_with("reward_v1.probes"));
+    let mut p = ok.clone();
+    p.reward_v1.as_mut().unwrap().probes[0].size = 0;
+    assert!(refused(p).starts_with("reward_v1.probes"));
+    let mut p = ok.clone();
+    p.reward_v1.as_mut().unwrap().canary.drill = vec![super::plan::CanaryDrill { hotkey: "0x00".into(), flags: 1 }];
+    assert!(refused(p).starts_with("reward_v1.canary.drill"));
+    let mut p = ok.clone();
+    p.max_kind_shortfall_permille = 1;
+    assert!(refused(p).starts_with("max_kind_shortfall_permille"));
+    let mut p = ok.clone();
+    p.transition_tempos = 1;
+    assert!(refused(p).starts_with("transition_tempos"));
+    let mut p = ok.clone();
+    p.reward_rule = "testnet-reward-v0".into();
+    assert_eq!(refused(p), "reward_rule");
+    // The deployed main instance refuses new reward-v0 plans.
+    assert_eq!(refused(plan(200)), "schema (v3 or probe build)");
+    plan(200).validate(Ceilings { roster_cap: Some(40), accept_reward_v0: true }).unwrap();
+    // The roster cap is the deployment's.
+    let mut p = ok.clone();
+    p.entrants = (1..=41u16).map(|u| super::plan::tests::artifact(super::plan::tests::identity(u, u as u8), 0x40 + u as u8)).collect();
+    p.allow_list = (1..=41u16).map(|u| super::plan::tests::identity(u, u as u8)).collect();
+    assert!(refused(p.clone()).starts_with("entrants"));
+    p.entrants.pop();
+    p.allow_list.pop();
+    p.validate(none).unwrap();
+    // A probe build names its version and no probes in use.
+    let mut b = ok.clone();
+    b.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    b.entrants.clear();
+    b.allow_list.clear();
+    assert!(refused(b.clone()).starts_with("reward_v1.probe_version"));
+    b.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    assert!(refused(b.clone()).starts_with("reward_v1.probes"));
+    b.reward_v1.as_mut().unwrap().probes.clear();
+    b.validate(none).unwrap();
+}
+
+#[test]
+fn v3_rewrite_sources_follow_the_k_and_g_rule() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    // Ordinals count drawn reward-v1 cohorts, not operator cohort numbers.
+    let insert = |row: &str, first: i64, uses: i64, last: Option<i64>, pool: &str| {
+        db.conn
+            .execute(
+                "INSERT INTO reuse_sources (row_id, text_sha256, source_group, domain, shard, first_cohort, uses, last_cohort,
+                    first_ordinal, last_ordinal, pool_id)
+                 VALUES (?1, ?2, ?3, 'wikipedia', 0, ?4, ?5, ?6, ?4, ?6, ?7)",
+                rusqlite::params![row, format!("sha-{row}"), format!("g-{row}"), first, uses, last, pool],
+            )
+            .unwrap();
+    };
+    insert("never", 3, 0, None, "p"); // a negative never parented: eligible at once
+    insert("recent", 5, 1, Some(5), "p"); // parented at ordinal 5: eligible from 12
+    insert("old", 2, 1, Some(2), "p"); // parented at 2: eligible from 9
+    insert("spent", 1, 4, Some(4), "p"); // four uses: retired
+    insert("own", 10, 1, Some(10), "p"); // drawn in ordinal 10 itself: not earlier
+    insert("other-pool", 1, 0, None, "q"); // another pool's passage is never a candidate
+    let weak = super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 0x22);
+    let ids = |ordinal: u64| {
+        let p = plan_v3(99, "x", 20, weak.clone());
+        tx(&db, |s| v3::reuse_candidates_at(s, &p, ordinal)).unwrap().into_iter().map(|c| c.row.row_id).collect::<Vec<_>>()
+    };
+    assert_eq!(ids(10), ["old", "never"], "oldest last use first; G = 7 from the last use");
+    assert_eq!(ids(12), ["old", "never", "recent"]);
+    assert_eq!(ids(3), Vec::<String>::new());
+    // The cohort's ordinal ignores probe builds and the operator's numbering.
+    let p = plan_v3(99, "x", 20, weak.clone());
+    assert_eq!(tx(&db, |s| v3::reuse_ordinal(s, p.cohort)).unwrap(), 1);
+    let (all, ineligible) = {
+        let mut p = plan_v3(99, "x", 20, weak.clone());
+        p.cohort = 1;
+        tx(&db, |s| v3::ledger_rows(s, &p)).unwrap()
+    };
+    assert_eq!(all.len(), 5);
+    assert!(ineligible.contains("spent") && ineligible.contains("own") && !ineligible.contains("never"));
+    // Parents: same-cohort negatives first, then earlier passages, then fresh
+    // groups taken whole.
+    let row = |id: &str, g: &str| PoolRow { row_id: id.into(), text_sha256: String::new(), domain: "wikipedia".into(), source_group: g.into(), shard: 0 };
+    let texts: BTreeMap<String, String> =
+        ["n1", "e1", "f1", "f2", "f3"].iter().map(|k| ((*k).to_owned(), human_text(1, 0))).collect();
+    let earlier = vec![v3::ReuseCandidate {
+        row: row("e1", "ge"),
+        uses: 1,
+        generators: vec!["@cf/x".into()],
+        voices: vec!["copy_editor".into()],
+        operations: vec!["paraphrase".into()],
+    }];
+    let fresh = vec![row("f1", "g1"), row("f2", "g1"), row("f3", "g2")];
+    // A same-cohort negative past the reuse limit parents nothing.
+    let skip: BTreeSet<String> = ["n1".to_owned()].into();
+    let ps = v3::choose_parents(&[7; 32], &[row("n1", "gn")], &earlier, &fresh, &texts, 3, &skip);
+    assert_eq!(ps.children, vec![("e1".into(), "earlier"), ("f1".into(), "fresh"), ("f2".into(), "fresh")]);
+    let ps = v3::choose_parents(&[7; 32], &[row("n1", "gn")], &earlier, &fresh, &texts, 3, &BTreeSet::new());
+    assert_eq!(ps.children, vec![("n1".into(), "same"), ("e1".into(), "earlier"), ("f1".into(), "fresh")]);
+    assert_eq!(ps.fresh_used.iter().map(|r| r.row_id.as_str()).collect::<Vec<_>>(), ["f1", "f2"], "the whole group is consumed");
+}
+
+#[test]
+fn v3_gates_measure_share_attribution_and_the_loose_false_positive_tier() {
+    let labels: Vec<v3::Label> = ["human_only", "human_only", "human_only", "human_only", "mixed", "model_only"]
+        .iter()
+        .map(|k| v3::Label { set: "batch".into(), kind: (*k).into(), share_ppb: if *k == "mixed" { 400_000_000 } else { 0 } })
+        .collect();
+    let p = |v: u32| Some(slop_ninja_protocol::Probability::new(v).unwrap());
+    let mut plan = v3_block(Vec::new());
+    plan.gates.share_mae_max_ppb = 100_000_000;
+    plan.gates.attribution_min_permille = 500;
+    plan.gates.loose_fpr_max_permille = 250;
+    let ok = v3::JobVectors {
+        involvement: vec![p(100_000_000), p(200_000_000), p(100_000_000), p(600_000_000), p(900_000_000), p(990_000_000)],
+        share: vec![Some(0), Some(0), Some(0), Some(0), Some(450_000_000), Some(990_000_000)],
+        roles: vec![true; 6],
+    };
+    assert!(v3::gates_for_test(&plan, &ok, &labels, 6).is_empty(), "one human in four at the operating point");
+    // Two of four humans flagged (one at the point, one failed) fails the loose tier.
+    let mut fpr = ok.clone();
+    fpr.involvement[1] = None;
+    let g = v3::gates_for_test(&plan, &fpr, &labels, 6);
+    assert_eq!(g.iter().map(|x| x.reason.as_str()).collect::<Vec<_>>(), [slop_ninja_protocol::HUMAN_FPR_LOOSE_REASON]);
+    // A share error of 0.2 on the mixed document fails the share gate.
+    let mut share = ok.clone();
+    share.share[4] = Some(600_000_000);
+    assert_eq!(v3::gates_for_test(&plan, &share, &labels, 6)[0].gate, slop_ninja_protocol::Gate::Share);
+    // Too few predictions with both role results fails attribution.
+    let mut roles = ok;
+    roles.roles = vec![false; 6];
+    assert_eq!(v3::gates_for_test(&plan, &roles, &labels, 6)[0].gate, slop_ninja_protocol::Gate::Attribution);
+}
+
+#[test]
+fn a_probe_build_follows_the_mix_by_largest_remainder() {
+    let weak = super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 0x22);
+    let mut p = plan_v3(1, "testnet-probe-v1", 1024, weak);
+    p.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    p.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    p.validate(Ceilings { roster_cap: Some(40), accept_reward_v0: false }).unwrap();
+    assert_eq!(p.counts(), [205, 563, 256]);
+    // A cohort batch must realize the mix exactly.
+    p.schema = super::plan::PLAN_SCHEMA_V3.into();
+    p.reward_v1.as_mut().unwrap().probe_version = None;
+    p.reward_v1.as_mut().unwrap().probes =
+        vec![super::plan::ProbeRef { version: 1, size: 1024, key: "probes/v1/record.json".into(), sha256: hex::encode([1; 32]) }];
+    assert!(p.validate(Ceilings { roster_cap: Some(40), accept_reward_v0: false }).unwrap_err().0.starts_with("mix"));
+}
+
+/// Exposed stock is drawn again under the reuse limit and gap: every parent
+/// use records its generator, voice and operation, and a reused passage gets
+/// a fresh one of each; canary audit humans join the ledger; the gap counts
+/// drawn cohorts whatever the operator's numbering; fresh stock is refused.
+#[test]
+fn v3_exposed_stock_is_reused_with_fresh_generators_voices_and_operations() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut sim = Sim::new(&db, cfg(), 2_000_000);
+    let (pool, texts) = pool_of(40);
+    sim.pool = pool;
+    sim.texts = texts;
+    let generators: Vec<String> = [
+        "@cf/meta/llama-3.2-3b-instruct",
+        "@cf/meta/llama-3.1-8b-instruct-fp8-fast",
+        "@cf/mistral/mistral-7b-instruct-v0.1",
+        "@cf/ibm-granite/granite-4.0-h-micro",
+    ]
+    .iter()
+    .map(|g| (*g).to_owned())
+    .collect();
+    let weak = v3_artifact(&mut sim, super::plan::tests::identity(0, 0xb0), [1, 2, 3, 4, 5]);
+    let mut probe = plan_v3(1, "testnet-probe-v1", 20, weak.clone());
+    probe.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    probe.generators = generators.clone();
+    probe.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    probe.reward_v1.as_mut().unwrap().canary.draw_humans = 0;
+    sim.predict = Some(Box::new(|_, kind, task| {
+        let c = model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
+        (c, c * 0.4)
+    }));
+    let pseq = open_cohort(&db, &probe, 10, sim.now);
+    assert_eq!(sim.run(pseq, 3_000), "closed");
+    let probe_ref = super::plan::ProbeRef {
+        version: 1,
+        size: 20,
+        key: "probes/v1/record.json".into(),
+        sha256: lane_logic::sha_hex(&sim.eval["probes/v1/record.json"]),
+    };
+    // Fresh stock (a pool the deployment does not list as exposed) is refused.
+    let mut fresh = plan_v3(2, "testnet-rv1-fresh", 20, weak.clone());
+    fresh.pool.pool_id = "pool-v2".into();
+    fresh.reward_v1.as_mut().unwrap().probes = vec![probe_ref.clone()];
+    let bytes = serde_json::to_vec(&fresh).unwrap();
+    assert_eq!(tx(&db, |s| engine::queue(s, &cfg(), &bytes, sim.now)).unwrap_err().code(), engine::FRESH_STOCK_REFUSED);
+    // Four cohorts at skipping cohort numbers, reuse gap 1, limit 4.
+    let mut epoch = 20;
+    let mut drawn_humans = 0u64;
+    for (k, cohort) in [3u64, 7, 8, 15, 16, 30].into_iter().enumerate() {
+        let mut p = plan_v3(cohort, &format!("testnet-rv1-x{k}"), 20, weak.clone());
+        p.generators = generators.clone();
+        {
+            let v = p.reward_v1.as_mut().unwrap();
+            v.probes = vec![probe_ref.clone()];
+            v.reuse = super::plan::Reuse { max_uses: 4, min_gap: 1 };
+        }
+        let seq = open_cohort(&db, &p, epoch, sim.now);
+        epoch = run_to_close(&mut sim, &db, seq, epoch + 2) + 2;
+        assert_eq!(fault_of(&db, seq), None);
+        let draw: Value =
+            serde_json::from_str(&db.conn.query_row("SELECT draw FROM cohorts WHERE seq = ?1", [seq], |r| r.get::<_, String>(0)).unwrap())
+                .unwrap();
+        assert_eq!(draw["draw_mode"], "exposed");
+        assert_eq!(draw["reuse_ordinal"], json!(k as u64 + 1), "the gap counts drawn cohorts");
+        drawn_humans += draw["humans"].as_u64().unwrap() + draw["audit_a"].as_u64().unwrap() + draw["audit_b"].as_u64().unwrap();
+    }
+    // Humans were drawn again across cohorts (never twice in one cohort).
+    let (humans, distinct): (i64, i64) = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*), COUNT(DISTINCT pool_row) FROM docs
+             WHERE kind = 'human_only' AND docset IN ('batch', 'audit_a', 'audit_b') AND pool_row IS NOT NULL
+               AND seq <> ?1",
+            [pseq],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(humans as u64, drawn_humans);
+    assert!(humans > distinct, "exposed rows are drawn again ({humans} drawn, {distinct} distinct)");
+    let per_cohort_dupes: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM (SELECT seq, pool_row FROM docs WHERE pool_row IS NOT NULL
+             GROUP BY seq, pool_row HAVING COUNT(*) > 1 AND SUM(docset <> 'source') > 1)",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(per_cohort_dupes, 0, "never twice in one cohort");
+    // Every parent use recorded its voice and operation (and, once accepted,
+    // its generator); none repeats on one passage within the limit.
+    let rows: Vec<(String, i64, String, String, String)> = db
+        .conn
+        .prepare("SELECT row_id, uses, generators, voices, operations FROM reuse_sources")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let list = |s: &str| s.split(',').filter(|x| !x.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    let mut reused = 0;
+    for (row, uses, g, v, o) in &rows {
+        let (g, v, o) = (list(g), list(v), list(o));
+        assert_eq!(v.len() as i64, *uses, "{row}: one voice per use");
+        assert_eq!(o.len() as i64, *uses, "{row}: one operation per use");
+        assert!(g.len() as i64 <= *uses, "{row}: at most one generator per use");
+        let distinct = |x: &Vec<String>| x.iter().collect::<BTreeSet<_>>().len() == x.len();
+        assert!(distinct(&v) && distinct(&o) && distinct(&g), "{row}: a fresh generator, voice and operation each use");
+        if *uses >= 2 {
+            reused += 1;
+        }
+    }
+    assert!(reused > 0, "some passage parented more than once");
+    // Canary audit humans join the ledger after their cohort.
+    let audit_rows: Vec<String> = db
+        .conn
+        .prepare("SELECT DISTINCT pool_row FROM docs WHERE docset IN ('audit_a', 'audit_b')")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert!(!audit_rows.is_empty());
+    for r in &audit_rows {
+        assert!(rows.iter().any(|(id, ..)| id == r), "audit human {r} is in the reuse ledger");
+    }
+}
+
+fn refused_plan(p: &CohortPlan, c: Ceilings) -> &'static str {
+    p.validate(c).unwrap_err().0
+}
+
+/// `engine::SUMMARY_FIXED_BYTES` (and so `arena_routes::summary_bytes`)
+/// holds the widest summary the native tests build: every task kind, 64 AI
+/// profiles with 96-byte names, both role profiles on every task, and the
+/// widest per-task values.
+#[test]
+fn the_summary_bound_holds_the_widest_summary() {
+    let kinds = ["human_only", "ai_only", "mixed", "rewrite", "human_with_ai_edit", "ai_with_human_edit"];
+    let tasks = 2_224u32;
+    let rows: Vec<engine::PredRow> = (0..tasks)
+        .map(|t| engine::PredRow {
+            task: t,
+            set: if t < 1_000 { "batch".into() } else { "probe".into() },
+            kind: kinds[t as usize % kinds.len()].into(),
+            label_share_ppb: 1_000_000_000,
+            outcome: 1,
+            inv_ppb: Some(1_000_000_000),
+            share_ppb: Some(1_000_000_000),
+            human: Some(format!("{:0>96}", t % 64)),
+            ai: Some(format!("{:0>96}", t % 64)),
+        })
+        .collect();
+    let s = engine::summarize_job(i64::MAX, &"f".repeat(64), &rows).expect("summary");
+    let bytes = serde_json::to_vec(&s).expect("json").len();
+    let per_task = crate::arena_routes::SUMMARY_TASK_BYTES * tasks as usize;
+    assert!(bytes <= crate::arena_routes::summary_bytes(u64::from(tasks)), "summary {bytes} B over its bound");
+    assert!(bytes - per_task.min(bytes) <= engine::SUMMARY_FIXED_BYTES / 2, "fixed part {} B leaves less than half the bound as margin", bytes - per_task.min(bytes));
+}

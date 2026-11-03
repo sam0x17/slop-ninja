@@ -1,0 +1,1 @@
+The service keeps a second copy of each record, and if one disk fails, it reads that copy so users can keep working while the operator replaces the failed disk, although this protection against one disk failure does not replace a backup.

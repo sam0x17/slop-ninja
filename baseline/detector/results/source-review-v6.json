@@ -1,0 +1,205 @@
+{
+  "cmu": {
+    "decisions": {
+      "Long quotation requires separate review": 16,
+      "No full historical match": 27,
+      "Rendered copyright warning": 1,
+      "Source notice requires separate review: attribution": 1,
+      "Source notice requires separate review: copyright": 3,
+      "Source notice requires separate review: public domain": 1,
+      "admitted": 151
+    },
+    "eligible_pool": 9368,
+    "review_windows": [
+      {
+        "matching_counts": {
+          "historical_match": 89,
+          "matched_without_notice_terms": 87,
+          "no_historical_match": 11
+        },
+        "offset": 400,
+        "reviewed": 100
+      },
+      {
+        "matching_counts": {
+          "historical_match": 84,
+          "matched_without_notice_terms": 81,
+          "no_historical_match": 16
+        },
+        "offset": 500,
+        "reviewed": 100
+      }
+    ],
+    "reviewed_before_v6": 400,
+    "rights_admitted_before_freshness": 151,
+    "v6_candidate_reviews": 200
+  },
+  "dataset": {
+    "collections": {
+      "cmu-books-historical": 151,
+      "plos_one": 100,
+      "wikinews": 100
+    },
+    "evidence": {
+      "historical_proxy": 351
+    },
+    "licenses": {
+      "CC-BY-2.5": 100,
+      "CC-BY-4.0": 100,
+      "CC-BY-SA-3.0": 151
+    },
+    "origins": {
+      "human_only": 351
+    },
+    "records": 351,
+    "source_groups": 351,
+    "splits": {
+      "unassigned": 351
+    },
+    "words_max": 500,
+    "words_min": 80
+  },
+  "detector_calls": 0,
+  "freshness": {
+    "accepted_by_collection": {
+      "cmu-books-historical": 151,
+      "plos_one": 100,
+      "wikinews": 100
+    },
+    "accepted_human_sha256": "195a632721f370f84b5ab3bc8c71a5e7f620fdb1c3a4796e04c639cef2887ad4",
+    "accepted_rows": 351,
+    "all_accepted_split_null": true,
+    "candidate_rows": 351,
+    "collision_reason_counts": {},
+    "historical_ledger_sha256": "62a4f08c839fdbc05700a224187933910bfa6cf1d94aabecdb6a367527822e8f",
+    "rejected_rows": 0,
+    "schema": "slop-ninja-v6-fresh-source-anti-join-v1",
+    "unknown_work_identities": 0
+  },
+  "generation_calls": 0,
+  "historical_exclusion_coverage": {
+    "canonical_works": 852,
+    "cross_work_collision_keys": {
+      "canonical_work": 0,
+      "exact_text_sha256": 0,
+      "lexical_text_sha256": 0,
+      "source_group": 0
+    },
+    "exact_texts": 6507,
+    "historical_fitting_union_retired": true,
+    "historical_test_union_retired": true,
+    "input_files": 67,
+    "input_rows": 37617,
+    "lexical_texts": 4592,
+    "missing_parent_rows": 0,
+    "schema": "slop-ninja-v6-canonical-source-ledger-v1",
+    "source_groups": 852,
+    "unique_ledger_rows": 6847,
+    "unknown_work_identities": 0,
+    "work_counts_by_observed_split": {
+      "calibration": 86,
+      "development": 79,
+      "test": 82,
+      "train": 605,
+      "unassigned": 320
+    },
+    "work_kinds": {
+      "doi": 160,
+      "wikinews": 160,
+      "wikipedia": 532
+    }
+  },
+  "historical_test_qualification": "The 82 retired works are all historical Test-assigned works, a conservative superset of actually opened or scored Test works; the complete historical union of 852 works is excluded from fresh admission",
+  "limitations": [
+    "Historical proxy labels do not prove unaided composition or public-model pretraining novelty",
+    "PLOS XML is retrieved now; its 2019 publication date does not establish an immutable 2019 text revision",
+    "Wikimedia templates can render at retrieval time despite historical article revisions",
+    "CMU book authors and dates do not identify or date summary composition",
+    "Rights and quotation screens preserve item evidence but cannot establish absence of every third-party exception",
+    "CMU source CC BY-SA 3.0 Unported and collection CC BY-SA 3.0 United States notices are both retained; adapted-text obligations and trained-weight licensing are distinct",
+    "Work-ID and exact/lexical-text exclusions do not establish separation by author, event, series, topic or semantic near-duplicate",
+    "The deterministic discovery windows and three registers are bounded source acquisition; no detector performance result is reported",
+    "No new fitting or confirmation allocation has been assigned"
+  ],
+  "plos_and_news": {
+    "plos_one": {
+      "attempted": 162,
+      "excluded": 62,
+      "exclusion_reasons": {
+        "abstract contains possible external quotation": 16,
+        "abstract contains unsupported formula, quotation, citation or rights markup": 27,
+        "abstract outside 180..500 whitespace words": 17,
+        "no explicit CC BY license": 2
+      },
+      "rights_admitted_before_freshness": 100
+    },
+    "wikinews": {
+      "attempted": 325,
+      "excluded": 225,
+      "exclusion_reasons": {
+        "article has copyright or provenance exception template": 34,
+        "news excerpt outside 180..500 words after exclusion": 181,
+        "no historical revision": 5,
+        "not a dated news article": 5
+      },
+      "rights_admitted_before_freshness": 100
+    }
+  },
+  "replacement_after_collision": false,
+  "schema": "slop_ninja_v6_source_review_aggregate_v1",
+  "sha256": {
+    "aggregate_helper": "3ec51ade838c062d72b25e15b4ddc9cc8fcd672e83167efafe144773fa7b6e43",
+    "cmu_400_plan": "9e573ecb15be3d3437f89db30431642cc3fde2851f07bae698bebf981ef36530",
+    "cmu_400_results": "bb0ff3e88a89244cd33b2e1a1fe1f8119f903ff133e7ca184b090857666ed5df",
+    "cmu_500_plan": "60e9916673da0493903ffaaf9103108a354743e102aa75fd7a27beab8c503150",
+    "cmu_500_results": "d9f4f2850704464461b08bc249663483f91894e995e65a5adb7a0f60612953fc",
+    "cmu_admission": "81ba167dbc6683f48703f127cb90a9b662e55a3bfe24fcb60f8480dacdbc39c4",
+    "cmu_decisions": "3e4d229b9f5f0aaacbf0581a2ea3c1a92cd79f610d5082b0ae68d21c18f282db",
+    "cmu_frozen_selection": "fd9236de47138fbbac15f44fd934e4fa6677e9d5635943f2ff02cb9332117c3c",
+    "cmu_human": "34cb36fc6e819fb8614a410cd61feff0da2bcea2de7eea672de80c1ab9a0c501",
+    "declaration": "9770919459989c70fef77e19494df552f6e367bd99f3a9f051e6d8af5803f4c4",
+    "fresh_decisions": "36ec1861feaa86290f4e973ec5e223d2a75a8b4752a9e1d1b43461fe37a17824",
+    "fresh_human": "195a632721f370f84b5ab3bc8c71a5e7f620fdb1c3a4796e04c639cef2887ad4",
+    "fresh_summary": "83d98b4505add81ccd4f0fb729aeba3dc940a3b713e475a4ff8aa1d6c6c9aa5d",
+    "historical_binding": "234a0f2d74eb6ba56bfce31c8f31034f4af078edd877aa9e7582d9e9093387a0",
+    "historical_inputs": "ba6944109d8b057e8f7883737d7b79655a910702679d0e54f3bbbe05c6f14333",
+    "historical_ledger": "62a4f08c839fdbc05700a224187933910bfa6cf1d94aabecdb6a367527822e8f",
+    "historical_summary": "c8729892d73574a8b2ed3f82564c13457882c4711c82f91818d24e9208ec8760",
+    "plos_news_attempts": "a7db959a1a83cc675196b586818306905f1b2ab6baa41d9b1c48fc12dbffa84f",
+    "plos_news_human": "8c4f69f943769f803ac5ef7fe4848ea2257f95a1a0eaa983d9c683b37a8d73e7",
+    "plos_news_summary": "f6a3862285f3fed8c7393ec07d7ab2f95a6e7c1673788c9aa1a32463976b0bb5"
+  },
+  "source_evidence": {
+    "cmu": "Pinned CMU summary bytes must match complete normalized historical Wikipedia wikitext and rendered paragraphs at 2012-11-02 or 2013-06-01; rights-notice and quotation screens retained",
+    "plos": "2019 publication date and current publisher JATS bytes with explicit CC BY article license; immutable historical byte identity unverified",
+    "wikinews": "Exact revision from before 2022 with rendered text, article-date and quotation/provenance screens; CC BY 2.5 text license"
+  },
+  "split_assignment": "unassigned",
+  "stage": "source admission only",
+  "status": "complete",
+  "window_membership_verified": true,
+  "windows": {
+    "cmu": {
+      "fixed_order_preserved": true,
+      "limit_each": 100,
+      "offsets": [
+        400,
+        500
+      ],
+      "original_exclusion_sha256": "ab40f42fd54f845e0291d9b5f544279b0de587a5ade4543aa53b29ad6d972851"
+    },
+    "plos": {
+      "admission_cap": 100,
+      "publication_year": 2019,
+      "rows": 350,
+      "sort": "DOI ascending",
+      "start": 700
+    },
+    "wikinews": {
+      "admission_cap": 100,
+      "candidate_cap": 600,
+      "from": "E",
+      "revision_cutoff": "2021-12-31T23:59:59Z"
+    }
+  }
+}

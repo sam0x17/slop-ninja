@@ -1,0 +1,20 @@
+# Keep experimental input bytes and historical machine output unchanged.
+experiments/pangram-preface/** -text
+preface.txt -text
+preface.tex -text
+experiments/pangram-preface/scores.csv whitespace=cr-at-eol
+experiments/pangram-preface/preview/*.aux whitespace=-blank-at-eol,-blank-at-eof
+experiments/pangram-preface/preview/*.log whitespace=-blank-at-eol,-blank-at-eof
+
+# Exact upstream license artifact; its published bytes include a trailing space and final blank line.
+grammar/resources/LICENSE.oewn-2025 whitespace=-trailing-space,-blank-at-eof
+
+# Generated compressed grammar artifacts are validated through native readers.
+grammar/**/*.zst -text -diff
+grammar/**/*.snlex2 -text -diff
+
+# Exact dataset bytes are restored before use; manifests bind decoded SHA-256.
+datasets/**/*.zst -text -diff
+
+# Synthetic layout fixtures (profile v2 tests): exact bytes, trailing whitespace included.
+grammar/crates/grammar-a-form/tests/fixtures/*.txt -text whitespace=-trailing-space,-blank-at-eof

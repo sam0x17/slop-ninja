@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Slop Ninja SharedPrediction v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["origin", "ai_confidence_percent", "ai_share_percent", "attribution"],
+  "properties": {
+    "origin": {
+      "type": "object", "additionalProperties": false,
+      "required": ["human_only", "model_only", "mixed"],
+      "properties": {
+        "human_only": {"$ref": "#/$defs/probability"},
+        "model_only": {"$ref": "#/$defs/probability"},
+        "mixed": {"$ref": "#/$defs/probability"}
+      }
+    },
+    "ai_confidence_percent": {"type": "number", "minimum": 0, "maximum": 100},
+    "ai_share_percent": {"type": "number", "minimum": 0, "maximum": 100},
+    "attribution": {
+      "type": "object", "additionalProperties": false, "required": ["human", "ai"],
+      "properties": {"human": {"$ref": "#/$defs/role"}, "ai": {"$ref": "#/$defs/role"}}
+    }
+  },
+  "$defs": {
+    "probability": {"type": "number", "minimum": 0, "maximum": 1},
+    "role": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile", "involvement_probability", "conditional_named_scores", "fallback_asserts_presence"],
+      "properties": {
+        "profile": {"type": "string", "minLength": 1},
+        "involvement_probability": {"$ref": "#/$defs/probability"},
+        "conditional_named_scores": {"type": "object", "additionalProperties": {"$ref": "#/$defs/probability"}},
+        "fallback_asserts_presence": {"const": false}
+      }
+    }
+  },
+  "description": "Origin sums to one; confidence, share and involvement obey the cross-field equalities in SHARED_CONTRACT.md. Profile names are bound to the loaded artifact or the role-specific other_human/other_ai fallback."
+}

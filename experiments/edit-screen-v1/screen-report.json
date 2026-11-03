@@ -1,0 +1,453 @@
+{
+  "candidates": [
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.564752995967865,
+        "assisted": 0.564752995967865,
+        "score_file": "data/edit-screen-v1/scores/85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab.json",
+        "task_id": "redacted-876f74c161f41ea0"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.5666443109512329,
+        "assisted": 0.5666443109512329,
+        "score_file": "data/edit-screen-v1/scores/a19c90d7b4f34ae92e84bd68c9d9fbe8a0a5655b4a070262bd253429e2960005.json",
+        "task_id": "redacted-c32abb593ca56899"
+      },
+      "candidate_id": "a-bvd-word-main",
+      "candidate_minus_baseline_ai_plus_assisted": 0.00189131498336792,
+      "candidate_sha256": "a19c90d7b4f34ae92e84bd68c9d9fbe8a0a5655b4a070262bd253429e2960005",
+      "delta_percentage_points": 0.189131498336792,
+      "group_id": "doi:10.1371/journal.pone.0179877",
+      "kind": "single_word",
+      "preservation_notes": "Content analysis retains the same primary status; the cross-sectional independent measures design is unchanged.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Test a common synonym in a fixed description of the analytical method.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.564752995967865,
+        "assisted": 0.564752995967865,
+        "score_file": "data/edit-screen-v1/scores/85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab.json",
+        "task_id": "redacted-876f74c161f41ea0"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.5627095699310303,
+        "assisted": 0.5627095699310303,
+        "score_file": "data/edit-screen-v1/scores/1a4e25568bfe587bf544cf1624993988493202c1fe453fc7f2f7d765308a9583.json",
+        "task_id": "redacted-a6e2481f718973fb"
+      },
+      "candidate_id": "a-bvd-word-still",
+      "candidate_minus_baseline_ai_plus_assisted": -0.002043426036834717,
+      "candidate_sha256": "1a4e25568bfe587bf544cf1624993988493202c1fe453fc7f2f7d765308a9583",
+      "delta_percentage_points": -0.20434260368347168,
+      "group_id": "doi:10.1371/journal.pone.0179877",
+      "kind": "single_word",
+      "preservation_notes": "Retains the contrast with the previous finding and the qualification did not appear; it does not assert that the rankings definitively failed to correspond.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Test a shorter contrast marker while leaving the ranking-versus-behaviour claim intact.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.564752995967865,
+        "assisted": 0.564752995967865,
+        "score_file": "data/edit-screen-v1/scores/85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab.json",
+        "task_id": "redacted-876f74c161f41ea0"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.5606361627578735,
+        "assisted": 0.5606361627578735,
+        "score_file": "data/edit-screen-v1/scores/0179ed9a2a896d8a2a4a1f6d1216926521d0f8a961e743baa909cf70928042bb.json",
+        "task_id": "redacted-3ad7fc34ee25a560"
+      },
+      "candidate_id": "a-bvd-structure-variables",
+      "candidate_minus_baseline_ai_plus_assisted": -0.004116833209991455,
+      "candidate_sha256": "0179ed9a2a896d8a2a4a1f6d1216926521d0f8a961e743baa909cf70928042bb",
+      "delta_percentage_points": -0.4116833209991455,
+      "group_id": "doi:10.1371/journal.pone.0179877",
+      "kind": "sentence",
+      "preservation_notes": "Preserves farmer-level scope, the nonexhaustive including construction, every listed variable and the same study as the implied investigator; no first-person voice is introduced.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Make examined the main verb, replacing the reduced relative clause before included.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.564752995967865,
+        "assisted": 0.564752995967865,
+        "score_file": "data/edit-screen-v1/scores/85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab.json",
+        "task_id": "redacted-876f74c161f41ea0"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.5670650601387024,
+        "assisted": 0.5670650601387024,
+        "score_file": "data/edit-screen-v1/scores/cfba5b7a5a1dbdde24e7887110d88ad7398eedee370fe6ef003dab2b914dcb17.json",
+        "task_id": "redacted-40f5dd2c63cdede5"
+      },
+      "candidate_id": "a-bvd-structure-concession",
+      "candidate_minus_baseline_ai_plus_assisted": 0.0023120641708374023,
+      "candidate_sha256": "cfba5b7a5a1dbdde24e7887110d88ad7398eedee370fe6ef003dab2b914dcb17",
+      "delta_percentage_points": 0.23120641708374023,
+      "group_id": "doi:10.1371/journal.pone.0179877",
+      "kind": "sentence",
+      "preservation_notes": "Preserves the evidential verb indicate, inferential therefore, necessity of disease control and its insufficiency when used alone.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Move the concession out of the subject-predicate span, so the main conclusion is read continuously.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "85565e914a9e2539ad0aa1088cd242a7226c2b5e28333629020caf5be77bcbab"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.7231108546257019,
+        "assisted": 0.7231108546257019,
+        "score_file": "data/edit-screen-v1/scores/3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b.json",
+        "task_id": "redacted-cfa8ab32a4d7b0f2"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.7224985957145691,
+        "assisted": 0.7224985957145691,
+        "score_file": "data/edit-screen-v1/scores/a8cb90f63704d393d9c60adc0ee0bb68f0775a181440236978fe68bfefb6e037.json",
+        "task_id": "redacted-41d6a5409f41093e"
+      },
+      "candidate_id": "a-ecotourism-word-enough",
+      "candidate_minus_baseline_ai_plus_assisted": -0.0006122589111328125,
+      "candidate_sha256": "a8cb90f63704d393d9c60adc0ee0bb68f0775a181440236978fe68bfefb6e037",
+      "delta_percentage_points": -0.06122589111328125,
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "kind": "single_word",
+      "preservation_notes": "Both forms require the same adequacy of evidence; the criticism, uncertainty, threat reduction and biodiversity outcomes remain unchanged.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Test a common determiner in place of a formal adjective while keeping the sentence structure fixed.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.7231108546257019,
+        "assisted": 0.7231108546257019,
+        "score_file": "data/edit-screen-v1/scores/3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b.json",
+        "task_id": "redacted-cfa8ab32a4d7b0f2"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.8370044231414795,
+        "assisted": 0.8370044231414795,
+        "score_file": "data/edit-screen-v1/scores/dc3a267fc4c16430908990aed0fcb3286f444cd184138cd5b202111d0824f34b.json",
+        "task_id": "redacted-0bec893e829b8349"
+      },
+      "candidate_id": "a-ecotourism-word-usefulness",
+      "candidate_minus_baseline_ai_plus_assisted": 0.11389356851577759,
+      "candidate_sha256": "dc3a267fc4c16430908990aed0fcb3286f444cd184138cd5b202111d0824f34b",
+      "delta_percentage_points": 11.389356851577759,
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "kind": "single_word",
+      "preservation_notes": "The same approach remains under discussion, with the same purpose of protecting very rare species; no effectiveness claim is added.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Test an ordinary synonym for an abstract noun without changing its grammatical role.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.7231108546257019,
+        "assisted": 0.7231108546257019,
+        "score_file": "data/edit-screen-v1/scores/3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b.json",
+        "task_id": "redacted-cfa8ab32a4d7b0f2"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.3660960793495178,
+        "assisted": 0.3660960793495178,
+        "score_file": "data/edit-screen-v1/scores/b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a.json",
+        "task_id": "redacted-cf21c4b5753d8e03"
+      },
+      "candidate_id": "a-ecotourism-structure-reduced-relative",
+      "candidate_minus_baseline_ai_plus_assisted": -0.3570147752761841,
+      "candidate_sha256": "b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a",
+      "delta_percentage_points": -35.70147752761841,
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "kind": "sentence",
+      "preservation_notes": "The same projects remain the subject. Frequency of criticism, sufficiency of evidence, alternative conservation outcomes and intended protection are preserved.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Reduce the opening relative clause to a participial modifier; leave the evidence clause and every outcome unchanged.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.7231108546257019,
+        "assisted": 0.7231108546257019,
+        "score_file": "data/edit-screen-v1/scores/3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b.json",
+        "task_id": "redacted-cfa8ab32a4d7b0f2"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.36923930048942566,
+        "assisted": 0.36923930048942566,
+        "score_file": "data/edit-screen-v1/scores/bc325b9f012cf7e386eab12f96c5bdde1a8c52a579b3e33deebc59de08374bf2.json",
+        "task_id": "redacted-a07b88b2f5f2adb1"
+      },
+      "candidate_id": "a-ecotourism-structure-monitoring",
+      "candidate_minus_baseline_ai_plus_assisted": -0.35387155413627625,
+      "candidate_sha256": "bc325b9f012cf7e386eab12f96c5bdde1a8c52a579b3e33deebc59de08374bf2",
+      "delta_percentage_points": -35.387155413627625,
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "kind": "sentence",
+      "preservation_notes": "Preserves the authors as actors, four-year duration, theory-of-change guidance, evaluative purpose, assumptions and both levels of outcomes.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Use the verb monitored directly and move its methodological qualification to the front.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.4754672944545746,
+        "assisted": 0.4754672944545746,
+        "score_file": "data/edit-screen-v1/scores/a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7.json",
+        "task_id": "redacted-7981d23db7d142d7"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.6984219551086426,
+        "assisted": 0.6984219551086426,
+        "score_file": "data/edit-screen-v1/scores/e1466fa765c35e63dc7ce29b7c44f0c6fa0f718d7469d88c0c24103a9ad0b23b.json",
+        "task_id": "redacted-0b26b67620194bae"
+      },
+      "candidate_id": "a-sierra-word-remain",
+      "candidate_minus_baseline_ai_plus_assisted": 0.222954660654068,
+      "candidate_sha256": "e1466fa765c35e63dc7ce29b7c44f0c6fa0f718d7469d88c0c24103a9ad0b23b",
+      "delta_percentage_points": 22.2954660654068,
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "kind": "single_word",
+      "preservation_notes": "Both variants assert continuing inequalities in access to and use of health facilities; neither changes their scope or magnitude.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Test a common continuation verb without changing the claim about rural-urban inequalities.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.4754672944545746,
+        "assisted": 0.4754672944545746,
+        "score_file": "data/edit-screen-v1/scores/a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7.json",
+        "task_id": "redacted-7981d23db7d142d7"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.4749124944210053,
+        "assisted": 0.4749124944210053,
+        "score_file": "data/edit-screen-v1/scores/60161f170ed72046bc9050cdda213645f02d24ff337b42c72043ae648a096cda.json",
+        "task_id": "redacted-dd280028a80c08f5"
+      },
+      "candidate_id": "a-sierra-word-sufficient",
+      "candidate_minus_baseline_ai_plus_assisted": -0.0005548000335692804,
+      "candidate_sha256": "60161f170ed72046bc9050cdda213645f02d24ff337b42c72043ae648a096cda",
+      "delta_percentage_points": -0.05548000335692804,
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "kind": "single_word",
+      "preservation_notes": "Retains the requirement for enough knowledge of structural constraints and health inequities; the target population, location and future initiatives remain identical.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Test a close scientific-register synonym while holding the recommendation and sentence structure fixed.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.4754672944545746,
+        "assisted": 0.4754672944545746,
+        "score_file": "data/edit-screen-v1/scores/a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7.json",
+        "task_id": "redacted-7981d23db7d142d7"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.4751897156238556,
+        "assisted": 0.4751897156238556,
+        "score_file": "data/edit-screen-v1/scores/870245b85cbaf1b0682e04edbd0382d4b0fc973f5512aeccd2ee6988226342fb.json",
+        "task_id": "redacted-86e53022e63eb109"
+      },
+      "candidate_id": "a-sierra-structure-front-location",
+      "candidate_minus_baseline_ai_plus_assisted": -0.00027757883071899414,
+      "candidate_sha256": "870245b85cbaf1b0682e04edbd0382d4b0fc973f5512aeccd2ee6988226342fb",
+      "delta_percentage_points": -0.027757883071899414,
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "kind": "sentence",
+      "preservation_notes": "Retains explored, both perceptions and decision-making processes, women and their communities, childbirth timing and the rural Sierra Leone setting.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Put the study location first and shorten the sequence of modifiers at the sentence end.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.4754672944545746,
+        "assisted": 0.4754672944545746,
+        "score_file": "data/edit-screen-v1/scores/a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7.json",
+        "task_id": "redacted-7981d23db7d142d7"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.24852071702480316,
+        "assisted": 0.24852071702480316,
+        "score_file": "data/edit-screen-v1/scores/97a257a86984b55e31b838c031983d7e602f8f34f5536f0530e855745c84bdf0.json",
+        "task_id": "redacted-f319363046887391"
+      },
+      "candidate_id": "a-sierra-structure-social-context",
+      "candidate_minus_baseline_ai_plus_assisted": -0.22694657742977142,
+      "candidate_sha256": "97a257a86984b55e31b838c031983d7e602f8f34f5536f0530e855745c84bdf0",
+      "delta_percentage_points": -22.694657742977142,
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "kind": "sentence",
+      "preservation_notes": "Retains the reported finding, childbirth timing, dynamic and complex processes, the necessity of understanding them contextually, and the wider social scope.",
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Replace the final embedded relative clause with a possessive context phrase to reduce nesting.",
+      "source_corpus": "codex-rewrites-v1",
+      "source_sha256": "a3bf832b1126d489b503560074303b2df20c333ba837c65a1c5f2995191a70f7"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 1.0,
+        "assisted": 1.0,
+        "score_file": "data/edit-screen-v1/scores/d9af036bcf167269df975c3f03cddc34263ce8881576b0a92cd5934455761cbf.json",
+        "task_id": "redacted-ab687d8fb4c3dcd4"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.18799546360969543,
+        "assisted": 0.18799546360969543,
+        "score_file": "data/edit-screen-v1/scores/a15c299e2ca0b872af75becfa41274b28582880f5e12d14d4efd5d6e0688d92c.json",
+        "task_id": "redacted-d235432cb827f15a"
+      },
+      "candidate_id": "editor-b-0186133-document-v2",
+      "candidate_minus_baseline_ai_plus_assisted": -0.8120045363903046,
+      "candidate_sha256": "a15c299e2ca0b872af75becfa41274b28582880f5e12d14d4efd5d6e0688d92c",
+      "delta_percentage_points": -81.20045363903046,
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "kind": "document_revision",
+      "preservation_notes": [
+        "Retains the mismatch between widespread promotion and modest gains relative to investment and revenue, the criticism of unproven biodiversity outcomes, and both Lao PDR claims.",
+        "Retains explicit contracts, ecosystem services, the proposed comparative cost-effectiveness of direct payments, and the need for further impact study.",
+        "Retains the named protected area, the new model, incentives for villagers to increase wildlife populations, four years of monitoring, and the theory-of-change purpose.",
+        "Retains the preliminary status of the findings, negative correlation in targeted villages, no increase in tourism-sector hunting sign, the three-fold increase elsewhere in the NPA, and increased wildlife sightings overall.",
+        "Retains all three design lessons: joint monitoring evidence, rates and village fees, and possible usefulness for very rare species. No causal conservation benefit is asserted from the correlation."
+      ],
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Replace nested clauses about project aims, payments, and findings with direct statements. Keep the technical study sequence and separate the Lao PDR evidence claim from the revenue condition. Retain necessary passive constructions and the methodological first person.",
+      "source_corpus": "claude-opus-rewrites-v1",
+      "source_sha256": "d9af036bcf167269df975c3f03cddc34263ce8881576b0a92cd5934455761cbf"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.8983160853385925,
+        "assisted": 0.8983160853385925,
+        "score_file": "data/edit-screen-v1/scores/8adb3e32d14e893fc68496e7e1ea37ea64c83a5301a26472b21066b0a7b78280.json",
+        "task_id": "redacted-e6bb5c032dc3424d"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.7889705896377563,
+        "assisted": 0.7889705896377563,
+        "score_file": "data/edit-screen-v1/scores/f168252836e88d5381d5362431e9ee4e5d64243a82cd2553c8bd3678aa67dc5a.json",
+        "task_id": "redacted-ffd8dfc55a8e31df"
+      },
+      "candidate_id": "editor-b-0179877-document-v2",
+      "candidate_minus_baseline_ai_plus_assisted": -0.10934549570083618,
+      "candidate_sha256": "f168252836e88d5381d5362431e9ee4e5d64243a82cd2553c8bd3678aa67dc5a",
+      "delta_percentage_points": -10.934549570083618,
+      "group_id": "doi:10.1371/journal.pone.0179877",
+      "kind": "document_revision",
+      "preservation_notes": [
+        "Retains the exact scheme name, disease abbreviation, year, counties, sample size, and member/non-member counts.",
+        "Retains the cross-sectional independent measures design and content analysis as the principal analytical method.",
+        "Retains all six variable categories and the individual-farmer level of analysis.",
+        "Retains the reported gains in perceived benefits and training attendance, all three null associations, the qualified effect on the importance assigned to measures, and the mismatch with actual behaviour.",
+        "Retains the conclusion that disease control is necessary but insufficient and that improving behaviour requires substantial work on attitudes towards the specific disease threat. The revision adds no causal inference beyond the supplied model text."
+      ],
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Remove the opening reference to the paper, repeated framing around analytical variables, and rhetorical transitions between results. Express each reported association and the discrepancy between rankings and behaviour directly. Preserve the scientific register and qualified membership finding.",
+      "source_corpus": "claude-opus-rewrites-v1",
+      "source_sha256": "8adb3e32d14e893fc68496e7e1ea37ea64c83a5301a26472b21066b0a7b78280"
+    },
+    {
+      "baseline": {
+        "ai": 0.0,
+        "ai_plus_assisted": 1.0,
+        "assisted": 1.0,
+        "score_file": "data/edit-screen-v1/scores/ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074.json",
+        "task_id": "redacted-36841cee810aab01"
+      },
+      "candidate": {
+        "ai": 0.0,
+        "ai_plus_assisted": 0.0,
+        "assisted": 0.0,
+        "score_file": "data/edit-screen-v1/scores/fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7.json",
+        "task_id": "redacted-48070584f1d6bde8"
+      },
+      "candidate_id": "editor-b-0188280-document-v2",
+      "candidate_minus_baseline_ai_plus_assisted": -1.0,
+      "candidate_sha256": "fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7",
+      "delta_percentage_points": -100.0,
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "kind": "document_revision",
+      "preservation_notes": [
+        "Retains the high maternal mortality ratio, facility-birth initiatives, free care for pregnant women, continued home births, scarce skilled attendance at those births, and persistent rural/urban inequalities in both access and use.",
+        "Retains the planning rationale and the aim to explore women and community perceptions and decision-making in rural Sierra Leone.",
+        "Retains seven focus groups, 22 in-depth interviews, recently pregnant women and community participants, two rural villages, and systematic text condensation.",
+        "Retains dynamic and complex decision-making, the need for its social interpretation, every listed barrier, their interaction, and their influence on both the process and the decisions reached.",
+        "Retains interacting vulnerabilities during pregnancy and childbirth, safe healthcare, and the recommendation to understand structural constraints and health inequities. Hospital staff behaviour remains explicitly perceived rather than established as fact."
+      ],
+      "quality_audit": "unavailable",
+      "quality_certified": false,
+      "rationale": "Shorten the introductory and findings sentences, make the study methods explicit, and replace nested relative clauses with direct descriptions of the interacting factors. Preserve the three-paragraph scientific abstract structure and both access and use as distinct concerns.",
+      "source_corpus": "claude-opus-rewrites-v1",
+      "source_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074"
+    }
+  ],
+  "design": "Single observation per exact input; exploratory screen only.",
+  "detector": "pangram",
+  "format": "edit-screen-report-v1",
+  "interpretation": "All planned candidates are included. Differences may reflect detector variability; repeat matched baseline/candidate controls before attributing effects to edits. Rationale and preservation notes do not certify fidelity, readability, or tone.",
+  "model": "pangram-4",
+  "prepared_sha256": "2260c1b5d1a6679b646e447d81e87189a24f02a6b25fb5619c863662950170ca",
+  "quality_certified": false,
+  "reliability_established": false,
+  "scope": "full_abstract_screen",
+  "unique_scored_texts": 21,
+  "version": "4.0"
+}

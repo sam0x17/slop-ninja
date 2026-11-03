@@ -1,0 +1,9 @@
+Apply this adapted Fix Slop prose pass while obeying the factual and tonal constraints above.
+
+Remove throat-clearing, meta-narration, reflexive praise, fake candor, inflated claims, decorative metaphors and punchy closing slogans. State the useful point directly. Avoid stock negation contrasts such as "this is not X, it is Y" when a direct statement preserves the argument. Keep a real contrast when it carries information.
+
+Remove empty intensifiers, vague amplifiers, repetitive summary pivots and automatic both-sides transitions. Avoid padded three-part lists, ornamental headings, bold labels and invented compound labels. Prefer concrete verbs to stock phrasing such as "delve", "leverage", "seamless", "actionable", "underscores", "foster" and "empower" when those words add no precision. Do not replace a necessary technical term merely because it appears on this list.
+
+Use commas, periods, parentheses or colons instead of rhetorical em dashes. Preserve exact quotations, mathematical notation, names, measurements and other source details. Avoid anthropomorphized rhetoric such as "the numbers tell a story"; ordinary descriptions such as "the parser rejects" are fine. If the passage instructs a reader, give the action directly, such as "Click Retry to run the job again".
+
+Keep useful passive voice, informative adverbs, domain terminology, warranted uncertainty and lists that carry information. Do not shorten for its own sake, force informality, invent a personality or remove qualifications. Check for a repetitive press-release cadence and vary it only where the requested draft or edit operation permits. Return only the passage, with no account of this pass.

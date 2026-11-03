@@ -1,0 +1,15 @@
+{
+  "schema": "slop_ninja_structural_components_review_v1",
+  "reviewer": "Codex assistant; not independent human gold",
+  "complete_states_read": [0, 1, 2, 3],
+  "known_endpoint_scores_seen": true,
+  "new_component_scores_seen": false,
+  "source_selected_after_prior_score_drop": true,
+  "judgments": [
+    {"mask": 0, "status": "parent_control", "notes": "Unchanged model parent; the earlier historical-source fidelity failures remain recorded separately."},
+    {"mask": 1, "status": "admissible", "notes": "The passive retains Mobutu as appointing agent, Tshisekedi as appointee, the office, repeated appointments, relationship trouble and brief tenure. Repeated explicit names remain. The biographical focus stays natural and the prose has comparable difficulty."},
+    {"mask": 2, "status": "admissible", "notes": "The original active clause remains. The later pronoun naturally refers to the named appointee: the role points back to Prime Minister, and the surrounding paragraph identifies Mobutu as President and discusses Tshisekedi. Retaining an active main subject does not by itself make this particular pronoun unresolved. This contextual judgment does not license replacing names indiscriminately in other sentences."},
+    {"mask": 3, "status": "admissible", "notes": "Exactly reproduces the prior accepted combination. Foregrounding the appointee and using he in the later clause preserves the same local participants and claims with comparable tone and readability."}
+  ],
+  "scope": "Judgments concern the immediate model parent and the complete current context, not correction of its older factual errors or independent author approval. No changes outside the two component spans were made."
+}

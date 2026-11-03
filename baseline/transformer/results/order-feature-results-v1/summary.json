@@ -1,0 +1,4925 @@
+{
+  "schema": "slop_ninja_b_order_feature_results_v1",
+  "source": "Existing synthetic MIT workshop notice; adaptive development, not a new held-out source",
+  "author_references": "Same two Global Voices excerpts from the preceding menu experiment; incomplete extraction and uncertain production history remain limitations",
+  "frozen_inputs": [
+    {
+      "name": "workshop-menu-order-v2/plan.json",
+      "sha256": "a2934e76f043f89a348c49288e2dbbcde45d0e09fa836597ecb581781870c470"
+    },
+    {
+      "name": "workshop-menu-scores-order-v2.jsonl",
+      "sha256": "1442150d43dba2b4e58847e2fd1c55752d67642a965667e180c8b477ecc94727"
+    },
+    {
+      "name": "workshop-menu-order-audit-v2.json",
+      "sha256": "d4c96734518109e30511160209832f77d50972822b24c07bdbe53809775fc0f4"
+    },
+    {
+      "name": "workshop-menu-order-factorized-v2.json",
+      "sha256": "db4aa03cdde4c42e85209feae94ded988ea473e16b4e4f5521340e95b6c6d7ee"
+    },
+    {
+      "name": "workshop-pg3-order-audit-v1.json",
+      "sha256": "501ff5037786eb367fdbad06a8a08a07445270f6690156d21cfda0061aa5d2b3"
+    },
+    {
+      "name": "workshop-pg3-order-audit-v1-replay.json",
+      "sha256": "501ff5037786eb367fdbad06a8a08a07445270f6690156d21cfda0061aa5d2b3"
+    },
+    {
+      "name": "workshop-pg3-order-factorized-v2.json",
+      "sha256": "5df83416ddae0bec31e6800ee9842b28e007cbff7eb5a6a2821b653cc36761ea"
+    },
+    {
+      "name": "order-menu-protocol-v3.json",
+      "sha256": "e4fa426bb3a4439c686825de3d07f878c1b6cfb6e27045f5cefa19729e4a7f6f"
+    },
+    {
+      "name": "order-v2-external-selection-manifest.json",
+      "sha256": "922e1b0f5ac4bde7d08403d55731a612187b254eba71f46ba0991e0173a34200"
+    }
+  ],
+  "counts": {
+    "a_requests": 93,
+    "external_observations": 9,
+    "external_revisions": 7,
+    "pre_reviewed_candidates": 11,
+    "unscored_first_preparation_states": 79
+  },
+  "joint_schema": "grammar-features-v1;nfc-lowercase-letter-apostrophe-v1;alphabetic-parse-token-v1;syntax-families-v1;grammar-sentence-order-v1;quartiles-4;length-bins-8-16-32;blank-line-paragraphs",
+  "factorized_schema": "grammar-features-v1;nfc-lowercase-letter-apostrophe-v1;alphabetic-parse-token-v1;syntax-families-v1;grammar-sentence-order-v2;factorized-opening-pos-2-root-frame-morph-length;quartiles-4;length-bins-8-16-32;blank-line-paragraphs",
+  "joint_space_id": "d80f1053254a4d633371c715a1496ca365d66808a2790230c4d1be2cebf65688",
+  "factorized_space_id": "4b7371dad33f282fe42c83e0623af513300c6c08a788e18d2207b7656a80cee8",
+  "joint_axes": 201,
+  "factorized_axes": 470,
+  "weight_comparison": [
+    {
+      "representation": "joint_v1",
+      "order_weight": 0.0,
+      "selected_id": "7954c251760e1b0bb41edafc6821b84d6f3feb5e279003cbf4da8eb8c6b7a507",
+      "choices": [
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9598657552667931,
+      "fraction_ai": 0.3405349850654602,
+      "fraction_ai_assisted": 0.6594650149345398,
+      "fraction_human": 0.0
+    },
+    {
+      "representation": "joint_v1",
+      "order_weight": 0.1,
+      "selected_id": "7954c251760e1b0bb41edafc6821b84d6f3feb5e279003cbf4da8eb8c6b7a507",
+      "choices": [
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9598657552667931,
+      "fraction_ai": 0.3405349850654602,
+      "fraction_ai_assisted": 0.6594650149345398,
+      "fraction_human": 0.0
+    },
+    {
+      "representation": "joint_v1",
+      "order_weight": 0.25,
+      "selected_id": "7954c251760e1b0bb41edafc6821b84d6f3feb5e279003cbf4da8eb8c6b7a507",
+      "choices": [
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9598657552667931,
+      "fraction_ai": 0.3405349850654602,
+      "fraction_ai_assisted": 0.6594650149345398,
+      "fraction_human": 0.0
+    },
+    {
+      "representation": "joint_v1",
+      "order_weight": 0.5,
+      "selected_id": "7954c251760e1b0bb41edafc6821b84d6f3feb5e279003cbf4da8eb8c6b7a507",
+      "choices": [
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9598657552667931,
+      "fraction_ai": 0.3405349850654602,
+      "fraction_ai_assisted": 0.6594650149345398,
+      "fraction_human": 0.0
+    },
+    {
+      "representation": "factorized_v2",
+      "order_weight": 0.0,
+      "selected_id": "7954c251760e1b0bb41edafc6821b84d6f3feb5e279003cbf4da8eb8c6b7a507",
+      "choices": [
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9598657552667931,
+      "fraction_ai": 0.3405349850654602,
+      "fraction_ai_assisted": 0.6594650149345398,
+      "fraction_human": 0.0
+    },
+    {
+      "representation": "factorized_v2",
+      "order_weight": 0.1,
+      "selected_id": "6938898e12856a019f14dc99de8772c6e004821354a29f6a5d6a8082920b1c51",
+      "choices": [
+        "split-cancellation",
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9562583292390494,
+      "fraction_ai": 0.3405349850654602,
+      "fraction_ai_assisted": 0.6594650149345398,
+      "fraction_human": 0.0
+    },
+    {
+      "representation": "factorized_v2",
+      "order_weight": 0.25,
+      "selected_id": "6938898e12856a019f14dc99de8772c6e004821354a29f6a5d6a8082920b1c51",
+      "choices": [
+        "split-cancellation",
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9562583292390494,
+      "fraction_ai": 0.3405349850654602,
+      "fraction_ai_assisted": 0.6594650149345398,
+      "fraction_human": 0.0
+    },
+    {
+      "representation": "factorized_v2",
+      "order_weight": 0.5,
+      "selected_id": "4ff1820cf826d6a8c4ef24b35f44ba01ace8dd6badca79939c50ade4f4b703cd",
+      "choices": [
+        "split-booking",
+        "split-cancellation",
+        "cancel-relative"
+      ],
+      "a_probability": 0.8722837301737139,
+      "fraction_ai": 0.2842215299606323,
+      "fraction_ai_assisted": 0.7157784700393677,
+      "fraction_human": 0.0
+    }
+  ],
+  "earlier_count_collisions": [
+    {
+      "representation": "joint_v1",
+      "id": "a8c4945b884852b1cb62a11f8ff79d98083069970856a3bc69356e674aaded06",
+      "choices": [],
+      "order_distance": 1.0,
+      "changed_coordinates": 0
+    },
+    {
+      "representation": "joint_v1",
+      "id": "953cb9f02de64832db9d2ed54e2012709e15e355e60356520f23be7ea4bb83f0",
+      "choices": [
+        "purpose-after-details"
+      ],
+      "order_distance": 1.0,
+      "changed_coordinates": 18
+    },
+    {
+      "representation": "joint_v1",
+      "id": "454fbea23688c82e20ed9891ec57f5be43ea32c2c131d3ee1382341391255b36",
+      "choices": [
+        "request-before-warning"
+      ],
+      "order_distance": 1.0,
+      "changed_coordinates": 22
+    },
+    {
+      "representation": "factorized_v2",
+      "id": "a8c4945b884852b1cb62a11f8ff79d98083069970856a3bc69356e674aaded06",
+      "choices": [],
+      "order_distance": 0.8404291937430439,
+      "changed_coordinates": 0
+    },
+    {
+      "representation": "factorized_v2",
+      "id": "953cb9f02de64832db9d2ed54e2012709e15e355e60356520f23be7ea4bb83f0",
+      "choices": [
+        "purpose-after-details"
+      ],
+      "order_distance": 0.847631623116365,
+      "changed_coordinates": 58
+    },
+    {
+      "representation": "factorized_v2",
+      "id": "454fbea23688c82e20ed9891ec57f5be43ea32c2c131d3ee1382341391255b36",
+      "choices": [
+        "request-before-warning"
+      ],
+      "order_distance": 0.8450820106617452,
+      "changed_coordinates": 62
+    }
+  ],
+  "state_measurements": [
+    {
+      "id": "da1cce14ba12779e14ef5bf968fee550d25c324c30dd0c556da2ce7da1b79959",
+      "choices": [],
+      "a_probability": 0.9484675893723236,
+      "base_distance": 1.2566623098439629,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 0,
+      "factorized_changed_coordinates": 0,
+      "joint_mixtures": [
+        {
+          "distance": 1.2566623098439629,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2334018586349413,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1976644441314825,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.135605600766033,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2566623098439629,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2222391967018187,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1687050070108458,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0735653803295253,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": true
+    },
+    {
+      "id": "0b884c507415468cf9257541462ae1a2e7dd523a2cb6617cd05ddb82f3f3a8f5",
+      "choices": [
+        "split-booking"
+      ],
+      "a_probability": 0.9110025868713033,
+      "base_distance": 1.2566623098439629,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 23,
+      "factorized_changed_coordinates": 80,
+      "joint_mixtures": [
+        {
+          "distance": 1.2566623098439629,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2334018586349413,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1976644441314825,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.135605600766033,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2566623098439629,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2217091526127484,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.167318676485069,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0705445455278082,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": true
+    },
+    {
+      "id": "f05fa7a9c0d0421641fa4f14f176da021d8b2b2083e8ca3ce4d0dd418cd47b12",
+      "choices": [
+        "split-cancellation"
+      ],
+      "a_probability": 0.9420435716605805,
+      "base_distance": 1.2566623098439629,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 23,
+      "factorized_changed_coordinates": 82,
+      "joint_mixtures": [
+        {
+          "distance": 1.2566623098439629,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2334018586349413,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1976644441314825,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.135605600766033,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2566623098439629,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2212485503914576,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.166113121918086,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0679136038260424,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": true
+    },
+    {
+      "id": "d732da793d154ba95e001f9b4055ac39819bae166b896682c2e05648bc619cb2",
+      "choices": [
+        "opening-with"
+      ],
+      "a_probability": 0.9482909812262497,
+      "base_distance": 1.2584712734411134,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 8,
+      "factorized_changed_coordinates": 24,
+      "joint_mixtures": [
+        {
+          "distance": 1.2584712734411134,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2350607076046296,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1990881783911362,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1366067803062978,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2584712734411134,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.223740389309338,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1697121149892733,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0736400317745511,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "71fbc2173103467790adb640d904ec34ddfaa8fea5201d895755d2aa6967b7b0",
+      "choices": [
+        "induction-exception"
+      ],
+      "a_probability": 0.9365365792567732,
+      "base_distance": 1.2656134000314323,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732066,
+      "joint_changed_coordinates": 47,
+      "factorized_changed_coordinates": 154,
+      "joint_mixtures": [
+        {
+          "distance": 1.2656134000314323,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2416116746008836,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.204712811733295,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1405650525812026,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2656134000314323,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.23151142808838,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1785096844201235,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0844320514467083,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": true
+    },
+    {
+      "id": "18184a644c75313f103754c613941726a0cb2eecbbca1e58a43797fc693ca1b0",
+      "choices": [
+        "cancel-relative"
+      ],
+      "a_probability": 0.9476684903239057,
+      "base_distance": 1.2109235407928465,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 8,
+      "factorized_changed_coordinates": 16,
+      "joint_mixtures": [
+        {
+          "distance": 1.2109235407928465,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1915125846929424,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1617882191839928,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1104809367220771,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2109235407928465,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.179953706105386,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1319112769604167,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0469529388535275,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": true
+    },
+    {
+      "id": "1f6c68c1aed384728d7741fb220d6244fd59e3f9317a79d3e117191e64659cca",
+      "choices": [
+        "late-condition"
+      ],
+      "a_probability": 0.9648170364069706,
+      "base_distance": 1.258125962554205,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 8,
+      "factorized_changed_coordinates": 16,
+      "joint_mixtures": [
+        {
+          "distance": 1.258125962554205,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2347440398267369,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.198816375947421,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.136415623276305,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.258125962554205,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2235936224735031,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1698854541856465,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.074422176882704,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "b030b5376f1468ab9ba90cdf8f5a57128ecc031ebabc88a0f9a87ebe7f3a8618",
+      "choices": [
+        "automatic-last"
+      ],
+      "a_probability": 0.9503364191890344,
+      "base_distance": 1.2568796458862403,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 8,
+      "factorized_changed_coordinates": 8,
+      "joint_mixtures": [
+        {
+          "distance": 1.2568796458862403,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2336011510284874,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1978354783451444,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1357258569397635,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2568796458862403,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2224403089267746,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.16888027866749,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0736925851809056,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "a6a55a1494e5acd90cfecfbc28713ee1eda750b67030adf1071abc52f2c034e0",
+      "choices": [
+        "review-before"
+      ],
+      "a_probability": 0.9605469165717591,
+      "base_distance": 1.2534006785219016,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 8,
+      "factorized_changed_coordinates": 16,
+      "joint_mixtures": [
+        {
+          "distance": 1.2534006785219016,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2304112868578732,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.195098299592704,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1338018479697332,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2534006785219016,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2192212448515758,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1660751340993514,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.071657210030557,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "7ead6309556bb57cda0705462b159478432e0c92c75eeb04fa3c752e6fba2f91",
+      "choices": [
+        "split-booking",
+        "split-cancellation"
+      ],
+      "a_probability": 0.9005901445222575,
+      "base_distance": 1.2566623098439629,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8305432075582818,
+      "joint_changed_coordinates": 31,
+      "factorized_changed_coordinates": 107,
+      "joint_mixtures": [
+        {
+          "distance": 1.2566623098439629,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2334018586349413,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1976644441314825,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.135605600766033,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2566623098439629,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2207621991388198,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.164839313228255,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0651296119730134,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "fbf09d79534504bf0ae504d9076e368a421e0aa57698e83eec722a7ee61c9fa6",
+      "choices": [
+        "split-booking",
+        "opening-with"
+      ],
+      "a_probability": 0.9122256239297968,
+      "base_distance": 1.2584712734411134,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.844220505233984,
+      "joint_changed_coordinates": 28,
+      "factorized_changed_coordinates": 96,
+      "joint_mixtures": [
+        {
+          "distance": 1.2584712734411134,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2350607076046296,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1990881783911362,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1366067803062978,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2584712734411134,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2233747494592981,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1687555454079155,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0715545267353455,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "c94502b099096e3e43bce7e61048f2a5a3ec289856bbb82fcb1808d7dee7c58a",
+      "choices": [
+        "split-booking",
+        "induction-exception"
+      ],
+      "a_probability": 0.907114798856455,
+      "base_distance": 1.2656134000314323,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8589288247072813,
+      "joint_changed_coordinates": 49,
+      "factorized_changed_coordinates": 159,
+      "joint_mixtures": [
+        {
+          "distance": 1.2656134000314323,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2416116746008836,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.204712811733295,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1405650525812026,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2656134000314323,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2310058582705905,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1771884472048644,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0815581362673377,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "8d78bd680830baa35f6b1c7c6dfd2e31bc84f38e8919f453e7ab35819fd7702e",
+      "choices": [
+        "split-booking",
+        "cancel-relative"
+      ],
+      "a_probability": 0.8898937925860739,
+      "base_distance": 1.2109235407928465,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 29,
+      "factorized_changed_coordinates": 92,
+      "joint_mixtures": [
+        {
+          "distance": 1.2109235407928465,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1915125846929424,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1617882191839928,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1104809367220771,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2109235407928465,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1794046583659437,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1304798264315878,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0438550925733425,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "30fa54b9da727b9a4052f7417595730c0c251f259b3afb950dc45274f5dafd3f",
+      "choices": [
+        "split-booking",
+        "late-condition"
+      ],
+      "a_probability": 0.9438651793641746,
+      "base_distance": 1.258125962554205,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 29,
+      "factorized_changed_coordinates": 92,
+      "joint_mixtures": [
+        {
+          "distance": 1.258125962554205,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2347440398267369,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.198816375947421,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.136415623276305,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.258125962554205,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2230641653573544,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1685005241649609,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0714037578311137,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "71e8a80e560fb93dde0722f945d1537b6df2323536fb01a355e5d74390c895c5",
+      "choices": [
+        "split-booking",
+        "automatic-last"
+      ],
+      "a_probability": 0.9160715735819893,
+      "base_distance": 1.2568796458862403,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 29,
+      "factorized_changed_coordinates": 86,
+      "joint_mixtures": [
+        {
+          "distance": 1.2568796458862403,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2336011510284874,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1978354783451444,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1357258569397635,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2568796458862403,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2219103520767964,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1674941562664973,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0706721092798297,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "b63ee7695bac80f9da9795710a6b2cdd4bb890f291dcc6e2f95df5cc6a02d284",
+      "choices": [
+        "split-booking",
+        "review-before"
+      ],
+      "a_probability": 0.9420436717284029,
+      "base_distance": 1.2534006785219016,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 29,
+      "factorized_changed_coordinates": 92,
+      "joint_mixtures": [
+        {
+          "distance": 1.2534006785219016,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2304112868578732,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.195098299592704,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1338018479697332,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2534006785219016,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2186898881671575,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1646856732283832,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0686309811753265,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "5b28a5a1951303e734b27dd92b6c3fe295604530c9daa7207df24f12315cfc76",
+      "choices": [
+        "split-cancellation",
+        "opening-with"
+      ],
+      "a_probability": 0.9398519111641543,
+      "base_distance": 1.2584712734411134,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8390915813260119,
+      "joint_changed_coordinates": 29,
+      "factorized_changed_coordinates": 95,
+      "joint_mixtures": [
+        {
+          "distance": 1.2584712734411134,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2350607076046296,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1990881783911362,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1366067803062978,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2584712734411134,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2230218394019245,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1678318072481244,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0695383648866188,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "719098a9513dd529ea03ef6a5fd3e87336787d08bdcd2757f6845eb804094c05",
+      "choices": [
+        "split-cancellation",
+        "induction-exception"
+      ],
+      "a_probability": 0.928104823240441,
+      "base_distance": 1.2656134000314323,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.853869501132401,
+      "joint_changed_coordinates": 52,
+      "factorized_changed_coordinates": 168,
+      "joint_mixtures": [
+        {
+          "distance": 1.2656134000314323,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2416116746008836,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.204712811733295,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1405650525812026,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2656134000314323,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2306538355693772,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1762679286605435,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0795532416938076,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "a169f8f2bb50f90cac63b13d64989ab0f24f9b5d41cd2df65696bb26c2786789",
+      "choices": [
+        "split-cancellation",
+        "cancel-relative"
+      ],
+      "a_probability": 0.9429903816139655,
+      "base_distance": 1.2109235407928465,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 29,
+      "factorized_changed_coordinates": 92,
+      "joint_mixtures": [
+        {
+          "distance": 1.2109235407928465,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1915125846929424,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1617882191839928,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1104809367220771,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2109235407928465,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1789275280655571,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.129234943936595,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0411567103797035,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "a060be3a56a4a3c1432895832b6abe0b8ce3663c49ec7e5cafe50320f12ce724",
+      "choices": [
+        "split-cancellation",
+        "late-condition"
+      ],
+      "a_probability": 0.9510445920932725,
+      "base_distance": 1.258125962554205,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 26,
+      "factorized_changed_coordinates": 88,
+      "joint_mixtures": [
+        {
+          "distance": 1.258125962554205,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2347440398267369,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.198816375947421,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.136415623276305,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.258125962554205,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2226040736218569,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1672961901816008,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.068774931204889,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "294b93551d329b79f3d6ffa627077058e266b2c88faa0cca71a7b73705a90db9",
+      "choices": [
+        "split-cancellation",
+        "automatic-last"
+      ],
+      "a_probability": 0.9439244676769697,
+      "base_distance": 1.2568796458862403,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 27,
+      "factorized_changed_coordinates": 86,
+      "joint_mixtures": [
+        {
+          "distance": 1.2568796458862403,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2336011510284874,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1978354783451444,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1357258569397635,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2568796458862403,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2214498257267539,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1662887830872388,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0680414818100952,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "2ff2396ed75809bb4b964ea4336b0b3921245603df707c14c602477ed25a443f",
+      "choices": [
+        "split-cancellation",
+        "review-before"
+      ],
+      "a_probability": 0.9589669261084302,
+      "base_distance": 1.2534006785219016,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 29,
+      "factorized_changed_coordinates": 94,
+      "joint_mixtures": [
+        {
+          "distance": 1.2534006785219016,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2304112868578732,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.195098299592704,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1338018479697332,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2534006785219016,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2182281443869025,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1634773904387417,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0659953166900524,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "2e5f410a7986c4699cde180180e8b3167d0d5332c0a2245164757ff6a2180804",
+      "choices": [
+        "opening-with",
+        "induction-exception"
+      ],
+      "a_probability": 0.9364325953417878,
+      "base_distance": 1.2676015977198645,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8637813024635339,
+      "joint_changed_coordinates": 51,
+      "factorized_changed_coordinates": 164,
+      "joint_mixtures": [
+        {
+          "distance": 1.2676015977198645,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.243435735970202,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2062795521380874,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1416684743264907,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2676015977198645,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2331845941854438,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1796778765950748,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0846501622706632,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "0c362e843897e45f95234a24f16de6ea4d9324327488384b4b7447d7c8ec976c",
+      "choices": [
+        "opening-with",
+        "cancel-relative"
+      ],
+      "a_probability": 0.9541873214945544,
+      "base_distance": 1.2128092941098492,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 16,
+      "factorized_changed_coordinates": 38,
+      "joint_mixtures": [
+        {
+          "distance": 1.2128092941098492,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1932375059020344,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1632625618962482,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1115094205357035,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2128092941098492,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1815165400659569,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1329579693460514,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0470344486836265,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "33ad07883a2a6e16a71b5a332e9275f5813bd9226f0acb52cc8d0bc98155604f",
+      "choices": [
+        "opening-with",
+        "late-condition"
+      ],
+      "a_probability": 0.9623245757251248,
+      "base_distance": 1.2598919003326425,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 16,
+      "factorized_changed_coordinates": 38,
+      "joint_mixtures": [
+        {
+          "distance": 1.2598919003326425,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2363635551371683,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2002065240586088,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1373934236937975,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2598919003326425,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2250552760710596,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1708585195437378,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0744727753891716,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "6f7cad61d826611aabe945723aebc2f9196d1f76fd1fbd052b247389850b2bb0",
+      "choices": [
+        "opening-with",
+        "automatic-last"
+      ],
+      "a_probability": 0.9492842332955909,
+      "base_distance": 1.2586900222715447,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 16,
+      "factorized_changed_coordinates": 32,
+      "joint_mixtures": [
+        {
+          "distance": 1.2586900222715447,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2352613144389115,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.199260367528443,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.136727885680197,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2586900222715447,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.223942851569251,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1698886278273508,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.073768238901478,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "7146911550233c0918ffd9d00318e6281980625b86e963f232b341b718ac1817",
+      "choices": [
+        "opening-with",
+        "review-before"
+      ],
+      "a_probability": 0.955614803345364,
+      "base_distance": 1.2551985185783312,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 16,
+      "factorized_changed_coordinates": 38,
+      "joint_mixtures": [
+        {
+          "distance": 1.2551985185783312,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2320596531569052,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1965126371171046,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1347958673350105,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2551985185783312,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2207115047771262,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1670717472273215,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0717227278131358,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "cf746b0948a03852c3e1c70d97bd00cb6cbf23585eb28d2eef8a5714f0728c1d",
+      "choices": [
+        "induction-exception",
+        "cancel-relative"
+      ],
+      "a_probability": 0.9349714261832089,
+      "base_distance": 1.2206961014515192,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732065,
+      "joint_changed_coordinates": 51,
+      "factorized_changed_coordinates": 162,
+      "joint_mixtures": [
+        {
+          "distance": 1.2206961014515192,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2004536954372893,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1694332939822618,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1158178552297275,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2206961014515192,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1900041688566116,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1424212649420882,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0583731483200165,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "3fd28dc71120ff5d01c6bf50c632ad16e72d699175058341a156508302169da1",
+      "choices": [
+        "induction-exception",
+        "late-condition"
+      ],
+      "a_probability": 0.9577235536092505,
+      "base_distance": 1.2672887547989582,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732066,
+      "joint_changed_coordinates": 51,
+      "factorized_changed_coordinates": 162,
+      "joint_mixtures": [
+        {
+          "distance": 1.2672887547989582,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2431487076114043,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2060329974880126,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1414948068300386,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2672887547989582,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.23306105130402,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1798591901356696,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0854098898827584,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "85030518ed7c27d6af1323c9171e3b799043927af2cd120b4bc0e61533292f81",
+      "choices": [
+        "induction-exception",
+        "automatic-last"
+      ],
+      "a_probability": 0.9388327287934715,
+      "base_distance": 1.2658373959006828,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732066,
+      "joint_changed_coordinates": 51,
+      "factorized_changed_coordinates": 158,
+      "joint_mixtures": [
+        {
+          "distance": 1.2658373959006828,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2418171691414803,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2048893038970288,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1406893338811892,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2658373959006828,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2317186077110434,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1786901001379217,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0845627651112064,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "07befa3ba895c4a3f4ef623bd499881ac8aa4835f59e35f3c729f0b713da17cf",
+      "choices": [
+        "induction-exception",
+        "review-before"
+      ],
+      "a_probability": 0.9568022655626736,
+      "base_distance": 1.262624461389402,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732066,
+      "joint_changed_coordinates": 51,
+      "factorized_changed_coordinates": 162,
+      "joint_mixtures": [
+        {
+          "distance": 1.262624461389402,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2388698387841195,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2023582651914353,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1389074875728225,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.262624461389402,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2287470547090076,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1761026806328756,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0826885518397218,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "55e59997b47fcdda5644e00fe069168111b99d869b27b2b7f7f112b9d8c51818",
+      "choices": [
+        "cancel-relative",
+        "late-condition"
+      ],
+      "a_probability": 0.9644530378667548,
+      "base_distance": 1.2756749744202258,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 16,
+      "factorized_changed_coordinates": 32,
+      "joint_mixtures": [
+        {
+          "distance": 1.2756749744202258,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2508445052546857,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2126458593800307,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1461558882547442,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2756749744202258,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2398388949359584,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1840528927995493,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0847192565507067,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "f658c28cfe63d517fc31f687bf6c241682779ac1801c4ab02a32299acc053e69",
+      "choices": [
+        "cancel-relative",
+        "automatic-last"
+      ],
+      "a_probability": 0.94891249335437,
+      "base_distance": 1.2111647325754056,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 16,
+      "factorized_changed_coordinates": 24,
+      "joint_mixtures": [
+        {
+          "distance": 1.2111647325754056,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1917331951787735,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1619767670120775,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1106124457781061,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2111647325754056,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1801764772953187,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1321048006926249,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0470924267074626,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "7954c251760e1b0bb41edafc6821b84d6f3feb5e279003cbf4da8eb8c6b7a507",
+      "choices": [
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9598657552667931,
+      "base_distance": 1.2078502604607426,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 16,
+      "factorized_changed_coordinates": 32,
+      "joint_mixtures": [
+        {
+          "distance": 1.2078502604607426,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1887018240608431,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1593863414631522,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1088061714508726,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2078502604607426,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1771153450685088,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1294458647703134,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0451763828170046,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": true
+    },
+    {
+      "id": "5ab505b5abf467653c7f494d858614c102a2852aed67e9618df3c324bcff48d8",
+      "choices": [
+        "late-condition",
+        "automatic-last"
+      ],
+      "a_probability": 0.9652681361194151,
+      "base_distance": 1.2583416057901966,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 14,
+      "factorized_changed_coordinates": 22,
+      "joint_mixtures": [
+        {
+          "distance": 1.2583416057901966,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2349417950561012,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1989861123661891,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1365349965713,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2583416057901966,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2237931795228165,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1700593875194694,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.074548437150332,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "53c64d2e3c805204d4ecc50c3751c193158a6f0f125de34109d7dd7fee603308",
+      "choices": [
+        "late-condition",
+        "review-before"
+      ],
+      "a_probability": 0.9713254524875825,
+      "base_distance": 1.25497315001188,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 16,
+      "factorized_changed_coordinates": 31,
+      "joint_mixtures": [
+        {
+          "distance": 1.25497315001188,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2318530133606307,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1963353231590446,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.134671231513944,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.25497315001188,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2206761878548487,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1673429136776834,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0725769664580096,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "27ea0d4c45bcce45ded7e9c0e2d164be70950216a79e0842c6baf065cca369e2",
+      "choices": [
+        "automatic-last",
+        "review-before"
+      ],
+      "a_probability": 0.9614947897835932,
+      "base_distance": 1.253616693678805,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 16,
+      "factorized_changed_coordinates": 24,
+      "joint_mixtures": [
+        {
+          "distance": 1.253616693678805,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2306093341118296,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1952682171808275,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1339212527045646,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.253616693678805,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2194211094914422,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1662492802476159,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.071783538167099,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "60e2d96cd90ddd41bfbe8633d95dd89894524419081a5d8995a15b841e05da78",
+      "choices": [
+        "split-booking",
+        "split-cancellation",
+        "opening-with"
+      ],
+      "a_probability": 0.897406395766778,
+      "base_distance": 1.2584712734411134,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.834266228993597,
+      "joint_changed_coordinates": 36,
+      "factorized_changed_coordinates": 119,
+      "joint_mixtures": [
+        {
+          "distance": 1.2584712734411134,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2350607076046296,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1990881783911362,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1366067803062978,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2584712734411134,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2226916886741186,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.166967220948032,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0676493073373143,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "54659d4c4aa0b68d4af4e3aa4fbd713459be2c4bd12672134deae0ab9e708e5a",
+      "choices": [
+        "split-booking",
+        "split-cancellation",
+        "induction-exception"
+      ],
+      "a_probability": 0.8899715500238459,
+      "base_distance": 1.2656134000314323,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8468332155760268,
+      "joint_changed_coordinates": 54,
+      "factorized_changed_coordinates": 173,
+      "joint_mixtures": [
+        {
+          "distance": 1.2656134000314323,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2416116746008836,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.204712811733295,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1405650525812026,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2656134000314323,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2301675495661124,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1749955670150634,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0767784761365626,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "4ff1820cf826d6a8c4ef24b35f44ba01ace8dd6badca79939c50ade4f4b703cd",
+      "choices": [
+        "split-booking",
+        "split-cancellation",
+        "cancel-relative"
+      ],
+      "a_probability": 0.8722837301737139,
+      "base_distance": 1.2109235407928465,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8305432075582818,
+      "joint_changed_coordinates": 37,
+      "factorized_changed_coordinates": 117,
+      "joint_mixtures": [
+        {
+          "distance": 1.2109235407928465,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1915125846929424,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1617882191839928,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1104809367220771,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2109235407928465,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1784237104894726,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1279194878802357,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.038300977864194,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": true
+    },
+    {
+      "id": "8d3ba0720e748ccd42b0944e44eee24f7f3f75710a962ba856c2b259ef618c1f",
+      "choices": [
+        "split-booking",
+        "split-cancellation",
+        "late-condition"
+      ],
+      "a_probability": 0.9225457944319031,
+      "base_distance": 1.258125962554205,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8305432075582818,
+      "joint_changed_coordinates": 34,
+      "factorized_changed_coordinates": 113,
+      "joint_mixtures": [
+        {
+          "distance": 1.258125962554205,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2347440398267369,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.198816375947421,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.136415623276305,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.258125962554205,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2221182618101123,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1660236739213352,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0659931888324015,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "6a4950944d28754e09df85f485cdc9d4710ba2f66c52c581f8ad71b6fb2af983",
+      "choices": [
+        "split-booking",
+        "split-cancellation",
+        "automatic-last"
+      ],
+      "a_probability": 0.9041695020657354,
+      "base_distance": 1.2568796458862403,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8305432075582818,
+      "joint_changed_coordinates": 35,
+      "factorized_changed_coordinates": 111,
+      "joint_mixtures": [
+        {
+          "distance": 1.2568796458862403,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2336011510284874,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1978354783451444,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1357258569397635,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2568796458862403,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.220963554648921,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1650151664624975,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0652578241590906,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "909a03fc58756711819ae9fdf432c79a59f09c5ab841e385501424f08166952b",
+      "choices": [
+        "split-booking",
+        "split-cancellation",
+        "review-before"
+      ],
+      "a_probability": 0.9336691100055644,
+      "base_distance": 1.2534006785219016,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8305432075582818,
+      "joint_changed_coordinates": 37,
+      "factorized_changed_coordinates": 119,
+      "joint_mixtures": [
+        {
+          "distance": 1.2534006785219016,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2304112868578732,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.195098299592704,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1338018479697332,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2534006785219016,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2177405868202664,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1622006929074997,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0632063018390088,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "4411057e5306ff6949327650f60726919c78d2f3a8ab59bd2f1392b74c0c792c",
+      "choices": [
+        "split-booking",
+        "opening-with",
+        "induction-exception"
+      ],
+      "a_probability": 0.8948582156237115,
+      "base_distance": 1.2676015977198645,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8588063161866438,
+      "joint_changed_coordinates": 52,
+      "factorized_changed_coordinates": 168,
+      "joint_mixtures": [
+        {
+          "distance": 1.2676015977198645,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.243435735970202,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2062795521380874,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1416684743264907,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2676015977198645,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2328370769732573,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1787694558678483,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0826731037723314,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "2048cd5c6297712bb586dc0c3337cccfa0e244cbc799ef6f58eab281e64414ae",
+      "choices": [
+        "split-booking",
+        "opening-with",
+        "cancel-relative"
+      ],
+      "a_probability": 0.9071374285238005,
+      "base_distance": 1.2128092941098492,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.844220505233984,
+      "joint_changed_coordinates": 34,
+      "factorized_changed_coordinates": 106,
+      "joint_mixtures": [
+        {
+          "distance": 1.2128092941098492,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1932375059020344,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1632625618962482,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1115094205357035,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2128092941098492,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1811378292295358,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.131970341163497,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0448958429759287,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "ca8a878450e21210bf25899a02d4559c838d37be00a9d2088a8e4ead6c8cf135",
+      "choices": [
+        "split-booking",
+        "opening-with",
+        "late-condition"
+      ],
+      "a_probability": 0.939652309187069,
+      "base_distance": 1.2598919003326425,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.844220505233984,
+      "joint_changed_coordinates": 34,
+      "factorized_changed_coordinates": 108,
+      "joint_mixtures": [
+        {
+          "distance": 1.2598919003326425,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2363635551371683,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2002065240586088,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1373934236937975,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2598919003326425,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2246900287898037,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1699028873189554,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0723888898112757,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "090d11b00fc2db07decec514093b7a12910a967ff66a924ee904fe9dcb951bfe",
+      "choices": [
+        "split-booking",
+        "opening-with",
+        "automatic-last"
+      ],
+      "a_probability": 0.9148819411162368,
+      "base_distance": 1.2586900222715447,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.844220505233984,
+      "joint_changed_coordinates": 34,
+      "factorized_changed_coordinates": 102,
+      "joint_mixtures": [
+        {
+          "distance": 1.2586900222715447,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2352613144389115,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.199260367528443,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.136727885680197,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2586900222715447,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2235772722207208,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.168932202691344,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0716829833545611,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "fc909cdc99d85e12291cf1d28546f6aad391ce9699cc03092222193db3cb9077",
+      "choices": [
+        "split-booking",
+        "opening-with",
+        "review-before"
+      ],
+      "a_probability": 0.933386890297728,
+      "base_distance": 1.2551985185783312,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.844220505233984,
+      "joint_changed_coordinates": 34,
+      "factorized_changed_coordinates": 108,
+      "joint_mixtures": [
+        {
+          "distance": 1.2551985185783312,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2320596531569052,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1965126371171046,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1347958673350105,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2551985185783312,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2203449574128071,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1661130117382743,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0696334845400923,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "d2295c36877235d8cab7f8fc9609b9cd559f550e3027b998070a74bc16f8a860",
+      "choices": [
+        "split-booking",
+        "induction-exception",
+        "cancel-relative"
+      ],
+      "a_probability": 0.8697504616639319,
+      "base_distance": 1.2206961014515192,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8589288247072813,
+      "joint_changed_coordinates": 53,
+      "factorized_changed_coordinates": 167,
+      "joint_mixtures": [
+        {
+          "distance": 1.2206961014515192,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2004536954372893,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1694332939822618,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1158178552297275,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2206961014515192,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1894809571743243,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1410582415251471,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.055428277528125,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "d0abce49e5f7206da91be45c329a30259cb644ec6dcf4d34931ae61563aa8ea2",
+      "choices": [
+        "split-booking",
+        "induction-exception",
+        "late-condition"
+      ],
+      "a_probability": 0.9441011213815689,
+      "base_distance": 1.2672887547989582,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8589288247072813,
+      "joint_changed_coordinates": 53,
+      "factorized_changed_coordinates": 167,
+      "joint_mixtures": [
+        {
+          "distance": 1.2672887547989582,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2431487076114043,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2060329974880126,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1414948068300386,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2672887547989582,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.232556117110782,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1785394658254675,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0825385706645574,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "e00e1d36d23aa72c81f4036b59bc1600e9ab4ff5387ce760c776f7dc94a6240c",
+      "choices": [
+        "split-booking",
+        "induction-exception",
+        "automatic-last"
+      ],
+      "a_probability": 0.9112919053562284,
+      "base_distance": 1.2658373959006828,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8589288247072813,
+      "joint_changed_coordinates": 53,
+      "factorized_changed_coordinates": 163,
+      "joint_mixtures": [
+        {
+          "distance": 1.2658373959006828,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2418171691414803,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2048893038970288,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1406893338811892,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2658373959006828,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2312131229668821,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1773690653842253,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.081689197222024,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "a59490c5a2a4bd09f84a03db88948885dfc93ee40caa31208084b07339587c63",
+      "choices": [
+        "split-booking",
+        "induction-exception",
+        "review-before"
+      ],
+      "a_probability": 0.9403958113754264,
+      "base_distance": 1.262624461389402,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8589288247072813,
+      "joint_changed_coordinates": 53,
+      "factorized_changed_coordinates": 167,
+      "joint_mixtures": [
+        {
+          "distance": 1.262624461389402,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2388698387841195,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2023582651914353,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1389074875728225,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.262624461389402,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2282403470169398,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.174778736338216,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0798099963447063,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "4476f65c1954eddb3ca9c535f50b1729ec41388b0cc6b5cc8c0657e85e88a0dd",
+      "choices": [
+        "split-booking",
+        "cancel-relative",
+        "late-condition"
+      ],
+      "a_probability": 0.9397533161176864,
+      "base_distance": 1.2756749744202258,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 35,
+      "factorized_changed_coordinates": 104,
+      "joint_mixtures": [
+        {
+          "distance": 1.2756749744202258,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2508445052546857,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2126458593800307,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1461558882547442,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2756749744202258,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2393163780970022,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.182684553042616,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.081729570479231,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "690d2fac09314274b61b4ff876da90d2a7ab1dbb446c4ae7af9f59e60335edc9",
+      "choices": [
+        "split-booking",
+        "cancel-relative",
+        "automatic-last"
+      ],
+      "a_probability": 0.8932150010643845,
+      "base_distance": 1.2111647325754056,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 35,
+      "factorized_changed_coordinates": 98,
+      "joint_mixtures": [
+        {
+          "distance": 1.2111647325754056,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1917331951787735,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1619767670120775,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1106124457781061,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2111647325754056,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1796275332428625,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.130673595167907,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0439949943296598,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "00e4e597ada1c36a620ff2002f1443133249d2089e1d434152ff2c77632d0e12",
+      "choices": [
+        "split-booking",
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9274513322218905,
+      "base_distance": 1.2078502604607426,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 35,
+      "factorized_changed_coordinates": 104,
+      "joint_mixtures": [
+        {
+          "distance": 1.2078502604607426,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1887018240608431,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1593863414631522,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1088061714508726,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2078502604607426,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1765649727997205,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1280112856285582,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0420732552540157,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "384a4e315a768e3f71a880e867a32acb41c3451580b0085474faf265ce0d9b03",
+      "choices": [
+        "split-booking",
+        "late-condition",
+        "automatic-last"
+      ],
+      "a_probability": 0.9448163903805029,
+      "base_distance": 1.2583416057901966,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 34,
+      "factorized_changed_coordinates": 97,
+      "joint_mixtures": [
+        {
+          "distance": 1.2583416057901966,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2349417950561012,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1989861123661891,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1365349965713,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2583416057901966,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2232638087796177,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.168674663617325,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0715303737643114,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "d920a3a767c4f9cfd450ed0c22a26e3637df12403c9a9b3df7105d63808dd451",
+      "choices": [
+        "split-booking",
+        "late-condition",
+        "review-before"
+      ],
+      "a_probability": 0.9580768202274563,
+      "base_distance": 1.25497315001188,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 35,
+      "factorized_changed_coordinates": 104,
+      "joint_mixtures": [
+        {
+          "distance": 1.25497315001188,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2318530133606307,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1963353231590446,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.134671231513944,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.25497315001188,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2201454647784002,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1659549636122895,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.069553339994565,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "927109c54d4b72290b33de340ac0a4dd6f94c4deaa038f722ecb17c61d4e7b00",
+      "choices": [
+        "split-booking",
+        "automatic-last",
+        "review-before"
+      ],
+      "a_probability": 0.9437784228191503,
+      "base_distance": 1.253616693678805,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8443524660568705,
+      "joint_changed_coordinates": 35,
+      "factorized_changed_coordinates": 98,
+      "joint_mixtures": [
+        {
+          "distance": 1.253616693678805,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2306093341118296,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1952682171808275,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1339212527045646,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.253616693678805,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2188898399350092,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1648600271005585,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0687576670149546,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "f0a05f92088610c8e82b3a6a784f3b221eb55645217fd1311e575da034b2a094",
+      "choices": [
+        "split-cancellation",
+        "opening-with",
+        "induction-exception"
+      ],
+      "a_probability": 0.9273472896783472,
+      "base_distance": 1.2676015977198645,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8552114365651767,
+      "joint_changed_coordinates": 56,
+      "factorized_changed_coordinates": 174,
+      "joint_mixtures": [
+        {
+          "distance": 1.2676015977198645,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.243435735970202,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2062795521380874,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1416684743264907,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2676015977198645,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.232587152947387,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1781158721511367,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0812493726642864,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "5fd096b056eefdcc662d5b824dd4b886e9194b38827999ff3b76df054b960e19",
+      "choices": [
+        "split-cancellation",
+        "opening-with",
+        "cancel-relative"
+      ],
+      "a_probability": 0.9491800188638393,
+      "base_distance": 1.2128092941098492,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8390915813260119,
+      "joint_changed_coordinates": 35,
+      "factorized_changed_coordinates": 105,
+      "joint_mixtures": [
+        {
+          "distance": 1.2128092941098492,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1932375059020344,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1632625618962482,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1115094205357035,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2128092941098492,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.180772295439102,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1310165597251305,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0428281415773688,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "56086412cf5a3dee4cb1c78b8d994a404bd50e6584c11e83f71110ebae942704",
+      "choices": [
+        "split-cancellation",
+        "opening-with",
+        "late-condition"
+      ],
+      "a_probability": 0.9469597320827757,
+      "base_distance": 1.2598919003326425,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8390915813260119,
+      "joint_changed_coordinates": 32,
+      "factorized_changed_coordinates": 103,
+      "joint_mixtures": [
+        {
+          "distance": 1.2598919003326425,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2363635551371683,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2002065240586088,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1373934236937975,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2598919003326425,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2243374978561412,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1689800557990264,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0703742995737482,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "8d559e1c26061cab097f4153bfb7861b4c211f1025937a1de4ab8b78e928a320",
+      "choices": [
+        "split-cancellation",
+        "opening-with",
+        "automatic-last"
+      ],
+      "a_probability": 0.9413628877976102,
+      "base_distance": 1.2586900222715447,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8390915813260119,
+      "joint_changed_coordinates": 33,
+      "factorized_changed_coordinates": 99,
+      "joint_mixtures": [
+        {
+          "distance": 1.2586900222715447,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2352613144389115,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.199260367528443,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.136727885680197,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2586900222715447,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2232244205927898,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.16800860424378,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0696670636273067,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "0863f38ea7e0f3f23c6f61bfdf3cf0d920c73aad64e7a08e1a16cd58487f286c",
+      "choices": [
+        "split-cancellation",
+        "opening-with",
+        "review-before"
+      ],
+      "a_probability": 0.9520102510471872,
+      "base_distance": 1.2551985185783312,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.839091581326012,
+      "joint_changed_coordinates": 35,
+      "factorized_changed_coordinates": 107,
+      "joint_mixtures": [
+        {
+          "distance": 1.2551985185783312,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2320596531569052,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1965126371171046,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1347958673350105,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2551985185783312,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2199911709198277,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.165187178630101,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0676136948572326,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "7c869bb9e418ffbcb854d08664cd3385f43855e5007c7f65589c605f764974be",
+      "choices": [
+        "split-cancellation",
+        "induction-exception",
+        "cancel-relative"
+      ],
+      "a_probability": 0.9220880899492225,
+      "base_distance": 1.2206961014515192,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.853869501132401,
+      "joint_changed_coordinates": 56,
+      "factorized_changed_coordinates": 174,
+      "joint_mixtures": [
+        {
+          "distance": 1.2206961014515192,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2004536954372893,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1694332939822618,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1158178552297275,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2206961014515192,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1891166416232906,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1401085519875847,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0533736509574922,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "1278e0c75e1fd31a5167d37c849e6f8ad85ac295c5224d6049be485afb67696e",
+      "choices": [
+        "split-cancellation",
+        "induction-exception",
+        "late-condition"
+      ],
+      "a_probability": 0.9449226393197578,
+      "base_distance": 1.2672887547989582,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.853869501132401,
+      "joint_changed_coordinates": 54,
+      "factorized_changed_coordinates": 172,
+      "joint_mixtures": [
+        {
+          "distance": 1.2672887547989582,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2431487076114043,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2060329974880126,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1414948068300386,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2672887547989582,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2322045372957828,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1776200033418864,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0805354952531614,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "24403817efb1a0de30378c7ecff28ef2f652349e9680a6995c2a73037bfe5ed7",
+      "choices": [
+        "split-cancellation",
+        "induction-exception",
+        "automatic-last"
+      ],
+      "a_probability": 0.9304580788829406,
+      "base_distance": 1.2658373959006828,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.853869501132401,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 171,
+      "joint_mixtures": [
+        {
+          "distance": 1.2658373959006828,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2418171691414803,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2048893038970288,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1406893338811892,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2658373959006828,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2308611595427688,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.17644868816557,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0796845460190483,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "d45ed3591a81a7f329c8889d7102f151022cfb879fa425492cebeedda430fda8",
+      "choices": [
+        "split-cancellation",
+        "induction-exception",
+        "review-before"
+      ],
+      "a_probability": 0.952253985685396,
+      "base_distance": 1.262624461389402,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.853869501132401,
+      "joint_changed_coordinates": 56,
+      "factorized_changed_coordinates": 176,
+      "joint_mixtures": [
+        {
+          "distance": 1.262624461389402,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2388698387841195,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2023582651914353,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1389074875728225,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.262624461389402,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2278875314724063,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1738563281403658,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.077801849938794,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "afcb29a24ecf1f337ee6c38775ccf9f3d35583783b0014c6372e1858bf12ce48",
+      "choices": [
+        "split-cancellation",
+        "cancel-relative",
+        "late-condition"
+      ],
+      "a_probability": 0.955022585755445,
+      "base_distance": 1.2756749744202258,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 32,
+      "factorized_changed_coordinates": 100,
+      "joint_mixtures": [
+        {
+          "distance": 1.2756749744202258,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2508445052546857,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2126458593800307,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1461558882547442,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2756749744202258,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2388623221629385,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.181494677366049,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0791258985524188,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "6241819b4aa1907046d2e1fd5b62a929dcb3d7379c39a1feec3ea5eafd00bdc0",
+      "choices": [
+        "split-cancellation",
+        "cancel-relative",
+        "automatic-last"
+      ],
+      "a_probability": 0.943966434131304,
+      "base_distance": 1.2111647325754056,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 33,
+      "factorized_changed_coordinates": 96,
+      "joint_mixtures": [
+        {
+          "distance": 1.2111647325754056,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1917331951787735,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1619767670120775,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1106124457781061,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2111647325754056,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1791504931263512,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1294289262492845,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0412969746728213,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "6938898e12856a019f14dc99de8772c6e004821354a29f6a5d6a8082920b1c51",
+      "choices": [
+        "split-cancellation",
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9562583292390494,
+      "base_distance": 1.2078502604607426,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 35,
+      "factorized_changed_coordinates": 104,
+      "joint_mixtures": [
+        {
+          "distance": 1.2078502604607426,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1887018240608431,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1593863414631522,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1088061714508726,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2078502604607426,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.176086690458949,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1267636758185298,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0393702471174964,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": true
+    },
+    {
+      "id": "dcc6af510fdb6dc57ddab876ca2e19e1fa42d47740956aa0a6c9b1af0b2f0a36",
+      "choices": [
+        "split-cancellation",
+        "late-condition",
+        "automatic-last"
+      ],
+      "a_probability": 0.9523908187791681,
+      "base_distance": 1.2583416057901966,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 29,
+      "factorized_changed_coordinates": 91,
+      "joint_mixtures": [
+        {
+          "distance": 1.2583416057901966,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2349417950561012,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1989861123661891,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1365349965713,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2583416057901966,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2228037921618882,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1674705092719728,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.068901858533733,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "1302c78a0b0a90b2e7681601f2df0ba585ef056a9e495bf23d7fb27dae1a5dad",
+      "choices": [
+        "split-cancellation",
+        "late-condition",
+        "review-before"
+      ],
+      "a_probability": 0.9645634324329532,
+      "base_distance": 1.25497315001188,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 32,
+      "factorized_changed_coordinates": 100,
+      "joint_mixtures": [
+        {
+          "distance": 1.25497315001188,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2318530133606307,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1963353231590446,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.134671231513944,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.25497315001188,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2196842720453416,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1647479975560495,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0669199540597756,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "14541e0833a0ae6a7df572aee48a62cb09c5fbc32a0a2f118cda8738a9778afc",
+      "choices": [
+        "split-cancellation",
+        "automatic-last",
+        "review-before"
+      ],
+      "a_probability": 0.960064134224708,
+      "base_distance": 1.253616693678805,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8376626824032969,
+      "joint_changed_coordinates": 33,
+      "factorized_changed_coordinates": 98,
+      "joint_mixtures": [
+        {
+          "distance": 1.253616693678805,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2306093341118296,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1952682171808275,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1339212527045646,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.253616693678805,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2184281719298309,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1636519253519952,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0661223157220905,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "8ec28544de8d8eb7aa9769e83aa316a923f07a6a77bd2f0076b1f066a5dee4af",
+      "choices": [
+        "opening-with",
+        "induction-exception",
+        "cancel-relative"
+      ],
+      "a_probability": 0.9445091904882714,
+      "base_distance": 1.2435602714173484,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8637813024635338,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 170,
+      "joint_mixtures": [
+        {
+          "distance": 1.2435602714173484,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.221391801914042,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1873633022313312,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1283709825778907,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2435602714173484,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2109540650377248,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.160328033836592,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.070644732657194,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "aeeb5f477b5328cd17b88ee2a4b4b5372d357884dbf9c1b4f23b4c4c5c0f0cc8",
+      "choices": [
+        "opening-with",
+        "induction-exception",
+        "late-condition"
+      ],
+      "a_probability": 0.9536886872904887,
+      "base_distance": 1.2692347305649567,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8637813024635339,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 172,
+      "joint_mixtures": [
+        {
+          "distance": 1.2692347305649567,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2449341834591372,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.207566810141047,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1425753369630158,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2692347305649567,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2346954826975065,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1809941302037124,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.085604656345462,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "bd5f29268d8974d2ca4c23cf34ae42f57db645e31c55026b8098675f2b8175f8",
+      "choices": [
+        "opening-with",
+        "induction-exception",
+        "automatic-last"
+      ],
+      "a_probability": 0.9381111089195119,
+      "base_distance": 1.2678269137581475,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8637813024635339,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 168,
+      "joint_mixtures": [
+        {
+          "distance": 1.2678269137581475,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2436424626573983,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.206457132449028,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1417935634889325,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2678269137581475,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2333930390484285,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.179859460723408,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0847818263907052,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "9750e10952b7cea3a151ffbd406a3838b6d1c67e8c00c5491112720913f6de43",
+      "choices": [
+        "opening-with",
+        "induction-exception",
+        "review-before"
+      ],
+      "a_probability": 0.9500824608004869,
+      "base_distance": 1.2645994211565692,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8637813024635339,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 172,
+      "joint_mixtures": [
+        {
+          "distance": 1.2645994211565692,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.240681476604925,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.203913938781401,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1400025649070993,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2645994211565692,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2304073879163506,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.177258810378392,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0828965404125939,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "8e4b8443733210e5871a16be7de518078e1b1a0a3694ecb0b02a75006a469fe6",
+      "choices": [
+        "opening-with",
+        "cancel-relative",
+        "late-condition"
+      ],
+      "a_probability": 0.9650309732384226,
+      "base_distance": 1.277424642077605,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 24,
+      "factorized_changed_coordinates": 52,
+      "joint_mixtures": [
+        {
+          "distance": 1.277424642077605,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2524505357771172,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2140264771166742,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1471298348894725,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.277424642077605,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2412888195446334,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1850207844319136,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.084774079190759,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "83ac25f3a23c8fa3117edaf8574936bb56736ac8fb39d881b47f23271b8bbfdd",
+      "choices": [
+        "opening-with",
+        "cancel-relative",
+        "automatic-last"
+      ],
+      "a_probability": 0.9544788362760191,
+      "base_distance": 1.2130519921881782,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 24,
+      "factorized_changed_coordinates": 46,
+      "joint_mixtures": [
+        {
+          "distance": 1.2130519921881782,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1934595184490076,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1634523418747245,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1116418343494696,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2130519921881782,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.181740754622036,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.133152824736843,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0471750152990018,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "18bcd64d5c1aba9a2e876a0d520d72b708d4069a948a25d0281b626c5f76029c",
+      "choices": [
+        "opening-with",
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9605416012451848,
+      "base_distance": 1.2097238402229056,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 24,
+      "factorized_changed_coordinates": 52,
+      "joint_mixtures": [
+        {
+          "distance": 1.2097238402229056,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.190415302591196,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1608504758162184,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1098269616484486,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2097238402229056,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.178666272361015,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.130481224787942,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.045248214345491,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "2a91e1a1a833994fce91417ddcb12f84ea7c07f542d687ff636bc31c4885dd91",
+      "choices": [
+        "opening-with",
+        "late-condition",
+        "automatic-last"
+      ],
+      "a_probability": 0.9626570449806352,
+      "base_distance": 1.2601090076373231,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 22,
+      "factorized_changed_coordinates": 44,
+      "joint_mixtures": [
+        {
+          "distance": 1.2601090076373231,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2365626712851425,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2003774545310901,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1375136726933701,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2601090076373231,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2252562299266099,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1710337338189045,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0746000653056793,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "33f50ce68465a434b565784308c5f25ccd7d886e812576c1d13b11eaecad7000",
+      "choices": [
+        "opening-with",
+        "late-condition",
+        "review-before"
+      ],
+      "a_probability": 0.9658492443417723,
+      "base_distance": 1.2567261263205147,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 24,
+      "factorized_changed_coordinates": 54,
+      "joint_mixtures": [
+        {
+          "distance": 1.2567261263205147,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2334603767121626,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1977146644474321,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1356409108024785,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2567261263205147,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2221252349399516,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1683040656557393,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0726174635343644,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "5d5d152b1c69b25cf87080fb6c1cd6bffafb4f58a69f34f9d6aa1c537b6d0959",
+      "choices": [
+        "opening-with",
+        "automatic-last",
+        "review-before"
+      ],
+      "a_probability": 0.9565452703991146,
+      "base_distance": 1.2554159329963441,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.849503319346794,
+      "joint_changed_coordinates": 24,
+      "factorized_changed_coordinates": 46,
+      "joint_mixtures": [
+        {
+          "distance": 1.2554159329963441,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2322590021334692,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.196683698232666,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1349161124993075,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2554159329963441,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2209127066654255,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1672471229397468,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0718500488413252,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "df7be30ca70cb191ad60340f61ea422402a1cbb8c03b6300e0a2a5b214ff3472",
+      "choices": [
+        "induction-exception",
+        "cancel-relative",
+        "late-condition"
+      ],
+      "a_probability": 0.9598913069209365,
+      "base_distance": 1.2850892573227473,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732065,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 170,
+      "joint_mixtures": [
+        {
+          "distance": 1.2850892573227473,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2594875780878894,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2200781939960847,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1514022753335018,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2850892573227473,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2495318348744735,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.194212257926716,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0958245455722007,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "db73f1bdaeecd8a518d514ed2308c964113114c97eac5c755e03745ae66864e1",
+      "choices": [
+        "induction-exception",
+        "cancel-relative",
+        "automatic-last"
+      ],
+      "a_probability": 0.9362738019227201,
+      "base_distance": 1.220944027934288,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732065,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 166,
+      "joint_mixtures": [
+        {
+          "distance": 1.220944027934288,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2006805934192337,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1696273934511376,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1159534755867746,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.220944027934288,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1902330588673102,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1426199530154286,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0585161286959952,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "1886fb0d0cb158c84da319b2556d7aeacbb0ba496bd62dd4aaaff838ea7c5834",
+      "choices": [
+        "induction-exception",
+        "cancel-relative",
+        "review-before"
+      ],
+      "a_probability": 0.9554967880918853,
+      "base_distance": 1.217886732161404,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732065,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 170,
+      "joint_mixtures": [
+        {
+          "distance": 1.217886732161404,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1978828336433014,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1672343677604287,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1142818522202502,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.217886732161404,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.187410683017622,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1401702446559308,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0567536520981353,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "4b0cc3a05c42af0b05f6aecfe60749866b3a58c13e43cc72fbb1abb143a9aee3",
+      "choices": [
+        "induction-exception",
+        "late-condition",
+        "automatic-last"
+      ],
+      "a_probability": 0.9590362262354301,
+      "base_distance": 1.267511226792804,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732066,
+      "joint_changed_coordinates": 54,
+      "factorized_changed_coordinates": 165,
+      "joint_mixtures": [
+        {
+          "distance": 1.267511226792804,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2433528216243446,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2062083288281296,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.141618305311762,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.267511226792804,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2332668348935238,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.180038410413842,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.08553976898972,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "3aebae49d2ba1800979f92285321ecea17ee68b255617432a188bcc9deb6ed75",
+      "choices": [
+        "induction-exception",
+        "late-condition",
+        "review-before"
+      ],
+      "a_probability": 0.9686523002125507,
+      "base_distance": 1.2644289478154094,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732066,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 170,
+      "joint_mixtures": [
+        {
+          "distance": 1.2644289478154094,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2405250935254093,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2037796405718064,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.139908014726097,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2644289478154094,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.23041592751122,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1775557483927737,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0837409824640512,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "49d37787ffada9772844dbe5c79123caaf25678fe574ba58bccd12ba50408881",
+      "choices": [
+        "induction-exception",
+        "automatic-last",
+        "review-before"
+      ],
+      "a_probability": 0.9580911464654028,
+      "base_distance": 1.2628470781653967,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8661457556732066,
+      "joint_changed_coordinates": 55,
+      "factorized_changed_coordinates": 166,
+      "joint_mixtures": [
+        {
+          "distance": 1.2628470781653967,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.23907403674994,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2025335991660107,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1390308913350153,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2628470781653967,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2289529346378008,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1762819282131463,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0828183626309607,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "0dc4b9c731a9fc1ce3a5c8cc2df72014ce8bd1bac7e7811b87cd3c277c84347c",
+      "choices": [
+        "cancel-relative",
+        "late-condition",
+        "automatic-last"
+      ],
+      "a_probability": 0.9648868757892295,
+      "base_distance": 1.275902554175712,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 22,
+      "factorized_changed_coordinates": 38,
+      "joint_mixtures": [
+        {
+          "distance": 1.275902554175712,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2510533941350765,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.2128254185224185,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.146282541032556,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.275902554175712,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.240049637735149,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1842367873400688,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0848530818626774,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "9c87a16df1cf441723210616231f4cf649d0275eddcfb6f967be7b31a1f4d255",
+      "choices": [
+        "cancel-relative",
+        "late-condition",
+        "review-before"
+      ],
+      "a_probability": 0.9726778576370396,
+      "base_distance": 1.2527065897691696,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 24,
+      "factorized_changed_coordinates": 47,
+      "joint_mixtures": [
+        {
+          "distance": 1.2527065897691696,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2297749469093897,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1945523638745716,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.13341823702707,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2527065897691696,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2185790614958767,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.165515603805361,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.071251345565758,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "e40e58779332f37398ecdf97b787735020b58901a0f2f8f9eda13b2f7f159780",
+      "choices": [
+        "cancel-relative",
+        "automatic-last",
+        "review-before"
+      ],
+      "a_probability": 0.9606531884441436,
+      "base_distance": 1.2080899460515349,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 24,
+      "factorized_changed_coordinates": 40,
+      "joint_mixtures": [
+        {
+          "distance": 1.2080899460515349,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.188921017551511,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1595736234983531,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1089367244687138,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2080899460515349,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.1773366957017435,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1296381106303683,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.045314882811058,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    },
+    {
+      "id": "2574c4d2060da4776b111dbf4957f53e309a1ba7273c6a67946f822bc71761c1",
+      "choices": [
+        "late-condition",
+        "automatic-last",
+        "review-before"
+      ],
+      "a_probability": 0.9715713614512509,
+      "base_distance": 1.2551874440890813,
+      "joint_distance": 1.0,
+      "factorized_distance": 0.8519889029217411,
+      "joint_changed_coordinates": 22,
+      "factorized_changed_coordinates": 37,
+      "joint_mixtures": [
+        {
+          "distance": 1.2551874440890813,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2320494989321626,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1965039238753714,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.1347897425952704,
+          "order_weight": 0.5
+        }
+      ],
+      "factorized_mixtures": [
+        {
+          "distance": 1.2551874440890813,
+          "order_weight": 0.0
+        },
+        {
+          "distance": 1.2208744722080038,
+          "order_weight": 0.1
+        },
+        {
+          "distance": 1.1675157011897563,
+          "order_weight": 0.25
+        },
+        {
+          "distance": 1.0727023376735674,
+          "order_weight": 0.5
+        }
+      ],
+      "externally_measured": false
+    }
+  ],
+  "joint_v1_replay_exact": true,
+  "joint_detector_success_observations": 0,
+  "maximum_pangram_human_fraction": 0.0,
+  "budget": {
+    "ledger": "spend is recorded in the private ledger",
+    "billing_verified": false
+  },
+  "review": "Assistant full-passage reviews before new A/Pangram scores; previous adaptive results and profile distances known. All root claims and requested tone checked; no independent preservation or author-fit validation. Neutral probes do not establish editorial improvement.",
+  "validation": "39 grammar-core tests and 9 B tests passed, with two new core tests; formatting and clippy passed on Studio. Installed spaCy extraction ran on actual menus, and the joint-v1 refactor reproduced the earlier audit exactly. No Linux rerun or confidential-compute qualification claimed.",
+  "execution": "All model inference, extraction, fitting, builds and tests on Studio. Earlier local Python was standard-library JSON bookkeeping only; after the user reminder all project Python bookkeeping moved to Studio too. Lightweight HTTP and the authoritative budget ledger remain local.",
+  "conclusion": "Factorization distinguishes more ranking options, but none of the observed revisions meets the joint detector target. Paragraph variants matched their paired Pangram window results despite different returned text hashes; no undocumented normalization behavior is asserted. No whitepaper milestone."
+}

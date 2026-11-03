@@ -1,0 +1,54 @@
+{
+  "schema": "slop_ninja_b_synthetic_v1",
+  "authorship": "synthetic_fixture",
+  "license": "MIT",
+  "profiles": [
+    {
+      "id": "practical",
+      "intent": "A practical, considerate technical writer speaking directly to the reader. Prefer short complete sentences, ordinary verbs and clear conditions. Contractions are welcome where natural. Be calm rather than bossy. Preserve all uncertainty; do not turn advice into a command or invent a personal anecdote.",
+      "references": [
+        {"id": "practical-tools", "text": "Keep a spare bit with the drill. You'll need it when the first one breaks, which usually happens halfway through a job. The little box in the handle works well for this. Check that the spare fits before you put it away. A worn screw can look like the right size and still chew up the tip. If the bit slips, stop and look at the screw. More pressure won't fix a poor fit. Sometimes you need a different driver; sometimes the screw itself needs replacing."},
+        {"id": "practical-route", "text": "Take the footbridge if you're walking from the station. The road looks shorter on the map, but there's no pavement past the garage. I wouldn't send someone that way after dark. The bridge adds about five minutes. Its steps are steep, so use the bus if steps are a problem for you. You'll find the stop outside the station doors. Check the timetable before you leave: the evening buses run less often. Neither route needs a booking, and you can decide when you get there."}
+      ],
+      "held_out": {"id": "practical-sensor", "text": "Put the sensor on the shelf, away from the window. Direct sun can warm the case and push the reading up. Give it a few minutes before you record a value. You don't need to hold it or press a button. If the display stays blank, check the battery contacts first. A new battery won't help if the metal tab isn't touching it. Write down where you put the sensor as well as the reading. That will help you compare tomorrow's result with today's."}
+    },
+    {
+      "id": "measured",
+      "intent": "A measured, precise essayist explaining practical matters to an interested general reader. Use connected paragraphs, varied sentence lengths and explicit reasons. A longer sentence is welcome when it explains a condition or contrast. Be considerate and restrained, without ceremonial formality, hype, personal anecdotes or inflated certainty.",
+      "references": [
+        {"id": "measured-maps", "text": "A map records a choice about what deserves attention. The contour lines tell us something about the effort of a walk, while a street map may omit the slope altogether; neither is a complete account of the ground. This matters when a route looks easy on paper. Distance remains useful, but a short climb over loose stones can take longer than a level road that bends around the hill. Before choosing between them, it helps to ask what the map was made to show. Its omissions are often as consequential as its labels."},
+        {"id": "measured-archive", "text": "An archive becomes easier to use when its arrangement survives the person who devised it. Dates and names offer a reasonable starting point, although they leave some awkward cases: a letter may be undated, or its author may have signed with initials. Those uncertainties should remain visible. Assigning a plausible date makes a catalogue look orderly, but it also turns an inference into an apparent fact. A short note about the evidence is usually more useful than a confident guess, particularly when another reader may later recognize a detail that the first cataloguer missed."}
+      ],
+      "held_out": {"id": "measured-station", "text": "The station clock is useful because travellers agree to consult it, but that agreement does not make the clock infallible. A delayed signal or a loose connection can leave it several minutes behind the platform displays. When the two disagree, the practical question is which system receives the current timetable. Checking that connection takes longer than choosing the more convincing face, yet it gives us a reason for trusting one reading. The same distinction appears in less mechanical settings: an orderly display may deserve attention without deserving the final word."}
+    }
+  ],
+  "tasks": [
+    {
+      "id": "workshop",
+      "source": "The workshop booking process is designed to provide a clear and consistent means of reserving access to the shared equipment. Members may reserve a workbench for up to 90 minutes, and bookings open 7 days before the session. A booking covers the workbench only; it does not include the laser cutter. Access to the laser cutter requires a separate induction, even for members who have used a similar machine elsewhere.\n\nMembers who arrive more than 15 minutes after their booked start time may lose the bench to someone on the waiting list. This is a possibility, rather than an automatic cancellation. If a session is no longer needed, members are asked to cancel it so that another member can use the space. There is no cancellation fee.\n\nThe workshop is trialling these arrangements for 6 weeks. Staff will review waiting times and member feedback before deciding whether to retain them. Shorter waits are an aim of the trial, but they are not a guaranteed outcome. Existing safety rules continue to apply throughout the trial.",
+      "brief": "Rewrite this member notice in the target writer's voice. Keep all operational facts and the reason for cancellation. The trial is provisional. The tone must remain considerate; requests and possible consequences must not become commands or certainties. Do not add opening hours, exceptions, procedures, penalties or safety advice.",
+      "claims": [
+        "Members may book a workbench for up to 90 minutes; bookings open 7 days before the session.",
+        "The workbench booking excludes the laser cutter.",
+        "Laser-cutter access requires a separate induction, including for members experienced with similar machines elsewhere.",
+        "Arriving more than 15 minutes after the start may release the bench to a waiting member; this is not automatic.",
+        "Members are asked to cancel unwanted sessions so someone else can use the space; there is no cancellation fee.",
+        "The arrangements are a 6-week trial. Staff will review waiting times and member feedback before deciding whether to retain them.",
+        "Shorter waits are the aim, not a guaranteed result. Existing safety rules continue throughout."
+      ]
+    },
+    {
+      "id": "offline-notes",
+      "source": "The new offline mode enables users to continue editing notes when an internet connection is unavailable. Edits are stored on the current device and are uploaded when a connection returns, provided that the user is still signed in. Signing out before the upload removes the local copy, so users should confirm that their notes have synced before signing out. The application does not provide a way to recover an unsynced copy after sign-out.\n\nWhen the same note has been edited on two devices, the application keeps both versions and asks the user to choose between them. It does not automatically merge their contents. Attachments remain available offline only if they were downloaded beforehand. Creating a note offline does not, by itself, download any attachments associated with other notes.\n\nOffline mode is currently available on desktop devices. Mobile support is being tested, but no release date has been announced. The desktop feature does not change the existing storage allowance. For shared accounts, the team's usual access rules continue to apply; offline mode does not grant additional permissions.",
+      "brief": "Rewrite this product explanation in the target writer's voice. Keep the sign-out risk and the limits on recovery explicit. Preserve the conditions on sync, conflicts and attachments. Keep the distinction between released desktop support and mobile testing. Do not add implementation details, an offline time limit, a recovery procedure or a release promise.",
+      "claims": [
+        "Users can edit notes offline; edits stay on the current device and upload after reconnection only if the user remains signed in.",
+        "Signing out before upload removes the local copy. Users should check sync first. The app cannot recover the unsynced copy after sign-out.",
+        "Edits to the same note on two devices result in both versions being kept for the user to choose; contents are not automatically merged.",
+        "An attachment is available offline only if downloaded beforehand. Creating an offline note does not download attachments of other notes.",
+        "Offline mode is released on desktop. Mobile support is being tested without an announced release date.",
+        "The storage allowance is unchanged. Shared accounts retain the team's access rules and gain no permissions."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,921 @@
+{
+  "schema": "slopninja-edit-utility-fixtures-v1",
+  "id": "edit-utility-v1",
+  "provenance": {
+    "authorship": "assistant_constructed",
+    "labels": "engineering_expectations_not_human_judgments",
+    "readability": "unjudged",
+    "semantic_equivalence_certified": false,
+    "private_or_corpus_text": false
+  },
+  "rule_catalog_version": "grammar-rules-v1",
+  "scope": {
+    "case_count": 16,
+    "licensed_rule_expectations": 6,
+    "abstention_expectations": 6,
+    "explicit_counterfactuals": 4,
+    "model_calls_required": 0,
+    "detector_calls_required": 0
+  },
+  "execution": {
+    "candidate_scope": "one existing rule application; no search or model fitting",
+    "expected_rules_policy": "compare only listed rules; preserve any observed mismatch as a finding",
+    "protected_expectations_policy": "declared review prompts; validate anchor bytes and report observations without certifying semantic equivalence",
+    "candidate_anchor_policy": "anchors address the expected_candidate_text or explicit_candidate.text; blocked cases have no candidate anchors",
+    "unavailable_features_policy": "record unavailable; never impute feature values or refit frozen geometry",
+    "readability_policy": "no automatic or human readability judgment is supplied",
+    "no_change_option": true
+  },
+  "cases": [
+    {
+      "id": "negative_contraction",
+      "category": "licensed",
+      "source_text": "The service does not store passwords.",
+      "rule_expectations": [
+        {
+          "rule": "contract_negative_auxiliary",
+          "expectation": "suggest",
+          "expected_candidate_text": "The service doesn't store passwords.",
+          "reason": "Adjacent declarative auxiliary and negation match the existing unambiguous contraction dictionary."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "negative_contraction-protected-1",
+          "dimension": "canonical_operator_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 20,
+              "expected": "does not"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 26,
+              "expected": "store"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 19,
+              "expected": "doesn't"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 25,
+              "expected": "store"
+            }
+          ],
+          "note": "The intended negative store clause remains. Report normalized parser lemmas and attachment; do not assume contraction equivalence from spelling alone."
+        },
+        {
+          "id": "negative_contraction-protected-2",
+          "dimension": "content_arguments",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 11,
+              "expected": "service"
+            },
+            {
+              "start_byte": 27,
+              "end_byte": 36,
+              "expected": "passwords"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 11,
+              "expected": "service"
+            },
+            {
+              "start_byte": 26,
+              "end_byte": 35,
+              "expected": "passwords"
+            }
+          ],
+          "note": "Preserve the actor and object. Register, emphasis and readability remain unjudged."
+        }
+      ],
+      "interpretation": "A licensed proposal is available for review; it is not a certified equivalent."
+    },
+    {
+      "id": "negative_expansion",
+      "category": "licensed",
+      "source_text": "The service doesn't store passwords.",
+      "rule_expectations": [
+        {
+          "rule": "expand_negative_auxiliary",
+          "expectation": "suggest",
+          "expected_candidate_text": "The service does not store passwords.",
+          "reason": "The subject precedes the contracted auxiliary in a declarative clause."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "negative_expansion-protected-1",
+          "dimension": "canonical_operator_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 19,
+              "expected": "doesn't"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 25,
+              "expected": "store"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 20,
+              "expected": "does not"
+            },
+            {
+              "start_byte": 21,
+              "end_byte": 26,
+              "expected": "store"
+            }
+          ],
+          "note": "Expansion should retain the local negative clause. Explicit negation may change emphasis; no tone label is supplied."
+        }
+      ],
+      "interpretation": "The inverse surface edit provides an attainable opposite register direction."
+    },
+    {
+      "id": "passive_relative_reduction",
+      "category": "licensed",
+      "source_text": "The files that are encrypted remain private.",
+      "rule_expectations": [
+        {
+          "rule": "reduce_present_passive_relative",
+          "expectation": "suggest",
+          "expected_candidate_text": "The files encrypted remain private.",
+          "reason": "A restrictive relative has adjacent are and a passive participle without a modal, negation or embedded clause."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "passive_relative_reduction-protected-1",
+          "dimension": "explicit_finite_carrier",
+          "expected_change": "changed",
+          "source_anchors": [
+            {
+              "start_byte": 15,
+              "end_byte": 18,
+              "expected": "are"
+            },
+            {
+              "start_byte": 19,
+              "end_byte": 28,
+              "expected": "encrypted"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 10,
+              "end_byte": 19,
+              "expected": "encrypted"
+            }
+          ],
+          "note": "The explicit present-tense carrier is removed. This is a known review obligation, not a meaning-preservation pass."
+        },
+        {
+          "id": "passive_relative_reduction-protected-2",
+          "dimension": "temporal_interpretation",
+          "expected_change": "requires_review",
+          "source_anchors": [
+            {
+              "start_byte": 10,
+              "end_byte": 28,
+              "expected": "that are encrypted"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 10,
+              "end_byte": 19,
+              "expected": "encrypted"
+            }
+          ],
+          "note": "A human must judge whether the implicit temporal reading preserves the intended restriction."
+        }
+      ],
+      "interpretation": "Use this case to expose a risk in an existing licensed edit, not to label the shortened form faithful."
+    },
+    {
+      "id": "independent_coordination_split",
+      "category": "licensed",
+      "source_text": "The service reads records, and users check results.",
+      "rule_expectations": [
+        {
+          "rule": "split_independent_coordination",
+          "expectation": "suggest",
+          "expected_candidate_text": "The service reads records. And users check results.",
+          "reason": "Both finite predicates have their own preceding subjects; the logical connector is retained."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "independent_coordination_split-protected-1",
+          "dimension": "connective_retention",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 27,
+              "end_byte": 30,
+              "expected": "and"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 27,
+              "end_byte": 30,
+              "expected": "And"
+            }
+          ],
+          "note": "Retain conjunction identity across capitalization and the new sentence boundary."
+        },
+        {
+          "id": "independent_coordination_split-protected-2",
+          "dimension": "predicate_argument_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 25,
+              "expected": "service reads records"
+            },
+            {
+              "start_byte": 31,
+              "end_byte": 50,
+              "expected": "users check results"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 25,
+              "expected": "service reads records"
+            },
+            {
+              "start_byte": 31,
+              "end_byte": 50,
+              "expected": "users check results"
+            }
+          ],
+          "note": "Preserve both predicate/argument assignments. ROOT/conj feature labels may change."
+        }
+      ],
+      "interpretation": "Boundary and dependency changes are measurable; discourse rhythm and emphasis require separate judgment."
+    },
+    {
+      "id": "independent_semicolon_split",
+      "category": "licensed",
+      "source_text": "The service reads records; users check results.",
+      "rule_expectations": [
+        {
+          "rule": "split_independent_semicolon",
+          "expectation": "suggest",
+          "expected_candidate_text": "The service reads records. Users check results.",
+          "reason": "Two overt-subject finite clauses have one semicolon and no recognized shared scope."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "independent_semicolon_split-protected-1",
+          "dimension": "predicate_argument_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 25,
+              "expected": "service reads records"
+            },
+            {
+              "start_byte": 27,
+              "end_byte": 46,
+              "expected": "users check results"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 25,
+              "expected": "service reads records"
+            },
+            {
+              "start_byte": 27,
+              "end_byte": 46,
+              "expected": "Users check results"
+            }
+          ],
+          "note": "Capitalization changes are permitted here. Preserve both clauses and their arguments."
+        }
+      ],
+      "interpretation": "Sentence count may move while local operator inventory remains unchanged."
+    },
+    {
+      "id": "independent_sentence_join",
+      "category": "licensed",
+      "source_text": "The service reads records. They check results.",
+      "rule_expectations": [
+        {
+          "rule": "join_independent_sentences",
+          "expectation": "suggest",
+          "expected_candidate_text": "The service reads records; they check results.",
+          "reason": "Adjacent plain clauses have their own subjects; the ordinary pronoun opener can be decapitalized."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "independent_sentence_join-protected-1",
+          "dimension": "predicate_argument_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 25,
+              "expected": "service reads records"
+            },
+            {
+              "start_byte": 27,
+              "end_byte": 45,
+              "expected": "They check results"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 25,
+              "expected": "service reads records"
+            },
+            {
+              "start_byte": 27,
+              "end_byte": 45,
+              "expected": "they check results"
+            }
+          ],
+          "note": "Preserve the pronoun reference and each predicate. Parser structure may change after joining."
+        },
+        {
+          "id": "independent_sentence_join-protected-2",
+          "dimension": "pronoun_reference",
+          "expected_change": "requires_review",
+          "source_anchors": [
+            {
+              "start_byte": 27,
+              "end_byte": 31,
+              "expected": "They"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 27,
+              "end_byte": 31,
+              "expected": "they"
+            }
+          ],
+          "note": "The antecedent is not specified by this isolated fixture. The harness must not invent a resolved referent."
+        }
+      ],
+      "interpretation": "This checks a mechanical suggestion and leaves discourse interpretation unjudged."
+    },
+    {
+      "id": "inverted_question_blocked",
+      "category": "blocked",
+      "source_text": "Doesn't the service store passwords?",
+      "rule_expectations": [
+        {
+          "rule": "expand_negative_auxiliary",
+          "expectation": "abstain",
+          "expected_candidate_text": null,
+          "reason": "The subject follows the auxiliary; literal expansion would create 'Does not the service...' rather than a licensed declarative expansion."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "inverted_question_blocked-protected-1",
+          "dimension": "question_form",
+          "expected_change": "requires_review",
+          "source_anchors": [
+            {
+              "start_byte": 0,
+              "end_byte": 7,
+              "expected": "Doesn't"
+            },
+            {
+              "start_byte": 12,
+              "end_byte": 19,
+              "expected": "service"
+            }
+          ],
+          "candidate_anchors": [],
+          "note": "The current rule must abstain. No alternative question rewrite is proposed."
+        }
+      ],
+      "interpretation": "Failure to propose is expected for this rule, not evidence that every possible rewrite is unsafe."
+    },
+    {
+      "id": "explicit_emphasis_blocked",
+      "category": "blocked",
+      "source_text": "The service DOES NOT store passwords.",
+      "rule_expectations": [
+        {
+          "rule": "contract_negative_auxiliary",
+          "expectation": "abstain",
+          "expected_candidate_text": null,
+          "reason": "The source marks the auxiliary/negation span with all-caps emphasis."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "explicit_emphasis_blocked-protected-1",
+          "dimension": "marked_emphasis",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 20,
+              "expected": "DOES NOT"
+            }
+          ],
+          "candidate_anchors": [],
+          "note": "Abstention leaves the explicitly marked source untouched; no candidate is supplied."
+        }
+      ],
+      "interpretation": "The fixture does not label unmarked contractions as tone-preserving."
+    },
+    {
+      "id": "modal_relative_blocked",
+      "category": "blocked",
+      "source_text": "The files that may be encrypted remain private.",
+      "rule_expectations": [
+        {
+          "rule": "reduce_present_passive_relative",
+          "expectation": "abstain",
+          "expected_candidate_text": null,
+          "reason": "The relative clause has a modal and lacks the required adjacent is/are passive pattern."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "modal_relative_blocked-protected-1",
+          "dimension": "modal_assignment",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 15,
+              "end_byte": 18,
+              "expected": "may"
+            },
+            {
+              "start_byte": 22,
+              "end_byte": 31,
+              "expected": "encrypted"
+            }
+          ],
+          "candidate_anchors": [],
+          "note": "Do not remove or strengthen this qualification to reach a style target."
+        }
+      ],
+      "interpretation": "The modal is part of the claim and is outside the licensed reduction."
+    },
+    {
+      "id": "conditional_coordination_blocked",
+      "category": "blocked",
+      "source_text": "If the test passes, the service restarts and users reconnect.",
+      "rule_expectations": [
+        {
+          "rule": "split_independent_coordination",
+          "expectation": "abstain",
+          "expected_candidate_text": null,
+          "reason": "Recognized conditional/subordinate scope makes the existing boundary rule abstain."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "conditional_coordination_blocked-protected-1",
+          "dimension": "conditional_scope",
+          "expected_change": "requires_review",
+          "source_anchors": [
+            {
+              "start_byte": 0,
+              "end_byte": 18,
+              "expected": "If the test passes"
+            },
+            {
+              "start_byte": 24,
+              "end_byte": 40,
+              "expected": "service restarts"
+            },
+            {
+              "start_byte": 45,
+              "end_byte": 60,
+              "expected": "users reconnect"
+            }
+          ],
+          "candidate_anchors": [],
+          "note": "Do not infer that the condition applies to only one conjunct after a boundary change."
+        }
+      ],
+      "interpretation": "Conditional scope is a review obligation; dependency counts cannot settle it."
+    },
+    {
+      "id": "shared_time_semicolon_blocked",
+      "category": "blocked",
+      "source_text": "Yesterday the service restarted; users reconnected.",
+      "rule_expectations": [
+        {
+          "rule": "split_independent_semicolon",
+          "expectation": "abstain",
+          "expected_candidate_text": null,
+          "reason": "A temporal modifier on the first predicate triggers the existing shared-scope guard."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "shared_time_semicolon_blocked-protected-1",
+          "dimension": "temporal_scope",
+          "expected_change": "requires_review",
+          "source_anchors": [
+            {
+              "start_byte": 0,
+              "end_byte": 9,
+              "expected": "Yesterday"
+            },
+            {
+              "start_byte": 22,
+              "end_byte": 31,
+              "expected": "restarted"
+            },
+            {
+              "start_byte": 39,
+              "end_byte": 50,
+              "expected": "reconnected"
+            }
+          ],
+          "candidate_anchors": [],
+          "note": "The fixture does not decide whether Yesterday also scopes over reconnection. The proposer should abstain."
+        }
+      ],
+      "interpretation": "Record which parse relation triggered abstention; do not assign a semantic scope from that relation alone."
+    },
+    {
+      "id": "quotation_join_blocked",
+      "category": "blocked",
+      "source_text": "\"The service reads records. They check results.\"",
+      "rule_expectations": [
+        {
+          "rule": "join_independent_sentences",
+          "expectation": "abstain",
+          "expected_candidate_text": null,
+          "reason": "The source contains an explicit quotation spanning the sentence boundary."
+        }
+      ],
+      "explicit_candidate": null,
+      "protected_expectations": [
+        {
+          "id": "quotation_join_blocked-protected-1",
+          "dimension": "quoted_source_bytes",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 0,
+              "end_byte": 48,
+              "expected": "\"The service reads records. They check results.\""
+            }
+          ],
+          "candidate_anchors": [],
+          "note": "Keep the quotation unchanged. No alternate quoted text is supplied."
+        }
+      ],
+      "interpretation": "The quotation guard is a syntactic restriction; it does not identify every possible unmarked quotation."
+    },
+    {
+      "id": "modal_strength_counterfactual",
+      "category": "counterfactual",
+      "source_text": "The client may retry.",
+      "rule_expectations": [],
+      "explicit_candidate": {
+        "text": "The client must retry.",
+        "purpose": "Manually specified semantic counterexample; no current rule is expected to generate it."
+      },
+      "protected_expectations": [
+        {
+          "id": "modal_strength_counterfactual-protected-1",
+          "dimension": "modal_assignment",
+          "expected_change": "changed",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 14,
+              "expected": "may"
+            },
+            {
+              "start_byte": 15,
+              "end_byte": 20,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 15,
+              "expected": "must"
+            },
+            {
+              "start_byte": 16,
+              "end_byte": 21,
+              "expected": "retry"
+            }
+          ],
+          "note": "Permission/possibility and requirement/necessity are different qualifications here; neither is a neutral stylistic replacement."
+        },
+        {
+          "id": "modal_strength_counterfactual-protected-2",
+          "dimension": "content_arguments",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 10,
+              "expected": "client"
+            }
+          ],
+          "note": "Retaining the actor and main predicate does not preserve the qualification."
+        }
+      ],
+      "interpretation": "Reject a neutral-style interpretation regardless of target proximity. The exact contextual modal reading remains unspecified."
+    },
+    {
+      "id": "negation_deletion_counterfactual",
+      "category": "counterfactual",
+      "source_text": "The client does not retry.",
+      "rule_expectations": [],
+      "explicit_candidate": {
+        "text": "The client retries.",
+        "purpose": "Manually specified deletion of a claim qualification; no current rule is expected to generate it."
+      },
+      "protected_expectations": [
+        {
+          "id": "negation_deletion_counterfactual-protected-1",
+          "dimension": "polarity_assignment",
+          "expected_change": "changed",
+          "source_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 19,
+              "expected": "does not"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 25,
+              "expected": "retry"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 11,
+              "end_byte": 18,
+              "expected": "retries"
+            }
+          ],
+          "note": "The source denies retrying; the candidate asserts it. A favorable style score cannot compensate."
+        }
+      ],
+      "interpretation": "An explicit meaning-changing control with readability unjudged."
+    },
+    {
+      "id": "modal_swap_counterfactual",
+      "category": "counterfactual",
+      "source_text": "Kim may leave. Lee must stay.",
+      "rule_expectations": [],
+      "explicit_candidate": {
+        "text": "Kim must leave. Lee may stay.",
+        "purpose": "Manually swap modal assignments while preserving the document's modal inventory."
+      },
+      "protected_expectations": [
+        {
+          "id": "modal_swap_counterfactual-protected-1",
+          "dimension": "kim_modal_assignment",
+          "expected_change": "changed",
+          "source_anchors": [
+            {
+              "start_byte": 0,
+              "end_byte": 3,
+              "expected": "Kim"
+            },
+            {
+              "start_byte": 4,
+              "end_byte": 7,
+              "expected": "may"
+            },
+            {
+              "start_byte": 8,
+              "end_byte": 13,
+              "expected": "leave"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 0,
+              "end_byte": 3,
+              "expected": "Kim"
+            },
+            {
+              "start_byte": 4,
+              "end_byte": 8,
+              "expected": "must"
+            },
+            {
+              "start_byte": 9,
+              "end_byte": 14,
+              "expected": "leave"
+            }
+          ],
+          "note": "The modal attached to Kim's leaving changes."
+        },
+        {
+          "id": "modal_swap_counterfactual-protected-2",
+          "dimension": "lee_modal_assignment",
+          "expected_change": "changed",
+          "source_anchors": [
+            {
+              "start_byte": 15,
+              "end_byte": 18,
+              "expected": "Lee"
+            },
+            {
+              "start_byte": 19,
+              "end_byte": 23,
+              "expected": "must"
+            },
+            {
+              "start_byte": 24,
+              "end_byte": 28,
+              "expected": "stay"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 16,
+              "end_byte": 19,
+              "expected": "Lee"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 23,
+              "expected": "may"
+            },
+            {
+              "start_byte": 24,
+              "end_byte": 28,
+              "expected": "stay"
+            }
+          ],
+          "note": "The modal attached to Lee's staying changes."
+        },
+        {
+          "id": "modal_swap_counterfactual-protected-3",
+          "dimension": "aggregate_modal_inventory",
+          "expected_change": "unchanged",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 7,
+              "expected": "may"
+            },
+            {
+              "start_byte": 19,
+              "end_byte": 23,
+              "expected": "must"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 20,
+              "end_byte": 23,
+              "expected": "may"
+            },
+            {
+              "start_byte": 4,
+              "end_byte": 8,
+              "expected": "must"
+            }
+          ],
+          "note": "One may and one must remain. The harness should measure whether the full operator-family multiset also remains equal; equality would not certify fidelity."
+        }
+      ],
+      "interpretation": "Count-based style representations can lose the association between operators and individual claims."
+    },
+    {
+      "id": "negation_attribution_counterfactual",
+      "category": "counterfactual",
+      "source_text": "The monitor did not report that the service failed.",
+      "rule_expectations": [],
+      "explicit_candidate": {
+        "text": "The monitor reported that the service did not fail.",
+        "purpose": "Manually relocate negation from the reporting clause into the reported clause."
+      },
+      "protected_expectations": [
+        {
+          "id": "negation_attribution_counterfactual-protected-1",
+          "dimension": "negation_clause_assignment",
+          "expected_change": "changed",
+          "source_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 19,
+              "expected": "did not"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 26,
+              "expected": "report"
+            },
+            {
+              "start_byte": 44,
+              "end_byte": 50,
+              "expected": "failed"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 12,
+              "end_byte": 20,
+              "expected": "reported"
+            },
+            {
+              "start_byte": 38,
+              "end_byte": 45,
+              "expected": "did not"
+            },
+            {
+              "start_byte": 46,
+              "end_byte": 50,
+              "expected": "fail"
+            }
+          ],
+          "note": "The source denies a report; the candidate asserts a report with a negative embedded claim."
+        },
+        {
+          "id": "negation_attribution_counterfactual-protected-2",
+          "dimension": "attribution",
+          "expected_change": "changed",
+          "source_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 11,
+              "expected": "monitor"
+            },
+            {
+              "start_byte": 20,
+              "end_byte": 26,
+              "expected": "report"
+            }
+          ],
+          "candidate_anchors": [
+            {
+              "start_byte": 4,
+              "end_byte": 11,
+              "expected": "monitor"
+            },
+            {
+              "start_byte": 12,
+              "end_byte": 20,
+              "expected": "reported"
+            }
+          ],
+          "note": "Retaining the monitor and report lemma does not retain the original attribution."
+        }
+      ],
+      "interpretation": "Negation count alone cannot distinguish these claims; local attachment and source-aligned claim records matter."
+    }
+  ]
+}

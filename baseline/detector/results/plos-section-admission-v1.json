@@ -1,0 +1,477 @@
+{
+  "schema": "slop_ninja_plos_admission_summary_v1",
+  "recorded_at": "2026-09-14T21:06:47Z",
+  "execution_host": "Studio macOS arm64",
+  "candidate_count": 33,
+  "admitted_records": 13,
+  "pending_records": 20,
+  "admitted_evidence": "historical_proxy",
+  "split_assigned": false,
+  "active_training_inputs_changed": false,
+  "model_calls": 0,
+  "provider_calls": 0,
+  "preparation_sha256": "69e5081d3f80c442a305d8df9d6dd8e4a50c8f44d9b57e29bc360abbb0124ca4",
+  "declaration_sha256": "e38d2b17a0429ad000a70efed22b85cec8f6a78e1db9010267d9452c19a55833",
+  "records_sha256": "99d0f65bc5e129a0d2824beab7e685820de9fb41d55425b50d96fc411b77f164",
+  "full_admission_report_sha256": "6f73f36f3677bcd5076db135b0d00dfab6beb4be62bb686507334c9c2a68c0ee",
+  "full_overlap_report_sha256": "a9d97df5d05c5feaaea345a709c715489c6fa25d3ed269eaad3ad8f27fca0c85",
+  "overlap": {
+    "plan_sha256": "ddb5daee53929c89c5bdda66b80530aba9f0dcf6d26bd58ea020bae617655e61",
+    "historical_ledger_rows_recovered": 6847,
+    "historical_files_used": 20,
+    "bound_input_files": 29,
+    "input_rows_before_deduplication": 25060,
+    "existing_unique_texts": 9243,
+    "candidate_pair_comparisons_included": true,
+    "candidates_with_existing_group_matches": 0,
+    "candidates_with_flagged_matches": 0,
+    "largest_shared_run": 9,
+    "method": {
+      "candidate_pair_comparisons_included": true,
+      "minimum_shared_run": 5,
+      "review_minimum_candidate_word_coverage": 0.2,
+      "review_minimum_contiguous_words": 20,
+      "same_candidate_self_comparisons_excluded": true,
+      "tokens": "grammar_core::features::words; NFC lowercase letter words, digits and punctuation excluded"
+    },
+    "rows": [
+      {
+        "doi": "10.1371/journal.pone.0200967",
+        "text_sha256": "5166b4cd58d30d4443eea361aba5692aba41edb25b553c68faadb31c8ecaef7b",
+        "lexical_words": 793,
+        "matching_texts_at_least_five_words": 5,
+        "maximum_shared_run": 6,
+        "maximum_candidate_word_coverage": 0.007566204287515763,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0203248",
+        "text_sha256": "06aadd5e82d6d5ce2cee3f4126c5034560977a28bb20dbbd4e1ae14a77aea83f",
+        "lexical_words": 1004,
+        "matching_texts_at_least_five_words": 10,
+        "maximum_shared_run": 5,
+        "maximum_candidate_word_coverage": 0.0049800796812749,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0203246",
+        "text_sha256": "ff76be4f50764c086100ae8f9d873051b679e3f8e298ca413077fff67ac7d6ff",
+        "lexical_words": 652,
+        "matching_texts_at_least_five_words": 5,
+        "maximum_shared_run": 5,
+        "maximum_candidate_word_coverage": 0.007668711656441718,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0199340",
+        "text_sha256": "0b7b11a8512787a93801cb4e56a4844c77823e0977a8496a7e66996baf8cf937",
+        "lexical_words": 762,
+        "matching_texts_at_least_five_words": 32,
+        "maximum_shared_run": 6,
+        "maximum_candidate_word_coverage": 0.007874015748031496,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0202453",
+        "text_sha256": "a97fe30a4bc47e5011b871e1d7bd5fb9dfcd5933e01b7d950423a6f56da695d4",
+        "lexical_words": 815,
+        "matching_texts_at_least_five_words": 9,
+        "maximum_shared_run": 5,
+        "maximum_candidate_word_coverage": 0.006134969325153374,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0200673",
+        "text_sha256": "14c1edf8f64ad78f58070a478470cf67b73561bef3054cae2fbd3b15fa20e36e",
+        "lexical_words": 746,
+        "matching_texts_at_least_five_words": 3,
+        "maximum_shared_run": 5,
+        "maximum_candidate_word_coverage": 0.006702412868632708,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0204197",
+        "text_sha256": "e39a2cc4ecceab136ffce2baac3012281b6e53ada8327867c99529997dd0651a",
+        "lexical_words": 729,
+        "matching_texts_at_least_five_words": 0,
+        "maximum_shared_run": null,
+        "maximum_candidate_word_coverage": null,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0201998",
+        "text_sha256": "c2c91d8d6a2a353e5e3fe5778101ef82310a01d2fc428e2b82142df2939a8838",
+        "lexical_words": 651,
+        "matching_texts_at_least_five_words": 6,
+        "maximum_shared_run": 5,
+        "maximum_candidate_word_coverage": 0.007680491551459293,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0201196",
+        "text_sha256": "6d051d51b40f0e6ba14d1ef001d0585d981ebffa66f6406405cb2707eeeef8ee",
+        "lexical_words": 1225,
+        "matching_texts_at_least_five_words": 15,
+        "maximum_shared_run": 9,
+        "maximum_candidate_word_coverage": 0.007346938775510204,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0203732",
+        "text_sha256": "c6878f2d9818da057a7b07882c093edd05bbafebdbf08821f837a780decdd2a4",
+        "lexical_words": 855,
+        "matching_texts_at_least_five_words": 26,
+        "maximum_shared_run": 5,
+        "maximum_candidate_word_coverage": 0.005847953216374269,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0203974",
+        "text_sha256": "9aa118dcd0b3eaeb765ea1e768945e7ea9a4f4023980c1b08dd65026c4f12cbf",
+        "lexical_words": 922,
+        "matching_texts_at_least_five_words": 9,
+        "maximum_shared_run": 5,
+        "maximum_candidate_word_coverage": 0.005422993492407809,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0197924",
+        "text_sha256": "ae1373084edf5626f930409df626b60bf63de37521de7ae417c14818e9a9d831",
+        "lexical_words": 962,
+        "matching_texts_at_least_five_words": 16,
+        "maximum_shared_run": 5,
+        "maximum_candidate_word_coverage": 0.005197505197505198,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0204187",
+        "text_sha256": "531f52aa0a6f0c0ed7419116e7941dc9d4bfd24b71bfdee37d542e8cafd96070",
+        "lexical_words": 828,
+        "matching_texts_at_least_five_words": 7,
+        "maximum_shared_run": 7,
+        "maximum_candidate_word_coverage": 0.008454106280193236,
+        "existing_group_match": false
+      },
+      {
+        "doi": "10.1371/journal.pone.0200118",
+        "text_sha256": "a9f92fc5c289bf5bcc0d068ec4557b9522b09a7f06604d604b783d87125df5ce",
+        "lexical_words": 1012,
+        "matching_texts_at_least_five_words": 9,
+        "maximum_shared_run": 6,
+        "maximum_candidate_word_coverage": 0.005928853754940711,
+        "existing_group_match": false
+      }
+    ]
+  },
+  "decisions": [
+    {
+      "a_tokens": 1029,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0200967",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0200967"
+      ],
+      "id": "plos:10.1371/journal.pone.0200967:introduction:5166b4cd58d30d44",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0200967",
+      "text_sha256": "5166b4cd58d30d4443eea361aba5692aba41edb25b553c68faadb31c8ecaef7b"
+    },
+    {
+      "a_tokens": 1348,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0203248",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0203248"
+      ],
+      "id": "plos:10.1371/journal.pone.0203248:introduction:06aadd5e82d6d5ce",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0203248",
+      "text_sha256": "06aadd5e82d6d5ce2cee3f4126c5034560977a28bb20dbbd4e1ae14a77aea83f"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0203980",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "1e330a294fe3e790b1e6189787f38e9f63c8502a449507d947a425055ceffacf"
+    },
+    {
+      "a_tokens": 854,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0203246",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0203246"
+      ],
+      "id": "plos:10.1371/journal.pone.0203246:introduction:ff76be4f50764c08",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0203246",
+      "text_sha256": "ff76be4f50764c086100ae8f9d873051b679e3f8e298ca413077fff67ac7d6ff"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0203566",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "24b6a89476da49f3a043e9890738c553c63b853a8b354ef1438783e44549caa8"
+    },
+    {
+      "a_tokens": 931,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0199340",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0199340"
+      ],
+      "id": "plos:10.1371/journal.pone.0199340:introduction:0b7b11a8512787a9",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0199340",
+      "text_sha256": "0b7b11a8512787a93801cb4e56a4844c77823e0977a8496a7e66996baf8cf937"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0202852",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "2af15cafc8b83f3df52de1c76ac441c742f8e8d9a482c9906ffb003c58f2ac4e"
+    },
+    {
+      "a_tokens": 1154,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0202453",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0202453"
+      ],
+      "id": "plos:10.1371/journal.pone.0202453:introduction:a97fe30a4bc47e50",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0202453",
+      "text_sha256": "a97fe30a4bc47e5011b871e1d7bd5fb9dfcd5933e01b7d950423a6f56da695d4"
+    },
+    {
+      "a_tokens": 1204,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0200673",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0200673"
+      ],
+      "id": "plos:10.1371/journal.pone.0200673:introduction:14c1edf8f64ad78f",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0200673",
+      "text_sha256": "14c1edf8f64ad78f58070a478470cf67b73561bef3054cae2fbd3b15fa20e36e"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0203577",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "52cc5e9c9bb5d8925956b7203730380175d6ad58a31b7ae9da450e5e69335b0c"
+    },
+    {
+      "a_tokens": 945,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0204197",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0204197"
+      ],
+      "id": "plos:10.1371/journal.pone.0204197:introduction:e39a2cc4ecceab13",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0204197",
+      "text_sha256": "e39a2cc4ecceab136ffce2baac3012281b6e53ada8327867c99529997dd0651a"
+    },
+    {
+      "a_tokens": 919,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0201998",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0201998"
+      ],
+      "id": "plos:10.1371/journal.pone.0201998:introduction:c2c91d8d6a2a353e",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "text_sha256": "c2c91d8d6a2a353e5e3fe5778101ef82310a01d2fc428e2b82142df2939a8838"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0203909",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "619838627ea792851bcfe194946e6635b46bb107b635f3c507fa6c2d26ded4de"
+    },
+    {
+      "a_tokens": 1698,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0201196",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0201196",
+        "doi:10.1371/journal.pone.0205138"
+      ],
+      "id": "plos:10.1371/journal.pone.0201196:introduction:6d051d51b40f0e6b",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations. Reserve the declared companion DOI as an alias of this same source family; it is absent from the checked corpus.",
+      "source_group": "doi:10.1371/journal.pone.0201196",
+      "text_sha256": "6d051d51b40f0e6ba14d1ef001d0585d981ebffa66f6406405cb2707eeeef8ee"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0199408",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "72f694fdc86f9321d0c221932235d1ef4e53b1b291f1eeafb9ff919f8f294f07"
+    },
+    {
+      "a_tokens": 1151,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0203732",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0203732"
+      ],
+      "id": "plos:10.1371/journal.pone.0203732:introduction:c6878f2d9818da05",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0203732",
+      "text_sha256": "c6878f2d9818da057a7b07882c093edd05bbafebdbf08821f837a780decdd2a4"
+    },
+    {
+      "a_tokens": 1374,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0203974",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0203974"
+      ],
+      "id": "plos:10.1371/journal.pone.0203974:introduction:9aa118dcd0b3eaeb",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "text_sha256": "9aa118dcd0b3eaeb765ea1e768945e7ea9a4f4023980c1b08dd65026c4f12cbf"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0203249",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "acf9038fcc6efbe84410ab92f1da87724edf12e5ed9abcf4890b305dd6cbcd4c"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0197963",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "b25f19b9daa9d73304a44223b0de7489e97c206b8bdc66a69aa22bc09f7f8420"
+    },
+    {
+      "a_tokens": 1168,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0197924",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0197924"
+      ],
+      "id": "plos:10.1371/journal.pone.0197924:introduction:ae1373084edf5626",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0197924",
+      "text_sha256": "ae1373084edf5626f930409df626b60bf63de37521de7ae417c14818e9a9d831"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0204194",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "b7a9efa14249380f1311538b1d02766c81361ef3d6c9eabbca8ed4fef8d1937f"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0201509",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "b9a925cd8b4ebd1d67c51a0ea8ded6afeb36e7d56c8d592dab3de62b03537125"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0204187",
+      "reason": "The two attributed passages have unresolved commercial quotation permissions under the declared corpus policy; retain the entire candidate.",
+      "section_sha256": "bbcd88f1db8ee2e9e044bde2eff1d0db81d3175431d3942330530654814b930b"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0202712",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "c7206e4c3afb956d478317b56d9deb1029105dfdfad426422b9b6ac43044fd84"
+    },
+    {
+      "a_tokens": 1331,
+      "decision": "admitted_unsplit_historical_proxy",
+      "doi": "10.1371/journal.pone.0200118",
+      "family_aliases": [
+        "doi:10.1371/journal.pone.0200118"
+      ],
+      "id": "plos:10.1371/journal.pone.0200118:introduction:a9f92fc5c289bf5b",
+      "reason": "Complete rendering, credited authors and CC BY 4.0 notice were inspected. Whole-text token count is supported. No duplicate, existing-work membership or flagged shared passage was found in the bound corpus screen. Admit as an unsplit weak historical proxy, preserving source errors and citations.",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "text_sha256": "a9f92fc5c289bf5bcc0d068ec4557b9522b09a7f06604d604b783d87125df5ce"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0203099",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "ce16debfb8090ce08c284c5154603a0cd4b506302c9be78ceebfc1d22e328776"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0202063",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "ce6ddb3ca931bf2337d1e86853c0bbccc2ba91fbdd7bfd6278cb1dd9005bccfc"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0204388",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "dfe53af005ab946bd47616ee82e4f5ac5d8e12fe5eb619ead49c0ec94b23f068"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0200129",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "e02521d47b8fd75107d64367fe97e3444eb95f326544625dd3cfd1f0bd8e5ef0"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0201332",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "e7729afa49762f3f02c4cbaf6defe5beefd2c7de6b2d9fd128b8c3517130bbd1"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0202720",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "e94053edd6d36e59d0abcfba064980e89aff4c99fbaec371ab9e4d782cb6cf8d"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0198056",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "fa804cd75320c3834e74d2a96a05fd93c9046985626444a492777a0048ec769d"
+    },
+    {
+      "decision": "pending",
+      "doi": "10.1371/journal.pone.0202613",
+      "reason": "Complete section rendering remains unsupported; retain the entire candidate without removing unhandled content.",
+      "section_sha256": "fbfc5c26ac98ddbb07b78b72b79d0c73ca2638171682824eb5f32a7d0c1e0e88"
+    }
+  ],
+  "related_family_aliases": {
+    "doi:10.1371/journal.pone.0201196": [
+      "doi:10.1371/journal.pone.0201196",
+      "doi:10.1371/journal.pone.0205138"
+    ]
+  },
+  "validation": {
+    "cargo_fmt_check": "passed",
+    "cargo_test_locked": "passed",
+    "cargo_clippy_all_targets_D_warnings": "passed",
+    "shared_run_oracle_check": "passed",
+    "actual_admission": "13 full OriginRecords passed existing dataset validation; rendering, token, rights and overlap evidence checked against bindings",
+    "artifacts_reverified_after_execution": true,
+    "linux_execution": "unverified"
+  },
+  "tool_hashes": {
+    "audit_source": "2e5288f5f4ed5eeb4180d2f62ff56e111b1756f8888e5f91aa5b86c294ea8b05",
+    "audit_binary": "d540675fd9fb6502037086debcd3f54aa3828c510ad087c79800839fdd4e5de5",
+    "admit_source": "678ac16c151a835ecb139b69ff3f4229508ec95f70ebbc502c919274aea7b422",
+    "admit_binary": "9f3d47eccd173caaca23c60d1afe8439578ca058f372f6246fbd7e84823b809f"
+  },
+  "execution_notes": [
+    "An initial audit stopped before corpus comparisons because it compared the manifest file hash with the original ledger compact-JSON hash. The corrected run preserves both checks and recovers every ledger row. Initial logs and tools remain archived.",
+    "Only the corrected, qualified replay supplies these overlap results. A preceding formatting check failure and its older-binary preflight attempt are not qualification evidence."
+  ],
+  "limitations": [
+    "Current publisher bytes plus 2019 publication metadata support only weak historical-proxy labels, not a documented human-only workflow.",
+    "The lexical screen covers the declared inputs, not all collected or published text; no paraphrase or independent-authorship guarantee follows.",
+    "Manual review covers complete rendering, credited authors and notices; it does not establish scientific or grammatical correctness.",
+    "These introductions are one additional scientific register. No detector-quality result or reference promotion follows from admission.",
+    "Raw source text and detailed artifacts remain on Studio outside the repository; nothing from private manuscripts was used."
+  ]
+}

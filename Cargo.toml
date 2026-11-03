@@ -1,0 +1,40 @@
+[package]
+name = "unslop"
+version = "0.2.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Corpus profiling and controlled prose revision experiments"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+hpke = { version = "=0.14.1", default-features = false, features = ["alloc", "x25519", "chacha", "getrandom"] }
+getrandom = "0.4"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+roxmltree = "0.20"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+schnorrkel = "=0.11.5"
+scraper = "=0.27.0"
+sha2 = "0.10"
+tempfile = "3"
+unicode-normalization = "0.1"
+unicode_categories = "0.1"
+zeroize = "1"
+
+[dev-dependencies]
+# Form rules and a tokenizer used by research examples not included in this
+# snapshot.
+grammar-a-form = { path = "grammar/crates/grammar-a-form" }
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "unslop"
+path = "src/main.rs"

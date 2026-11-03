@@ -1,0 +1,23 @@
+{
+  "schema": "slop_ninja_capacity_comparison_preflight_v1",
+  "status": "prepared_not_executed",
+  "plan_sha256": "7f1b2668747d8053e26af76cd2a123655d092b458e962e8bd38f94dc3c7a7c84",
+  "executable_sha256": "77730b9a50c7c0454d16ca632d371015ee13e71d1439fd461ab9db6268735a5b",
+  "base_plan_sha256": "3a454016d24c56d645625c25ba3ead1862e43ccf68cf2ef9990884192cf07fea",
+  "matched_base_fields": [
+    "python",
+    "calibration",
+    "calibration_view",
+    "hosted",
+    "grammar",
+    "cases"
+  ],
+  "training_inputs_unchanged_except_checkpoint": true,
+  "catalog_and_capacity_protocol_bound": true,
+  "files_verified": 42,
+  "corpus_views": 7,
+  "hosted_requests": 96,
+  "grammar_requests": 26,
+  "inference_calls": 0,
+  "provider_calls": 0
+}

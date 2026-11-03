@@ -1,0 +1,227 @@
+{
+  "schema": "slop_ninja_boundary_space_case_review_v1",
+  "at": "2026-09-15T15:00:55Z",
+  "reviewer": "assistant",
+  "summary_sha256": "2864e7e650c648f0fbac40ecb9be52dcd74bc2ae07962a71f6540d129e6fbf03",
+  "selection_script_sha256": "70a4a1289019b1e65238bd17a9031297e58381faf630ffde8930b29470e437d4",
+  "record_script_sha256": "fc61e319b598ea85b246dbbda99799ea30e7c8ed6c1826335231dc2e9be29c44",
+  "selection": "Largest absolute paired change per detector and origin, deduplicated; outcome-selected diagnostic inspection.",
+  "cases": [
+    {
+      "id": "plos:10.1371/journal.pone.0208754:abstract:4325c7ff35ce794c",
+      "origin": "human_only",
+      "collection": "plos_one",
+      "text_sha256": [
+        "4325c7ff35ce794c36918b6b83dbd5889cccb0311448f42d3c09c4343a0a3034",
+        "02ceb1823af34364f5df6add3ac6d265251193aa77bb99d3147bbdb955c1623a"
+      ],
+      "complete_trimmed_text_read": true,
+      "exact_prefix_verified": true,
+      "judgment": "Single-paragraph porpoise-behavior abstract with measurements, qualifications and awkward source wording. Prefix preserves them all. V6 and control scores fall; consistency rises slightly.",
+      "scores": {
+        "v6": [
+          0.14980488927065583,
+          0.009022573603343322
+        ],
+        "control": [
+          0.45030215372634835,
+          0.17691603118230215
+        ],
+        "consistency": [
+          0.005198060970293159,
+          0.006210217064001688
+        ]
+      }
+    },
+    {
+      "id": "generation:e3eb2fed9ba6a9eb8a6c5c258028c0aa0e2babcefa1bc025bdce8aa510025d04",
+      "origin": "mixed",
+      "collection": "cmu-books-historical",
+      "text_sha256": [
+        "2289c2fdc2512acf0ebd1302f64c510e86a1751e6a382368b6e24270ce6bb0d2",
+        "806143962d8c7341a9dfc35350487a46448fcd636f22cfe0fa9d189c1354415b"
+      ],
+      "complete_trimmed_text_read": true,
+      "exact_prefix_verified": true,
+      "judgment": "Single-paragraph wolf-novel summary ending with promotional questions. V6 falls below 10% without changing those constructions. Both refits remain above 90%.",
+      "scores": {
+        "v6": [
+          0.9681611125173231,
+          0.04366212235374517
+        ],
+        "control": [
+          0.9715425479594119,
+          0.9252859629671765
+        ],
+        "consistency": [
+          0.9593973797430313,
+          0.9102180820218533
+        ]
+      }
+    },
+    {
+      "id": "generation:b3c67f02f149ed3150b6d682a51a52a96771ad46ed3465dff9d6be6e48198f76",
+      "origin": "model_only",
+      "collection": "hc3-wiki-historical",
+      "text_sha256": [
+        "1f8f3b432861c0c1a092f4d426072c27ef05f5e7a1a5e82a77b6646d1c94037e",
+        "3a77ecd48b02a3940d01e0a3f5fde6d2b36419873862b6a66fce30c586192ffc"
+      ],
+      "complete_trimmed_text_read": true,
+      "exact_prefix_verified": true,
+      "judgment": "Single-paragraph customer-lifetime-value explanation, including acronyms and a cited book title. V6 falls below 2% with identical wording; both refits remain above 97%.",
+      "scores": {
+        "v6": [
+          0.9672762459918947,
+          0.012969471082025058
+        ],
+        "control": [
+          0.9831670079242736,
+          0.979284324941406
+        ],
+        "consistency": [
+          0.9913147965222188,
+          0.9885499993266509
+        ]
+      }
+    },
+    {
+      "id": "generation:f2a37a61e68c5a1f6c0fcaddcd558a11cbb9e11daa724e1604cc8743385d1105",
+      "origin": "mixed",
+      "collection": "hc3-wiki-historical",
+      "text_sha256": [
+        "eaac8910febc2195853bdab69ea89dafb704a5db0ef743350f7ed42842749022",
+        "04a49aa6606dc4588fd349f2765f45c676c42ecb904775bcc204e8980f8f873c"
+      ],
+      "complete_trimmed_text_read": true,
+      "exact_prefix_verified": true,
+      "judgment": "Three-paragraph dynamic-Bayesian-network explanation. Internal whitespace and technical notation remain exact. V6 falls below 1%; neither refit has a comparable drop.",
+      "scores": {
+        "v6": [
+          0.8324696664232807,
+          0.009638243730644768
+        ],
+        "control": [
+          0.7876587760312898,
+          0.6660725253907768
+        ],
+        "consistency": [
+          0.7396688350861617,
+          0.7232655615736955
+        ]
+      }
+    },
+    {
+      "id": "generation:aa58c83a2e1646fa3fcc128321eb050b5dad648e317f1efcf5f749e39e9a6153",
+      "origin": "model_only",
+      "collection": "wikinews",
+      "text_sha256": [
+        "e3d782f801b60f3aecef78002b75b51d9e0f5820684df5ea534f8ca0e017537a",
+        "31a988b9adc3e24221c746071c7024c82466c2884a6e2a868d75c6315c3b9017"
+      ],
+      "complete_trimmed_text_read": true,
+      "exact_prefix_verified": true,
+      "judgment": "Four-paragraph Deep Impact mission report retaining dates, instruments, speeds and mission phases. V6 crosses its strict cutoff; both refits remain above 97%.",
+      "scores": {
+        "v6": [
+          0.8511543643848004,
+          0.7981019459955275
+        ],
+        "control": [
+          0.9803322699411714,
+          0.9708883987135957
+        ],
+        "consistency": [
+          0.9804931553704925,
+          0.9787440742718418
+        ]
+      }
+    },
+    {
+      "id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "origin": "human_only",
+      "collection": "wikinews",
+      "text_sha256": [
+        "be240fa8a178127fadaebc802d140ab2af884174a472905a36f169b7030269a1",
+        "6e01fb39bc386996e34bd064d5607625fff4052d0a832ae47d4741ec96b3619a"
+      ],
+      "complete_trimmed_text_read": true,
+      "exact_prefix_verified": true,
+      "judgment": "Four-paragraph awards report retaining its nominations, awards and named works. The prefix raises consistency from 7.30% to 25.54%; V6 and control fall slightly.",
+      "scores": {
+        "v6": [
+          0.010158608272752284,
+          0.0012888271653368338
+        ],
+        "control": [
+          0.018638010666777463,
+          0.01519567150190646
+        ],
+        "consistency": [
+          0.07302700783918481,
+          0.2554466123228945
+        ]
+      }
+    },
+    {
+      "id": "generation:7389bc6c98a76756744a3143e20fc4cd798405f190069af6d70a0c19e9487876",
+      "origin": "mixed",
+      "collection": "wikinews",
+      "text_sha256": [
+        "e13be573bf4e97058ad38ca7a2e82696bfa848d70ec98fd8cd13fb57127ca8e4",
+        "331cc4612f7750597bb3943e2ad230b3d43a955bb91ba6b06b05445b503aa570"
+      ],
+      "complete_trimmed_text_read": true,
+      "exact_prefix_verified": true,
+      "judgment": "Multi-item news digest with an uncorroborated-report qualification and a closing review-policy reference. Formatting and qualifications stay exact. Consistency rises across its loose cutoff while V6 and control fall.",
+      "scores": {
+        "v6": [
+          0.3063231667289408,
+          0.03712174837976448
+        ],
+        "control": [
+          0.8779130588328539,
+          0.830203257037708
+        ],
+        "consistency": [
+          0.701788478597072,
+          0.8220958480932412
+        ]
+      }
+    },
+    {
+      "id": "generation:d108fa94fd47b847af1f0383b6f50edd0cda780f0631791c03831ccaafbf2021",
+      "origin": "model_only",
+      "collection": "plos_one",
+      "text_sha256": [
+        "e3791266d49bebe8006ca5cc23af5eea9bdd7064f6e7d2498763092b2127347b",
+        "b448694a740793c9ce619777663d07311709daf43d5a551c17cd41fcd2c119fe"
+      ],
+      "complete_trimmed_text_read": true,
+      "exact_prefix_verified": true,
+      "judgment": "Four-paragraph cardiac-cell experiment explanation with cell classes, measurements and conclusions. V6 and consistency fall while control rises; all remain above 90%.",
+      "scores": {
+        "v6": [
+          0.9667624195151026,
+          0.9081546896300712
+        ],
+        "control": [
+          0.9814575883436351,
+          0.9855857183700187
+        ],
+        "consistency": [
+          0.9795724182357401,
+          0.9683841610750559
+        ]
+      }
+    }
+  ],
+  "full_selected_passages_read": 8,
+  "independent_human_gold": false,
+  "grammar_accuracy_claim": false,
+  "generation_fidelity_assessed": false,
+  "new_training_records": 0,
+  "provider_calls": 0,
+  "fresh_confirmation": false,
+  "reference_promoted": false
+}

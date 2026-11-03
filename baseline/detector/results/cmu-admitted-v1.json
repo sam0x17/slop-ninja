@@ -1,0 +1,66 @@
+{
+  "book_authors_used_as_summary_authors": false,
+  "corpus_sha256": "78b9798653ab65d697561f91796011e077fb29355b65bca4152df6926d4f08fb",
+  "dataset": {
+    "collections": {
+      "cmu-books-historical": 75
+    },
+    "evidence": {
+      "historical_proxy": 75
+    },
+    "licenses": {
+      "CC-BY-SA-3.0": 75
+    },
+    "origins": {
+      "human_only": 75
+    },
+    "records": 75,
+    "source_groups": 75,
+    "splits": {
+      "calibration": 10,
+      "development": 6,
+      "test": 7,
+      "train": 52
+    },
+    "words_max": 496,
+    "words_min": 84
+  },
+  "decisions": {
+    "Long quotation requires separate review": 7,
+    "No full historical match": 16,
+    "Source notice requires separate review: attribution": 1,
+    "Source notice requires separate review: plagiar": 1,
+    "admitted": 75
+  },
+  "decisions_sha256": "94d50c490e400e0404f67f3ee0ce82888529d100a1c4b03293c287d9f78733ec",
+  "exclude_corpora": [
+    {
+      "corpus_sha256": "ab40f42fd54f845e0291d9b5f544279b0de587a5ade4543aa53b29ad6d972851"
+    }
+  ],
+  "executable_sha256": "f3e257c74a75a335f87fbda4ecdf9dce700cd589e7b6ec7298153fe18ed31fa7",
+  "generator_calls": 0,
+  "input_sha256": "94516c64d1b4ac6b8b397ef106ee598b43d0e5364ffd8305edc945dce04f4305",
+  "pangram_calls": 0,
+  "policy_sha256": "03073e3d0da041d440e0cc952239b2eec95963eab0f84593c5d483abfe415f94",
+  "qualification": "Historical proxies, conservative notice/quotation screen; no strong provenance or detector qualification claim.",
+  "review_inputs": [
+    {
+      "plan_sha256": "8d0616e2461e76801ddea18acdbfb95afb1a5905c97487c11609beec1e3e9ceb",
+      "results_sha256": "d38a92005c28357e67ad6b0e31e839a3270edfafe59dbe382ff876d8ae6e2dd1"
+    }
+  ],
+  "reviewed": 100,
+  "schema": "slop_ninja_cmu_admission_summary_v1",
+  "split_report": {
+    "counts": {
+      "calibration": 10,
+      "development": 6,
+      "test": 7,
+      "train": 52
+    },
+    "merged_duplicate_groups": 0,
+    "seed": "slop-ninja-cmu-narrative-v1"
+  },
+  "status": "complete"
+}

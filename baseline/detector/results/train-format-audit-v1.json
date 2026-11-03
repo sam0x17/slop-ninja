@@ -1,0 +1,1910 @@
+{
+  "at": "2026-09-15T13:55:48.532382Z",
+  "binary_sha256": "148bea56dd47c88f3d35c8d3606f219d1c2259400d9c920898465e2cf0d60514",
+  "buckets": [
+    {
+      "key": [
+        "collection_origin",
+        "cmu-books-historical",
+        "human_only"
+      ],
+      "summary": {
+        "family_origin_cells": 196,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 1.0,
+            "row_fraction": 1.0,
+            "rows": 196
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 1.0,
+            "row_fraction": 1.0,
+            "rows": 196
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 1.0,
+            "row_fraction": 1.0,
+            "rows": 196
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 1.0,
+            "row_fraction": 1.0,
+            "rows": 196
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 1.0,
+            "row_fraction": 1.0,
+            "rows": 196
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 196,
+        "source_families": 196
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "cmu-books-historical",
+        "mixed"
+      ],
+      "summary": {
+        "family_origin_cells": 196,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.40816326530612224,
+            "row_fraction": 0.4251824817518248,
+            "rows": 233
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.4064625850340134,
+            "row_fraction": 0.4233576642335766,
+            "rows": 232
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.40816326530612224,
+            "row_fraction": 0.4251824817518248,
+            "rows": 233
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.03486394557823128,
+            "row_fraction": 0.0364963503649635,
+            "rows": 20
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 548,
+        "source_families": 196
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "cmu-books-historical",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 196,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.3649659863945579,
+            "row_fraction": 0.37446351931330474,
+            "rows": 349
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.3649659863945579,
+            "row_fraction": 0.37446351931330474,
+            "rows": 349
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.3649659863945579,
+            "row_fraction": 0.37446351931330474,
+            "rows": 349
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.0163265306122449,
+            "row_fraction": 0.017167381974248927,
+            "rows": 16
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 932,
+        "source_families": 196
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "hc3-wiki-historical",
+        "human_only"
+      ],
+      "summary": {
+        "family_origin_cells": 178,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.8651685393258427,
+            "row_fraction": 0.8651685393258427,
+            "rows": 154
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.8146067415730337,
+            "row_fraction": 0.8146067415730337,
+            "rows": 145
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.02247191011235955,
+            "row_fraction": 0.02247191011235955,
+            "rows": 4
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.30337078651685395,
+            "row_fraction": 0.30337078651685395,
+            "rows": 54
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 178,
+        "source_families": 178
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "hc3-wiki-historical",
+        "mixed"
+      ],
+      "summary": {
+        "family_origin_cells": 178,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.49999999999999994,
+            "row_fraction": 0.5338809034907598,
+            "rows": 260
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.495318352059925,
+            "row_fraction": 0.5297741273100616,
+            "rows": 258
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.495318352059925,
+            "row_fraction": 0.5297741273100616,
+            "rows": 258
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.004681647940074906,
+            "row_fraction": 0.004106776180698152,
+            "rows": 2
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.013108614232209737,
+            "row_fraction": 0.014373716632443531,
+            "rows": 7
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 487,
+        "source_families": 178
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "hc3-wiki-historical",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 178,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.32640449438202246,
+            "row_fraction": 0.35128518971848227,
+            "rows": 287
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.32640449438202246,
+            "row_fraction": 0.35128518971848227,
+            "rows": 287
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.32640449438202246,
+            "row_fraction": 0.35128518971848227,
+            "rows": 287
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.0044943820224719105,
+            "row_fraction": 0.004895960832313341,
+            "rows": 4
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 817,
+        "source_families": 178
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "plos_one",
+        "human_only"
+      ],
+      "summary": {
+        "family_origin_cells": 44,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.4318181818181818,
+            "row_fraction": 0.4318181818181818,
+            "rows": 19
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.4318181818181818,
+            "row_fraction": 0.4318181818181818,
+            "rows": 19
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.4318181818181818,
+            "row_fraction": 0.4318181818181818,
+            "rows": 19
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 44,
+        "source_families": 44
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "plos_one",
+        "mixed"
+      ],
+      "summary": {
+        "family_origin_cells": 44,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.6477272727272727,
+            "row_fraction": 0.6395348837209303,
+            "rows": 55
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.6477272727272727,
+            "row_fraction": 0.6395348837209303,
+            "rows": 55
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.6477272727272727,
+            "row_fraction": 0.6395348837209303,
+            "rows": 55
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.06818181818181818,
+            "row_fraction": 0.046511627906976744,
+            "rows": 4
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 86,
+        "source_families": 44
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "plos_one",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 44,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.4128787878787879,
+            "row_fraction": 0.41379310344827586,
+            "rows": 72
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.4128787878787879,
+            "row_fraction": 0.41379310344827586,
+            "rows": 72
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.4128787878787879,
+            "row_fraction": 0.41379310344827586,
+            "rows": 72
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.005681818181818182,
+            "row_fraction": 0.005747126436781609,
+            "rows": 1
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 174,
+        "source_families": 44
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "wikinews",
+        "human_only"
+      ],
+      "summary": {
+        "family_origin_cells": 53,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 1.0,
+            "row_fraction": 1.0,
+            "rows": 53
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 1.0,
+            "row_fraction": 1.0,
+            "rows": 53
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 1.0,
+            "row_fraction": 1.0,
+            "rows": 53
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 53,
+        "source_families": 53
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "wikinews",
+        "mixed"
+      ],
+      "summary": {
+        "family_origin_cells": 53,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.9339622641509434,
+            "row_fraction": 0.9339622641509434,
+            "rows": 99
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.9245283018867925,
+            "row_fraction": 0.9245283018867925,
+            "rows": 98
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.9339622641509434,
+            "row_fraction": 0.9339622641509434,
+            "rows": 99
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.018867924528301886,
+            "row_fraction": 0.018867924528301886,
+            "rows": 2
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 106,
+        "source_families": 53
+      }
+    },
+    {
+      "key": [
+        "collection_origin",
+        "wikinews",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 53,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.75,
+            "row_fraction": 0.75,
+            "rows": 159
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.75,
+            "row_fraction": 0.75,
+            "rows": 159
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.75,
+            "row_fraction": 0.75,
+            "rows": 159
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.018867924528301886,
+            "row_fraction": 0.018867924528301886,
+            "rows": 4
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 212,
+        "source_families": 53
+      }
+    },
+    {
+      "key": [
+        "generator_operation_origin",
+        "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde",
+        "draft",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 387,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.4754521963824289,
+            "row_fraction": 0.4754521963824289,
+            "rows": 184
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.4754521963824289,
+            "row_fraction": 0.4754521963824289,
+            "rows": 184
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.4754521963824289,
+            "row_fraction": 0.4754521963824289,
+            "rows": 184
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 387,
+        "source_families": 387
+      }
+    },
+    {
+      "key": [
+        "generator_operation_origin",
+        "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde",
+        "edit",
+        "mixed"
+      ],
+      "summary": {
+        "family_origin_cells": 387,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.6356589147286822,
+            "row_fraction": 0.6356589147286822,
+            "rows": 246
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.6330749354005168,
+            "row_fraction": 0.6330749354005168,
+            "rows": 245
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.6356589147286822,
+            "row_fraction": 0.6356589147286822,
+            "rows": 246
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 387,
+        "source_families": 387
+      }
+    },
+    {
+      "key": [
+        "generator_operation_origin",
+        "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde",
+        "revise",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 454,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.4889867841409692,
+            "row_fraction": 0.4889867841409692,
+            "rows": 222
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.4889867841409692,
+            "row_fraction": 0.4889867841409692,
+            "rows": 222
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.4889867841409692,
+            "row_fraction": 0.4889867841409692,
+            "rows": 222
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 454,
+        "source_families": 454
+      }
+    },
+    {
+      "key": [
+        "generator_operation_origin",
+        "mlx-community/Olmo-3-7B-Instruct-4bit@d732c91ae02e90cd5d86e810fbeb9741794b4dd9",
+        "draft",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 419,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.3556085918854415,
+            "row_fraction": 0.3556085918854415,
+            "rows": 149
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.3556085918854415,
+            "row_fraction": 0.3556085918854415,
+            "rows": 149
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.3556085918854415,
+            "row_fraction": 0.3556085918854415,
+            "rows": 149
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.002386634844868735,
+            "row_fraction": 0.002386634844868735,
+            "rows": 1
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 419,
+        "source_families": 419
+      }
+    },
+    {
+      "key": [
+        "generator_operation_origin",
+        "mlx-community/Olmo-3-7B-Instruct-4bit@d732c91ae02e90cd5d86e810fbeb9741794b4dd9",
+        "edit",
+        "mixed"
+      ],
+      "summary": {
+        "family_origin_cells": 419,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.5441527446300716,
+            "row_fraction": 0.5441527446300716,
+            "rows": 228
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.5441527446300716,
+            "row_fraction": 0.5441527446300716,
+            "rows": 228
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.5441527446300716,
+            "row_fraction": 0.5441527446300716,
+            "rows": 228
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.002386634844868735,
+            "row_fraction": 0.002386634844868735,
+            "rows": 1
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 419,
+        "source_families": 419
+      }
+    },
+    {
+      "key": [
+        "generator_operation_origin",
+        "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+        "draft",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 421,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.30403800475059384,
+            "row_fraction": 0.30403800475059384,
+            "rows": 128
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.30403800475059384,
+            "row_fraction": 0.30403800475059384,
+            "rows": 128
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.30403800475059384,
+            "row_fraction": 0.30403800475059384,
+            "rows": 128
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.030878859857482184,
+            "row_fraction": 0.030878859857482184,
+            "rows": 13
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 421,
+        "source_families": 421
+      }
+    },
+    {
+      "key": [
+        "generator_operation_origin",
+        "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+        "edit",
+        "mixed"
+      ],
+      "summary": {
+        "family_origin_cells": 421,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.41092636579572445,
+            "row_fraction": 0.41092636579572445,
+            "rows": 173
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.40380047505938244,
+            "row_fraction": 0.40380047505938244,
+            "rows": 170
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.40617577197149646,
+            "row_fraction": 0.40617577197149646,
+            "rows": 171
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.004750593824228029,
+            "row_fraction": 0.004750593824228029,
+            "rows": 2
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.07600950118764846,
+            "row_fraction": 0.07600950118764846,
+            "rows": 32
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 421,
+        "source_families": 421
+      }
+    },
+    {
+      "key": [
+        "generator_operation_origin",
+        "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+        "revise",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 454,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.4052863436123348,
+            "row_fraction": 0.4052863436123348,
+            "rows": 184
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.4052863436123348,
+            "row_fraction": 0.4052863436123348,
+            "rows": 184
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.4052863436123348,
+            "row_fraction": 0.4052863436123348,
+            "rows": 184
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.024229074889867842,
+            "row_fraction": 0.024229074889867842,
+            "rows": 11
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 454,
+        "source_families": 454
+      }
+    },
+    {
+      "key": [
+        "origin",
+        "human_only"
+      ],
+      "summary": {
+        "family_origin_cells": 471,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.8959660297239915,
+            "row_fraction": 0.8959660297239915,
+            "rows": 422
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.416135881104034,
+            "row_fraction": 0.416135881104034,
+            "rows": 196
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.416135881104034,
+            "row_fraction": 0.416135881104034,
+            "rows": 196
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.15286624203821655,
+            "row_fraction": 0.15286624203821655,
+            "rows": 72
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.4607218683651805,
+            "row_fraction": 0.4607218683651805,
+            "rows": 217
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.008492569002123142,
+            "row_fraction": 0.008492569002123142,
+            "rows": 4
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.11464968152866242,
+            "row_fraction": 0.11464968152866242,
+            "rows": 54
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.416135881104034,
+            "row_fraction": 0.416135881104034,
+            "rows": 196
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.416135881104034,
+            "row_fraction": 0.416135881104034,
+            "rows": 196
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 471,
+        "source_families": 471
+      }
+    },
+    {
+      "key": [
+        "origin",
+        "mixed"
+      ],
+      "summary": {
+        "family_origin_cells": 471,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.5244161358811044,
+            "row_fraction": 0.5273023634881826,
+            "rows": 647
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.520877565463553,
+            "row_fraction": 0.5240423797881011,
+            "rows": 643
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.5226468506723287,
+            "row_fraction": 0.5256723716381418,
+            "rows": 645
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0017692852087756545,
+            "row_fraction": 0.0016299918500407497,
+            "rows": 2
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.027954706298655353,
+            "row_fraction": 0.02689486552567237,
+            "rows": 33
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 1227,
+        "source_families": 471
+      }
+    },
+    {
+      "key": [
+        "origin",
+        "model_only"
+      ],
+      "summary": {
+        "family_origin_cells": 471,
+        "features": {
+          "canonical_differs": {
+            "equal_family_origin_fraction": 0.3981953290870486,
+            "row_fraction": 0.4060889929742389,
+            "rows": 867
+          },
+          "changed_only_by_boundary_trim": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "changed_only_by_removing_one_leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_cr": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_exact_lf_lf": {
+            "equal_family_origin_fraction": 0.3981953290870486,
+            "row_fraction": 0.4060889929742389,
+            "rows": 867
+          },
+          "contains_lf": {
+            "equal_family_origin_fraction": 0.3981953290870486,
+            "row_fraction": 0.4060889929742389,
+            "rows": 867
+          },
+          "contains_narrow_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_nbsp": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "contains_repeated_ascii_space": {
+            "equal_family_origin_fraction": 0.01114649681528663,
+            "row_fraction": 0.0117096018735363,
+            "rows": 25
+          },
+          "contains_tab": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_ascii_space": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "leading_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          },
+          "trailing_unicode_whitespace": {
+            "equal_family_origin_fraction": 0.0,
+            "row_fraction": 0.0,
+            "rows": 0
+          }
+        },
+        "rows": 2135,
+        "source_families": 471
+      }
+    }
+  ],
+  "cargo_lock_sha256": "b88f3294b3a48a6045019d842ba60e597fc55d07923a2fc6e40a1fdd72e13a6a",
+  "coverage": {
+    "family_origin_cells": 1413,
+    "features": {
+      "canonical_differs": {
+        "equal_family_origin_fraction": 0.6061924982307157,
+        "row_fraction": 0.5050873989042526,
+        "rows": 1936
+      },
+      "changed_only_by_boundary_trim": {
+        "equal_family_origin_fraction": 0.1387119603680113,
+        "row_fraction": 0.05113488129402557,
+        "rows": 196
+      },
+      "changed_only_by_removing_one_leading_ascii_space": {
+        "equal_family_origin_fraction": 0.1387119603680113,
+        "row_fraction": 0.05113488129402557,
+        "rows": 196
+      },
+      "contains_cr": {
+        "equal_family_origin_fraction": 0.0,
+        "row_fraction": 0.0,
+        "rows": 0
+      },
+      "contains_exact_lf_lf": {
+        "equal_family_origin_fraction": 0.35731304552960585,
+        "row_fraction": 0.4127315418732064,
+        "rows": 1582
+      },
+      "contains_lf": {
+        "equal_family_origin_fraction": 0.46052134937485306,
+        "row_fraction": 0.45108270284372554,
+        "rows": 1729
+      },
+      "contains_narrow_nbsp": {
+        "equal_family_origin_fraction": 0.0005897617362585515,
+        "row_fraction": 0.0005217845030002609,
+        "rows": 2
+      },
+      "contains_nbsp": {
+        "equal_family_origin_fraction": 0.0028308563340410475,
+        "row_fraction": 0.0010435690060005217,
+        "rows": 4
+      },
+      "contains_repeated_ascii_space": {
+        "equal_family_origin_fraction": 0.051250294880868144,
+        "row_fraction": 0.02921993216801461,
+        "rows": 112
+      },
+      "contains_tab": {
+        "equal_family_origin_fraction": 0.0,
+        "row_fraction": 0.0,
+        "rows": 0
+      },
+      "leading_ascii_space": {
+        "equal_family_origin_fraction": 0.1387119603680113,
+        "row_fraction": 0.05113488129402557,
+        "rows": 196
+      },
+      "leading_unicode_whitespace": {
+        "equal_family_origin_fraction": 0.1387119603680113,
+        "row_fraction": 0.05113488129402557,
+        "rows": 196
+      },
+      "trailing_unicode_whitespace": {
+        "equal_family_origin_fraction": 0.0,
+        "row_fraction": 0.0,
+        "rows": 0
+      }
+    },
+    "rows": 3833,
+    "source_families": 471
+  },
+  "data_or_training_changed": false,
+  "input_views_verified": true,
+  "model_calls": 0,
+  "protocol_sha256": "6842fc99127a84c39b916224c6887a11abb7b93024f3bc3967a859a24f1692c0",
+  "provider_calls": 0,
+  "raw_sha256": "023d6e5428236502e877bac0afe0e9e9ee4aa9d10ab38eb940ca8e915cf7502e",
+  "schema": "slop_ninja_train_format_audit_v1",
+  "source_sha256": "90149941b3a56c872ecb9b89acda6f6196e32cee3a06cbd00408146220a7a5e1",
+  "whitespace_sha256": "5074105ad388d664106b62b0d82f2faf7dbc7b6771b09a2ec2ecb26dbde64ab8"
+}

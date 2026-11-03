@@ -1,0 +1,22 @@
+[package]
+name = "slop-ninja-transformer"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Recorded author-conditioned B baseline experiments"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+grammar-core = { path = "../../grammar/crates/grammar-core" }
+grammar-spacy = { path = "../../grammar/crates/grammar-spacy" }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+
+[[bin]]
+name = "slop_ninja_transformer"
+path = "src/main.rs"

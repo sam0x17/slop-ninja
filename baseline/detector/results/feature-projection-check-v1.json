@@ -1,0 +1,15 @@
+{
+  "schema": "slop_ninja_feature_projection_check_v1",
+  "scope": "One previously inspected Train source; numeric and feature replay only, not detector accuracy or edit-transfer evidence.",
+  "projection_matches_cached_vector": true,
+  "features_sha256": "05f5689e61525fd8b3f38d222f3deae46ecb8ced2c9529a83cda05abb00addae",
+  "feature_space_sha256": "b7e43a5f3ebf45fb716361326f698ddbc5248baf2d6605899eeb1dcaa0303dd2",
+  "text_sha256": "4f7903c3ad14e5475e543b622d6e48dbdd62f3191593db2fc89efe143a5d657b",
+  "gradient_dimensions": 8192,
+  "gradient_finite": true,
+  "artifact_manifest_sha256": "ffb5644d442301f048cf8b040921224c44cca7d2ba0c5cae99b5eef6103abcb0",
+  "projector_sha256": "078432c1da0f90f86d9cd24ff4d51e50a031367596eeb15efb26c81f4bab8bea",
+  "entrypoint_sha256": "54c8386bf4dbd19fbf33037045dee66e9e88938bea66e5e622be3b67647d48a8",
+  "model_fitting_in_projection": false,
+  "provider_calls": false
+}

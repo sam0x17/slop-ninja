@@ -1,0 +1,268 @@
+{
+  "clean_holdout": false,
+  "exclusions": [
+    {
+      "id": "local-f84203c727ddc4e561492b9b",
+      "normalized_sha256": "10210b95943692e6bc2e75be904d6d92b3aa4626938714ba7cd38fdf65a7b46e",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:jane_austen:pg161",
+      "split": "train",
+      "text_sha256": "3cdec6d5a51396ff2b2196c095870e7e4c054d1956c70d7c44a072d29110a618"
+    },
+    {
+      "id": "local-6299fcb4e4ec5d0bf357632d",
+      "normalized_sha256": "10210b95943692e6bc2e75be904d6d92b3aa4626938714ba7cd38fdf65a7b46e",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:jane_austen:pg158",
+      "split": "development",
+      "text_sha256": "3cdec6d5a51396ff2b2196c095870e7e4c054d1956c70d7c44a072d29110a618"
+    },
+    {
+      "id": "local-f1ce891ce3435bad0ce7435d",
+      "normalized_sha256": "cb650d6ea7763b33907f0a1d2440466cdef3093d262e74d223fcaf669faaa275",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:charles_dickens:pg1400",
+      "split": "train",
+      "text_sha256": "419b8f3686768e05af26eae27b865df04eab349f039db1c1de9a7fca09df7aca"
+    },
+    {
+      "id": "local-4ae4cbd272844220a38d0611",
+      "normalized_sha256": "cb650d6ea7763b33907f0a1d2440466cdef3093d262e74d223fcaf669faaa275",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:mark_twain:pg86",
+      "split": "development",
+      "text_sha256": "419b8f3686768e05af26eae27b865df04eab349f039db1c1de9a7fca09df7aca"
+    },
+    {
+      "id": "local-09a65e935a8870f875482d6c",
+      "normalized_sha256": "77ab2abaf8286c213e708f13b9c1ab16ade7e25a029918a722a40ada2b25eae6",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:h_g_wells:pg36",
+      "split": "train",
+      "text_sha256": "efcd481cbfe4962a8f530a514173cdb9008d86e72166f1fb67aad96e27cdc33f"
+    },
+    {
+      "id": "local-14842a7062ecaf683667a177",
+      "normalized_sha256": "77ab2abaf8286c213e708f13b9c1ab16ade7e25a029918a722a40ada2b25eae6",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:h_g_wells:pg5230",
+      "split": "development",
+      "text_sha256": "efcd481cbfe4962a8f530a514173cdb9008d86e72166f1fb67aad96e27cdc33f"
+    },
+    {
+      "id": "local-d9307e2e4c59d0d02a0b68d5",
+      "normalized_sha256": "d26f8377c350f07746e0dad6e8d7636d7536eb7ab482e306f752cb4249646f46",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:h_g_wells:pg5230",
+      "split": "development",
+      "text_sha256": "5ec2c7bd0cbcb713807d94d59e49f04f9c49f50fc57e8f0ace472c4332b53fc8"
+    },
+    {
+      "id": "local-1fd5ecb6a1b52eb56a051dbe",
+      "normalized_sha256": "cb650d6ea7763b33907f0a1d2440466cdef3093d262e74d223fcaf669faaa275",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:r_l_stevenson:pg120",
+      "split": "calibration",
+      "text_sha256": "419b8f3686768e05af26eae27b865df04eab349f039db1c1de9a7fca09df7aca"
+    },
+    {
+      "id": "local-2a74740f1ed8fc3862419ff3",
+      "normalized_sha256": "77ab2abaf8286c213e708f13b9c1ab16ade7e25a029918a722a40ada2b25eae6",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:r_l_stevenson:pg43",
+      "split": "calibration",
+      "text_sha256": "efcd481cbfe4962a8f530a514173cdb9008d86e72166f1fb67aad96e27cdc33f"
+    },
+    {
+      "id": "local-2c86fb821fc2a6ee730d1f58",
+      "normalized_sha256": "d26f8377c350f07746e0dad6e8d7636d7536eb7ab482e306f752cb4249646f46",
+      "reason": "all_copies_of_cross_split_from_scratch_duplicate_excluded",
+      "source_group": "author_work_v1:r_l_stevenson:pg43",
+      "split": "calibration",
+      "text_sha256": "5ec2c7bd0cbcb713807d94d59e49f04f9c49f50fc57e8f0ace472c4332b53fc8"
+    },
+    {
+      "id": "local-049a4a26dd4e82df90ca5195",
+      "normalized_sha256": "22e640a5e63fbb62e8f5231535f0f36546ca2cbb22c3d6805bc2a00e569370f2",
+      "reason": "from_scratch_duplicate_of_prior_or_retained_Test_text",
+      "source_group": "author_work_v1:jane_austen:pg105"
+    },
+    {
+      "id": "local-4e22224c2da7f714513f42c3",
+      "normalized_sha256": "390c9de99ead07b7694b8fa18c39d4d7d7ec7738e7142dc28bac1308626aadb5",
+      "reason": "from_scratch_duplicate_of_prior_or_retained_Test_text",
+      "source_group": "author_work_v1:h_g_wells:pg1013"
+    },
+    {
+      "id": "local-e1117dd2e69cf054a30d0574",
+      "normalized_sha256": "194b84739c8479bea3acc698c51337f6f6bfe77e10ea1ad2a66eeb484fee15d0",
+      "reason": "from_scratch_duplicate_of_prior_or_retained_Test_text",
+      "source_group": "author_work_v1:mark_twain:pg3177"
+    }
+  ],
+  "files": {
+    "calibration.jsonl": {
+      "bytes": 1322877,
+      "sha256": "fc821d8cb3e20241e020292e9397acab53ecf1fcac10e3e929e47b6150528cbd"
+    },
+    "development.jsonl": {
+      "bytes": 1307643,
+      "sha256": "81f51e931fe75cf5b3aef3bf1d7b538958735a8b2c83113591b417518800bf92"
+    },
+    "reference.jsonl": {
+      "bytes": 63211,
+      "sha256": "f55c594a04f141f621163ebad11847b3b5eafddacce7687bda98a462f60c6a98"
+    },
+    "test.jsonl": {
+      "bytes": 1229577,
+      "sha256": "c03401fa2199d7945e082e1fd6562af2a70d37898479c11cdc40d20eb822bd76"
+    },
+    "train.jsonl": {
+      "bytes": 3183197,
+      "sha256": "5d3ea78c825484110f1ba8c369299ee65f880fc4076d22c62eb353215492781e"
+    }
+  },
+  "fractional_share_rows": 88,
+  "future_hidden_test": false,
+  "historical_source_file_sha256": {
+    "datasets/detector-v6/calibration.jsonl": "e26ed741c1fbe2d64dc7e8d49211573eaa44b11589524ce76f2b487a9b711031",
+    "datasets/detector-v6/development.jsonl": "c9ee825909a37b7aee0863c00437f2375d5569f702de80c12f515af1df29a78b",
+    "datasets/detector-v6/test.jsonl": "9d49faf9f9415352d49f286c523f24af0677128ac149478d7e422190b5c896b4",
+    "datasets/detector-v6/train.jsonl": "023d6e5428236502e877bac0afe0e9e9ee4aa9d10ab38eb940ca8e915cf7502e"
+  },
+  "limits": [
+    "historical human labels are proxies",
+    "model-only history differs from complete model rewrite of a human source",
+    "missing share and identity labels remain masked",
+    "this public projection does not replace the original frozen model's input hashes",
+    "author-work acquisition receipts are retained as provenance; this publisher does not reopen private source archives or independently establish rights"
+  ],
+  "model_fit_changed": false,
+  "origin_counts": {
+    "calibration:human_only": 22,
+    "calibration:mixed": 46,
+    "calibration:model_only": 39,
+    "development:human_only": 22,
+    "development:mixed": 46,
+    "development:model_only": 38,
+    "reference:human_only": 8,
+    "test:human_only": 21,
+    "test:mixed": 45,
+    "test:model_only": 36,
+    "train:human_only": 38,
+    "train:mixed": 84,
+    "train:model_only": 107
+  },
+  "original_population_bindings": [
+    {
+      "manifest_sha256": "815950c5652d0da5aa0758e6bfdee6b2b00ce6e3b51a540281e12224e1ca4793",
+      "population": "non_test",
+      "records_sha256": "78dcf52f3b041e51bd3841512d64d27dc7f3b26d9436242562f8b0d6a42f34b5"
+    },
+    {
+      "manifest_sha256": "c6eead496426372e4d368109af520ce2ecd0f0258f6dc4b9bbabfcd59d97a610",
+      "population": "opened_test",
+      "records_sha256": "549677100e55483c2d7acc0a4de7f46277da4daf655a7642637afcfb5d6ec4ff"
+    }
+  ],
+  "partitions": {
+    "calibration": 107,
+    "development": 106,
+    "reference": 8,
+    "test": 102,
+    "train": 229
+  },
+  "privacy": "public historical sources and recorded local derivatives only; no private profiles, correspondence, credentials or provider invocation logs",
+  "records": 552,
+  "rights": "Per-record licenses, attribution, change notices and ShareAlike obligations retained. Author excerpts rely on recorded US public-domain determinations; geographic scope is not expanded. New generated text and curation supplied under CC-BY-SA-4.0 to the extent rights exist, subject to underlying rights and generator terms.",
+  "schema": "slop_ninja_a_supervised_public_snapshot_v1",
+  "source_families": 85,
+  "source_group_splits": {
+    "author_work_v1:arthur_conan_doyle:pg2097": "development",
+    "author_work_v1:arthur_conan_doyle:pg244": "development",
+    "author_work_v1:charles_dickens:pg1023": "test",
+    "author_work_v1:charles_dickens:pg1400": "train",
+    "author_work_v1:charles_dickens:pg730": "development",
+    "author_work_v1:charles_dickens:pg766": "calibration",
+    "author_work_v1:charles_dickens:pg98": "train",
+    "author_work_v1:h_g_wells:pg1013": "test",
+    "author_work_v1:h_g_wells:pg159": "calibration",
+    "author_work_v1:h_g_wells:pg35": "train",
+    "author_work_v1:h_g_wells:pg36": "train",
+    "author_work_v1:h_g_wells:pg5230": "development",
+    "author_work_v1:jane_austen:pg105": "test",
+    "author_work_v1:jane_austen:pg1342": "train",
+    "author_work_v1:jane_austen:pg141": "calibration",
+    "author_work_v1:jane_austen:pg158": "development",
+    "author_work_v1:jane_austen:pg161": "train",
+    "author_work_v1:mark_twain:pg1837": "calibration",
+    "author_work_v1:mark_twain:pg3177": "test",
+    "author_work_v1:mark_twain:pg74": "train",
+    "author_work_v1:mark_twain:pg76": "train",
+    "author_work_v1:mark_twain:pg86": "development",
+    "author_work_v1:mary_shelley:pg18247": "test",
+    "author_work_v1:mary_shelley:pg84": "test",
+    "author_work_v1:r_l_stevenson:pg120": "calibration",
+    "author_work_v1:r_l_stevenson:pg43": "calibration",
+    "doi:10.1371/journal.pone.0209792": "test",
+    "doi:10.1371/journal.pone.0209853": "development",
+    "doi:10.1371/journal.pone.0209957": "calibration",
+    "doi:10.1371/journal.pone.0209984": "test",
+    "doi:10.1371/journal.pone.0209989": "development",
+    "doi:10.1371/journal.pone.0209992": "calibration",
+    "doi:10.1371/journal.pone.0210004": "development",
+    "doi:10.1371/journal.pone.0210038": "test",
+    "doi:10.1371/journal.pone.0210049": "calibration",
+    "wikinews:146601": "development",
+    "wikinews:16544": "development",
+    "wikinews:1816332": "test",
+    "wikinews:264430": "test",
+    "wikinews:265645": "calibration",
+    "wikinews:43221": "test",
+    "wikinews:62145": "development",
+    "wikinews:6960": "calibration",
+    "wikinews:88704": "calibration",
+    "wikipedia:page:1086531": "train",
+    "wikipedia:page:11068321": "train",
+    "wikipedia:page:11352050": "train",
+    "wikipedia:page:11920671": "train",
+    "wikipedia:page:12063081": "test",
+    "wikipedia:page:1206990": "train",
+    "wikipedia:page:1284890": "train",
+    "wikipedia:page:13744601": "train",
+    "wikipedia:page:1392494": "train",
+    "wikipedia:page:14384": "train",
+    "wikipedia:page:15279338": "train",
+    "wikipedia:page:1832004": "train",
+    "wikipedia:page:19151146": "train",
+    "wikipedia:page:200646": "train",
+    "wikipedia:page:21506": "train",
+    "wikipedia:page:2368625": "train",
+    "wikipedia:page:24421632": "train",
+    "wikipedia:page:24426569": "train",
+    "wikipedia:page:24664659": "development",
+    "wikipedia:page:2562800": "train",
+    "wikipedia:page:2728104": "development",
+    "wikipedia:page:28318441": "train",
+    "wikipedia:page:30806": "train",
+    "wikipedia:page:31388317": "development",
+    "wikipedia:page:31738907": "train",
+    "wikipedia:page:3688015": "train",
+    "wikipedia:page:3800896": "development",
+    "wikipedia:page:45049676": "train",
+    "wikipedia:page:4910784": "test",
+    "wikipedia:page:50326": "train",
+    "wikipedia:page:5778505": "calibration",
+    "wikipedia:page:5943727": "train",
+    "wikipedia:page:62683332": "train",
+    "wikipedia:page:6319245": "train",
+    "wikipedia:page:669675": "train",
+    "wikipedia:page:6747619": "calibration",
+    "wikipedia:page:6751104": "calibration",
+    "wikipedia:page:7682992": "calibration",
+    "wikipedia:page:7687846": "train",
+    "wikipedia:page:871681": "train",
+    "wikipedia:page:9394079": "test"
+  },
+  "source_sha256": "4a158e0ce7839dd5028b37478fe0b7eed51a2178f41fbabf92f876e89b51f40a"
+}

@@ -1,0 +1,453 @@
+{
+  "schema": "slop_ninja_model_only_revision_probe_v1",
+  "date": "2026-09-11",
+  "independent_topics": 1,
+  "human_controls": 0,
+  "generation_calls": 4,
+  "deepseek_calls": 3,
+  "qwen_calls": 1,
+  "http_failures": 0,
+  "pangram_calls": 0,
+  "v5_corpus_rows_added": 0,
+  "v5_fit_changed": false,
+  "v5_test_predictions_opened": false,
+  "probe_plan_sha256": "99c492d035111771f2fd45c1c1abb1349a45de372066b3fe81a758ac9d880b27",
+  "cross_model_plan_sha256": "6ec35a19d5fb476ef128c1ebff9a2f4e3d2f1b0c771093e43f0f5cf070661e18",
+  "synthetic_fact_sheet_sha256": "42e76a7b9d2300701b01456d1b8882c7a598cd05b404af9ca25db4f0d2feecd8",
+  "production_lineage": "Synthetic facts created by the coding assistant; all four notices entirely composed or revised by models, with no human prose editing between stages",
+  "generators": {
+    "deepseek": {
+      "model": "unsloth/DeepSeek-V4-Flash-0731-GGUF@fbbb5b93fb787c21338159b0af3318bb3f4d9768",
+      "upstream": "deepseek-ai/DeepSeek-V4-Flash-0731@7872f01b1d1fe23eabc4c98b48bffcef5a386062",
+      "license": "MIT",
+      "license_sha256": "f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040",
+      "quantization": "UD-Q8_K_XL",
+      "verified_files_manifest_sha256": "c664e5232b25942b13b9a518e99031cc52b5d1ac8e2050e4be5b494b255d3a24",
+      "runtime": "llama.cpp-mac-arm64-apple-metal-advsimd@2.28.2",
+      "load_seconds": 179.67,
+      "config": {
+        "context_length": 8192,
+        "eval_batch_size": 2048,
+        "physical_batch_size": 512,
+        "parallel": 1,
+        "flash_attention": true,
+        "context_checkpoints": 32,
+        "reasoning_budget_message": "",
+        "speculative_draft_mtp": false,
+        "speculative_draft_simple": false,
+        "speculative_draft_model": "",
+        "speculative_draft_max_tokens": 16,
+        "speculative_draft_min_tokens": 0,
+        "speculative_draft_min_continue_probability": 0.75,
+        "num_experts": 6,
+        "offload_kv_cache_to_gpu": true
+      }
+    },
+    "qwen": {
+      "model": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+      "license": "Apache-2.0",
+      "runtime": "mlx-llm-mac-arm64-apple-metal-advsimd@1.11.0",
+      "installed_files_reverified": true,
+      "config": {
+        "context_length": 8192,
+        "parallel": 1,
+        "reasoning_budget_message": ""
+      }
+    }
+  },
+  "generation_contract": {
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "max_output_tokens": 1536,
+    "context_length": 8192,
+    "concurrency": 1,
+    "store": false,
+    "deepseek_reasoning": "off",
+    "qwen_reasoning": "non-thinking checkpoint; parameter omitted",
+    "detector_feedback": false
+  },
+  "detector": {
+    "artifact_id": "101445a73fa1e44b996a72e6536e8fa082f76ade415faf978c375b3c3f8429b7",
+    "predictions_sha256": "7e52db2c719794d25c3487a7b68f3b231fca4a26f08bfa5d850b225e963d8ccd",
+    "thresholds_sha256": "bcfa1de781e4429c6bde194d30fadfc09449590c5cc2c104c65312b6bfdb6d5c",
+    "original_points": [
+      {
+        "calibration_false_positives": 0,
+        "calibration_human_groups": 34,
+        "calibration_human_rows": 34,
+        "comparison": "strictly_greater_than",
+        "target_human_false_positive_rate": 0.01,
+        "threshold": 0.9055049212676647
+      },
+      {
+        "calibration_false_positives": 1,
+        "calibration_human_groups": 34,
+        "calibration_human_rows": 34,
+        "comparison": "strictly_greater_than",
+        "target_human_false_positive_rate": 0.05,
+        "threshold": 0.902395786182547
+      }
+    ],
+    "runtime": "cpu_float32_eager",
+    "score": "P(model_only) + P(mixed); not a fraction of words",
+    "class_order": [
+      "human_only",
+      "model_only",
+      "mixed"
+    ]
+  },
+  "cases": [
+    {
+      "id": "deepseek-initial",
+      "parent_id": null,
+      "origin": "model_only",
+      "request_sha256": "07d4be0cbc831dc6203bc14e0f7b3c03574ef8c3081b57ec139648b5b55f2bd6",
+      "response_sha256": "caa53714d4cf95afc7f6f29f847e984ca108b3a6ff757da3871f0aedc1e834be",
+      "text_sha256": "bae44493b96d893291c68065172df7c0218fa4653bfbf578617ccbcca93ad74e",
+      "review_sha256": "1013549c85f04fe31c4d72e3eb95a4313adf9d02ea2adbebf0c849fa180a020a",
+      "whitespace_word_count": 227,
+      "http": {
+        "http_code": 200,
+        "elapsed_seconds": 192.259700
+      },
+      "generation_stats": {
+        "input_tokens": 450,
+        "total_output_tokens": 273,
+        "reasoning_output_tokens": 0,
+        "tokens_per_second": 1.595322052922127,
+        "time_to_first_token_seconds": 21.084792
+      },
+      "review": {
+        "stage": "initial_notice",
+        "production_origin": "model_only",
+        "source_type": "assistant_created_synthetic_facts",
+        "reviewer": "coding_assistant",
+        "review_blinded_to_detector": true,
+        "semantic_review": {
+          "facts_preserved": [
+            "migration date and 8 a.m. start",
+            "building hours unchanged",
+            "read-only catalog search",
+            "holds and renewals pause",
+            "noon is a target, not a promise",
+            "pause continues until validation passes",
+            "existing loans and queue order must carry over",
+            "Saturday due dates move to Monday 14 September",
+            "no late fees from extension",
+            "12000 trial records and all 45 duplicates corrected",
+            "trial correction does not prove every fault found",
+            "hourly website and front-door updates starting at 9 a.m.",
+            "record and queue preservation justify delay"
+          ],
+          "omissions": [],
+          "unsupported_factual_claims": [],
+          "tone_observations": [
+            "Practical explanation and uncertainty retained",
+            "Added thanks and a careful-versus-quick closing contrast not requested in the fact sheet"
+          ]
+        },
+        "generation_stats": {
+          "input_tokens": 450,
+          "total_output_tokens": 273,
+          "reasoning_output_tokens": 0,
+          "tokens_per_second": 1.595322052922127,
+          "time_to_first_token_seconds": 21.084792
+        }
+      },
+      "v4": {
+        "id": "deepseek-initial",
+        "artifact_id": "101445a73fa1e44b996a72e6536e8fa082f76ade415faf978c375b3c3f8429b7",
+        "probabilities": [
+          0.09240060360337723,
+          0.4123136211710171,
+          0.4952857752256056
+        ],
+        "ai_score": 0.9075993963966227,
+        "operating_points": [
+          {
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9055049212676647,
+            "detected": true
+          },
+          {
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.902395786182547,
+            "detected": true
+          }
+        ]
+      },
+      "v4_argmax_origin": "mixed"
+    },
+    {
+      "id": "deepseek-voice",
+      "parent_id": "deepseek-initial",
+      "origin": "model_only",
+      "request_sha256": "284694d037d7a01008cc68b8063be6ab6fda36b9f75e0d29986f3408e7b17b63",
+      "response_sha256": "f029a087d959fb6627cba587810b5478e763a9c1034833e6c689fd507ffb5064",
+      "text_sha256": "1f0651735a206bc87dc82ee0218fe87491ebc287da312df9730a00c03ec6f18e",
+      "review_sha256": "9304f8e0ffd39524a481b72a2afe7e5a2800f56788cc683ae9883622bbeb35d5",
+      "whitespace_word_count": 204,
+      "http": {
+        "http_code": 200,
+        "elapsed_seconds": 223.193267
+      },
+      "generation_stats": {
+        "input_tokens": 901,
+        "total_output_tokens": 269,
+        "reasoning_output_tokens": 0,
+        "tokens_per_second": 1.6031891950626636,
+        "time_to_first_token_seconds": 55.350404000000005
+      },
+      "review": {
+        "stage": "avoid_deepseek_voice",
+        "production_origin": "model_only",
+        "source_type": "assistant_created_synthetic_facts",
+        "reviewer": "coding_assistant",
+        "review_blinded_to_detector": true,
+        "semantic_review": {
+          "facts_preserved": [
+            "migration date and 8 a.m. start",
+            "building hours unchanged",
+            "holds and renewals pause",
+            "noon is a target, not a promise",
+            "pause continues until validation passes",
+            "existing loans and queue order must carry over",
+            "Saturday due dates move to Monday 14 September",
+            "no late fees from extension",
+            "12000 trial records and all 45 duplicates corrected",
+            "trial correction does not prove every fault found",
+            "hourly website and front-door updates starting at 9 a.m.",
+            "record and queue preservation justify delay"
+          ],
+          "omissions": [],
+          "unsupported_factual_claims": [
+            "The catalog will not show live changes during migration."
+          ],
+          "tone_observations": [
+            "More contractions and conversational wording",
+            "Retained a generic patience/careful-work closing",
+            "No human edit or detector feedback occurred between outputs"
+          ],
+          "facts_distorted": [
+            "Read-only search was replaced with an assertion that search will not show live changes. Read-only access does not establish whether search results refresh."
+          ]
+        },
+        "generation_stats": {
+          "input_tokens": 901,
+          "total_output_tokens": 269,
+          "reasoning_output_tokens": 0,
+          "tokens_per_second": 1.6031891950626636,
+          "time_to_first_token_seconds": 55.350404000000005
+        }
+      },
+      "v4": {
+        "id": "deepseek-voice",
+        "artifact_id": "101445a73fa1e44b996a72e6536e8fa082f76ade415faf978c375b3c3f8429b7",
+        "probabilities": [
+          0.021042910221055287,
+          0.4581173153145115,
+          0.5208397744644332
+        ],
+        "ai_score": 0.9789570897789447,
+        "operating_points": [
+          {
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9055049212676647,
+            "detected": true
+          },
+          {
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.902395786182547,
+            "detected": true
+          }
+        ]
+      },
+      "v4_argmax_origin": "mixed"
+    },
+    {
+      "id": "deepseek-fix-slop",
+      "parent_id": "deepseek-voice",
+      "origin": "model_only",
+      "request_sha256": "8a7424e9bead8af0772720cae80bcca3f5d8f5232c7465cc0e656068d650de71",
+      "response_sha256": "f9f74cd9fd910814588926c07adb8b68abcb83f8a8751f58981d1d538845fef6",
+      "text_sha256": "1a86f40d2c52a52d31ecf6603063ecfa94c3b8f4de349c22f8d6802b8fad3858",
+      "review_sha256": "2f8dda6132271551255cade480f6eb1d38cdcd0d0466683ec1039fc6771e94f1",
+      "whitespace_word_count": 202,
+      "http": {
+        "http_code": 200,
+        "elapsed_seconds": 239.200936
+      },
+      "generation_stats": {
+        "input_tokens": 1262,
+        "total_output_tokens": 262,
+        "reasoning_output_tokens": 0,
+        "tokens_per_second": 1.60615795565469,
+        "time_to_first_token_seconds": 76.019086
+      },
+      "review": {
+        "stage": "fix_slop_self_revision",
+        "production_origin": "model_only",
+        "source_type": "assistant_created_synthetic_facts",
+        "reviewer": "coding_assistant",
+        "review_blinded_to_detector": true,
+        "semantic_review": {
+          "facts_preserved": [
+            "migration date and 8 a.m. start",
+            "building hours unchanged",
+            "read-only catalog search",
+            "holds and renewals pause",
+            "noon is a target, not a promise",
+            "pause continues until validation passes",
+            "existing loans and queue order must carry over",
+            "Saturday due dates move to Monday 14 September",
+            "no late fees from extension",
+            "12000 trial records and all 45 duplicates corrected",
+            "trial correction does not prove every fault found",
+            "hourly website and front-door updates starting at 9 a.m.",
+            "record and queue preservation justify delay"
+          ],
+          "omissions": [],
+          "unsupported_factual_claims": [
+            "Repeats the unsupported assertion that read-only catalog search will not show live changes."
+          ],
+          "tone_observations": [
+            "Retains conversational wording and uncertainty about completion",
+            "Retains an unrequested patience/doing-it-properly closing"
+          ]
+        },
+        "generation_stats": {
+          "input_tokens": 1262,
+          "total_output_tokens": 262,
+          "reasoning_output_tokens": 0,
+          "tokens_per_second": 1.60615795565469,
+          "time_to_first_token_seconds": 76.019086
+        },
+        "instruction_compliance": {
+          "extra_introductory_text": true,
+          "rhetorical_em_dash_retained": true,
+          "notes": "The passage begins with an introduction despite the prose-only instruction. Exact returned content is retained for scoring; no manual cleanup."
+        }
+      },
+      "v4": {
+        "id": "deepseek-fix-slop",
+        "artifact_id": "101445a73fa1e44b996a72e6536e8fa082f76ade415faf978c375b3c3f8429b7",
+        "probabilities": [
+          0.01889056523962229,
+          0.44241376235214597,
+          0.5386956724082317
+        ],
+        "ai_score": 0.9811094347603777,
+        "operating_points": [
+          {
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9055049212676647,
+            "detected": true
+          },
+          {
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.902395786182547,
+            "detected": true
+          }
+        ]
+      },
+      "v4_argmax_origin": "mixed"
+    },
+    {
+      "id": "deepseek-to-qwen-voice",
+      "parent_id": "deepseek-initial",
+      "origin": "model_only",
+      "request_sha256": "57e43aa96f300a97aff18b81c4a7510f93c8c5f9e3c000a4d102fcacf528eb14",
+      "response_sha256": "dd88a0a471df5645d359218b8e3fa5537a570dd2672e2ec3f69cc9b0d8f6989b",
+      "text_sha256": "1c82637f7e4767aa565f54306aaadeb758569b7bb4091f5e4b423761c9d82047",
+      "review_sha256": "18bb60aa1d74ea7e2e577f66116f89b87d94832382906021a6a69b947d03757d",
+      "whitespace_word_count": 229,
+      "http": {
+        "http_code": 200,
+        "elapsed_seconds": 35.819218
+      },
+      "generation_stats": {
+        "input_tokens": 938,
+        "total_output_tokens": 299,
+        "reasoning_output_tokens": 0,
+        "tokens_per_second": 10.939203636566162,
+        "time_to_first_token_seconds": 8.391
+      },
+      "review": {
+        "stage": "deepseek_to_qwen_voice",
+        "production_origin": "model_only",
+        "source_type": "assistant_created_synthetic_facts",
+        "reviewer": "coding_assistant",
+        "review_blinded_to_detector": true,
+        "semantic_review": {
+          "facts_preserved": [
+            "migration date and 8 a.m. start",
+            "building hours unchanged",
+            "read-only catalog search",
+            "holds and renewals pause",
+            "noon is a target, not a promise",
+            "pause continues until validation passes",
+            "existing loans and queue order must carry over",
+            "Saturday due dates move to Monday 14 September",
+            "no late fees from extension",
+            "12000 trial records and all 45 duplicates corrected",
+            "trial correction does not prove every fault found",
+            "hourly website and front-door updates starting at 9 a.m.",
+            "record and queue preservation justify delay"
+          ],
+          "omissions": [],
+          "unsupported_factual_claims": [],
+          "tone_observations": [
+            "Core operational facts and uncertainty remain",
+            "Repeated emphatic instructions about no exceptions and letting the process finish make the notice more admonishing than the requested considerate tone",
+            "Several negation contrasts and a slogan-like closing remain despite the style instructions"
+          ],
+          "additional_qualifications": [
+            "Introduces a possible delay of another few hours; the fact sheet supplies no delay estimate."
+          ]
+        },
+        "generation_stats": {
+          "input_tokens": 938,
+          "total_output_tokens": 299,
+          "reasoning_output_tokens": 0,
+          "tokens_per_second": 10.939203636566162,
+          "time_to_first_token_seconds": 8.391
+        },
+        "instruction_compliance": {
+          "extra_introductory_text": false,
+          "requested_tone_preserved": false,
+          "notes": "This is a model-only cross-provider revision of the original DeepSeek notice. No human edits or detector feedback."
+        }
+      },
+      "v4": {
+        "id": "deepseek-to-qwen-voice",
+        "artifact_id": "101445a73fa1e44b996a72e6536e8fa082f76ade415faf978c375b3c3f8429b7",
+        "probabilities": [
+          0.012172904857633046,
+          0.6192996684544889,
+          0.3685274266878781
+        ],
+        "ai_score": 0.987827095142367,
+        "operating_points": [
+          {
+            "target_human_false_positive_rate": 0.01,
+            "threshold": 0.9055049212676647,
+            "detected": true
+          },
+          {
+            "target_human_false_positive_rate": 0.05,
+            "threshold": 0.902395786182547,
+            "detected": true
+          }
+        ]
+      },
+      "v4_argmax_origin": "model_only"
+    }
+  ],
+  "limits": [
+    "One synthetic topic and four correlated outputs, with no human control",
+    "The coding assistant knew prompts and model identities, but recorded semantic and tonal judgments before seeing detector scores; no independent human review",
+    "All returned prose, including the unwanted third-stage introduction, was scored without manual repair",
+    "No successful evasion or general resistance estimate is established",
+    "No output entered detector training, Calibration, checkpoint selection or Test"
+  ]
+}

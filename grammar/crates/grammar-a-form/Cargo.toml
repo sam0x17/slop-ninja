@@ -1,0 +1,17 @@
+[package]
+name = "grammar-a-form"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure form rules for Slop Ninja A positives: parent conventions, excerpt layout and child normaliser, form, echo and length-window screens, profile ids"
+
+[lib]
+name = "grammar_a_form"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+hex.workspace = true

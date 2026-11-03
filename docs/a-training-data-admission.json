@@ -1,0 +1,101 @@
+{
+  "schema": "slop_ninja_a_train_admission_summary_v1",
+  "date": "2026-10-26",
+  "status": "source_roots_admitted_not_yet_fitted",
+  "previous_expanded_train": {
+    "independent_works": 108,
+    "queries": 1264
+  },
+  "new_retained_original_train_roots": {
+    "requested": 196,
+    "admitted": 196,
+    "excluded": 0,
+    "collections": {
+      "cmu-books-historical": 86,
+      "hc3-wiki-historical": 65,
+      "plos_one": 20,
+      "wikinews": 25
+    },
+    "individual_human_identity": "unavailable; masked",
+    "v6_exposure": "original Train",
+    "records_sha256": "764164018292a1290bd9db94f1d5ed50486902f519bbf6b7f8ff4bb0f16cfab1",
+    "manifest_sha256": "e5e6965d7a25db9ed2ea345ec4af283c879f7e0e4acd5d5a7e7ab123b320bc1c"
+  },
+  "new_book_roots": {
+    "requested": 32,
+    "admitted": 29,
+    "excluded": 3,
+    "exclusion_basis": "unfinished narratives, editorial notes or unresolved edition scope",
+    "established_writers_with_new_works": 5,
+    "new_writer_identities": 0,
+    "extraction": "fixed20percent_body_next_sentence_at_least220words_complete_sentence;150..450word_admission_bound",
+    "records_sha256": "a0b0e3d1d4f7a7df1c7c61bd8c1e0e990bcf8782fc5f055413c1ff28f72cc367",
+    "manifest_sha256": "b3ff2aeb9d79d7053121d7cd678166a6a795090cb99ce74bca01611a1340e05e"
+  },
+  "cumulative_available_source_work_pool": 333,
+  "new_roots_are_train_only": true,
+  "final_test_opened": false,
+  "new_paid_detector_calls": 0,
+  "new_roots_tokenizer_qualified": false,
+  "new_fitted_model": false,
+  "generation_plan": {
+    "retained_roots": 196,
+    "local_generators": 2,
+    "tasks_per_root_per_generator": 5,
+    "requested_tasks": 1960,
+    "recipe": "train_scale_v1",
+    "share_ground_truth": "measured final-word fraction in exact model-produced replacement spans",
+    "requested_percent_is_not_share_label": true,
+    "book_generation": "qualified default-v2 narrative recipe: scratch and requested 20/60/100-percent rewrites; separately assembled"
+  },
+  "completed_new_assemblies": {
+    "retained_historical": {
+      "source_works": 196,
+      "requested_generations": 1960,
+      "accepted_generations": 1958,
+      "terminal_generation_failures": 2,
+      "excluded_generated_duplicates": 50,
+      "duplicate_reasons": {
+        "within_batch_normalized_text": 36,
+        "matches_protected_population_normalized_text": 14
+      },
+      "retained_records_including_humans": 2104,
+      "records_sha256": "63172c072543c8b7a77e3a5c10f652d2cf0fed7234b9884ee2025d718f450e1e",
+      "manifest_sha256": "b11e7f74664b3fdf68d060ae2aac32a63055777a5041740721bac3c1e17b5d69"
+    },
+    "independent_books": {
+      "source_works": 29,
+      "requested_generations": 232,
+      "accepted_generations": 232,
+      "terminal_generation_failures": 0,
+      "excluded_generated_duplicates": 0,
+      "retained_records_including_humans": 261,
+      "records_sha256": "932f8cf6064da0fa7fcd232b6ed66a353dcc8126af23967f0e117458ad10dcc6",
+      "manifest_sha256": "e4b051a649fdd994bc8992b8e922b98a4425d9a4a6f246b14c0ad316752db02a"
+    },
+    "cumulative_train_query_upper_bound_before_cross_shard_deduplication": 3629,
+    "all_failed_and_excluded_outputs_retained": true,
+    "new_pangram_calls": 0,
+    "new_fits_completed": 0
+  },
+  "planned_source_size_comparison": {
+    "expected_source_works": [72, 132, 333],
+    "selection": "nested source-family hash order; every admitted descendant follows its family",
+    "original_cohort_loss_mass": 0.5,
+    "each_of_five_added_source_strata_loss_mass": 0.1,
+    "fits": 12,
+    "seeds": [17, 29, 41],
+    "updates_per_fit": 250,
+    "modes": "text at all three sizes; text plus CFG at full size",
+    "quality_status": "not yet evaluated",
+    "weight_concentration": "Report effective family count under loss weights separately from raw works; original works retain half the loss mass. Neither count proves freedom from overfitting."
+  },
+  "limitations": [
+    "Historical human labels remain proxies, not authenticated unaided production histories.",
+    "Additional variants do not create independent source works.",
+    "Metadata aliases and cumulative exact/whitespace-normalized duplicates were checked; this is not an exhaustive pretraining or bibliographic exposure audit.",
+    "Independent writer diversity remains limited; the books add works for existing identities.",
+    "The new roots have not improved model quality until fitting and independent evaluation demonstrate it.",
+    "Neither dataset size nor repeated Development selection establishes final-Test generalization or a rare false-positive guarantee."
+  ]
+}

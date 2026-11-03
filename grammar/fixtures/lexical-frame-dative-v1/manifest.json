@@ -1,0 +1,3810 @@
+{
+  "cases": [
+    {
+      "attachment_ambiguity": null,
+      "category": "proper_explicit_to",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            13,
+            20
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            24,
+            28
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        }
+      ],
+      "id": "confirmation-lend-1",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          21,
+          23
+        ],
+        "declared_surface_category": "proper_explicit_to",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          5,
+          10
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          24,
+          28
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            13,
+            20
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            24,
+            28
+          ],
+          "argument_text": "Theo",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "Mira lends a compass to Theo.",
+      "text_sha256": "b8eaaee8ca0cc5b7363dc38acad98b014d74b33436d4a545b8319b64bc7892cf",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "common_explicit_to",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            33,
+            38
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ]
+        }
+      ],
+      "id": "confirmation-lend-2",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          26,
+          28
+        ],
+        "declared_surface_category": "common_explicit_to",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          10,
+          15
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          33,
+          38
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "argument_text": "guide",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            33,
+            38
+          ],
+          "argument_text": "guest",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The guide lends a compass to the guest.",
+      "text_sha256": "9ab4b1e83a866690cfff262c097941c3d94b5e5bfa9c63df267a99b8afb30d69",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "past_explicit_to",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            10,
+            14
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            10,
+            14
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            14
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            17,
+            24
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            14
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            32,
+            37
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            14
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            14
+          ]
+        }
+      ],
+      "id": "confirmation-lend-3",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lent",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          25,
+          27
+        ],
+        "declared_surface_category": "past_explicit_to",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          10,
+          14
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          32,
+          37
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "argument_text": "guide",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            14
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            17,
+            24
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            14
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            32,
+            37
+          ],
+          "argument_text": "guest",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            14
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The guide lent a compass to the guest.",
+      "text_sha256": "1de4d10a2e75e0052e8c52eef6f6b463f6a7306bba21c13e17303df96785182f",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "repeated_name_swap_source",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            29,
+            33
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        }
+      ],
+      "id": "confirmation-lend-4",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          26,
+          28
+        ],
+        "declared_surface_category": "repeated_name_swap_source",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          5,
+          10
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          29,
+          33
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            29,
+            33
+          ],
+          "argument_text": "Theo",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "Mira lends Mira's compass to Theo.",
+      "text_sha256": "db4b8956a71aee00377c3aa11436b25a5e24ee79e61025ae6031850d77748212",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "repeated_name_swap_candidate",
+      "controlled_relation": {
+        "alphabetic_word_multiset_preserved": false,
+        "edits": [
+          {
+            "end_byte": 15,
+            "expected": "Mira",
+            "replacement": "Theo",
+            "start_byte": 11
+          },
+          {
+            "end_byte": 33,
+            "expected": "Theo",
+            "replacement": "Mira",
+            "start_byte": 29
+          }
+        ],
+        "expect_anchored_ledger_change": true,
+        "meaning_equivalence_expected": false,
+        "source_case_id": "confirmation-lend-4"
+      },
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            29,
+            33
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        }
+      ],
+      "id": "confirmation-lend-5",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          26,
+          28
+        ],
+        "declared_surface_category": "repeated_name_swap_candidate",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          5,
+          10
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          29,
+          33
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            29,
+            33
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "Mira lends Theo's compass to Mira.",
+      "text_sha256": "df0464677046a551c9ac7a33a38b7510a8091cdca99d4a064a91faed44deb664",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "bare_nominal_double_object_proper",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",1]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        }
+      ],
+      "id": "confirmation-lend-6",
+      "intended_unimplemented_argument_use": {
+        "Agent": [
+          0,
+          4
+        ],
+        "Recipient": [
+          11,
+          15
+        ],
+        "Theme": [
+          18,
+          25
+        ],
+        "frame_id": "[\"give-13.1\",1]",
+        "kind": "unimplemented_bare_double_object_use",
+        "member_class": "give-13.1",
+        "positive_binding_assertion": false,
+        "predicate_span": [
+          5,
+          10
+        ]
+      },
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": null,
+        "declared_surface_category": "bare_nominal_double_object_proper",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          5,
+          10
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          11,
+          15
+        ],
+        "surface_carrier": null,
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "Mira lends Theo a compass.",
+      "text_sha256": "39020e9a92152ef2d6105c4dc4a80e28c8793f76b1e152731f567d3d24138906",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "bare_nominal_double_object_common",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            28,
+            35
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",1]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ]
+        }
+      ],
+      "id": "confirmation-lend-7",
+      "intended_unimplemented_argument_use": {
+        "Agent": [
+          4,
+          9
+        ],
+        "Recipient": [
+          20,
+          25
+        ],
+        "Theme": [
+          28,
+          35
+        ],
+        "frame_id": "[\"give-13.1\",1]",
+        "kind": "unimplemented_bare_double_object_use",
+        "member_class": "give-13.1",
+        "positive_binding_assertion": false,
+        "predicate_span": [
+          10,
+          15
+        ]
+      },
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": null,
+        "declared_surface_category": "bare_nominal_double_object_common",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          10,
+          15
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          20,
+          25
+        ],
+        "surface_carrier": null,
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "argument_text": "guide",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            28,
+            35
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The guide lends the guest a compass.",
+      "text_sha256": "51ba8e7595486b1034e5ffe7e07c658ff14057b3b03ca4ddf9bf1bf0b529e414",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "wrong_literal_preposition",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ]
+        }
+      ],
+      "id": "confirmation-lend-8",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          26,
+          30
+        ],
+        "declared_surface_category": "wrong_literal_preposition",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          10,
+          15
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          35,
+          40
+        ],
+        "surface_carrier": "from",
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "argument_text": "guide",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The guide lends a compass from the guest.",
+      "text_sha256": "e6b1138b725c6cac36c7cf6749f0845ee434d518c1c8aa62c3128b25eb08d7d4",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "missing_pobj_fragment",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ]
+        }
+      ],
+      "id": "confirmation-lend-9",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          26,
+          28
+        ],
+        "declared_surface_category": "missing_pobj_fragment",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          10,
+          15
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": null,
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "argument_text": "guide",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The guide lends a compass to.",
+      "text_sha256": "e8125464d8f6277e240e51e5bf6d61c40973ce6f9cbabe0d51d1528b9668cd92",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "relative_clause_preposition",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            20,
+            23
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ]
+        }
+      ],
+      "id": "confirmation-lend-10",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          37,
+          39
+        ],
+        "declared_surface_category": "relative_clause_preposition",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          10,
+          15
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          44,
+          51
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "argument_text": "guide",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            20,
+            23
+          ],
+          "argument_text": "key",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The guide lends the key that belongs to the cabinet.",
+      "text_sha256": "fb5995cd8ca3d807b2cb894cffb862fa9f140e0bec9e27a5631063c426b7bda5",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": {
+        "admissible_attachment_readings": [
+          "nominal key-to-cabinet relation",
+          "matrix prepositional argument"
+        ],
+        "completeness_verdict": null,
+        "interpretation": "Only actual anchored parent identity determines raw mapping applicability; no intended reading is semantic gold."
+      },
+      "category": "ambiguous_noun_modifier_preposition",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            20,
+            23
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        }
+      ],
+      "id": "confirmation-lend-11",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          24,
+          26
+        ],
+        "declared_surface_category": "ambiguous_noun_modifier_preposition",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          10,
+          15
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          31,
+          38
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": null,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "argument_text": "guide",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            20,
+            23
+          ],
+          "argument_text": "key",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The guide lends the key to the cabinet.",
+      "text_sha256": "4a7d8a165f80fa91045fd400737d5de7f000a6e50a63fbfcb71285698addaf80",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "absent_matrix_recipient",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "lend",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            10,
+            15
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            10,
+            15
+          ]
+        }
+      ],
+      "id": "confirmation-lend-12",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "lend",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "lends",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": null,
+        "declared_surface_category": "absent_matrix_recipient",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          10,
+          15
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": null,
+        "surface_carrier": null,
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            9
+          ],
+          "argument_text": "guide",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            25
+          ],
+          "argument_text": "compass",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 2,
+          "predicate_span": [
+            10,
+            15
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The guide lends a compass.",
+      "text_sha256": "d532a0df5ae70585ab8b25da19e365f5340755fb9b3f8d34fc17c4739d85102a",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "proper_explicit_to",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            13,
+            19
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            23,
+            27
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        }
+      ],
+      "id": "confirmation-loan-1",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          20,
+          22
+        ],
+        "declared_surface_category": "proper_explicit_to",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          5,
+          10
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          23,
+          27
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            13,
+            19
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            23,
+            27
+          ],
+          "argument_text": "Theo",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "Mira loans a ticket to Theo.",
+      "text_sha256": "9ebb3d27a89f742e4563b7dd6af6f463237f4f1365d88d0e9cade1f7a6885272",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "common_explicit_to",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            19,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            33,
+            38
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ]
+        }
+      ],
+      "id": "confirmation-loan-2",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          26,
+          28
+        ],
+        "declared_surface_category": "common_explicit_to",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          11,
+          16
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          33,
+          38
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "argument_text": "broker",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            19,
+            25
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            33,
+            38
+          ],
+          "argument_text": "guest",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The broker loans a ticket to the guest.",
+      "text_sha256": "ae5ba4f4ddcfe3d585ee84bde73e61e37f8bd83171b72b0cfee1e3db73612ded",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "past_explicit_to",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            11,
+            17
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            11,
+            17
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            17
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            20,
+            26
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            17
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            34,
+            39
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            17
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            17
+          ]
+        }
+      ],
+      "id": "confirmation-loan-3",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loaned",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          27,
+          29
+        ],
+        "declared_surface_category": "past_explicit_to",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          11,
+          17
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          34,
+          39
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "argument_text": "broker",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            17
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            20,
+            26
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            17
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            34,
+            39
+          ],
+          "argument_text": "guest",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            17
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The broker loaned a ticket to the guest.",
+      "text_sha256": "0286d7cd389a19a92cc0aa8299f5eaa3218d56bbd5ad962589f00e5520ec73c0",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "repeated_name_swap_source",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            24
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            28,
+            32
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        }
+      ],
+      "id": "confirmation-loan-4",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          25,
+          27
+        ],
+        "declared_surface_category": "repeated_name_swap_source",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          5,
+          10
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          28,
+          32
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            24
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            28,
+            32
+          ],
+          "argument_text": "Theo",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "Mira loans Mira's ticket to Theo.",
+      "text_sha256": "ff19611cc2e5c8c890f8a50c5a0a017c8937f074f5b87d15705018fe48ebd272",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "repeated_name_swap_candidate",
+      "controlled_relation": {
+        "alphabetic_word_multiset_preserved": false,
+        "edits": [
+          {
+            "end_byte": 15,
+            "expected": "Mira",
+            "replacement": "Theo",
+            "start_byte": 11
+          },
+          {
+            "end_byte": 32,
+            "expected": "Theo",
+            "replacement": "Mira",
+            "start_byte": 28
+          }
+        ],
+        "expect_anchored_ledger_change": true,
+        "meaning_equivalence_expected": false,
+        "source_case_id": "confirmation-loan-4"
+      },
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            24
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Theme"
+        },
+        {
+          "argument_span": [
+            28,
+            32
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": true,
+          "role": "Recipient"
+        },
+        {
+          "expected": true,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        }
+      ],
+      "id": "confirmation-loan-5",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          25,
+          27
+        ],
+        "declared_surface_category": "repeated_name_swap_candidate",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          5,
+          10
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          28,
+          32
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": true,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            24
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        },
+        {
+          "argument_span": [
+            28,
+            32
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Recipient",
+          "syntax_index": 4
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "Mira loans Theo's ticket to Mira.",
+      "text_sha256": "3b66b868abfe6c6d6c1487acdd1a7aaf70de021087fcba883fd9f0f8f9b2ba10",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "bare_nominal_double_object_proper",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            18,
+            24
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",1]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            5,
+            10
+          ]
+        }
+      ],
+      "id": "confirmation-loan-6",
+      "intended_unimplemented_argument_use": {
+        "Agent": [
+          0,
+          4
+        ],
+        "Recipient": [
+          11,
+          15
+        ],
+        "Theme": [
+          18,
+          24
+        ],
+        "frame_id": "[\"give-13.1\",1]",
+        "kind": "unimplemented_bare_double_object_use",
+        "member_class": "give-13.1",
+        "positive_binding_assertion": false,
+        "predicate_span": [
+          5,
+          10
+        ]
+      },
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": null,
+        "declared_surface_category": "bare_nominal_double_object_proper",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          5,
+          10
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          11,
+          15
+        ],
+        "surface_carrier": null,
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            0,
+            4
+          ],
+          "argument_text": "Mira",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            18,
+            24
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            5,
+            10
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "Mira loans Theo a ticket.",
+      "text_sha256": "dcb8e2e0f5ed73772390a1fb00b3694c1833da351f449b9b7b524c422b973f97",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "bare_nominal_double_object_common",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            29,
+            35
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",1]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ]
+        }
+      ],
+      "id": "confirmation-loan-7",
+      "intended_unimplemented_argument_use": {
+        "Agent": [
+          4,
+          10
+        ],
+        "Recipient": [
+          21,
+          26
+        ],
+        "Theme": [
+          29,
+          35
+        ],
+        "frame_id": "[\"give-13.1\",1]",
+        "kind": "unimplemented_bare_double_object_use",
+        "member_class": "give-13.1",
+        "positive_binding_assertion": false,
+        "predicate_span": [
+          11,
+          16
+        ]
+      },
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": null,
+        "declared_surface_category": "bare_nominal_double_object_common",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          11,
+          16
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          21,
+          26
+        ],
+        "surface_carrier": null,
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "argument_text": "broker",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            29,
+            35
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The broker loans the guest a ticket.",
+      "text_sha256": "5061f6d2ffdd1f98a5d194ad8c69d489bf66a659e3fb116d2d342e6036e987b1",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "wrong_literal_preposition",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            19,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ]
+        }
+      ],
+      "id": "confirmation-loan-8",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          26,
+          30
+        ],
+        "declared_surface_category": "wrong_literal_preposition",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          11,
+          16
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          35,
+          40
+        ],
+        "surface_carrier": "from",
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "argument_text": "broker",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            19,
+            25
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The broker loans a ticket from the guest.",
+      "text_sha256": "5cb838c327e8bd9fcad445f106df36946a031eda8a24005a3542580cf9dd6637",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "missing_pobj_fragment",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            19,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ]
+        }
+      ],
+      "id": "confirmation-loan-9",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          26,
+          28
+        ],
+        "declared_surface_category": "missing_pobj_fragment",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          11,
+          16
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": null,
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "argument_text": "broker",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            19,
+            25
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The broker loans a ticket to.",
+      "text_sha256": "22dc89738a8b3574f9ca3f57550fb90614dfe760df565df6a9fb5f8d6d1094ec",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "relative_clause_preposition",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            21,
+            24
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ]
+        }
+      ],
+      "id": "confirmation-loan-10",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          38,
+          40
+        ],
+        "declared_surface_category": "relative_clause_preposition",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          11,
+          16
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          45,
+          52
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "argument_text": "broker",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            21,
+            24
+          ],
+          "argument_text": "key",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The broker loans the key that belongs to the cabinet.",
+      "text_sha256": "20ee76663d66f2b47b27efa8f288ecab56bc39a6630f68fcc43bf9cbffd7f4e9",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": {
+        "admissible_attachment_readings": [
+          "nominal key-to-cabinet relation",
+          "matrix prepositional argument"
+        ],
+        "completeness_verdict": null,
+        "interpretation": "Only actual anchored parent identity determines raw mapping applicability; no intended reading is semantic gold."
+      },
+      "category": "ambiguous_noun_modifier_preposition",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            21,
+            24
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        }
+      ],
+      "id": "confirmation-loan-11",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": [
+          25,
+          27
+        ],
+        "declared_surface_category": "ambiguous_noun_modifier_preposition",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          11,
+          16
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": [
+          32,
+          39
+        ],
+        "surface_carrier": "to",
+        "to_frame_completeness_expectation": null,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "argument_text": "broker",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            21,
+            24
+          ],
+          "argument_text": "key",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The broker loans the key to the cabinet.",
+      "text_sha256": "81ff9525987b5c3233287dfaf257a8f116d081291cd96d730d1363350bddbc1c",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    },
+    {
+      "attachment_ambiguity": null,
+      "category": "absent_matrix_recipient",
+      "controlled_relation": null,
+      "expectations": [
+        {
+          "kind": "predicate_span",
+          "lemma": "loan",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "kind": "all_frames_retained",
+          "predicate_span": [
+            11,
+            16
+          ]
+        },
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Agent"
+        },
+        {
+          "argument_span": [
+            19,
+            25
+          ],
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "role_binding",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ],
+          "require_complete_syntax": false,
+          "role": "Theme"
+        },
+        {
+          "expected": false,
+          "frame_id": "[\"give-13.1\",0]",
+          "kind": "syntax_binding_complete",
+          "member_class": "give-13.1",
+          "predicate_span": [
+            11,
+            16
+          ]
+        }
+      ],
+      "id": "confirmation-loan-12",
+      "intended_unimplemented_argument_use": null,
+      "interpretation": "Resource-backed engineering assertions for the stated limited mapping. Actual parser labels are observations; no human semantic or readability rating.",
+      "lemma": "loan",
+      "linked_proposition_expectations": [],
+      "literal_predicate": "loans",
+      "mask_lemmas": [],
+      "raw_mapping_applicability": {
+        "carrier_span": null,
+        "declared_surface_category": "absent_matrix_recipient",
+        "frame_literal": "to",
+        "parser_label_is_asserted": false,
+        "policy_ref": "direct_adp_recipient_v1",
+        "predicate_span": [
+          11,
+          16
+        ],
+        "raw_parent_identity_is_conditional": true,
+        "recipient_span": null,
+        "surface_carrier": null,
+        "to_frame_completeness_expectation": false,
+        "to_frame_id": "[\"give-13.1\",0]"
+      },
+      "resource_backed_bindings": [
+        {
+          "argument_span": [
+            4,
+            10
+          ],
+          "argument_text": "broker",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Agent",
+          "syntax_index": 0
+        },
+        {
+          "argument_span": [
+            19,
+            25
+          ],
+          "argument_text": "ticket",
+          "frame_id": "[\"give-13.1\",0]",
+          "member_class": "give-13.1",
+          "member_ordinal": 3,
+          "predicate_span": [
+            11,
+            16
+          ],
+          "proposition": false,
+          "role": "Theme",
+          "syntax_index": 2
+        }
+      ],
+      "selected_class": "give-13.1",
+      "split": "confirmation",
+      "text": "The broker loans a ticket.",
+      "text_sha256": "96f375bb3531073f07218aca42b512e7979358138669775ad31bc66628a547dd",
+      "uncertainty_expectations": {
+        "automatic_edit_license": false,
+        "open_world_unknown_use_possible": true,
+        "semantic_equivalence_certified": false,
+        "semantic_restrictions_unassessed": true,
+        "sense_selected": false
+      }
+    }
+  ],
+  "construction_authority": "Assistant-constructed resource-backed engineering expectations; no independent human semantic ratings.",
+  "design": {
+    "all_frozen_before_parser_outputs": true,
+    "confirmation": 24,
+    "development": 0,
+    "fresh_texts": true,
+    "masked": 0,
+    "model_selection": false,
+    "new_lemma_or_class_holdout": false,
+    "total": 24
+  },
+  "id": "lexical-frame-dative-v1",
+  "raw_mapping_policies": [
+    {
+      "existing_branch": {
+        "carrier_dep": "prep",
+        "unchanged": true
+      },
+      "extension_branch": {
+        "carrier_after_predicate": true,
+        "carrier_dep": "dative",
+        "carrier_lexical": true,
+        "carrier_parent": "exact predicate index",
+        "carrier_pos": "ADP",
+        "predicate_pos": "VERB",
+        "recipient_after_carrier": true,
+        "recipient_dep": "pobj",
+        "recipient_lexical": true,
+        "recipient_parent": "exact carrier index",
+        "recipient_pos_one_of": [
+          "NOUN",
+          "PROPN",
+          "PRON"
+        ]
+      },
+      "id": "direct_adp_recipient_v1",
+      "literal_check": "The bound XML PREP literal must match the observed carrier lemma.",
+      "other_existing_path": "nominal obl with exactly one preceding ADP case marker remains unchanged",
+      "prohibited_extensions": [
+        "bare nominal iobj/dative promotion",
+        "ancestor search through nouns or clauses",
+        "missing-pobj repair"
+      ],
+      "scope": "These are conditional evidence checks, not predictions of parser labels. Only actual dative carriers belong to the added branch; prep carriers were already supported."
+    }
+  ],
+  "resource_manifest_sha256": "1051972db94caaca527cabbb69f40102ecb1a7a54a883fe6afca81d648c3bcb4",
+  "schema": "slopninja-lexical-frame-fixtures-v1"
+}

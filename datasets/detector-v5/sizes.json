@@ -1,0 +1,21 @@
+{
+  "files": [
+    {
+      "path": "train.jsonl",
+      "bytes": 28782057
+    },
+    {
+      "path": "development.jsonl",
+      "bytes": 1601888
+    },
+    {
+      "path": "calibration.jsonl",
+      "bytes": 1750584
+    },
+    {
+      "path": "test.jsonl",
+      "bytes": 645898
+    }
+  ],
+  "total_record_bytes": 32780427
+}

@@ -1,0 +1,474 @@
+{
+  "schema": "slopninja-author-projection-public-result-v1",
+  "interpretation": "Retrospective author retrieval on previously evaluated corpora; not fresh confirmation. No article text, author identities, profiles or fitted weights are included.",
+  "source_bindings": [
+    {
+      "path": "data/author-corpora/blog-authorship-2004/author-projection-v1/protocol.json",
+      "sha256": "9ec7d20bdeaf06c324aa58b0a6c0b18a294a5eff123407f70cdbac8aff48ae15"
+    },
+    {
+      "path": "data/author-corpora/blog-authorship-2004/author-projection-v1/fit-v1/selection.json",
+      "sha256": "e661600a4732fdc6a935c53ddd0ae4f9206d1164660544575e3c9f6c32243ec9"
+    },
+    {
+      "path": "data/author-corpora/blog-authorship-2004/author-projection-v1/blog-test-evaluation-v1/report.json",
+      "sha256": "13611902a28d7e237daebc0048bc1aa5809352a5e5ad27762af84cd98f911d65"
+    },
+    {
+      "path": "data/author-corpora/blog-authorship-2004/author-projection-v1/global-voices-evaluation-v1/report.json",
+      "sha256": "3fa10e4a52518d97adfc6f1dffc418d454e59ca39e2ec29b6fd554a9cf646a65"
+    }
+  ],
+  "coverage": {
+    "training_authors": 300,
+    "training_queries": 3889,
+    "development_authors": 297,
+    "development_reference_documents": 3977,
+    "development_queries": 514,
+    "blog_test_authors": 600,
+    "blog_test_reference_documents": 8074,
+    "blog_test_queries": 1206,
+    "global_voices_authors": 14,
+    "global_voices_reference_documents": 110,
+    "global_voices_queries": 58
+  },
+  "development": {
+    "selected_architecture": "linear",
+    "architecture_choices": [
+      {
+        "architecture": "linear",
+        "parameters": 455424,
+        "mean_seed_macro_author": {
+          "top1": 0.3426645371089816,
+          "top5": 0.6175645342312008,
+          "mrr": 0.47001682429111064
+        }
+      },
+      {
+        "architecture": "mlp_gelu",
+        "parameters": 943744,
+        "mean_seed_macro_author": {
+          "top1": 0.28674206451984235,
+          "top5": 0.5631457020345909,
+          "mrr": 0.4174785684563991
+        }
+      }
+    ],
+    "runs": [
+      {
+        "architecture": "linear",
+        "seed": 0,
+        "parameters": 455424,
+        "selected_epoch": 40,
+        "training_loss": 0.24895645678043365,
+        "elapsed_seconds": 5.57550095798797,
+        "development": {
+          "requested_authors": 297,
+          "scored_authors": 297,
+          "query_count": 514,
+          "macro_author": {
+            "top1": 0.35379435379435387,
+            "top5": 0.628701545368212,
+            "mrr": 0.4766355935967391
+          }
+        }
+      },
+      {
+        "architecture": "linear",
+        "seed": 17,
+        "parameters": 455424,
+        "selected_epoch": 25,
+        "training_loss": 0.5619509518146515,
+        "elapsed_seconds": 5.39578070800053,
+        "development": {
+          "requested_authors": 297,
+          "scored_authors": 297,
+          "query_count": 514,
+          "macro_author": {
+            "top1": 0.3380816714150048,
+            "top5": 0.591383924717258,
+            "mrr": 0.4605383857677291
+          }
+        }
+      },
+      {
+        "architecture": "linear",
+        "seed": 29,
+        "parameters": 455424,
+        "selected_epoch": 30,
+        "training_loss": 0.4331987351179123,
+        "elapsed_seconds": 5.468710458022542,
+        "development": {
+          "requested_authors": 297,
+          "scored_authors": 297,
+          "query_count": 514,
+          "macro_author": {
+            "top1": 0.33611758611758613,
+            "top5": 0.6326081326081325,
+            "mrr": 0.4728764935088637
+          }
+        }
+      },
+      {
+        "architecture": "mlp_gelu",
+        "seed": 0,
+        "parameters": 943744,
+        "selected_epoch": 30,
+        "training_loss": 0.6193939000368118,
+        "elapsed_seconds": 7.218195374996867,
+        "development": {
+          "requested_authors": 297,
+          "scored_authors": 297,
+          "query_count": 514,
+          "macro_author": {
+            "top1": 0.2974186307519641,
+            "top5": 0.5610808944142276,
+            "mrr": 0.4240225188381729
+          }
+        }
+      },
+      {
+        "architecture": "mlp_gelu",
+        "seed": 17,
+        "parameters": 943744,
+        "selected_epoch": 25,
+        "training_loss": 0.8548913896083832,
+        "elapsed_seconds": 6.973901792021934,
+        "development": {
+          "requested_authors": 297,
+          "scored_authors": 297,
+          "query_count": 514,
+          "macro_author": {
+            "top1": 0.2811016144349478,
+            "top5": 0.5579944746611414,
+            "mrr": 0.41234763656342155
+          }
+        }
+      },
+      {
+        "architecture": "mlp_gelu",
+        "seed": 29,
+        "parameters": 943744,
+        "selected_epoch": 45,
+        "training_loss": 0.2654590457677841,
+        "elapsed_seconds": 6.881863875023555,
+        "development": {
+          "requested_authors": 297,
+          "scored_authors": 297,
+          "query_count": 514,
+          "macro_author": {
+            "top1": 0.28170594837261503,
+            "top5": 0.5703617370284036,
+            "mrr": 0.41606554996760287
+          }
+        }
+      }
+    ],
+    "identity_development": {
+      "requested_authors": 297,
+      "scored_authors": 297,
+      "query_count": 514,
+      "macro_author": {
+        "top1": 0.3291245791245791,
+        "top5": 0.5484977984977986,
+        "mrr": 0.4340319802533622
+      }
+    }
+  },
+  "blog_test": {
+    "selected_architecture": "linear",
+    "architectures": [
+      {
+        "architecture": "linear",
+        "selected_on_development": true,
+        "mean_seed_macro_author": {
+          "top1": 0.32820211923153103,
+          "top5": 0.5945047286591403,
+          "mrr": 0.45369168152827255
+        }
+      },
+      {
+        "architecture": "mlp_gelu",
+        "selected_on_development": false,
+        "mean_seed_macro_author": {
+          "top1": 0.2743944345414934,
+          "top5": 0.541291468607645,
+          "mrr": 0.4045176903338888
+        }
+      }
+    ],
+    "identity": {
+      "requested_authors": 600,
+      "scored_authors": 600,
+      "query_count": 1206,
+      "macro_author": {
+        "top1": 0.28768010992275694,
+        "top5": 0.5258021390374332,
+        "mrr": 0.4061544175646791
+      }
+    },
+    "runs": [
+      {
+        "architecture": "linear",
+        "seed": 0,
+        "selected_epoch": 40,
+        "metrics": {
+          "top1": 0.32458036244800953,
+          "top5": 0.5967624777183599,
+          "mrr": 0.4529945361329105
+        },
+        "authors": 600,
+        "queries": 1206
+      },
+      {
+        "architecture": "linear",
+        "seed": 17,
+        "selected_epoch": 25,
+        "metrics": {
+          "top1": 0.3266796642899585,
+          "top5": 0.5922233363042185,
+          "mrr": 0.45323169412579317
+        },
+        "authors": 600,
+        "queries": 1206
+      },
+      {
+        "architecture": "linear",
+        "seed": 29,
+        "selected_epoch": 30,
+        "metrics": {
+          "top1": 0.3333463309566252,
+          "top5": 0.5945283719548425,
+          "mrr": 0.45484881432611407
+        },
+        "authors": 600,
+        "queries": 1206
+      },
+      {
+        "architecture": "mlp_gelu",
+        "seed": 0,
+        "selected_epoch": 30,
+        "metrics": {
+          "top1": 0.273930109922757,
+          "top5": 0.5493608882947116,
+          "mrr": 0.4068279542049518
+        },
+        "authors": 600,
+        "queries": 1206
+      },
+      {
+        "architecture": "mlp_gelu",
+        "seed": 17,
+        "selected_epoch": 25,
+        "metrics": {
+          "top1": 0.27836229946524066,
+          "top5": 0.5441930332739155,
+          "mrr": 0.4089303324669034
+        },
+        "authors": 600,
+        "queries": 1206
+      },
+      {
+        "architecture": "mlp_gelu",
+        "seed": 29,
+        "selected_epoch": 45,
+        "metrics": {
+          "top1": 0.2708908942364825,
+          "top5": 0.5303204842543077,
+          "mrr": 0.39779478432981114
+        },
+        "authors": 600,
+        "queries": 1206
+      }
+    ]
+  },
+  "global_voices": {
+    "selected_architecture": "linear",
+    "architectures": [
+      {
+        "architecture": "linear",
+        "selected_on_development": true,
+        "mean_seed_macro_author": {
+          "top1": 0.25,
+          "top5": 0.6051587301587301,
+          "mrr": 0.4253975852190138
+        }
+      },
+      {
+        "architecture": "mlp_gelu",
+        "selected_on_development": false,
+        "mean_seed_macro_author": {
+          "top1": 0.25,
+          "top5": 0.5833333333333334,
+          "mrr": 0.4012445557088414
+        }
+      }
+    ],
+    "identity": {
+      "requested_authors": 14,
+      "scored_authors": 14,
+      "query_count": 58,
+      "macro_author": {
+        "top1": 0.42261904761904756,
+        "top5": 0.7916666666666666,
+        "mrr": 0.5802919798455513
+      }
+    },
+    "runs": [
+      {
+        "architecture": "linear",
+        "seed": 0,
+        "selected_epoch": 40,
+        "metrics": {
+          "top1": 0.2738095238095238,
+          "top5": 0.5535714285714286,
+          "mrr": 0.42741311268096976
+        },
+        "authors": 14,
+        "queries": 58
+      },
+      {
+        "architecture": "linear",
+        "seed": 17,
+        "selected_epoch": 25,
+        "metrics": {
+          "top1": 0.23809523809523808,
+          "top5": 0.6369047619047619,
+          "mrr": 0.42457373975231116
+        },
+        "authors": 14,
+        "queries": 58
+      },
+      {
+        "architecture": "linear",
+        "seed": 29,
+        "selected_epoch": 30,
+        "metrics": {
+          "top1": 0.23809523809523808,
+          "top5": 0.625,
+          "mrr": 0.4242059032237604
+        },
+        "authors": 14,
+        "queries": 58
+      },
+      {
+        "architecture": "mlp_gelu",
+        "seed": 0,
+        "selected_epoch": 30,
+        "metrics": {
+          "top1": 0.25595238095238093,
+          "top5": 0.5892857142857143,
+          "mrr": 0.4212282756925613
+        },
+        "authors": 14,
+        "queries": 58
+      },
+      {
+        "architecture": "mlp_gelu",
+        "seed": 17,
+        "selected_epoch": 25,
+        "metrics": {
+          "top1": 0.23809523809523808,
+          "top5": 0.5952380952380952,
+          "mrr": 0.3929482719661291
+        },
+        "authors": 14,
+        "queries": 58
+      },
+      {
+        "architecture": "mlp_gelu",
+        "seed": 29,
+        "selected_epoch": 45,
+        "metrics": {
+          "top1": 0.25595238095238093,
+          "top5": 0.5654761904761905,
+          "mrr": 0.3895571194678338
+        },
+        "authors": 14,
+        "queries": 58
+      }
+    ]
+  },
+  "end_of_training": [
+    {
+      "architecture": "linear",
+      "seed": 0,
+      "final": {
+        "epoch": 200,
+        "training_loss": 0.03892088681459427,
+        "development": {
+          "top1": 0.2931882931882932,
+          "top5": 0.5235258568591901,
+          "mrr": 0.4156374476971076
+        }
+      }
+    },
+    {
+      "architecture": "linear",
+      "seed": 17,
+      "final": {
+        "epoch": 200,
+        "training_loss": 0.03798566199839115,
+        "development": {
+          "top1": 0.31114564447897786,
+          "top5": 0.5279936113269448,
+          "mrr": 0.42185849215806814
+        }
+      }
+    },
+    {
+      "architecture": "linear",
+      "seed": 29,
+      "final": {
+        "epoch": 200,
+        "training_loss": 0.03896045219153166,
+        "development": {
+          "top1": 0.3103254769921436,
+          "top5": 0.5602607269273935,
+          "mrr": 0.4323800372483808
+        }
+      }
+    },
+    {
+      "architecture": "mlp_gelu",
+      "seed": 0,
+      "final": {
+        "epoch": 200,
+        "training_loss": 0.039986053481698036,
+        "development": {
+          "top1": 0.23456790123456783,
+          "top5": 0.4786108952775618,
+          "mrr": 0.3588177824194685
+        }
+      }
+    },
+    {
+      "architecture": "mlp_gelu",
+      "seed": 17,
+      "final": {
+        "epoch": 200,
+        "training_loss": 0.03920386824756861,
+        "development": {
+          "top1": 0.2014590347923681,
+          "top5": 0.4800138133471466,
+          "mrr": 0.33807385946942375
+        }
+      }
+    },
+    {
+      "architecture": "mlp_gelu",
+      "seed": 29,
+      "final": {
+        "epoch": 200,
+        "training_loss": 0.04021328408271074,
+        "development": {
+          "top1": 0.24074074074074073,
+          "top5": 0.49436674436674444,
+          "mrr": 0.3631452082409174
+        }
+      }
+    }
+  ],
+  "new_parser_calls": 0,
+  "external_model_calls": 0
+}

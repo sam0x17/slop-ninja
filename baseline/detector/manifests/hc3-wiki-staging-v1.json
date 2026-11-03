@@ -1,0 +1,35 @@
+{
+  "answer_words": 320627,
+  "answers_below_50_words": 62,
+  "captured_at": "2026-09-11T10:46:20.656581+00:00",
+  "captures": [
+    {
+      "bytes": 2198039,
+      "file": "wiki_csai.jsonl",
+      "sha256": "4f78105c72e7edd3b619b3b44abac1e6f8bdb42211f22e43191d4dae889e1968",
+      "url": "https://huggingface.co/datasets/Hello-SimpleAI/HC3/resolve/4d0ff18143b5a7e1b1e79beb540c04549d1e59d3/wiki_csai.jsonl"
+    },
+    {
+      "bytes": 1487,
+      "file": "README.md",
+      "sha256": "ce119f7fcd4511acb1d2ac37ddb082238b9a93b2f638c57f8d2c44f381248691",
+      "url": "https://huggingface.co/datasets/Hello-SimpleAI/HC3/resolve/4d0ff18143b5a7e1b1e79beb540c04549d1e59d3/README.md"
+    }
+  ],
+  "chatgpt_answers": 842,
+  "dataset": "Hello-SimpleAI/HC3",
+  "human_answers": 842,
+  "origin_evidence": "upstream labels retained; not independently verified production histories",
+  "pangram_requests": 0,
+  "question_rows": 842,
+  "revision": "4d0ff18143b5a7e1b1e79beb540c04549d1e59d3",
+  "schema": "slop_ninja_standard_corpus_staging_v1",
+  "source_field_values": [],
+  "subset": "wiki_csai",
+  "training_admission": "pending source joins and CC-BY-SA attribution/distribution policy",
+  "upstream_fields": [
+    "chatgpt_answers",
+    "human_answers",
+    "question"
+  ]
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "edit-29e5ab6f1cc7f953d654492dafc7661d070fb7b10a74d3cadd39b4b7ed293e31",
+    "source_corpus": "codex-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0188551",
+    "source_sha256": "d5660ce4b4af7134dd525cff0fe4ae1d6a3c2f719671f89b3ed3bd5935024403",
+    "candidate_sha256": "362ca4b96e8ad7cb45b63c9ba1daa10ecad839153524a8c3f7409e14325a5c6a",
+    "repeats_per_arm": 3,
+    "request_budget": 6
+  },
+  {
+    "id": "edit-33b9cd9f06773fd45aface95d89907c9cc6c15bfc3c4364be3025f6427e95747",
+    "source_corpus": "codex-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0186226",
+    "source_sha256": "a386986cf0ea8375dd13586bead6e07defdfacfe5245dd992ab00fe7aeedc707",
+    "candidate_sha256": "62bec139062c35ef9e7edf5533282e3c3f6e478b61e3f380fc930c4bcc00dabc",
+    "repeats_per_arm": 3,
+    "request_budget": 6
+  },
+  {
+    "id": "edit-659dc698f5c5f5403088b1ea5d9b6275a72e3b4adc66e05787db5590264dbe6a",
+    "source_corpus": "claude-opus-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0188551",
+    "source_sha256": "069b134ad8ae28688e90f1a70adc68ec82035f8f859a14a7f75a63b367a62963",
+    "candidate_sha256": "449df3a9fa81ae71ed9b06e5705defe44c4656f2595f7f3e4465077652833234",
+    "repeats_per_arm": 3,
+    "request_budget": 6
+  },
+  {
+    "id": "edit-69368e26b4140ef04825b3c618ca84c9d4d234d77e2ad9c8a8f9cd94814b355b",
+    "source_corpus": "claude-opus-rewrites-v1",
+    "group_id": "doi:10.1371/journal.pone.0186226",
+    "source_sha256": "f5081bb711a199ac9b580e0aebb79236897c14ad2cf244de3570172a02f49295",
+    "candidate_sha256": "a9cef15c3753cf23355e0148867e69e3a6e4e4118fbecd5248c94ef845416d44",
+    "repeats_per_arm": 3,
+    "request_budget": 6
+  }
+]

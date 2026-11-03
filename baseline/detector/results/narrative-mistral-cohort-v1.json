@@ -1,0 +1,634 @@
+{
+  "admitted": {
+    "collections": {
+      "cmu-books-historical": 768
+    },
+    "evidence": {
+      "historical_proxy": 256,
+      "model_edit_of_historical_proxy": 256,
+      "recorded_model_generation": 256
+    },
+    "licenses": {
+      "CC-BY-SA-3.0": 256,
+      "CC-BY-SA-4.0": 512
+    },
+    "origins": {
+      "human_only": 256,
+      "mixed": 256,
+      "model_only": 256
+    },
+    "records": 768,
+    "source_groups": 256,
+    "splits": {
+      "calibration": 96,
+      "development": 72,
+      "test": 66,
+      "train": 534
+    },
+    "words_max": 505,
+    "words_min": 81
+  },
+  "admitted_families_by_split_profile": [
+    {
+      "families": 5,
+      "profile": "anti-ai",
+      "split": "calibration"
+    },
+    {
+      "families": 4,
+      "profile": "direct",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "fix-slop",
+      "split": "calibration"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "plain",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "source-matched",
+      "split": "calibration"
+    },
+    {
+      "families": 4,
+      "profile": "anti-ai",
+      "split": "development"
+    },
+    {
+      "families": 5,
+      "profile": "direct",
+      "split": "development"
+    },
+    {
+      "families": 2,
+      "profile": "fix-slop",
+      "split": "development"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "plain",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "source-matched",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "anti-ai",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "direct",
+      "split": "test"
+    },
+    {
+      "families": 3,
+      "profile": "fix-slop",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "test"
+    },
+    {
+      "families": 2,
+      "profile": "plain",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "source-matched",
+      "split": "test"
+    },
+    {
+      "families": 30,
+      "profile": "anti-ai",
+      "split": "train"
+    },
+    {
+      "families": 26,
+      "profile": "direct",
+      "split": "train"
+    },
+    {
+      "families": 27,
+      "profile": "fix-slop",
+      "split": "train"
+    },
+    {
+      "families": 33,
+      "profile": "informal",
+      "split": "train"
+    },
+    {
+      "families": 29,
+      "profile": "plain",
+      "split": "train"
+    },
+    {
+      "families": 33,
+      "profile": "source-matched",
+      "split": "train"
+    }
+  ],
+  "complete_export_ready": true,
+  "detector_predictions_opened": false,
+  "excluded_root_count": 33,
+  "exclusion_reasons": {
+    "Output changes length by more than 2x": 1,
+    "Output length outside declared 80–800 word admission bounds: 51": 1,
+    "Output length outside declared 80–800 word admission bounds: 54": 1,
+    "Output length outside declared 80–800 word admission bounds: 61": 2,
+    "Output length outside declared 80–800 word admission bounds: 64": 1,
+    "Output length outside declared 80–800 word admission bounds: 65": 1,
+    "Output length outside declared 80–800 word admission bounds: 66": 3,
+    "Output length outside declared 80–800 word admission bounds: 68": 5,
+    "Output length outside declared 80–800 word admission bounds: 69": 1,
+    "Output length outside declared 80–800 word admission bounds: 71": 1,
+    "Output length outside declared 80–800 word admission bounds: 72": 1,
+    "Output length outside declared 80–800 word admission bounds: 73": 4,
+    "Output length outside declared 80–800 word admission bounds: 74": 4,
+    "Output length outside declared 80–800 word admission bounds: 75": 5,
+    "Output length outside declared 80–800 word admission bounds: 76": 2,
+    "Output length outside declared 80–800 word admission bounds: 78": 3,
+    "Output length outside declared 80–800 word admission bounds: 79": 6,
+    "draft_source_copy": 5
+  },
+  "failed": 47,
+  "failed_operations": {
+    "draft": 26,
+    "edit": 21
+  },
+  "generation_summary_sha256": "e38a2f880e914b8630b3114f7dfb049eab6b9808fc05a45d53cff5187f814f51",
+  "individually_accepted": 531,
+  "limitations": [
+    "This corpus/token audit makes no detector predictions; the separately declared v4 Development evaluation is reported alongside it.",
+    "The pair rule excludes accepted siblings when the paired output fails; admission uses no detector scores.",
+    "Historical human proxies and source-conditioned generations, with unverified semantic fidelity."
+  ],
+  "pangram_calls": 0,
+  "planned_families_by_split_profile": [
+    {
+      "families": 6,
+      "profile": "anti-ai",
+      "split": "calibration"
+    },
+    {
+      "families": 5,
+      "profile": "direct",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "fix-slop",
+      "split": "calibration"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "plain",
+      "split": "calibration"
+    },
+    {
+      "families": 6,
+      "profile": "source-matched",
+      "split": "calibration"
+    },
+    {
+      "families": 4,
+      "profile": "anti-ai",
+      "split": "development"
+    },
+    {
+      "families": 5,
+      "profile": "direct",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "fix-slop",
+      "split": "development"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "plain",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "source-matched",
+      "split": "development"
+    },
+    {
+      "families": 4,
+      "profile": "anti-ai",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "direct",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "fix-slop",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "plain",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "source-matched",
+      "split": "test"
+    },
+    {
+      "families": 34,
+      "profile": "anti-ai",
+      "split": "train"
+    },
+    {
+      "families": 34,
+      "profile": "direct",
+      "split": "train"
+    },
+    {
+      "families": 34,
+      "profile": "fix-slop",
+      "split": "train"
+    },
+    {
+      "families": 34,
+      "profile": "informal",
+      "split": "train"
+    },
+    {
+      "families": 33,
+      "profile": "plain",
+      "split": "train"
+    },
+    {
+      "families": 33,
+      "profile": "source-matched",
+      "split": "train"
+    }
+  ],
+  "profile_plan_sha256": "d122a913ce616d63ab7270ac6f88d3c6ae1783825e1607cd3f9944fc738ca16f",
+  "provider": "mistral",
+  "records_sha256": "94612b766953ecd9726d94f9753e881909673c903313264374a3cbf353f327db",
+  "requested": 578,
+  "schema": "slop_ninja_narrative_cohort_summary_v1",
+  "source_corpus_sha256": "6967c60542f60b22ccc55e748fbc3d3f7b487acfbc5b4ea0cc33ba304ef2d574",
+  "status": "complete",
+  "successful_drafts_excluded_by_pair_rule": 7,
+  "successful_edits_excluded_by_pair_rule": 12,
+  "token_audit": {
+    "fits_configured_token_limit": true,
+    "max_tokens": 1024,
+    "model_executed": false,
+    "records_dropped": 0,
+    "shards": {
+      "calibration": {
+        "class_counts": {
+          "human_only": 32,
+          "mixed": 32,
+          "model_only": 32
+        },
+        "class_source_group_counts": {
+          "human_only": 32,
+          "mixed": 32,
+          "model_only": 32
+        },
+        "evidence_counts": {
+          "historical_proxy": 32,
+          "model_edit_of_historical_proxy": 32,
+          "recorded_model_generation": 32
+        },
+        "over_limit_count": 0,
+        "over_limit_records": [],
+        "records": 96,
+        "sha256": "68984e3a16cdd21a75958b4ef19cd38ffd11bd7e006ad2aa3be29831a4fab9b4",
+        "source_groups": 32,
+        "token_lengths_by_class": {
+          "human_only": {
+            "max": 676,
+            "mean": 295.90625,
+            "min": 113,
+            "nearest_rank_percentiles": {
+              "25": 161,
+              "50": 228,
+              "75": 414,
+              "90": 534,
+              "95": 637,
+              "99": 676
+            }
+          },
+          "mixed": {
+            "max": 569,
+            "mean": 272.40625,
+            "min": 109,
+            "nearest_rank_percentiles": {
+              "25": 154,
+              "50": 213,
+              "75": 370,
+              "90": 505,
+              "95": 530,
+              "99": 569
+            }
+          },
+          "model_only": {
+            "max": 608,
+            "mean": 266.375,
+            "min": 126,
+            "nearest_rank_percentiles": {
+              "25": 165,
+              "50": 212,
+              "75": 352,
+              "90": 427,
+              "95": 528,
+              "99": 608
+            }
+          }
+        },
+        "token_lengths_including_special_tokens": {
+          "max": 676,
+          "mean": 278.2291666666667,
+          "min": 109,
+          "nearest_rank_percentiles": {
+            "25": 158,
+            "50": 216,
+            "75": 376,
+            "90": 516,
+            "95": 569,
+            "99": 676
+          }
+        }
+      },
+      "development": {
+        "class_counts": {
+          "human_only": 24,
+          "mixed": 24,
+          "model_only": 24
+        },
+        "class_source_group_counts": {
+          "human_only": 24,
+          "mixed": 24,
+          "model_only": 24
+        },
+        "evidence_counts": {
+          "historical_proxy": 24,
+          "model_edit_of_historical_proxy": 24,
+          "recorded_model_generation": 24
+        },
+        "over_limit_count": 0,
+        "over_limit_records": [],
+        "records": 72,
+        "sha256": "434073b5b650f4d6bee3d9677496eba0e9ab2cba51ec16d9eb6538a9eccaef61",
+        "source_groups": 24,
+        "token_lengths_by_class": {
+          "human_only": {
+            "max": 584,
+            "mean": 268.125,
+            "min": 132,
+            "nearest_rank_percentiles": {
+              "25": 151,
+              "50": 259,
+              "75": 344,
+              "90": 478,
+              "95": 497,
+              "99": 584
+            }
+          },
+          "mixed": {
+            "max": 547,
+            "mean": 249.29166666666666,
+            "min": 122,
+            "nearest_rank_percentiles": {
+              "25": 151,
+              "50": 248,
+              "75": 286,
+              "90": 410,
+              "95": 442,
+              "99": 547
+            }
+          },
+          "model_only": {
+            "max": 515,
+            "mean": 245.0,
+            "min": 126,
+            "nearest_rank_percentiles": {
+              "25": 152,
+              "50": 218,
+              "75": 303,
+              "90": 391,
+              "95": 422,
+              "99": 515
+            }
+          }
+        },
+        "token_lengths_including_special_tokens": {
+          "max": 584,
+          "mean": 254.13888888888889,
+          "min": 122,
+          "nearest_rank_percentiles": {
+            "25": 152,
+            "50": 248,
+            "75": 307,
+            "90": 422,
+            "95": 497,
+            "99": 584
+          }
+        }
+      },
+      "test": {
+        "class_counts": {
+          "human_only": 22,
+          "mixed": 22,
+          "model_only": 22
+        },
+        "class_source_group_counts": {
+          "human_only": 22,
+          "mixed": 22,
+          "model_only": 22
+        },
+        "evidence_counts": {
+          "historical_proxy": 22,
+          "model_edit_of_historical_proxy": 22,
+          "recorded_model_generation": 22
+        },
+        "over_limit_count": 0,
+        "over_limit_records": [],
+        "records": 66,
+        "sha256": "a804b35cb56276ccfefcbec439407f31c9e3921e27812a00d1a3d9766c1b7a02",
+        "source_groups": 22,
+        "token_lengths_by_class": {
+          "human_only": {
+            "max": 587,
+            "mean": 264.3636363636364,
+            "min": 112,
+            "nearest_rank_percentiles": {
+              "25": 147,
+              "50": 200,
+              "75": 406,
+              "90": 459,
+              "95": 492,
+              "99": 587
+            }
+          },
+          "mixed": {
+            "max": 480,
+            "mean": 236.63636363636363,
+            "min": 111,
+            "nearest_rank_percentiles": {
+              "25": 134,
+              "50": 185,
+              "75": 350,
+              "90": 369,
+              "95": 419,
+              "99": 480
+            }
+          },
+          "model_only": {
+            "max": 564,
+            "mean": 240.1818181818182,
+            "min": 112,
+            "nearest_rank_percentiles": {
+              "25": 140,
+              "50": 208,
+              "75": 304,
+              "90": 381,
+              "95": 406,
+              "99": 564
+            }
+          }
+        },
+        "token_lengths_including_special_tokens": {
+          "max": 587,
+          "mean": 247.06060606060606,
+          "min": 111,
+          "nearest_rank_percentiles": {
+            "25": 140,
+            "50": 203,
+            "75": 342,
+            "90": 420,
+            "95": 480,
+            "99": 587
+          }
+        }
+      },
+      "train": {
+        "class_counts": {
+          "human_only": 178,
+          "mixed": 178,
+          "model_only": 178
+        },
+        "class_source_group_counts": {
+          "human_only": 178,
+          "mixed": 178,
+          "model_only": 178
+        },
+        "evidence_counts": {
+          "historical_proxy": 178,
+          "model_edit_of_historical_proxy": 178,
+          "recorded_model_generation": 178
+        },
+        "over_limit_count": 0,
+        "over_limit_records": [],
+        "records": 534,
+        "sha256": "68ec2e658222685f309e2ec284ed4ff056c09a64e28a361582d74c8bcf1c47fc",
+        "source_groups": 178,
+        "token_lengths_by_class": {
+          "human_only": {
+            "max": 643,
+            "mean": 300.84831460674155,
+            "min": 108,
+            "nearest_rank_percentiles": {
+              "25": 177,
+              "50": 263,
+              "75": 385,
+              "90": 554,
+              "95": 581,
+              "99": 627
+            }
+          },
+          "mixed": {
+            "max": 616,
+            "mean": 277.1573033707865,
+            "min": 103,
+            "nearest_rank_percentiles": {
+              "25": 168,
+              "50": 236,
+              "75": 359,
+              "90": 497,
+              "95": 551,
+              "99": 594
+            }
+          },
+          "model_only": {
+            "max": 639,
+            "mean": 273.1011235955056,
+            "min": 104,
+            "nearest_rank_percentiles": {
+              "25": 169,
+              "50": 239,
+              "75": 344,
+              "90": 464,
+              "95": 528,
+              "99": 623
+            }
+          }
+        },
+        "token_lengths_including_special_tokens": {
+          "max": 643,
+          "mean": 283.7022471910112,
+          "min": 103,
+          "nearest_rank_percentiles": {
+            "25": 170,
+            "50": 247,
+            "75": 362,
+            "90": 493,
+            "95": 568,
+            "99": 616
+          }
+        }
+      }
+    }
+  },
+  "token_audit_sha256": "4e35881f31fecebb460c48c1f7f1a2229231cf2bfb598c537b08d2edc5266a39",
+  "unattempted_count": 0
+}

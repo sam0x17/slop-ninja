@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "reviewer_type": "assistant",
+  "reviewed_by_human": false,
+  "detector_results_consulted": false,
+  "human_originals_consulted": false,
+  "review_scope": "Compare each frozen output only with its immediate model input. Do not revise candidates or infer fidelity from detector results.",
+  "candidate_mutations_permitted": false,
+  "review_item_template": {
+    "candidate_id": null,
+    "group_id": null,
+    "source_corpus": null,
+    "source_sha256": null,
+    "candidate_sha256": null,
+    "reviewer_type": "assistant",
+    "reviewed_by_human": false,
+    "claim_inventory": [],
+    "entity_number_method_outcome_checks": [],
+    "quantifier_hedge_scope_checks": [],
+    "argumentation_findings": [],
+    "tone_findings": [],
+    "readability_assessment": {
+      "status": "unreviewed",
+      "evidence": []
+    },
+    "new_or_missing_claims": [],
+    "preservation_pass_recommendation": null,
+    "failure_reasons": [],
+    "human_readability_certified": false,
+    "notes": "Any correction is a finding for a future process revision, not permission to change this tested output."
+  },
+  "completion_requirements": [
+    "Verify the source and candidate hashes against exact UTF-8 text.",
+    "Review every entity, number, study method, outcome and stated relationship.",
+    "Distinguish missing detail, changed qualifications and changed logical scope from harmless rephrasing.",
+    "Document tone and readability observations separately from information retention.",
+    "Report every output, including failures; do not select candidates using detector scores.",
+    "Keep human-review flags false."
+  ]
+}

@@ -1,0 +1,539 @@
+{
+  "schema_version": 1,
+  "reviewer_type": "assistant",
+  "reviewed_by_human": false,
+  "detector_results_consulted": false,
+  "held_out_text_consulted": false,
+  "review_scope": "Three specified TRAIN groups only; each complete candidate compared with its exact Opus baseline and corresponding historical human abstract.",
+  "review_method": "Claim-by-claim review of entities, counts, sampling, methods, results, uncertainty, scope, argumentation and tone. New edit changes distinguished from inherited baseline differences.",
+  "reviews": [
+    {
+      "candidate_id": "editor-b-0186133-document-v1",
+      "corpus": "claude-opus-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "candidate_sha256": "c23b67f87c34d0e06facc4b464d494bda999cd4852845d9bdf2487e7a2957c65",
+      "source_sha256": "d9af036bcf167269df975c3f03cddc34263ce8881576b0a92cd5934455761cbf",
+      "human_original_sha256": "e2c802556981a389817dfadb279a3b8b8b28d970bec46f71283c944efda113a8",
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "preservation_pass_recommendation": false,
+      "recommendation": "revise before accepting as information-preserving",
+      "status": "corrections_requested",
+      "claim_findings": [
+        {
+          "claim": "Promotion and limited conservation gains",
+          "dimension": "scope",
+          "status": "retained",
+          "finding": "Widespread promotion, often modest gains and comparison with both investment and revenue remain."
+        },
+        {
+          "claim": "Widespread promotion claim",
+          "dimension": "source_grounding",
+          "status": "inherited_addition",
+          "finding": "Widely promoted is present in the Opus baseline and retained by both editor revisions, but the human abstract does not make a claim about promotion prevalence. This is not a new editor addition, and its truth was not independently established here."
+        },
+        {
+          "claim": "Restriction to ecotourism projects",
+          "dimension": "scope",
+          "status": "ambiguous",
+          "finding": "The explicit Projects adopting this strategy restriction became generic Projects. The antecedent makes the intended scope likely, but retaining it costs little."
+        },
+        {
+          "claim": "Critical distance from project claims",
+          "dimension": "tone",
+          "status": "changed",
+          "finding": "The model says biodiversity they claim to safeguard; the candidate says they aim to protect. The human original says purports to protect. The candidate removes skeptical attribution."
+        },
+        {
+          "claim": "Lao PDR revenue and conservation evidence",
+          "dimension": "results",
+          "status": "retained_relative_to_model",
+          "finding": "Both the absence of linkage/conditionality and the absence of evidence of conservation benefit are retained."
+        },
+        {
+          "claim": "Direct linkage qualification",
+          "dimension": "hedges",
+          "status": "inherited_difference",
+          "finding": "The human original limits its linkage claim with directly. Both the model and candidate omit this, which can imply that no indirect linkage exists either."
+        },
+        {
+          "claim": "Contracts, ecosystem services and cost-effectiveness proposal",
+          "dimension": "scope",
+          "status": "retained",
+          "finding": "Explicit contracts, payment for ecosystem services, other developing countries, proposed comparative cost-effectiveness and need for further impact study remain."
+        },
+        {
+          "claim": "Purpose of testing the new model",
+          "dimension": "argumentation",
+          "status": "implicit_only",
+          "finding": "The baseline explicitly says addressing this gap. The candidate leaves this purpose inferable from adjacent sentences. Restore the link for strict argument preservation."
+        },
+        {
+          "claim": "Study location, incentives and duration",
+          "dimension": "numbers_methods",
+          "status": "retained",
+          "finding": "Named protected area and country, NPA abbreviation, a new model, villagers, wildlife-population incentives, four years, theory of change and intermediate/biological outcome links remain."
+        },
+        {
+          "claim": "Three preliminary results",
+          "dimension": "hedges_results",
+          "status": "scope_ambiguity",
+          "finding": "Negative correlation, no increase in tourism-sector hunting sign, three-fold increase in non-tourism sectors and overall sighting increase remain. Preliminary explicitly introduces only the first of two result sentences; qualify the second too."
+        },
+        {
+          "claim": "Three design lessons",
+          "dimension": "scope",
+          "status": "retained",
+          "finding": "Joint monitoring evidence, wildlife-sighting rates and village fees, and possible usefulness for very rare species remain."
+        },
+        {
+          "claim": "Scientific register",
+          "dimension": "tone",
+          "status": "mostly_retained",
+          "finding": "Formal scientific prose and first-person methods remain. Shorter sentences are plausible readability improvements, but no blinded human judgment has been obtained."
+        }
+      ],
+      "corrections": [
+        {
+          "id": "ecology-project-scope-tone",
+          "origin": "new_edit",
+          "old": "Projects are frequently criticised for failing to demonstrate reductions in threats or improvements in the condition of the biodiversity they aim to protect.",
+          "new": "Projects adopting ecotourism are frequently criticised for failing to demonstrate reductions in threats or improvements in the condition of the biodiversity they claim to protect.",
+          "occurrence": 1,
+          "reason": "Retain the project restriction and skeptical attribution."
+        },
+        {
+          "id": "ecology-direct-link",
+          "origin": "inherited_from_model",
+          "old": "ecotourism revenue has not been linked to, or made conditional on, improvements in biodiversity",
+          "new": "ecotourism revenue has not been directly linked to, or made conditional on, improvements in biodiversity",
+          "occurrence": 1,
+          "reason": "Restore the original limitation to direct linkage."
+        },
+        {
+          "id": "ecology-study-purpose",
+          "origin": "new_edit",
+          "old": "We tested a new model in the Nam Et-Phou Louey National Protected Area",
+          "new": "To address this gap, we tested a new model in the Nam Et-Phou Louey National Protected Area",
+          "occurrence": 1,
+          "reason": "Preserve the explicit reason for conducting this test."
+        },
+        {
+          "id": "ecology-preliminary-scope",
+          "origin": "new_edit",
+          "old": "Hunting sign did not increase in the NPA's ecotourism sector, compared with a three-fold increase across its non-tourism sectors, and wildlife sightings increased overall.",
+          "new": "The preliminary findings also showed no increase in hunting sign in the NPA's ecotourism sector, compared with a three-fold increase across its non-tourism sectors, and an overall increase in wildlife sightings.",
+          "occurrence": 1,
+          "reason": "Keep the preliminary qualification attached to all reported outcomes."
+        }
+      ],
+      "summary": "Broad factual retention is good. Retain skeptical attribution and explicit study purpose, disambiguate preliminary-result scope, and restore the inherited direct-link qualification before acceptance. The inherited widely-promoted claim also lacks support in the supplied human abstract."
+    },
+    {
+      "candidate_id": "editor-b-0179877-document-v1",
+      "corpus": "claude-opus-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0179877",
+      "candidate_sha256": "4c05c6d710e3557660f8d555015e8b464cab7471d134288f15349ea76f1f8372",
+      "source_sha256": "8adb3e32d14e893fc68496e7e1ea37ea64c83a5301a26472b21066b0a7b78280",
+      "human_original_sha256": "4fbc3e46890cd3a9f1cd81ce658af594eae673c628c5814a7b1e18f3492ee8ef",
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "preservation_pass_recommendation": false,
+      "recommendation": "revise before accepting as information-preserving",
+      "status": "corrections_requested",
+      "claim_findings": [
+        {
+          "claim": "Scheme identity",
+          "dimension": "entities",
+          "status": "retained_relative_to_model",
+          "finding": "The candidate retains the supplied Opus scheme name and BVD abbreviation. The human original additionally includes Disease after Diarrhoea; that shortening was inherited."
+        },
+        {
+          "claim": "Participants and setting",
+          "dimension": "numbers_scope",
+          "status": "retained",
+          "finding": "2010, 100 cattle farmers, Norfolk and Suffolk in the UK, 53 members and 47 non-members remain."
+        },
+        {
+          "claim": "Study design and analysis",
+          "dimension": "methods",
+          "status": "retained",
+          "finding": "Cross-sectional independent measures design and content analysis as the principal method remain."
+        },
+        {
+          "claim": "Six farmer-level variables",
+          "dimension": "scope",
+          "status": "mostly_retained",
+          "finding": "All six categories remain at the individual-farmer level. Restoring specific in the first category preserves the original phrasing of what was measured."
+        },
+        {
+          "claim": "Benefits and training-course participation",
+          "dimension": "results",
+          "status": "changed",
+          "finding": "Perceived scheme benefits remain. Increased attendance is narrower than the baseline increased participation in training courses; retain participation in the result sentence."
+        },
+        {
+          "claim": "Three null associations",
+          "dimension": "hedges_results",
+          "status": "retained",
+          "finding": "Disease priorities, motivation for joining and knowledge of BVD bio-security measures remain null associations with scheme participation."
+        },
+        {
+          "claim": "Qualified membership effect",
+          "dimension": "hedges",
+          "status": "retained",
+          "finding": "Appeared to affect preserves did seem to affect in the model."
+        },
+        {
+          "claim": "Importance assigned to that finding",
+          "dimension": "tone_argumentation",
+          "status": "changed",
+          "finding": "Also omits Just as significantly from the model and Equally importantly from the human original. This removes the explicit equal weighting of the finding."
+        },
+        {
+          "claim": "Ranking-versus-practice discrepancy",
+          "dimension": "hedges_results",
+          "status": "inherited_difference",
+          "finding": "Did not match preserves the unqualified model claim, but the human original only says did not appear to reflect. Correct the inherited loss of observational uncertainty."
+        },
+        {
+          "claim": "Necessity and insufficiency of control alone",
+          "dimension": "argumentation",
+          "status": "retained",
+          "finding": "The candidate preserves both propositions and the restriction on their own."
+        },
+        {
+          "claim": "Underlying attitudes and required effort",
+          "dimension": "scope",
+          "status": "changed",
+          "finding": "Substantial effort and the particular disease threat remain, but underlying was dropped from attitudes. Restore it to preserve the explanatory relationship."
+        },
+        {
+          "claim": "Scientific register and perspective",
+          "dimension": "tone",
+          "status": "minor_voice_change",
+          "finding": "The first person We replaces the paper/study framing. This is normal scientific prose, but it changes grammatical perspective. No invented study participant or outcome is introduced."
+        }
+      ],
+      "corrections": [
+        {
+          "id": "bvd-full-name",
+          "origin": "inherited_from_model",
+          "old": "Norfolk-Suffolk Bovine Viral Diarrhoea (BVD) Eradication scheme",
+          "new": "Norfolk-Suffolk Bovine Viral Diarrhoea Disease (BVD) Eradication scheme",
+          "occurrence": 1,
+          "reason": "Restore the complete scheme label supplied by the human original."
+        },
+        {
+          "id": "bvd-variable-specificity",
+          "origin": "new_edit",
+          "old": "covered adopted BVD control measures",
+          "new": "covered the specific BVD control measures adopted",
+          "occurrence": 1,
+          "reason": "Retain explicit specificity of the recorded measures."
+        },
+        {
+          "id": "bvd-training-participation",
+          "origin": "new_edit",
+          "old": "increased attendance at training courses",
+          "new": "increased their participation in training courses",
+          "occurrence": 1,
+          "reason": "Participation can include more than attendance; preserve the reported outcome."
+        },
+        {
+          "id": "bvd-importance-and-hedge",
+          "origin": "new_edit_and_inherited",
+          "old": "Membership also appeared to affect the importance farmers assigned to particular bio-security measures, but these rankings did not match their actual practices.",
+          "new": "Equally importantly, membership appeared to affect the importance farmers assigned to particular bio-security measures, but these rankings did not appear to match their actual practices.",
+          "occurrence": 1,
+          "reason": "Restore the finding's explicit importance and the human source's observational hedge."
+        },
+        {
+          "id": "bvd-underlying-attitudes",
+          "origin": "new_edit",
+          "old": "requires substantial work on attitudes towards the particular disease threat",
+          "new": "requires substantial work on the underlying attitudes towards the particular disease threat",
+          "occurrence": 1,
+          "reason": "Preserve the explanatory role of underlying attitudes."
+        }
+      ],
+      "summary": "Counts, design and most findings survive. Training participation, equal argumentative weight and underlying attitudes need restoration; the original ranking hedge and full scheme name were already shortened in Opus."
+    },
+    {
+      "candidate_id": "editor-b-0188280-document-v1",
+      "corpus": "claude-opus-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "candidate_sha256": "280fa8baa1c84ecb5b5056c376f137953c506a640b7c731b80d829450ca46d25",
+      "source_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074",
+      "human_original_sha256": "a07a94d99694bd60b04d28b8402f4154ab10bbaab6fddd73d25189b877ec21db",
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "preservation_pass_recommendation": false,
+      "recommendation": "revise before accepting as information-preserving",
+      "status": "corrections_requested",
+      "claim_findings": [
+        {
+          "claim": "Maternal mortality and facility-birth initiative",
+          "dimension": "scope_results",
+          "status": "retained",
+          "finding": "One of the world's highest ratios and initiatives aimed at encouraging facility births remain; the candidate does not claim the initiatives achieved that outcome."
+        },
+        {
+          "claim": "Free-care population and home births",
+          "dimension": "scope",
+          "status": "retained",
+          "finding": "The free health care initiative remains specifically for pregnant women, and many continued home births remain despite it."
+        },
+        {
+          "claim": "Skilled attendant access",
+          "dimension": "scope_results",
+          "status": "inherited_difference",
+          "finding": "The human original concerns access to skilled attendance. The Opus baseline substituted actual attendance, and the candidate retains that distortion through births involve an attendant. Access and actual use are not interchangeable."
+        },
+        {
+          "claim": "Rural-versus-urban comparison",
+          "dimension": "scope",
+          "status": "ambiguous",
+          "finding": "Rural and urban inequalities can mean inequalities within each setting. The baseline explicitly compares rural and urban populations; retain between."
+        },
+        {
+          "claim": "Planning rationale and study purpose",
+          "dimension": "argumentation",
+          "status": "retained",
+          "finding": "Understanding childbirth decisions and reasons, future maternal-health plans, perceptions, decision processes and rural Sierra Leone remain."
+        },
+        {
+          "claim": "Sampling and analytical method",
+          "dimension": "numbers_methods",
+          "status": "retained",
+          "finding": "Seven focus groups, 22 in-depth interviews, recently pregnant women, two villages and systematic text condensation remain."
+        },
+        {
+          "claim": "Community-participant relationship",
+          "dimension": "scope",
+          "status": "less_explicit",
+          "finding": "Community members no longer explicitly means members of the participating women's communities; restore their for unambiguous source scope."
+        },
+        {
+          "claim": "General description and interpretive requirement",
+          "dimension": "hedges_scope",
+          "status": "changed",
+          "finding": "The model uses is dynamic and must be interpreted; the candidate uses was and required. Restore present tense and must to retain the general claim and interpretive requirement."
+        },
+        {
+          "claim": "Interacting barriers and social position",
+          "dimension": "scope_results",
+          "status": "retained_except_tense",
+          "finding": "Every named factor, their interaction, perceived rather than established staff behaviour, and both how/what decisions remain. Interacted changes a general present-tense relation to a past observation."
+        },
+        {
+          "claim": "Vulnerabilities during pregnancy and childbirth",
+          "dimension": "scope",
+          "status": "retained",
+          "finding": "Multiple interacting vulnerabilities and healthcare-seeking decisions in both periods remain."
+        },
+        {
+          "claim": "Structural constraints, inequities and safe care",
+          "dimension": "argumentation",
+          "status": "retained_relative_to_model",
+          "finding": "Access and use, safe services, adequate understanding and rural Sierra Leone remain. Future was already absent from the model's concluding initiatives; it can be restored from the human original."
+        },
+        {
+          "claim": "Scientific register and organization",
+          "dimension": "tone",
+          "status": "retained",
+          "finding": "The three-paragraph abstract form and scientific tone remain. The prose appears easier to follow, but this is assistant judgment without human readability review."
+        }
+      ],
+      "corrections": [
+        {
+          "id": "sierra-attendant-access",
+          "origin": "inherited_from_model",
+          "old": "few of these home births involve a skilled birth attendant",
+          "new": "few of these women have access to a skilled birth attendant",
+          "occurrence": 1,
+          "reason": "Restore access rather than actual attendance; the evidence describes different constructs."
+        },
+        {
+          "id": "sierra-between-populations",
+          "origin": "new_edit",
+          "old": "Rural and urban inequalities in access to and use of health facilities also persist.",
+          "new": "Inequalities between rural and urban populations in access to and use of health facilities also persist.",
+          "occurrence": 1,
+          "reason": "Preserve the explicit rural-versus-urban comparison."
+        },
+        {
+          "id": "sierra-community-link",
+          "origin": "new_edit",
+          "old": "recently pregnant women and community members in two rural villages",
+          "new": "recently pregnant women and members of their communities in two rural villages",
+          "occurrence": 1,
+          "reason": "Retain the relationship between the sampled women and community participants."
+        },
+        {
+          "id": "sierra-findings-scope",
+          "origin": "new_edit",
+          "old": "The findings showed that decision-making during childbirth was dynamic and complex and required interpretation within the wider social context.",
+          "new": "The findings showed that decision-making during childbirth is dynamic and complex and must be interpreted within the wider social context.",
+          "occurrence": 1,
+          "reason": "Retain the source's present/general description and interpretive requirement."
+        },
+        {
+          "id": "sierra-interaction-tense",
+          "origin": "new_edit",
+          "old": "interacted to influence both how decisions were made and what was decided",
+          "new": "interact to influence both how decisions are made and what is decided",
+          "occurrence": 1,
+          "reason": "Retain the general relation rather than narrowing it to past observations."
+        },
+        {
+          "id": "sierra-future-initiatives",
+          "origin": "inherited_from_model",
+          "old": "Initiatives to improve pregnant women's access to and use of safe healthcare services should",
+          "new": "Future initiatives to improve pregnant women's access to and use of safe healthcare services should",
+          "occurrence": 1,
+          "reason": "Restore the original prospective scope of the recommendation."
+        }
+      ],
+      "summary": "Methods, numbers and barriers survive. Repair inherited access-versus-attendance drift, retain the between-population comparison, and restore the source's general tense/modal scope."
+    }
+  ],
+  "follow_up_reviews": [
+    {
+      "candidate_id": "editor-b-0186133-document-v2",
+      "parent_candidate_id": "editor-b-0186133-document-v1",
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "corpus": "claude-opus-rewrites-v1",
+      "candidate_sha256": "a15c299e2ca0b872af75becfa41274b28582880f5e12d14d4efd5d6e0688d92c",
+      "source_sha256": "d9af036bcf167269df975c3f03cddc34263ce8881576b0a92cd5934455761cbf",
+      "human_original_sha256": "e2c802556981a389817dfadb279a3b8b8b28d970bec46f71283c944efda113a8",
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "detector_results_consulted": false,
+      "preservation_pass_recommendation": true,
+      "recommendation_scope": "Accept for the controlled screen relative to the supplied model document, with the documented source-grounded repairs. This is not proof of flawless fidelity to the human article or human-approved readability.",
+      "category_assessment": {
+        "numbers": "retained",
+        "methods": "retained",
+        "entities": "retained or repaired from human original",
+        "results": "retained with identified source qualification repairs",
+        "tone": "scientific register retained; no blinded human assessment",
+        "scope_and_hedges": "identified material editing losses corrected; remaining inherited differences listed"
+      },
+      "resolved": [
+        "Ecotourism-project restriction restored.",
+        "Claim to protect restores skeptical attribution.",
+        "Directly restores the human source linkage qualification.",
+        "To address this research need restores the study purpose.",
+        "All three outcomes share the preliminary qualifier in one sentence."
+      ],
+      "remaining_source_differences": [
+        {
+          "origin": "inherited_from_model",
+          "claim": "Ecotourism is widely promoted",
+          "assessment": "Unsupported by the supplied human abstract; preserved from model input. No independent fact check undertaken."
+        }
+      ],
+      "human_original_fidelity_status": "Not an unqualified pass: inherited promotion-prevalence addition remains.",
+      "metadata_errata": []
+    },
+    {
+      "candidate_id": "editor-b-0179877-document-v2",
+      "parent_candidate_id": "editor-b-0179877-document-v1",
+      "group_id": "doi:10.1371/journal.pone.0179877",
+      "corpus": "claude-opus-rewrites-v1",
+      "candidate_sha256": "f168252836e88d5381d5362431e9ee4e5d64243a82cd2553c8bd3678aa67dc5a",
+      "source_sha256": "8adb3e32d14e893fc68496e7e1ea37ea64c83a5301a26472b21066b0a7b78280",
+      "human_original_sha256": "4fbc3e46890cd3a9f1cd81ce658af594eae673c628c5814a7b1e18f3492ee8ef",
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "detector_results_consulted": false,
+      "preservation_pass_recommendation": true,
+      "recommendation_scope": "Accept for the controlled screen relative to the supplied model document, with the documented source-grounded repairs. This is not proof of flawless fidelity to the human article or human-approved readability.",
+      "category_assessment": {
+        "numbers": "retained",
+        "methods": "retained",
+        "entities": "retained or repaired from human original",
+        "results": "retained with identified source qualification repairs",
+        "tone": "scientific register retained; no blinded human assessment",
+        "scope_and_hedges": "identified material editing losses corrected; remaining inherited differences listed"
+      },
+      "resolved": [
+        "Disease restored in scheme label.",
+        "Specific control measures retained.",
+        "Training participation restored.",
+        "Equal importance of membership result restored.",
+        "Did not appear restores the source hedge for rankings versus practices.",
+        "Underlying attitudes restored."
+      ],
+      "remaining_source_differences": [
+        {
+          "origin": "editor_voice_choice",
+          "claim": "We examined / we surveyed",
+          "assessment": "First-person research narration replaces third-person/passive framing. Scientific tone is retained; human preference has not been assessed."
+        }
+      ],
+      "human_original_fidelity_status": "Material identified source distortions repaired; voice change documented.",
+      "metadata_errata": [
+        {
+          "field": "preservation_notes[3]",
+          "old_phrase": "training attendance",
+          "correct_phrase": "participation in training courses",
+          "reason": "The V2 body preserves participation; its inherited note still uses the narrower attendance wording. This erratum does not change candidate text or the frozen manifest."
+        }
+      ]
+    },
+    {
+      "candidate_id": "editor-b-0188280-document-v2",
+      "parent_candidate_id": "editor-b-0188280-document-v1",
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "corpus": "claude-opus-rewrites-v1",
+      "candidate_sha256": "fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7",
+      "source_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074",
+      "human_original_sha256": "a07a94d99694bd60b04d28b8402f4154ab10bbaab6fddd73d25189b877ec21db",
+      "reviewer_type": "assistant",
+      "reviewed_by_human": false,
+      "detector_results_consulted": false,
+      "preservation_pass_recommendation": true,
+      "recommendation_scope": "Accept for the controlled screen relative to the supplied model document, with the documented source-grounded repairs. This is not proof of flawless fidelity to the human article or human-approved readability.",
+      "category_assessment": {
+        "numbers": "retained",
+        "methods": "retained",
+        "entities": "retained or repaired from human original",
+        "results": "retained with identified source qualification repairs",
+        "tone": "scientific register retained; no blinded human assessment",
+        "scope_and_hedges": "identified material editing losses corrected; remaining inherited differences listed"
+      },
+      "resolved": [
+        "Access to a skilled attendant replaces actual attendance.",
+        "Between rural and urban populations restores explicit comparison.",
+        "Women and their communities are linked in the aim and methods.",
+        "General present tense and must restored for the findings.",
+        "Present-tense interaction and decision outcomes restored."
+      ],
+      "remaining_source_differences": [
+        {
+          "origin": "inherited_from_model",
+          "claim": "Concluding initiatives lack explicit Future",
+          "assessment": "The human original explicitly specifies future initiatives. Future plans appear earlier, and should is prospective; this remains implicit in the final recommendation."
+        },
+        {
+          "origin": "inherited_from_model",
+          "claim": "would help rather than original will help",
+          "assessment": "Model input already softened this planning claim. The revision preserves model uncertainty; no score-based adjustment is recommended."
+        }
+      ],
+      "human_original_fidelity_status": "Material access/use distortion repaired; inherited prospective/uncertainty wording differences documented.",
+      "metadata_errata": [
+        {
+          "field": "preservation_notes[0]",
+          "old_phrase": "scarce skilled attendance at those births",
+          "correct_phrase": "limited access to a skilled birth attendant among women giving birth at home",
+          "reason": "The V2 body repairs actual attendance to access. Its inherited note still describes attendance. This erratum does not change candidate text or the frozen manifest."
+        }
+      ]
+    }
+  ],
+  "follow_up_scope_note": "V1 remains reviewed under its original candidate hash. V2 was inspected independently from candidate/source texts only; any changed body requires a new review hash. Neither version has human certification.",
+  "frozen_artifact_policy": "Candidate bodies, original candidate metadata and the scored manifest remain unchanged. Metadata errata here describe how future summaries should characterize participation and access accurately."
+}

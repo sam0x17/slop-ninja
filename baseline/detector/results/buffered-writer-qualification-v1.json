@@ -1,0 +1,24 @@
+{
+  "schema": "slop_ninja_buffered_writer_qualification_v1",
+  "records": 4903,
+  "parser_loaded": false,
+  "detector_scoring": false,
+  "outputs_identical": true,
+  "checks": [
+    {
+      "executable": "slop_ninja_detector",
+      "executable_sha256": "e503ba41e20a605b5efd24d6df66c5a15b55600b81bbe96c99fdce65f087c628",
+      "elapsed_seconds": 79.02753699999994,
+      "output_bytes": 19016468,
+      "output_sha256": "da0c51e9b46ebf4f553a503adfb217869bc790f0178926ffd4b88927348d9d34"
+    },
+    {
+      "executable": "slop_ninja_detector_buffered",
+      "executable_sha256": "4fd617e96074e92481190824e1664503950e948d38c1b3d8f4b3fde5e6002654",
+      "elapsed_seconds": 9.332408000000214,
+      "output_bytes": 19016468,
+      "output_sha256": "da0c51e9b46ebf4f553a503adfb217869bc790f0178926ffd4b88927348d9d34"
+    }
+  ],
+  "scope": "Word-mode cache extraction and writing on the same frozen corpus. Other Studio workloads remained active; these are not isolated storage-throughput measurements."
+}

@@ -1,0 +1,254 @@
+{
+  "schema": "slop_ninja_pangram_dataset_v2_results",
+  "status": "four_cohorts_collected; broader generator capture started",
+  "date": "2026-09-12",
+  "budget": {
+    "ledger": "spend is recorded in the private ledger",
+    "actual_billing_verified": false
+  },
+  "cohorts": [
+    {
+      "name": "pilot",
+      "records": 120,
+      "source_families": 24,
+      "input_sha256": "eaf7aeb6ccadb19dbb542b313d17a2f02d9715882b098f792c381418e091f8fa",
+      "plan_sha256": "0aee07ea557c4d904a734bace23b33a1ac9133188cb679e1f804194482ef24d8",
+      "annotations_sha256": "c1f2a085eea1585ae7e87d5d0ff5aa260c2474f5e0c5926d48ebaf0f503c4a05"
+    },
+    {
+      "name": "selected_source_style_groups",
+      "records": 96,
+      "source_families": 32,
+      "input_sha256": "e55d55dc73b2753ce64af7a12c640883e89f7e3e433a06dd420543cc5cc66854",
+      "plan_sha256": "cd063da7027ddb091689f7a79ab0417b094e58aa31640579fb0e5711cc72aa51",
+      "annotations_sha256": "af164306133bb14fe2256c5bf9e7f185b353b303ada72ee819034f79f74dafa7"
+    },
+    {
+      "name": "longer_original_drafts",
+      "records": 42,
+      "source_families": 14,
+      "input_sha256": "a6f1bfb8a2cdac74219619bcef88eb6929958876c139c75ac2d86c463ee818d6",
+      "plan_sha256": "37a35c22a5312ff5a3ebf5260534ccaaaa8803d980d7c598f636e627e61332ed",
+      "annotations_sha256": "8943a9abc1aee77537db67df85bb8a855c3c6d2ea1ee746bd812ba832a354d92"
+    },
+    {
+      "name": "medium_length_original_drafts",
+      "records": 117,
+      "source_families": 39,
+      "input_sha256": "a0c49900402be52ea7c94a3b1dce7a3ec8d93fed5e678c0b69ec679c3e2100a9",
+      "plan_sha256": "21c8ea93bd9bb8ae834b6cad6a7538527da080ce8a3c6a9e57b7e5b937158604",
+      "annotations_sha256": "f907378843135e871e9a596b8936f4f803957a9a1f6a5efb25ab4c4b51a62fcd",
+      "echo_counts": {
+        "exact": 13,
+        "whitespace_only": 103,
+        "source_soft_hyphens_removed": 1
+      }
+    }
+  ],
+  "combined": {
+    "records": 375,
+    "unique_texts": 375,
+    "source_families": 109,
+    "versions": [
+      "4.0"
+    ],
+    "by_origin": [
+      {
+        "origin": "human_only",
+        "summary": {
+          "records": 109,
+          "source_families": 109,
+          "histogram": {
+            "below-60": 109,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0,
+            "100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 0
+        }
+      },
+      {
+        "origin": "mixed",
+        "summary": {
+          "records": 109,
+          "source_families": 109,
+          "histogram": {
+            "below-60": 8,
+            "60-70": 2,
+            "70-80": 5,
+            "80-90": 6,
+            "90-below-100": 5,
+            "100": 83
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "origin": "model_only",
+        "summary": {
+          "records": 157,
+          "source_families": 109,
+          "histogram": {
+            "below-60": 2,
+            "60-70": 2,
+            "70-80": 4,
+            "80-90": 5,
+            "90-below-100": 4,
+            "100": 140
+          },
+          "min_combined_fraction": 0.30801886320114136,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      }
+    ],
+    "by_stage": [
+      {
+        "stage": "R0",
+        "summary": {
+          "records": 109,
+          "source_families": 109,
+          "histogram": {
+            "below-60": 2,
+            "60-70": 2,
+            "70-80": 4,
+            "80-90": 5,
+            "90-below-100": 4,
+            "100": 92
+          },
+          "min_combined_fraction": 0.30801886320114136,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "stage": "R1",
+        "summary": {
+          "records": 24,
+          "source_families": 24,
+          "histogram": {
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0,
+            "100": 24
+          },
+          "min_combined_fraction": 0.9999999701976776,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "stage": "R2",
+        "summary": {
+          "records": 24,
+          "source_families": 24,
+          "histogram": {
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0,
+            "100": 24
+          },
+          "min_combined_fraction": 0.9999999701976776,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "stage": "human",
+        "summary": {
+          "records": 109,
+          "source_families": 109,
+          "histogram": {
+            "below-60": 109,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0,
+            "100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 0
+        }
+      },
+      {
+        "stage": "human-edit",
+        "summary": {
+          "records": 109,
+          "source_families": 109,
+          "histogram": {
+            "below-60": 8,
+            "60-70": 2,
+            "70-80": 5,
+            "80-90": 6,
+            "90-below-100": 5,
+            "100": 83
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      }
+    ],
+    "nonhuman": {
+      "records": 266,
+      "source_families": 109,
+      "histogram": {
+        "below-60": 10,
+        "60-70": 4,
+        "70-80": 9,
+        "80-90": 11,
+        "90-below-100": 9,
+        "100": 223
+      },
+      "min_combined_fraction": 0,
+      "max_combined_fraction": 1.0000000298023224
+    },
+    "policy": "Adaptive Train annotation collection. Combined Pangram AI-plus-assisted fractions are annotations, not calibrated origin probabilities; preserve independent provenance labels. Counts share source families across stages. Raw fractions and all observations are retained."
+  },
+  "failed_requests": 0,
+  "repeat_observations": 0,
+  "prior_57_development_texts_included": false,
+  "raw_text_and_predictions_included": false,
+  "weighting": {
+    "status": "prepared_not_fitted",
+    "records": 375,
+    "cells": {
+      "human_only": {
+        "below-60": 109
+      },
+      "mixed": {
+        "100": 83,
+        "60-70": 2,
+        "70-80": 5,
+        "80-90": 6,
+        "90-below-100": 5,
+        "below-60": 8
+      },
+      "model_only": {
+        "100": 140,
+        "60-70": 2,
+        "70-80": 4,
+        "80-90": 5,
+        "90-below-100": 4,
+        "below-60": 2
+      }
+    },
+    "policy": "Equal total weight per observed origin, then equal weight per occupied score bin within origin. Mean sample weight one. Retain every record, raw fraction and independent origin label. Keep source families together in any later split.",
+    "limits": "Adaptive Train view, not a benchmark or prevalence estimate. Reweighting does not create independent examples; rare bins may overfit. No change to frozen v6 fitting. Any teacher-supervised fit needs its own declared protocol.",
+    "weight_sum": 375.00000000000074,
+    "max_weight": 10.416666666666666,
+    "weight_effective_sample_size": 99.9650447557292,
+    "weights_sha256": "4e811df40d61dc635d80bc078b68ecbcb34efe7c9e2f6d1ce1f842a3a7a5d48b",
+    "source_sha256": "b2599eaa69b0b920c1dedd8d0dc49674d181a7825a01adc3a832303d09d44f0c",
+    "executable_sha256": "d1251c59a85954dae50698f802e09416129d0de40893b3683a4ca5b5b66bc0f2"
+  },
+  "validation": {
+    "collector": "format check, full Rust tests and all-targets Clippy with warnings denied passed on the Studio; focused collector and CLI parser checks also passed",
+    "raw_source_unchanged": true,
+    "normalization": "Explicit opt-in permits whitespace normalization and removal only of existing source U+00AD. Original and returned hashes retained.",
+    "frozen_v6_fit_unchanged": true
+  }
+}

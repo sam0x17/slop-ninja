@@ -1,0 +1,47 @@
+{
+  "at": "2026-09-15T10:34:50.113870+00:00",
+  "completion_tokens_per_second_including_prompt_and_load": 3.846069486578195,
+  "detector_calls": 0,
+  "elapsed_seconds": 277.686090625,
+  "executable_sha256": "454552a497ff07e3dc9c18bb66dd8efae27aee913cfc21459e2d6a9f7a09a30e",
+  "finish_reason": "stop",
+  "http_status": 200,
+  "model": "mlx-community/gpt-oss-20b-mxfp4-bf16@f8c03dc936dbf66db17d3411a177f498fcdd9a87",
+  "model_files_sha256": "7545ef6a323d9ce74ab991a00b691ff214c33e4e62d6f2e2f7d6af9aab889895",
+  "model_spec_sha256": "dd13b6a6c4f72dce0f2499792560289361267a38ca4095b99cb1656b75fa7b1c",
+  "output_sha256": "c1ffc5d31187b5df4e2206aa8d778f8a0c1c5c2633abb9df48fead86eac52f2a",
+  "output_words": 120,
+  "probe_source_sha256": "1a7613a6965818bbecb987243cd98477e70e7e307345a526ff763dbdfe7b1a5d",
+  "purpose": "One synthetic compatibility request. No training record, no writing-quality or throughput population claim.",
+  "raw_content_sha256": "928c2cd4f27926e81616f725f75bcb68210aa1b313c9a9474228c1bb0c20d07a",
+  "request_sha256": "6add0f2e321a90bf4c63127dff07a017bc24e48ceeca28f471e0a27a3339c226",
+  "response_format": "harmony-text-v1",
+  "response_model": "default_model",
+  "response_parser_source_sha256": "c1fb67c8cd498a733ed881460ce1fd09e86166bd358f5ee50e66f57c44bfcda0",
+  "response_sha256": "b3ca56939c570b7a93e5d0d15be472106ab6316d65dcb27e83f6f32f1c44c907",
+  "runtime": {
+    "packages": {
+      "mlx": "0.32.2",
+      "mlx-lm": "0.31.3",
+      "mlx-metal": "0.32.2",
+      "tokenizers": "0.23.2",
+      "transformers": "5.17.0"
+    },
+    "python": "3.12.14"
+  },
+  "runtime_files": {
+    "models/gpt_oss.py": "a71c0402bcdf9495291ff1efdba02dca2dfc9c4c821d81df460ba4bd6cca3443",
+    "server.py": "cdfcb4ac848636f9927851a0ec7a951584526530cb7832ba58049e4a9144db8b",
+    "tokenizer_utils.py": "25784bb03c922d0d7832ce6c66a6cd4eb3a4820b6c5a8e583dedb63a018fb56a",
+    "utils.py": "ba0371e9c88d52b34d71271945c2394005fbcb2bfb2ee9f6f82d627a33b72422"
+  },
+  "schema": "slop_ninja_gpt_oss_generator_probe_v1",
+  "usage": {
+    "completion_tokens": 1068,
+    "prompt_tokens": 173,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1241
+  }
+}

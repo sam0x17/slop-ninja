@@ -1,0 +1,2171 @@
+{
+  "admitted_records": 116,
+  "cohorts": {
+    "frontier-captures-v1": {
+      "attribution_labels": {
+        "claude-opus-5": 24,
+        "claude-sonnet-5": 24,
+        "requested:gpt-5.6-sol": 24,
+        "requested:gpt-6-astra": 24
+      },
+      "operation": "source_conditioned_draft",
+      "origin": "model_only",
+      "records": [
+        {
+          "backend": "codex",
+          "capture_sha256": "a6bc7f90f0b59aad0254f6755ffc9a894aac039348dbd993851c2b450a3e7504",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:510b7c3f5bf2499866f428c07a18e22f45790e94a747254778032d1fd51d977c",
+          "request_sha256": "510b7c3f5bf2499866f428c07a18e22f45790e94a747254778032d1fd51d977c",
+          "source_group": "doi:10.1371/journal.pone.0208287",
+          "source_record_id": "plos:10.1371/journal.pone.0208287:abstract:833c9ce980345ac3",
+          "text_sha256": "faf7d7410928e17107be15dd9a688a1a29f766eedbe325d29091f6e10a184380"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "3b678bf7c3a6cbe80e5ffce6a3dbbcdd6812c4e60d559bba0ad2420f5e314ecc",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:0e0c93adc40632426386844c99b6b6f9cc2c3d52696a09b5b869a19156488570",
+          "request_sha256": "0e0c93adc40632426386844c99b6b6f9cc2c3d52696a09b5b869a19156488570",
+          "source_group": "doi:10.1371/journal.pone.0208288",
+          "source_record_id": "plos:10.1371/journal.pone.0208288:abstract:b0d38a46de29ff7d",
+          "text_sha256": "5b5a7d47b1b6f289cadb39ce4a9fd7170f3b3dc11ca777f14439293edbf04c62"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "5fed891c31fcf8b9385f7246d5fff341295a86b231c0bad83d7d903b1fec7fb3",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:35587e4500827dcc7705976247322abaccbbe75dcf465f1863571293c8d8f42c",
+          "request_sha256": "35587e4500827dcc7705976247322abaccbbe75dcf465f1863571293c8d8f42c",
+          "source_group": "doi:10.1371/journal.pone.0208292",
+          "source_record_id": "plos:10.1371/journal.pone.0208292:abstract:eefb66006b830e30",
+          "text_sha256": "c4e4fba67e644433bffd0162dbfb6ab18292aa213d140218a6018658972bdb55"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "50de485027eea665d8e5e93529ab2d61230f927970a325df3abcc5deda817ee0",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:a0af82bdf39725777252bc950620461ef9b4e242b664ba0905c023b43d14121e",
+          "request_sha256": "a0af82bdf39725777252bc950620461ef9b4e242b664ba0905c023b43d14121e",
+          "source_group": "doi:10.1371/journal.pone.0208287",
+          "source_record_id": "plos:10.1371/journal.pone.0208287:abstract:833c9ce980345ac3",
+          "text_sha256": "6905bd350898899a25898bcfbe8de8fff9621a97ded1332116aed3ce004682bc"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "64a3cec96a9320dc9d470392d349f3469e1665d34a6d3f859bf21cadcc69ff2e",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:23393e3aa37f29886f590f6ffb0ef894bcff65fbe0d334195c09ed6e8518d410",
+          "request_sha256": "23393e3aa37f29886f590f6ffb0ef894bcff65fbe0d334195c09ed6e8518d410",
+          "source_group": "doi:10.1371/journal.pone.0208288",
+          "source_record_id": "plos:10.1371/journal.pone.0208288:abstract:b0d38a46de29ff7d",
+          "text_sha256": "7239e439fda5e0a99a14f648c1e0f3473e81cded71171083b721efeab32f2777"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "7e908c3dec33de309fa4bfcf5f4dd4a77dd37190a7c6ada47be83fd348d8c75e",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:c1fe726c10b509f51d7ed3d7a23a219bab5071b39621a94092ca64636a8ce442",
+          "request_sha256": "c1fe726c10b509f51d7ed3d7a23a219bab5071b39621a94092ca64636a8ce442",
+          "source_group": "doi:10.1371/journal.pone.0208292",
+          "source_record_id": "plos:10.1371/journal.pone.0208292:abstract:eefb66006b830e30",
+          "text_sha256": "4db048ea593298339509ff48655f293c7317ab47925774cc3dd5320a1e449413"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "0532ccc3bfd68bbffd33219b73bcb9efdd4bbc06df6c0e4587ff792a680ec3e7",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:17480fd95d37f1ce0b646f2eae0fddb44abfce0d60f3d125d843ab4f561f7dd1",
+          "request_sha256": "17480fd95d37f1ce0b646f2eae0fddb44abfce0d60f3d125d843ab4f561f7dd1",
+          "source_group": "doi:10.1371/journal.pone.0208384",
+          "source_record_id": "plos:10.1371/journal.pone.0208384:abstract:94868201f5034070",
+          "text_sha256": "3b857983ce2a30b8791c9d6ade8994c8c8b7fd2e4f8b77b415239e2093ef7432"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "0e85c7c1725c00bec5cf7acac83e1c63967b29bb171e220bb8296d58639fe1c0",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:ada9efd0c8474ed98b4467ebd1be7dcba4e78cf21bf7c9e711227f6daf39963a",
+          "request_sha256": "ada9efd0c8474ed98b4467ebd1be7dcba4e78cf21bf7c9e711227f6daf39963a",
+          "source_group": "doi:10.1371/journal.pone.0208605",
+          "source_record_id": "plos:10.1371/journal.pone.0208605:abstract:296e29f9b587829e",
+          "text_sha256": "3751ec9f01a80bcf4f2f88bd5cf2141bafaa91fd85a2d696b77d7da26c8476d8"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "6704ff4b4a5f54515cfbd5df6a769ee1ed53de7b447ca659e399dcb00e7785aa",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:952bd27b0796ad93c9c451da2821e77f6acbf68cf4c3d6a1741dde7bb56f7e4b",
+          "request_sha256": "952bd27b0796ad93c9c451da2821e77f6acbf68cf4c3d6a1741dde7bb56f7e4b",
+          "source_group": "doi:10.1371/journal.pone.0208837",
+          "source_record_id": "plos:10.1371/journal.pone.0208837:abstract:504cd28354769289",
+          "text_sha256": "c9e16f103a56205147a6257df18178524e86bf1b6436320749505cf171807b03"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "11b1187daa7e8944dda15a25a9850b54921aa7e3111ceece4bbcf8a83c2966d5",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:90bb2c27dcbab1998c379f91630f48cf90dd0ba7985894a4dbe867dcb63d9c3b",
+          "request_sha256": "90bb2c27dcbab1998c379f91630f48cf90dd0ba7985894a4dbe867dcb63d9c3b",
+          "source_group": "wikinews:109735",
+          "source_record_id": "wikinews:109735:2497118:2a0dd08db13c3a8b",
+          "text_sha256": "1ffb7d6b714047de09053db69d3e242f90c469283005a28ea21cb0bb871c5675"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "fe072cadc98ecaf223eaa1054d109f8db496f6eba414c1a4b1c6ec57a90457f5",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:29444bdf1581dfd3e32f9267ad88a6ac38f475f9199b85204510148536fb2cf3",
+          "request_sha256": "29444bdf1581dfd3e32f9267ad88a6ac38f475f9199b85204510148536fb2cf3",
+          "source_group": "wikinews:116387",
+          "source_record_id": "wikinews:116387:779725:217bba801baa5ed9",
+          "text_sha256": "c1e995a691757f37f933a5bfd28e690dfe3d4b92dc70d6dfbbc44bc553a94234"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "d208e69edf9b714c556d875ccb33f666c2d6a57d4f5feff408aaf36469345392",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:2f10be614d7513d9fcb8f7223ffd574fc2b81a239679550aee354564c6147521",
+          "request_sha256": "2f10be614d7513d9fcb8f7223ffd574fc2b81a239679550aee354564c6147521",
+          "source_group": "wikinews:146204",
+          "source_record_id": "wikinews:146204:4516524:7fab6bd357700363",
+          "text_sha256": "65616c531517334fa647cd628cf5509f931d04a678fc886e53c20f966c8af689"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "dc0f83ac0e6d34ab1cfb80c19a73ff86c4d39e6bde1329eacb18add0759ed2c1",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:218e00006b36d8466ecca64619aa5996adda3a7c871cb6b8727b78ca7989e2fe",
+          "request_sha256": "218e00006b36d8466ecca64619aa5996adda3a7c871cb6b8727b78ca7989e2fe",
+          "source_group": "wikinews:2785377",
+          "source_record_id": "wikinews:2785377:4344051:be240fa8a178127f",
+          "text_sha256": "de3e97c9b9bd762ec135736cbc0730c8de44e59d8c1b73d023e4deb83f16cfb7"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "b18ec48f83b789febf6638f006e80d53361912625274ce92ee24165e5a5eb605",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:a1da41be00eb3ca3cd1f2f27ef748e37b294c31189877caa45d07171edb54f19",
+          "request_sha256": "a1da41be00eb3ca3cd1f2f27ef748e37b294c31189877caa45d07171edb54f19",
+          "source_group": "wikinews:300577",
+          "source_record_id": "wikinews:300577:1328767:fcbab426f42ab6e2",
+          "text_sha256": "990b77103de9244acdda75bb36d989144382f89921fea624199f3326dda280fd"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "f1e15f598b6844f27c157f0d2ed8f9cbe4e25b0cc43b647809d90668d3cfca76",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:913e85498bae12f1b9b7b4a739d8420e2304638bae0e509c60e75a59ff7edb3d",
+          "request_sha256": "913e85498bae12f1b9b7b4a739d8420e2304638bae0e509c60e75a59ff7edb3d",
+          "source_group": "wikinews:783073",
+          "source_record_id": "wikinews:783073:4580414:17435845e73a3e6a",
+          "text_sha256": "a8dddac84d33c438431ce44e179251683d36e135f23ae5df4653714b0da3e096"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "36d973da8b5ff0a567e333ef9c050c4fab0abe510e8541045f88550ced839466",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:c9baab09826e7b4fd34677620f2e50b783fae30ae5fe06ac479c895fe2b1f678",
+          "request_sha256": "c9baab09826e7b4fd34677620f2e50b783fae30ae5fe06ac479c895fe2b1f678",
+          "source_group": "wikipedia:page:11352050",
+          "source_record_id": "cmu-books:11352050:273eb53a3c250e5f",
+          "text_sha256": "e43699c531612c82f44937a9c66a9cd55e85adac7d5377a7cf15ff208a1b7225"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "3e77e16e1aa0653b83617e6aa7e8ee2269ab34bf00e2094549a76d4c424b44b7",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:10f9fd3bb83fb5ec0585b4fcb6381ffe2bd9860845332192147bbb39932bfc19",
+          "request_sha256": "10f9fd3bb83fb5ec0585b4fcb6381ffe2bd9860845332192147bbb39932bfc19",
+          "source_group": "wikipedia:page:14039364",
+          "source_record_id": "cmu-books:14039364:261ed57dc5e2c99f",
+          "text_sha256": "fd1f7209fdfd086f26d6c19464056368657fb5b562bb2c6377f7a6320147616c"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "8e8a6bef0ed83497efc3cbb6a669c74bd8976696e3cae0bb38770a4c4e59c13c",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:f215cc37bc6bb0315b2c965bb293f9af1c92b0476eaa602298b209b260c12744",
+          "request_sha256": "f215cc37bc6bb0315b2c965bb293f9af1c92b0476eaa602298b209b260c12744",
+          "source_group": "wikipedia:page:1493625",
+          "source_record_id": "cmu-books:1493625:c61b21dbe73aeec3",
+          "text_sha256": "cea91fda9ee63d42d4a53b538667f40c527cc6574fe0db908d8a51ebb4d3e638"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "600c23af921b41533a51ee0b6ae0065c554934431d405004ea904d41e417f274",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:d0c1bf4ea8970e41a7471805ba323742e1a931c823df100563525798027a78f7",
+          "request_sha256": "d0c1bf4ea8970e41a7471805ba323742e1a931c823df100563525798027a78f7",
+          "source_group": "wikipedia:page:1651906",
+          "source_record_id": "hc3-wiki:82a18ce42e2582c04c1e767434f68a16011d91c17001d851ca5aa534da44c02e:0",
+          "text_sha256": "fa58009481cf43d6506298d9201731ab0c91ac0cf8f2e358f072bcf5d3e7021e"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "dabf652c510a540a3c2ebf9be5c6b1e4808c3eb526a5ac2367934d97703c67a7",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:bab71ed0c45e931d9fefae0a0a6989fe625d0eff8e158c674434a1417292f01a",
+          "request_sha256": "bab71ed0c45e931d9fefae0a0a6989fe625d0eff8e158c674434a1417292f01a",
+          "source_group": "wikipedia:page:18950885",
+          "source_record_id": "hc3-wiki:c1358a315e2e97692dcc8cfe848537a4ed926cec7fb13f35e449c6652067aa71:0",
+          "text_sha256": "bd220609177e75532bcb1a12146a057e1270da0c575f89426988640f0ad5f459"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "f4fcdf9aa004ea89e6ac588bb4b3f66728189d273f11920560b03b7712671084",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:3b5131d08348ae137d641dd2771457e0e645bfed5f56102832893268960e3186",
+          "request_sha256": "3b5131d08348ae137d641dd2771457e0e645bfed5f56102832893268960e3186",
+          "source_group": "wikipedia:page:200646",
+          "source_record_id": "hc3-wiki:914a9581d5a7f217b8cf37d9ce34d72a8d8b9f4b502e901f9fb62c2a45d5fe99:0",
+          "text_sha256": "47ea7593f0c1f5f02bc4c32d3c826eef55ffabff515fdd7775188b290cc3630a"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "210716aa5c8e4165ca6e60c17d0a00c5c6298ea7c80d42a3ff8f5ee535f89d04",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:9ef10ce5e70134d479d8cbac408c934e51851954b7b56f4ac9b0d3c8cc555fd5",
+          "request_sha256": "9ef10ce5e70134d479d8cbac408c934e51851954b7b56f4ac9b0d3c8cc555fd5",
+          "source_group": "wikipedia:page:21876751",
+          "source_record_id": "hc3-wiki:bc12baf46c4eeaed383241e64898efa46f759cb86c90959aa29f1b6bd4e2c87b:0",
+          "text_sha256": "c0f31211c95db4bad1921daaae1debe5c6724d4f44df1c1aff270035de264a73"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "0f18ff3434dfbfb7c5f6fc0e9d453860b706879b5fc0785314672682965fa36d",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:c94b453a03e4579805738fd2da8bdcf0d8f5509b42ec78f0f8df2245f5394e6c",
+          "request_sha256": "c94b453a03e4579805738fd2da8bdcf0d8f5509b42ec78f0f8df2245f5394e6c",
+          "source_group": "wikipedia:page:26757",
+          "source_record_id": "hc3-wiki:affc06af18b9a811336f21ebfb15d2d542dcc582dfd3bed412e0d74085274ef9:0",
+          "text_sha256": "cc23625c5cdad9627b81b30fad32e5f5417e6ee1416e9c585542b5bca753b088"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "5eaab8019a86a4777e202c30fa544818137bb4c670f44c12f6a6cde111dceced",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:e941db42bbb170d0dd5bc6461fe795481d0b3a7d86c64ec30e5288d8c8765b40",
+          "request_sha256": "e941db42bbb170d0dd5bc6461fe795481d0b3a7d86c64ec30e5288d8c8765b40",
+          "source_group": "wikipedia:page:4906936",
+          "source_record_id": "cmu-books:4906936:7b3fa633393ed1a8",
+          "text_sha256": "8cbc5781ca329fa0e10f23ecc2e01b807dbf735991f9e030e4f83e4f24e4eaa0"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "cb3811785c5229bacdb779c51bf64c9dc8eed12629a020b96e1c2c264c9dc5b1",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:87ac7db5748dba48d606163185471080fd1953d5e94e425d55f221bcf9985e2e",
+          "request_sha256": "87ac7db5748dba48d606163185471080fd1953d5e94e425d55f221bcf9985e2e",
+          "source_group": "wikipedia:page:50909",
+          "source_record_id": "hc3-wiki:dad1a25d7f1fdc8976411507980a0a80bb5b4455d426d129c5e5e87e79095473:0",
+          "text_sha256": "1b46a234b65e104402cdf1311805090caacb7cbadd48d89bf6c255ab8080f54d"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "2d5850c0c60acca05ec3b8802590d888922df7caec37e13ab1ea4150049e5a7e",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:0a6b1f4ce0ee7827348793900a48f0d47544049557d7eb4a7c3a69ba58139bb1",
+          "request_sha256": "0a6b1f4ce0ee7827348793900a48f0d47544049557d7eb4a7c3a69ba58139bb1",
+          "source_group": "wikipedia:page:6868571",
+          "source_record_id": "cmu-books:6868571:00c9b06e84ee60af",
+          "text_sha256": "56e8cdd4bb6d2a4f965505761524f0544caee9bf2db03c09102f48e262d66113"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "afe3a4f90c7a9506da226e674997176122cbca86ac80404b6a032330f993a00a",
+          "identity": {
+            "attribution_label": "requested:gpt-5.6-sol",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-5.6-sol"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:977b7f11651dd9309c6fdf8ca72cdea405815595daf176df07860e42c15e8c40",
+          "request_sha256": "977b7f11651dd9309c6fdf8ca72cdea405815595daf176df07860e42c15e8c40",
+          "source_group": "wikipedia:page:8038503",
+          "source_record_id": "cmu-books:8038503:0d8fb522b5f4e821",
+          "text_sha256": "95d7d8e0a0efc7639891d60d53713c58c2c463b98674aef920d6b5a121f26c53"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "068252c1f5156dccb0a2d24d8ec69b8659f8fc707b72c28b0a2f7ee424d2457c",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:673dc2c9148872b467712e0de6d2dffb2d6eb1bd77a8444b95a90c960a96cbea",
+          "request_sha256": "673dc2c9148872b467712e0de6d2dffb2d6eb1bd77a8444b95a90c960a96cbea",
+          "source_group": "doi:10.1371/journal.pone.0208384",
+          "source_record_id": "plos:10.1371/journal.pone.0208384:abstract:94868201f5034070",
+          "text_sha256": "984a0414c566013418e3ba08a770837ec646f1a8d24761c08ce7ee87e1bc1dbc"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "d3c3c2b98226df7c8454b73bad552a59cbff23e0320758cbe16fc0eb1aaae7d5",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:25811c627941d015552d4ed162060a47932ba1a950934497705b7b9b21458a6d",
+          "request_sha256": "25811c627941d015552d4ed162060a47932ba1a950934497705b7b9b21458a6d",
+          "source_group": "doi:10.1371/journal.pone.0208605",
+          "source_record_id": "plos:10.1371/journal.pone.0208605:abstract:296e29f9b587829e",
+          "text_sha256": "eb81046e33008a3dad66a7e3ed835e74258054724a74245a414aff35bcdda593"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "5d64f8b387eb3d0919f024ca6dbbffdbe473b036fce8aaee357bcadc0b2b93f6",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:267fdf579376b53f4aaaab75fd0ce597c5f4d4c3943055c1881fba546bb69de2",
+          "request_sha256": "267fdf579376b53f4aaaab75fd0ce597c5f4d4c3943055c1881fba546bb69de2",
+          "source_group": "doi:10.1371/journal.pone.0208837",
+          "source_record_id": "plos:10.1371/journal.pone.0208837:abstract:504cd28354769289",
+          "text_sha256": "707280c694f8f29b25dd194012b6b465f6240f0f6b8be47915cea17ed9f8ab49"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "b2c5aaf6917b913842c7cb9eed6fa900040c708a515e0d476a73ae5f82647433",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:3b47a8169a8b569c9fb4005ea7ce5df676663295e93fa663039663ce8d3f3f6a",
+          "request_sha256": "3b47a8169a8b569c9fb4005ea7ce5df676663295e93fa663039663ce8d3f3f6a",
+          "source_group": "wikinews:109735",
+          "source_record_id": "wikinews:109735:2497118:2a0dd08db13c3a8b",
+          "text_sha256": "06e12bb133dce8d6d96c798c7050d2008c9b6b29690c9703c9a9a8d565c758ea"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "0b411d5d27912c5dcd8d67c69c322e39e9f77fcd6f094fa392c21ed6e7072048",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:8079338b4b862f471079b5598fdc0cc8b3193a958651512b064b1a65eb4eb7e6",
+          "request_sha256": "8079338b4b862f471079b5598fdc0cc8b3193a958651512b064b1a65eb4eb7e6",
+          "source_group": "wikinews:116387",
+          "source_record_id": "wikinews:116387:779725:217bba801baa5ed9",
+          "text_sha256": "7455d25f45b3a5b8531bb45ce81eaf3d19bd9815b334d4fb5e57b3030831248b"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "cbedd1f1c385dc18be69a2a6885966313df01fd2bbebec6e15bf9b2613ce6c21",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:5e031cd73c6b7051185c67e39b958f8f2b2230116b752ff7b6aa8f2e14e69e57",
+          "request_sha256": "5e031cd73c6b7051185c67e39b958f8f2b2230116b752ff7b6aa8f2e14e69e57",
+          "source_group": "wikinews:146204",
+          "source_record_id": "wikinews:146204:4516524:7fab6bd357700363",
+          "text_sha256": "c9cd94a5281a7b390f033d2932da962b53108fe5ee80c681b8c385852f5700dc"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "168f58066797d86040c1d1805c28348d16dece0611a1b635daeb05586ee1ccf9",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:596c203a9b9980eb0bcac0af3e47037b71b90b5789bd13e3c97287b8a235e501",
+          "request_sha256": "596c203a9b9980eb0bcac0af3e47037b71b90b5789bd13e3c97287b8a235e501",
+          "source_group": "wikinews:2785377",
+          "source_record_id": "wikinews:2785377:4344051:be240fa8a178127f",
+          "text_sha256": "554cfcb3a3351d0f19dd68b7f2e5423e2b2709a7e4661b62c1874e96f11cb90e"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "f7203d06bc6ea659103ff0b459f32d8cce8ed4fb51263ca31550de16f93bb9a4",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:0e5c7e8ae8cd94ca680010d75c92f7b4a436cfa3eec6e54f97c9dbc9b0b58899",
+          "request_sha256": "0e5c7e8ae8cd94ca680010d75c92f7b4a436cfa3eec6e54f97c9dbc9b0b58899",
+          "source_group": "wikinews:300577",
+          "source_record_id": "wikinews:300577:1328767:fcbab426f42ab6e2",
+          "text_sha256": "655100115618475dbd705f674d50cd1a0d880ac6149de8ca11332719949c10f0"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "c2d68a776258e30389febc3454f7cd6d2b91af1a6ae48b29f2762f431cc87729",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:7a624a8dc61f1df35613e9030ae11727443dd9f3e02d7183ce6cd517533f5050",
+          "request_sha256": "7a624a8dc61f1df35613e9030ae11727443dd9f3e02d7183ce6cd517533f5050",
+          "source_group": "wikinews:783073",
+          "source_record_id": "wikinews:783073:4580414:17435845e73a3e6a",
+          "text_sha256": "e1404495756468c3421b779465a731ddef8df361d6428d7cdfd531751882cc8c"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "edf4ed856ae0179ae604a8312103308187accfbf8660705b00ec5ad84d6f39fa",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:45bca74bbc639001ee7d4406427d2ec34581e6dff9d93e69fccd79a96a85f821",
+          "request_sha256": "45bca74bbc639001ee7d4406427d2ec34581e6dff9d93e69fccd79a96a85f821",
+          "source_group": "wikipedia:page:11352050",
+          "source_record_id": "cmu-books:11352050:273eb53a3c250e5f",
+          "text_sha256": "69f22bf9ce4be1d57850e8aa9687412fb0b082b4888ed8792961caed1e1da382"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "d7d02486b34e6208d3302c7c689110d7f2c3df29a158341ed4a8b2caf2f380a7",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:d9c79648847de196976ddd62a7d151e63556e4c925ee6cf33cd6659bc6e60e3f",
+          "request_sha256": "d9c79648847de196976ddd62a7d151e63556e4c925ee6cf33cd6659bc6e60e3f",
+          "source_group": "wikipedia:page:14039364",
+          "source_record_id": "cmu-books:14039364:261ed57dc5e2c99f",
+          "text_sha256": "d580897a0ed0afaea0b87542322689faea0ba9014e9ee32cdc7239461a5f3e71"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "1cca9fcf6c1affa28f2c7d63bd7da87c97654abf5cf3c30f50b8bb59291bf340",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:57d16da0ea16e78b32fdc8b553f62ae80785cd8b79af23f65193c7635a6e4677",
+          "request_sha256": "57d16da0ea16e78b32fdc8b553f62ae80785cd8b79af23f65193c7635a6e4677",
+          "source_group": "wikipedia:page:1493625",
+          "source_record_id": "cmu-books:1493625:c61b21dbe73aeec3",
+          "text_sha256": "8a84fdeaaa97ef7fcbf73284e7ecc3498a22c22e1068c536356d64ec242b6cdd"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "22de6662f03db66f7df53451a8b73ab1ed4fdc4d9ddd49f47a08768ce8865d1f",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:dea121894f9db5537d354b18206f60cf70de95d616ba8e89ec89ddec6b70cbe9",
+          "request_sha256": "dea121894f9db5537d354b18206f60cf70de95d616ba8e89ec89ddec6b70cbe9",
+          "source_group": "wikipedia:page:1651906",
+          "source_record_id": "hc3-wiki:82a18ce42e2582c04c1e767434f68a16011d91c17001d851ca5aa534da44c02e:0",
+          "text_sha256": "8f6531da2d8c18a3d57730d6ea488ab280fa2b9c5d99ea55697a45be95c1ff6d"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "ef991b2daeb1d6220999a56e7176ff8e4559ab4e44094728df316f1d8b8d5024",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:e9dd54dce51ec23e8f188fb8a8ddcd402d8d920231c3f2f2bf92d7a7ff90f0bc",
+          "request_sha256": "e9dd54dce51ec23e8f188fb8a8ddcd402d8d920231c3f2f2bf92d7a7ff90f0bc",
+          "source_group": "wikipedia:page:18950885",
+          "source_record_id": "hc3-wiki:c1358a315e2e97692dcc8cfe848537a4ed926cec7fb13f35e449c6652067aa71:0",
+          "text_sha256": "6a4706bc1004129a1ad24d332fa28e62a4d1db1381f272851ae1ced918f2453d"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "2df98f23f4b103e57028d5dc5bc5dcaa746699e0de2bc6ce8a640c985f219c4e",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:e11b6024fa14940b63ea72b467a6c063b80b804ecd4e6c09a67acc94e76a436b",
+          "request_sha256": "e11b6024fa14940b63ea72b467a6c063b80b804ecd4e6c09a67acc94e76a436b",
+          "source_group": "wikipedia:page:200646",
+          "source_record_id": "hc3-wiki:914a9581d5a7f217b8cf37d9ce34d72a8d8b9f4b502e901f9fb62c2a45d5fe99:0",
+          "text_sha256": "d5fc70461a41182e04796f563d9ed537cd5fe65d72ef12c5bfc962c452d1fbae"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "35201bf6015137edbaf6a9414f3cba2fa4529d62ad85ff32b1d9f9d19ca424ed",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:6facc4ec40c71463c4cbf757079a6fc14580590e9763890080538d1c13081a50",
+          "request_sha256": "6facc4ec40c71463c4cbf757079a6fc14580590e9763890080538d1c13081a50",
+          "source_group": "wikipedia:page:21876751",
+          "source_record_id": "hc3-wiki:bc12baf46c4eeaed383241e64898efa46f759cb86c90959aa29f1b6bd4e2c87b:0",
+          "text_sha256": "1ea1f68e71fffbb5a5550cb3195872d986162cce233dc2436b5d0ac0f9a05036"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "747d228cbfe7c686b15264e3fdccfd6c01a25395fbd910dd38b57c8ab754ffc7",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:caeafeeeca67ec4c217f620e3d375a727684b4f096344a79ca8befd9c8f4130a",
+          "request_sha256": "caeafeeeca67ec4c217f620e3d375a727684b4f096344a79ca8befd9c8f4130a",
+          "source_group": "wikipedia:page:26757",
+          "source_record_id": "hc3-wiki:affc06af18b9a811336f21ebfb15d2d542dcc582dfd3bed412e0d74085274ef9:0",
+          "text_sha256": "167c59d9d29e31a1a216017af4c0c9c2988e29c08179888b00142c17bddf5a65"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "076d6ee0d003bf692649ddd38a771ba5e4b941272e21f35e2edf50da2927935c",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:116b76cae4d46e4165e216a5ca02198fe01bb7b32dac3ccdfe20979b99f07b37",
+          "request_sha256": "116b76cae4d46e4165e216a5ca02198fe01bb7b32dac3ccdfe20979b99f07b37",
+          "source_group": "wikipedia:page:4906936",
+          "source_record_id": "cmu-books:4906936:7b3fa633393ed1a8",
+          "text_sha256": "65737f560c70ee0f717c836a5e6c5cff8d18244f27438de6161c73f0215ac229"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "bfdb3b730bae3391dd86ff3d941f67a3e279a3f868ea106bb68b0b06c7b4a898",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:ab54f27800f06796f455dd1759e2585d0cb1d133821f5645194f1e3ed139c846",
+          "request_sha256": "ab54f27800f06796f455dd1759e2585d0cb1d133821f5645194f1e3ed139c846",
+          "source_group": "wikipedia:page:50909",
+          "source_record_id": "hc3-wiki:dad1a25d7f1fdc8976411507980a0a80bb5b4455d426d129c5e5e87e79095473:0",
+          "text_sha256": "4a914281d6d21b7464653868facf84acd862ded95fb2d7f92f9ab3e508e99579"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "82640498b74ac4008aa778d95567838a7d5f28bc861c619f9bcf64dd820c8361",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:cf9020e1f5f0443f37a40c2422c6a0fdcabb1218a63e3f54cd449b235d04123c",
+          "request_sha256": "cf9020e1f5f0443f37a40c2422c6a0fdcabb1218a63e3f54cd449b235d04123c",
+          "source_group": "wikipedia:page:6868571",
+          "source_record_id": "cmu-books:6868571:00c9b06e84ee60af",
+          "text_sha256": "02ce1ad28eae8e26ae807bff5c1c5c814ed45a8697f4231582ce2bd7bb399ab9"
+        },
+        {
+          "backend": "codex",
+          "capture_sha256": "01155ecde1d92947c9c5cbe598a487fb34d7e6542f0028724dc1edbf162cbfd1",
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:ae32d4698f89014c34535276be6ef3abe929e16c5743248bde7146cc9e3989cc",
+          "request_sha256": "ae32d4698f89014c34535276be6ef3abe929e16c5743248bde7146cc9e3989cc",
+          "source_group": "wikipedia:page:8038503",
+          "source_record_id": "cmu-books:8038503:0d8fb522b5f4e821",
+          "text_sha256": "2c308ecefa2eec2f886d05490d067a334e969402fcbeaf2fee41aacbb461f511"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "908789df5539c60227fa492c128af4d0c64e1f4b69813a778c9ab7982b20d4c9",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:5c377fc047c82a2f56ab04c781c66f94138483de29b240bba45b5514c8280d66",
+          "request_sha256": "5c377fc047c82a2f56ab04c781c66f94138483de29b240bba45b5514c8280d66",
+          "source_group": "doi:10.1371/journal.pone.0208287",
+          "source_record_id": "plos:10.1371/journal.pone.0208287:abstract:833c9ce980345ac3",
+          "text_sha256": "62fe0f01ec493c06f3ddfe3ff6853a4bb6ca5a621973440bb97edf44069e44ba"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "24f8edf436dcfebee9f98d27546938e1f8a20c1c921e658f09530a8f405084e1",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:0e5dd30e1bbc46255b4724b4e8ed5ecb35bcef69d4bc18d2c700657df28b5614",
+          "request_sha256": "0e5dd30e1bbc46255b4724b4e8ed5ecb35bcef69d4bc18d2c700657df28b5614",
+          "source_group": "doi:10.1371/journal.pone.0208288",
+          "source_record_id": "plos:10.1371/journal.pone.0208288:abstract:b0d38a46de29ff7d",
+          "text_sha256": "def9695e77a9a7d73769f4921c5332a30355b7327dded3676c89d956945d53f6"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "81d6b7093c81cbd2a1cfe2c175a8d4b7b80a0d236eb99ff9314a17e6e90a29c5",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:9fdb56176f9953d437d15b1aeb8c7cc6e73bcfae5279e6af3cf14de617838eda",
+          "request_sha256": "9fdb56176f9953d437d15b1aeb8c7cc6e73bcfae5279e6af3cf14de617838eda",
+          "source_group": "doi:10.1371/journal.pone.0208292",
+          "source_record_id": "plos:10.1371/journal.pone.0208292:abstract:eefb66006b830e30",
+          "text_sha256": "17482b0f36ec0ffe66656f31d042a60e6f2967bc393de9e6a4c15c07b82c9291"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "39a2e176adfaeeb83d53f71fdcc7da9ce861bed437f46eb0e8f5226dced322a3",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:5a707c400b2bf60bdebb328b9b214d4c29c5876f9361fba7b8cbfcf9001da6e4",
+          "request_sha256": "5a707c400b2bf60bdebb328b9b214d4c29c5876f9361fba7b8cbfcf9001da6e4",
+          "source_group": "doi:10.1371/journal.pone.0208384",
+          "source_record_id": "plos:10.1371/journal.pone.0208384:abstract:94868201f5034070",
+          "text_sha256": "dab325339c18874d8e4ba5f51dc485573824e24ff112490241f615247f4097b4"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "f4f75f150c6f3e7d1888310e6e0ac3dd0f8a248105780cca9e010f71c2f62fd4",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:baf5ef6b33852955c3c69ba250acb407a427a8e072ef76b87bf488cbd330b919",
+          "request_sha256": "baf5ef6b33852955c3c69ba250acb407a427a8e072ef76b87bf488cbd330b919",
+          "source_group": "doi:10.1371/journal.pone.0208605",
+          "source_record_id": "plos:10.1371/journal.pone.0208605:abstract:296e29f9b587829e",
+          "text_sha256": "a4b79a33f5d0650004f3b515d7e24cb0b410a4a90bbc22925a780eb8eed121ac"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "69c777629fa0864fc567392251c6864a9363f730f6a1e8e3f3e2ac6d50940aec",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:fb2c6f15d9bd7afb4bd0a3e0aeb2d4051f6ba6a756f03e5e5bf91c759c754d53",
+          "request_sha256": "fb2c6f15d9bd7afb4bd0a3e0aeb2d4051f6ba6a756f03e5e5bf91c759c754d53",
+          "source_group": "doi:10.1371/journal.pone.0208837",
+          "source_record_id": "plos:10.1371/journal.pone.0208837:abstract:504cd28354769289",
+          "text_sha256": "e632a35687909868e431629a6420f16fdd1b3dd30e33b57f2d9be05fe5d03aff"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "d91a54de87acaae9396d5d7fe12804de4bebc4355577553289ce7bf656be0217",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:9ec4c148661d18dba4cf9496cc5b1609d483dc7539bcf17c5309247df41a2f1a",
+          "request_sha256": "9ec4c148661d18dba4cf9496cc5b1609d483dc7539bcf17c5309247df41a2f1a",
+          "source_group": "wikinews:109735",
+          "source_record_id": "wikinews:109735:2497118:2a0dd08db13c3a8b",
+          "text_sha256": "a05c10455f8a69b296b571cae8ce2da6b8b2286a9528ff000c900ff6eeff6c8c"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "a4fd742f31d8bd572dbfc08ac73851016c1d7dc5a8e9dad161e320846e38d361",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:22d8d8f50869e0c37ac5aeb6c79ebd403e6a175404c51ab884b0ad89f8c1a114",
+          "request_sha256": "22d8d8f50869e0c37ac5aeb6c79ebd403e6a175404c51ab884b0ad89f8c1a114",
+          "source_group": "wikinews:116387",
+          "source_record_id": "wikinews:116387:779725:217bba801baa5ed9",
+          "text_sha256": "4eeb2698112c93e719e7172c26c04a246f84df4184afd64457db48c4fc7c3f22"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "ddc20a660c602e32f04540dcc86cd522e69e64d448282d079c510e7900a886cc",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:9354170543ea975fe52de9a615c6e9fe70dac44200dbcb18e615e40e465e90df",
+          "request_sha256": "9354170543ea975fe52de9a615c6e9fe70dac44200dbcb18e615e40e465e90df",
+          "source_group": "wikinews:146204",
+          "source_record_id": "wikinews:146204:4516524:7fab6bd357700363",
+          "text_sha256": "d1a52eca076e8f1ccfe2336e47619f5fc2d6df314e8a2a4866fb755939a90fe2"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "b23ad9312cd09850c199bb343864d02c2e4ad17222baa6c769dd033227e490c7",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:43e7604baf12804cd4e2472ed0b27aa9da45532e0ccd7d2dcfc649156176c0a8",
+          "request_sha256": "43e7604baf12804cd4e2472ed0b27aa9da45532e0ccd7d2dcfc649156176c0a8",
+          "source_group": "wikinews:2785377",
+          "source_record_id": "wikinews:2785377:4344051:be240fa8a178127f",
+          "text_sha256": "b7f1294c3e77830fdf597ca5b498c1824ca5278eef36ee6c367630580f16197e"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "0a3608a159be8880a90b560685b4b81ee67e9e34b511df1befdbf01a54bdbb58",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:47908b67e8368a6e4705fb763b4f2706a839646c8b1b37e7bd595644fb45c129",
+          "request_sha256": "47908b67e8368a6e4705fb763b4f2706a839646c8b1b37e7bd595644fb45c129",
+          "source_group": "wikinews:300577",
+          "source_record_id": "wikinews:300577:1328767:fcbab426f42ab6e2",
+          "text_sha256": "debb19d093066309c4649b5aaeafc8d19a5e787ffac0870e0cd37e1afec49b3c"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "3c8e16b5573a0d61116bea2e1dcc794f1202535e3ab3c1724d32a234eb0cb8f3",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:57209a23c45044fd02f2e3d4ce03cf58e5775eb1178121badb20e5c0d037ad58",
+          "request_sha256": "57209a23c45044fd02f2e3d4ce03cf58e5775eb1178121badb20e5c0d037ad58",
+          "source_group": "wikinews:783073",
+          "source_record_id": "wikinews:783073:4580414:17435845e73a3e6a",
+          "text_sha256": "b493f2db858c678fd92de11aea34b4664968a7c674cade03649d2f0c4aa07eb4"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "b8b0cec936714ca72c3eb0f451c9044dfb485c78b77299be4bf4232098e43062",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:ca927a18134708719f6407f451b74ad6db7a1f28f5e36b0469f0396948f53d69",
+          "request_sha256": "ca927a18134708719f6407f451b74ad6db7a1f28f5e36b0469f0396948f53d69",
+          "source_group": "wikipedia:page:11352050",
+          "source_record_id": "cmu-books:11352050:273eb53a3c250e5f",
+          "text_sha256": "0a784f574e8e4f21731d30f90526becf5cc0d0e306343323c08d635ffced3ac7"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "746f3c8c085e62d301b5425c30cf5215d5f773de4f4b6f5828dc22be80bd138b",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:b91e778a5403c762699cc672275a794e1917a3fb78a89de0a3a87a24840131e2",
+          "request_sha256": "b91e778a5403c762699cc672275a794e1917a3fb78a89de0a3a87a24840131e2",
+          "source_group": "wikipedia:page:14039364",
+          "source_record_id": "cmu-books:14039364:261ed57dc5e2c99f",
+          "text_sha256": "70a1d997426829182cc6a73b5667388f4fc115b423a621fad61cc421a1062adb"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "1f8f846b39b37f82b408f195ac97c24b1a781649fd23b81c6d3e276856b51dad",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:4cf1ba1be6853e92acf68d360890eacb3a7b5540801e129be8a337423084d222",
+          "request_sha256": "4cf1ba1be6853e92acf68d360890eacb3a7b5540801e129be8a337423084d222",
+          "source_group": "wikipedia:page:1493625",
+          "source_record_id": "cmu-books:1493625:c61b21dbe73aeec3",
+          "text_sha256": "47dad841fa3947c8f0bcc09a5ff31527e0116525f4a9b87fadd98ec849c1af01"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "32e031cb79ce1795fa093405b9c0e9f4a612ae71f3ebc266ee972848068b284c",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:33902230e31fee283075065b9f8a96721244c2557efeb0eb085fb5a879956799",
+          "request_sha256": "33902230e31fee283075065b9f8a96721244c2557efeb0eb085fb5a879956799",
+          "source_group": "wikipedia:page:1651906",
+          "source_record_id": "hc3-wiki:82a18ce42e2582c04c1e767434f68a16011d91c17001d851ca5aa534da44c02e:0",
+          "text_sha256": "020207f1a935c67add5e14443be7b13f3c6f5ecfef16df0db052b3ae9bd54fce"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "17f4e87d6598e37522bf6844de3b9fe83c0871973d04900678ce4e1e208b27b2",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:6928da03fec56c16559a804b2159197f2f0bb5f725b51b3c75e4ded7274abb92",
+          "request_sha256": "6928da03fec56c16559a804b2159197f2f0bb5f725b51b3c75e4ded7274abb92",
+          "source_group": "wikipedia:page:18950885",
+          "source_record_id": "hc3-wiki:c1358a315e2e97692dcc8cfe848537a4ed926cec7fb13f35e449c6652067aa71:0",
+          "text_sha256": "8f6e278a03fa8e5cfa45bda32a6558fb7e9e837fc5c9076cad8ae45858a279e9"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "4899260bed620edb0912b38a71813cafd8073cabf77cbc99b4573f5bee2e986d",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:78d39a3954bdbfd8127d12cb28e0f952c60f7bd219e0cb6788d0314e38c9e7d7",
+          "request_sha256": "78d39a3954bdbfd8127d12cb28e0f952c60f7bd219e0cb6788d0314e38c9e7d7",
+          "source_group": "wikipedia:page:200646",
+          "source_record_id": "hc3-wiki:914a9581d5a7f217b8cf37d9ce34d72a8d8b9f4b502e901f9fb62c2a45d5fe99:0",
+          "text_sha256": "1d333a955dc85f818882bfacef87b3730ffe831f2b119cf2d5000ac392307aa5"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "77c01d48d3241695fd4c970a09b700e5d308b3d0a9969f176f67de411240b222",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:d9e1dc5c9a8ac7a0b839e6018795ed695ed54f751c828abf2c44abac244a8b16",
+          "request_sha256": "d9e1dc5c9a8ac7a0b839e6018795ed695ed54f751c828abf2c44abac244a8b16",
+          "source_group": "wikipedia:page:21876751",
+          "source_record_id": "hc3-wiki:bc12baf46c4eeaed383241e64898efa46f759cb86c90959aa29f1b6bd4e2c87b:0",
+          "text_sha256": "a4afd374e84f80e78c9db447e285a716163d47a3a801f8ee5711b16057ebfc12"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "e121d7ef83b65e66c39e4658ba58a157e78ae2ed08edbd89aae05c50fd922b76",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:718ec2c2adee286255d5c3a6a481763c2fb456e97922fc9a151179c462f7244c",
+          "request_sha256": "718ec2c2adee286255d5c3a6a481763c2fb456e97922fc9a151179c462f7244c",
+          "source_group": "wikipedia:page:26757",
+          "source_record_id": "hc3-wiki:affc06af18b9a811336f21ebfb15d2d542dcc582dfd3bed412e0d74085274ef9:0",
+          "text_sha256": "80020ee47e4c4f9269178a8db2b5c03b5882332646b23a58433a6d4bb22a9215"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "b60e57f40d7302b381ae64a4219fa9c3684ae882b199e7903c492e3dbf0e1785",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:34461ae0a208976b7fb4f0e2e0c3453fa65813df0ddd010c504f6a5518ff5967",
+          "request_sha256": "34461ae0a208976b7fb4f0e2e0c3453fa65813df0ddd010c504f6a5518ff5967",
+          "source_group": "wikipedia:page:4906936",
+          "source_record_id": "cmu-books:4906936:7b3fa633393ed1a8",
+          "text_sha256": "f7bbcc0fdb828aadde5745cbd604954da0f06bf3681c7e48cff26e6aa29cc632"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "2a7e1cb0c807caaa3c3942735acd5a6cc0adb7795148b07c882c1ff653d1149f",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:4e5938581524389c089efabc580770e82aee9ce8ed7615afb8f6d44fd007367e",
+          "request_sha256": "4e5938581524389c089efabc580770e82aee9ce8ed7615afb8f6d44fd007367e",
+          "source_group": "wikipedia:page:50909",
+          "source_record_id": "hc3-wiki:dad1a25d7f1fdc8976411507980a0a80bb5b4455d426d129c5e5e87e79095473:0",
+          "text_sha256": "5bd552af06bef2a1728eea453eb91fbe36da4543598ee6a83794f0f13f005d7e"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "77435a5fe5929019439b7a2de1b26210ac555daf19bd108758126b5699dc585c",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:4ffe5fc27a7c07f450046ceb3b38eb4c8a4b4f0cb38b41ee4063496d55bf1b28",
+          "request_sha256": "4ffe5fc27a7c07f450046ceb3b38eb4c8a4b4f0cb38b41ee4063496d55bf1b28",
+          "source_group": "wikipedia:page:6868571",
+          "source_record_id": "cmu-books:6868571:00c9b06e84ee60af",
+          "text_sha256": "445735eeac75e10bd9eb7462e73b04319d27e14badc10948ec66aaa9995a840d"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "e4f8b27fc671907e090eff9487a0be9845c547f07893866b3aebbbfe533578c6",
+          "identity": {
+            "attribution_label": "claude-opus-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-opus-5",
+            "model_requested": "opus"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:d40fe23a6c63067bde0d9175b14c3f2e5b8033a977f9a5bb51f27f3d1b97e718",
+          "request_sha256": "d40fe23a6c63067bde0d9175b14c3f2e5b8033a977f9a5bb51f27f3d1b97e718",
+          "source_group": "wikipedia:page:8038503",
+          "source_record_id": "cmu-books:8038503:0d8fb522b5f4e821",
+          "text_sha256": "9b7e3ad429b8e87d9007f764fc091eb113abc93c959369749d0be4615a10ca32"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "3d82d7418f30ae95b52a030cd39185395adee885ee5dee1bbd8143e3b1376c34",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:c4d1013cd023cc3a09a5067def6ffcf4f484e19e4829a19bbdfbd92e2e4b4b8e",
+          "request_sha256": "c4d1013cd023cc3a09a5067def6ffcf4f484e19e4829a19bbdfbd92e2e4b4b8e",
+          "source_group": "doi:10.1371/journal.pone.0208287",
+          "source_record_id": "plos:10.1371/journal.pone.0208287:abstract:833c9ce980345ac3",
+          "text_sha256": "7697d49d3823f45c2db295d4d54ed71bbfd3b931d9101b07fe15944683e66a9a"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "1c4b8aa8a438cbeff5c6321e48adc2924c8ef09e14f6fa20b02fa68906124752",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:9969f8324c8612d1649fc25e46e49501fea3b83770c5603505327e7267a0f54e",
+          "request_sha256": "9969f8324c8612d1649fc25e46e49501fea3b83770c5603505327e7267a0f54e",
+          "source_group": "doi:10.1371/journal.pone.0208288",
+          "source_record_id": "plos:10.1371/journal.pone.0208288:abstract:b0d38a46de29ff7d",
+          "text_sha256": "cba48f597e7a1d4855955c981032ca10d814b6f02667ad26ef0027fe7ff6ebff"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "c400a2ccf85b031454e6e76b4da68e2c6a2e4fbcfbdc20a860cf27041bb9f799",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:99f9c3a4ceac61f0ad13d88bcc3114ea1da059e8b168ac751d2c729ef6b8b513",
+          "request_sha256": "99f9c3a4ceac61f0ad13d88bcc3114ea1da059e8b168ac751d2c729ef6b8b513",
+          "source_group": "doi:10.1371/journal.pone.0208292",
+          "source_record_id": "plos:10.1371/journal.pone.0208292:abstract:eefb66006b830e30",
+          "text_sha256": "9a9e649de7862c89867bbd8d03241f3388aecb5b1258a7a105b3748db667ed52"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "9b335b10de8e43dc1bae6c43d28f24fa6077ee92e5a42a6db81ad6844cb6c89c",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:6c2738ef1c9091a1d12e634d2bffcea1abb3b2966000fcc95187a3d12dc088b5",
+          "request_sha256": "6c2738ef1c9091a1d12e634d2bffcea1abb3b2966000fcc95187a3d12dc088b5",
+          "source_group": "doi:10.1371/journal.pone.0208384",
+          "source_record_id": "plos:10.1371/journal.pone.0208384:abstract:94868201f5034070",
+          "text_sha256": "78a4fe056acc0a69b010403832b37a9bc807a8fa240aae721420bbb641e51131"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "b168ba6a693e16a41ee3d9069da3f5fcd124a0e980f4a7e6f78371dbcc704df5",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:5c658c47d3bd11e045303e3bad4c0d1a328c96c573471fa8366f17202d5abaa7",
+          "request_sha256": "5c658c47d3bd11e045303e3bad4c0d1a328c96c573471fa8366f17202d5abaa7",
+          "source_group": "doi:10.1371/journal.pone.0208605",
+          "source_record_id": "plos:10.1371/journal.pone.0208605:abstract:296e29f9b587829e",
+          "text_sha256": "d698f002db198e07680f5a0a95d8fc2401bdb21beaddf542249f6e4c2d1c253e"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "50d0b008b04b14dabb03ba595c3bc54be6a466ae280f0a9f5d82265ef00ef294",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:5e688e22cfa7b77c651725bd0f13a4869a8f374688bd89f91c76ff461051f2e7",
+          "request_sha256": "5e688e22cfa7b77c651725bd0f13a4869a8f374688bd89f91c76ff461051f2e7",
+          "source_group": "doi:10.1371/journal.pone.0208837",
+          "source_record_id": "plos:10.1371/journal.pone.0208837:abstract:504cd28354769289",
+          "text_sha256": "4fae0d2d314cdd9f71fa792afd8d2b07570fd2f734382cabbbe9abebb3cf94e3"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "c4b3121ba05bf118ff14eaafa4adb5b03102e8d198ac82074fc1ce42cd60b547",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:14702af6c27ece95d67d4742485058aa054c0f9991998a0ae45ef16249e31688",
+          "request_sha256": "14702af6c27ece95d67d4742485058aa054c0f9991998a0ae45ef16249e31688",
+          "source_group": "wikinews:109735",
+          "source_record_id": "wikinews:109735:2497118:2a0dd08db13c3a8b",
+          "text_sha256": "8f4a1e737a938c912905ac8a461b1ebc9931fc68a130cd54bb7b65aef786b0cd"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "0ffaa755ef0eff4102dbcc8bb00ccd4620de60d2daaf69a66218405e8f6e56ca",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:11acaac0dcefed159dc25bbe2373f4e3d84fbe93ea0ad1bfdb013261e282e10c",
+          "request_sha256": "11acaac0dcefed159dc25bbe2373f4e3d84fbe93ea0ad1bfdb013261e282e10c",
+          "source_group": "wikinews:116387",
+          "source_record_id": "wikinews:116387:779725:217bba801baa5ed9",
+          "text_sha256": "c1d74f889e973ce5ee47bbc0d50c50ea39bd743e7aba83b12f4ca35eda04aeb8"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "93ee1b473a5f7d5e2aad1736fc8d010e8de56fff4bdddc1d695dd69c4b75728d",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:1591476d6c8f558bb6d55fac191b3f77a292f4389eb35870edae02137b809d32",
+          "request_sha256": "1591476d6c8f558bb6d55fac191b3f77a292f4389eb35870edae02137b809d32",
+          "source_group": "wikinews:146204",
+          "source_record_id": "wikinews:146204:4516524:7fab6bd357700363",
+          "text_sha256": "78a8b03f5155e43aaf838b98e1ef51a5bb287c910782596fa05f448d9339ad8b"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "8b2c5323c5e1572f2d9fd269c176dc0109bda5172cfdcada6f39b8046e380a25",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:7edcbe0fb75072b6cf4ee5f94325b60449f6e75311729ea5278f9c835df7bbac",
+          "request_sha256": "7edcbe0fb75072b6cf4ee5f94325b60449f6e75311729ea5278f9c835df7bbac",
+          "source_group": "wikinews:2785377",
+          "source_record_id": "wikinews:2785377:4344051:be240fa8a178127f",
+          "text_sha256": "4d82b1e3a5e360a76d5eb684dbaf84564572c2b52dc7da426d39ef4dd8020541"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "4103f22f66ea3d30527e2ffe7878048268d5a1e5dc84697175addbbab867927d",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:e7c7956cf67e26276c84166c44797403626559448ea8274d60c4f186e51d82d3",
+          "request_sha256": "e7c7956cf67e26276c84166c44797403626559448ea8274d60c4f186e51d82d3",
+          "source_group": "wikinews:300577",
+          "source_record_id": "wikinews:300577:1328767:fcbab426f42ab6e2",
+          "text_sha256": "0dc7e8ed3a9d7d0bcf2c58fb63bb917f68ffb725a177013c043ebd5f3ccb9586"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "761a85dbb71454a53ff0aff9a6b62080862d50645ee68f675ee38c5100f64448",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:e73371f9aa6a4a2e316a35a260e1b9d466e973952a93a2f80b1d9f57209ce10c",
+          "request_sha256": "e73371f9aa6a4a2e316a35a260e1b9d466e973952a93a2f80b1d9f57209ce10c",
+          "source_group": "wikinews:783073",
+          "source_record_id": "wikinews:783073:4580414:17435845e73a3e6a",
+          "text_sha256": "91f5c6f2ba14889783c917a6e70987286017234773f5b49e61e917221a92c8cd"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "382f7a3ed0dfb77cdc0628d342ef08f49e9da931baaa938dde17edbd3b2a2070",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:24aa91429d7197535ee5244acb92c43b5d1aa6b07f5814b93a5a2a23a421923a",
+          "request_sha256": "24aa91429d7197535ee5244acb92c43b5d1aa6b07f5814b93a5a2a23a421923a",
+          "source_group": "wikipedia:page:11352050",
+          "source_record_id": "cmu-books:11352050:273eb53a3c250e5f",
+          "text_sha256": "67de88e5d1331b97a40f5a7bc9e17041b485045958ff48a97bb1fdc6584e2fa5"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "32efbb290a40b20dc77c156f149e73ddda7621f5abae514c7c79750eacca8414",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:da2c6161cc470310c09de7f6ba7db5479bd378e850e8885bb66291e2b227b766",
+          "request_sha256": "da2c6161cc470310c09de7f6ba7db5479bd378e850e8885bb66291e2b227b766",
+          "source_group": "wikipedia:page:14039364",
+          "source_record_id": "cmu-books:14039364:261ed57dc5e2c99f",
+          "text_sha256": "8ff41313a3d8c0bf4870d1b30ab546375fecdaf0f4d2de308334ca2eb7aa63ab"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "2167ea7213c1ccab1b43533c9c3d674272ed363fe840566fe1ce63d1ac42e202",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:e4d278a0c48b35a16d042af2fd86a15c6c73f5f81fecd777e71a8c60dd238002",
+          "request_sha256": "e4d278a0c48b35a16d042af2fd86a15c6c73f5f81fecd777e71a8c60dd238002",
+          "source_group": "wikipedia:page:1493625",
+          "source_record_id": "cmu-books:1493625:c61b21dbe73aeec3",
+          "text_sha256": "c7919b8e59b40a7ae0c9809cfe7e80b2488c13802db7b1c3a3fb3d50be895847"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "419d343cb3772f7c5f2ff16f1de34677028d17a920cbdb15572a7e689d190c6f",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:c6f05c4517dce61fd91d739388cf6e009eacafbe1ea561eb789d300cf647c4bb",
+          "request_sha256": "c6f05c4517dce61fd91d739388cf6e009eacafbe1ea561eb789d300cf647c4bb",
+          "source_group": "wikipedia:page:1651906",
+          "source_record_id": "hc3-wiki:82a18ce42e2582c04c1e767434f68a16011d91c17001d851ca5aa534da44c02e:0",
+          "text_sha256": "af761b6cf8cf58483b034708dfd43f302bd5b701600d1a0e4e5cd5299c1b092e"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "b7c6f2c0bcc883fc25167ffe85d581901ea6322d126b721f0b9a889aa3606786",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:ff5f576780acb8a67440f91eac7706cf546230b87706104d3097503e9ed30190",
+          "request_sha256": "ff5f576780acb8a67440f91eac7706cf546230b87706104d3097503e9ed30190",
+          "source_group": "wikipedia:page:18950885",
+          "source_record_id": "hc3-wiki:c1358a315e2e97692dcc8cfe848537a4ed926cec7fb13f35e449c6652067aa71:0",
+          "text_sha256": "59bdae119d73775556a3b7cf60fd1994ab00c5c9657243ae368c7a5c513d30a2"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "3bee9ba4cd9660093b1cf65adad1727e80124e52138f735fca0212b70711d00b",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:42def897932c22eced3b4964418c8c4154b3f0d0ca174f10ce0de9ce11494adb",
+          "request_sha256": "42def897932c22eced3b4964418c8c4154b3f0d0ca174f10ce0de9ce11494adb",
+          "source_group": "wikipedia:page:200646",
+          "source_record_id": "hc3-wiki:914a9581d5a7f217b8cf37d9ce34d72a8d8b9f4b502e901f9fb62c2a45d5fe99:0",
+          "text_sha256": "d3c7da01451edaac9a0ec43d3b9ed6ff1d6d93ca01a4a3520dd11faa9fefa95d"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "dc9f90c8db7e36293f1c7686d1095474ae667d963bf731d366110fad64b68edd",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:6c59e3baf2b0ccb2b83660b11a1421437f0a6a7ad4841bd3c38f8f2cf3bf9b01",
+          "request_sha256": "6c59e3baf2b0ccb2b83660b11a1421437f0a6a7ad4841bd3c38f8f2cf3bf9b01",
+          "source_group": "wikipedia:page:21876751",
+          "source_record_id": "hc3-wiki:bc12baf46c4eeaed383241e64898efa46f759cb86c90959aa29f1b6bd4e2c87b:0",
+          "text_sha256": "7883b2d2299dd879c52fb455b9c9121de7bb3ac9692d568e1d76d79dbbf4fcdd"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "c793442a670b2fecdd03fde578c1115f09bb8867fbe5b9236b64dd52eabe33e6",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:e2280163b9ba57baa26aadae2e24d2fc7d515d7e1935e0490fc0cf5a0a8c5c51",
+          "request_sha256": "e2280163b9ba57baa26aadae2e24d2fc7d515d7e1935e0490fc0cf5a0a8c5c51",
+          "source_group": "wikipedia:page:26757",
+          "source_record_id": "hc3-wiki:affc06af18b9a811336f21ebfb15d2d542dcc582dfd3bed412e0d74085274ef9:0",
+          "text_sha256": "6c61afc2df12be3cd02468397103d618072308f74d7dcf2717511b6c1558ecae"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "06935b773416fa7ecf72f3206e0c92e338fd38d01297820b36ea7a2e5000d9d6",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:8999cb64d50bd347a09796b79a4f597112fe8faafd431234c636994a37b127d8",
+          "request_sha256": "8999cb64d50bd347a09796b79a4f597112fe8faafd431234c636994a37b127d8",
+          "source_group": "wikipedia:page:4906936",
+          "source_record_id": "cmu-books:4906936:7b3fa633393ed1a8",
+          "text_sha256": "f99bba3867220d7c98c3d6757fb140c0c89b0644895168c07a12cdc7eb38d0fe"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "db5e426aca9d81cea9ccce1e9a90b46bac895dcb146acd8a4a23617455719f03",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:3b0a7e2589ff93e2fea1ae0d5c4439a75e39339640bd9a49fa1ba8f2fa950032",
+          "request_sha256": "3b0a7e2589ff93e2fea1ae0d5c4439a75e39339640bd9a49fa1ba8f2fa950032",
+          "source_group": "wikipedia:page:50909",
+          "source_record_id": "hc3-wiki:dad1a25d7f1fdc8976411507980a0a80bb5b4455d426d129c5e5e87e79095473:0",
+          "text_sha256": "df582c6ae05554f7bcee8b2b3460519604b472cbc5cc444d3e54b87447bc4ce5"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "1c0392e2db4920b3f1552ebbe08e622efc5ca1cb2f0da732188b262502f87b8d",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:dd420ac03d082b8c2226a5c799b4abac9a5ffc7c26fc0757a034d895bddd585a",
+          "request_sha256": "dd420ac03d082b8c2226a5c799b4abac9a5ffc7c26fc0757a034d895bddd585a",
+          "source_group": "wikipedia:page:6868571",
+          "source_record_id": "cmu-books:6868571:00c9b06e84ee60af",
+          "text_sha256": "946048c3ce943f7d83d21a5b06f9cad4bd487ed3e826606ac42d14be3a05bcdf"
+        },
+        {
+          "backend": "claude",
+          "capture_sha256": "909df2bb1560f6a5b1d19bb7611badf2a7c4cfac9d61a87b13c334afc043fb23",
+          "identity": {
+            "attribution_label": "claude-sonnet-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5",
+            "model_requested": "sonnet"
+          },
+          "operation": "source_conditioned_draft",
+          "origin": "model_only",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "cli-capture:52d98eec2cf223c52648dc7a559b03c3b1fcd03f2bf43818ff4783d6eb854014",
+          "request_sha256": "52d98eec2cf223c52648dc7a559b03c3b1fcd03f2bf43818ff4783d6eb854014",
+          "source_group": "wikipedia:page:8038503",
+          "source_record_id": "cmu-books:8038503:0d8fb522b5f4e821",
+          "text_sha256": "f7424f46c253ef1ea1f1e42d16353dbad66ddc5449c93f323dc2285531342957"
+        }
+      ],
+      "records_count": 96,
+      "records_path": "datasets/detector-hosted-v1/reviews.jsonl",
+      "reviews_sha256": "a20b5987dc6d098efd0b5403d7de139cb3c996d897396e05aba7aa5fc5779a40"
+    },
+    "hosted-style-v1": {
+      "attribution_labels": {
+        "claude-sonnet-5-5": 10,
+        "requested:gpt-6-astra": 10
+      },
+      "canonical_exports": [
+        {
+          "acquisition_manifest_sha256": "137f258a5df99385c2a3b4e380653d7f5b66a84614df93b5c15c27e90087267e",
+          "manifest_sha256": "ea47419ceb80299a342b955d914a6fc498ac5b20f859fa0e83e5db995e0faa19",
+          "path": "data/grammar-private/a-encoder-stage3-20261026/hosted-style-v1/astra-export-v2",
+          "records_sha256": "20eb9dab5072f15f3c75243cf550cf6008e782aad5346054004d7f0679adbc28",
+          "role": "astra"
+        },
+        {
+          "acquisition_manifest_sha256": "137f258a5df99385c2a3b4e380653d7f5b66a84614df93b5c15c27e90087267e",
+          "manifest_sha256": "aacab76549adbca7803f5be53063c531aff13f7f83d2532513552976ca84cd40",
+          "path": "data/grammar-private/a-encoder-stage3-20261026/hosted-style-v1/claude-export-v2",
+          "records_sha256": "6f40cdeb6efa17939428b7995753ae0ff7fc579d08d2ba751b48917e39bfe556",
+          "role": "claude"
+        }
+      ],
+      "canonical_index_sha256": "1f147b2a8f8e02486dea19353fefbc8af7228550656e46fc8b0ee91dcd950764",
+      "operation": "source_conditioned_style_rewrite",
+      "origin": "mixed",
+      "records": [
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg1717-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-4fee269ce8ce5259ab5178e3",
+          "response_document_sha256": "e11de89e3f7a700b7c2cf0bb8c39f06af0849531e290bb57004a1a52b7e8fb66",
+          "share_target": 0.38823529411764707,
+          "source_group": "encoder_stage3_work_v1:gilbert_chesterton:pg1717",
+          "text_sha256": "c5b25346f89963d2cd89aa2337f3f736a4f89a05456e5676cb2b172e3eb70ab4"
+        },
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg1717-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-9e033206db6344e802a124a7",
+          "response_document_sha256": "835b1471f144b14ec74c8797fa6d94bacb8a7abbfd857795dc47c0c1e4bf539f",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:gilbert_chesterton:pg1717",
+          "text_sha256": "2e2c4476ad31692f39b9df0d292696485e191e89dc0ce24e892823434e160515"
+        },
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg2726-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-5d0c1c75c0202b2ea2ec8082",
+          "response_document_sha256": "fdc778a7605c394cbcf4038f00c1fed710fc851d704f6731a29bba4c63e95936",
+          "share_target": 0.30666666666666664,
+          "source_group": "encoder_stage3_work_v1:louisa_alcott:pg2726",
+          "text_sha256": "14b0941f4d552668225f7a64c74203694317269f057cb563c360804daa30f802"
+        },
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg2726-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-d61190ce851316768b0f2067",
+          "response_document_sha256": "68b293122c3804e47d9a25d9386f53bd5fb54c15d9d835b1478bfa9df3d55e39",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:louisa_alcott:pg2726",
+          "text_sha256": "7daa37ddfccfdf87f173f90a17fd5567666330b5ff77b96d3415c936f75c48c8"
+        },
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg10992-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-a01d6bfe993f9452dc84290a",
+          "response_document_sha256": "e7a2bc92a5be98a9db0ac0e442e3a302de39e6b7752a2f68563a5ad0d50eca68",
+          "share_target": 0.38427947598253276,
+          "source_group": "encoder_stage3_work_v1:jacob_abbott:pg10992",
+          "text_sha256": "ac8836ae44236b5fbbc6e64aec98feabfb24253e656376e07c41fde33fc48391"
+        },
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg10992-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-0950324dffff554a927d1ee6",
+          "response_document_sha256": "6fdd4a3490edcc55533ea5ee696e30b9ba416fe45969215ee84e8af1bd20b757",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:jacob_abbott:pg10992",
+          "text_sha256": "f62d40252d40e1772110d6a262795a8533c714e28da2b22e428dca2bae25d878"
+        },
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg4203-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-43f0cafea25675027f5f6aca",
+          "response_document_sha256": "c2ecaaa49404882ca7b05afb573df2f1b3c7c11f167a852a1521affc0f10e7cb",
+          "share_target": 0.38495575221238937,
+          "source_group": "encoder_stage3_work_v1:john_burroughs:pg4203",
+          "text_sha256": "8f2bee12fb4560a4c149cde24ad07d39a5985c8ace9bb886db318f2c6436ec5c"
+        },
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg4203-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-ec7edfda82e77fd724ba76e5",
+          "response_document_sha256": "d837b047a96f3bc204f21e9f5cdf11f4e2d66ee6d0835d261e32e86fefcc1c1c",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:john_burroughs:pg4203",
+          "text_sha256": "a766d60f83ed117bc9a374f6e4599876f7cb4a6789412fc432713f6feedbf2fe"
+        },
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg36589-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-97355e9a6d62753c0f060f23",
+          "response_document_sha256": "c2151d794e7c131130eae988d9832a3930b98fd9dd595a0ab598d77eed1b1b83",
+          "share_target": 0.40160642570281124,
+          "source_group": "encoder_stage3_work_v1:charles_harper:pg36589",
+          "text_sha256": "341864031b64e3957bc402702b2ef46829e7fe0f94362a407a37ce2557beed8c"
+        },
+        {
+          "identity": {
+            "attribution_label": "requested:gpt-6-astra",
+            "identity_basis": "requested_selector",
+            "model_reported": null,
+            "model_requested": "gpt-6-astra"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg36589-p20",
+          "provider": "codex-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-ad488577b932f50e35b2f392",
+          "response_document_sha256": "63d92e9cf534a9903bb0e01f5d9c9b51a48d92641e74d0de6e5f3aa349797ac0",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:charles_harper:pg36589",
+          "text_sha256": "52855ad23f057653503c0ce438834efe077dc673f658c97cdfa18822b425943f"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg1717-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-88e81b3434b6cc16c1e0e19a",
+          "response_document_sha256": "d578af54f3ef4f8862849ffb442f387131fadf390130e89c3a1f967d53615dc9",
+          "share_target": 0.4075471698113208,
+          "source_group": "encoder_stage3_work_v1:gilbert_chesterton:pg1717",
+          "text_sha256": "7c8bc27990be966d19234ab3cdde42d079f641e852b147b59382e1a40858cef4"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg1717-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-25f7b691cba36c127b6a757d",
+          "response_document_sha256": "18a42d1f2393180170d99165f76aa0be712267bd3e66d170d3b300d658c9d02d",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:gilbert_chesterton:pg1717",
+          "text_sha256": "857f6e4fcfe3499bcab2ee872b331e9a02cc5cb24ae3b4ddfd973e9d496f53bb"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg2726-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-2083eeb21dc9121bac123dc2",
+          "response_document_sha256": "d8712e9f9e5194db955df6b99d8b6423e37de6228a5ba029228c8238cbe4ab15",
+          "share_target": 0.3389830508474576,
+          "source_group": "encoder_stage3_work_v1:louisa_alcott:pg2726",
+          "text_sha256": "da223c0d0543d3dd80f0a2efbefa106c0f03c98e1cd3f11ad6a5912c1565c3bb"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg2726-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-1f4b77c2c2af97b5518e653c",
+          "response_document_sha256": "c02b8574339891b41fee227ddd81497e7e9437a8157fdd27975ea8b51e99c874",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:louisa_alcott:pg2726",
+          "text_sha256": "e32b5f2ff9ba77ee8faed303a01253c3b9116f901e4340a4b80702323d46c7c9"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg10992-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-861ad7f4c3d400b169b2af26",
+          "response_document_sha256": "d99bda40f368406a14e939c8cf953b6b53dd2248cfe8d13922acc5ffad6379a5",
+          "share_target": 0.4340425531914894,
+          "source_group": "encoder_stage3_work_v1:jacob_abbott:pg10992",
+          "text_sha256": "a3807e799a77a02718e645bd454fbf4a0fa473b261caee8e6713c191abf6507d"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg10992-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-94a9a980ac30d10da44f89a1",
+          "response_document_sha256": "757eff763638171238dab958dae9982d8e5c4d02919d15c4c17d7ad57127d4e5",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:jacob_abbott:pg10992",
+          "text_sha256": "1a93f222bd61a6abbebac7f498c21ae0d5e35b3f10c4e38d7753c53dd4df3718"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg4203-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-8c11275e3061efe046e20dae",
+          "response_document_sha256": "a56544eed190ad85ef574b0376f95d637fa1b9f1ec673943e17842055f3cb86a",
+          "share_target": 0.4066390041493776,
+          "source_group": "encoder_stage3_work_v1:john_burroughs:pg4203",
+          "text_sha256": "abde51e38398e8be1c6f5c9d7e5ddaa252c0e43c38ef73a0d64cc6e7e7867ed0"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg4203-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-8cb471faad89390ad48eadb2",
+          "response_document_sha256": "8134a29bf2af234da31809f321d6990b7aac5480bb01110a9cd8c5ad5b574f6a",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:john_burroughs:pg4203",
+          "text_sha256": "0273db9d440c17ead5cc3e387ac3d67d0f8cf4472084b0cbb7c0f9fb14f8e587"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg36589-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-7646c52bf4a1e3c9e7e31fcf",
+          "response_document_sha256": "774f59dd5b2e908a7da88bbb305db5fff5412a83c515afcc4029fa3307a4f709",
+          "share_target": 0.4659498207885305,
+          "source_group": "encoder_stage3_work_v1:charles_harper:pg36589",
+          "text_sha256": "ee80d9df3dd51aed5928cdd3d272b72f066ee7461f5de08fd37dd3b774715cf8"
+        },
+        {
+          "identity": {
+            "attribution_label": "claude-sonnet-5-5",
+            "identity_basis": "reported",
+            "model_reported": "claude-sonnet-5-5",
+            "model_requested": "sonnet"
+          },
+          "origin": "mixed",
+          "parent_id": "author-pg36589-p20",
+          "provider": "claude-cli",
+          "receipt_commercial_training_admitted": false,
+          "record_id": "hosted-12517878e793d407e666403a",
+          "response_document_sha256": "ff1ead56c9b44ac22f23270835c3e1f039d64a991f9127cf896abf017a23fe03",
+          "share_target": 1.0,
+          "source_group": "encoder_stage3_work_v1:charles_harper:pg36589",
+          "text_sha256": "1b278269e89b6d96937ef02aea1ed87a675a90c8751d0ca90eb5bd2a445d24cc"
+        }
+      ],
+      "records_count": 20,
+      "superseded_exports": "astra-export-v1 and claude-export-v1 hold the same texts and responses with the earlier identity assembly; train from the canonical exports"
+    }
+  },
+  "conditions": [
+    "Hosted records form their own cohort with explicit, recorded training weights so their influence can be measured and the cohort removed.",
+    "Only public passages from admitted pools are sent to hosted models: Train, Train-mining, Dev-iter, Dev-select and CAL passages; never Test passages before the seal, private correspondence, the private campaign pool or B text.",
+    "Each record keeps the exact source, prompt, voice or brief, provider, requested selector, reported identity when exposed, CLI version, argv, reasoning effort and the full event stream.",
+    "New hosted generation uses medium reasoning effort, recorded per record.",
+    "A record is used only in the split its source group holds in the current split assignment; a source group outside that split is excluded with a receipt.",
+    "Rate limits and account terms are respected; collections stop cleanly at limits and resume from their durable receipts."
+  ],
+  "date": "2026-10-27",
+  "decision": {
+    "by": "user",
+    "date": "2026-10-27",
+    "goal": "Per-frontier-model attribution that holds across voices, alongside AI-involvement confidence and AI share.",
+    "statement": "Hosted and frontier model outputs are admitted for commercial A training and evaluation."
+  },
+  "historical_receipts": "Captured receipts keep commercial_training_admitted:false as their capture-time state. This manifest admits those records by exact hash without rewriting them.",
+  "identity_policy": {
+    "helper_models": "Models present only in usage accounting are metadata, not the prose author.",
+    "reported": "When the provider reports the prose model, that name is the attribution label.",
+    "requested_selector": "When only the requested selector is known, the label is requested:<selector>; it is reported as its own basis and never presented as a resolved model snapshot."
+  },
+  "limitations": [
+    "Mechanical checks only: no record has a meaning-preservation, readability or style-compliance review.",
+    "The frontier captures are drafts from 24 v5 Train source families; the style rewrites cover five public-domain works. Both are small and source-familiar.",
+    "Codex streams expose no resolved model snapshot; GPT-6 Astra and GPT-5.6 Sol labels are requested selectors.",
+    "Hosted aliases do not identify immutable weights; unexposed sampling settings remain unknown.",
+    "Hosted captures not bound here by record hash are not admitted by this manifest."
+  ],
+  "new_collections": {
+    "basis_field": "training_admission",
+    "basis_schema": "slop_ninja_a_hosted_training_admission_v1",
+    "collectors": [
+      "examples/a_hosted_style_rewrites.rs",
+      "baseline/detector/src/bin/collect_cli_samples.rs"
+    ],
+    "reasoning_effort": "medium"
+  },
+  "predecessor": {
+    "note": "Earlier bytes of this manifest, dated 2026-10-27. The cohorts, records, conditions and identity policy are unchanged; only provider_terms and this entry differ. Records collected before 2026-10-31 cite this digest, and the earlier bytes are retained privately.",
+    "sha256": "e402401ac102e681e80bf77f491356f18f9c60c64f7dade778dd30d8f35618ee"
+  },
+  "provider_terms": {
+    "note": "Each output remains subject to its provider's terms. This manifest records the 2026-10-27 admission decision for the cohorts, records and uses listed here."
+  },
+  "schema": "slop_ninja_a_hosted_output_admission_v1",
+  "status": "admitted_for_a_training_and_evaluation",
+  "uses": [
+    "a_train",
+    "a_train_mining",
+    "a_dev_iter",
+    "a_dev_select",
+    "a_cal",
+    "a_evaluation"
+  ]
+}

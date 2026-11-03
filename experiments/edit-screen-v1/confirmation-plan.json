@@ -1,0 +1,27 @@
+{
+  "selection_basis": "One sub-10 full revision and one minimal structural edit with a large label change; both independently reviewed before screening",
+  "repeats_per_arm": 3,
+  "new_requests_cap": 12,
+  "fixed_before_confirmation": true,
+  "reviewed_by_human": false,
+  "candidates": [
+    {
+      "candidate_id": "a-ecotourism-structure-reduced-relative",
+      "source_corpus": "codex-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0186133",
+      "source_sha256": "3c520643909eafd84dd8ab5a17a429c847f8367175b473a19a52213368dfa18b",
+      "candidate_sha256": "b7d49300b173904635dde5ecc2ec58645b13c92e5d81b3d328b0dbbe60921b7a",
+      "screen_baseline": 0.7231108546257019,
+      "screen_candidate": 0.3660960793495178
+    },
+    {
+      "candidate_id": "editor-b-0188280-document-v2",
+      "source_corpus": "claude-opus-rewrites-v1",
+      "group_id": "doi:10.1371/journal.pone.0188280",
+      "source_sha256": "ffd0ace65b934e84f26839ac9c85d0d1c5193a074b3529aea11e93b24fa81074",
+      "candidate_sha256": "fb054f9c2ffda19b56a91879fedce21345961b5abf570777158cc03e1e888da7",
+      "screen_baseline": 1.0,
+      "screen_candidate": 0.0
+    }
+  ]
+}

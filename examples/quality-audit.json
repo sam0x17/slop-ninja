@@ -1,0 +1,14 @@
+{
+  "source_sha256": "replace-with-source-hash",
+  "candidate_sha256": "replace-with-candidate-hash",
+  "reviewed_by_human": false,
+  "reviewer": "",
+  "readability": false,
+  "argumentation": false,
+  "detail": false,
+  "tone": false,
+  "claim_inventory": [],
+  "qualifications_and_objections": [],
+  "numbers_names_citations_checked": false,
+  "notes": "Record the evidence for each judgment. Do not infer fidelity from detector scores or vector similarity."
+}

@@ -1,0 +1,26 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+target/
+.tmp/
+node_modules/
+.env
+.env.*
+data/
+!data/.gitkeep
+
+# Preface source and derived local experiments were removed from Git history.
+preface.tex
+preface.txt
+/experiments/pangram-preface/
+/experiments/preface-edit-v2/
+/experiments/preface-profile/
+/docs/pilot.md
+
+# Materialized copies of compressed publication snapshots (not canonical storage).
+/datasets/**/*.jsonl
+/datasets/**/data_rights.json
+/datasets/**/evidence-index.json

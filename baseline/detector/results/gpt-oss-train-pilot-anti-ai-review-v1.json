@@ -1,0 +1,131 @@
+{
+  "schema": "slop_ninja_gpt_oss_train_pilot_manual_review_v1",
+  "profile": "anti-ai",
+  "reviewer": "assistant",
+  "independent_human_gold": false,
+  "source_contract_sha256": "762c18847a9c8e476343199d47ac782791219198a2f6ad34d02f3f704511152e",
+  "planned_profile_requests": 4,
+  "planned_whole_pilot_requests": 24,
+  "reviewed_outputs": 4,
+  "profile_review_complete": true,
+  "rows": [
+    {
+      "task": "644b3ad9e487584a50458804b3a521481ca6804693ef4ca569bcf5248ba28a3d",
+      "source_id": "cmu-books:15279338:b916dbe980cbb2b6",
+      "source_sha256": "b916dbe980cbb2b6c66a6b8d8351ac130deccafb8d2c0135843fd8eff40bb131",
+      "text_sha256": "b7ec85cba5bf2ea8c7fd678e37b17a1f4b7a22092e38890d27800f4c08b8d999",
+      "request_sha256": "e372ec07610369d43166a5bf8632d3fb2ee841556f725c292eb86e9bb4e4a178",
+      "response_sha256": "aa7333544731b8076af8d6d4cecedfdf701507b2bc4617979760bb47fb473751",
+      "record_sha256": "da6c314346641e8acae8161b010868eb42df648b3b49c44bf3d43a6d3f0685df",
+      "prompt_tokens": 643,
+      "completion_tokens": 443,
+      "final_words_whitespace": 193,
+      "preserved": [
+        "The opening cave search, unborn pups, half-sister relationship, feared Sight, human enemy, hardship, prophecy and unresolved closing questions remain."
+      ],
+      "omissions_and_relationship_changes": [
+        "The final text repeatedly changes Morgra's name to Morg and describes this wolf character as a woman.",
+        "The Dragga and Drappa role definitions are absent.",
+        "A reputation for wielding the Sight replaces the source's rumor that she is afflicted with it; the relation between the legend and her intentions becomes a plan to bring wolves and humans together."
+      ],
+      "unsupported_additions": [
+        "The family's bond steadies them, and their journey hinges on devotion and resolve. These are added interpretive claims."
+      ],
+      "register_and_tone": "Retains promotional suspense but adds stock emotional rhetoric and repetitive conclusions. The requested avoidance of recognizable AI habits did not ensure restrained or faithful prose.",
+      "reasoning_observation": "A short planning message lists source details and a rough length. There is no extended counting sequence to explain the name and character-type errors.",
+      "collector_status": "recorded",
+      "strict_fidelity": "fail"
+    },
+    {
+      "task": "f3ce57fb1336a66a1528bb153ce09755bc174c15087e278c1ef8820c00ef5d85",
+      "source_id": "hc3-wiki:7d009b570188a56e25be47065a7758ff2a350deed54f1d3d6a7e05dfc3c54303:0",
+      "source_sha256": "44a8481592c6470d36444a0dc85b56a3b11e738dc35c921db7ded6b1d92dc330",
+      "text_sha256": "f701c3248c8c4ccb9605464e18a3acef3fe37b368a47e6121ab397d6f6362104",
+      "request_sha256": "9863e0a091d069ad08737eb4423ec379982e6ff06fd8c14ed726eb8f63f6be26",
+      "response_sha256": "c6456a2bb7fb5d19bb2ec4479e6fe988098b6fb918a465618879170ae050a545",
+      "record_sha256": "768a1bc63a98b80551eda34820ebc6cc63cb35e0ded98153ad0310abc13284e7",
+      "prompt_tokens": 658,
+      "completion_tokens": 324,
+      "final_words_whitespace": 202,
+      "preserved": [
+        "Definition, nonresponse, sensitive topics, longitudinal attrition, all three research fields, researcher mistakes and the three named missingness categories remain."
+      ],
+      "omissions_and_relationship_changes": [
+        "The government/private-organization sentence merges withholding and failure to report into omission; it no longer explicitly distinguishes the two causes.",
+        "Missing information is framed as an unrecorded measurement, narrowing the source's more general stored value.",
+        "The source says missing data can be handled similarly to censored data; the final text makes a broader claim about analogous techniques and what those techniques enable."
+      ],
+      "unsupported_additions": [
+        "The ending adds model adjustment and imputation of plausible values while acknowledging uncertainty. Those methods are absent from the source."
+      ],
+      "register_and_tone": "Mostly clear explanatory prose, but extra methodological advice exceeds the supplied content. A smoother explanation still fails the all-information constraint.",
+      "reasoning_observation": "Short planning message with no extended word-count trace.",
+      "collector_status": "recorded",
+      "strict_fidelity": "fail"
+    },
+    {
+      "task": "b74ecddcba0a5fd4d44f135ce0f2bf6e9412bfb67f026b229c32caea6834d577",
+      "source_id": "plos:10.1371/journal.pone.0208301:abstract:6571837bc8ea414c",
+      "source_sha256": "6571837bc8ea414c0b659bb8f78669f7dfa2889af57b7d098b390f40b279f510",
+      "text_sha256": "c9c900744c9485af037ad593237711b1c11f0ccb28821ad61fa270ed57e7afbd",
+      "request_sha256": "e9d1aaeae83fb7c7f2ee2ae42c8cb163d61d538d0c711d1f724d9d81c23dd7e8",
+      "response_sha256": "83d580529e68021b9b8cc7d15946eee36732d81a3c38bc328771d7bc7796ca6d",
+      "record_sha256": "e3f6aaf01ae91c0a2c907adcccda343190bc3ce47271c0934f36c9c14bb6ce9f",
+      "prompt_tokens": 765,
+      "completion_tokens": 762,
+      "final_words_whitespace": 213,
+      "preserved": [
+        "The three MNC populations, embryonic cardiomyocyte control, mapping and catheterization, 30%/94% findings, p<0.01, connexin relationship and distinct functional/arrhythmia outcomes remain."
+      ],
+      "omissions_and_relationship_changes": [
+        "Again moves the 14-day assessment timing to the injection, changing the experiment.",
+        "Potentially lethal becomes lethal; unclear impact becomes debated impact. The opening omits the clinical/experimental evidence distinction and progenitor-cell wording.",
+        "The conclusion says restores performance, stronger than the source's improvement."
+      ],
+      "unsupported_additions": [
+        "Adds male mice, transthoracic imaging, burst pacing, ejection fraction and cardiac output, none specified in the supplied abstract."
+      ],
+      "register_and_tone": "Imposes labeled abstract sections and more definitive mechanistic/therapeutic language. Scientific appearance does not establish fidelity.",
+      "reasoning_observation": "The planning message partly preserves assessment timing, but the final moves it to injection. No extended counting loop occurs.",
+      "collector_status": "recorded",
+      "strict_fidelity": "fail"
+    },
+    {
+      "task": "63d1292f53c20e3bc0fa69fbed2fdbac0f53fa7ea18a5e655ba201d006962069",
+      "source_id": "wikinews:2785377:4344051:be240fa8a178127f",
+      "source_sha256": "be240fa8a178127fadaebc802d140ab2af884174a472905a36f169b7030269a1",
+      "text_sha256": "70c373b16e162466857721227acb6700cce3dbe0c6bcbc608adf696d1d3e640f",
+      "request_sha256": "a04aa96f52f674d9301032545a7eeb45d23b1e00137229a5d859e81b3608c4de",
+      "response_sha256": "b68d19752dd167ea142e841d4b554bd1cf5112964b02387d1d298b43257dd847",
+      "record_sha256": null,
+      "prompt_tokens": 656,
+      "completion_tokens": 1992,
+      "final_words_whitespace": 223,
+      "preserved": [
+        "DiCaprio's first win, current film and ceremony, first-nomination year, earlier nomination films/categories, Winslet/Vikander/Larson, Mad Max counts and six named categories, Ex Machina, Spotlight and the song contest remain."
+      ],
+      "omissions_and_relationship_changes": [
+        "The Revenant's Best Cinematography and Best Director wins are absent from the final, despite appearing in a discarded draft.",
+        "The Weeknd's Canadian nationality is omitted.",
+        "The Wolf of Wall Street Best Actor nomination appears twice in the nomination list, creating avoidable repetition and possible counting confusion."
+      ],
+      "unsupported_additions": [
+        "The final claims Ex Machina's effects set a new standard and interprets Spotlight's win as recognition of socially relevant storytelling. It repeats three award results in an added evaluative paragraph."
+      ],
+      "register_and_tone": "Factual reporting shifts toward ceremony commentary and duplicated conclusions.",
+      "reasoning_observation": "Read all three analysis messages and the complete final. The model adds claims to meet a self-chosen exact word count, then removes the required Revenant wins. Its invented Danish Girl costume award occurs only in a discarded draft and is not counted as a final-text error.",
+      "collector_status": "excluded_response_format",
+      "collector_error": "Unexpected Harmony channel or control token",
+      "analysis_messages": 3,
+      "final_read_method": "Manually identified the single explicit final message in the complete saved response; no collector record created. V1 rejection remains authoritative for the frozen pilot.",
+      "strict_fidelity": "fail"
+    }
+  ],
+  "collector_records": 3,
+  "format_exclusions": 1,
+  "source_copy_exclusions": 0,
+  "conclusion": "All four complete final passages fail strict fidelity. Three were recorded; one was rejected before downstream collector checks because it contains repeated analysis messages. No scores or active training records follow. Formatting, provenance, requested versus realized style and semantic judgments remain separate.",
+  "active_training_records_admitted": 0,
+  "detector_calls": 0,
+  "pangram_calls": 0
+}

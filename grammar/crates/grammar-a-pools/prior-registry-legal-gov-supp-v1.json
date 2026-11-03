@@ -1,0 +1,164 @@
+{
+  "schema": "slop_ninja_a_pool_prior_registry_v1",
+  "registry_version": 1,
+  "supersedes": null,
+  "description": "Supplementary protected registry for the legal-gov admission (branch a-comp-legal-gov, 2026-10-27). Pass A deduplicates against the completed shared index pools/spoken/prior-index-v2 (registry prior-registry-spoken-v2.json: every registered prior snapshot, earlier evaluation candidates, the phase-1 and new Train-side pools and the FineWeb and PLOS blog candidates). This registry adds, as explicit files only (no directory walks, so concurrent rewrites cannot break the build), every concurrent Train-side pool finalized by other acquirers when it was written, the unfinished review and essay candidates, and the new-domain evaluation admissions; pass B re-admits the pass-A output against it.",
+  "entries": [
+    {
+      "label": "concurrent_final_pool_american-stories",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/american-stories/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_ami",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/ami/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_bl-hmd-newspapers",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/bl-hmd-newspapers/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_coraal",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/coraal/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_ellipse-v1",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/ellipse-v1/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_f1000research",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/f1000research/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_hacker-news",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/hacker-news/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_icsi",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/icsi/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_loc-by-the-people",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/loc-by-the-people/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_mediasum",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/mediasum/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_openreview-orb",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/openreview-orb/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_persuade2-v1",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/persuade2-v1/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_reddit-webis-tldr17",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/reddit-webis-tldr17/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_sbcsae",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/sbcsae/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_ubuntu-irc",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/ubuntu-irc/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_wikibooks-cookbook",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/wikibooks-cookbook/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_wikibooks",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/wikibooks/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_wikipedia-talk",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/wikipedia-talk/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_wikisource",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/wikisource/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_final_pool_wikivoyage",
+      "scope": "concurrent_final_train_side_pools",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/wikivoyage/documents.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_work_reviews_work_amazon_v1_candidates_jsonl",
+      "scope": "concurrent_train_side_candidates_not_yet_final",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/reviews-work/amazon-v1/candidates.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_work_reviews_work_goodreads_v2_candidates_jsonl",
+      "scope": "concurrent_train_side_candidates_not_yet_final",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/reviews-work/goodreads-v2/candidates.jsonl",
+      "required": false
+    },
+    {
+      "label": "concurrent_work_essays_dedup_v1_admitted_jsonl",
+      "scope": "concurrent_train_side_candidates_not_yet_final",
+      "path": "data/grammar-private/a-competitive-20261027/data/pools/essays/dedup-v1/admitted.jsonl",
+      "required": false
+    },
+    {
+      "label": "new_domain_eval_humans_v2_dev-iter",
+      "scope": "earlier_evaluation_split_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-v2/work/dedup/dev-iter/admitted.jsonl",
+      "required": false
+    },
+    {
+      "label": "new_domain_eval_humans_v2_dev-select",
+      "scope": "earlier_evaluation_split_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-v2/work/dedup/dev-select/admitted.jsonl",
+      "required": false
+    },
+    {
+      "label": "new_domain_eval_humans_v2_cal",
+      "scope": "earlier_evaluation_split_candidates",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-v2/work/dedup/cal/admitted.jsonl",
+      "required": false
+    }
+  ]
+}

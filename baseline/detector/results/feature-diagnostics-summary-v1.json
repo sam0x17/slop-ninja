@@ -1,0 +1,2129 @@
+{
+  "schema": "slop_ninja_feature_diagnostics_summary_v1",
+  "recorded_at": "2026-09-14T20:44:26Z",
+  "completion": {
+    "phase": "feature_diagnostics_closed",
+    "exit_code": 0,
+    "reference_promoted": false
+  },
+  "postflight_bound_files": 206,
+  "bindings_sha256": "5fc9aeea6b8997793637677b8a664ad6d80d09635a4f40014306864870538e9e",
+  "grid_summary_sha256": "bc4bc89d8f5b7ac19884bf554b7764a8e80dd866180b8502a9fd4f2d23cd852e",
+  "gradient_replay_sha256": "0ada274e3e7dfd58ea8b9954929553a2e331ccc1b5d22185cafb029c53ec0b83",
+  "best_per_representation_by_development_only": {
+    "combined": "combined-512",
+    "grammar": "grammar-512",
+    "word": "word-1024"
+  },
+  "candidates": [
+    {
+      "candidate": "word-0",
+      "representation": "word",
+      "hidden_width": 0,
+      "parameters": 24579,
+      "development_binary_nll": 0.27747556655778244,
+      "artifact_manifest_sha256": "ffb5644d442301f048cf8b040921224c44cca7d2ba0c5cae99b5eef6103abcb0",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.8522068777256664
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.7754225555316843
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          33,
+          45
+        ],
+        "candidate_provider_flag_agreement": [
+          44,
+          54
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              7,
+              7
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              6,
+              8
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              4
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              7,
+              10
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              6,
+              8
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              8
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              7,
+              11
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              8,
+              10
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              5,
+              8
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              13,
+              16
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 17
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.0005045320462198339,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 24,
+          "both_tied": 3
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 3.0528776441396595
+      },
+      "reports_sha256": {
+        "hosted": "958fad0f5a2b510356a02bf9b007b5690a0fb98e759ab4b2dfa391ba011805de",
+        "grammar": "2f454b6149dcfd59483d82d2b1cc2d54fa600a0a58e9c094636474ea5707dd02"
+      }
+    },
+    {
+      "candidate": "word-128",
+      "representation": "word",
+      "hidden_width": 128,
+      "parameters": 1049091,
+      "development_binary_nll": 0.19889109395992105,
+      "artifact_manifest_sha256": "9e8049d90ce3facf056e8c09aaa933a39ca9d66e09a49dd01e8bec92afc540dc",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9201992953016427
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.7427154384231317
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          26,
+          46
+        ],
+        "candidate_provider_flag_agreement": [
+          37,
+          55
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              6,
+              7
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              8
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              0,
+              4
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              6,
+              11
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              4,
+              6
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              10
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              5,
+              11
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              5,
+              10
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              5,
+              10
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              11,
+              15
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 17
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.0026688398334298083,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 24,
+          "both_tied": 3
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 2.060562374897184
+      },
+      "reports_sha256": {
+        "hosted": "2bc4597b9524ce2a1eef40718c6d69da4596264f8f1661dca7c463b22435c325",
+        "grammar": "2ecfa5c89feb861843f8c7f947c392a58cec342d7f7af78f590847eb192b3c54"
+      }
+    },
+    {
+      "candidate": "word-256",
+      "representation": "word",
+      "hidden_width": 256,
+      "parameters": 2098179,
+      "development_binary_nll": 0.22787654547617725,
+      "artifact_manifest_sha256": "963da26118bbcd5e7f21f4a948127d4b59412f1d4a16869354fd08dab5801249",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.754858755110279
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.6078656110226731
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          33,
+          48
+        ],
+        "candidate_provider_flag_agreement": [
+          40,
+          53
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              6,
+              8
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              5
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              4,
+              5
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              7,
+              10
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              12
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              6,
+              8
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              8,
+              10
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              7,
+              13
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              6,
+              10
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              12,
+              15
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 17
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.000980183801837809,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 24,
+          "both_tied": 3
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 3.597535325381955
+      },
+      "reports_sha256": {
+        "hosted": "46533b2ad28dfa30b39fa7a973f3b25f771e4792cb99fd57b4d5ddd512e74031",
+        "grammar": "0c2126a667b11762db56abd8f40ca83d66b8907d306f70f049b678604c3d6a0a"
+      }
+    },
+    {
+      "candidate": "word-512",
+      "representation": "word",
+      "hidden_width": 512,
+      "parameters": 4196355,
+      "development_binary_nll": 0.20297819877547338,
+      "artifact_manifest_sha256": "197418e83f7aba68fdc65232eec0e8f821370226515a0c5f4bad5ab795cb002d",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9207831286874908
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.6812136506660547
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          15,
+          41
+        ],
+        "candidate_provider_flag_agreement": [
+          26,
+          46
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              6
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              5
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              0,
+              4
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              9
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              11
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              6
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              1,
+              10
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              5,
+              10
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              1,
+              8
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              8,
+              13
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 17
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.0013081723529383253,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 24,
+          "both_tied": 3
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 3.017839906742999
+      },
+      "reports_sha256": {
+        "hosted": "fdf4e776a86512228d357602bbd743e4bfacf9bb16b96c0bc01e387b6339f094",
+        "grammar": "57e94d0534b206b5c3b24af5398526b69cdd179a42a4f033a9260b08925b84f9"
+      }
+    },
+    {
+      "candidate": "word-1024",
+      "representation": "word",
+      "hidden_width": 1024,
+      "parameters": 8392707,
+      "development_binary_nll": 0.19172114225595335,
+      "artifact_manifest_sha256": "319c80d23b9a5b049bd6cc4d9700864c2b2ecc8bbe3653f077b18fe3c1363f91",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9026202561903014
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.698672653440124
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          20,
+          42
+        ],
+        "candidate_provider_flag_agreement": [
+          31,
+          49
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              7
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              6
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              3
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              4,
+              9
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              11
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              4,
+              6
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              3,
+              9
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              6,
+              11
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              3,
+              7
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              8,
+              15
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 17
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.0007871746645791963,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 24,
+          "both_tied": 3
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 1.5014923138346978
+      },
+      "reports_sha256": {
+        "hosted": "fe44a72e265ff0d361bbf42822b52c9af8980582b50c78d0a10ecb8446a7c0d4",
+        "grammar": "dc6af7f5cf0136b22c1a43302c10722aedb77224eb36a5ffcac8e920dfa10398"
+      }
+    },
+    {
+      "candidate": "grammar-0",
+      "representation": "grammar",
+      "hidden_width": 0,
+      "parameters": 24579,
+      "development_binary_nll": 0.37562716593099926,
+      "artifact_manifest_sha256": "cff0b57afa149ca4888b823861be66811cc2592e1a16526bbdf1724a760989fd",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9629180077321214
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8817516062024102
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          12,
+          42
+        ],
+        "candidate_provider_flag_agreement": [
+          21,
+          49
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              5
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              9
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              9
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              7
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              8
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              4
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              3,
+              14
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              6,
+              14
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              1,
+              5
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              2,
+              9
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 13,
+          "both_tied": 2,
+          "disagree": 2
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.012717807681568813,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 23,
+          "both_tied": 4
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 1.8420681153077574
+      },
+      "reports_sha256": {
+        "hosted": "6ee427b8b00f14d568b4f2d898fca41fc43bf96fede9c8ee54690e4010c17cca",
+        "grammar": "dfb0e7b49a118d9ed5cbf6205417b82ddf640db23928949e75c971b43f7da9a3"
+      }
+    },
+    {
+      "candidate": "grammar-128",
+      "representation": "grammar",
+      "hidden_width": 128,
+      "parameters": 1049091,
+      "development_binary_nll": 0.37297969056877284,
+      "artifact_manifest_sha256": "ce2060eb11062eac885945e2ca36ddef3c74eb6f60a89be75f62cbe262ef80b0",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9850361110189294
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.9238501145483031
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          9,
+          38
+        ],
+        "candidate_provider_flag_agreement": [
+          18,
+          43
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              2
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              8
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              7
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              8
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              8
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              5
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              2,
+              12
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              5,
+              14
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              0,
+              5
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              2,
+              7
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 15,
+          "both_tied": 2
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.006591258746617205,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 23,
+          "both_tied": 4
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 1.1259682295362992
+      },
+      "reports_sha256": {
+        "hosted": "3923db1caf69abb165040843540585cae8010f9f8d4c31739549cc34d8ebd088",
+        "grammar": "a7b21f886595b44e00cae17ba452c346b4fbb99b95acedf959dbd36b259126ff"
+      }
+    },
+    {
+      "candidate": "grammar-512",
+      "representation": "grammar",
+      "hidden_width": 512,
+      "parameters": 4196355,
+      "development_binary_nll": 0.3590083483342914,
+      "artifact_manifest_sha256": "813200dc4487126874828c1c321f842169a3eb134147896975192fb95a441a73",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9824043137432581
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.9512054979190995
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          10,
+          25
+        ],
+        "candidate_provider_flag_agreement": [
+          19,
+          32
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              2
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              6
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              4
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              4
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              6
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              3
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              3,
+              9
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              5,
+              10
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              0,
+              2
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              2,
+              4
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 15,
+          "both_tied": 2
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.004185721363939419,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 23,
+          "both_tied": 4
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 1.4744615351537815
+      },
+      "reports_sha256": {
+        "hosted": "f6451bbb7aecd39681c5517cd76f5030c44f6dfe7c19feb9d564f1b59c811cb4",
+        "grammar": "a9d4b1ab433cbba00abf9a0783c3274693394e87462d4865e70c136865d700c6"
+      }
+    },
+    {
+      "candidate": "combined-0",
+      "representation": "combined",
+      "hidden_width": 0,
+      "parameters": 49155,
+      "development_binary_nll": 0.26385750099368177,
+      "artifact_manifest_sha256": "86cf9344c90f8d3d08bd4585609aa7ee14ba739b2c90f03c7467a4d1aecbb0ae",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9117880503328424
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8366419207939633
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          29,
+          47
+        ],
+        "candidate_provider_flag_agreement": [
+          36,
+          52
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              6
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              7,
+              9
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              9
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              6,
+              8
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              8
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              5,
+              7
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              7,
+              16
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              11,
+              13
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              1,
+              4
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              10,
+              14
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 17
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.005940352893056729,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 27
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 2.8884283791829226
+      },
+      "reports_sha256": {
+        "hosted": "2a32fa85d61e20997a7d7e751c7abaab9f8216e8e67d8a7159406cb11334d024",
+        "grammar": "10600062fc685bd2f1b68a71660a3459eb2fb2e82eb652a3be3118d2dc4c79d0"
+      }
+    },
+    {
+      "candidate": "combined-128",
+      "representation": "combined",
+      "hidden_width": 128,
+      "parameters": 2097667,
+      "development_binary_nll": 0.19784746537132347,
+      "artifact_manifest_sha256": "d4bbe7fb4c146f057bc2e92bcdc9fbbbb309c12b4916c46c202a731a59b2e415",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.982434963315253
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.8140401599021941
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          14,
+          56
+        ],
+        "candidate_provider_flag_agreement": [
+          23,
+          61
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              7
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              12
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              9
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              11
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              3,
+              12
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              5
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              3,
+              18
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              5,
+              17
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              2,
+              7
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              4,
+              14
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 17
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.006743430120087627,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 27
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 3.2649848110751223
+      },
+      "reports_sha256": {
+        "hosted": "1270e589588645c36158752665b9171c184511b7960495a81311a3b483a95a1a",
+        "grammar": "b903a4578a560153785d224f47f33751cd4e9df8a7dba4f66bb69e6636397291"
+      }
+    },
+    {
+      "candidate": "combined-512",
+      "representation": "combined",
+      "hidden_width": 512,
+      "parameters": 8390659,
+      "development_binary_nll": 0.1713721376138967,
+      "artifact_manifest_sha256": "557dcb3d5d3462d3dee2a5d59c582bf3e5b29f9029e0eea1e3745a8fc577d35c",
+      "operating_points": [
+        {
+          "calibration_false_positives": 1,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.01,
+          "threshold": 0.9902465813571542
+        },
+        {
+          "calibration_false_positives": 5,
+          "calibration_human_groups": 108,
+          "calibration_human_rows": 108,
+          "comparison": "strictly_greater_than",
+          "target_human_false_positive_rate": 0.05,
+          "threshold": 0.7570278703380511
+        }
+      ],
+      "hosted": {
+        "baseline_flagged": [
+          68,
+          83
+        ],
+        "candidate_flagged": [
+          8,
+          54
+        ],
+        "candidate_provider_flag_agreement": [
+          19,
+          59
+        ],
+        "pangram_flagged": 85,
+        "rows": 96,
+        "source_groups": 24
+      },
+      "hosted_slices": {
+        "profile": {
+          "anti-ai": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              8
+            ],
+            "baseline_flagged": [
+              16,
+              16
+            ],
+            "pangram_flagged": 15
+          },
+          "direct": {
+            "rows": 16,
+            "candidate_flagged": [
+              0,
+              11
+            ],
+            "baseline_flagged": [
+              11,
+              12
+            ],
+            "pangram_flagged": 14
+          },
+          "fix-slop": {
+            "rows": 16,
+            "candidate_flagged": [
+              0,
+              8
+            ],
+            "baseline_flagged": [
+              6,
+              13
+            ],
+            "pangram_flagged": 14
+          },
+          "informal": {
+            "rows": 16,
+            "candidate_flagged": [
+              1,
+              10
+            ],
+            "baseline_flagged": [
+              14,
+              14
+            ],
+            "pangram_flagged": 15
+          },
+          "plain": {
+            "rows": 16,
+            "candidate_flagged": [
+              2,
+              12
+            ],
+            "baseline_flagged": [
+              9,
+              13
+            ],
+            "pangram_flagged": 13
+          },
+          "source-matched": {
+            "rows": 16,
+            "candidate_flagged": [
+              4,
+              5
+            ],
+            "baseline_flagged": [
+              12,
+              15
+            ],
+            "pangram_flagged": 14
+          }
+        },
+        "requested_model": {
+          "gpt-5.6-sol": {
+            "rows": 24,
+            "candidate_flagged": [
+              2,
+              17
+            ],
+            "baseline_flagged": [
+              20,
+              22
+            ],
+            "pangram_flagged": 21
+          },
+          "gpt-6-astra": {
+            "rows": 24,
+            "candidate_flagged": [
+              3,
+              16
+            ],
+            "baseline_flagged": [
+              21,
+              24
+            ],
+            "pangram_flagged": 23
+          },
+          "opus": {
+            "rows": 24,
+            "candidate_flagged": [
+              0,
+              8
+            ],
+            "baseline_flagged": [
+              13,
+              17
+            ],
+            "pangram_flagged": 20
+          },
+          "sonnet": {
+            "rows": 24,
+            "candidate_flagged": [
+              3,
+              13
+            ],
+            "baseline_flagged": [
+              14,
+              20
+            ],
+            "pangram_flagged": 21
+          }
+        }
+      },
+      "grammar": {
+        "direction_counts": {
+          "agree": 17
+        },
+        "edited_states": 17,
+        "external_gradient_transfer_measured": false,
+        "mean_absolute_margin_error": 0.009438960228271686,
+        "meaning_preservation_inferred": false,
+        "tie_tolerance": 1.0e-08,
+        "within_source_pair_counts": {
+          "agree": 27
+        },
+        "rows": 26,
+        "controls": 9,
+        "source_groups": 3,
+        "max_absolute_edit_change_pp": 3.9112850248904096
+      },
+      "reports_sha256": {
+        "hosted": "5f239a5d7b2d772da9effc4ca8ed0963aca248bad66ce33a143021bae070f9ab",
+        "grammar": "132a8695dd86aa04939aebd999d776c37c4b1c3f1d592f6a38b502cab63d9ed8"
+      }
+    }
+  ],
+  "scope": [
+    "One seed. Models and Calibration operating points were frozen before diagnostic inference.",
+    "Hosted outputs use 24 Train roots, four requested models and six profiles, with no independent human controls. This is not unseen-source accuracy.",
+    "Pangram flags use saved AI plus AI-assisted fractions at least 0.1. They are not matched to A false-positive rates.",
+    "Grammar diagnostics use 26 known Development states across three families, including nine controls and 17 edits. Local gradient agreement does not establish meaning preservation or Pangram transfer.",
+    "No provider calls, new training, reference promotion or deployment as B guidance."
+  ]
+}

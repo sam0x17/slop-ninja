@@ -1,0 +1,38 @@
+{
+  "schema": "slop_ninja_feature_gradient_replay_v1",
+  "checks": [
+    {
+      "candidate": "word-1024",
+      "source_sha256": "dccd0f34b44672170c38c6010b9b7bed72d7a809e3bf2aabd7ba09143a7d2c63",
+      "edited_sha256": "edf4a835ada37dafeb0e3165e1cc4d9edb824953d0685b45cb0cb3b2332e62f0",
+      "estimated_margin_change": 0.22959023300755685,
+      "actual_margin_change": 0.2267647200470453,
+      "model_float32_delta_estimate": 0.22959024320034818,
+      "float32_delta_rounding_difference": 1.0192791333185625e-08,
+      "report_sha256": "dc6af7f5cf0136b22c1a43302c10722aedb77224eb36a5ffcac8e920dfa10398"
+    },
+    {
+      "candidate": "grammar-512",
+      "source_sha256": "dccd0f34b44672170c38c6010b9b7bed72d7a809e3bf2aabd7ba09143a7d2c63",
+      "edited_sha256": "076c738f03d2a9f2a818bcb32fcac00cb3ecf69756d2d884c449a76cf07cf71b",
+      "estimated_margin_change": -0.3550862099054676,
+      "actual_margin_change": -0.35859221574619937,
+      "model_float32_delta_estimate": -0.35508619739863295,
+      "float32_delta_rounding_difference": 1.2506834623504659e-08,
+      "report_sha256": "a9d4b1ab433cbba00abf9a0783c3274693394e87462d4865e70c136865d700c6"
+    },
+    {
+      "candidate": "combined-512",
+      "source_sha256": "dccd0f34b44672170c38c6010b9b7bed72d7a809e3bf2aabd7ba09143a7d2c63",
+      "edited_sha256": "076c738f03d2a9f2a818bcb32fcac00cb3ecf69756d2d884c449a76cf07cf71b",
+      "estimated_margin_change": -0.3387231224527334,
+      "actual_margin_change": -0.3750892823872274,
+      "model_float32_delta_estimate": -0.3387230857349791,
+      "float32_delta_rounding_difference": 3.6717754281490045e-08,
+      "report_sha256": "132a8695dd86aa04939aebd999d776c37c4b1c3f1d592f6a38b502cab63d9ed8"
+    }
+  ],
+  "scope": "Fresh model execution on the largest estimated change for each Development-selected representation; same known grammar diagnostics, not external transfer.",
+  "provider_calls": false,
+  "model_fitting": false
+}

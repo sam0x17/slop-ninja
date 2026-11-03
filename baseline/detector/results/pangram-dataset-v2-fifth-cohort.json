@@ -1,0 +1,847 @@
+{
+  "schema": "slop_ninja_pangram_dataset_v2_results",
+  "date": "2026-09-13",
+  "status": "fifth_cohort_collected",
+  "cohort": {
+    "name": "previously_unannotated_complete_revision_chains",
+    "records": 110,
+    "source_families": 22,
+    "split": "train",
+    "input_sha256": "0f72a4e0021940f38c5c9afdc3787a1dcc8c2b04926027f9090bd0b1ad368be4",
+    "plan_sha256": "25c3bc640ae5130674ef65eccb288026d1bb12fe0770e3076d15fca89172b284",
+    "payload_sha256": "ba32b26f679657b0d451f2f248fc6ef56210d2783d0a60e8b9a6c5fff031df22",
+    "annotations_sha256": "475dc21c0b9bad4e0fd682183b0d4e9ee0164d5c2d7f90fc5c5dfbd376670aec",
+    "selection_sha256": "9a67ec83d9ffb117860c8efaf052b02acf273ac68c4d8285038f9932f0250fd6",
+    "whitespace_words": 20360,
+    "estimated_units": 254,
+    "echo_counts": {
+      "exact": 52,
+      "whitespace_only": 58,
+      "source_soft_hyphens_removed": 0
+    },
+    "failed_requests": 0,
+    "public_inputs": "datasets/detector-revisions-v1/train.jsonl"
+  },
+  "disjointness": {
+    "prior_jobs": 7,
+    "prior_unique_texts": 528,
+    "prior_source_families": 152,
+    "exact_hash_overlaps": 0,
+    "source_family_overlaps": 0
+  },
+  "collection_totals": {
+    "train": {
+      "texts": 581,
+      "source_families": 155,
+      "hosted_research_only_texts": 96
+    },
+    "development": {
+      "texts": 57,
+      "source_families": 19
+    },
+    "unique_annotated_texts": 638,
+    "source_families": 174,
+    "fresh_v6_comparison_submitted": false
+  },
+  "budget": {
+    "ledger": "spend is recorded in the private ledger",
+    "cumulative_jobs": 8,
+    "actual_billing_verified": false
+  },
+  "observations": {
+    "records": 110,
+    "unique_texts": 110,
+    "source_families": 22,
+    "versions": [
+      "4.0"
+    ],
+    "by_origin": [
+      {
+        "origin": "human_only",
+        "summary": {
+          "records": 22,
+          "source_families": 22,
+          "histogram": {
+            "100": 0,
+            "below-60": 22,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 0
+        }
+      },
+      {
+        "origin": "mixed",
+        "summary": {
+          "records": 22,
+          "source_families": 22,
+          "histogram": {
+            "100": 15,
+            "below-60": 2,
+            "60-70": 1,
+            "70-80": 2,
+            "80-90": 2,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1.0000000149011612
+        }
+      },
+      {
+        "origin": "model_only",
+        "summary": {
+          "records": 66,
+          "source_families": 22,
+          "histogram": {
+            "100": 63,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 2,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.7423409223556519,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      }
+    ],
+    "by_stage": [
+      {
+        "stage": "R0",
+        "summary": {
+          "records": 22,
+          "source_families": 22,
+          "histogram": {
+            "100": 20,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 2,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.7423409223556519,
+          "max_combined_fraction": 1.0000000149011612
+        }
+      },
+      {
+        "stage": "R1",
+        "summary": {
+          "records": 22,
+          "source_families": 22,
+          "histogram": {
+            "100": 21,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.8402010202407837,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "stage": "R2",
+        "summary": {
+          "records": 22,
+          "source_families": 22,
+          "histogram": {
+            "100": 22,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.9999999701976776,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "stage": "human",
+        "summary": {
+          "records": 22,
+          "source_families": 22,
+          "histogram": {
+            "100": 0,
+            "below-60": 22,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 0
+        }
+      },
+      {
+        "stage": "human-edit",
+        "summary": {
+          "records": 22,
+          "source_families": 22,
+          "histogram": {
+            "100": 15,
+            "below-60": 2,
+            "60-70": 1,
+            "70-80": 2,
+            "80-90": 2,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1.0000000149011612
+        }
+      }
+    ],
+    "by_collection": [
+      {
+        "collection": "cmu-books-historical",
+        "summary": {
+          "records": 30,
+          "source_families": 6,
+          "histogram": {
+            "100": 21,
+            "below-60": 7,
+            "60-70": 0,
+            "70-80": 1,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1.0000000149011612
+        }
+      },
+      {
+        "collection": "hc3-wiki-historical",
+        "summary": {
+          "records": 30,
+          "source_families": 6,
+          "histogram": {
+            "100": 22,
+            "below-60": 7,
+            "60-70": 1,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "collection": "plos_one",
+        "summary": {
+          "records": 20,
+          "source_families": 4,
+          "histogram": {
+            "100": 14,
+            "below-60": 4,
+            "60-70": 0,
+            "70-80": 2,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "collection": "wikinews",
+        "summary": {
+          "records": 30,
+          "source_families": 6,
+          "histogram": {
+            "100": 21,
+            "below-60": 6,
+            "60-70": 0,
+            "70-80": 1,
+            "80-90": 2,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      }
+    ],
+    "nonhuman_by_profile": [
+      {
+        "profile": "anti-ai",
+        "summary": {
+          "records": 16,
+          "source_families": 4,
+          "histogram": {
+            "100": 15,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.882016658782959,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "profile": "direct",
+        "summary": {
+          "records": 16,
+          "source_families": 4,
+          "histogram": {
+            "100": 13,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 2,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.7804439067840576,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "profile": "fix-slop",
+        "summary": {
+          "records": 12,
+          "source_families": 3,
+          "histogram": {
+            "100": 10,
+            "below-60": 1,
+            "60-70": 0,
+            "70-80": 1,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.5304282307624817,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "profile": "informal",
+        "summary": {
+          "records": 12,
+          "source_families": 3,
+          "histogram": {
+            "100": 10,
+            "below-60": 0,
+            "60-70": 1,
+            "70-80": 1,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.6466552019119263,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "profile": "plain",
+        "summary": {
+          "records": 16,
+          "source_families": 4,
+          "histogram": {
+            "100": 14,
+            "below-60": 1,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "profile": "source-matched",
+        "summary": {
+          "records": 16,
+          "source_families": 4,
+          "histogram": {
+            "100": 16,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      }
+    ],
+    "nonhuman_by_stratum": [
+      {
+        "collection": "cmu-books-historical",
+        "profile": "anti-ai",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.9999999701976776,
+          "max_combined_fraction": 1.0000000149011612
+        }
+      },
+      {
+        "collection": "cmu-books-historical",
+        "profile": "direct",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "cmu-books-historical",
+        "profile": "fix-slop",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 3,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 1,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.7718794941902161,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "cmu-books-historical",
+        "profile": "informal",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.9999999701976776,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "cmu-books-historical",
+        "profile": "plain",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 2,
+            "below-60": 1,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "cmu-books-historical",
+        "profile": "source-matched",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "hc3-wiki-historical",
+        "profile": "anti-ai",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "collection": "hc3-wiki-historical",
+        "profile": "direct",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.9999999701976776,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "hc3-wiki-historical",
+        "profile": "fix-slop",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 3,
+            "below-60": 1,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.5304282307624817,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "hc3-wiki-historical",
+        "profile": "informal",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 3,
+            "below-60": 0,
+            "60-70": 1,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.6466552019119263,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "hc3-wiki-historical",
+        "profile": "plain",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "hc3-wiki-historical",
+        "profile": "source-matched",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "plos_one",
+        "profile": "anti-ai",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "plos_one",
+        "profile": "direct",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 2,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 2,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.7804439067840576,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "plos_one",
+        "profile": "plain",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.9999999701976776,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "plos_one",
+        "profile": "source-matched",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "collection": "wikinews",
+        "profile": "anti-ai",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 3,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.882016658782959,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "wikinews",
+        "profile": "direct",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 3,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.8875530362129211,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "wikinews",
+        "profile": "fix-slop",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "collection": "wikinews",
+        "profile": "informal",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 3,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 1,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.7423409223556519,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "collection": "wikinews",
+        "profile": "plain",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "collection": "wikinews",
+        "profile": "source-matched",
+        "summary": {
+          "records": 4,
+          "source_families": 1,
+          "histogram": {
+            "100": 4,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 1,
+          "max_combined_fraction": 1
+        }
+      }
+    ],
+    "nonhuman_by_composer": [
+      {
+        "composer": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde",
+        "summary": {
+          "records": 12,
+          "source_families": 3,
+          "histogram": {
+            "100": 9,
+            "below-60": 0,
+            "60-70": 0,
+            "70-80": 2,
+            "80-90": 1,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.7804439067840576,
+          "max_combined_fraction": 1
+        }
+      },
+      {
+        "composer": "mlx-community/Olmo-3-7B-Instruct-4bit@d732c91ae02e90cd5d86e810fbeb9741794b4dd9",
+        "summary": {
+          "records": 48,
+          "source_families": 12,
+          "histogram": {
+            "100": 43,
+            "below-60": 1,
+            "60-70": 0,
+            "70-80": 2,
+            "80-90": 2,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      },
+      {
+        "composer": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+        "summary": {
+          "records": 28,
+          "source_families": 7,
+          "histogram": {
+            "100": 26,
+            "below-60": 1,
+            "60-70": 1,
+            "70-80": 0,
+            "80-90": 0,
+            "90-below-100": 0
+          },
+          "min_combined_fraction": 0.5304282307624817,
+          "max_combined_fraction": 1.0000000298023224
+        }
+      }
+    ],
+    "nonhuman": {
+      "records": 88,
+      "source_families": 22,
+      "histogram": {
+        "100": 78,
+        "below-60": 2,
+        "60-70": 1,
+        "70-80": 4,
+        "80-90": 3,
+        "90-below-100": 0
+      },
+      "min_combined_fraction": 0,
+      "max_combined_fraction": 1.0000000298023224
+    },
+    "policy": "Adaptive Train annotation collection. Combined Pangram AI-plus-assisted fractions are annotations, not calibrated origin probabilities; preserve independent provenance labels. Counts share source families across stages. Raw fractions and all observations are retained."
+  },
+  "limits": [
+    "Adaptive Train sample; not a fresh benchmark or prevalence estimate.",
+    "63 of 66 model-only passages and all 22 second revisions occupy the 100% bin. Only eight nonhuman observations are in the requested 60% to below-100% range.",
+    "The 100% bin uses the existing tolerance for floating-point sums of AI and assisted fractions. Raw fractions remain unchanged.",
+    "Origin labels and generator provenance are independent of detector scores. Hosted captures retain their separate research schema.",
+    "No change to active v6 fitting, selection, calibration or Test decisions. Prepared annotation weights have not been fitted.",
+    "Individual provider observations and live invocation logs are excluded from publication."
+  ]
+}

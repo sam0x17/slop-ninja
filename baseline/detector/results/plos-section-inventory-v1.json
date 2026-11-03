@@ -1,0 +1,66 @@
+{
+  "schema": "slop_ninja.plos_section_inventory_summary.v1",
+  "status": "inventory only; no text admission, model scoring or split allocation",
+  "date_utc": "2026-09-14",
+  "host": "mac_studio",
+  "source": "Existing PLOS JATS captures from acquisition-v1",
+  "inventory_source_sha256": "f054a782f6d8807735d9219e1c36da3e98d531951f3d659fef10fbf662db39d9",
+  "inventory_executable_sha256": "c5f0a3f85bd7684cb8f377e6da1e107a1b79c2ef0668fc8420914356c39790ce",
+  "full_inventory_sha256": "b362b54f6f315e9b4666efe67ab82ac5c0042f806e9529524074d31ec3cc1862",
+  "exclusion_inputs": {
+    "historical_ledger_sha256": "62a4f08c839fdbc05700a224187933910bfa6cf1d94aabecdb6a367527822e8f",
+    "v6_fresh_human_roots_sha256": "195a632721f370f84b5ab3bc8c71a5e7f620fdb1c3a4796e04c639cef2887ad4"
+  },
+  "captures": {
+    "total": 150,
+    "inspected": 150,
+    "inspection_errors": 0,
+    "distinct_dois": 150,
+    "absent_from_exclusion_inputs": 70
+  },
+  "introduction_or_background_sections": {
+    "review_whitespace_word_range": [
+      650,
+      1600
+    ],
+    "all_captures_in_range": 75,
+    "absent_from_exclusion_inputs_in_range": 36,
+    "distinct_dois_in_that_subset": 36,
+    "observed_whitespace_word_range_in_that_subset": [
+      658,
+      1284
+    ],
+    "english_research_2019_with_explicit_cc_by_link_in_that_subset": 33,
+    "double_quotation_marks_in_that_subset": 14,
+    "formula_or_math_markup_in_that_subset": 3,
+    "citation_cross_reference_markup_in_that_subset": 36,
+    "counts_overlap": true
+  },
+  "count_method": [
+    "Inspect all cached journals.plos.org/plosone/article/file responses; verify cached body hashes and the DOI against the request.",
+    "Compare canonical DOI source groups against the frozen historical work index and all V6 fresh human roots.",
+    "Inspect top-level sections marked intro or titled Introduction/Background. Keep separate sections separate; count paragraph projections with the recorded container exclusions.",
+    "Additional counts use the saved article/section metadata: english, research_article, publication_year=2019, has_explicit_cc_by_link; quotation flag; any inline-formula/disp-formula/math/tex-math; any xref. These flags are not admission decisions."
+  ],
+  "validation": {
+    "cargo_fmt_check": "passed on Studio",
+    "cargo_test": "passed on Studio",
+    "cargo_test_example_inventory_plos_sections": "passed on Studio",
+    "cargo_clippy_all_targets_deny_warnings": "passed on Studio",
+    "extraction_case": "Keeps sections separate, retains citation text, records excluded figure markup and included quotation markup, and rejects a mismatched DOI."
+  },
+  "admitted_records": 0,
+  "network_calls": 0,
+  "generation_calls": 0,
+  "detector_calls": 0,
+  "limitations": [
+    "The candidate counts do not establish commercial admission or permission for every incorporated passage. Item-level rights, quotations and notices still require review.",
+    "Current JATS content with a 2019 publication date has not been matched to an immutable historical byte version.",
+    "Whitespace words are not A-tokenizer counts. No claim about support within A's context limit follows.",
+    "Paragraph projection is diagnostic: figure/table/footnote/supplement containers are excluded and their markup remains flagged. It is not an approved complete-text extraction.",
+    "Absence from the exclusion inputs does not imply absence from foundation-model pretraining.",
+    "Canonical DOI exclusion does not complete related-work, exact-text or normalized-text duplicate screening.",
+    "No human-only workflow, model sensitivity, style independence, Pangram agreement or detector improvement is established."
+  ],
+  "next_action": "Review exact section content, historical evidence, item rights and citation/markup rendering before declaring a new source-admission and matched-generation protocol."
+}

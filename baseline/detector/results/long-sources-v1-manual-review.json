@@ -1,0 +1,77 @@
+{
+  "schema": "slop_ninja_long_source_manual_review_v1",
+  "reviewer": "Codex manual text and syntax inspection, 2026-09-14",
+  "protocol_sha256": "6a8d8799f2dfdca45e24339cfca4863d5bcaaca85f7fc33f2d0fd006aa10884f",
+  "inspection_sql_sha256": "86e389d082f81195f65ab5160ab89afd42751e19ea9eedfca5c4dd2a5b26ed63",
+  "coverage_summary_sha256": "7af8238d614eea0f63afcafeaa4636e216e0eabb33e38b48a9875fb7f2e1d2ff",
+  "corpus_sha256": "5ff946daf1b33d57971103c41b87ea857cef120e71ce488c273086d75df66596",
+  "selection": "First three distinct admitted texts in frozen review order; no replacements or detector selection.",
+  "scope": "Read all three complete texts through their source-preserving sentence spans, covering 92 parser sentences. Inspected every sentence root and displayed subject, negation, clause and coordination dependencies. This is a partial dependency review, not an exhaustive token annotation, independent human review, original-book fact check or author-style assessment.",
+  "complete_texts_read": 3,
+  "admitted_texts": 47,
+  "parser_sentences_read": 92,
+  "detector_observations_seen": false,
+  "model_generations": 0,
+  "experiment_splits_assigned": false,
+  "parse_accuracy": null,
+  "correctness_certified": false,
+  "overall_judgment": "All three contain clear parse errors despite successful annotation. Keep the historically admitted source texts, and retain the identified syntax failures for repair. Do not treat these parses as accurate edit menus or the sources as exemplary target-author prose.",
+  "documents": [
+    {
+      "id": "cmu-books:758569:aed2cfe6a3451fe2",
+      "title": "Iron Council",
+      "source_url": "https://en.wikipedia.org/w/index.php?oldid=505792810",
+      "text_sha256": "aed2cfe6a3451fe278c0816e42301c162b7cce2f5da714d83b536995e2971ef9",
+      "annotation_sha256": "3865e9f6791fddd31fca841f14767e3e8cd4dbe91fcd91b4413a2be195be4e35",
+      "readable_inspection_sha256": "7e77d735d4ed0b75a1c4aa4033ce4e0d12af6bdc2271c4e71bf641a0813d4d1f",
+      "a_token_count": 1233,
+      "parser_sentences": 33,
+      "source_notes": "Complete, dense account of interleaved plot threads, with editorial navigation and long parenthetical material. Formatting includes a mixed dash sequence and a hyphenated verb. Temporal and character references extend across sentences; isolated sentence edits need the complete context.",
+      "findings": [
+        "Sentence 30 promotes parenthetical loses (token 1003) to root, with the two main-clause predicates manage and trades attached beneath it. The parenthetical does not govern those main assertions.",
+        "Sentence 22 assigns VERB to the standalone hyphen at token 638 in re-immerses and creates separate verbal dependencies for re, the hyphen and immerses. The resulting features misrepresent the single prefixed verb.",
+        "Sentence 23's inverted construction makes Happening a clausal subject and most a nominal subject of are. The postposed deeds is the intended subject; most belongs within the preceding prepositional phrase.",
+        "Straightforward narrative clauses often have plausible roots and subjects, but these successes do not resolve the errors in complex clauses. Other displayed coordination and relative-clause attachments also need review."
+      ]
+    },
+    {
+      "id": "cmu-books:2522700:d94b500a2ad52951",
+      "title": "Life Expectancy (novel)",
+      "source_url": "https://en.wikipedia.org/w/index.php?oldid=485168892",
+      "text_sha256": "d94b500a2ad529510c00555d3d95b3621786bee4b088219aebee14e17523dd3a",
+      "annotation_sha256": "88c234eb22563a7248aca72f09a5eed5f75b1fd165a20830da93c39ddef9cae6",
+      "readable_inspection_sha256": "a5c486c43261bd48c928dd8ffa018faa123c8323969b0f98fc207ca544f9285a",
+      "a_token_count": 1188,
+      "parser_sentences": 29,
+      "source_notes": "Complete plot synopsis with commentary, quoted dialogue, numbered events and inconsistent punctuation. Ellipses, a run-together numbered transition and a dense appositive make some boundaries difficult. Retain these as source-quality observations rather than silently repairing the human record.",
+      "findings": [
+        "Sentence 13 makes the absolute-construction participle swaddled (token 394) the root and tags the main verb leaves (token 389) as NOUN. This changes the structural roles despite the intended departure and accompanying state being readable.",
+        "Sentence 15 tags syndactyly (token 438) as VERB in a coordinate predicate, although the word is the condition possessed by the subject.",
+        "Sentence 28 tags fearsome (token 983) as VERB in an elliptical contrast, although the adjective predicates a quality with an omitted copula.",
+        "The quoted one-word sentence at index 14 is an intentional fragment. Its nonverbal root alone is not a parser failure. Other boundary problems occur in visibly irregular source punctuation and should not all be attributed to the parser."
+      ]
+    },
+    {
+      "id": "cmu-books:21829284:e2f9d8cb4a761ff8",
+      "title": "The Universe Maker",
+      "source_url": "https://en.wikipedia.org/w/index.php?oldid=513812373",
+      "text_sha256": "e2f9d8cb4a761ff829b115597ea7734e5c2f913e7337c80a68cfccb820046bb3",
+      "annotation_sha256": "918c7545a4c1b8e32ce7b395f425d34f1d3121cd39b4dccb0928435aa5d8f7f5",
+      "readable_inspection_sha256": "09d6447638d2f10e4ea957305036d822b4a756588d9e77a93b80c7e8a427fddc",
+      "a_token_count": 919,
+      "parser_sentences": 30,
+      "source_notes": "Complete time-travel plot summary with nested explanations, changing apparent motives and identity revelations. It contains a clear typo in sentence 19 and comma-spliced clauses elsewhere. Those source defects remain visible; the sequence should not be treated as a set of independent facts without its narrative qualifications.",
+      "findings": [
+        "Sentence 21 promotes the introductory participle convinced (token 506) above the main clause: Cargill's is (token 523) becomes its ccomp. The main assertion concerns inability to stop the programming; the introductory phrase supplies the accompanying belief.",
+        "Sentence 3 attaches descendant as nsubj of traced and travelers as nsubj of called. The intended tracing agents are the time travelers, while the descendant is the person suffering the inherited condition. These attachments change agent roles.",
+        "Several short main clauses have plausible subject/predicate pairs. The source's malformed wording in sentence 19 prevents treating every awkward annotation there as an independent parser defect. Full dependency accuracy remains unmeasured."
+      ]
+    }
+  ],
+  "implications": [
+    "Successful parsing is operational coverage only. These examples supply concrete failures for grammar work, not a corpus-wide accuracy estimate.",
+    "Historical human text also contains conventional summary language, repetitive narrative structure and imperfect punctuation. Do not turn such surface cues into deterministic AI labels.",
+    "The median source length is substantially longer than V6 Train, but this cohort still does not reach the 1878-token failure case. The separately declared v2 range addresses that remaining gap.",
+    "Neither A quality nor B fidelity has been measured on this cohort. Source-family allocation and matched model counterparts must be declared before later generation or scoring."
+  ]
+}

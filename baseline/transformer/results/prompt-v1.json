@@ -1,0 +1,971 @@
+{
+  "schema": "slop_ninja_b_aggregate_v1",
+  "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+  "analysis_sha256": "df94cc1081aa8f08494c3c619d03c1c09c047c73d788d191bab6f3757f29663e",
+  "scores_sha256": "54ff1adecf579caee11c5bbcd8d5ccc92de58665a04de27a69abe731fb3f8843",
+  "reviews_sha256": "ad866ffb549d3a0ed266c824fd82bca74d803f12f71af8674b6a519e60b78f5c",
+  "reviewer": "Codex coding assistant",
+  "review_method": "Assisted editorial review of complete source, candidate, target samples and preservation brief before any detector inference. Reviewer knows prompt variants and generator identity; neither blinded nor independent human validation. Synthetic author fixtures only.",
+  "pangram_status": "not_measured",
+  "attestation": "research_only_unattested",
+  "limitations": "Synthetic author fixtures; assisted editorial review; descriptive style distances are not author probabilities. No Pangram evidence or qualified three-A panel, so joint subnet success is unavailable.",
+  "held_out_diagnostics": [
+    {
+      "combined_space": {
+        "euclidean": 0.7187055750976834,
+        "families": [
+          {
+            "family": "clause_head_frame",
+            "squared_distance": 0.04166666666666667
+          },
+          {
+            "family": "dependency",
+            "squared_distance": 0.00640082801857364
+          },
+          {
+            "family": "dependency_path_2",
+            "squared_distance": 0.016218718918477468
+          },
+          {
+            "family": "dependency_path_3",
+            "squared_distance": 0.01811447358735169
+          },
+          {
+            "family": "morphology_bundle",
+            "squared_distance": 0.0039558394478050995
+          },
+          {
+            "family": "ordered_head_frame",
+            "squared_distance": 0.011141705651727181
+          },
+          {
+            "family": "pos",
+            "squared_distance": 0.0008485401630687107
+          },
+          {
+            "family": "pos_bigram",
+            "squared_distance": 0.007969770447720653
+          },
+          {
+            "family": "pos_tag",
+            "squared_distance": 0.0029465754396779675
+          },
+          {
+            "family": "pos_trigram",
+            "squared_distance": 0.020799401896784052
+          },
+          {
+            "family": "syntax_load",
+            "squared_distance": 0.000011240309016750015
+          },
+          {
+            "family": "syntax_sentence_load",
+            "squared_distance": 0.003940158420138889
+          },
+          {
+            "family": "word",
+            "squared_distance": 0.14825692648448155
+          },
+          {
+            "family": "word_bigram",
+            "squared_distance": 0.23426685822500137
+          }
+        ]
+      },
+      "grammar_space": {
+        "euclidean": 0.517714050354071,
+        "families": [
+          {
+            "family": "clause_head_frame",
+            "squared_distance": 0.08333333333333334
+          },
+          {
+            "family": "dependency",
+            "squared_distance": 0.012801656037147282
+          },
+          {
+            "family": "dependency_path_2",
+            "squared_distance": 0.032437437836954935
+          },
+          {
+            "family": "dependency_path_3",
+            "squared_distance": 0.03622894717470338
+          },
+          {
+            "family": "morphology_bundle",
+            "squared_distance": 0.007911678895610199
+          },
+          {
+            "family": "ordered_head_frame",
+            "squared_distance": 0.022283411303454362
+          },
+          {
+            "family": "pos",
+            "squared_distance": 0.0016970803261374219
+          },
+          {
+            "family": "pos_bigram",
+            "squared_distance": 0.015939540895441306
+          },
+          {
+            "family": "pos_tag",
+            "squared_distance": 0.005893150879355935
+          },
+          {
+            "family": "pos_trigram",
+            "squared_distance": 0.04159880379356812
+          },
+          {
+            "family": "syntax_load",
+            "squared_distance": 0.000022480618033500037
+          },
+          {
+            "family": "syntax_sentence_load",
+            "squared_distance": 0.007880316840277776
+          }
+        ]
+      },
+      "profile_id": "practical",
+      "text_sha256": "4013ddb34c1a6539c4e5b4a1bf58fb6f72bfde6939384b884811b4b74eca5d18"
+    },
+    {
+      "combined_space": {
+        "euclidean": 0.8234988665273897,
+        "families": [
+          {
+            "family": "clause_head_frame",
+            "squared_distance": 0.041666666666666664
+          },
+          {
+            "family": "dependency",
+            "squared_distance": 0.006699973048780753
+          },
+          {
+            "family": "dependency_path_2",
+            "squared_distance": 0.017991336612287644
+          },
+          {
+            "family": "dependency_path_3",
+            "squared_distance": 0.024394033630749757
+          },
+          {
+            "family": "morphology_bundle",
+            "squared_distance": 0.00548984746737259
+          },
+          {
+            "family": "ordered_head_frame",
+            "squared_distance": 0.012069239253878768
+          },
+          {
+            "family": "pos",
+            "squared_distance": 0.000886610959572637
+          },
+          {
+            "family": "pos_bigram",
+            "squared_distance": 0.011146495448403305
+          },
+          {
+            "family": "pos_tag",
+            "squared_distance": 0.0044093808585435445
+          },
+          {
+            "family": "pos_trigram",
+            "squared_distance": 0.025012719887356996
+          },
+          {
+            "family": "syntax_load",
+            "squared_distance": 0.008795285530264027
+          },
+          {
+            "family": "syntax_sentence_load",
+            "squared_distance": 0.10672887731481481
+          },
+          {
+            "family": "word",
+            "squared_distance": 0.16491559843901699
+          },
+          {
+            "family": "word_bigram",
+            "squared_distance": 0.2479443180541871
+          }
+        ]
+      },
+      "grammar_space": {
+        "euclidean": 0.7284098663234753,
+        "families": [
+          {
+            "family": "clause_head_frame",
+            "squared_distance": 0.08333333333333333
+          },
+          {
+            "family": "dependency",
+            "squared_distance": 0.013399946097561507
+          },
+          {
+            "family": "dependency_path_2",
+            "squared_distance": 0.035982673224575296
+          },
+          {
+            "family": "dependency_path_3",
+            "squared_distance": 0.048788067261499514
+          },
+          {
+            "family": "morphology_bundle",
+            "squared_distance": 0.01097969493474518
+          },
+          {
+            "family": "ordered_head_frame",
+            "squared_distance": 0.024138478507757535
+          },
+          {
+            "family": "pos",
+            "squared_distance": 0.001773221919145274
+          },
+          {
+            "family": "pos_bigram",
+            "squared_distance": 0.022292990896806617
+          },
+          {
+            "family": "pos_tag",
+            "squared_distance": 0.008818761717087089
+          },
+          {
+            "family": "pos_trigram",
+            "squared_distance": 0.050025439774714
+          },
+          {
+            "family": "syntax_load",
+            "squared_distance": 0.017590571060528054
+          },
+          {
+            "family": "syntax_sentence_load",
+            "squared_distance": 0.21345775462962965
+          }
+        ]
+      },
+      "profile_id": "measured",
+      "text_sha256": "d330c2984ed433b5952cf886ab5c5a3fedb679076554624ca6e2d079665e2969"
+    }
+  ],
+  "rows": [
+    {
+      "id": "workshop--practical--references",
+      "task_id": "workshop",
+      "profile_id": "practical",
+      "variant": "references",
+      "source_sha256": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+      "editorial_gate": true,
+      "editorial_review": {
+        "author_fit": true,
+        "cleanup": true,
+        "id": "workshop--practical--references",
+        "meaning": true,
+        "notes": "Operational conditions, timings, separate induction, possible reassignment, free cancellation and provisional trial are retained. The cancellation wording and unspecified feedback are looser than the source but read as the same member-facing request in context. Short direct sentences and considerate phrasing fit the target.",
+        "readability": true,
+        "target_tone": true,
+        "text_sha256": "cd8215b83e543e7ac732fe0659139103d49c76dc484a377e84186b67cfe1ac20"
+      },
+      "word_count": 126,
+      "copied_reference_8gram": false,
+      "joint_subnet_success": null,
+      "detector": {
+        "candidate": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "cd8215b83e543e7ac732fe0659139103d49c76dc484a377e84186b67cfe1ac20",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.984256080047812,
+          "probabilities": [
+            0.015743919952188094,
+            0.6839504954679233,
+            0.30030558457988865
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 184
+        },
+        "improvement": -0.25577693640583643,
+        "source": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.7284791436419755,
+          "probabilities": [
+            0.2715208563580244,
+            0.2587554639154963,
+            0.46972367972647927
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 205
+        }
+      },
+      "combined_style": {
+        "source": 0.8035754823918431,
+        "candidate": 0.7605604719120217,
+        "improvement": 0.04301501047982137,
+        "space_id": "4ba93da07bfc9f04092a07629b7f6bcbc87cd28823e7a36f423cc31b08543918"
+      },
+      "grammar_style": {
+        "source": 0.68015511501716,
+        "candidate": 0.5965714448082244,
+        "improvement": 0.08358367020893553,
+        "space_id": "e9cc02943c6b17a359e21f1fd0389da7d5bba8768a652fe8d8be2cd6c29b36dc"
+      },
+      "generation": {
+        "status": "ok",
+        "text_sha256": "cd8215b83e543e7ac732fe0659139103d49c76dc484a377e84186b67cfe1ac20",
+        "request_sha256": "3d75ee448264103e77a5eb753551ae5aee7b618bfd55df66aa71a75d2b35c029",
+        "response_model": "slop-ninja-b-probe-v1",
+        "seconds": 15.774901875,
+        "usage": {
+          "completion_tokens": 167,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 954,
+          "total_tokens": 1121
+        }
+      }
+    },
+    {
+      "id": "workshop--practical--references_and_vector",
+      "task_id": "workshop",
+      "profile_id": "practical",
+      "variant": "references_and_vector",
+      "source_sha256": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+      "editorial_gate": true,
+      "editorial_review": {
+        "author_fit": true,
+        "cleanup": true,
+        "id": "workshop--practical--references_and_vector",
+        "meaning": true,
+        "notes": "Retains the booking duration/window, separate induction despite prior experience, nonautomatic late-arrival consequence, cancellation request and fee, trial review and continuing safety rules. The member-facing context supplies the audience. Direct voice and three connected paragraphs suit the practical target.",
+        "readability": true,
+        "target_tone": true,
+        "text_sha256": "0644cccbe3b5cf08d8145f5f1757f67865bf907162d39b64c926f6201e10c8c1"
+      },
+      "word_count": 127,
+      "copied_reference_8gram": false,
+      "joint_subnet_success": null,
+      "detector": {
+        "candidate": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "0644cccbe3b5cf08d8145f5f1757f67865bf907162d39b64c926f6201e10c8c1",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.9930400672810542,
+          "probabilities": [
+            0.006959932718945705,
+            0.9172799853282982,
+            0.07576008195275598
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 168
+        },
+        "improvement": -0.2645609236390787,
+        "source": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.7284791436419755,
+          "probabilities": [
+            0.2715208563580244,
+            0.2587554639154963,
+            0.46972367972647927
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 205
+        }
+      },
+      "combined_style": {
+        "source": 0.8035754823918431,
+        "candidate": 0.7473802753092842,
+        "improvement": 0.05619520708255887,
+        "space_id": "1bed02ef65df8ae97d52f88bc9da577b240f9ecd6cb80f682493056880634332"
+      },
+      "grammar_style": {
+        "source": 0.68015511501716,
+        "candidate": 0.5796800789654251,
+        "improvement": 0.10047503605173491,
+        "space_id": "c0600f1fb221730c2bc2654deed19902ef1d43179719bd43535b0e48c5445335"
+      },
+      "generation": {
+        "status": "ok",
+        "text_sha256": "0644cccbe3b5cf08d8145f5f1757f67865bf907162d39b64c926f6201e10c8c1",
+        "request_sha256": "ff9f5a9e825fb48e2fbd3029cf46eaf28651e328e2bbb37278ae78b72fe26959",
+        "response_model": "slop-ninja-b-probe-v1",
+        "seconds": 33.025656416,
+        "usage": {
+          "completion_tokens": 157,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 2855,
+          "total_tokens": 3012
+        }
+      }
+    },
+    {
+      "id": "offline-notes--practical--references",
+      "task_id": "offline-notes",
+      "profile_id": "practical",
+      "variant": "references",
+      "source_sha256": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+      "editorial_gate": true,
+      "editorial_review": {
+        "author_fit": true,
+        "cleanup": true,
+        "id": "offline-notes--practical--references",
+        "meaning": true,
+        "notes": "Preserves sync and sign-in conditions, loss and recovery limit after sign-out, both versions without merging, attachment prerequisites, desktop/mobile distinction, storage and permissions. Direct instructions are proportionate to the stated data-loss warning; concise concrete prose fits the target.",
+        "readability": true,
+        "target_tone": true,
+        "text_sha256": "4e5d2227980c30d14cf0b635a891f0a3e39c27921b42e5381cb4bb6632af53b4"
+      },
+      "word_count": 125,
+      "copied_reference_8gram": false,
+      "joint_subnet_success": null,
+      "detector": {
+        "candidate": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "4e5d2227980c30d14cf0b635a891f0a3e39c27921b42e5381cb4bb6632af53b4",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.9910968339088764,
+          "probabilities": [
+            0.008903166091123635,
+            0.6562439020027617,
+            0.3348529319061147
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 173
+        },
+        "improvement": -0.1404582014279977,
+        "source": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.8506386324808787,
+          "probabilities": [
+            0.1493613675191212,
+            0.2848006469240283,
+            0.5658379855568504
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 213
+        }
+      },
+      "combined_style": {
+        "source": 0.8305079496521387,
+        "candidate": 0.7610924748783225,
+        "improvement": 0.06941547477381615,
+        "space_id": "5898e20f6004ba2bc249f4633bc8c816cce8dd226e1d327388ab6d04d2dcb869"
+      },
+      "grammar_style": {
+        "source": 0.7231472733300297,
+        "candidate": 0.5893871935100898,
+        "improvement": 0.13376007981993987,
+        "space_id": "294bd1cd263b7e5d697ad0756ce57ab1103386e7dad13448a5e3de2a2d8175c7"
+      },
+      "generation": {
+        "status": "ok",
+        "text_sha256": "4e5d2227980c30d14cf0b635a891f0a3e39c27921b42e5381cb4bb6632af53b4",
+        "request_sha256": "6b33ed277b0da102c3b5df562f5f5dee6e27ff7d1dd376f840158e453e211995",
+        "response_model": "slop-ninja-b-probe-v1",
+        "seconds": 23.68908725,
+        "usage": {
+          "completion_tokens": 155,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 954,
+          "total_tokens": 1109
+        }
+      }
+    },
+    {
+      "id": "offline-notes--practical--references_and_vector",
+      "task_id": "offline-notes",
+      "profile_id": "practical",
+      "variant": "references_and_vector",
+      "source_sha256": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+      "editorial_gate": false,
+      "editorial_review": {
+        "author_fit": true,
+        "cleanup": true,
+        "id": "offline-notes--practical--references_and_vector",
+        "meaning": false,
+        "notes": "Invents a side-by-side conflict-resolution display. The source specifies keeping both versions and asking the user to choose but gives no UI layout. Other core conditions and the practical voice are retained; invented product behavior fails preservation.",
+        "readability": true,
+        "target_tone": true,
+        "text_sha256": "f0e889b351803d06c4ca40dd1a13f09555c3e6d2471ba0fb166ef6193c7fc50e"
+      },
+      "word_count": 137,
+      "copied_reference_8gram": false,
+      "joint_subnet_success": null,
+      "detector": {
+        "candidate": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "f0e889b351803d06c4ca40dd1a13f09555c3e6d2471ba0fb166ef6193c7fc50e",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.9899118704860379,
+          "probabilities": [
+            0.010088129513962108,
+            0.5907862491684737,
+            0.39912562131756424
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 185
+        },
+        "improvement": -0.13927323800515923,
+        "source": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.8506386324808787,
+          "probabilities": [
+            0.1493613675191212,
+            0.2848006469240283,
+            0.5658379855568504
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 213
+        }
+      },
+      "combined_style": {
+        "source": 0.8305079496521387,
+        "candidate": 0.7587628786051434,
+        "improvement": 0.07174507104699535,
+        "space_id": "88c9dff6b8a46ff893fd8eabf67981b278412ffde1ac12b67a40e3d31e597506"
+      },
+      "grammar_style": {
+        "source": 0.7231472733300297,
+        "candidate": 0.5833854342503035,
+        "improvement": 0.13976183907972617,
+        "space_id": "66692a00e6f7ccdee4dbba07395d7d64f4c67dbd715400a9f91521d5b5834a1e"
+      },
+      "generation": {
+        "status": "ok",
+        "text_sha256": "f0e889b351803d06c4ca40dd1a13f09555c3e6d2471ba0fb166ef6193c7fc50e",
+        "request_sha256": "6597a8b3cccf453d82f6f4eac0bc5bdbd3d185b224f257e56519fd82927804bc",
+        "response_model": "slop-ninja-b-probe-v1",
+        "seconds": 33.264994625,
+        "usage": {
+          "completion_tokens": 164,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 2795,
+          "total_tokens": 2959
+        }
+      }
+    },
+    {
+      "id": "workshop--measured--references",
+      "task_id": "workshop",
+      "profile_id": "measured",
+      "variant": "references",
+      "source_sha256": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+      "editorial_gate": false,
+      "editorial_review": {
+        "author_fit": false,
+        "cleanup": false,
+        "id": "workshop--measured--references",
+        "meaning": false,
+        "notes": "Adds assurance that nobody is removed without consideration and an unsupported fairness rationale. Replaces no cancellation fee with no penalty, a broader claim. Describing safety rules as unyielding and the ceremonial explanations depart from the restrained target and retain formulaic rhetoric.",
+        "readability": true,
+        "target_tone": false,
+        "text_sha256": "ac7ee94931b061ec6a577f62d936b3224ee421b85e58bfcc794198253e927070"
+      },
+      "word_count": 179,
+      "copied_reference_8gram": false,
+      "joint_subnet_success": null,
+      "detector": {
+        "candidate": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "ac7ee94931b061ec6a577f62d936b3224ee421b85e58bfcc794198253e927070",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.9971273615394988,
+          "probabilities": [
+            0.002872638460501229,
+            0.9509821598007377,
+            0.04614520173876099
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 225
+        },
+        "improvement": -0.26864821789752324,
+        "source": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.7284791436419755,
+          "probabilities": [
+            0.2715208563580244,
+            0.2587554639154963,
+            0.46972367972647927
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 205
+        }
+      },
+      "combined_style": {
+        "source": 0.8440349234647677,
+        "candidate": 0.7875029285142696,
+        "improvement": 0.0565319949504981,
+        "space_id": "8a9a6f894182fef073bedb69cb5251049b6e8b3d137a790dde2d2aa0fd3c9d97"
+      },
+      "grammar_style": {
+        "source": 0.7744829540462237,
+        "candidate": 0.6316156706861535,
+        "improvement": 0.14286728336007015,
+        "space_id": "2f62e66850d3a675e65192f33f69087355ea90ccc4b1cb5e11447f044921d7f0"
+      },
+      "generation": {
+        "status": "ok",
+        "text_sha256": "ac7ee94931b061ec6a577f62d936b3224ee421b85e58bfcc794198253e927070",
+        "request_sha256": "2e332d4d26d5cdd8325f512ce7482976deec67bc796d77ac9b2aeaf321f7a9c0",
+        "response_model": "slop-ninja-b-probe-v1",
+        "seconds": 29.534003,
+        "usage": {
+          "completion_tokens": 213,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 967,
+          "total_tokens": 1180
+        }
+      }
+    },
+    {
+      "id": "workshop--measured--references_and_vector",
+      "task_id": "workshop",
+      "profile_id": "measured",
+      "variant": "references_and_vector",
+      "source_sha256": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+      "editorial_gate": false,
+      "editorial_review": {
+        "author_fit": false,
+        "cleanup": false,
+        "id": "workshop--measured--references_and_vector",
+        "meaning": false,
+        "notes": "Invents criteria governing late-arrival reassignment, broadens no cancellation fee to no penalty, and supplies a fairness rationale beyond the stated reason of freeing space. The register is restrained but bureaucratic, with procedural abstractions instead of the target's concrete connected reasoning.",
+        "readability": true,
+        "target_tone": true,
+        "text_sha256": "905aea33c7c433fa0d1e5774f5d72dbb419c1ebe8f777aaccae27bb13e643b70"
+      },
+      "word_count": 162,
+      "copied_reference_8gram": false,
+      "joint_subnet_success": null,
+      "detector": {
+        "candidate": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "905aea33c7c433fa0d1e5774f5d72dbb419c1ebe8f777aaccae27bb13e643b70",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.9817196989695993,
+          "probabilities": [
+            0.018280301030400656,
+            0.874746643377922,
+            0.10697305559167737
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 195
+        },
+        "improvement": -0.2532405553276238,
+        "source": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "87493afb563821613fc3e6bf80b9ecad5b4ccfc56d5d7a8d9680a7ce07cf1195",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.7284791436419755,
+          "probabilities": [
+            0.2715208563580244,
+            0.2587554639154963,
+            0.46972367972647927
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 205
+        }
+      },
+      "combined_style": {
+        "source": 0.8440349234647677,
+        "candidate": 0.7743926387441071,
+        "improvement": 0.06964228472066059,
+        "space_id": "72532d0ae6178b941971e77519be0dce12b61ccd53fd7bc4187b0898794c3751"
+      },
+      "grammar_style": {
+        "source": 0.7744829540462237,
+        "candidate": 0.6030781977821438,
+        "improvement": 0.17140475626407992,
+        "space_id": "856a591c7eeaacc9fdb2d10a7504cec1267c0566fc7cab26a37fe603abd23fbb"
+      },
+      "generation": {
+        "status": "ok",
+        "text_sha256": "905aea33c7c433fa0d1e5774f5d72dbb419c1ebe8f777aaccae27bb13e643b70",
+        "request_sha256": "67c7fa5ca84a5824f8ffc35c05bb4b6874b640ed5944b2c89d7271285c749f97",
+        "response_model": "slop-ninja-b-probe-v1",
+        "seconds": 36.819754875,
+        "usage": {
+          "completion_tokens": 190,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 2875,
+          "total_tokens": 3065
+        }
+      }
+    },
+    {
+      "id": "offline-notes--measured--references",
+      "task_id": "offline-notes",
+      "profile_id": "measured",
+      "variant": "references",
+      "source_sha256": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+      "editorial_gate": false,
+      "editorial_review": {
+        "author_fit": false,
+        "cleanup": false,
+        "id": "offline-notes--measured--references",
+        "meaning": false,
+        "notes": "Adds cloud hosting, explicit/manual download requirements and linked-attachment behavior absent from the source. Changes recommended sync checking into an obligation and repeats the sign-out warning. Increased formality and repetition do not match the measured reference voice.",
+        "readability": true,
+        "target_tone": false,
+        "text_sha256": "bf4ddcb0eef42fbb822f1433b7439c8a5b10cb2193d45de0bc1ebdb3848231af"
+      },
+      "word_count": 195,
+      "copied_reference_8gram": false,
+      "joint_subnet_success": null,
+      "detector": {
+        "candidate": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "bf4ddcb0eef42fbb822f1433b7439c8a5b10cb2193d45de0bc1ebdb3848231af",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.9911816788183406,
+          "probabilities": [
+            0.008818321181659317,
+            0.7147978619963266,
+            0.2763838168220141
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 238
+        },
+        "improvement": -0.14054304633746195,
+        "source": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.8506386324808787,
+          "probabilities": [
+            0.1493613675191212,
+            0.2848006469240283,
+            0.5658379855568504
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 213
+        }
+      },
+      "combined_style": {
+        "source": 0.8215467095364928,
+        "candidate": 0.791600462017912,
+        "improvement": 0.02994624751858077,
+        "space_id": "5f95133a20ae00097e6daa3e295e544b0bfc35f02ef3c6b06b3a3430372bf590"
+      },
+      "grammar_style": {
+        "source": 0.7050781831928612,
+        "candidate": 0.629198213165306,
+        "improvement": 0.0758799700275552,
+        "space_id": "47a872933b17b2c86ac3f2f167e6584d5e80da31b837219292a856539fe5037d"
+      },
+      "generation": {
+        "status": "ok",
+        "text_sha256": "bf4ddcb0eef42fbb822f1433b7439c8a5b10cb2193d45de0bc1ebdb3848231af",
+        "request_sha256": "c2ee1113ddc5c93661a946709d0b996207efdc8fe0cdef3b080ec29fd29c08c9",
+        "response_model": "slop-ninja-b-probe-v1",
+        "seconds": 30.525826,
+        "usage": {
+          "completion_tokens": 225,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 967,
+          "total_tokens": 1192
+        }
+      }
+    },
+    {
+      "id": "offline-notes--measured--references_and_vector",
+      "task_id": "offline-notes",
+      "profile_id": "measured",
+      "variant": "references_and_vector",
+      "source_sha256": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+      "editorial_gate": false,
+      "editorial_review": {
+        "author_fit": false,
+        "cleanup": false,
+        "id": "offline-notes--measured--references_and_vector",
+        "meaning": false,
+        "notes": "Adds explicit/manual download requirements and linked-or-referenced attachment behavior. The source permits any prior download and says nothing about links. Core sync and permission conditions remain, but procedural phrasing and invented explanatory claims do not establish target-author fit.",
+        "readability": true,
+        "target_tone": true,
+        "text_sha256": "6057201a09a224c1d2f170e8cc1b839a6efda24201f4ef6ace6206dcdd1160b9"
+      },
+      "word_count": 176,
+      "copied_reference_8gram": false,
+      "joint_subnet_success": null,
+      "detector": {
+        "candidate": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "6057201a09a224c1d2f170e8cc1b839a6efda24201f4ef6ace6206dcdd1160b9",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.9864822268058877,
+          "probabilities": [
+            0.013517773194112258,
+            0.5273549452241374,
+            0.4591272815817503
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 216
+        },
+        "improvement": -0.13584359432500903,
+        "source": {
+          "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+          "id": "8e8ce18c75d7edaeca08aad2a07e495df2450459ae21f079728013f6c35e68da",
+          "labels": [
+            "human_only",
+            "model_only",
+            "mixed"
+          ],
+          "model_or_assistance_probability": 0.8506386324808787,
+          "probabilities": [
+            0.1493613675191212,
+            0.2848006469240283,
+            0.5658379855568504
+          ],
+          "runtime": "cpu_float32_eager",
+          "status": "ok",
+          "token_count": 213
+        }
+      },
+      "combined_style": {
+        "source": 0.8215467095364928,
+        "candidate": 0.8144421805407479,
+        "improvement": 0.007104528995744874,
+        "space_id": "c8e6497d419ecbb1be9614d3fbeefcddbe6cdb2e44e3dba39b9af262d25ae880"
+      },
+      "grammar_style": {
+        "source": 0.7050781831928612,
+        "candidate": 0.6652972447717512,
+        "improvement": 0.03978093842110997,
+        "space_id": "60fe74760d9cb060f87dfef57217852750b768d76736990a383682c7af558f92"
+      },
+      "generation": {
+        "status": "ok",
+        "text_sha256": "6057201a09a224c1d2f170e8cc1b839a6efda24201f4ef6ace6206dcdd1160b9",
+        "request_sha256": "cce79a184b94755c154a7cc3f2d28283a907c318fdb82ef393b09a1e0e791401",
+        "response_model": "slop-ninja-b-probe-v1",
+        "seconds": 38.493215125,
+        "usage": {
+          "completion_tokens": 201,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 2815,
+          "total_tokens": 3016
+        }
+      }
+    }
+  ],
+  "generator": {
+    "checkpoint": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit",
+    "revision": "e9675aa3ca5f900ccef55267914466d55ab325fa",
+    "temperature": 0.7,
+    "max_tokens": 900,
+    "requested_seed": 17,
+    "context_tokens": 8192,
+    "parallelism": 1,
+    "host": "Mac Studio, macOS arm64, LM Studio MLX",
+    "weight_training": false,
+    "source_commit": "5e047db"
+  },
+  "summary": {
+    "assigned": 8,
+    "completed": 8,
+    "editorial_passes": 3,
+    "meaning_failures": 5,
+    "detector_improvements": 0,
+    "candidates_below_strict_cutoff": 0,
+    "strict_detection_rule": ">0.8436493155285434",
+    "pangram_calls": 0
+  },
+  "raw_B_outputs_included": false
+}

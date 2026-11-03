@@ -1,0 +1,2 @@
+{"id":"split-preserving","text":"The service keeps a second copy of each record. If one disk fails, it reads that copy. Users can keep working while the operator replaces the failed disk. This protection against one disk failure does not replace a backup.\n"}
+{"id":"wrong-claim","text":"The service keeps a second copy of each record. If one disk fails, it reads that copy. Users can keep working while the operator replaces the failed disk. This protection against one disk failure replaces a backup.\n"}

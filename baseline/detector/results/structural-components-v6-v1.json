@@ -1,0 +1,121 @@
+{
+  "schema": "slop_ninja_a_structural_components_report_v1",
+  "at": "2026-09-15T05:02:39Z",
+  "artifact_id": "4e061df4789e546dfdd58c8005860a98fb8f200a4c7642b7491461f44f16f138",
+  "temperature": 1.8776105792643432,
+  "component_ids": [
+    "passive_voice",
+    "later_pronoun"
+  ],
+  "source_group": "wikinews:2806664",
+  "split": "train",
+  "rows": [
+    {
+      "mask": 0,
+      "text_sha256": "9d95331f3050c611115745496216282c61f9260104551675f2275c0bcdc1d6be",
+      "reused": true,
+      "judgment": "parent_control",
+      "probability": 0.909395745493436,
+      "probabilities": [
+        0.09060425450656415,
+        0.2636396429611773,
+        0.6457561025322587
+      ],
+      "token_count": 295,
+      "strict_flag": true,
+      "loose_flag": true,
+      "model_human_logit": 2.0054420828819275,
+      "mixed_human_logit": 3.6874783039093018
+    },
+    {
+      "mask": 1,
+      "text_sha256": "a28e894c345a02b6bebf61c46fb11ae2b8e7d6f4acf56a83bd71e5b46448b735",
+      "reused": false,
+      "judgment": "admissible",
+      "probability": 0.6770906293987554,
+      "probabilities": [
+        0.32290937060124464,
+        0.20341995675345506,
+        0.47367067264530033
+      ],
+      "token_count": 297,
+      "strict_flag": false,
+      "loose_flag": true,
+      "model_human_logit": -0.8676421642303468,
+      "mixed_human_logit": 0.7193888425827024
+    },
+    {
+      "mask": 2,
+      "text_sha256": "149c132e92febe8f19fbd9df61a8572312685c2a806240ce99fdcd264dca8811",
+      "reused": false,
+      "judgment": "admissible",
+      "probability": 0.9160225158408692,
+      "probabilities": [
+        0.08397748415913077,
+        0.2644726799565792,
+        0.65154983588429
+      ],
+      "token_count": 291,
+      "strict_flag": true,
+      "loose_flag": true,
+      "model_human_logit": 2.153974652290344,
+      "mixed_human_logit": 3.846858263015747
+    },
+    {
+      "mask": 3,
+      "text_sha256": "2929188f4cb6b2c9b49298667a65e9a4135746b27fec1b82f02d42fc44393496",
+      "reused": true,
+      "judgment": "admissible",
+      "probability": 0.728427456925598,
+      "probabilities": [
+        0.2715725430744022,
+        0.21475760354754075,
+        0.5136698533780572
+      ],
+      "token_count": 293,
+      "strict_flag": false,
+      "loose_flag": true,
+      "model_human_logit": -0.4407114982604982,
+      "mixed_human_logit": 1.1966978311538694
+    }
+  ],
+  "effects": {
+    "probability": {
+      "voice_without_pronoun": -0.23230511609468063,
+      "pronoun_without_voice": 0.006626770347433197,
+      "voice_with_pronoun": -0.18759505891527128,
+      "pronoun_with_voice": 0.05133682752684254,
+      "interaction": 0.044710057179409346
+    },
+    "model_human_logit": {
+      "voice_without_pronoun": -2.873084247112274,
+      "pronoun_without_voice": 0.1485325694084163,
+      "voice_with_pronoun": -2.594686150550842,
+      "pronoun_with_voice": 0.4269306659698486,
+      "interaction": 0.27839809656143233
+    },
+    "mixed_human_logit": {
+      "voice_without_pronoun": -2.968089461326599,
+      "pronoun_without_voice": 0.1593799591064453,
+      "voice_with_pronoun": -2.6501604318618774,
+      "pronoun_with_voice": 0.477308988571167,
+      "interaction": 0.3179290294647217
+    }
+  },
+  "thresholds_strictly_greater_than": [
+    0.8436493155285434,
+    0.4287369114260753
+  ],
+  "bindings": {
+    "plan": "7558a45017d79b9ef1142045f2f142fda3c5033b05b12960cec1da05405ed51b",
+    "preflight": "04e4f6a6ca23df5759dcfd4291f790c0eba3eefd3ec075f6b1367a7ba698a60e",
+    "review": "a70d81b773a5414717229ba817c6644aa137c8bc4f07c177b55f3283291c4d62",
+    "new_responses": "58fe8f22a44973e2dc10290da02a30eba4d10a69fc2a28a8a0d22ca08a838287",
+    "code": "f1bef7010512212e699e97283c69120b924c700433f5417f487f9919d44fae09"
+  },
+  "new_detector_inputs": 2,
+  "reused_detector_inputs": 2,
+  "provider_calls": 0,
+  "training_admission": false,
+  "limits": "Selected Train-source follow-up. The voice recast changes word order, auxiliary/by words and token positions; the diagnostic does not isolate an abstract syntax feature. Judgments are one assistant assessment relative to the model parent. No new Pangram observation or reference promotion."
+}

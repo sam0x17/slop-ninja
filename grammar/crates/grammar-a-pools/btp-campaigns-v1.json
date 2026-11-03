@@ -1,0 +1,286 @@
+{
+ "schema": "slop_ninja_a_pool_btp_campaigns_v1",
+ "created": "2026-10-27",
+ "rule": "admit a campaign only when its dataset README states that transcription and review were completed before 2022-11-30; evidence sentences are copied verbatim from the README and verified by the adapter",
+ "datasets": [
+  {
+   "zip": "2019667234_v3.zip",
+   "zip_sha256": "80914954535b7b7ecc45536f061b42146edd174e9540eb4061f60b97f7d098e0",
+   "item_url": "https://www.loc.gov/item/2019667234/",
+   "campaigns": [
+    {
+     "name": "Branch Rickey: Changing the Game",
+     "group": "branch_rickey_papers",
+     "completed_by": "2019-02-22",
+     "evidence": [
+      "The Branch Rickey: Changing the Game campaign was fully transcribed and reviewed between October 24, 2018 and February 22, 2019."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2019667237_v2.zip",
+   "zip_sha256": "a72e194cf7b444be6f442526a376bb29c417261b662aa1f4c24d9023644aca47",
+   "item_url": "https://www.loc.gov/item/2019667237/",
+   "campaigns": [
+    {
+     "name": "Civil War Soldiers: \"Disabled but not disheartened\"",
+     "group": "wm_oland_bourne_papers",
+     "completed_by": "2022-07-16",
+     "evidence": [
+      "The Civil War Soldiers: \"Disabled but not disheartened” campaign was initially transcribed and reviewed between October 24, 2018 and April 14, 2020.",
+      "An additional 80 assets were published in the campaign for transcription on May 24, 2022 and completed on July 16, 2022."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2019667238_v2.zip",
+   "zip_sha256": "6320874e8962ead2873c92427fb2d2388c89af546c99b6af71347845cd5e9c5c",
+   "item_url": "https://www.loc.gov/item/2019667238/",
+   "campaigns": [
+    {
+     "name": "\"This Hell-upon-earth of a Prison\": Samuel J. Gibson's Andersonville Diary",
+     "group": "samuel_j_gibson_diary_and_correspondence",
+     "completed_by": "2019-11-14",
+     "evidence": [
+      "The Gibson campaign was fully transcribed and reviewed between November 6, 2019 and November 14, 2019."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2019667239_v2.zip",
+   "zip_sha256": "58bb7514bc219e1866f443a328d00340e3437b9d3b6f14ab5f993047b973bcdf",
+   "item_url": "https://www.loc.gov/item/2019667239/",
+   "campaigns": [
+    {
+     "name": "Carrie Chapman Catt Papers",
+     "group": "womens_suffrage_leaders_papers",
+     "completed_by": "2020-04-25",
+     "evidence": [
+      "The Carrie Chapman Catt Papers campaign was fully transcribed and reviewed between June 3, 2019 and April 25, 2020."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2020445590_v2.zip",
+   "zip_sha256": "17cac9e3bd3e02e46a802cc3247e1144192dee15af6fd7b77433d3ee6841df68",
+   "item_url": "https://www.loc.gov/item/2020445590/",
+   "campaigns": [
+    {
+     "name": "Rosa Parks: In Her Own Words",
+     "group": "rosa_parks_papers",
+     "completed_by": "2020-03-21",
+     "evidence": [
+      "The Rosa Parks: In Her Own Words campaign was fully transcribed and reviewed between February 4, 2020 and March 21, 2020."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2020445591_v2.zip",
+   "zip_sha256": "7562fdedb538d0ce5a032e1dcb2a8e4415144851897f4dc4c055f85c3cba0170",
+   "item_url": "https://www.loc.gov/item/2020445591/",
+   "campaigns": [
+    {
+     "name": "Susan B. Anthony Papers",
+     "group": "womens_suffrage_leaders_papers",
+     "completed_by": "2020-05-11",
+     "evidence": [
+      "Anthony Papers campaign was fully transcribed and reviewed between June 3, 2019 and May 11, 2020."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2020445592_v2.zip",
+   "zip_sha256": "cb6c7cd28dfd768f6b8195ad6bcf225b5f36699471db1a33e2a8e7906b9bde77",
+   "item_url": "https://www.loc.gov/item/2020445592/",
+   "campaigns": [
+    {
+     "name": "Elizabeth Cady Stanton Papers",
+     "group": "womens_suffrage_leaders_papers",
+     "completed_by": "2020-06-15",
+     "evidence": [
+      "The Elizabeth Cady Stanton Papers campaign was fully transcribed and reviewed between June 4, 2019 and June 15, 2020."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2020446971.zip",
+   "zip_sha256": "de16b9fded019f60b0964fd2d74dbe596eff8e7cefed79e5784e2606e86c65f2",
+   "item_url": "https://www.loc.gov/item/2020446971/",
+   "campaigns": [
+    {
+     "name": "Ordinary Lives in George Washington’s Papers",
+     "group": "george_washington_papers",
+     "completed_by": "2022-03-16",
+     "evidence": [
+      "The Ordinary Lives in George Washington’s Papers campaign was fully transcribed and reviewed between June 30, 2020 and March 16, 2022."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2021386762.zip",
+   "zip_sha256": "1edae6c8bbd124fd75b1c497e33a0e550fa79fe05b2ffe166765689599f1158b",
+   "item_url": "https://www.loc.gov/item/2021386762/",
+   "campaigns": [
+    {
+     "name": "War Diaries of George S. Patton",
+     "group": "george_s_patton_papers",
+     "completed_by": "2021-02-06",
+     "evidence": [
+      "Patton campaign was fully transcribed and reviewed between May 11, 2020 and February 6, 2021."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2021387726.zip",
+   "zip_sha256": "38be10e1dd2be57c41a25a4bb3ff03db7983ac54c9e7b5fbb90bd8f22d7b3124",
+   "item_url": "https://www.loc.gov/item/2021387726/",
+   "campaigns": [
+    {
+     "name": "Mary Church Terrell: Advocate for African Americans and Women",
+     "group": "mary_church_terrell_papers",
+     "completed_by": "2021-08-10",
+     "evidence": [
+      "The Mary Church Terrell: Advocate for African Americans and Women campaign was fully transcribed and reviewed between October 24, 2018 and August 10, 2021."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2021387727.zip",
+   "zip_sha256": "ffcab16b12b2725bda156aa9df531f426cfdc62199d5320db449ce01158e29b5",
+   "item_url": "https://www.loc.gov/item/2021387727/",
+   "campaigns": [
+    {
+     "name": "Brothers in Arms: The Gladstone Afro-American Military Collection",
+     "group": "william_a_gladstone_afro_american_military_collection",
+     "completed_by": "2022-03-27",
+     "evidence": [
+      "The Brothers in Arms: The Gladstone Afro-American Military Collection campaign was fully transcribed and reviewed between February 1, 2022 and March 27, 2022."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2022360468.zip",
+   "zip_sha256": "7f846177ab8ebfee80443b3f396c5776d70b31c733423720d8f732422cd33568",
+   "item_url": "https://www.loc.gov/item/2022360468/",
+   "campaigns": [
+    {
+     "name": "Artistic Trio: Georgia O’Keeffe & Alfred Stieglitz letters to Henwar Rodakiewicz",
+     "group": "okeeffe_stieglitz_rodakiewicz_letters",
+     "completed_by": "2022-03-10",
+     "evidence": [
+      "The Artistic Trio: Georgia O’Keeffe & Alfred Stieglitz letters to Henwar Rodakiewicz campaign was fully transcribed and reviewed between March 8, 2022 and March 10, 2022."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2022482299.zip",
+   "zip_sha256": "d7044d9802c7c341cb3543d4b5ccfdbe064ecb3d2896bf7472a195a1e1f47be9",
+   "item_url": "https://www.loc.gov/item/2022482299/",
+   "campaigns": [
+    {
+     "name": "At the Library and in the Field: John and Alan Lomax Papers",
+     "group": "lomax_family_papers",
+     "completed_by": "2021-09-02",
+     "evidence": [
+      "The At the Library and in the Field: John and Alan Lomax Papers campaign was fully transcribed and reviewed between July 13, 2021 and September 2, 2021."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2022482300.zip",
+   "zip_sha256": "2745d920e8598ff1c054a971f7aea2d4979f75dfb1e4cd256fc2a7cff7126e14",
+   "item_url": "https://www.loc.gov/item/2022482300/",
+   "campaigns": [
+    {
+     "name": "The Man Who Recorded the World: On the Road with Alan Lomax",
+     "group": "lomax_family_papers",
+     "completed_by": "2020-01-15",
+     "evidence": [
+      "The Man Who Recorded the World: On the Road with Alan Lomax campaign was fully transcribed and reviewed between September 4, 2019 and January 15, 2020."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2023446331.zip",
+   "zip_sha256": "60be0145fb7e4973c8c7744811eab72dcef39ad7acc5f310a73ac8c2ce8336dc",
+   "item_url": "https://www.loc.gov/item/2023446331/",
+   "campaigns": [
+    {
+     "name": "Organizing for Women’s Suffrage: The NAWSA Records",
+     "group": "womens_suffrage_leaders_papers",
+     "completed_by": "2022-10-06",
+     "evidence": [
+      "The Organizing for Women’s Suffrage: The NAWSA Records campaign was fully transcribed and reviewed between August 11, 2020 and October 6, 2022."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2023514920_v2.zip",
+   "zip_sha256": "11265ffac2d048980aab11f61556cfc39c196486dd329d735adfe52a352fb17c",
+   "item_url": "https://www.loc.gov/item/2023514920/",
+   "campaigns": [
+    {
+     "name": "Theater for the People: Federal Theatre Project playbills",
+     "group": "federal_theatre_project_collection",
+     "completed_by": "2022-03-11",
+     "evidence": [
+      "The Theater for the People: Federal Theatre Project playbills campaign was fully transcribed and reviewed between January 11, 2022 and March 11, 2022."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2023527888.zip",
+   "zip_sha256": "bb220989367fab77fcc27bef00e0c6a59df482b701fa2cb2b3cccea6cdb60117",
+   "item_url": "https://www.loc.gov/item/2023527888/",
+   "campaigns": [
+    {
+     "name": "Anna E. Dickinson Papers",
+     "group": "womens_suffrage_leaders_papers",
+     "completed_by": "2021-08-25",
+     "evidence": [
+      "Dickinson Papers campaign was fully transcribed and reviewed between June 3, 2019 and August 25, 2021."
+     ]
+    }
+   ]
+  },
+  {
+   "zip": "2025465720.zip",
+   "zip_sha256": "3028ed902d84a9bdbec51e8ee7fdbebe2cea6edcccea39f906b47e83ac03175b",
+   "item_url": "https://www.loc.gov/item/2025465720/",
+   "campaigns": [
+    {
+     "name": "Down to Raisins: The Remaining Letters to Lincoln",
+     "group": "abraham_lincoln_papers",
+     "completed_by": "2021-08-25",
+     "evidence": [
+      "The Down to Raisins campaign was fully transcribed and reviewed between May 3, 2021 and August[GM10] 25, 2021."
+     ]
+    },
+    {
+     "name": "Letters to Lincoln",
+     "group": "abraham_lincoln_papers",
+     "completed_by": "2020-07-09",
+     "evidence": [
+      "The Letters to Lincoln campaign was fully transcribed and reviewed between October 24, 2018 and July 9, 2020."
+     ]
+    }
+   ]
+  }
+ ]
+}

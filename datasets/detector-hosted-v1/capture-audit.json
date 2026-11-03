@@ -1,0 +1,94 @@
+{
+  "allow_partial": false,
+  "auditor_source_sha256": "b2be6c2e0c5210dbdb3875ea9a6b77a24502a8fe0486721a5f6de2fe78fbb178",
+  "by_model": {
+    "gpt-5.6-sol": {
+      "captured": 24,
+      "content_checks_passed": 24,
+      "reported_models": [
+        []
+      ]
+    },
+    "gpt-6-astra": {
+      "captured": 24,
+      "content_checks_passed": 24,
+      "reported_models": [
+        []
+      ]
+    },
+    "opus": {
+      "captured": 24,
+      "content_checks_passed": 24,
+      "reported_models": [
+        [
+          "claude-opus-5"
+        ]
+      ]
+    },
+    "sonnet": {
+      "captured": 24,
+      "content_checks_passed": 24,
+      "reported_models": [
+        [
+          "claude-sonnet-5"
+        ]
+      ]
+    }
+  },
+  "captured": 96,
+  "content_checks_passed": 96,
+  "executable_sha256": "bd4bc9b9c22fa828c322a9fe8971ed058ec5e89482967f8db50a164fdf3e65a1",
+  "expected_records": 96,
+  "limits": "Offline archive consistency and mechanical text checks only. Keep every capture, including content-check failures. Source copying, length and wrappers do not establish factual fidelity, tonal fidelity, readability, immutable hosted weights or provider-output reuse rights. No provider call or training-corpus admission occurs.",
+  "matrix_complete": true,
+  "missing": [],
+  "parser_source_sha256": "46fb68811716e356e0213748f1df74c32bde75c6fd74aeca867f20407a38d133",
+  "preflight_records": [],
+  "reviews_sha256": "a20b5987dc6d098efd0b5403d7de139cb3c996d897396e05aba7aa5fc5779a40",
+  "runs": [
+    {
+      "completed_marker": false,
+      "input_sha256": "a956aad4715d76975ec8e884475d8c396d44af3e490cc257902c5571410c3ddf",
+      "manifest_sha256": "d9f51e8677dcd3af4b10d4af99a1b3d9fceea0645e9ea68433baa353a59fbddd",
+      "observed_attempts": 3,
+      "path": "~/slop_ninja_runs/cli_generators_v1/matched-cohort-v2/gpt6",
+      "planned_calls": 24
+    },
+    {
+      "completed_marker": true,
+      "input_sha256": "a956aad4715d76975ec8e884475d8c396d44af3e490cc257902c5571410c3ddf",
+      "manifest_sha256": "fb68371228c881fb4e9ed73b2156586ac6a39ab1b7727fba48666083bb04465a",
+      "observed_attempts": 24,
+      "path": "~/slop_ninja_runs/cli_generators_v1/matched-cohort-v3/gpt56",
+      "planned_calls": 24
+    },
+    {
+      "completed_marker": true,
+      "input_sha256": "351b243982e5b49f942e7f41f5dd6f1835471399bf40d6ee30d95a8e98e6c5b9",
+      "manifest_sha256": "80a653a8d4eab79ad350c3105773728b30ca0ccd15a561adb2d74c237e275e8b",
+      "observed_attempts": 21,
+      "path": "~/slop_ninja_runs/cli_generators_v1/matched-cohort-v3/gpt6",
+      "planned_calls": 21
+    },
+    {
+      "completed_marker": true,
+      "input_sha256": "a956aad4715d76975ec8e884475d8c396d44af3e490cc257902c5571410c3ddf",
+      "manifest_sha256": "af283b1b81afd8a2dbf9587aea4925befc6a326f771d0bbddb0b41453dfad3b1",
+      "observed_attempts": 24,
+      "path": "~/slop_ninja_runs/cli_generators_v1/matched-cohort-v4/claude-opus",
+      "planned_calls": 24
+    },
+    {
+      "completed_marker": true,
+      "input_sha256": "a956aad4715d76975ec8e884475d8c396d44af3e490cc257902c5571410c3ddf",
+      "manifest_sha256": "43a6919ff9d244574867465b3d586409e511a180a076389c4305da34d9a04268",
+      "observed_attempts": 24,
+      "path": "~/slop_ninja_runs/cli_generators_v1/matched-cohort-v4/claude-sonnet",
+      "planned_calls": 24
+    }
+  ],
+  "schema": "slop_ninja_cli_capture_audit_v1",
+  "source_families": 24,
+  "sources_sha256": "a956aad4715d76975ec8e884475d8c396d44af3e490cc257902c5571410c3ddf",
+  "unfinished_attempts": []
+}

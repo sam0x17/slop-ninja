@@ -1,0 +1,29 @@
+{
+  "schema": "slop_ninja_origin_base_comparison_completion_v1",
+  "at": "2026-09-15T06:49:37Z",
+  "public_reports_reviewed": 39,
+  "private_comparison_complete": true,
+  "private_source_groups": 1,
+  "private_versions": 3,
+  "private_candidates": 2,
+  "private_window_observations": 30,
+  "provider_calls": 0,
+  "reference_promoted": false,
+  "independent_confirmation": false,
+  "private_text_or_identifiers_exported": false,
+  "stability_check_host": "Mac Studio, macOS arm64",
+  "stability_rust_fmt": "passed",
+  "stability_all_target_tests": "passed",
+  "stability_clippy_warnings_denied": "passed",
+  "stability_example_build": "passed",
+  "linux_execution": "unverified",
+  "public_summary_sha256": "be3ad64650ec7d9096a4bf2fb18427ae8d3f76c4f478b112bf33fa558168df84",
+  "revision_stability_sha256": "06b5455aa6deb185080dc2a6952655b23b9944e481dd6ed68d9b9579a4e4989e",
+  "stability_source_sha256": "7eadc2ee15632851c1f35d62497a7c718b0384741b695bb0e4e45c7e3ab8f40d",
+  "stability_binary_sha256": "bfe69db76033adaa984cb3dae1b2bdd04fbf0849d4b06fc005226f2c9511f5fd",
+  "stability_check_log_sha256": {
+    "tests": "3eeffc86c080fa70632b2bceac385aabcd68234c450439c268f03ae46e51d5e6",
+    "clippy": "562e89fa879d2e3043676a13d057a0a96b9da880f10a23075ce662e59003ca96",
+    "build": "aa0e4f4b539d5a4f8fb4e10dcd55243e309b330703e3a1dfb95bc46f0fed79c9"
+  }
+}

@@ -1,0 +1,32 @@
+% Homogeneous bounded-revision planning scenario. Each job is 1,000 words.
+% Cash costs and burned principal are distinct flows, all expressed in USD.
+\begin{tikzpicture}
+\begin{loglogaxis}[
+  width=.91\linewidth, height=6.5cm,
+  xmin=1000, xmax=1000000, ymin=1, ymax=500000,
+  xlabel={Delivered revision jobs per period \(N_{\mathrm{job}}\)},
+  ylabel={Amount per period (USD)},
+  xtick={1000,10000,100000,1000000},
+  xticklabels={{1,000},{10,000},{100,000},{1,000,000}},
+  ytick={1,10,100,1000,10000,100000},
+  yticklabels={\$1,\$10,\$100,{\$1,000},{\$10,000},{\$100,000}},
+  minor x tick num=0, minor y tick num=0,
+  grid=major, grid style={black!12},
+  tick align=outside, axis line style={black!55},
+  font=\small, tick label style={font=\footnotesize},
+  label style={font=\small},
+  legend style={at={(.025,.975)}, anchor=north west, draw=none,
+    fill=white, fill opacity=.95, text opacity=1, font=\footnotesize,
+    cells={anchor=west}},
+  clip=true,
+]
+\addplot[black!80, very thick, domain=1000:1000000, samples=2] {.2072125*x};
+\addlegendentry{Customer principal burned}
+\addplot[draw=none, fill=orange!60, forget plot]
+  coordinates {(1000,7.9) (1000000,7900) (1000000,8500) (1000,8.5)} \closedcycle;
+\addplot[orange!85!black, thick, domain=1000:1000000, samples=2] {.0082*x};
+\addlegendentry{Operator delivery cost band}
+\addplot[teal!80!black, very thick, domain=1000:1000000, samples=2] {.00271875*x};
+\addlegendentry{Miner proposer cost}
+\end{loglogaxis}
+\end{tikzpicture}

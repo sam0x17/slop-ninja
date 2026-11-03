@@ -1,0 +1,110 @@
+{
+  "schema": "slop_ninja_register_diagnostic_independent_audit_v1",
+  "rows": 9,
+  "source_families": 3,
+  "all_probabilities_and_threshold_flags_match": true,
+  "all_human_responses_identical_to_prior": true,
+  "all_admitted_drafts_strict_flags": true,
+  "no_new_draft_below_ten_percent": true,
+  "comparisons": [
+    {
+      "generator": "qwen",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "old_text_sha256": "0db6a63ded00b67c8fe69fd4298b4761a986f7df48e646329a3655d1479e2ac4",
+      "new_text_sha256": "c5348296252ede8df7f9400b5fdc25981914b122a41582b577499c9d54c9ca72",
+      "old_probability": 0.9890162308323004,
+      "new_probability": 0.9932538738082902,
+      "difference_percentage_points": 0.42376429759898304,
+      "old_admitted": true,
+      "new_admitted": true,
+      "new_longest_shared_words": 10,
+      "new_20_word_run_coverage": 0.0
+    },
+    {
+      "generator": "mistral",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "old_text_sha256": "efbd7ef9b052db8018358170a9cfa4afc96280a79dea012c368d6af54fce27e9",
+      "new_text_sha256": "659f6ed5865131adcbca43ee8d919b0d160496352d70f231810de5ce36566554",
+      "old_probability": 0.9333966587635161,
+      "new_probability": 0.9460997103061515,
+      "difference_percentage_points": 1.2703051542635402,
+      "old_admitted": false,
+      "new_admitted": false,
+      "new_longest_shared_words": 21,
+      "new_20_word_run_coverage": 0.03860294117647059
+    },
+    {
+      "generator": "qwen",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "old_text_sha256": "7599eb31ff5e7b7fd8b71ee52b4c5cfc4797c4ee2fc8ffb987166e1c016cb1a5",
+      "new_text_sha256": "1b1ce4698020e99a56903c91cbd6fb83b8e9041c9b77d2fe520e1d5e37e84420",
+      "old_probability": 0.987385322086786,
+      "new_probability": 0.9977099755432135,
+      "difference_percentage_points": 1.0324653456427524,
+      "old_admitted": true,
+      "new_admitted": true,
+      "new_longest_shared_words": 9,
+      "new_20_word_run_coverage": 0.0
+    },
+    {
+      "generator": "mistral",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "old_text_sha256": "b73ddeee0c2ec0525d87fce8e57ae00cb9286bb5f13a429e0695b1120028511e",
+      "new_text_sha256": "b00c63efc52a3eddfeabd93ed5a4a712fcb5407728550019a263511980d0ef7f",
+      "old_probability": 0.5113027039385227,
+      "new_probability": 0.9395395873323735,
+      "difference_percentage_points": 42.82368833938508,
+      "old_admitted": true,
+      "new_admitted": true,
+      "new_longest_shared_words": 7,
+      "new_20_word_run_coverage": 0.0
+    },
+    {
+      "generator": "qwen",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "old_text_sha256": "7a0f02e7de2fddcd1f45b1be654a61d7a0f14c599540b25798c904fe29105169",
+      "new_text_sha256": "477043d799ba1b220694246165465c667424cc65151deb94f0496cf1b08cc0d3",
+      "old_probability": 0.9807894468386558,
+      "new_probability": 0.9921431390811544,
+      "difference_percentage_points": 1.1353692242498603,
+      "old_admitted": true,
+      "new_admitted": true,
+      "new_longest_shared_words": 10,
+      "new_20_word_run_coverage": 0.0
+    },
+    {
+      "generator": "mistral",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "old_text_sha256": "8442b01e210b834778f4f2587fbc860a37710fd97638f6cf479d671f2826bf81",
+      "new_text_sha256": "fe3c7aa4edd4304684e1f39fabc387f191c9742c0ca26c056e1e5e95a5b26900",
+      "old_probability": 0.602037747743372,
+      "new_probability": 0.5637989131410017,
+      "difference_percentage_points": -3.823883460237032,
+      "old_admitted": false,
+      "new_admitted": false,
+      "new_longest_shared_words": 61,
+      "new_20_word_run_coverage": 0.3420647149460709
+    }
+  ],
+  "negative_checks": [
+    {
+      "case": "wrong_mode",
+      "rejected": true,
+      "exit_status": 1,
+      "error": "Error: Wrong evaluation policy"
+    },
+    {
+      "case": "missing_response",
+      "rejected": true,
+      "exit_status": 1,
+      "error": "Error: Incomplete response coverage"
+    }
+  ],
+  "report_sha256": "d70e42f8f960250f26e99d709c78041513e4d44be69df3d8a6a1cea7fe038d8b",
+  "prior_report_sha256": "822a47d9ac35e204db2c48f0a6343cc29865f5d0116262846ebd332eea9885d7",
+  "script_sha256": "5bdfc8a8bc9b027eadb354cd8656cb41f625bca2d63efd5f141f9ed983319726",
+  "provider_calls": 0,
+  "reference_changed": false,
+  "conclusion": "This small source-conditioned cohort did not reproduce near-zero scores on private B outputs. Every admitted draft was flagged at the strict threshold. All drafts failed fidelity; copying and substantive changes prevent a style-only causal interpretation. No Pangram score was obtained.",
+  "next_action": "Keep the remaining scientific calls paused; this recipe has not supplied the missing near-zero hard examples. Finish the frozen control/consistency comparison before deciding on its prepared capacity follow-up. No reference or threshold promotion."
+}

@@ -1,0 +1,8 @@
+{
+  "at": "2026-09-15T11:35:18Z",
+  "review_sha256": "71f80641a69e921d68a913fd7236a0d73b2530fab39389bc1b44f545351ba79b",
+  "reviewed_outputs": 4,
+  "raw_and_final_bindings_match": true,
+  "status_sha256": "9474f55137a14b045371f49aa586dff18db92f2fbe8f003fca577ea03efe8b1c",
+  "semantic_judgments": "manual_assistant_review_not_automatically_proven"
+}

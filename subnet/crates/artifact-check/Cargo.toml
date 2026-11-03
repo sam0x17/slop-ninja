@@ -1,0 +1,28 @@
+[package]
+name = "slop-ninja-artifact-check"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Slop Ninja A artifact spec: role schemas, graph allow-list, ONNX pre-parse, scorer mapping and the canonical text profile"
+
+[features]
+default = ["native"]
+# Directory and file helpers plus the command-line tool. The checks themselves
+# are pure computation over bytes and also build for wasm32-unknown-unknown.
+native = []
+
+[[bin]]
+name = "slop_ninja_artifact_check"
+path = "src/bin/slop_ninja_artifact_check.rs"
+required-features = ["native"]
+
+[dependencies]
+slop-ninja-protocol = { path = "../protocol" }
+anyhow = "1"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+# raw_value: the span tower runtime (full_a_tower.rs) passes heads v3 members on as raw JSON.
+serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
+ryu = "1"
+sha2 = "0.10"

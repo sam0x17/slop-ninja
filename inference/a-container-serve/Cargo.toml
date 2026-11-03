@@ -1,0 +1,49 @@
+[package]
+name = "a_container_serve"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+default-run = "a-container-serve"
+
+[workspace]
+
+[lib]
+name = "a_container_serve"
+path = "src/lib.rs"
+
+[[bin]]
+name = "a-container-serve"
+path = "src/main.rs"
+
+[[bin]]
+name = "a-scorer"
+path = "src/bin/a_scorer.rs"
+
+[[bin]]
+name = "slop_ninja_a_served_profile"
+path = "src/bin/served_profile.rs"
+
+[[bin]]
+name = "slop_ninja_a_local_score"
+path = "src/bin/local_score.rs"
+
+[[bin]]
+name = "slop_ninja_a_adversarial"
+path = "src/bin/adversarial.rs"
+
+[dependencies]
+anyhow = "=1.0.104"
+hex = "=0.4.3"
+libc = "=0.2.191"
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dynamic", "std"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip", "raw_value"] }
+sha2 = "=0.10.9"
+# The artifact spec's admission checks, run on every artifact before ONNX Runtime opens it.
+slop-ninja-artifact-check = { path = "../../subnet/crates/artifact-check" }
+tiny_http = "=0.12.0"
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
+
+[profile.release]
+codegen-units = 1

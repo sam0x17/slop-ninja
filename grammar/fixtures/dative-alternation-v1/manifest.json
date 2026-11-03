@@ -1,0 +1,2525 @@
+{
+  "allocation": {
+    "exclusions": 11,
+    "new_lemma_class_holdout": false,
+    "positive_source_forms": 12,
+    "prior_development_source_texts": 184,
+    "scope_probes": 1,
+    "source_texts": 24,
+    "undirected_positive_pairs": 6
+  },
+  "cases": [
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          17
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          22,
+          27
+        ],
+        "recipient_np_span": [
+          18,
+          27
+        ],
+        "theme_head_span": [
+          32,
+          39
+        ],
+        "theme_np_span": [
+          28,
+          39
+        ]
+      },
+      "candidate_sha256": "e4d22fdaf695101561e65e7ccef81b798d7706e960ebf5d7285908574c7e4af4",
+      "candidate_text": "The teacher gives the pupil the booklet.",
+      "category": "ordinary_present",
+      "expected_edits": [
+        {
+          "end_byte": 42,
+          "expected": "the booklet to the pupil",
+          "replacement": "the pupil the booklet",
+          "start_byte": 18
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 39,
+          "expected": "the pupil the booklet",
+          "replacement": "the booklet to the pupil",
+          "start_byte": 18
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-give-1-prepositional",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": "give-1",
+      "production_word_delta": {
+        "added": [],
+        "candidate_words": [
+          "booklet",
+          "gives",
+          "pupil",
+          "teacher",
+          "the",
+          "the",
+          "the"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [
+          "to"
+        ],
+        "source_words": [
+          "booklet",
+          "gives",
+          "pupil",
+          "teacher",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-give-1-double_object",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",0]",
+        "target_frame_id": "[\"give-13.1\",1]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          17
+        ],
+        "preposition_span": [
+          30,
+          32
+        ],
+        "recipient_head_span": [
+          37,
+          42
+        ],
+        "recipient_np_span": [
+          33,
+          42
+        ],
+        "theme_head_span": [
+          22,
+          29
+        ],
+        "theme_np_span": [
+          18,
+          29
+        ]
+      },
+      "source_form": "prepositional",
+      "source_sha256": "c7e3e2051ee31754ee3c904eed41139c5e7ce0adab10ff71fc05bfc6834a6fa4",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The teacher gives the booklet to the pupil."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          17
+        ],
+        "preposition_span": [
+          30,
+          32
+        ],
+        "recipient_head_span": [
+          37,
+          42
+        ],
+        "recipient_np_span": [
+          33,
+          42
+        ],
+        "theme_head_span": [
+          22,
+          29
+        ],
+        "theme_np_span": [
+          18,
+          29
+        ]
+      },
+      "candidate_sha256": "c7e3e2051ee31754ee3c904eed41139c5e7ce0adab10ff71fc05bfc6834a6fa4",
+      "candidate_text": "The teacher gives the booklet to the pupil.",
+      "category": "ordinary_present",
+      "expected_edits": [
+        {
+          "end_byte": 39,
+          "expected": "the pupil the booklet",
+          "replacement": "the booklet to the pupil",
+          "start_byte": 18
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 42,
+          "expected": "the booklet to the pupil",
+          "replacement": "the pupil the booklet",
+          "start_byte": 18
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-give-1-double_object",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": "give-1",
+      "production_word_delta": {
+        "added": [
+          "to"
+        ],
+        "candidate_words": [
+          "booklet",
+          "gives",
+          "pupil",
+          "teacher",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [],
+        "source_words": [
+          "booklet",
+          "gives",
+          "pupil",
+          "teacher",
+          "the",
+          "the",
+          "the"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-give-1-prepositional",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",1]",
+        "target_frame_id": "[\"give-13.1\",0]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          17
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          22,
+          27
+        ],
+        "recipient_np_span": [
+          18,
+          27
+        ],
+        "theme_head_span": [
+          32,
+          39
+        ],
+        "theme_np_span": [
+          28,
+          39
+        ]
+      },
+      "source_form": "double_object",
+      "source_sha256": "e4d22fdaf695101561e65e7ccef81b798d7706e960ebf5d7285908574c7e4af4",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The teacher gives the pupil the booklet."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          16
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          21,
+          26
+        ],
+        "recipient_np_span": [
+          17,
+          26
+        ],
+        "theme_head_span": [
+          31,
+          37
+        ],
+        "theme_np_span": [
+          27,
+          37
+        ]
+      },
+      "candidate_sha256": "3101ca988a4ef9ad94364604d4331a17877abf2de4f24fa6843f849650ed76f5",
+      "candidate_text": "The courier gave the clerk the parcel.",
+      "category": "ordinary_past",
+      "expected_edits": [
+        {
+          "end_byte": 40,
+          "expected": "the parcel to the clerk",
+          "replacement": "the clerk the parcel",
+          "start_byte": 17
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 37,
+          "expected": "the clerk the parcel",
+          "replacement": "the parcel to the clerk",
+          "start_byte": 17
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-give-2-prepositional",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": "give-2",
+      "production_word_delta": {
+        "added": [],
+        "candidate_words": [
+          "clerk",
+          "courier",
+          "gave",
+          "parcel",
+          "the",
+          "the",
+          "the"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [
+          "to"
+        ],
+        "source_words": [
+          "clerk",
+          "courier",
+          "gave",
+          "parcel",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-give-2-double_object",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",0]",
+        "target_frame_id": "[\"give-13.1\",1]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          16
+        ],
+        "preposition_span": [
+          28,
+          30
+        ],
+        "recipient_head_span": [
+          35,
+          40
+        ],
+        "recipient_np_span": [
+          31,
+          40
+        ],
+        "theme_head_span": [
+          21,
+          27
+        ],
+        "theme_np_span": [
+          17,
+          27
+        ]
+      },
+      "source_form": "prepositional",
+      "source_sha256": "81dc08f430fa375401821e1689dc6811da151455927245726d2bfd8f0d412b46",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The courier gave the parcel to the clerk."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          16
+        ],
+        "preposition_span": [
+          28,
+          30
+        ],
+        "recipient_head_span": [
+          35,
+          40
+        ],
+        "recipient_np_span": [
+          31,
+          40
+        ],
+        "theme_head_span": [
+          21,
+          27
+        ],
+        "theme_np_span": [
+          17,
+          27
+        ]
+      },
+      "candidate_sha256": "81dc08f430fa375401821e1689dc6811da151455927245726d2bfd8f0d412b46",
+      "candidate_text": "The courier gave the parcel to the clerk.",
+      "category": "ordinary_past",
+      "expected_edits": [
+        {
+          "end_byte": 37,
+          "expected": "the clerk the parcel",
+          "replacement": "the parcel to the clerk",
+          "start_byte": 17
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 40,
+          "expected": "the parcel to the clerk",
+          "replacement": "the clerk the parcel",
+          "start_byte": 17
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-give-2-double_object",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": "give-2",
+      "production_word_delta": {
+        "added": [
+          "to"
+        ],
+        "candidate_words": [
+          "clerk",
+          "courier",
+          "gave",
+          "parcel",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [],
+        "source_words": [
+          "clerk",
+          "courier",
+          "gave",
+          "parcel",
+          "the",
+          "the",
+          "the"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-give-2-prepositional",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",1]",
+        "target_frame_id": "[\"give-13.1\",0]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          16
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          21,
+          26
+        ],
+        "recipient_np_span": [
+          17,
+          26
+        ],
+        "theme_head_span": [
+          31,
+          37
+        ],
+        "theme_np_span": [
+          27,
+          37
+        ]
+      },
+      "source_form": "double_object",
+      "source_sha256": "3101ca988a4ef9ad94364604d4331a17877abf2de4f24fa6843f849650ed76f5",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The courier gave the clerk the parcel."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          13
+        ],
+        "agent_np_span": [
+          0,
+          13
+        ],
+        "predicate_span": [
+          14,
+          19
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          24,
+          34
+        ],
+        "recipient_np_span": [
+          20,
+          34
+        ],
+        "theme_head_span": [
+          39,
+          44
+        ],
+        "theme_np_span": [
+          35,
+          44
+        ]
+      },
+      "candidate_sha256": "8e43c193c7d8bcdea4cb8d62eb66a0c0297f6ef40322358bf34ef03a91cf2865",
+      "candidate_text": "The librarian lends the researcher the atlas.",
+      "category": "ordinary_present",
+      "expected_edits": [
+        {
+          "end_byte": 47,
+          "expected": "the atlas to the researcher",
+          "replacement": "the researcher the atlas",
+          "start_byte": 20
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 44,
+          "expected": "the researcher the atlas",
+          "replacement": "the atlas to the researcher",
+          "start_byte": 20
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-lend-1-prepositional",
+      "lemma": "lend",
+      "meaning_equivalence_certified": false,
+      "pair_id": "lend-1",
+      "production_word_delta": {
+        "added": [],
+        "candidate_words": [
+          "atlas",
+          "lends",
+          "librarian",
+          "researcher",
+          "the",
+          "the",
+          "the"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [
+          "to"
+        ],
+        "source_words": [
+          "atlas",
+          "lends",
+          "librarian",
+          "researcher",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-lend-1-double_object",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",0]",
+        "target_frame_id": "[\"give-13.1\",1]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          13
+        ],
+        "agent_np_span": [
+          0,
+          13
+        ],
+        "predicate_span": [
+          14,
+          19
+        ],
+        "preposition_span": [
+          30,
+          32
+        ],
+        "recipient_head_span": [
+          37,
+          47
+        ],
+        "recipient_np_span": [
+          33,
+          47
+        ],
+        "theme_head_span": [
+          24,
+          29
+        ],
+        "theme_np_span": [
+          20,
+          29
+        ]
+      },
+      "source_form": "prepositional",
+      "source_sha256": "ffa357602bb9fe4c1652502daac50b29c0c47f175fa626c294e8d97d79618417",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The librarian lends the atlas to the researcher."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          13
+        ],
+        "agent_np_span": [
+          0,
+          13
+        ],
+        "predicate_span": [
+          14,
+          19
+        ],
+        "preposition_span": [
+          30,
+          32
+        ],
+        "recipient_head_span": [
+          37,
+          47
+        ],
+        "recipient_np_span": [
+          33,
+          47
+        ],
+        "theme_head_span": [
+          24,
+          29
+        ],
+        "theme_np_span": [
+          20,
+          29
+        ]
+      },
+      "candidate_sha256": "ffa357602bb9fe4c1652502daac50b29c0c47f175fa626c294e8d97d79618417",
+      "candidate_text": "The librarian lends the atlas to the researcher.",
+      "category": "ordinary_present",
+      "expected_edits": [
+        {
+          "end_byte": 44,
+          "expected": "the researcher the atlas",
+          "replacement": "the atlas to the researcher",
+          "start_byte": 20
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 47,
+          "expected": "the atlas to the researcher",
+          "replacement": "the researcher the atlas",
+          "start_byte": 20
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-lend-1-double_object",
+      "lemma": "lend",
+      "meaning_equivalence_certified": false,
+      "pair_id": "lend-1",
+      "production_word_delta": {
+        "added": [
+          "to"
+        ],
+        "candidate_words": [
+          "atlas",
+          "lends",
+          "librarian",
+          "researcher",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [],
+        "source_words": [
+          "atlas",
+          "lends",
+          "librarian",
+          "researcher",
+          "the",
+          "the",
+          "the"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-lend-1-prepositional",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",1]",
+        "target_frame_id": "[\"give-13.1\",0]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          13
+        ],
+        "agent_np_span": [
+          0,
+          13
+        ],
+        "predicate_span": [
+          14,
+          19
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          24,
+          34
+        ],
+        "recipient_np_span": [
+          20,
+          34
+        ],
+        "theme_head_span": [
+          39,
+          44
+        ],
+        "theme_np_span": [
+          35,
+          44
+        ]
+      },
+      "source_form": "double_object",
+      "source_sha256": "8e43c193c7d8bcdea4cb8d62eb66a0c0297f6ef40322358bf34ef03a91cf2865",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The librarian lends the researcher the atlas."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          12
+        ],
+        "agent_np_span": [
+          0,
+          12
+        ],
+        "predicate_span": [
+          13,
+          17
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          22,
+          29
+        ],
+        "recipient_np_span": [
+          18,
+          29
+        ],
+        "theme_head_span": [
+          34,
+          40
+        ],
+        "theme_np_span": [
+          30,
+          40
+        ]
+      },
+      "candidate_sha256": "15acb15bd137f1489c832861e5aa8372c59a60fc7cda81efc2fc9a794ccb9b6f",
+      "candidate_text": "The neighbor lent the painter the ladder.",
+      "category": "ordinary_past",
+      "expected_edits": [
+        {
+          "end_byte": 43,
+          "expected": "the ladder to the painter",
+          "replacement": "the painter the ladder",
+          "start_byte": 18
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 40,
+          "expected": "the painter the ladder",
+          "replacement": "the ladder to the painter",
+          "start_byte": 18
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-lend-2-prepositional",
+      "lemma": "lend",
+      "meaning_equivalence_certified": false,
+      "pair_id": "lend-2",
+      "production_word_delta": {
+        "added": [],
+        "candidate_words": [
+          "ladder",
+          "lent",
+          "neighbor",
+          "painter",
+          "the",
+          "the",
+          "the"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [
+          "to"
+        ],
+        "source_words": [
+          "ladder",
+          "lent",
+          "neighbor",
+          "painter",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-lend-2-double_object",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",0]",
+        "target_frame_id": "[\"give-13.1\",1]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          12
+        ],
+        "agent_np_span": [
+          0,
+          12
+        ],
+        "predicate_span": [
+          13,
+          17
+        ],
+        "preposition_span": [
+          29,
+          31
+        ],
+        "recipient_head_span": [
+          36,
+          43
+        ],
+        "recipient_np_span": [
+          32,
+          43
+        ],
+        "theme_head_span": [
+          22,
+          28
+        ],
+        "theme_np_span": [
+          18,
+          28
+        ]
+      },
+      "source_form": "prepositional",
+      "source_sha256": "0d50201ab3f6a2e004e67f4433a6de9dffefab2a40653b9e70a3e96211bf8027",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The neighbor lent the ladder to the painter."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          12
+        ],
+        "agent_np_span": [
+          0,
+          12
+        ],
+        "predicate_span": [
+          13,
+          17
+        ],
+        "preposition_span": [
+          29,
+          31
+        ],
+        "recipient_head_span": [
+          36,
+          43
+        ],
+        "recipient_np_span": [
+          32,
+          43
+        ],
+        "theme_head_span": [
+          22,
+          28
+        ],
+        "theme_np_span": [
+          18,
+          28
+        ]
+      },
+      "candidate_sha256": "0d50201ab3f6a2e004e67f4433a6de9dffefab2a40653b9e70a3e96211bf8027",
+      "candidate_text": "The neighbor lent the ladder to the painter.",
+      "category": "ordinary_past",
+      "expected_edits": [
+        {
+          "end_byte": 40,
+          "expected": "the painter the ladder",
+          "replacement": "the ladder to the painter",
+          "start_byte": 18
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 43,
+          "expected": "the ladder to the painter",
+          "replacement": "the painter the ladder",
+          "start_byte": 18
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-lend-2-double_object",
+      "lemma": "lend",
+      "meaning_equivalence_certified": false,
+      "pair_id": "lend-2",
+      "production_word_delta": {
+        "added": [
+          "to"
+        ],
+        "candidate_words": [
+          "ladder",
+          "lent",
+          "neighbor",
+          "painter",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [],
+        "source_words": [
+          "ladder",
+          "lent",
+          "neighbor",
+          "painter",
+          "the",
+          "the",
+          "the"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-lend-2-prepositional",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",1]",
+        "target_frame_id": "[\"give-13.1\",0]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          12
+        ],
+        "agent_np_span": [
+          0,
+          12
+        ],
+        "predicate_span": [
+          13,
+          17
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          22,
+          29
+        ],
+        "recipient_np_span": [
+          18,
+          29
+        ],
+        "theme_head_span": [
+          34,
+          40
+        ],
+        "theme_np_span": [
+          30,
+          40
+        ]
+      },
+      "source_form": "double_object",
+      "source_sha256": "15acb15bd137f1489c832861e5aa8372c59a60fc7cda81efc2fc9a794ccb9b6f",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The neighbor lent the painter the ladder."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          10
+        ],
+        "agent_np_span": [
+          0,
+          10
+        ],
+        "predicate_span": [
+          11,
+          16
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          21,
+          28
+        ],
+        "recipient_np_span": [
+          17,
+          28
+        ],
+        "theme_head_span": [
+          33,
+          40
+        ],
+        "theme_np_span": [
+          29,
+          40
+        ]
+      },
+      "candidate_sha256": "db277b36c4014a909452395af832cdf83a39b295a78eb4e48c4eaef306061bcc",
+      "candidate_text": "The broker loans the tourist the bicycle.",
+      "category": "ordinary_present",
+      "expected_edits": [
+        {
+          "end_byte": 43,
+          "expected": "the bicycle to the tourist",
+          "replacement": "the tourist the bicycle",
+          "start_byte": 17
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 40,
+          "expected": "the tourist the bicycle",
+          "replacement": "the bicycle to the tourist",
+          "start_byte": 17
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-loan-1-prepositional",
+      "lemma": "loan",
+      "meaning_equivalence_certified": false,
+      "pair_id": "loan-1",
+      "production_word_delta": {
+        "added": [],
+        "candidate_words": [
+          "bicycle",
+          "broker",
+          "loans",
+          "the",
+          "the",
+          "the",
+          "tourist"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [
+          "to"
+        ],
+        "source_words": [
+          "bicycle",
+          "broker",
+          "loans",
+          "the",
+          "the",
+          "the",
+          "to",
+          "tourist"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-loan-1-double_object",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",0]",
+        "target_frame_id": "[\"give-13.1\",1]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          10
+        ],
+        "agent_np_span": [
+          0,
+          10
+        ],
+        "predicate_span": [
+          11,
+          16
+        ],
+        "preposition_span": [
+          29,
+          31
+        ],
+        "recipient_head_span": [
+          36,
+          43
+        ],
+        "recipient_np_span": [
+          32,
+          43
+        ],
+        "theme_head_span": [
+          21,
+          28
+        ],
+        "theme_np_span": [
+          17,
+          28
+        ]
+      },
+      "source_form": "prepositional",
+      "source_sha256": "41db96f177818137d2d5be5c88f8fd74561a41bdf4d9894d8cb350283f955712",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The broker loans the bicycle to the tourist."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          10
+        ],
+        "agent_np_span": [
+          0,
+          10
+        ],
+        "predicate_span": [
+          11,
+          16
+        ],
+        "preposition_span": [
+          29,
+          31
+        ],
+        "recipient_head_span": [
+          36,
+          43
+        ],
+        "recipient_np_span": [
+          32,
+          43
+        ],
+        "theme_head_span": [
+          21,
+          28
+        ],
+        "theme_np_span": [
+          17,
+          28
+        ]
+      },
+      "candidate_sha256": "41db96f177818137d2d5be5c88f8fd74561a41bdf4d9894d8cb350283f955712",
+      "candidate_text": "The broker loans the bicycle to the tourist.",
+      "category": "ordinary_present",
+      "expected_edits": [
+        {
+          "end_byte": 40,
+          "expected": "the tourist the bicycle",
+          "replacement": "the bicycle to the tourist",
+          "start_byte": 17
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 43,
+          "expected": "the bicycle to the tourist",
+          "replacement": "the tourist the bicycle",
+          "start_byte": 17
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-loan-1-double_object",
+      "lemma": "loan",
+      "meaning_equivalence_certified": false,
+      "pair_id": "loan-1",
+      "production_word_delta": {
+        "added": [
+          "to"
+        ],
+        "candidate_words": [
+          "bicycle",
+          "broker",
+          "loans",
+          "the",
+          "the",
+          "the",
+          "to",
+          "tourist"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [],
+        "source_words": [
+          "bicycle",
+          "broker",
+          "loans",
+          "the",
+          "the",
+          "the",
+          "tourist"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-loan-1-prepositional",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",1]",
+        "target_frame_id": "[\"give-13.1\",0]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          10
+        ],
+        "agent_np_span": [
+          0,
+          10
+        ],
+        "predicate_span": [
+          11,
+          16
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          21,
+          28
+        ],
+        "recipient_np_span": [
+          17,
+          28
+        ],
+        "theme_head_span": [
+          33,
+          40
+        ],
+        "theme_np_span": [
+          29,
+          40
+        ]
+      },
+      "source_form": "double_object",
+      "source_sha256": "db277b36c4014a909452395af832cdf83a39b295a78eb4e48c4eaef306061bcc",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The broker loans the tourist the bicycle."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          18
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          23,
+          29
+        ],
+        "recipient_np_span": [
+          19,
+          29
+        ],
+        "theme_head_span": [
+          34,
+          42
+        ],
+        "theme_np_span": [
+          30,
+          42
+        ]
+      },
+      "candidate_sha256": "9468a52557f1d5cd3665a409c85b5de5a452cac1514cda96a73ff1fa37fe50c3",
+      "candidate_text": "The curator loaned the museum the painting.",
+      "category": "ordinary_past",
+      "expected_edits": [
+        {
+          "end_byte": 45,
+          "expected": "the painting to the museum",
+          "replacement": "the museum the painting",
+          "start_byte": 19
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 42,
+          "expected": "the museum the painting",
+          "replacement": "the painting to the museum",
+          "start_byte": 19
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-loan-2-prepositional",
+      "lemma": "loan",
+      "meaning_equivalence_certified": false,
+      "pair_id": "loan-2",
+      "production_word_delta": {
+        "added": [],
+        "candidate_words": [
+          "curator",
+          "loaned",
+          "museum",
+          "painting",
+          "the",
+          "the",
+          "the"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [
+          "to"
+        ],
+        "source_words": [
+          "curator",
+          "loaned",
+          "museum",
+          "painting",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-loan-2-double_object",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",0]",
+        "target_frame_id": "[\"give-13.1\",1]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          18
+        ],
+        "preposition_span": [
+          32,
+          34
+        ],
+        "recipient_head_span": [
+          39,
+          45
+        ],
+        "recipient_np_span": [
+          35,
+          45
+        ],
+        "theme_head_span": [
+          23,
+          31
+        ],
+        "theme_np_span": [
+          19,
+          31
+        ]
+      },
+      "source_form": "prepositional",
+      "source_sha256": "fb064aec1d715df7262658fbfe0ee38cd846a7cbba58da2797cbca4ec55188ad",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The curator loaned the painting to the museum."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          18
+        ],
+        "preposition_span": [
+          32,
+          34
+        ],
+        "recipient_head_span": [
+          39,
+          45
+        ],
+        "recipient_np_span": [
+          35,
+          45
+        ],
+        "theme_head_span": [
+          23,
+          31
+        ],
+        "theme_np_span": [
+          19,
+          31
+        ]
+      },
+      "candidate_sha256": "fb064aec1d715df7262658fbfe0ee38cd846a7cbba58da2797cbca4ec55188ad",
+      "candidate_text": "The curator loaned the painting to the museum.",
+      "category": "ordinary_past",
+      "expected_edits": [
+        {
+          "end_byte": 42,
+          "expected": "the museum the painting",
+          "replacement": "the painting to the museum",
+          "start_byte": 19
+        }
+      ],
+      "expected_inverse_edits": [
+        {
+          "end_byte": 45,
+          "expected": "the painting to the museum",
+          "replacement": "the museum the painting",
+          "start_byte": 19
+        }
+      ],
+      "expected_proposal": true,
+      "group": "positive",
+      "id": "positive-loan-2-double_object",
+      "lemma": "loan",
+      "meaning_equivalence_certified": false,
+      "pair_id": "loan-2",
+      "production_word_delta": {
+        "added": [
+          "to"
+        ],
+        "candidate_words": [
+          "curator",
+          "loaned",
+          "museum",
+          "painting",
+          "the",
+          "the",
+          "the",
+          "to"
+        ],
+        "extractor": "grammar_core::features::words",
+        "removed": [],
+        "source_words": [
+          "curator",
+          "loaned",
+          "museum",
+          "painting",
+          "the",
+          "the",
+          "the"
+        ],
+        "word_multiset_preserved": false
+      },
+      "reciprocal_case_id": "positive-loan-2-prepositional",
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": "[\"give-13.1\",1]",
+        "target_frame_id": "[\"give-13.1\",0]"
+      },
+      "review_obligations": [
+        "resource alternatives do not select intended sense",
+        "recipient possession implication and discourse focus require review",
+        "surface register/readability unjudged"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          18
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          23,
+          29
+        ],
+        "recipient_np_span": [
+          19,
+          29
+        ],
+        "theme_head_span": [
+          34,
+          42
+        ],
+        "theme_np_span": [
+          30,
+          42
+        ]
+      },
+      "source_form": "double_object",
+      "source_sha256": "9468a52557f1d5cd3665a409c85b5de5a452cac1514cda96a73ff1fa37fe50c3",
+      "source_structure_declaration": "Intended ordinary active three-argument use with simple definite nominal subtrees. Actual parse failures remain failures; no specific parser label is asserted from text.",
+      "source_text": "The curator loaned the museum the painting."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "reversed_to_first_order",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-reversed_to_first_order",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          9
+        ],
+        "agent_np_span": [
+          0,
+          9
+        ],
+        "predicate_span": [
+          10,
+          15
+        ],
+        "preposition_span": [
+          16,
+          18
+        ],
+        "recipient_head_span": [
+          23,
+          28
+        ],
+        "recipient_np_span": [
+          19,
+          28
+        ],
+        "theme_head_span": [
+          33,
+          39
+        ],
+        "theme_np_span": [
+          29,
+          39
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "107e0398a20ea5814bc9ede3bcb82e9a2420347c84cf8bc9b689c58444de8b9d",
+      "source_structure_declaration": "Recipient PP precedes Theme; outside the exact Theme-to-Recipient layout.",
+      "source_text": "The tutor gives to the pupil the parcel."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "missing_object",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-missing_object",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          9
+        ],
+        "agent_np_span": [
+          0,
+          9
+        ],
+        "predicate_span": [
+          10,
+          15
+        ],
+        "preposition_span": null,
+        "recipient_head_span": null,
+        "recipient_np_span": null,
+        "theme_head_span": [
+          20,
+          26
+        ],
+        "theme_np_span": [
+          16,
+          26
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "bb22750ccb170c342322455f78ea349f86b92ecdaf513161c0deb4bf427956fe",
+      "source_structure_declaration": "No explicit Recipient for either requested three-argument frame.",
+      "source_text": "The tutor gives the parcel."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "extra_object",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-extra_object",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          9
+        ],
+        "agent_np_span": [
+          0,
+          9
+        ],
+        "predicate_span": [
+          10,
+          15
+        ],
+        "preposition_span": null,
+        "recipient_head_span": [
+          20,
+          25
+        ],
+        "recipient_np_span": [
+          16,
+          25
+        ],
+        "theme_head_span": [
+          30,
+          36
+        ],
+        "theme_np_span": [
+          26,
+          36
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "fd1d2d5e5b84a5e125344a428d851be1515937d85d13a6e9e44f9180fe041ddf",
+      "source_structure_declaration": "Additional nominal material beyond the intended two object NPs; no extra-object repair.",
+      "source_text": "The tutor gives the pupil the parcel the booklet."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "passive",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-passive",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          41,
+          46
+        ],
+        "agent_np_span": [
+          37,
+          46
+        ],
+        "predicate_span": [
+          15,
+          20
+        ],
+        "preposition_span": [
+          21,
+          23
+        ],
+        "recipient_head_span": [
+          28,
+          33
+        ],
+        "recipient_np_span": [
+          24,
+          33
+        ],
+        "theme_head_span": [
+          4,
+          10
+        ],
+        "theme_np_span": [
+          0,
+          10
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "66e42e34267ebe24aa5b72cedf5c65a52751de8d151ded957d8c663a00e2eee4",
+      "source_structure_declaration": "Passive remapping is excluded.",
+      "source_text": "The parcel was given to the pupil by the tutor."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "pronoun",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-pronoun",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          9
+        ],
+        "agent_np_span": [
+          0,
+          9
+        ],
+        "predicate_span": [
+          10,
+          15
+        ],
+        "preposition_span": [
+          19,
+          21
+        ],
+        "recipient_head_span": [
+          26,
+          31
+        ],
+        "recipient_np_span": [
+          22,
+          31
+        ],
+        "theme_head_span": [
+          16,
+          18
+        ],
+        "theme_np_span": [
+          16,
+          18
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "6040c050f4beb63b7dd72e645d3f44389ee3aff411a87b7645a7ca1f420115cd",
+      "source_structure_declaration": "Pronominal Theme is outside the simple nominal NP gate.",
+      "source_text": "The tutor gives it to the pupil."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "quantifiers",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-quantifiers",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          6,
+          11
+        ],
+        "agent_np_span": [
+          0,
+          11
+        ],
+        "predicate_span": [
+          12,
+          17
+        ],
+        "preposition_span": [
+          29,
+          31
+        ],
+        "recipient_head_span": [
+          37,
+          42
+        ],
+        "recipient_np_span": [
+          32,
+          42
+        ],
+        "theme_head_span": [
+          22,
+          28
+        ],
+        "theme_np_span": [
+          18,
+          28
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "0297809712d221114611365b1db93c8dd35e2452287b24ce3c4d1bf870304d39",
+      "source_structure_declaration": "Quantified Agent/Recipient are excluded; no scope equivalence assertion.",
+      "source_text": "Every tutor gives the parcel to each pupil."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "possessive",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-possessive",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          9
+        ],
+        "agent_np_span": [
+          0,
+          9
+        ],
+        "predicate_span": [
+          10,
+          15
+        ],
+        "preposition_span": [
+          35,
+          37
+        ],
+        "recipient_head_span": [
+          42,
+          47
+        ],
+        "recipient_np_span": [
+          38,
+          47
+        ],
+        "theme_head_span": [
+          28,
+          34
+        ],
+        "theme_np_span": [
+          16,
+          34
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "1fbe806f7e3993c930070b4ed64f08c39cbfdddd1188282f9ea0e55b62cb9621",
+      "source_structure_declaration": "Possessive modifier is outside the nominal NP gate.",
+      "source_text": "The tutor gives the pupil's parcel to the clerk."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "coordination",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-coordination",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          9
+        ],
+        "agent_np_span": [
+          0,
+          9
+        ],
+        "predicate_span": [
+          10,
+          15
+        ],
+        "preposition_span": [
+          43,
+          45
+        ],
+        "recipient_head_span": [
+          50,
+          55
+        ],
+        "recipient_np_span": [
+          46,
+          55
+        ],
+        "theme_head_span": [
+          20,
+          26
+        ],
+        "theme_np_span": [
+          16,
+          42
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "5078be5af3a020ddf7fa0c7d6875fd4af4848c46db17afbad5d46efcf2baa339",
+      "source_structure_declaration": "Coordinated Theme is excluded.",
+      "source_text": "The tutor gives the parcel and the booklet to the pupil."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "embedded_scope_probe",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": null,
+      "group": "scope_probe",
+      "id": "control-embedded_scope_probe",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          24,
+          31
+        ],
+        "agent_np_span": [
+          20,
+          31
+        ],
+        "predicate_span": [
+          32,
+          37
+        ],
+        "preposition_span": [
+          49,
+          51
+        ],
+        "recipient_head_span": [
+          56,
+          61
+        ],
+        "recipient_np_span": [
+          52,
+          61
+        ],
+        "theme_head_span": [
+          42,
+          48
+        ],
+        "theme_np_span": [
+          38,
+          48
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "32dfa5012cb81f7aac77914fc99d7a6691e752b1f34c86efe9c1f8442b5122cb",
+      "source_structure_declaration": "Embedding alone is not prohibited; preserve and inspect surrounding predicate/operator attachment. No fixed emission verdict.",
+      "source_text": "The tutor says that the teacher gives the parcel to the pupil."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "relative_clause",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-relative_clause",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          4,
+          9
+        ],
+        "agent_np_span": [
+          0,
+          9
+        ],
+        "predicate_span": [
+          10,
+          15
+        ],
+        "preposition_span": [
+          52,
+          54
+        ],
+        "recipient_head_span": [
+          59,
+          64
+        ],
+        "recipient_np_span": [
+          55,
+          64
+        ],
+        "theme_head_span": [
+          20,
+          26
+        ],
+        "theme_np_span": [
+          16,
+          51
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "7e789497bfaa7d854898d7ade33375bb264e4a48753a09655f8858866239bc66",
+      "source_structure_declaration": "Moved Theme contains a relative clause; alternative PP attachment also remains visible.",
+      "source_text": "The tutor gives the parcel that the pupil requested to the clerk."
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "case_marked_question",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-case_marked_question",
+      "lemma": "give",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1-1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": [
+          17,
+          22
+        ],
+        "agent_np_span": [
+          13,
+          22
+        ],
+        "predicate_span": [
+          23,
+          27
+        ],
+        "preposition_span": [
+          0,
+          2
+        ],
+        "recipient_head_span": [
+          3,
+          7
+        ],
+        "recipient_np_span": [
+          3,
+          7
+        ],
+        "theme_head_span": [
+          32,
+          38
+        ],
+        "theme_np_span": [
+          28,
+          38
+        ]
+      },
+      "source_form": "control",
+      "source_sha256": "98e6ff806a46c32b7d9a2fa0fd6f2e78d025d977bfceaf4db60a5dfdfdb83607",
+      "source_structure_declaration": "Fronted case-marked pronoun and question order are outside the declared layouts.",
+      "source_text": "To whom does the tutor give the parcel?"
+    },
+    {
+      "automatic_edit_license": false,
+      "candidate_anchors": null,
+      "candidate_sha256": null,
+      "candidate_text": null,
+      "category": "noun_head_fragment",
+      "expected_edits": [],
+      "expected_inverse_edits": [],
+      "expected_proposal": false,
+      "group": "exclusion",
+      "id": "control-noun_head_fragment",
+      "lemma": "loan",
+      "meaning_equivalence_certified": false,
+      "pair_id": null,
+      "production_word_delta": null,
+      "reciprocal_case_id": null,
+      "resource_expectation": {
+        "full_compatibility": "unresolved",
+        "member_class": "give-13.1",
+        "required_inherited_frame_ids": [
+          "[\"give-13.1\",0]",
+          "[\"give-13.1\",1]"
+        ],
+        "sense_selected": false,
+        "source_frame_id": null,
+        "target_frame_id": null
+      },
+      "review_obligations": [
+        "engineering exclusion or scope probe, not semantic gold",
+        "unexpected parse/proposal retained without label changes"
+      ],
+      "source_anchors": {
+        "agent_head_span": null,
+        "agent_np_span": null,
+        "predicate_span": [
+          12,
+          16
+        ],
+        "preposition_span": [
+          17,
+          19
+        ],
+        "recipient_head_span": [
+          24,
+          29
+        ],
+        "recipient_np_span": [
+          20,
+          29
+        ],
+        "theme_head_span": null,
+        "theme_np_span": null
+      },
+      "source_form": "control",
+      "source_sha256": "b330e9e4abe7cb9fd065908f636964cc1b2eec7a577a63d21700e80226a69ba7",
+      "source_structure_declaration": "Nominal fragment supplies no declared active verbal Agent/Theme structure; actual POS remains an observation.",
+      "source_text": "The tutor's loan to the pupil."
+    }
+  ],
+  "construction_authority": "Assistant-constructed resource-backed engineering expectations; no human semantic/readability ratings.",
+  "id": "dative-alternation-v1",
+  "resource_manifest_sha256": "1051972db94caaca527cabbb69f40102ecb1a7a54a883fe6afca81d648c3bcb4",
+  "schema": "slopninja-dative-alternation-fixtures-v1"
+}

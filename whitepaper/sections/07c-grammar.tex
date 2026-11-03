@@ -1,0 +1,51 @@
+\section{Later mechanism C: grammar contributions}\label{grammar-contributions}
+
+\textit{C} would reward improvements to the shared English CFG and lexicon.
+It starts inactive. Its objective is correct, reusable analysis of English as
+used, including informal constructions, unusual vocabulary, spelling errors,
+and embedded technical or foreign material. It must not equate prescriptive
+correctness with parseability or reward broad catch-all rules merely for
+accepting more text.
+
+A candidate round accepts bounded public patches against one fixed parent
+profile. Contributions may add lexical forms and parts of speech, structural
+productions, or a more accurate analysis of text already covered. Examples must
+be authorized for that use. The coordinator reviews the linguistic claims,
+measures transfer to held-out documents, replays affected earlier analyses, and
+checks interactions among accepted proposals. A changed old parse deserves
+inspection; change alone is not a regression. Whole-document coverage, quality
+of the interpretation, remaining ambiguity, and resource cost are separate
+measurements.
+
+The central coverage statistic is the fraction of requested documents with
+complete accepted analyses. A parser accepting every token is weaker evidence
+than an analysis whose structural decisions have been checked. Report both,
+retain failures in the requested population, and track initial coverage on new
+documents before any repair. Freeze resource limits so a gain cannot come solely
+from lifting a ceiling. Rule count, added bytes, dictionary size, and grammar
+size are not reward scores.
+
+Accepted changes enter a subsequent shared profile. The launch \textit{A}
+comparison reads raw text and does not depend on it; any comparison that uses a
+CFG input profile continues with its frozen grammar, projection, and selected
+derivations.
+Compact cached parses and production dependencies reduce repeated work, but
+new productions can affect documents outside the old dependency set. The
+acceptance protocol therefore needs both targeted replay and broader change
+detection. Changes in feature meaning require requalification; retaining a
+profile name cannot hide a new representation.
+
+Each accepted contribution earns credit once. A durable contribution identity
+and credited recipient prevent a later release, continued use, or resubmission
+from earning a second award. Before activation, define overlapping-proposal
+credit, interaction failures, regressions, award size, settlement epoch, and
+when a credited contribution stops influencing native weights. Repeatedly
+leaving the same credited contribution in a live reward row would defeat the
+one-time rule. A scored pilot without payouts can test those decisions before
+assigning a nonzero \(c\) in Equation~\ref{eq:mechanism-allocation}.
+
+The project already develops its grammar as research infrastructure. That work
+does not establish a live \textit{C} protocol, and a \textit{C} award would not
+itself establish improved detection. The downstream model comparison must test
+whether a new shared representation improves quality enough to justify its
+parsing and resolution cost.

@@ -1,0 +1,236 @@
+{
+  "calibration_fitted": false,
+  "checkpoint_pin_sha256": "57ca5bc56f8e89044216f3fba0172418bccebbf741b2145b17de7fe6da881757",
+  "cross_partition_id_group_text_overlap": false,
+  "experiment_splits_assigned": false,
+  "fits_configured_token_limit": false,
+  "max_tokens": 2048,
+  "model_executed": false,
+  "model_fitted": false,
+  "record_token_counts_provenance": {
+    "audit_py_sha256": "d110a80506dd4a972260187f85e280bfaeda5369bbae0036ddcb96802b499d4c",
+    "common_py_sha256": "ca4818d2245c6861f464ce494775ee7916a0198e6d2879fca09f2a75f16f1005",
+    "tokenizer_files_sha256": {
+      "config.json": "1609d59e627c33eaed524b4f01e546d42e84190a079a5a5ded84b212c41c324f",
+      "special_tokens_map.json": "ea97ecdbcc73713039d8d64dbb05e3689495c96657fbd9a18f5bed381be81049",
+      "tokenizer.json": "9fd55248d51d33976b324fc11592e28071da7d41e0e9401dfb7082e30574b7b1",
+      "tokenizer_config.json": "3cd2017ff46d0a527e5d39cae39272eccfa1f19bb9f89b05d166aab2e38354e2"
+    }
+  },
+  "records_dropped": 0,
+  "schema": "slop_ninja.encoder_source_audit.v1",
+  "shards": {
+    "unassigned": {
+      "class_counts": {
+        "human_only": 30,
+        "mixed": 0,
+        "model_only": 0
+      },
+      "class_source_group_counts": {
+        "human_only": 30,
+        "mixed": 0,
+        "model_only": 0
+      },
+      "evidence_counts": {
+        "historical_proxy": 30
+      },
+      "over_limit_count": 2,
+      "over_limit_records": [
+        {
+          "id": "cmu-books:25525356:1f4cb009df2877c5",
+          "token_count": 2069
+        },
+        {
+          "id": "cmu-books:6508429:5dcba5398bcae587",
+          "token_count": 2168
+        }
+      ],
+      "record_token_counts": [
+        {
+          "id": "cmu-books:2708729:851a89adef569928",
+          "text_sha256": "851a89adef569928097639efc6ac82e3294b05df06ed458cb4c53831bb04859d",
+          "token_count": 1870
+        },
+        {
+          "id": "cmu-books:26373459:b768ce14d5b2807e",
+          "text_sha256": "b768ce14d5b2807e202ef3573b68a034d4b5a4ccc243b98a59629db746f1c36e",
+          "token_count": 1653
+        },
+        {
+          "id": "cmu-books:23563172:fbb39239ee9d854b",
+          "text_sha256": "fbb39239ee9d854b3a86cde957202ba1f4fa7c44eb33e7be317e51bdf173414e",
+          "token_count": 1977
+        },
+        {
+          "id": "cmu-books:12189465:ec19e06542d9302d",
+          "text_sha256": "ec19e06542d9302dd438d6ed8dea4b374f3e467f99e9c1465e4914938bbaf59d",
+          "token_count": 1945
+        },
+        {
+          "id": "cmu-books:10524354:f907cd3d4966cf72",
+          "text_sha256": "f907cd3d4966cf72fecf8fe6ab99a46c63baef4ca41c35067482e545fbdc86a1",
+          "token_count": 1598
+        },
+        {
+          "id": "cmu-books:24018829:93bcb68f86f35227",
+          "text_sha256": "93bcb68f86f352275d3a3e38841992e9639a2d36ba6e9a43e930224de265dea1",
+          "token_count": 1693
+        },
+        {
+          "id": "cmu-books:5487849:a827a419b324bc10",
+          "text_sha256": "a827a419b324bc10e87bf6b2e3d5654b6dc94ebead11351ca47c6fdce2974978",
+          "token_count": 1664
+        },
+        {
+          "id": "cmu-books:3088913:43e5fb827dbfea7c",
+          "text_sha256": "43e5fb827dbfea7c5686d95a94ecf0f6ef6826a15f6c5a82efd2628c1b41b819",
+          "token_count": 1781
+        },
+        {
+          "id": "cmu-books:2768880:42b384b78d978c22",
+          "text_sha256": "42b384b78d978c22bd698828ec2ba4d1591f155f9c986fe9c134502d9d30f0ef",
+          "token_count": 1951
+        },
+        {
+          "id": "cmu-books:6355219:0bee7480dfcd58ac",
+          "text_sha256": "0bee7480dfcd58acab4ce03e12212c36c835a3d16ba5556d9940f11e374c5423",
+          "token_count": 1693
+        },
+        {
+          "id": "cmu-books:6272268:af6b0cb872375a3f",
+          "text_sha256": "af6b0cb872375a3fc0b3d2205b066f289836898de9bb5e710416d9438b698894",
+          "token_count": 1615
+        },
+        {
+          "id": "cmu-books:6004380:9e34a1184b411d7b",
+          "text_sha256": "9e34a1184b411d7b279d959117dc4593a95ff35e6cd0299c24ee05d0c09e848c",
+          "token_count": 1647
+        },
+        {
+          "id": "cmu-books:205004:70759cf95c6bcaae",
+          "text_sha256": "70759cf95c6bcaaeab6c8b857a4bab160ac85bebc1f173dd8424f6bc3713c161",
+          "token_count": 1913
+        },
+        {
+          "id": "cmu-books:35916725:896c2d4772bd43be",
+          "text_sha256": "896c2d4772bd43be45ca48f0c83308f8418038213a4bbf2728f91b789345eab4",
+          "token_count": 1695
+        },
+        {
+          "id": "cmu-books:13866437:38524357ef5a6899",
+          "text_sha256": "38524357ef5a6899258051a55ce9c63c0666e5c30485c1545e8d089ca7f9acc4",
+          "token_count": 1829
+        },
+        {
+          "id": "cmu-books:16543334:07453521d37e3732",
+          "text_sha256": "07453521d37e37328e7f67c147f063af171ef83c17f76af16bd5a4b50a143cc8",
+          "token_count": 1531
+        },
+        {
+          "id": "cmu-books:25525356:1f4cb009df2877c5",
+          "text_sha256": "1f4cb009df2877c52af90e3530d98f1dc5dcad17c79c9e12c209fdd4b5541ea4",
+          "token_count": 2069
+        },
+        {
+          "id": "cmu-books:1895804:d757ee4392fde5c8",
+          "text_sha256": "d757ee4392fde5c8d9bde6c1f7aa270668600a804584f78695353fa7d3927ced",
+          "token_count": 1876
+        },
+        {
+          "id": "cmu-books:22527619:d7667e8f325b38ea",
+          "text_sha256": "d7667e8f325b38ea7cc6ac11a7ad18922120fa38dd5b10f75efce95b7b94c19c",
+          "token_count": 1887
+        },
+        {
+          "id": "cmu-books:6508429:5dcba5398bcae587",
+          "text_sha256": "5dcba5398bcae587136fdda608ed31aeec82d92d71f6ad7d15176f4ec36fd60e",
+          "token_count": 2168
+        },
+        {
+          "id": "cmu-books:1031038:c54db007ff46a9af",
+          "text_sha256": "c54db007ff46a9af4a5ab940316ae2d35db79ea0732e6d95ee92bb3c9805d45b",
+          "token_count": 1800
+        },
+        {
+          "id": "cmu-books:335060:abcd627c313b30f4",
+          "text_sha256": "abcd627c313b30f417a43d8f5ce414af97acb3782478e67d31b85862720ea9f1",
+          "token_count": 1526
+        },
+        {
+          "id": "cmu-books:1641867:82c40649d594889c",
+          "text_sha256": "82c40649d594889ca14977653ebfd8b60d4387c4cab453766ebea3dc47d12c18",
+          "token_count": 1833
+        },
+        {
+          "id": "cmu-books:1137862:47db3734354085a5",
+          "text_sha256": "47db3734354085a52e75a1cebfa59f5b5a9aa5258b2a8609a5bbb74f4c2e9621",
+          "token_count": 1976
+        },
+        {
+          "id": "cmu-books:11684894:14d8bb40f0522a49",
+          "text_sha256": "14d8bb40f0522a4924798ac915fe31eb2ce0dbc915c1279ca89296e6f4c4d27a",
+          "token_count": 1746
+        },
+        {
+          "id": "cmu-books:2295010:43a7a548bca70104",
+          "text_sha256": "43a7a548bca70104fae15ab0193ef8f68f237aa091dddb572c6aa986226b2f33",
+          "token_count": 1581
+        },
+        {
+          "id": "cmu-books:28599406:9531c51b69d16c52",
+          "text_sha256": "9531c51b69d16c5273645f777fc46b116d90d1a3d3c547bf6a7d317f170a1409",
+          "token_count": 1663
+        },
+        {
+          "id": "cmu-books:230089:b83f38fe7f6fb40d",
+          "text_sha256": "b83f38fe7f6fb40dccdd0dcc3507edad83451c51d0310c29da1b6ad76a32a609",
+          "token_count": 1831
+        },
+        {
+          "id": "cmu-books:6869197:cab757ac6b7a8fbb",
+          "text_sha256": "cab757ac6b7a8fbb3626b7b498956c884e46dd7c9e83f31339ec37f407b0c415",
+          "token_count": 2041
+        },
+        {
+          "id": "cmu-books:22989300:2aa019ba61d020a5",
+          "text_sha256": "2aa019ba61d020a5e73742f63c2fbb7d927180c318eb16795d51dd0c8620de93",
+          "token_count": 1590
+        }
+      ],
+      "records": 30,
+      "sha256": "ecaad984a0dc5d9e9d6252cf795bff870c6b73ba5585b623652eec83953a6ebe",
+      "source_groups": 30,
+      "token_lengths_by_class": {
+        "human_only": {
+          "max": 2168,
+          "mean": 1788.0666666666666,
+          "min": 1526,
+          "nearest_rank_percentiles": {
+            "25": 1653,
+            "50": 1781,
+            "75": 1913,
+            "90": 1977,
+            "95": 2069,
+            "99": 2168
+          }
+        },
+        "mixed": null,
+        "model_only": null
+      },
+      "token_lengths_including_special_tokens": {
+        "max": 2168,
+        "mean": 1788.0666666666666,
+        "min": 1526,
+        "nearest_rank_percentiles": {
+          "25": 1653,
+          "50": 1781,
+          "75": 1913,
+          "90": 1977,
+          "95": 2069,
+          "99": 2168
+        }
+      }
+    }
+  },
+  "test_inspection": "not_opened"
+}

@@ -1,0 +1,347 @@
+{
+  "schema": "slop_ninja_scientific_profile_register_review_v1",
+  "reviewer": "Codex assistant, complete source/output reading across two review sessions",
+  "independent_human_review": false,
+  "pilot_requests_planned": 6,
+  "complete_sources_read": 3,
+  "complete_outputs_read": 6,
+  "pilot_review_complete": true,
+  "remaining_80_calls_launched": false,
+  "detector_scores_consulted": false,
+  "score_blinding_scope": "No detector scores for this six-request cohort were consulted. Earlier cohorts' findings were already known.",
+  "source_relative_review": "Each complete output was compared with the complete source and its preservation requirements. These judgments assess retention, not independent scientific truth.",
+  "attempts": [
+    {
+      "generator": "qwen",
+      "profile": "informal",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "task": "3b2091d478ab0652bfbab804790eab8a04aa6a497959fc33c59ab3fcb7543328",
+      "full_source_and_output_read": true,
+      "strict_fidelity": "fail",
+      "realized_register": "Mostly academic with some conversational phrasing and contractions.",
+      "citation_handling": "Many citation labels are removed; some grouped labels remain.",
+      "findings": [
+        "Adds technological, social and cognitive competitive advantages and an archaeological/genetic evidence basis absent from the source.",
+        "Loses the neutral model's precise fixation claim in both Africa and Europe; adds regional population-structure claims.",
+        "Replaces the public/scientific-interest rationale with a strongest-studied-lineage claim, and strengthens methodological directives.",
+        "Narrows the timeline in which other Homo species arose. Preserve the source's broader chronology and qualifications."
+      ],
+      "retained_content": "Retains most named Homo groups, fossil sites and the neutral model's broad purpose.",
+      "source_caution": "The source has a tension between its neutral two-deme example and its later collective description of advantage-assuming models. Do not invent a resolution.",
+      "source_sha256": "c2c91d8d6a2a353e5e3fe5778101ef82310a01d2fc428e2b82142df2939a8838",
+      "draft_sha256": "c5348296252ede8df7f9400b5fdc25981914b122a41582b577499c9d54c9ca72",
+      "request_sha256": "0d4132d6c152e9fcf8acde71f1d461769faf5087816d10a557b0b746ce1f4d98",
+      "raw_response_sha256": "af5131aff2fcba2b81b00404ad2982db9b04b3b4a58ca746dbebdd7bd79420b0",
+      "automatic_origin_admission": true,
+      "admission_error": null,
+      "model_revision": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+      "source_a_tokens": 919,
+      "draft_a_tokens": 913,
+      "a_token_limit": 2048,
+      "whole_draft_supported": true,
+      "source_reuse": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 675,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 10,
+        "longest_draft_word_range": [
+          59,
+          69
+        ],
+        "longest_source_word_range": [
+          50,
+          60
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 651,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "generator": "mistral",
+      "profile": "informal",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "task": "ba1d4eb83d8c0f818628d880e9065e2812d357c0a320036e8440a13706f6a822",
+      "full_source_and_output_read": true,
+      "strict_fidelity": "fail",
+      "realized_register": "Conversational, with overly casual framing relative to the requested seriousness.",
+      "citation_handling": "All numbered citation labels are removed.",
+      "findings": [
+        "Omits H. heidelbergensis and H. ergaster and the named Kolodny/Feldman, SPLATCHE2 and Eriksson comparisons.",
+        "Changes probabilistic fixation to spreading and weakens the limited-admixture account.",
+        "Omits or blurs the absence of predefined human species, the stochastic-realization restriction and the species-general rationale."
+      ],
+      "retained_content": "Retains the broad migration alternatives, two-deme idea and neutral modeling purpose.",
+      "source_caution": "The final null-hypothesis wording is less precise; this review does not certify a new causal claim.",
+      "source_sha256": "c2c91d8d6a2a353e5e3fe5778101ef82310a01d2fc428e2b82142df2939a8838",
+      "draft_sha256": "659f6ed5865131adcbca43ee8d919b0d160496352d70f231810de5ce36566554",
+      "request_sha256": "0d4132d6c152e9fcf8acde71f1d461769faf5087816d10a557b0b746ce1f4d98",
+      "raw_response_sha256": "15fd89a37d6b98818c4c87032c0958a8981fe8086d7b6d3bfa1943698246a00c",
+      "automatic_origin_admission": false,
+      "admission_error": "draft_source_copy: reused contiguous 20-word source span",
+      "model_revision": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde",
+      "source_a_tokens": 919,
+      "draft_a_tokens": 707,
+      "a_token_limit": 2048,
+      "whole_draft_supported": true,
+      "source_reuse": {
+        "draft_coverage_by_runs_at_least_20": 0.03860294117647059,
+        "draft_words": 544,
+        "draft_words_in_shared_runs_at_least_20": 21,
+        "longest_contiguous_shared_words": 21,
+        "longest_draft_word_range": [
+          435,
+          456
+        ],
+        "longest_source_word_range": [
+          472,
+          493
+        ],
+        "source_coverage_by_runs_at_least_20": 0.03225806451612903,
+        "source_words": 651,
+        "source_words_in_shared_runs_at_least_20": 21
+      }
+    },
+    {
+      "generator": "qwen",
+      "profile": "informal",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "task": "4c927c63e4e205864839b2d9c266127bb235ba5540ebb4d40ffe5aac09b99db1",
+      "full_source_and_output_read": true,
+      "strict_fidelity": "fail",
+      "realized_register": "Conversational explanatory prose mixed with academic terminology and rhetorical framing.",
+      "citation_handling": "All numbered citation labels and several named attributions are removed.",
+      "findings": [
+        "Introduces a definition of eudaimonic hedonic balance in terms of positive and negative experiences that the source does not provide.",
+        "Adds DMN support/hindrance claims and strengthens the authors' reservations about monetary happiness into claims about most people's real-life experience.",
+        "Changes the scanner difficulty from engaging, disengaging and re-engaging wellbeing to maintaining a steady state and avoiding movement.",
+        "Adds stronger claims about lasting wellbeing and shared neural networks; changes neutral-picture examples and adds a non-confirmation contrast to the study's purpose."
+      ],
+      "retained_content": "Retains all six PWB components in paraphrase, much of the regional neuroimaging detail, the two wellbeing contrasts and all three analysis methods.",
+      "source_caution": "Structural correlations, task observations and the authors' tentative proposals have different evidential status.",
+      "source_sha256": "9aa118dcd0b3eaeb765ea1e768945e7ea9a4f4023980c1b08dd65026c4f12cbf",
+      "draft_sha256": "1b1ce4698020e99a56903c91cbd6fb83b8e9041c9b77d2fe520e1d5e37e84420",
+      "request_sha256": "bdca30fd7fe7df390020410099d355aa3423bb8daaf1b2ba4de29689de8ea487",
+      "raw_response_sha256": "fb0afbcd23dac6a085e8703c31b69dd2898b6d07a498556737aff1918df99500",
+      "automatic_origin_admission": true,
+      "admission_error": null,
+      "model_revision": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+      "source_a_tokens": 1374,
+      "draft_a_tokens": 1301,
+      "a_token_limit": 2048,
+      "whole_draft_supported": true,
+      "source_reuse": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 988,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 9,
+        "longest_draft_word_range": [
+          521,
+          530
+        ],
+        "longest_source_word_range": [
+          510,
+          519
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 922,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "generator": "mistral",
+      "profile": "informal",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "task": "407a9acbf9eed34d618283bc95e96d262e3f003feb23a5448c222daf86c8a37d",
+      "full_source_and_output_read": true,
+      "strict_fidelity": "fail",
+      "realized_register": "Clearly conversational, but a substantial summary with some casual framing.",
+      "citation_handling": "All numbered citation labels are removed.",
+      "findings": [
+        "Lists only three of the six PWB dimensions and compresses the separate emotion, self/other and self-centeredness accounts.",
+        "Omits gray-matter measures, laterality and construct-specific associations; removes most regional and study-level neuroimaging detail.",
+        "Omits the monetary prediction-error formulation, several hedonic hotspots and the specific self/other spatial-gradient hypothesis.",
+        "Replaces GLM, parametric modulation and multivariate searchlight mapping with unspecified analyses."
+      ],
+      "retained_content": "Retains the hedonic/eudaimonic distinction, broad SWB/PWB overlap, three picture conditions and the common reward-activation hypothesis.",
+      "source_caution": "Passing the automatic length/admission guard would not establish retention of the scientific argument.",
+      "source_sha256": "9aa118dcd0b3eaeb765ea1e768945e7ea9a4f4023980c1b08dd65026c4f12cbf",
+      "draft_sha256": "b00c63efc52a3eddfeabd93ed5a4a712fcb5407728550019a263511980d0ef7f",
+      "request_sha256": "bdca30fd7fe7df390020410099d355aa3423bb8daaf1b2ba4de29689de8ea487",
+      "raw_response_sha256": "76d20ca55be8ee1ca5266892967694ab6321654b414f7b7a68dde3d3fd62632a",
+      "automatic_origin_admission": true,
+      "admission_error": null,
+      "model_revision": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde",
+      "source_a_tokens": 1374,
+      "draft_a_tokens": 649,
+      "a_token_limit": 2048,
+      "whole_draft_supported": true,
+      "source_reuse": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 488,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 7,
+        "longest_draft_word_range": [
+          101,
+          108
+        ],
+        "longest_source_word_range": [
+          113,
+          120
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 922,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "generator": "qwen",
+      "profile": "informal",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "task": "514e5942a47873c28b2d29f069662a0f353d1d93e01e68f261ce9536442bb929",
+      "full_source_and_output_read": true,
+      "strict_fidelity": "fail",
+      "realized_register": "Mixed academic and conversational prose, with promotional emphasis and inflated claims.",
+      "citation_handling": "Retains most numbered labels, but omits labels 12 and 13 and some named attributions.",
+      "findings": [
+        "Adds economic prominence and scale claims, strengthens usual prerelease trials into an official requirement, and describes simulation as occurring before any seed is planted.",
+        "Omits the optimum-planting-date example and some crop/model associations, including CERES-Rice; the Georgia soybean comparison now risks implying use of GENCALC.",
+        "Adds sparse/inconsistent-data explanations, a gold-standard label and claims of widespread, decent-quality breeder data not supplied by the source.",
+        "Adds claims that breeder data are overlooked and that the study will support scaling model use."
+      ],
+      "retained_content": "Retains IITA, GSP calibration, most method examples, ten OPV/hybrid varieties, comparison of both data sources and grain/tissue nitrogen outcomes.",
+      "source_caution": "The introduction proposes a comparison; it does not establish universal interchangeability of breeder and calibration data.",
+      "source_sha256": "a9f92fc5c289bf5bcc0d068ec4557b9522b09a7f06604d604b783d87125df5ce",
+      "draft_sha256": "477043d799ba1b220694246165465c667424cc65151deb94f0496cf1b08cc0d3",
+      "request_sha256": "a094275e6e69dcb635f5a92d8ea6028659f752413d4eb42fecdaf972365669ad",
+      "raw_response_sha256": "d47c431b2a694ad389d1f2afed520e0bce822718fd955ae7ff4b2bec29b7e692",
+      "automatic_origin_admission": true,
+      "admission_error": null,
+      "model_revision": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+      "source_a_tokens": 1331,
+      "draft_a_tokens": 1369,
+      "a_token_limit": 2048,
+      "whole_draft_supported": true,
+      "source_reuse": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 1010,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 10,
+        "longest_draft_word_range": [
+          279,
+          289
+        ],
+        "longest_source_word_range": [
+          230,
+          240
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 1012,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "generator": "mistral",
+      "profile": "informal",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "task": "ee56c38369e31deca74c7d268b0da88c29a57e9a23cd6f9153e5f0ce6e4c344d",
+      "full_source_and_output_read": true,
+      "strict_fidelity": "fail",
+      "realized_register": "Conversational opening followed by source-like academic prose and objectives.",
+      "citation_handling": "All numbered citation labels are removed.",
+      "findings": [
+        "Compresses the named calibration studies to a method list, losing crop, location and approach-specific evidence.",
+        "Omits the farmer/extension urgency, high-quality-data calibration concerns and Seidel discussion.",
+        "Omits direct-measurement details such as growth chambers and photoperiods; several remaining stretches closely follow the source."
+      ],
+      "retained_content": "Retains the crop context, GSP interpretation, breeder-data proposal and all three detailed objectives.",
+      "source_caution": "Substantial source reuse must be measured separately; readable copied prose is not an independent model composition.",
+      "source_sha256": "a9f92fc5c289bf5bcc0d068ec4557b9522b09a7f06604d604b783d87125df5ce",
+      "draft_sha256": "fe3c7aa4edd4304684e1f39fabc387f191c9742c0ca26c056e1e5e95a5b26900",
+      "request_sha256": "a094275e6e69dcb635f5a92d8ea6028659f752413d4eb42fecdaf972365669ad",
+      "raw_response_sha256": "9c88ad237a5c294317c517b3c6eb6f4fd0eca47b1bf244cdbc9d9cd9a1abe1f3",
+      "automatic_origin_admission": false,
+      "admission_error": "draft_source_copy: reused contiguous 20-word source span",
+      "model_revision": "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit@2a1d5eabfc504747bdc24178394821a1efc0edde",
+      "source_a_tokens": 1331,
+      "draft_a_tokens": 825,
+      "a_token_limit": 2048,
+      "whole_draft_supported": true,
+      "source_reuse": {
+        "draft_coverage_by_runs_at_least_20": 0.3420647149460709,
+        "draft_words": 649,
+        "draft_words_in_shared_runs_at_least_20": 222,
+        "longest_contiguous_shared_words": 61,
+        "longest_draft_word_range": [
+          530,
+          591
+        ],
+        "longest_source_word_range": [
+          895,
+          956
+        ],
+        "source_coverage_by_runs_at_least_20": 0.21936758893280633,
+        "source_words": 1012,
+        "source_words_in_shared_runs_at_least_20": 222
+      }
+    }
+  ],
+  "operational_failures": [
+
+  ],
+  "strict_fidelity_passes": 0,
+  "interpretation": "The realized register varies, and all six outputs lose or change source information. Automatic origin admission remains separate from fidelity. No style-only causal effect, detector improvement or Pangram alignment follows from this review.",
+  "sources": [
+    {
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "text_sha256": "c2c91d8d6a2a353e5e3fe5778101ef82310a01d2fc428e2b82142df2939a8838",
+      "paragraphs_read": 4,
+      "preservation_checks": [
+        "Retain the distinct early, late Middle and Late Pleistocene claims, fossil locations, named Homo groups, limited admixture and later migrations within populated Africa and Europe.",
+        "Keep additional unobserved Pleistocene waves as a possibility constrained by the sparse fossil record.",
+        "Distinguish competitive-advantage and climate/corridor accounts from the neutral demographic explanation; preserve the latter's larger AMH population and probabilistic fixation argument.",
+        "Retain the explicit-map research gap, two-deme comparison, named simulation approaches and their different assumptions.",
+        "Keep the proposed model species-general, with no human species defined in advance, and retain its spatial/temporal differentiation and migration objectives.",
+        "Preserve the exclusion of environmental factors and the restriction to stochastic pattern statistics. This is a null hypothesis for later tests, not a reconstruction or empirical confirmation of actual AMH history.",
+        "Keep numbered citations attached to the corresponding claims."
+      ],
+      "source_caution": "The source's collective statement that prior models predefine competitive advantage sits awkwardly beside its earlier neutral-model description. Record a rewrite's resolution of this tension rather than silently certifying it as unchanged meaning."
+    },
+    {
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "text_sha256": "a9f92fc5c289bf5bcc0d068ec4557b9522b09a7f06604d604b783d87125df5ce",
+      "paragraphs_read": 5,
+      "preservation_checks": [
+        "Retain maize's food, feed and industrial uses; low Savanna yields; the biotic/abiotic constraints; IITA and partners' early and extra-early varieties; and multi-location, multi-year evaluation before recommendation.",
+        "Keep simulation's pre-release role, African DSSAT/AgMIP context and the named West African management, nitrogen, planting-date and production-zone examples.",
+        "Retain GSPs' biological/physical interpretation, difficulties with direct measurement, conventional experimental sampling requirements and the urgency of faster estimation for farm/extension use.",
+        "Preserve the calibration/validation concern for models developed elsewhere and the cited GENCALC, pattern-recognition, GLUE, private-trial and ICA/separate-factor examples with their respective crops and locations.",
+        "Keep secondary breeder data as a proposed alternative whose accuracy needs comparison, especially where conventional experiments are infeasible.",
+        "Retain all three objectives: estimating GSPs for ten newly released OPV/hybrid maize varieties using both data sources, comparing their accuracy, and simulating grain yield plus tissue/grain nitrogen. Do not convert these objectives into successful results.",
+        "Keep numbered citations attached to the corresponding claims."
+      ],
+      "source_caution": "The final introduction states aims and a potential use of breeder data; no outcome of the present comparison is supplied."
+    },
+    {
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "text_sha256": "9aa118dcd0b3eaeb765ea1e768945e7ea9a4f4023980c1b08dd65026c4f12cbf",
+      "paragraphs_read": 4,
+      "preservation_checks": [
+        "Keep the lack of a universal definition, hedonic and eudaimonic histories, SWB's affective/cognitive components and all six PWB factors.",
+        "Retain the distinction and overlap between SWB/PWB, social predictors, affective/cognitive moderation, emotion differences, and the self-/other-concerned dimension with its cited accounts of self-centeredness and selflessness.",
+        "Keep the separate structural, resting-state, happy-recall and monetary-reward studies, their reported regions/relations, and the named hedonic hotspots. Do not turn correlations into causal results.",
+        "Preserve the authors' criticism of monetary reward as a definition of durable wellbeing and their tentative explanation for the small neuroimaging literature.",
+        "Retain direct participant ratings under a parametric event-related design, the self-/achievement-oriented, other-oriented and neutral picture conditions, and their examples.",
+        "Keep common activation and the self/other spatial gradient as hypotheses. Retain mPFC/precuneus, all three announced analysis methods and the aim of comparing and finding convergent results.",
+        "Keep numbered citations and quoted terms with their original roles."
+      ],
+      "source_caution": "The source contains grammatical errors, a duplicated left-gray-matter phrase, and tentative interpretations. A fluent rewrite can alter those commitments; scientific correctness is not independently checked here."
+    }
+  ],
+  "capture_binding_method": "Compare all six planned requests and parent/profile assignments with captured requests; verify complete responses and unchanged admission. Preserve generation model pins and 242-entry pre/between/post verification logs.",
+  "review_closed_at_utc": "2026-09-15T03:35:39Z",
+  "diagnostic_review_frozen_at_utc": "2026-09-15T03:37:59Z",
+  "copy_audit_sha256": "54188c31302aa264224ce1231ffba362d9f3edd1347c921eca0473828620177a",
+  "token_audit_sha256": "b540991e21e7c24d7096e721ad3b689305de9d416dc1bd85d60d685c75e462e3",
+  "frozen_review_sha256": "60cd9e494b394f947771772a28db344ad2cc5b44c260b7f409d0c5aa5d4a412c"
+}

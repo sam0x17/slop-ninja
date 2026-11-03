@@ -1,0 +1,9 @@
+*
+!ort/libonnxruntime.so.1.31.1
+!model/a-fp32band.onnx
+!model/heads.json
+!model/contract.json
+!model/calibration.json
+!model/manifest.json
+!model/tokenizer.json
+!bin/a-container-serve

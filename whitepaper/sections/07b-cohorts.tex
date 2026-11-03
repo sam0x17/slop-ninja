@@ -1,0 +1,618 @@
+\section{Cohorts, transitions, and recovery}\label{cohort-recovery}\label{cohorts}
+
+A cohort is a frozen roster of model versions scored on one fresh hidden batch.
+It lasts at least \(K\) subnet tempos, frozen in its manifest. The launch value
+is \(K=20\). A tempo is the subnet's epoch length, 360 blocks; at about 12 seconds
+per block it lasts about 72 minutes~\cite{tempo}, so a cohort takes about 24 hours
+and the network completes one cohort per day. On mainnet, batch model APIs
+could generate a 4,000-case batch more cheaply, but they queue requests with no
+stated completion time. Until an authorized phase for generating ahead exists
+(Section~\ref{protocol-checks-before-launch}), a cohort that uses them may run
+longer than a day; generating at standard prices instead costs about \$1.55
+rather than \$0.87 per 1,000 cases. Rehearsal manifests may use
+\(K=4\) so that deletion and recovery tests do not take days. The tempo itself
+stays at 360 blocks: a longer tempo would delay every native commit--reveal by
+at least a full epoch and stretch the owner's hyperparameter rate limit.
+
+Each phase advances at a tempo boundary once its work is durable. Admission and
+the transition also have frozen minimums, and the whole cohort cannot end
+before its \(K\) tempos. Generation, scoring, and publication have no minimum:
+they advance on completion, in order, and may share a boundary. If work takes
+longer, the same cohort advances at a later boundary~\cite{tempo}; nothing is
+skipped or discarded. Evaluation and publication are coordinator-owned work;
+each validator's submission and finalization record is separate. Other
+validators' acknowledgments, stake adoption, and software versions never gate
+cohort progress. This includes the coordinator's own chain delivery: its
+serverless evaluation and scheduling can continue while a weight submission
+remains unresolved.
+
+\begin{longtable}{p{0.17\linewidth}p{0.12\linewidth}p{0.33\linewidth}p{0.28\linewidth}}
+\caption{Phases of a cohort with \(K=20\). Tempo positions are nominal
+targets counted from the cohort's opening boundary.}\label{tab:cohort-phases}\\
+\toprule
+Phase & Tempos & Permitted work & Advancement \\
+\midrule
+\endfirsthead
+\toprule
+Phase & Tempos & Permitted work & Advancement \\
+\midrule
+\endhead
+Admission & 0--1 & Accept finalized digest commitments and private artifact
+uploads; freeze the roster. & At least one tempo. \\
+Generation & 1--3 & Draw human texts under the frozen pool manifest, generate
+fresh AI-side text in parallel lanes, and seal the batch and roster digests. &
+On completion. \\
+Scoring & 3--15 & Paired scoring of every entrant, \(R_k\), and \(R_{k-1}\) in
+parallel lanes, then each executed entrant's probe run; work is sized to at
+most half of this window. & On completion. \\
+Publication & 15--16 & Bundle receipts, seal the score package and receipt
+index, sign them, and publish them. & On completion. \\
+Transition & 16--20 & Issue no new challenges. Validators process their chain
+obligations independently. At the closing boundary, publish the artifacts and
+openings. & At least two tempos and the cohort minimum. \\
+Paused & any & Retain state and receive evidence from already dispatched work.
+Start no new challenge and advance no cohort. & Reconcile the saved state and
+chain, then authorize resumption of the same cohort. \\
+\bottomrule
+\end{longtable}
+
+The signed cohort closure records the epochs at which admission closed,
+publication completed, and the cohort closed. Every validator checks them
+against the manifest's frozen admission, transition, and cohort minimums before
+the cohort's target activates. Every manifest, rehearsals included, freezes an
+admission minimum of at least one tempo and a transition minimum of at least
+two, together no more than \(K\), and a reward-intent lease of at least \(2K\)
+tempos. A package finished by tempo 18 keeps the daily cadence. A later one
+moves the next cohort back by whole tempos. Boundaries are finalized increments
+of the chain's epoch index, not block numbers modulo 360, because epochs can
+slip.
+A block handler need not run at an exact block. A late or missed delivery delays
+progress; it does not invalidate work, and a wall-clock timer cannot itself
+advance a phase. The next cohort requires a fresh coordinator start record after
+the current transition completes. Future submissions may queue without
+replacing an artifact in the frozen roster. Validator delivery can continue
+across later cohorts without extending the transition.
+
+\subsection{Lagged payout}\label{lagged-payout}
+
+When cohort \(N\)'s package produces a new signed calculation target \(T_N\), a
+\emph{cohort target}, it activates at the first eligible
+tempo boundary after its package and retained receipts are durable: the
+boundary that closes cohort \(N\) and publishes its artifacts, nominally the
+opening of cohort \(N+1\). Cohort \(N\) is therefore paid during the next day
+while cohort \(N+1\) is scored. From activation, at every tempo, each validator
+re-derives \(T_N\)'s row against a fresh finalized registration snapshot and makes
+one commitment under a per-tempo operation identity, with native commit--reveal
+enabled. That is 20 commitments per validator per day, well inside the current
+rate limit, and a validator that misses a few tempos stays active. Commitments
+made before activation reveal under their original rules. There is no
+per-validator activation gate: no validator must prove coverage of \(T_{N-1}\)
+before \(T_N\) applies.
+
+During coordinator silence no target changes; validators keep re-committing the
+last activated target within its authorization lease, and cohorts are delayed,
+never skipped. A new miner's first payout arrives about 25--49 hours after its
+commitment, so the subnet's immunity period must exceed that interval. That is
+necessary but not sufficient: when pruning a non-immune neuron would leave too
+few non-immune UIDs, the chain prunes the lowest-emission immune neuron
+instead~\cite{immunityperiod}, and under the burn row every miner's emission is
+zero.
+
+A package that produces no cohort target carries forward the target already
+active (Section~\ref{authorization-dispatch}). Until a cohort target activates,
+that is the burn row, which sends the whole pool to the owner hotkey's UID. A
+launch authorization, which names no manifest or package and can authorize only
+the burn row, lets validators commit it from the first tempo of the first
+cohort, before any manifest is sealed. It is renewed like any authorization and
+is accepted only while the burn row is the active target. While it is, each
+package without a cohort target also authorizes the burn row, as the target already active, and
+the launch authorization covers the tempos after the package that produces the
+first cohort target is published and before that target activates. From that
+activation every validator refuses the launch authorization, at each tempo's
+commitment as well as when checking it, so it is never accepted again; later
+packages without a cohort target carry forward the activated target, so nothing
+authorizes the burn row again. The implementation does not yet let a package
+without a cohort target authorize the burn row, because its reward-intent
+authorization must name a cohort target; until it does, a long launch regime
+relies on repeated launch authorizations, each within its 40-tempo lease.
+
+Validators commit the burn row every tempo until
+some cohort's entrant beats \(R_0\) by the margin; the
+promotion that normally follows makes \(R_0\) the predecessor for the fallback
+cutoff (Sections~\ref{reference-model} and~\ref{reward-v1}). At the current
+\texttt{rtao} pin only the coordinator commits it. Native validators abstain
+while the active row is all burn, as for a cohort target whose credited miners
+have all left: \texttt{rtao} holds a row whose only positive entries are the
+owner's or the validator's own UID instead of committing it, so the validator
+defers each such tempo, commits nothing, and leaves its previous weights on
+chain. This abstention is a limitation of the pin, not the policy: after every
+credited miner has left, those weights can still pay a UID's new occupant, which
+the no-transfer rule below forbids, so native commitment of the burn row is a
+launch requirement (Section~\ref{protocol-checks-before-launch}).
+That regime has no bounded duration; no miner earns
+during it, and the burn withholds the subnet's TAO-side emission, while under
+the documented rules validators and the owner still receive their
+participant-side alpha (Section~\ref{unallocated-rewards}). Once the subnet's UID slots are full, a new registration can therefore replace any miner past its
+immunity period; the credit of its entries still awaiting payout then burns
+(Section~\ref{reward-v1}), and re-registering starts a new registration
+generation.
+
+\subsection{Fan-out evaluation work}\label{fan-out}
+
+Bulk evaluation work runs as fan-out jobs: challenge generation, paired scoring
+and probe runs, receipt bundling, and the per-model summaries that packaging
+needs. The cohort's Durable Object remains the only authority. It records each
+lane's assignment and holds the task leases, and lanes claim and commit work
+through short, idempotent requests to it. Each lane runs in its own Durable
+Object invocation with its own platform limits, and each scoring lane drives its
+own Container instance. Lanes number at least one per scored artifact, and more
+as the batch grows, within the account's Container limits~\cite{cfcontainerlimits},
+the providers' model rate limits through one shared limiter~\cite{cfailimits},
+and, on testnet, the cohort's budget. Lane count changes elapsed time and per-lane start
+cost, never a document's outcome: the scorer's outputs are bitwise identical
+across instance sizes (Section~\ref{existing-evidence-and-implementation-status}).
+Lanes never sign; signing stays in the cohort object's phase transitions.
+
+Containers start on demand, and nothing runs warm at rest; scoring instances may
+start just in time during the tail of generation, and cold starts are accepted.
+A Container crash or out-of-memory failure counts against an artifact only when
+it reproduces in single-document isolation
+(Section~\ref{aggregation-and-failure-policy}). The testnet roster is capped at
+40 entrants. Mainnet has no roster cap beyond the subnet's 256 UIDs and no
+spending cap. Providers publish budget alerts but no hard spending
+cap, so on testnet lane caps and per-cohort budgets bound spending.
+
+\subsection{Block notifications and finalized recovery}\label{block-notifications}
+
+Live \texttt{rtao-rpc} webhooks on the finalized stream deliver every finalized
+block, each to its own Worker invocation. That delivery is the coordinator's
+primary heartbeat and clock. Deliveries are signed, at-least-once, and retried
+within a bounded provider journal. The provider retries a delivery that receives
+no success response ten times, with backoff, over about 5 hours 49 minutes, and
+then pauses the subscription; nothing more is delivered until it is resumed. The
+coordinator's handling of authentication, retries, ordering, and retention still
+requires qualification.
+Authenticate ingress and persist the requested work before acknowledging
+delivery. Duplicate, delayed, or reordered notifications must not repeat a
+transition, sign another attempt, reset a deadline, or skip a cohort. A
+notification neither authorizes an action nor establishes that its block is
+finalized.
+
+Retain a finalized cursor with height and hash, plus completed event identities,
+in Durable Object storage. Reconcile chain history through RPC, checking hash
+continuity and processing missing finalized blocks in order. Advance the cursor
+only after the dependent state changes are durable. Best-head notifications may
+be reorganized; they cannot advance finalized state. Any conflict with the saved
+finalized history pauses affected actions for diagnosis. After the cursor
+advances, an invocation claims due work through a durable lease with an
+idempotent operation identity, holder, and expiry; overlapping invocations
+skip claimed work, and later blocks re-claim stale claims and continue
+resumable steps.
+
+A Cron Trigger~\cite{cfcron} every minute is the only fallback and the only
+timer. It is a no-op while valid deliveries arrive. If none arrives for a
+configurable threshold, five minutes by default, or the cursor lags the
+finalized head by more than that threshold, the coordinator enters a durable
+fallback mode. Each tick then reads the finalized head from public OpenTensor
+RPC and processes blocks from the cursor through the same per-block path and
+deduplication, bounded per tick within public rate limits. Delivery resumption
+returns it to primary mode automatically. A paused subscription keeps the
+coordinator in fallback mode: the watchdog reports the fallback state and the
+time since the last valid delivery for an operator alert, and an operator
+resumes the subscription. Automatic resumption is not yet implemented, because it needs a
+subscription-management credential in the Worker or a provider resume path; until
+then a pause lasts until an operator acts, a stated limit. The nominal wait is one
+finalized block plus delivery latency, or up to the threshold plus one tick in
+fallback.
+Actual observation delay also includes scheduler delay, RPC and finality
+latency, and catch-up work; this is no hard recovery bound during an outage.
+Bound each invocation and persist its continuation, so a long outage needs no
+resident subscriber or unbounded catch-up request.
+Resume scheduling at a later eligible tempo boundary after recovery, preserving
+the current cohort and its remaining active-time budgets.
+Pending chain obligations have separate recovery records; advancing the block
+cursor does not require their completion.
+
+\subsection{Authorization and durable dispatch}\label{authorization-dispatch}
+
+Coordinator-owned deadlines use a durable active-time clock. Bounded progress
+intervals advance that clock only when recorded in an authoritative checkpoint;
+missed intervals are not charged retroactively after recovery. Silence therefore
+preserves the remaining budgets for phase timing and coordinator-set submission
+windows without requiring a pause write during the outage. Recovery publishes
+the remaining budgets and revised eligible tempo boundaries. Extending an open
+window cannot reopen a frozen roster or a finalized outcome.
+
+Permission to act has a separate clock. New cohort work requires a signed
+authorization bound to cohort, phase, and checkpoint generation, with bounded
+validity in finalized block heights. Weight commitments use a reward-intent
+authorization instead, a separate record signed under the authorization key.
+Each package is published with one that names the cohort's manifest and package
+and the target active after it: the package's new target, whose predecessor must
+be the target active when the package is published, or, when the cohort
+produced none, the target already active. Its lease is frozen in the manifest at
+no less than \(2K\) tempos, about 48 hours, and is counted in finalized epoch
+indices from its issue epoch through the epoch that many tempos later,
+inclusive. Until the first cohort target activates, a launch authorization
+covers the burn row, with a protocol-fixed lease of 40 tempos
+(Section~\ref{lagged-payout}). While
+the coordinator is live it renews the current authorization at each tempo
+without changing the target or the lease length. Per-tempo renewals are not yet
+issued, so a target is now committed only within the lease of the authorization
+published with its package or with a later package that carries it forward.
+
+Validators verify each authorization and renewal under the authorization key
+before using it. They check a package's authorization against that cohort's
+manifest and package, the frozen lease length, an issue epoch no earlier than
+the cohort's opening, and the target they hold active. Each validator, the
+coordinator included, keeps its own durable record of the target it holds
+active, written only forward from checked cohort closures, and accepts a
+package only if it carries that target or its successor; the launch
+authorization is accepted only while no cohort target has activated. A renewal takes effect
+only from its issue epoch. At every tempo a new commitment also requires the
+authorized target to be the one the validator holds active, so an authorization
+stops yielding commitments once another target activates. A one-day coordinator
+outage therefore leaves validators committing the active target. Beyond the
+lease, validators pause new commitments; a renewal issued after the lapse
+restores them from its issue epoch without a new package. Existing chain
+obligations retain their recorded authority and native deadlines. If a work
+authorization expires or its checkpoint cannot be verified, no new work begins.
+A fresh finalized-chain view is required; a cached height cannot keep
+authorization valid indefinitely. One non-coordinator validator's silence never
+stops the shared clock.
+
+Before dependent actions, retain the manifest, roster, artifact and credited
+identity bindings, task and attempt identities, completed and outstanding work,
+remaining active-time budgets, scores, and chain receipts. Keep referenced
+artifacts and incomplete-cohort records without automatic expiry. Durable
+recovery exports and restore rehearsals must cover pauses longer than any
+provider backup window.
+
+A lane's assignment is persisted with its state transition before its wakeup is
+sent. The lane claims each task under a lease, checks current authorization and
+generation, then retains its result before releasing the claim. Wakeups are
+notifications; authoritative records reconstruct dispatch after redelivery,
+loss, or retention expiry. The coordinator's state does not depend on a
+surviving message, lane invocation, Worker process, or always-on machine.
+
+Task leases and compute attempts have separate identities. Lease expiry fences
+an old worker from new actions but does not erase its evidence. Reconcile an
+uncertain external call before starting another attempt. Reclaiming a task or
+recording an already durable answer consumes no compute retry. Starting another
+computation does. A frozen attempt-order rule selects one canonical outcome;
+never choose the best answer returned across retries. The late result of an
+old worker cannot advance a newer checkpoint or reopen a finalized score.
+
+\subsection{What pauses and what continues}
+
+Coordinator downtime suspends protocol progress and cohort scheduling. It does
+not remove unfinished tasks from the denominator, turn them into miner failures,
+reroll challenges, or start a replacement cohort. Already dispatched work may
+finish and persist evidence, but its completion cannot authorize another task.
+Resume only after reconciling in-flight attempts and late results. If scoring
+was final before the outage, resume publication or the transition without
+rescoring. Missing evidence leaves the cohort paused until a reviewed resolution
+is possible.
+
+A per-attempt compute limit remains the bound frozen for that attempt. Queue
+delay, operator suspension, and unresolved infrastructure faults are not measured
+model compute. A limit violation already established remains an outcome.
+Customer delivery/refund terms, credential expiry, transaction mortality, and
+native chain reveal windows retain their own clocks. Extending a
+coordinator-owned deadline cannot extend those obligations or renew an expired credential.
+
+\subsection{Independent weight calculation and commit--reveal}\label{independent-weight-calculation}
+
+The coordinator publishes a signed score package from which every validator
+independently calculates the native weight row. The package contains individual
+miner scores and the public components of Section~\ref{aggregation-and-failure-policy}:
+reference scores, \texttt{reward-v1} parameters, gate failures, public-copy
+results and near-copy statistics, cluster assignments, exact credits, any
+activated usage or grammar credit, and original hotkey/registration bindings. It fixes numeric precision, ordering, tie handling,
+and native quantization. The same package and registration bindings must produce
+identical canonical UID/weight entries. Approximate agreement is insufficient;
+a discrepancy requires diagnosis before the affected validator signs.
+
+The package binds deployment and genesis, subnet and mechanism IDs, cohort and
+result revision, model/profile and scoring versions, the native weight row
+format, and the R2 receipt-package manifest digest, count, and commitment root.
+No chain runtime version is bound. Its disclosed score components are sufficient
+to reproduce the reward-to-weight calculation. Held-out texts, labels,
+per-document predictions, customer content, and unpublished model weights remain
+outside the package. This disclosure boundary has the scoring trust assumption
+stated in Section~\ref{trust-assumptions-and-adversarial-behavior}. No
+zero-knowledge proof is required.
+
+Each validator verifies coordinator authority, the package signature and version
+bindings, complete miner accounting in the published roster, and each published
+artifact digest and commitment opening against its finalized on-chain
+commitment, made by the entrant's hotkey and registration generation at the
+block and extrinsic index the package lists, since that position breaks
+rank-order ties. It verifies the retained R2 receipt package, the exact-content
+check of every entrant against all published artifacts, the consistency of the
+published near-copy statistics with the recorded public-copy and cluster
+decisions, that each entrant's probe comparison includes both references, that
+both references are fingerprinted on every probe version in use, that each
+closed cohort fingerprints every executed entrant, and current registration
+identities. The index of published artifacts behind the content check comes
+from the coordinator: validators check it against the manifest's binding, and a
+carrying package's index against the carried cohort's, but do not yet rebuild
+it from every closed cohort's packages, so they trust it like the scores.
+Validators check digests only; they do not run the models. The
+artifact check streams each whole published object and recomputes every file's
+SHA-256 against its header, so a full 256-entrant cohort at the roughly 700 MB
+artifact bound (Section~\ref{a-artifact-execution}) means at most about 180 GB
+of downloads per validator per cohort. Artifacts are published at the boundary
+that activates \(T_N\), and a validator completes these checks, the artifact
+check included, before its first commitment of \(T_N\); until then it makes no
+new commitment. Finishing within the first 72-minute tempo at that bound needs
+about 330 Mbit/s sustained; a slower validator misses its first few commitments
+of \(T_N\) and stays active (Section~\ref{lagged-payout}). A validator derives the row locally and
+checks any coordinator-supplied reference row against that result. A reference row never replaces local calculation.
+Unsupported arithmetic or encoding, conflicting records, or missing evidence
+pause that validator's new submission until resolved. A reused UID pauses
+nothing, since the credit of a hotkey no longer registered under its generation
+burns. A validator cannot invent a score, omit an entry, or apply an undeclared
+weighting rule. Frozen reward policy remains common to all validators.
+
+Independent row calculation gives other validators limited oversight of the
+coordinator's reward arithmetic: they can check proposed and delivered rows
+against the published scores and reward rules, without reproducing hidden
+scoring themselves. The operator prefers to keep native weight commit--reveal
+enabled, viewing its use as a positive signal within Bittensor and accepting
+the reveal delay. It adds no copy protection to the public-score calculation.
+The enabled flag check below enforces that configured submission policy.
+The recognized subnet owner sets
+\texttt{commit\_reveal\_weights\_enabled = true}, through the agreed
+owner-authorized execution path under a lease; the operator verifies the
+effective setting before live submission
+\cite{weightsubmissionmode,commitreveal}. Validators check that setting against
+finalized state at startup and fresh submission state before signing. An
+unexpected disabled flag pauses new weight commitments rather than silently
+selecting plaintext submission. Model-artifact digest commitments are separate
+admission records.
+
+Validators, including the serverless coordinator, independently commit
+their calculated rows under their own keys, nonces, journals, and timelock
+material. They target each eligible native commit window from the published
+schedule without waiting for another validator to commit, reveal, or finalize.
+Use the qualified native timelocked path, whose reveal is performed by the chain.
+A submitted commitment may therefore reveal during a coordinator outage or
+before a later audit completes. The client cannot assume it can cancel that
+reveal by withholding a second transaction.
+
+Parallel commitments avoid serial reveal stages between validators; they do not
+remove native reveal latency or guarantee a same-tempo or atomic switch. A missed
+window defers only the affected validator's delivery. Reconcile its old attempts
+and current authorized target before scheduling another eligible window. Native
+submission and reveal clocks do not extend when coordinator deadlines pause.
+
+The coordinator seals each complete evaluation and durably publishes its score
+package and calculation target. Cohort completion records publication, not
+validator adoption or miner payment. At the next permitted boundary after the
+transition minimum, the coordinator may start another cohort even if every
+external validator is offline, outdated, or refusing to submit. Evaluation,
+service, updates, and recovery require no other validator's acknowledgment or
+cooperation. A newer target supersedes the active one only when its complete
+authorized package and retained receipts are available, and only at its
+activation boundary. This activation needs no coordinator chain transaction.
+Lease expiry, revocation, and identity changes still apply.
+
+After its own row is revealed and finalized, the coordinator publishes an
+observation certificate binding the score-package digest, coordinator identity
+and hotkey generation, canonical row, and finalized block reference. Validators
+check this row and observed peer rows against the calculation for their
+respective package revisions. Coordinator finalization is a later consistency
+audit, never a prerequisite for another validator's commitment. A missing or
+incorrect coordinator row is a delivery discrepancy; it cannot invalidate an
+otherwise valid calculation or stop other validators. Evidence of a shared
+package or encoding defect pauses only the affected new operations while
+correction and recovery proceed. Retain and reconcile commitments already
+submitted. Authorized coordinator hotkey rotation updates the chain identity
+while retaining score-signing authority and existing obligations under their
+recorded keys; it imposes no adoption gate. An owner-hotkey rotation needs no
+new target either: validators read the owner hotkey from finalized state at each
+tempo (Section~\ref{unallocated-rewards}).
+
+Commit--reveal hides native submissions until reveal. Published scores may
+already let any observer derive the same row, so this design does not claim to
+prevent copying that calculation or prove that every validator performed it.
+Its independent check is the application of the declared reward policy to the
+coordinator's signed scores. Native consensus still accepts each validator's own
+submission and does not enforce this off-chain calculation contract.
+
+Each validator retains its desired package revision, calculated rows, signed
+attempts, commit/reveal material, and finalized outcomes. On return it reconciles
+every submitted or uncertain operation before acting on a newer target. A target
+never submitted may be superseded with its history retained; a new package cannot
+erase an outstanding commitment or justify blindly replaying an obsolete row.
+Catch-up must prevent an older pending reveal from silently overwriting a newer
+row. Submission-mode migrations preserve those obligations and use reconciliation
+before new signing. These constraints apply to that validator's delivery path,
+never to cohort advancement or another participant.
+
+Subtensor keeps producing blocks and applying emissions, activity, and
+registration rules while this protocol is paused. Submitted validator rows do
+not switch atomically. The network depends on timely validator submission for
+the intended weight rows to influence native consensus. Missing or stale rows
+can change actual emissions even though they cannot delay application progress.
+Publish observed delivery and adoption separately from cohort completion. Slop
+Ninja cannot force a row, freeze native emissions, or promise that a missed
+reward period will be paid later.
+
+Bind each award to its original hotkey and registration generation, not only a
+UID. If that UID changes occupant, do not transfer the old credit; the share of
+a hotkey that is no longer registered under that generation burns through the
+owner hotkey's UID at each tempo. Preserving the cohort grants neither suspension
+of native emissions nor a right to replay or reassign rewards already paid.
+Retaining all scores and delivery records provides accounting continuity, not
+guaranteed deferred payment.
+
+\subsection{R2 inference receipts and retention}\label{cohort-receipt-retention}
+
+Each inference attempt has a content-free receipt in R2, including benchmark
+and probe calls, paid-service calls, retries, failures, and uncertain outcomes. Receipts bind
+the deployment, immutable invocation and attempt identities, model/version,
+status, usage, and private-content commitments. They expose no prompt, response,
+held-out label, parsed feature vector, or commitment opening. Receipts are
+written in bounded chunk objects. A cohort package indexes each chunk by object
+identity and digest and each receipt by its position; its immutable manifest
+fixes the cutoff, count, and commitment root. The coordinator's signed score
+package binds that manifest. Validators have read access to these R2 objects
+and verify the index, counts, and object digests before committing a newly
+calculated row. Whether that access uses public objects or per-validator
+read-only credentials is fixed before launch. Receipt verification checks the
+certified package's integrity, not honest inference or hidden scoring. Cloudflare does not sign these
+assertions. The pilot deliberately keeps this check before commitment: a signed
+root alone does not establish that the referenced objects are retrievable and
+match their digests. This accepts R2 availability and package-size costs in
+each validator's delivery path; those costs cannot gate cohort progress.
+
+Evaluation receipts belong to their cohort. Paid-service receipt records enter
+the next open certification package under a fixed cutoff rule. An uncertain
+attempt remains explicitly pending; a later outcome is an appended update in a
+later package under the same invocation identity, never a rewrite of sealed
+evidence or another credited inference. Pending paid-service records cannot
+relax the requirement to account for every assigned evaluation outcome.
+
+Detailed receipts and their R2 index for cohort \(n\) are deleted once cohorts
+\(n+1\) and \(n+2\) complete and \(T_n\) has been superseded. Completion means the
+coordinator's durable cohort completion, independent of any validator's weight
+adoption. This rolling window counts completed cohorts and superseded targets,
+not wall time or elapsed tempos; a coordinator pause cannot advance deletion
+eligibility, and a target kept live through cohorts that produce no new target
+keeps its receipts. The coordinator's hosted copies of entrant artifacts follow the same
+window, except that the artifacts of \(R_k\) and \(R_{k-1}\) remain hosted while they
+are references. Probe fingerprints are private evaluation records, retained
+with the probe while their probe version is in use; the published-artifact index
+of content digests is retained indefinitely. A durable serverless cleanup task
+deletes eligible objects,
+invalidates access, and records completion. Delete managed replicas and caches
+as well; do not retain a separate indefinite archive of these detailed receipts.
+Previously downloaded copies cannot be recalled. This deletion is not yet
+implemented, and the testnet coordinator so far retains every receipt.
+
+Two completed successors are a deliberate pilot retention choice: they keep
+recent audit evidence available while limiting the number of completed cohorts
+whose detailed metadata remains hosted. With daily cohorts, receipts become
+eligible for deletion at least about 48 hours after their cohort completes.
+They guarantee neither a minimum audit duration nor a byte limit, particularly
+during a coordinator pause. Roots and counts cannot reconstruct deleted
+receipts, which limits later investigations.
+
+Retain the signed score package and calculation inputs, package root and counts,
+canonical row, cohort completion record, any coordinator observation certificate,
+and chain/accounting recovery records. They remain after detailed receipts
+expire. A returning validator uses a current retained package for new
+commitments and its durable journal for earlier submitted obligations;
+reconciliation does not require expired receipts. Expired detailed receipts
+cannot authorize new commitments. Missing receipts within the retention window
+are an availability failure and pause the affected validator's new commitments
+only. Customer content, delivery, and refund records retain their separately
+disclosed policies; this window grants no extra content retention.
+
+\subsection{Runtime upgrades and chain intents}
+
+Freeze evaluation meaning separately from operational builds. The models,
+batch, labels, scoring rules, and numerical tolerances define the comparison.
+The current RPC connection, coordinator build, and Finney runtime are recorded
+execution facts; they need not remain identical for the cohort to finish. An
+operational fix can preserve the frozen comparison.
+
+No component gates on a runtime version, and no cohort, package, row, or journal
+is certified for one; a cohort survives any number of upgrades unchanged.
+Validators and the coordinator keep running through every upgrade. Use
+finalized history for decisions and reconciliation. Before submission, refresh
+runtime metadata and signing parameters, and read current submission
+constraints and epoch state from one fresh best-head snapshot. Resolve each
+call, storage item, signed extension, and runtime API by name in that metadata
+and type-check the supplied values against the live types; repeat at signing,
+since finality can lag an upgrade. A mechanically safe difference, such as a
+wider integer or a new trailing optional argument, is encoded adaptively and
+recorded. An operation with no type-correct encoding is deferred alone with a
+durable diagnostic and re-evaluated on every new block, while ingestion,
+journaling, recovery, reconciliation, scoring, and package verification
+continue. Never submit a payload that does not type-check against live metadata.
+A runtime version is recorded only as an observation; signing reads it fresh.
+The native adapter follows this rule at its current \texttt{rtao} pin, except that
+upstream still composes weight calls and reads some storage through compiled
+descriptors; the ``Implementation boundary'' paragraph in
+Section~\ref{native-implementation-boundary} records how those cases defer.
+
+Persist a logical chain intent and its signed attempts before sending bytes.
+Retain the cohort/result revision, participant binding, intended effect, nonce,
+observed runtime, transaction hash, and commit/reveal material. A timeout means
+an unknown outcome. Reconcile finalized execution, pending transactions, nonce
+state, and reveal obligations before signing another attempt. New bytes required
+by a changed runtime, nonce, or mortal lifetime remain attempts at the same
+intent. They do not authorize a duplicate effect. Decode historical evidence
+using metadata for its execution context.
+
+The native adapter integrates \texttt{rtao}'s durable journal, scheduling,
+semantic checks, and signer-free finalized recovery~\cite{rtao,nativeadapter}.
+Opening it and beginning external recovery persist pause; resumption is explicit.
+A successful recovery call may leave unresolved work. Inspect per-operation
+outcomes and retained reveal evidence before claiming completion. Current
+supported operations and implementation gaps appear in the ``Implementation
+boundary'' paragraph in Section~\ref{native-implementation-boundary}.
+Adapter updates must retain the original cohort and journal.
+The serverless coordinator needs equivalent durable intent and attempt records
+in Durable Objects, exclusive signing ownership, and qualified Workers transport
+and cryptography. A native file journal or passing native test does not establish
+this integration. Recover the coordinator's submitted obligations before new
+signing without making that recovery a barrier to unrelated cohort work.
+
+\subsection{Automatic updates and resumable migrations}\label{participant-updates}
+
+Automatic updating is selected for the pilot. Whether participants may opt out
+or defer installation, and how releases are staggered across installations,
+remain deployment-policy decisions to settle before launch. If local deferral
+is permitted, it cannot bypass signing compatibility or pending-obligation
+recovery; rollout sequencing cannot require other validators' acknowledgments
+or gate cohort progress on their adoption.
+
+One Rust supervisor per native installation stages signed releases and owns
+process handoff and restart. Miner and validator applications automatically
+fetch and verify release manifests and matching platform artifacts. The manifest
+binds artifact digests, protocol compatibility, schema versions, migration
+order, and release-key generation. The updater rejects unauthorized or
+superseded release metadata under the published key-rotation and rollback
+policy. Each participant updates independently; neither installing a release
+nor resuming afterward requires other validators to acknowledge it. An exclusive
+journal lock and signer ownership permit only one active participant process to
+write that journal or sign with its hotkey; the supervisor fences the old
+process before handoff.
+
+Retain ordered migration paths from every released persistent schema. A
+participant that missed many releases applies every required migration in
+order, even if intermediate application binaries need not run. Each step has a
+durable progress record, validates its input and output, and resumes safely
+after interruption.
+Pause local new work and signing, fence the old process, and preserve a recoverable
+copy before changing state. Never replace a journal with an empty one, discard
+pending commitments, or blindly restart an old binary against a migrated schema.
+After migration, recover finalized chain history and outstanding obligations
+before the updated participant creates new intents.
+Rollback may use only a binary compatible with the current persisted schema,
+or a separately qualified reverse migration. Retain the latest journal and
+chain evidence; restoring an older backup cannot erase newer obligations.
+
+Coordinator deployments use the same versioned, resumable state discipline in
+serverless storage and fence obsolete checkpoint and signing generations.
+Migrations preserve its own chain journal, hotkey access, pending commitments,
+and finalized cursor alongside cohort state. Operational
+updates must preserve frozen evaluation meaning and unfinished work. A missing
+migration or invalid signature pauses only its dependent actions with the
+evidence retained. A chain runtime upgrade pauses nothing; it can only defer an
+operation it leaves without a type-correct encoding. Release archives, migration
+compatibility, and recovery after many offline versions are tested requirements.
+
+Native validators use local journals; the coordinator retains its chain journal
+alongside its application records in serverless storage. Monitor journal
+capacity, retain completed evidence beyond bounded diagnostic history,
+and qualify migration before exhaustion. Never delete operation identities or
+remove journaling to bypass a refusal. A published correction keeps the
+original result, records its authority and new revision, and accounts for
+already-submitted chain effects. Changes to evaluation meaning belong in a
+future comparison; an invalid current score requires an explicit correction
+policy before rewards can proceed.

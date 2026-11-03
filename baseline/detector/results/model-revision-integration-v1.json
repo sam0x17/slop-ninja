@@ -1,0 +1,153 @@
+{
+  "cross_model_revisions": 4,
+  "detector_calls": 0,
+  "generator_binary_sha256": "0ddab8c2a2dc6a9a80bfa9d48dba4b3d764c902e75b2497e79daeb03efff0611",
+  "input_records_sha256": "0fe080913f875e2124e97feb2514662e75aadbe78a7a7ba49e38244c85072c23",
+  "legacy_cached_replay": {
+    "accepted_outputs": 559,
+    "new_calls": 0,
+    "planned_attempts": 578,
+    "records_and_summary_byte_identical": true,
+    "records_sha256": "6a5ab65b0c92ec92cb53b446e5e8cf2a5499340968d6542ccaafce73f40ed67a",
+    "summary_sha256": "a624e6d38165601a2ed55961ee26885f9c5150962a25578fae9069aa45b199ae"
+  },
+  "limitations": [
+    "Training-only integration sample, including families already used to fit v4; no held-out performance measurement.",
+    "Surface overlap measures wording, not semantic fidelity, intended tone or detector evasion.",
+    "The corpus is available for a future declared training cohort; it has not been fitted into a new detector."
+  ],
+  "model_spec": {
+    "id": "slop-ninja-model-revisions-v1",
+    "license": "Apache-2.0",
+    "license_sha256": "05cab46843576551502bfdf712f84e93e6e9590d9997306ed4f6635ef82811d9",
+    "license_url": "https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507/resolve/0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe/LICENSE",
+    "max_tokens": 1800,
+    "quantization": "MLX 4bit; group_size=64; fourteen runtime files unchanged and SHA256 verified; source manifest SHA256=7a0b048169c41072305ee26b9843ed997b00caec8205206ceb6ede43e08f27b8",
+    "revision": "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa",
+    "runtime": "LM Studio CLI 71bd99c; MLX runtime 1.11.0; Apple M3 Ultra 256 GiB; macOS 26.5.2; context 8192; parallel 1; OpenAI-compatible /v1/chat/completions over SSH loopback tunnel; no reasoning control for non-thinking Instruct model; engine defaults for unrequested sampling options; 14 installed files SHA256 verified against qwen-mlx-files.json",
+    "temperature": 0.7
+  },
+  "pangram_calls": 0,
+  "plan_sha256": "7aeb4cc8078d4935357f7669509ba8b7d55c80e1b2d2fd55e1885f4968f73739",
+  "rounds": [
+    {
+      "accepted": 8,
+      "failed": 0,
+      "new_labels": "model_only",
+      "overlap": {
+        "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa|revise": {
+          "identical_after_trim": 0,
+          "identical_after_whitespace_collapse": 0,
+          "identical_normalized_words": 0,
+          "identical_raw": 0,
+          "output_from_source": {
+            "count": 8,
+            "max": 0.541095890410959,
+            "mean": 0.3977266832367433,
+            "min": 0.208,
+            "nearest_rank_p50": 0.4339622641509434,
+            "nearest_rank_p90": 0.541095890410959
+          },
+          "records": 8,
+          "source_retention": {
+            "count": 8,
+            "max": 0.4891640866873065,
+            "mean": 0.3892957480461055,
+            "min": 0.2,
+            "nearest_rank_p50": 0.45925925925925926,
+            "nearest_rank_p90": 0.4891640866873065
+          },
+          "source_retention_at_least_95_percent": 0,
+          "source_retention_below_half": 8
+        }
+      },
+      "overlap_audit_sha256": "81e86d3fac27d34ebf9807558580fd4a819802ffdf3611cc0662c2ac849f931e",
+      "records_sha256": "a08826f3e7157d9cee4215b60672bf09e3387906327adfe85bab806cb3a23001",
+      "requested": 8,
+      "round": 1,
+      "run_sha256": "fb209ffb8c9180c58a782bb3044affc3254f19b55872f507a64fe117eced27f7",
+      "style": "anti-ai",
+      "summary_sha256": "ea08d3dd0269af8bfd57a55cacb7d9871eb3bd479a73d029c6b1f21efd862623"
+    },
+    {
+      "accepted": 8,
+      "failed": 0,
+      "new_labels": "model_only",
+      "overlap": {
+        "mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit@e9675aa3ca5f900ccef55267914466d55ab325fa|revise": {
+          "identical_after_trim": 0,
+          "identical_after_whitespace_collapse": 0,
+          "identical_normalized_words": 0,
+          "identical_raw": 0,
+          "output_from_source": {
+            "count": 8,
+            "max": 0.7323232323232324,
+            "mean": 0.5739102895721572,
+            "min": 0.3620689655172414,
+            "nearest_rank_p50": 0.625615763546798,
+            "nearest_rank_p90": 0.7323232323232324
+          },
+          "records": 8,
+          "source_retention": {
+            "count": 8,
+            "max": 0.6561085972850679,
+            "mean": 0.5304887246086104,
+            "min": 0.336,
+            "nearest_rank_p50": 0.5254237288135594,
+            "nearest_rank_p90": 0.6561085972850679
+          },
+          "source_retention_at_least_95_percent": 0,
+          "source_retention_below_half": 3
+        }
+      },
+      "overlap_audit_sha256": "ea8c6bbfbeca0f21d193a10af2fc0abe4db6cd9eb7ba5e6dcc7b3f0bf0dbb2e1",
+      "records_sha256": "96e8d005afb873c28c712b6e98a34387e379f9c1013c136f2ec676de144293c5",
+      "requested": 8,
+      "round": 2,
+      "run_sha256": "4c45335eadd522a50a062f3de4dfd2439904e87c51b0647adab1d0bf24dd106d",
+      "style": "fix-slop",
+      "summary_sha256": "f59fc2631efce54823eebc1d509a1f963167b5d0faab207b6613fcf8fe339220"
+    }
+  ],
+  "same_model_revisions": 12,
+  "schema": "slop_ninja_model_revision_integration_v1",
+  "selection": "Four Qwen and four Mistral existing Train drafts, 100..350 whitespace words, sorted by the predeclared SHA256(domain:record_id); all ancestors retained.",
+  "selection_manifest_sha256": "623e04dee73589e08406d32bc7eb095a2051b1735476336b93d26dba8e786166",
+  "source_commit": "c0ab502",
+  "summary": {
+    "collections": {
+      "hc3-wiki-historical": 20,
+      "wikinews": 12
+    },
+    "evidence": {
+      "historical_proxy": 8,
+      "recorded_model_generation": 8,
+      "recorded_model_revision": 16
+    },
+    "licenses": {
+      "CC-BY-2.5": 12,
+      "CC-BY-SA-3.0": 5,
+      "CC-BY-SA-4.0": 15
+    },
+    "origins": {
+      "human_only": 8,
+      "model_only": 24
+    },
+    "records": 32,
+    "source_groups": 8,
+    "splits": {
+      "train": 32
+    },
+    "words_max": 365,
+    "words_min": 99
+  },
+  "token_audit": {
+    "fits_configured_token_limit": true,
+    "max_tokens": 1024,
+    "maximum_observed_tokens": 488,
+    "model_executed": false,
+    "records_dropped": 0
+  },
+  "token_audit_sha256": "5c0ff8122b1b4e6cd06cb902b48ca2533fff1c4297f7318b617a076070935aac",
+  "v5_inputs_changed": false
+}

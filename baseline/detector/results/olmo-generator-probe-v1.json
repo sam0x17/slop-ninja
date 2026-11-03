@@ -1,0 +1,35 @@
+{
+  "completion_tokens_per_second_including_prompt_and_load": 85.45549316781522,
+  "detector_calls": 0,
+  "elapsed_seconds": 1.38083575,
+  "finish_reason": "stop",
+  "http_status": 200,
+  "model": "mlx-community/Olmo-3-7B-Instruct-4bit@d732c91ae02e90cd5d86e810fbeb9741794b4dd9",
+  "model_files_sha256": "cb228fdb72a785eaf2792f9db4827b5d9d1eee957943acdd5cc1cae9f1588c3e",
+  "model_spec_sha256": "21fdfc2157bf8ae56c37a3f0486674c3faf0a294f3bc41bb35a6c0f18079681e",
+  "output_sha256": "8d1b94e52d7565ecc66caaa4663c7c4a4033f0b13178bcc19b7916fbf2d8f7be",
+  "output_words": 100,
+  "purpose": "One synthetic compatibility request. No training record, no writing-quality or throughput population claim.",
+  "request_sha256": "61beb0dfc4c02ed2bbd43566d01ab7e7955712ca278248c5239d4ed6792c4775",
+  "response_model": "default_model",
+  "response_sha256": "ba0f6a32c9f886e8f674d4e2194758da0d17ce89f1efe38b88f70983004ce8bf",
+  "runtime": {
+    "packages": {
+      "mlx": "0.32.2",
+      "mlx-lm": "0.31.3",
+      "mlx-metal": "0.32.2",
+      "tokenizers": "0.23.2",
+      "transformers": "5.17.0"
+    },
+    "python": "3.12.14"
+  },
+  "schema": "slop_ninja_olmo_generator_probe_v1",
+  "usage": {
+    "completion_tokens": 118,
+    "prompt_tokens": 113,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 231
+  }
+}

@@ -1,0 +1,566 @@
+{
+  "schema": "slop_ninja_testnet_public_stock_allowlist_v2",
+  "allowlist_id": "testnet-public-stock-v2",
+  "purpose": "testnet_public_stock_only",
+  "split": "reserved_unassigned",
+  "removed_by": "mainnet hidden evaluation on the frozen Common Crawl stock; this public stock is never a mainnet evaluation source",
+  "group_reservations": [
+    {
+      "reservation": "base",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/reserved-unassigned/groups.jsonl",
+      "sha256": "f63e05fcac083b69549f8b4e8864e567e29585e67896cf11bfbd944b782dcd0f",
+      "rows": 1742
+    },
+    {
+      "reservation": "new-domains",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/reserved-unassigned/groups.jsonl",
+      "sha256": "c35931f5dce190c2edead4773d5b9633d1d7fbbdea0f6a32e7dd2bb64ef43559",
+      "rows": 19421
+    },
+    {
+      "reservation": "new-domains-v4",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/reserved-unassigned/groups.jsonl",
+      "sha256": "8f12477cf8ae8e66161e21d7eded75ccb61c89fa9a9383807df8eed9da7e87ae",
+      "rows": 313659
+    }
+  ],
+  "index_reservations": [
+    {
+      "reservation": "base",
+      "domain": "wikipedia",
+      "path": "data/grammar-private/a-competitive-20261027/data/reserve-scan-v1/wikipedia-index/reserved-metadata.jsonl",
+      "sha256": "962465707f1b3427b0a60b64a15d21de22778b1dd4bbf40ed31a4efe5a172060",
+      "rows": 1585894,
+      "excluded": {
+        "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/base-v2/overlap-receipts.jsonl",
+        "sha256": "452d6aa71b0ed099cfefeb78fd6b435a0851debf62f500b49be3d7299519095c"
+      },
+      "remainder_units": 1529669
+    }
+  ],
+  "unit_urls": [
+    {
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/blogs-v3/evaluation-reserved/fineweb-blogs/units.jsonl",
+      "sha256": "149ad278ca1967428e9b061a67e8c5342e6083ae12a1226e55419c7c51b84f9a"
+    }
+  ],
+  "unit_titles": [
+    {
+      "path": "data/grammar-private/a-competitive-20261027/data/integ4/scans/wikibooks-v1/reserved-metadata.jsonl",
+      "sha256": "932b3e58b2550f39c547e9835ce549704645ae15be88f6344334dd435a1e1f69"
+    },
+    {
+      "path": "data/grammar-private/a-competitive-20261027/data/integ4/scans/wikivoyage-v1/reserved-metadata.jsonl",
+      "sha256": "9874e73a78ac394c1bff26b2bce6e74bb59813b93881771d9653751b18894d82"
+    },
+    {
+      "path": "data/grammar-private/a-competitive-20261027/data/integ4/scans/wikisource-v1/reserved-metadata.jsonl",
+      "sha256": "f5d7c6726c0767078d4a6a2a1140acc0ee9e3844b97861b04b3d5bbfcc56c2e8"
+    },
+    {
+      "path": "data/grammar-private/a-competitive-20261027/data/reserve-scan-v1/wikinews/scan/reserved-metadata.jsonl",
+      "sha256": "75c5928fedf37b60abe99ebb79aa53bddd8fc6ef5824a59194111f8d12f738a0"
+    }
+  ],
+  "test_rules": {
+    "groups": [
+      {
+        "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/test/groups.jsonl",
+        "sha256": "51b4b3a177e628df92c72220294acb290d8747d7aa27eeac443835fddaca5aed"
+      },
+      {
+        "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/test/groups.jsonl",
+        "sha256": "2772b3df14d6c92e2c5cfe8a5bf44864ebe248f4eb3f49686be670bef603263e"
+      },
+      {
+        "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/test/groups.jsonl",
+        "sha256": "ea786145bee1c1c1c6cf6fb5f9231edb37952a87881c406802ef7bdf72197e41"
+      }
+    ],
+    "acquisition_summary": {
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-test/test/summary.json",
+      "sha256": "cdedba82f2583cd192a3211af401341d68856a43f97c3f88291dbb7ba04113e9"
+    }
+  },
+  "source_hosts": [
+    {
+      "domain": "reddit",
+      "field": "registered_domain",
+      "value": "reddit.com"
+    },
+    {
+      "domain": "wikipedia",
+      "field": "registered_domain",
+      "value": "wikipedia.org"
+    },
+    {
+      "domain": "wikipedia_talk",
+      "field": "registered_domain",
+      "value": "wikipedia.org"
+    },
+    {
+      "domain": "ubuntu_irc",
+      "field": "host",
+      "value": "irclogs.ubuntu.com"
+    },
+    {
+      "domain": "wikisource",
+      "field": "registered_domain",
+      "value": "wikisource.org"
+    },
+    {
+      "domain": "instructional",
+      "field": "registered_domain",
+      "value": "wikibooks.org"
+    },
+    {
+      "domain": "instructional",
+      "field": "registered_domain",
+      "value": "wikivoyage.org"
+    },
+    {
+      "domain": "peer_review",
+      "field": "registered_domain",
+      "value": "openreview.net",
+      "url_key_rule": "openreview_forum_url_v1"
+    },
+    {
+      "domain": "legal_opinions",
+      "field": "registered_domain",
+      "value": "courtlistener.com"
+    },
+    {
+      "domain": "legal_opinions",
+      "field": "registered_domain",
+      "value": "case.law"
+    },
+    {
+      "domain": "plos",
+      "field": "registered_domain",
+      "value": "plos.org"
+    },
+    {
+      "domain": "project_gutenberg",
+      "field": "registered_domain",
+      "value": "gutenberg.org"
+    },
+    {
+      "domain": "global_voices",
+      "field": "registered_domain",
+      "value": "globalvoices.org"
+    },
+    {
+      "domain": "wikinews",
+      "field": "registered_domain",
+      "value": "wikinews.org"
+    },
+    {
+      "domain": "peer_review",
+      "field": "registered_domain",
+      "value": "scipost.org",
+      "url_key_rule": "scipost_submission_url_v1"
+    }
+  ],
+  "mirror_hosts": [
+    {
+      "domain": "legal_opinions",
+      "host": "law.cornell.edu"
+    },
+    {
+      "domain": "legal_opinions",
+      "host": "justia.com"
+    },
+    {
+      "domain": "legal_opinions",
+      "host": "casetext.com"
+    },
+    {
+      "domain": "legal_opinions",
+      "host": "leagle.com"
+    },
+    {
+      "domain": "plos",
+      "host": "ncbi.nlm.nih.gov"
+    },
+    {
+      "domain": "plos",
+      "host": "europepmc.org"
+    },
+    {
+      "domain": "project_gutenberg",
+      "host": "archive.org"
+    },
+    {
+      "domain": "project_gutenberg",
+      "host": "bartleby.com"
+    },
+    {
+      "domain": "wikisource",
+      "host": "archive.org"
+    },
+    {
+      "domain": "wikisource",
+      "host": "bartleby.com"
+    },
+    {
+      "domain": "wikipedia",
+      "host": "wikiwand.com"
+    }
+  ],
+  "assignment_prose_guard": {
+    "max_words": 63,
+    "refused_fields": [
+      "text",
+      "excerpt",
+      "passage",
+      "body",
+      "content",
+      "prose"
+    ],
+    "measured": "the longest string in the allow-listed assignment files (sealed Test and evaluation groups, families and manifests, the diagnostic slices, the Test acquisition metadata and summary) on 2026-10-31: 63 words, an attribution field of the Test acquisition metadata"
+  },
+  "split_sums": {
+    "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/SHA256SUMS",
+    "sha256": "8f71aa7d3602a68c3c1f591656a2d6fd1765dc5acbdd0e6f7cf38017a22daa29"
+  },
+  "not_gated": [
+    {
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/blogs-v3/evaluation-reserved/fineweb-blogs/groups.jsonl",
+      "sha256": "67a725224c35ffe5427d2d4cf340da28033769c815c590362d38be079a59f8d1",
+      "reason": "the unallocated FineWeb-blog evaluation reservation that the fineweb_blogs Test, CAL, Dev-select, Dev-iter and this stock were drawn from; its blocked writers are gated as train_held"
+    },
+    {
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/blogs-v3/evaluation-reserved/fineweb-blogs/families.txt",
+      "sha256": "79a1451590f72b6f7ab64d242e8cd5fe747631fe1bbec000efd31aec2a4dcbf6",
+      "reason": "the unallocated FineWeb-blog evaluation reservation that the fineweb_blogs Test, CAL, Dev-select, Dev-iter and this stock were drawn from; its blocked writers are gated as train_held"
+    }
+  ],
+  "lineage_screen": {
+    "path": "data/grammar-private/a-competitive-20261027/baseline-release/release-candidate/records/eval-acquisition-raid-screen-v1.json",
+    "sha256": "b6b354b3ea0a3df3bb0600d49a25a4e239952aee34144cd07e090dda32692037"
+  },
+  "gate": [
+    {
+      "role": "train",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/train/manifest.jsonl",
+      "sha256": "ab1e081b55e6d231064e65f43b4676ef3300940da1617daed957c58adf3e1710",
+      "rows": 45224
+    },
+    {
+      "role": "train",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/train-mining/manifest.jsonl",
+      "sha256": "fb842d822efda5e1d02367e99fa4638b52019f5377a13b2610aea8905c83ac41",
+      "rows": 2668789
+    },
+    {
+      "role": "train_held",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/held/manifest.jsonl",
+      "sha256": "388028f5fcee8fc5d106bb0934708e1869ffa49adaf01c907de918c9784c1404",
+      "rows": 81010
+    },
+    {
+      "role": "train_held",
+      "kind": "blocked_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/blogs-v3/evaluation-reserved/fineweb-blogs/blocked-groups.jsonl",
+      "sha256": "38d7ee1a24de120686ae50aa0d7edc9d873cdecf24f138324f7e978bc34bf904",
+      "rows": 281
+    },
+    {
+      "role": "sealed_test",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/test/families.txt",
+      "sha256": "6cc818803b043090173da0196673ce2b6c052e07346a00f26f35bf034ca45d9e",
+      "rows": 32904
+    },
+    {
+      "role": "sealed_test",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/test/families.txt",
+      "sha256": "cc06e3eb90d5e25be916d3e8af98276d7f07b4ad03cd2bc060ad3f9e23b133f6",
+      "rows": 9644
+    },
+    {
+      "role": "sealed_test",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/test/families.txt",
+      "sha256": "f374ad25c2aeaf36a1dd2299e542fc365512fc3c3e1c0d4f141c74c7186e5347",
+      "rows": 37447
+    },
+    {
+      "role": "sealed_test",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/test/manifest.jsonl",
+      "sha256": "dcdf2e48132113aee4af344f4e1ff64ef88a39a9ab61ac3bacf57e3a267ee8bf",
+      "rows": 32904
+    },
+    {
+      "role": "sealed_test",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/test/manifest.jsonl",
+      "sha256": "716c0b64c280929a7eb73dd3df2f4f27efc2ac692601c619c4737dcd43f1b622",
+      "rows": 9644
+    },
+    {
+      "role": "sealed_test",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/test/manifest.jsonl",
+      "sha256": "85c87aeb4798c6079b4d96cd48edb55bb1a1d9df21ecaf0bd8457a30f11f1a02",
+      "rows": 37447
+    },
+    {
+      "role": "sealed_test",
+      "kind": "acquired_metadata",
+      "path": "data/grammar-private/a-competitive-20261027/data/eval-humans-test/test/metadata.jsonl",
+      "sha256": "fd99b07dd9d7b920e893c8903138c68716873ae1612d00b5f6455e6ab0785397",
+      "rows": 3286
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/cal/groups.jsonl",
+      "sha256": "60fe19b55be538d39583970f268138dd310d38f3a2e6b9b5282c512ccdb6fcdc",
+      "rows": 16093
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/cal/families.txt",
+      "sha256": "54443fb92593e5e53a55626f4d65b75520fb9659e84056b4b76408700e62a951",
+      "rows": 28327
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/cal/groups.jsonl",
+      "sha256": "1a9f1f3a0cb5417fd278f270013f5a22beef2b3548eec6e809248dbffdd02d47",
+      "rows": 495
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/cal/families.txt",
+      "sha256": "effd448f0d0eb610d0463c9ebec4f16ab9cae194bdb58ecd433fbee758506fdb",
+      "rows": 10384
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/cal/groups.jsonl",
+      "sha256": "4d28c78e4d37d320fced8dcf6273c97392a0f5286d6c964fada9120eedcf1c9f",
+      "rows": 2912
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/cal/families.txt",
+      "sha256": "1d519037765659f6d45392b8d9969c6384ea4282bc35b339ec3e464728965ab9",
+      "rows": 10801
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/dev-select/groups.jsonl",
+      "sha256": "db383a19bffaad5927271ec5c08ba45620383cfee197f8f41186278a1df6ae4c",
+      "rows": 16084
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/dev-select/families.txt",
+      "sha256": "2e931ad6d551b2a79aca01f0e538977660017bd290330c3d177c0d8acd70573d",
+      "rows": 22241
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/dev-select/groups.jsonl",
+      "sha256": "3ae30df6d4279c2aa0bf3387200be7b2adcc33dc668c05e313d57198a1644ec8",
+      "rows": 514
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/dev-select/families.txt",
+      "sha256": "a892c9af8fef1131e398858f7433908217443851d6e063f662fd1358893d48f0",
+      "rows": 4323
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/dev-select/groups.jsonl",
+      "sha256": "3e4be5037a0c9053309b3c2fa8e9023089e12e5c56aeefae5c22146178c835fd",
+      "rows": 2894
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/dev-select/families.txt",
+      "sha256": "2d43424bf8416ca4c9b9170ee99f924c3e2a477a9f7060ff4c860756b9d1c18d",
+      "rows": 16210
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/dev-iter/groups.jsonl",
+      "sha256": "d8bf23517031584567df243f86fd0e11d635938b4dcdf693fecfe57535aadf42",
+      "rows": 8024
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/dev-iter/families.txt",
+      "sha256": "61b6ee4c1f5ff19e8fde85dcfab842ab54219848cad716bb6488034dc1ce5149",
+      "rows": 13675
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/dev-iter/groups.jsonl",
+      "sha256": "f284cceb756be64bb60ab2dd856a974422b5f11b0e7a8c939c7d5e2030fcdb4e",
+      "rows": 240
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/dev-iter/families.txt",
+      "sha256": "b72d7c8876ef606d7e7f88f09fb686a06556409299b604ef2ac90783e06fead8",
+      "rows": 13114
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_groups",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/dev-iter/groups.jsonl",
+      "sha256": "bacbd80844eb1579d8902855845f27078b51951070aa0ae727b21a7354b485f5",
+      "rows": 1455
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_families",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/dev-iter/families.txt",
+      "sha256": "dff6901d64eaf5dcd6b9f921077cbc95fa0d0523be7e5073785c25167e3242aa",
+      "rows": 5808
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/cal/manifest.jsonl",
+      "sha256": "e339df652ec3079338ad0bcf209777cb3bd421d8fbd3b98c41a20075a5ab68fd",
+      "rows": 28327
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/cal/manifest.jsonl",
+      "sha256": "2e44b72285dc537d74bc6b80228e572b5c2bc12698e625c5a020a645e42ee52f",
+      "rows": 10384
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/cal/manifest.jsonl",
+      "sha256": "339812a3fe3a10aae1f4a9229fcf2e54e7b9b397f2ac24b1020faae025852fc2",
+      "rows": 10801
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/dev-select/manifest.jsonl",
+      "sha256": "66be0bb97e3d22cfa7269cafea02071d80ea8fe309e6f12e4ab21e476607ad16",
+      "rows": 22241
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/dev-select/manifest.jsonl",
+      "sha256": "db5efdafc5fc0c1c7870783834ea67fbc97d17e5071b38ab058e65e1ab4ca512",
+      "rows": 4323
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/dev-select/manifest.jsonl",
+      "sha256": "6a98008bb45859a75b1ede33f55b73aa3b2b501c963f3197973700fbdc0df34f",
+      "rows": 16210
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/dev-iter/manifest.jsonl",
+      "sha256": "217b8644fac9abe5efebc1f9d628f0eb348edaa53ab5bbebc1ceaa2f256cb62b",
+      "rows": 13675
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains/dev-iter/manifest.jsonl",
+      "sha256": "0b028bf0e8ec85d5237a110d6ff8eb2c86e9dd6452ba82592b89cead2179ecec",
+      "rows": 13114
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/new-domains-v4/dev-iter/manifest.jsonl",
+      "sha256": "32dd2dcb6406163b0a1589acaa2f09945d054367f6b8810c71328186d05d5c2e",
+      "rows": 5808
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/diagnostics/ellipse_ell_learner_essays/manifest.jsonl",
+      "sha256": "579016338e953e409eff10fcba8f54bb8f903d5898e663d598396cae31a029e2",
+      "rows": 1980
+    },
+    {
+      "role": "evaluation",
+      "kind": "split_manifest",
+      "path": "data/grammar-private/a-competitive-20261027/data/splits-v5/diagnostics/sbcsae_spoken_conversation/manifest.jsonl",
+      "sha256": "17950cb19045242022aa0323602c92a45c0da61d304b3d78de139c48c770527b",
+      "rows": 866
+    },
+    {
+      "role": "r0_training_lineage",
+      "kind": "trainer_bundle_rows",
+      "path": "data/grammar-private/a-competitive-20261027/baseline-release/trainer-bundles/18b3682973982a3f-rc/rows.jsonl",
+      "sha256": "1e66c1bab966787daadf83f8167d2a64ebe8cd4d8c5e7f435f3564f471d78dae",
+      "rows": 100128
+    },
+    {
+      "role": "r0_training_lineage",
+      "kind": "title_sha256_list",
+      "path": "data/grammar-private/a-competitive-20261027/baseline-release/rc-work/checks/raid-train-title-sha256.txt",
+      "sha256": "d70efa0289b1a274b486c4b4a1e62c5b3766b9002707472efca18b99436084a6",
+      "rows": 2719
+    },
+    {
+      "role": "cc_mainnet_stock",
+      "kind": "cc_admitted",
+      "path": "data/task-roots/cc-human/pilot-v1/pool/admitted.jsonl.zst",
+      "sha256": "293a0e26dd47268b739d4ba6db1b31a7da0896a8f5b8dcf8bcb83e4519eb2881",
+      "rows": 416492
+    },
+    {
+      "role": "public_candidate_v1",
+      "kind": "public_candidate_texts",
+      "path": "data/task-roots/public-candidate/export-v4/texts.jsonl.zst",
+      "sha256": "d659abcdd674a22987eab68bbe6699e832b26f30f0e8203211d02806f0bacf42",
+      "rows": 93918
+    },
+    {
+      "role": "public_candidate_v1",
+      "kind": "public_candidate_records",
+      "path": "data/task-roots/public-candidate/export-v4/records.jsonl.zst",
+      "sha256": "cabc6ef5f4d24a486ddfd269b694a3886171a226e4a563a1fe8737bc8c2e006a",
+      "rows": 204352
+    },
+    {
+      "role": "public_candidate_v1",
+      "kind": "public_candidate_splits",
+      "path": "data/task-roots/public-candidate/export-v4/splits.jsonl.zst",
+      "sha256": "19ba981e96b96945f9f5f3b14cd49f38d48d3ad3bad9b5849017228f254ec10d",
+      "rows": 952096
+    }
+  ]
+}

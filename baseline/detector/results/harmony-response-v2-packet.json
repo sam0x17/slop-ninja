@@ -1,0 +1,208 @@
+{
+  "schema": "slop_ninja_harmony_response_packet_v1",
+  "at": "2026-09-15T13:42:46Z",
+  "protocol_sha256": "c768c4f72dd3ada5332805e515173db109f213a2b36234629508badcd19fdb87",
+  "policy": "All twenty completed responses in the first five frozen profiles; no score or fidelity filter. Expected final hashes selected from the manually reviewed explicit final boundaries. No retrospective corpus admission.",
+  "cases": [
+    {
+      "id": "source-matched/3024817d6b22285ea2235f9f84a1422034afff7d7d0519627642039bd8da42a6",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-source-matched/gpt-oss/calls/3024817d6b22285ea2235f9f84a1422034afff7d7d0519627642039bd8da42a6/response.json",
+      "response_sha256": "72e856592adbfbdf664ec8f818c112cd89eb466f9ad1d4ace8b1d3909c381532",
+      "expected_text_sha256": "d7b0a9f3ec5c347c6029e9b2c22a469c4fe59d5bb0dbc552eaf72eb4fcec409b",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "source-matched/35246f61e4cbf9e03b0113294c31c5c4e8195b699282b199fbc7962adee668b3",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-source-matched/gpt-oss/calls/35246f61e4cbf9e03b0113294c31c5c4e8195b699282b199fbc7962adee668b3/response.json",
+      "response_sha256": "013c668a34b78db04dcdbe8174ffcc0a5092bf8c48aa4884d6c0719a32fbbbc4",
+      "expected_text_sha256": "29e28542992d0bfe8a235d1c0c072ae62d2487c7df5db54365800cd44bab57f4",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "source-matched/5e229d3458cb6540446c0ef0d7b49fe91178868e0e048622f8fec69fc756a974",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-source-matched/gpt-oss/calls/5e229d3458cb6540446c0ef0d7b49fe91178868e0e048622f8fec69fc756a974/response.json",
+      "response_sha256": "1d0330400706f3fa526d2975d95850085850f5489c613eaf0568771084b51a89",
+      "expected_text_sha256": "62ad2439a58de468e62fd62f32f12fdff8d86ef1b7caa9873055ea5b23ff5967",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "source-matched/75b8e760542dc1f8fa5cf55e2092d6d0f45f1ebae0f8fa8d12407c48a9a43bc8",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-source-matched/gpt-oss/calls/75b8e760542dc1f8fa5cf55e2092d6d0f45f1ebae0f8fa8d12407c48a9a43bc8/response.json",
+      "response_sha256": "6ab71fd40c4577844b3d2de8cf958c6715765f78a309613b205c70b168e34368",
+      "expected_text_sha256": "255aee9057d4ea4e54828218d470f35e0740e32737023fb0da91fd6df99b3f89",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "plain/3a8168af13c1d599fbcb73f11402600360b2b2d40a740db9973b86f140182acb",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-plain/gpt-oss/calls/3a8168af13c1d599fbcb73f11402600360b2b2d40a740db9973b86f140182acb/response.json",
+      "response_sha256": "614f524f32a3e8f80b6975b71f6d68676159e681e7791680fe56d95c45065bb3",
+      "expected_text_sha256": "f10e331b9979e0368c6efc85e687bff6c4f4642a3390729cd1a6f848b785f29b",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "plain/c90cb1ca660b19cfc3301a665ba503561a0c97643c51377ed90abd5ce1262dfb",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-plain/gpt-oss/calls/c90cb1ca660b19cfc3301a665ba503561a0c97643c51377ed90abd5ce1262dfb/response.json",
+      "response_sha256": "1b381cf38b7eee3413850e32099fe37fba267dfbc1768b2172fd11aeb9a727fb",
+      "expected_text_sha256": "04d53042c2694ded26a90c2c17fde4abfbf194251b7b4bea8575f29628d6a409",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "plain/ece5de87dfc937da21fe6e446a9fd94f0f296849cba9bb9a2e98fc3deb80e9b9",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-plain/gpt-oss/calls/ece5de87dfc937da21fe6e446a9fd94f0f296849cba9bb9a2e98fc3deb80e9b9/response.json",
+      "response_sha256": "816f07cbef6616be45dc8ddce78fd52a8f9d6065c30973cc850e52ebec4f47ac",
+      "expected_text_sha256": "65c051caafa970490d649756c9ee4d0c8a618c7dc23b233146285eb437e63b18",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": false,
+      "collector_error": "draft_source_copy: reused contiguous 20-word source span"
+    },
+    {
+      "id": "plain/f60759cf0352eb0303879d78084e45880502e44d46ff914d6bd76b573bf9f70b",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-plain/gpt-oss/calls/f60759cf0352eb0303879d78084e45880502e44d46ff914d6bd76b573bf9f70b/response.json",
+      "response_sha256": "cea3650035937aa3e0f3f07d0dfb0fd04d3e7dfefbfe7b1d49dbaffe6649c6b2",
+      "expected_text_sha256": "036aa5916813c34f0e346b137c4ecd8b395f096df288ce4fa0a74cc69eda26ae",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "informal/2df67f3756b9439bb67fe0a0b399a7236d9062c3761b87c4f9e0d13d87d31599",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-informal/gpt-oss/calls/2df67f3756b9439bb67fe0a0b399a7236d9062c3761b87c4f9e0d13d87d31599/response.json",
+      "response_sha256": "4857e704891391708aa294d6d9e7432a9742244697850c311727f2d461817a29",
+      "expected_text_sha256": "e3903696d73b1200d978f1ca4311e9d04d5bad383a14b1e23ad982e23baf6413",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "informal/be1a5c8724eaac5e0ed908cca5a37904968dc10c69a832f934bad2d6dde5aad5",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-informal/gpt-oss/calls/be1a5c8724eaac5e0ed908cca5a37904968dc10c69a832f934bad2d6dde5aad5/response.json",
+      "response_sha256": "48509149872c9e37827aa8825f5f7a2b0262244b136f29e1bb748c2513c86fd4",
+      "expected_text_sha256": "9f4037ca515185a6c0cfd5c69f7c6b602037a153f157e31384a4d5c0d03adaeb",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "informal/f6d74d76d63081bd60a5fd8a83a589c5215ab9853f1c5cf7250f013b51cba1a7",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-informal/gpt-oss/calls/f6d74d76d63081bd60a5fd8a83a589c5215ab9853f1c5cf7250f013b51cba1a7/response.json",
+      "response_sha256": "8e9924920d8cc2d710c290e16dd7c534f120d372e4d139091165f11384e432a2",
+      "expected_text_sha256": "28818719fcfe4aa392dd4a3dec2d785cc5c34e9a75d734e0d6f1eea3ec020692",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "informal/f8dc75dc3b3ee2179fe9d1fc2354df574ac9a65a5a60df7e790f9399995ef254",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-informal/gpt-oss/calls/f8dc75dc3b3ee2179fe9d1fc2354df574ac9a65a5a60df7e790f9399995ef254/response.json",
+      "response_sha256": "3daf65263d5a9158a997656d0a9d4c6634264e3866faf2eac3f30bdfd30a0fc3",
+      "expected_text_sha256": "d2a0b4fa1c58d407a2e61a2ed4946f6fc75b4f7460ebe13e4d5e7616b2ab596a",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "direct/0afa7984964e96f5600d8b0da2de4c6c7e89d37b0ebac1fc0f1bdd1c3632aace",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-direct/gpt-oss/calls/0afa7984964e96f5600d8b0da2de4c6c7e89d37b0ebac1fc0f1bdd1c3632aace/response.json",
+      "response_sha256": "48af5b3616031ee305bbc7c88169e284022a267cd6942af4fb9fa3bcfc030116",
+      "expected_text_sha256": "828841e917f5a19a1a766cec360c4f38c6b822e90fbf5543fcdb9a49444451c4",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "direct/3d6f66e845e66aa34bc6f36557b9ffca846f68e3813b301ae96d24feea594dee",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-direct/gpt-oss/calls/3d6f66e845e66aa34bc6f36557b9ffca846f68e3813b301ae96d24feea594dee/response.json",
+      "response_sha256": "488bce0c80a91713f07abf10ee10ee492083acc81ec6b2d21d12697cd79657ae",
+      "expected_text_sha256": "62f8554c09fe0df56a6651645a3607d9de34472bc30c15c9d2187c9d5f1fb30d",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "direct/8a701157744f777ac25711ebfb8af7882cd06b5763a91e77fb0ac2dd43bd3ece",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-direct/gpt-oss/calls/8a701157744f777ac25711ebfb8af7882cd06b5763a91e77fb0ac2dd43bd3ece/response.json",
+      "response_sha256": "727c6ea607bc5db6124a0414346faa4665b622f9f74aca561c0de6e061b1b1bb",
+      "expected_text_sha256": "8a6479ed6ff41b312d16de9c70bf361f75e58ffdc819ddfdbadf7957e0be293b",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "direct/ee3080e074071749579a6441f73a5e8befabf8e90fa62052378ba7317486bc0f",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-direct/gpt-oss/calls/ee3080e074071749579a6441f73a5e8befabf8e90fa62052378ba7317486bc0f/response.json",
+      "response_sha256": "19b0a5c8cf8c9b9eb8feab694781ed495261e52f5f802e7dddc48884563de15e",
+      "expected_text_sha256": "f23a0c1327afd32c34008c6e8371028c97653bcadd730bb7812087928862b0f9",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "anti-ai/63d1292f53c20e3bc0fa69fbed2fdbac0f53fa7ea18a5e655ba201d006962069",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-anti-ai/gpt-oss/calls/63d1292f53c20e3bc0fa69fbed2fdbac0f53fa7ea18a5e655ba201d006962069/response.json",
+      "response_sha256": "b68d19752dd167ea142e841d4b554bd1cf5112964b02387d1d298b43257dd847",
+      "expected_text_sha256": "70c373b16e162466857721227acb6700cce3dbe0c6bcbc608adf696d1d3e640f",
+      "analysis_messages": 3,
+      "v1_expected_success": false,
+      "collector_record_present": false,
+      "collector_error": "Unexpected Harmony channel or control token"
+    },
+    {
+      "id": "anti-ai/644b3ad9e487584a50458804b3a521481ca6804693ef4ca569bcf5248ba28a3d",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-anti-ai/gpt-oss/calls/644b3ad9e487584a50458804b3a521481ca6804693ef4ca569bcf5248ba28a3d/response.json",
+      "response_sha256": "aa7333544731b8076af8d6d4cecedfdf701507b2bc4617979760bb47fb473751",
+      "expected_text_sha256": "b7ec85cba5bf2ea8c7fd678e37b17a1f4b7a22092e38890d27800f4c08b8d999",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "anti-ai/b74ecddcba0a5fd4d44f135ce0f2bf6e9412bfb67f026b229c32caea6834d577",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-anti-ai/gpt-oss/calls/b74ecddcba0a5fd4d44f135ce0f2bf6e9412bfb67f026b229c32caea6834d577/response.json",
+      "response_sha256": "83d580529e68021b9b8cc7d15946eee36732d81a3c38bc328771d7bc7796ca6d",
+      "expected_text_sha256": "c9c900744c9485af037ad593237711b1c11f0ccb28821ad61fa270ed57e7afbd",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    },
+    {
+      "id": "anti-ai/f3ce57fb1336a66a1528bb153ce09755bc174c15087e278c1ef8820c00ef5d85",
+      "response": "~/slop_ninja_runs/a_robustness_v1/gpt-oss-train-pilot-v1/run-anti-ai/gpt-oss/calls/f3ce57fb1336a66a1528bb153ce09755bc174c15087e278c1ef8820c00ef5d85/response.json",
+      "response_sha256": "c6456a2bb7fb5d19bb2ec4479e6fe988098b6fb918a465618879170ae050a545",
+      "expected_text_sha256": "f701c3248c8c4ccb9605464e18a3acef3fe37b368a47e6121ab397d6f6362104",
+      "analysis_messages": 1,
+      "v1_expected_success": true,
+      "collector_record_present": true,
+      "collector_error": null
+    }
+  ]
+}

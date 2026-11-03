@@ -1,0 +1,84 @@
+{
+  "schema": "slop_ninja_explicit_features_preparation_v1",
+  "status": "feature_extraction_started",
+  "source_summary": {
+    "records": 4903,
+    "source_groups": 685,
+    "origins": {
+      "human_only": 685,
+      "model_only": 2777,
+      "mixed": 1441
+    },
+    "evidence": {
+      "historical_proxy": 685,
+      "recorded_model_generation": 1441,
+      "recorded_model_revision": 1336,
+      "model_edit_of_historical_proxy": 1441
+    },
+    "splits": {
+      "calibration": 540,
+      "development": 530,
+      "train": 3833
+    },
+    "collections": {
+      "cmu-books-historical": 2136,
+      "hc3-wiki-historical": 1482,
+      "plos_one": 609,
+      "wikinews": 676
+    },
+    "licenses": {
+      "CC-BY-2.5": 676,
+      "CC-BY-4.0": 609,
+      "CC-BY-SA-3.0": 466,
+      "CC-BY-SA-4.0": 3152
+    },
+    "words_min": 80,
+    "words_max": 746
+  },
+  "training_fit_unchanged": true,
+  "classifier_fitted": false,
+  "detector_inference_calls": 0,
+  "provider_calls": 0,
+  "manual_review_completed": false,
+  "coordinate_protocol": {
+    "word": 8192,
+    "grammar": 8192,
+    "combined": 16384,
+    "combined_word_cap": 8192,
+    "min_document_frequency": 2,
+    "rms_floor": 0.01,
+    "fitting_split": "train"
+  },
+  "evidence_sha256": {
+    "records.jsonl": "4977128b92763578b456b0104382098bca841f452ed6f2a1edce84ead558cae4",
+    "tools/slop_ninja_detector": "e503ba41e20a605b5efd24d6df66c5a15b55600b81bbe96c99fdce65f087c628",
+    "tools/style_pilot": "307cd7fc6de087b2e709989e2dce4cef2446e55f6fe85dfc5ae3bdc534807ae8",
+    "EXPLICIT_FEATURES_V1.md": "f064ae7f1c1b2e953f1ee26344ef466dd9857fe01733287696a51b38870e31c1",
+    "run.sh": "37ee5babaf732735936bdee8b3e9aee960321602c8b9980f28817df491d6188f",
+    "bindings.sha256": "a5d130fe57470483bb70f538a613121e573aade2b65eccf9da6152af6d83d37d",
+    "rust-tests.log": "29c70796311410bae30831ef5a3199c348e10854123369b595dfd264094ce51d",
+    "clippy.log": "97db7bfd454d62dae5afb014836a6589e510b9848e90de28e6cb58fa31962c74",
+    "tests-review.log": "6da49914ff9ee66625f6a727410d9ff7aaeae22cc33981e43dd0e8898fd1d7c6",
+    "clippy-review.log": "ba0487ba63ec41b781fe357b42a342c354b1d351c4c90c3abec5c23e77adaf6a"
+  },
+  "source_sha256": {
+    "src/main.rs": "928eeaba0b3099b1c01210409133f8cc166867e28fea30b2c521384e700b03e9",
+    "src/pipeline.rs": "58a2a718c67614896c068a8fc911ee50bbd433ac3faea347f1816f3d3995450d",
+    "examples/review_feature_annotations.rs": "a3fbeead88003c34f464190f73d4e09cc4eab2c50e8e0bfa73ca8315eb25059c"
+  },
+  "review_preparation": {
+    "source_groups": [
+      "wikipedia:page:1001127",
+      "wikipedia:page:5311",
+      "doi:10.1371/journal.pone.0208237",
+      "wikinews:103360"
+    ],
+    "selection": "First ID per origin in each declared Train family; no detector scores used.",
+    "executed": false
+  },
+  "limits": [
+    "Operational parsing success does not establish syntax accuracy.",
+    "No neural feature head, fusion model or useful edit-gradient result yet.",
+    "Feature cache contains lexical information and remains outside the repository."
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "book_authors_used_as_summary_authors": false,
+  "corpus_sha256": "6967c60542f60b22ccc55e748fbc3d3f7b487acfbc5b4ea0cc33ba304ef2d574",
+  "dataset": {
+    "collections": {
+      "cmu-books-historical": 289
+    },
+    "evidence": {
+      "historical_proxy": 289
+    },
+    "licenses": {
+      "CC-BY-SA-3.0": 289
+    },
+    "origins": {
+      "human_only": 289
+    },
+    "records": 289,
+    "source_groups": 289,
+    "splits": {
+      "calibration": 34,
+      "development": 26,
+      "test": 27,
+      "train": 202
+    },
+    "words_max": 496,
+    "words_min": 80
+  },
+  "decisions": {
+    "Long quotation requires separate review": 21,
+    "No full historical match": 71,
+    "Source notice requires separate review: attribution": 1,
+    "Source notice requires separate review: copied": 3,
+    "Source notice requires separate review: copyright": 6,
+    "Source notice requires separate review: fair use": 5,
+    "Source notice requires separate review: plagiar": 2,
+    "Source notice requires separate review: public domain": 2,
+    "admitted": 289
+  },
+  "decisions_sha256": "2f09798b2afe42c1d0a109f50eb74338ea52fbc41e59d984391f3c2b33ebbe1c",
+  "exclude_corpora": [
+    {
+      "corpus_sha256": "ab40f42fd54f845e0291d9b5f544279b0de587a5ade4543aa53b29ad6d972851"
+    }
+  ],
+  "executable_sha256": "f3e257c74a75a335f87fbda4ecdf9dce700cd589e7b6ec7298153fe18ed31fa7",
+  "generator_calls": 0,
+  "input_sha256": "94516c64d1b4ac6b8b397ef106ee598b43d0e5364ffd8305edc945dce04f4305",
+  "pangram_calls": 0,
+  "policy_sha256": "03073e3d0da041d440e0cc952239b2eec95963eab0f84593c5d483abfe415f94",
+  "qualification": "Historical proxies, conservative notice/quotation screen; no strong provenance or detector qualification claim.",
+  "review_inputs": [
+    {
+      "plan_sha256": "8d0616e2461e76801ddea18acdbfb95afb1a5905c97487c11609beec1e3e9ceb",
+      "results_sha256": "d38a92005c28357e67ad6b0e31e839a3270edfafe59dbe382ff876d8ae6e2dd1"
+    },
+    {
+      "plan_sha256": "4964e8d5902e00a77c41a9bf30d8c0c82725f7a05c9bb98b6a112c38a102ec17",
+      "results_sha256": "78f2b3ea47d162820cb12950d80c4493f747b67169c9d965acedef39a9cdc728"
+    },
+    {
+      "plan_sha256": "520cd36663736f6973593ecd4c57b46d8b77223e4b9e6447b4e2fa25fb75e3b5",
+      "results_sha256": "171cb0863188e338925c2a9d2889fcd34583bfd8a71e23a975f6cbb83387f7b0"
+    },
+    {
+      "plan_sha256": "ac5fa3408ada8b89a2754917f254a5173a89e7f27cda595fa03f1952fc95fef1",
+      "results_sha256": "e7c663f6877b616f95f11f9050afa56e14742c5b2cc0b9a78336e16ecbaaf79c"
+    }
+  ],
+  "reviewed": 400,
+  "schema": "slop_ninja_cmu_admission_summary_v1",
+  "split_report": {
+    "counts": {
+      "calibration": 34,
+      "development": 26,
+      "test": 27,
+      "train": 202
+    },
+    "merged_duplicate_groups": 0,
+    "seed": "slop-ninja-cmu-narrative-v1"
+  },
+  "status": "complete"
+}

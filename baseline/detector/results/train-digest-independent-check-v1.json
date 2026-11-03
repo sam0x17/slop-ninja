@@ -1,0 +1,13 @@
+{
+  "schema": "slop_ninja_train_digest_independent_check_v1",
+  "at": "2026-09-15T09:06:44Z",
+  "report_sha256": "002c41a8a7b4378c7ac2280551e8ebfc6d3ff35ae9e24843e1090d58f8ad2593",
+  "checker_sha256": "279f16f2593a75a247e312c8cf2fefd501712ce9e97efbae4ba1efd843b0a004",
+  "scanned_records": 5463,
+  "all_matched_rows_and_ranges_reproduced": true,
+  "query_normalized_words": 465,
+  "matched_records": 8,
+  "cross_family_matched_records": 1,
+  "observations_unchanged_after_protocol_clarification": true,
+  "method": "Independent NFC/apostrophe/Unicode-word normalization; coalesce adjacent matching eight-word windows along each positional diagonal."
+}

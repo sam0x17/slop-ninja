@@ -1,0 +1,24 @@
+[package]
+name = "slop_ninja_a_testnet_eval_manifest"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[lib]
+name = "slop_ninja_a_testnet_eval_manifest"
+path = "src/lib.rs"
+
+[[bin]]
+name = "slop_ninja_a_testnet_eval_manifest"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "=1.0.104"
+hex = "=0.4.3"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip", "raw_value"] }
+sha2 = "=0.10.9"
+zstd = "=0.13.3"

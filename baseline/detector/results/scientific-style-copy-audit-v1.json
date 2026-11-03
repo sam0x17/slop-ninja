@@ -1,0 +1,314 @@
+{
+  "schema": "slop_ninja_scientific_style_copy_summary_v1",
+  "host": "mac_studio",
+  "scope": "Eleven completely reviewed responses from three Train roots, two models and two requested profiles. Three cells are complete; only the first two Mistral/plain responses are included. Later calls are outside this frozen snapshot.",
+  "review_sha256": "bfc577dd5df97cdc2bfb768606cfb8fd112f3ccf543c899308dc8d559065a316",
+  "input_sha256": "6ee86c47bdf5d9c767ff1f16bb9d2583fc53512360854ebe48c62a08782761f3",
+  "capture_bindings_sha256": "146ede36d2ee82ffdb35f6938ab680ab30f6b8b776008f34b214d1c4628fc3ff",
+  "rust_source_sha256": "64a3a3a4e1ba3d52f5f68d5e7c846cae542915c93ffcca9180954a8acb05dc7b",
+  "rust_binary_sha256": "dc71426ae74bafed988e9878c3930b883c108ffdd4f2e67b82ddb1d2b320de67",
+  "audit_sha256": "9f9f756cbd44d5356a2cc520683815ee9854cbd2f2ba0248268dceb5983417f6",
+  "independent_verification_sha256": "f6dfbf0481d54baeb341ff32c4a948a80fda1b8eeb37a6de3ee5f98769b4280f",
+  "responses": 11,
+  "automatically_admitted": 7,
+  "source_copy_excluded": 4,
+  "rows": [
+    {
+      "task": "02db2960c08229c427ac38d9fc477f7ade26b5549765b24114dcb609ea5f1200",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "generator": "mistral",
+      "profile": "plain",
+      "automatic_origin_admission": true,
+      "draft_sha256": "0969ff57a69d9d8dace9ce4860e8d0dfa11778f3b37804238566f6c7a2b0effb",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 596,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 12,
+        "longest_draft_word_range": [
+          580,
+          592
+        ],
+        "longest_source_word_range": [
+          637,
+          649
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 651,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "task": "0368d2caea92ee7280cc3663855681e6467e8aec551613c30f3dd8a5ff052c5c",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "generator": "mistral",
+      "profile": "source-matched",
+      "automatic_origin_admission": true,
+      "draft_sha256": "ecf401580e7b981e44b18d5800fbdb95b423c2ed6377254d3947b2af3ebc4b88",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 726,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 12,
+        "longest_draft_word_range": [
+          160,
+          172
+        ],
+        "longest_source_word_range": [
+          165,
+          177
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 922,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "task": "403b826f1e95f597dd828276a60050fe84b12138d4befe23d3c7dce7709fedcb",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "generator": "mistral",
+      "profile": "plain",
+      "automatic_origin_admission": false,
+      "draft_sha256": "24036d3e72f5e8351e7d87226cad5a02bda449cd36caa0383c6c9085fe9bc2f5",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.36540962288686607,
+        "draft_words": 769,
+        "draft_words_in_shared_runs_at_least_20": 281,
+        "longest_contiguous_shared_words": 61,
+        "longest_draft_word_range": [
+          651,
+          712
+        ],
+        "longest_source_word_range": [
+          895,
+          956
+        ],
+        "source_coverage_by_runs_at_least_20": 0.2776679841897233,
+        "source_words": 1012,
+        "source_words_in_shared_runs_at_least_20": 281
+      }
+    },
+    {
+      "task": "478da9369eeb49c2fa024b3655cadbf671d9f23bec14cba9e37d31c08a2baeb3",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "generator": "mistral",
+      "profile": "source-matched",
+      "automatic_origin_admission": false,
+      "draft_sha256": "5ccd1ee49051ac455738608d232660212f382b6f8552d37d2b673d22c6e1c0e7",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.2570781426953567,
+        "draft_words": 883,
+        "draft_words_in_shared_runs_at_least_20": 227,
+        "longest_contiguous_shared_words": 38,
+        "longest_draft_word_range": [
+          680,
+          718
+        ],
+        "longest_source_word_range": [
+          797,
+          835
+        ],
+        "source_coverage_by_runs_at_least_20": 0.22430830039525693,
+        "source_words": 1012,
+        "source_words_in_shared_runs_at_least_20": 227
+      }
+    },
+    {
+      "task": "49c1e8bf05b3520d9283588fcc61efe626ff3ac8dfe29bc67a51f63243bc6a5f",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "generator": "qwen",
+      "profile": "plain",
+      "automatic_origin_admission": true,
+      "draft_sha256": "d561836b90e6147b74e91a583e416fd2d25ad0592e209f97dfce6814f930257f",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 712,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 8,
+        "longest_draft_word_range": [
+          35,
+          43
+        ],
+        "longest_source_word_range": [
+          31,
+          39
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 651,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "task": "5a04d2ba8892acd3bd1ea8f1a97e13f561b105414b6b9a2adaeb83354049050e",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "generator": "mistral",
+      "profile": "source-matched",
+      "automatic_origin_admission": false,
+      "draft_sha256": "37368e751d20b87687595bfc3265cb80807b470d52191dcbd9fafbe7229d027c",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.0374331550802139,
+        "draft_words": 561,
+        "draft_words_in_shared_runs_at_least_20": 21,
+        "longest_contiguous_shared_words": 21,
+        "longest_draft_word_range": [
+          407,
+          428
+        ],
+        "longest_source_word_range": [
+          472,
+          493
+        ],
+        "source_coverage_by_runs_at_least_20": 0.03225806451612903,
+        "source_words": 651,
+        "source_words_in_shared_runs_at_least_20": 21
+      }
+    },
+    {
+      "task": "7a27d057bfae18d65960a70d0e629ab7904bfdf331635f87b445789f88a7dcb0",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "generator": "qwen",
+      "profile": "source-matched",
+      "automatic_origin_admission": true,
+      "draft_sha256": "8d9eedd25123d8b9eb3a7b8f47204d070053ed84479a1a9aa55f52f6a5b9a664",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 680,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 10,
+        "longest_draft_word_range": [
+          464,
+          474
+        ],
+        "longest_source_word_range": [
+          423,
+          433
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 651,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "task": "a3a12ec7a2c031b9a143bbacd7618837417b8ea810963517db6ca7e7a7824117",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "generator": "qwen",
+      "profile": "source-matched",
+      "automatic_origin_admission": true,
+      "draft_sha256": "04eebe621347903b05ea416508f94e96344a813f97eecd1833db95a0de009fca",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 951,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 9,
+        "longest_draft_word_range": [
+          585,
+          594
+        ],
+        "longest_source_word_range": [
+          515,
+          524
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 922,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "task": "b262546c1f7681ed0901f9af5461eb5026dcb8617dce8f11c9d34cdea7cff306",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "generator": "qwen",
+      "profile": "source-matched",
+      "automatic_origin_admission": true,
+      "draft_sha256": "3df140f8256b7075ada7a7f97da5930a8f69a16a98431b4fe02e25d103934aff",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 858,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 12,
+        "longest_draft_word_range": [
+          247,
+          259
+        ],
+        "longest_source_word_range": [
+          225,
+          237
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 1012,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "task": "c63761f4e77f9bf8852446220d942fc9176b71db06fbf5b86b3448e3cf505612",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "generator": "qwen",
+      "profile": "plain",
+      "automatic_origin_admission": true,
+      "draft_sha256": "15e11d6bbb34ea0780caaec72f88e266a8c70dc0563dfbe9e6614776624903af",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.0,
+        "draft_words": 921,
+        "draft_words_in_shared_runs_at_least_20": 0,
+        "longest_contiguous_shared_words": 14,
+        "longest_draft_word_range": [
+          527,
+          541
+        ],
+        "longest_source_word_range": [
+          510,
+          524
+        ],
+        "source_coverage_by_runs_at_least_20": 0.0,
+        "source_words": 922,
+        "source_words_in_shared_runs_at_least_20": 0
+      }
+    },
+    {
+      "task": "e81c59a64271f0238b301db105a61f627494e991ee9da2ed33334e0fbf0377a2",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "generator": "qwen",
+      "profile": "plain",
+      "automatic_origin_admission": false,
+      "draft_sha256": "b5aa0362bd33108955dbf1f0069a88f306e3d8b32b3780a8d88de2c01b86939e",
+      "measures": {
+        "draft_coverage_by_runs_at_least_20": 0.022198731501057084,
+        "draft_words": 946,
+        "draft_words_in_shared_runs_at_least_20": 21,
+        "longest_contiguous_shared_words": 21,
+        "longest_draft_word_range": [
+          268,
+          289
+        ],
+        "longest_source_word_range": [
+          225,
+          246
+        ],
+        "source_coverage_by_runs_at_least_20": 0.020750988142292492,
+        "source_words": 1012,
+        "source_words_in_shared_runs_at_least_20": 21
+      }
+    }
+  ],
+  "observations": [
+    "Two rejected drafts have one shared run of 21 normalized words: 21 of 946 draft words (2.22%) and 21 of 561 (3.74%). One repeats an institutional/method transition and the other a technical statement of the study aim.",
+    "Two other rejected drafts have 227 of 883 words (25.71%) and 281 of 769 (36.54%) covered by shared runs of at least 20 words; their longest runs are 38 and 61 words.",
+    "The seven admitted drafts have maximum shared runs of 8 to 14 words. Zero coverage by 20-word runs follows from the admission rule; it is not evidence of zero source reuse.",
+    "All eleven have a strict source-relative fidelity failure in the separate complete-output review. This snapshot cannot show that excluded drafts are more faithful as a class, or that filter changes improve A."
+  ],
+  "manual_inspection": "The complete source/output reviews precede this audit. Read all eleven reported longest normalized matches and related review findings. Mechanical overlap measurements do not certify unchanged facts or intended tone.",
+  "normalization": "Uses grammar_core::features::words: Unicode letter/mark words, lowercase/NFC and normalized internal apostrophes. Digits and punctuation do not survive as tokens; matching runs can cross citations or sentence boundaries. A shared normalized run is not necessarily a byte-identical passage.",
+  "decision": "Keep the frozen generation and admission policy. Track source reuse continuously alongside the rejection reason. Before changing training admission, declare a separate experiment that retains raw generator provenance, separates copying from semantic fidelity, and compares A on unchanged evaluation families. Do not label these fractions as human-authorship percentages.",
+  "validation": {
+    "cargo_fmt_check": "passed_on_studio",
+    "cargo_test_locked": "passed_on_studio",
+    "example_test": "passed_on_studio",
+    "clippy_all_targets_deny_warnings": "passed_on_studio",
+    "independent_ruby_counts_ranges_and_coverage": "all_11_match",
+    "linux_execution": "unverified"
+  },
+  "detector_calls": 0,
+  "new_generation_calls": 0,
+  "admission_changed": false,
+  "training_changed": false,
+  "limitations": "Small, partially completed Train pilot; no population estimate, causal filter-bias result, Pangram agreement or detector milestone. All raw text remains in Studio experiment storage."
+}

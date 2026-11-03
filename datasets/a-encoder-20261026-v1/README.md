@@ -1,0 +1,11 @@
+# Slop Ninja encoder-adaptation cohort
+
+This rights-checked snapshot preserves 2,268 records from 98 source works: 528 new Train queries, 439 Development queries, 637 Calibration queries, 636 consumed Test queries and 28 independent references. The experiment also reused 3,629 earlier Train records; this snapshot is the new cohort, not the entire fitted population. References retain their own frozen split and must not enter fitting. Every work and descendant stays in one partition.
+
+Historical author text is a US public-domain proxy, not an authenticated contemporary human-only workflow. Exact source text, final text, original/replacement spans, final-word counts, production history, authors, generator/quantizer/runtime identities, prompts, sampler settings, source dates and exposure caveats survive publication. A complete rewrite remains mixed history at unit replacement share. Requested rewrite size is not the share target. Four bounded generation failures and four Test duplicate/no-change exclusions remain explicit.
+
+All Test evaluation and model selection were complete before this publication. These populations are exposed research/regression evidence, not future hidden benchmarks. The publication changes no original fitting bytes, predictions, normalization or calibration. Metadata is provenance, not learned model input. No provider labels are substituted for truth.
+
+The native Rust publisher validates pinned datasets, completed sealed Test runs, exact text, parentage, source-family/reference splits, source rights, generation bindings, UTF-8 replacement spans and a field allowlist. Machine paths, endpoints, private profiles, weights and raw provider logs are excluded. Catalog RDF and generator license evidence accompany this snapshot. Raw generation and paid detector receipts remain in the permanent ignored archive.
+
+Payloads are lossless zstd. Restore with `tools/dataset-storage`, then run `sha256sum -c SHA256SUMS`. Checksums bind decoded bytes. Reproduce the checked projection with `publish_encoder_snapshot REPO STAGE GENERATOR_EVIDENCE_COHORT NEW_DATASETS_CHILD`, then pack using the storage utility. See `docs/a-encoder-adaptation.md` for model results, qualified scope and recovery.

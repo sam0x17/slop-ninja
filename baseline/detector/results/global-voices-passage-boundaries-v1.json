@@ -1,0 +1,17 @@
+{
+  "schema": "slop_ninja_global_voices_passage_boundaries_v1",
+  "source_run_sha256": "f1067f94436860803ea01562f8d0de00ddc8ace42c4dc019e6dcde5f742750a1",
+  "scope": "Manually nominated opening paragraph runs from eight previously reviewed works. No detector-based selection, semantic approval, new source label or training admission.",
+  "selected": [
+    {"id": "gv:769472", "first_paragraph": 1, "last_paragraph": 2, "reason": "Opening political context before the first introduction to a social post; preserve and review the source's date inconsistency."},
+    {"id": "gv:614081", "first_paragraph": 1, "last_paragraph": 2, "reason": "First-person motivation and arrival narrative identified in the earlier source review as a possible contiguous excerpt."},
+    {"id": "gv:594642", "first_paragraph": 1, "last_paragraph": 4, "reason": "Workshop background and location before the Participants heading."},
+    {"id": "gv:711372", "first_paragraph": 1, "last_paragraph": 1, "reason": "Opening explanation of access barriers; the next paragraph introduces an embedded post. Keep this short nomination explicit."},
+    {"id": "gv:555064", "first_paragraph": 1, "last_paragraph": 4, "reason": "Historical, electoral and economic context before the introduction to the social-post sequence. Quoted allegation terms remain in narration."},
+    {"id": "gv:662657", "first_paragraph": 1, "last_paragraph": 5, "reason": "Opening case narrative before the comic factbox; the name and reason for not reporting remain with their context."},
+    {"id": "gv:557838", "first_paragraph": 1, "last_paragraph": 3, "reason": "Interview introduction before the first turn; review whether this is usable without the interview itself, rather than automatically approving it."},
+    {"id": "gv:742458", "first_paragraph": 1, "last_paragraph": 1, "reason": "Opening context before the next paragraph introduces the journalist's quoted account. Keep the short nomination and its limitations explicit."}
+  ],
+  "training_admitted": false,
+  "origin_assigned": false
+}

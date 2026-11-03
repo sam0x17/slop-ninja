@@ -1,0 +1,18 @@
+{
+  "schema": "slop_ninja_private_origin_runner_validation_v1",
+  "rust_fmt_passed": true,
+  "all_target_tests_passed": true,
+  "clippy_warnings_denied_passed": true,
+  "example_build_passed": true,
+  "live_gate_rejected_before_output": true,
+  "private_inference_started": false,
+  "end_to_end_execution_complete": false,
+  "validation_host": "Mac Studio, macOS arm64",
+  "bindings": {
+    "private_origin_transfer.rs": "8b4d7f2fef4dbc2045a0d10dec544db6a0238059945b26e29b19647e40710ecb",
+    "private_origin_transfer": "6f6b1d9e129d8d329db57f2711e5d0e438cd9c9dd1aafdfff261bf663e48992d",
+    "tests.log": "6883009acb952886ea7e32eb93b470904cb3577374586d1cbc987df2b078d262",
+    "clippy.log": "b94fa0c3e78f0a4aea920af117736cf088ae5d0d25b2bdf2bae648e864590662",
+    "build.log": "5b6dd5afe0495c6cd1e02e44933e153fe1f031c56437c1d08d2294ae156baf35"
+  }
+}

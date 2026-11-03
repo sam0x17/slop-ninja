@@ -1,0 +1,19 @@
+[package]
+name = "slop-ninja-protocol"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Versioned Slop Ninja subnet records, canonical encoding, signatures and reward arithmetic"
+
+[features]
+# Deterministic fixture builders and the golden report shared by native and Wasm checks.
+fixtures = []
+
+[dependencies]
+ed25519-dalek = "2.1"
+sha2 = "0.10"
+
+[dev-dependencies]
+# Integration tests use the fixture builders.
+slop-ninja-protocol = { path = ".", features = ["fixtures"] }

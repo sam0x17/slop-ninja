@@ -1,0 +1,15 @@
+{
+  "counts": {
+    "historical_match": 47,
+    "matched_without_notice_terms": 42,
+    "no_historical_match": 53
+  },
+  "executable_sha256": "39d512f94ce54a340790af4a4ce18b0fd56b0e8b350c17306e47859557f8e104",
+  "pangram_calls": 0,
+  "plan_sha256": "e2c269255493c512d3b8844f0c7abf319f94b1834f52379ad485691f94948eaa",
+  "results_sha256": "3dd7a93b53dda321444ac0b9e50dc0e627fb68e73da0b065b38e98dc8f56adea",
+  "reviewed": 100,
+  "schema": "slop_ninja_cmu_lineage_review_summary_v1",
+  "status": "complete",
+  "training_records_exported": 0
+}

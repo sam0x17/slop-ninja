@@ -1,0 +1,284 @@
+\section{Later transformation mechanism}\label{later-b}\label{reward-adjudication}
+
+\textit{B} is a later mechanism for authorized revision toward a requested
+writer's voice, with preserved meaning and measured resistance to origin
+detectors. Its activation requires a separate scoring-authority decision,
+editorial validation, serving qualification, and reward allocation. The
+coordinator-led \textit{A} pilot does not settle who adjudicates \textit{B}'s
+semantic disputes. This section retains a candidate evaluation design; its
+formulas and service gates are not active launch rules.
+
+\subsection{The editing task}\label{author-transformation-and-detector-evasion}
+
+A benchmark supplies source text, independent authorized target-author samples,
+and a brief fixing the requested style and preservation requirements. Sources
+may have human-only, model-only, or mixed production histories. Revision
+preserves source ancestry while extending the candidate's production history:
+a model revision of human-only text is mixed under the initial labeling policy.
+Intended uses include editing one's own or licensed
+writing and authorized detector research; a low detector score cannot cancel
+disclosure obligations attached to the eventual use.
+The private job record binds the authenticated requester, source and reference
+identities, declared permission to submit and transform them, and relevant
+license or permission records where applicable. These records document the
+authorization basis; a declaration alone cannot establish ownership.
+
+Matching a writer includes lexical, grammatical, and rhetorical habits in the
+requested register. The brief distinguishes unwanted filler and repetition from
+deliberate informality and idiosyncrasy. It may request a different tone from
+the source. Without such a direction, source tone supplies the default.
+Shortening, simplification, and stronger rhetoric count as improvements only
+when they serve the brief without losing information or increasing certainty.
+
+For the main intended customer workflow, the target is the private writer
+profile built from the user's samples (Section~\ref{author-and-origin-detection}).
+The proposed pipeline generates typed word, phrase, and clause edits, reparses
+candidates under the shared grammar, and uses \textit{A}'s continuous
+author-fit signal against that profile to rank successive revisions. The
+categorical \emph{Provided writer} match alone is too coarse to guide this
+search. No representation tested so far supplies that signal: rewrites toward a
+target writer scored near chance against rewrites toward other writers for
+encoder, stylometric, CFG, and fused profiles alike, and the kind of rewrite
+moved scores more than the target voice did (Section~\ref{writer-profile-evidence}).
+The feedback therefore waits for the learned matcher's qualification and for
+rewrites conditioned on several of a writer's own samples, data that does not
+exist yet. Freeze the reference profile, \textit{A} artifact, and calibration
+for the job so an apparent improvement cannot come from changing the target.
+A language model may propose changes within the registered procedure; the
+private ranker receives compatible source and candidate bundles, deltas, the
+writer profile, and declared task controls. The target-style input is the
+profile rather than raw reference writing. Source prose remains available to the
+authorized editing runtime, and trusted preprocessing still reads the samples.
+Neither samples nor profiles enter a miner-accessible request path. Candidate
+selection retains separate meaning, readability, and tone checks; a higher fit
+score cannot erase a revision's production history.
+Whether the grammar's typed edits and this profile support useful transformation
+remains an empirical question. Private serving and the provider/operator trust boundary are specified
+in Section~\ref{confidential-customer-inference}.
+
+The assembled document is the evaluation unit. Later qualification must cover
+multi-paragraph work and, for profiles advertised to support them, complete
+manuscripts and books. Context windows and local edits are implementation
+units. Evaluation retains every span and checks cross-section claims,
+terminology, attribution, and voice. A chapter or sentence score cannot certify
+the complete work. Each length class needs measured resource limits,
+failure behavior, and whole-document quality evidence.
+
+\subsection{A frozen comparison}\label{common-transformation-evidence}
+
+Before generation, the evaluation authority freezes the service version,
+workload profile, task population, references, style evaluator, detector panel,
+source baselines, and funded evidence budget. The benchmark uses the same
+bounded pipeline offered to customers. Its profile limits internal attempts,
+context, output, search, and cost. Each invocation produces one final candidate
+or abstention; all attempts and recovery actions remain recorded. Cloudflare
+generation may vary between runs, so qualification measures variability without
+claiming identical-output replay.
+
+The proposed panel uses three qualified, distinct \textit{A} inference
+artifacts: the prior-round origin leader and two preselected members. Before
+activation, choose whether the leader is ranked by binary AI-involvement Brier
+score or three-class origin Brier score. That choice is separate from
+\textit{A}'s quality anchor and reward baseline. Freeze reserves before issue;
+after issue, recovery executes the same judges. Miners cannot nominate the
+panel, benchmark inputs, or a replacement comparison. Too few competitive
+artifacts require separately reported, funded bootstrap comparisons.
+
+Run the complete source/candidate matrix under the frozen parsing, resolution,
+projection, and execution contracts. Retain the strongest detector's result
+separately. Miner self-scores remain nonauthoritative. Distinct artifacts and
+UIDs do not establish independent ownership; collusion and candidate-triggered
+errors belong in qualification tests. \textit{A} earns quality credit against
+independent production-history labels, so judging \textit{B} harshly supplies
+no reward by itself. Hidden labels and unreleased review material remain with
+authorized evaluators; retired examples need authorization before release.
+
+\paragraph{Accepted bytes.}\label{canonical-text-profile}
+The English benchmark profile specifies UTF-8, NFC, LF-only endings,
+permitted scripts and code points, and pinned Unicode/security-data versions
+with test vectors~\cite{unicodenormalization,unicodesecurity}. It forbids a
+terminal LF, BOM, undeclared invisible or bidirectional controls, tabs, edge
+whitespace, repeated spaces, and excess blank lines. Predeclared literal spans
+receive only exact-copy whitespace exceptions; they cannot add a terminal LF.
+Sources, references, and briefs conform before issue. Other formatting requires
+an explicitly qualified profile.
+
+The runtime may finalize an uncommitted draft inside its measured procedure.
+Signed text is never silently repaired. Receipts, commitments, reconstructed
+vectors, style evaluation, reviewer display, and authorized Pangram requests
+bind identical accepted bytes. Decode the provider's returned analyzed text
+and compare its UTF-8 bytes exactly; a changed copy is unusable evidence.
+The probe behind the terminal-LF restriction and its limitations are recorded
+in Section~\ref{audit-sequence}. Qualify supported report retrieval and retention
+before live use. Report URLs may expose text and stay out of public receipts
+and logs. Customer disclosure to Pangram requires separate permission.
+
+\subsection{Style, preservation, and detector improvement}
+\label{preservation-before-revision-rewards}
+\label{transformation-and-improvement-utility}
+
+The public style evaluator is frozen independently of the private ranker. Its
+contract binds the profile schema, feature meanings, reference pooling,
+parameters, executable, numerical operations, rounding, and resource bounds.
+For text \(t\) and reference set \(\mathrm{Refs}\), it returns a nonnegative
+integer distance \(d_\theta(t,\mathrm{Refs})\). Under the proposed personal-profile
+workflow, \(\mathrm{Refs}\) binds the writer profile and its construction
+record; evaluating a candidate requires no raw reference prose. A qualified
+\textit{A}-derived author-fit distance is the intended implementation. Its
+mapping to this integer distance and its calibration must be fixed and tested
+before use; a categorical match or an uncalibrated similarity cannot replace
+the evaluator. A nonempty calibration multiset
+\((c_1,\ldots,c_M)\) contains distances from development queries to independent
+same-author reference work; source families are separated from fitting and
+evaluation. Duplicate values remain. With \(Q=1{,}000{,}000\), define
+\begin{equation}\label{eq:style-fit}
+ q(t,\mathrm{Refs})=\left\lfloor
+ Q\,\frac{2\#\{m:c_m>d_\theta(t,\mathrm{Refs})\}
+             +\#\{m:c_m=d_\theta(t,\mathrm{Refs})\}}{2M}
+ \right\rfloor.
+\end{equation}
+Ties receive half credit. This rank supplies neither authorship probability nor
+semantic approval. Source \(x\) and candidate \(z\) share references and
+calibration, giving \(q_x,q_z\). Positive style improvement uses remaining
+headroom:
+\begin{equation}\label{eq:style-utility}
+ V(x,z)=\begin{cases}
+ 0,&q_x=Q,\\
+ \displaystyle\frac{\max(0,q_z-q_x)}{Q-q_x},&q_x<Q.
+ \end{cases}
+\end{equation}
+Keep exact rational values through aggregation and check raw nonregression
+\(q_z\geq q_x\) separately. A tie or already-maximal source earns no invented
+improvement. Before rewards depend on this evaluator, test adaptive searches
+that optimize it through reference copying, topic substitution, omissions,
+padding, or changes of meaning. Among semantically acceptable candidates,
+higher rank must also agree with independent judgments of author fit.
+
+Readers inspect the complete source and candidate before seeing numerical
+scores. The frozen rubric has three fields:
+\begin{itemize}
+\tightlist
+\item \(P\), preservation of complete meaning: claims, entities, quantities,
+negation, uncertainty, citations, attribution, and argument relations. Review
+covers omissions from the checklist as well as listed facts. Unsupported
+additions and stronger factual certainty fail.
+\item \(R\), readability without material regression, including requested
+cleanup of filler or formulaic phrasing. Brevity alone earns no approval.
+\item \(T\), the requested tone and audience constraints, preserving deliberate
+voice features. This field still applies when source tone supplies the default.
+\end{itemize}
+Every field records pass, fail, or unresolved with reasons. Set \(G=1\) only
+after all required approvals; an established failure gives \(G=0\). Missing
+evidence leaves \(G\) unknown. An automated judge needs validation against
+separate readers before influencing rewards. Controls include unchanged
+sources, qualified human edits, fluent semantic errors, erased voice, and
+detector-passing revisions that retain unwanted habits. Instructions inside
+evaluated prose are data. Blinded reader studies must have enough power for
+the claims made about voice and quality.
+
+Pangram's reported AI-plus-assisted fraction \(F_r(t)\) differs from a
+document-level probability of AI involvement~\cite{pangramapi}. Retaining the
+three-observation proposal for each source and candidate gives
+\begin{equation}\label{eq:evasion-improvement}
+ \Delta_P(x,z)=\min_r F_r(x)-\max_r F_r(z).
+\end{equation}
+Reopening one report does not create another observation. The coordinator
+binds report counts, request identities, repetition/retry rules, provider
+version, and usable evidence before generation. All required observations and
+failures remain in the ledger; neither miner nor operator may select favorable
+reports after seeing scores. Retry and provider-drift rules need qualification
+before activation. The operator funds shared source observations; miners fund
+their bounded candidate observations and evaluation inference as participation
+costs. Section~\ref{audit-sequence} reports the limited repeatability evidence.
+
+For panel member \(j\), let \(H_j(t)\) be its frozen AI-involvement probability
+and \(\Delta_j=H_j(x)-H_j(z)\). Define
+\(\Delta_S=\operatorname{median}_{j=1}^{3}\Delta_j\), retaining every raw
+answer. The provisional joint detector improvement is
+\begin{equation}\label{eq:joint-evasion-utility}
+ E(x,z)=\begin{cases}
+ (\Delta_P+\Delta_S)/2,&\Delta_P\geq0\ \text{and}\ \Delta_S\geq0,\\
+ 0,&\text{otherwise}.
+ \end{cases}
+\end{equation}
+With complete evidence, the candidate utility is
+\begin{equation}\label{eq:transformation-utility}
+ U_B(x,z)=\begin{cases}
+ G(V+E)/2,&q_z\geq q_x,\ \Delta_P\geq0,\ \Delta_S\geq0,\\
+ 0,&\text{otherwise}.
+ \end{cases}
+\end{equation}
+These weights remain a proposal requiring reader validation and an allocation
+decision. Each comparison measures both objectives. One component can improve
+while others hold steady; a clipped value cannot hide regression.
+
+Strict detector success additionally requires every candidate Pangram fraction
+below 10\%, a majority of panel members below their independently calibrated
+human-false-positive thresholds, and a pass at the prior-round leader's own
+threshold. It also requires the approvals and raw nonregression checks above.
+Incremental utility can be positive before this target is reached. Reports
+separate utility, author fit, each detector result, and strict success. A zero
+source Pangram baseline permits no candidate increase, although approved style
+improvement can still earn utility. Each candidate's label follows its complete
+production workflow, regardless of detector scores.
+
+For detection customers, a successful evasion is a false negative by the
+affected \textit{A} detector. Its reported limitations must include performance
+on held-out revisions from evaluated \textit{B} pipelines. Such revisions can
+expose weaknesses for future training, but only fresh evaluation can establish
+an improvement in detection.
+
+Reducing required Pangram checks later needs repeated held-out noninferiority
+studies, including new adversarial revisions and difficult human slices.
+Calibrate the fraction and probability outputs to the same independently
+labelled event on separate development data. Agreement with Pangram or a
+change of quality anchor is insufficient. A reduced-check policy must state
+how unchecked candidates are scored and how provider drift is detected.
+
+\subsection{Service and outcome accounting}\label{service-evidence}
+\label{adversarial-feedback-loop}
+
+Later mandatory training service has separate \textit{A}-requester and
+\textit{B}-provider classes. No such duties apply to the \textit{A}-only launch.
+Before issue, reserve shared evaluation resources, candidate-report funding,
+and the provider's accepted inference budget. The requester pays no extra
+service price; the provider absorbs its participation costs for potential
+emissions. Publication and qualification of \textit{A} remain separate.
+
+A durable ticket binds registration generations, service versions, task and
+capacity limits, ordered counterparties, and feasible response windows.
+Assignments consume permanent slots; callers cannot nominate peers, redraw by
+declining, or turn retries into new quota. A valid admitted request activates
+provider responsibility. Fallback success preserves earlier failure.
+Unresolved validity stops dependent attempts. Keys, UID reuse, migrations, and
+restarts cannot silently reset counters or remove outstanding work.
+Coordinator outages preserve the cohort and evidence under the recovery
+protocol; elapsed wall time alone cannot erase an obligation.
+
+For each applicable service class, retain
+\(O_{\mathrm{act}}=S+F+U+O_{\mathrm{void}}\): successes, attributable failures,
+unresolved cases, and scoped voids. Unused reservations stay separate. The
+proposed availability rule requires \(U=0\), \(N=S+F>0\), and
+\(10F\leq N\), plus qualification and a cleared deficit
+\(D_e=\max(0,D_{e-1}+10F-N)\). Recovery work belongs to the failed class;
+customer volume, voids, and unresolved work cannot repay that deficit. A
+compliant abstention can satisfy delivery while earning no quality improvement.
+No inactive class needs an artificial empty success.
+
+Benchmark closure distinguishes missing or unscorable candidates, unresolved
+judgments, and scoped platform failures. Under the proposed accounting rule, these
+slots earn zero and keep their assigned denominator weight and actual status.
+One uncertain candidate cannot erase completed competitors. Shared treatment
+requires evidence of a common cause and applies uniformly to its declared
+scope. Semantic uncertainty alone does not prove an assigned-service failure.
+Provider revocation, deletion, exhausted billing, or unreserved concurrent use
+can establish provider fault only through the adopted attribution procedure.
+
+Before \textit{B} activates, choose its review authority, evidence access,
+incident deadlines, appeals, and correction rules. Other validators' approval
+or availability cannot gate review, closure, or service; their only protocol
+dependency is timely submission of the prescribed native weight rows.
+Reserve capacity for complete review and qualify these rules against outages
+and strategic withholding. Preserve signed decisions and attempt records through
+recovery; coordinator records cannot claw back native emissions already
+distributed.

@@ -1,0 +1,212 @@
+{
+  "admitted": {
+    "collections": {
+      "cmu-books-historical": 63
+    },
+    "evidence": {
+      "historical_proxy": 21,
+      "model_edit_of_historical_proxy": 21,
+      "recorded_model_generation": 21
+    },
+    "licenses": {
+      "CC-BY-SA-3.0": 21,
+      "CC-BY-SA-4.0": 42
+    },
+    "origins": {
+      "human_only": 21,
+      "mixed": 21,
+      "model_only": 21
+    },
+    "records": 63,
+    "source_groups": 21,
+    "splits": {
+      "test": 63
+    },
+    "words_max": 476,
+    "words_min": 81
+  },
+  "admitted_families_by_split_profile": [
+    {
+      "families": 4,
+      "profile": "anti-ai",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "direct",
+      "split": "test"
+    },
+    {
+      "families": 3,
+      "profile": "fix-slop",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "test"
+    },
+    {
+      "families": 2,
+      "profile": "plain",
+      "split": "test"
+    },
+    {
+      "families": 3,
+      "profile": "source-matched",
+      "split": "test"
+    }
+  ],
+  "complete_export_ready": true,
+  "detector_predictions_opened": false,
+  "excluded_root_count": 6,
+  "exclusion_reasons": {
+    "Output length outside declared 80–800 word admission bounds: 66": 1,
+    "Output length outside declared 80–800 word admission bounds: 70": 3,
+    "Output length outside declared 80–800 word admission bounds: 75": 1,
+    "Output length outside declared 80–800 word admission bounds: 76": 1,
+    "Output length outside declared 80–800 word admission bounds: 77": 1,
+    "Output length outside declared 80–800 word admission bounds: 79": 2,
+    "draft_source_copy": 1
+  },
+  "failed": 10,
+  "failed_operations": {
+    "draft": 5,
+    "edit": 5
+  },
+  "generation_summary_sha256": "6411e82301c635783343f96ed7bb0f07b70495cbc79ca0ae27072a8d4af4632d",
+  "individually_accepted": 44,
+  "limitations": [
+    "This held-out-provider Test corpus has no detector predictions; only generation metadata, admission counts and token lengths have been inspected.",
+    "The pair rule excludes accepted siblings when the paired output fails; admission uses no detector scores.",
+    "Historical human proxies and source-conditioned generations, with unverified semantic fidelity."
+  ],
+  "pangram_calls": 0,
+  "planned_families_by_split_profile": [
+    {
+      "families": 4,
+      "profile": "anti-ai",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "direct",
+      "split": "test"
+    },
+    {
+      "families": 4,
+      "profile": "fix-slop",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "informal",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "plain",
+      "split": "test"
+    },
+    {
+      "families": 5,
+      "profile": "source-matched",
+      "split": "test"
+    }
+  ],
+  "profile_plan_sha256": "d122a913ce616d63ab7270ac6f88d3c6ae1783825e1607cd3f9944fc738ca16f",
+  "provider": "phi4",
+  "records_sha256": "9e94663292c7ec5f590e2fd85ed8c0a345e99ed2a54dd30fd42830242dd38c2e",
+  "requested": 54,
+  "schema": "slop_ninja_narrative_cohort_summary_v1",
+  "source_corpus_sha256": "6967c60542f60b22ccc55e748fbc3d3f7b487acfbc5b4ea0cc33ba304ef2d574",
+  "status": "complete",
+  "successful_drafts_excluded_by_pair_rule": 1,
+  "successful_edits_excluded_by_pair_rule": 1,
+  "token_audit": {
+    "fits_configured_token_limit": true,
+    "max_tokens": 1024,
+    "model_executed": false,
+    "records_dropped": 0,
+    "shards": {
+      "test": {
+        "class_counts": {
+          "human_only": 21,
+          "mixed": 21,
+          "model_only": 21
+        },
+        "class_source_group_counts": {
+          "human_only": 21,
+          "mixed": 21,
+          "model_only": 21
+        },
+        "evidence_counts": {
+          "historical_proxy": 21,
+          "model_edit_of_historical_proxy": 21,
+          "recorded_model_generation": 21
+        },
+        "over_limit_count": 0,
+        "over_limit_records": [],
+        "records": 63,
+        "sha256": "9e94663292c7ec5f590e2fd85ed8c0a345e99ed2a54dd30fd42830242dd38c2e",
+        "source_groups": 21,
+        "token_lengths_by_class": {
+          "human_only": {
+            "max": 587,
+            "mean": 270.76190476190476,
+            "min": 112,
+            "nearest_rank_percentiles": {
+              "25": 162,
+              "50": 223,
+              "75": 406,
+              "90": 459,
+              "95": 492,
+              "99": 587
+            }
+          },
+          "mixed": {
+            "max": 616,
+            "mean": 249.9047619047619,
+            "min": 105,
+            "nearest_rank_percentiles": {
+              "25": 144,
+              "50": 204,
+              "75": 366,
+              "90": 412,
+              "95": 473,
+              "99": 616
+            }
+          },
+          "model_only": {
+            "max": 551,
+            "mean": 254.8095238095238,
+            "min": 111,
+            "nearest_rank_percentiles": {
+              "25": 141,
+              "50": 204,
+              "75": 349,
+              "90": 430,
+              "95": 449,
+              "99": 551
+            }
+          }
+        },
+        "token_lengths_including_special_tokens": {
+          "max": 616,
+          "mean": 258.4920634920635,
+          "min": 105,
+          "nearest_rank_percentiles": {
+            "25": 144,
+            "50": 204,
+            "75": 367,
+            "90": 449,
+            "95": 492,
+            "99": 616
+          }
+        }
+      }
+    }
+  },
+  "token_audit_sha256": "310bb0b677b5e931efa3ce00a3df2f6b50dfe90a66c373ef310311194992cdb4",
+  "unattempted_count": 0
+}

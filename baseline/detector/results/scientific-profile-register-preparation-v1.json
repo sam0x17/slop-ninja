@@ -1,0 +1,80 @@
+{
+  "schema": "slop_ninja_scientific_profile_register_preparation_v1",
+  "host": "mac_studio",
+  "source_groups": 3,
+  "prospective_requests": 6,
+  "legacy_requests_replayed": 24,
+  "legacy_request_bytes_unchanged": true,
+  "new_requests_differ_only_in_declared_prompt_replacements": true,
+  "source_profile_sampling_unchanged": true,
+  "new_network_calls": 0,
+  "manual_prompt_prefix_read": true,
+  "prior_full_source_reviews_retained": true,
+  "meaning_or_style_success_established": false,
+  "rust_format_tests_and_all_target_clippy_passed": true,
+  "rows": [
+    {
+      "model": "qwen",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "task": "3b2091d478ab0652bfbab804790eab8a04aa6a497959fc33c59ab3fcb7543328",
+      "legacy_task": "cafbf1057d07923adda7adcf79cba0aced800dca0b8aa169705fa2b4b20a8364",
+      "source_sha256": "c2c91d8d6a2a353e5e3fe5778101ef82310a01d2fc428e2b82142df2939a8838",
+      "prospective_request_sha256": "0d4132d6c152e9fcf8acde71f1d461769faf5087816d10a557b0b746ce1f4d98"
+    },
+    {
+      "model": "qwen",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "task": "4c927c63e4e205864839b2d9c266127bb235ba5540ebb4d40ffe5aac09b99db1",
+      "legacy_task": "9a5cf34a1cc68514d4dc69355830a7d46c7f95ebae5c16b372ca9872aa306300",
+      "source_sha256": "9aa118dcd0b3eaeb765ea1e768945e7ea9a4f4023980c1b08dd65026c4f12cbf",
+      "prospective_request_sha256": "bdca30fd7fe7df390020410099d355aa3423bb8daaf1b2ba4de29689de8ea487"
+    },
+    {
+      "model": "qwen",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "task": "514e5942a47873c28b2d29f069662a0f353d1d93e01e68f261ce9536442bb929",
+      "legacy_task": "e28ad7ae61f779a11df4fe1a006035b2abb4dcad7eb53c14bc6cf1638ef2f48d",
+      "source_sha256": "a9f92fc5c289bf5bcc0d068ec4557b9522b09a7f06604d604b783d87125df5ce",
+      "prospective_request_sha256": "a094275e6e69dcb635f5a92d8ea6028659f752413d4eb42fecdaf972365669ad"
+    },
+    {
+      "model": "mistral",
+      "source_group": "doi:10.1371/journal.pone.0203974",
+      "task": "407a9acbf9eed34d618283bc95e96d262e3f003feb23a5448c222daf86c8a37d",
+      "legacy_task": "5d4b6bbb8c96b76364f16af5755cd7049bab27332fb029694c7b9dd8aa40794a",
+      "source_sha256": "9aa118dcd0b3eaeb765ea1e768945e7ea9a4f4023980c1b08dd65026c4f12cbf",
+      "prospective_request_sha256": "bdca30fd7fe7df390020410099d355aa3423bb8daaf1b2ba4de29689de8ea487"
+    },
+    {
+      "model": "mistral",
+      "source_group": "doi:10.1371/journal.pone.0201998",
+      "task": "ba1d4eb83d8c0f818628d880e9065e2812d357c0a320036e8440a13706f6a822",
+      "legacy_task": "849c2b68d15de98e3a36380283a0f7ae75fd29b33dd717f944c5bca76d73b312",
+      "source_sha256": "c2c91d8d6a2a353e5e3fe5778101ef82310a01d2fc428e2b82142df2939a8838",
+      "prospective_request_sha256": "0d4132d6c152e9fcf8acde71f1d461769faf5087816d10a557b0b746ce1f4d98"
+    },
+    {
+      "model": "mistral",
+      "source_group": "doi:10.1371/journal.pone.0200118",
+      "task": "ee56c38369e31deca74c7d268b0da88c29a57e9a23cd6f9153e5f0ce6e4c344d",
+      "legacy_task": "cc3733ab177a41de2486aca7b83005ee80a29f07c9945552b07e4804e00b0854",
+      "source_sha256": "a9f92fc5c289bf5bcc0d068ec4557b9522b09a7f06604d604b783d87125df5ce",
+      "prospective_request_sha256": "a094275e6e69dcb635f5a92d8ea6028659f752413d4eb42fecdaf972365669ad"
+    }
+  ],
+  "bindings": {
+    "PROTOCOL.md": "50d4b5ea3d55cd397fb351ae494c44ce550e6ad62d0464b0857329a3afe2eb7b",
+    "tools/generate_samples": "5d2f8301722b0ed5d95bb5658b80ab606133c9afcf1e97ff1f51c47fd6e5f7bd",
+    "tools/generate_samples.rs": "a272b56487335d5315befe357b97af630af0e26a5ecdacc55f1713a5fc222607",
+    "tools/generation_campaign": "ea578874bcccaca30416c79758707fda60bc10ee45ff0f3fb8d6fbd6f78dbd86",
+    "tools/generation_campaign.rs": "8ea22300be3de9c51de48e94a667c73d26ca6252b384afc003c9bc73a059ca0c",
+    "tools/audit_plan.rb": "2f84f3769059b4bf97af6870a13ec065314d70ee361cca485ad9a3dfb090ebad",
+    "plans/qwen.json": "6ebb6b23419bae23d09975c18d5ecd5aae52c37e4456286bd28b7cadae245bb2",
+    "plans/mistral.json": "20a61888127dfe330ea4bc4eb8b7fb1c9ae6781f98df9e010464bc2a6702828d",
+    "planned/qwen/planned-requests.jsonl": "a5c0b346a56bee02d0a5123ace6a2113867efc67ec685dee54259c6b48b00420",
+    "planned/mistral/planned-requests.jsonl": "9796166100cdd28e52bbdfded1fd8e0318112773ce58c8cc197442b5c5b22382",
+    "legacy-replay.json": "a8269977a9e7ae76d4ccabfbedb0632dee90c82de55459b741306ef5c20e7108",
+    "rust-tests.log": "7042852e0ddab8d7e7c52e5858e2d558e201a97422aad9172b28af9f853f869b",
+    "rust-clippy.log": "be11344a950afd424b4903013c72c5b14db1ca5d8294c168c125c5a555e0df68"
+  }
+}

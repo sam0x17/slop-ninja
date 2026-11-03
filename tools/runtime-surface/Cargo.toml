@@ -1,0 +1,19 @@
+[package]
+name = "slop_ninja_runtime_surface"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Offline extraction and comparison of the Subtensor runtime surface Slop Ninja uses"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+blake2 = "0.10"
+codec = { package = "parity-scale-codec", version = "3", features = ["derive"] }
+frame-metadata = { version = "23", features = ["current", "decode"] }
+hex = "0.4"
+scale-info = { version = "2", features = ["decode"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"

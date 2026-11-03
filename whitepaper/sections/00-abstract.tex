@@ -1,0 +1,91 @@
+\section*{Abstract}\label{abstract}
+
+Slop Ninja proposes an adversarial training subnet on Bittensor, pairing
+mechanism \textit{A}'s AI detection with mechanism \textit{B}'s writing
+transformation. \textit{B} is the main product objective: private models revise
+authorized text toward the author's intended voice while preserving meaning,
+readability, and tone. \textit{A} learns to detect AI involvement, including in
+\textit{B}'s revisions; \textit{B} learns to remove unwanted formulaic prose and
+evade \textit{A}'s detection. Public \textit{A} models supply training feedback
+for \textit{B}, while authorized \textit{B} revisions provide challenging
+examples for future \textit{A} training after evaluation retirement. This
+competition is intended to improve both mechanisms; gains must hold on fresh
+evaluation data. \textit{A} is also intended to supply author-fit feedback
+against a private writer profile built from a user's own samples, which
+\textit{B} would use alongside independent preservation and editorial checks
+once a learned profile matcher qualifies. A lower detector score neither
+establishes better writing nor changes a document's production history.
+
+The subnet launches with \textit{A} alone as the initial evaluator and detection
+service; \textit{B} activates after its editing, private-serving, and reward
+requirements are qualified. \textit{A} is one text model with a shared encoder
+for origin and attribution. It reports estimated AI-written or rewritten text
+share and confidence in any AI involvement as separate percentages and
+attributes human and model contributors. A specified span output locates
+AI-written spans with per-sentence share and confidence but is not yet served.
+AI-involvement Brier score is the only reward
+quantity; share, attribution, and spans are qualification gates. On a sealed,
+pre-registered Test the \textit{A} baseline's document model, the first reference,
+was noninferior to Pangram
+4.1, with balanced Brier 0.0518 against 0.0551 after both detectors' outputs
+pass through the same map fitted on a separate Calibration split, but the
+pre-registered verdict failed because its three-seed recipe missed one domain
+slice. The release package adds a span head that leaves those document outputs
+unchanged; on held-out spliced rewrites it recovers on average about 40\% of a
+document's AI-written characters and mostly misses clause and single-sentence
+edits. The first package that serves spans will use an adopted head with an
+added encoder tower, which recovers about 53\% at about a fifth more encoder
+time but puts spans on more human documents.
+Context-free-grammar (CFG) inputs remain a research hypothesis after a failed
+first real-data test. Private writer profiles use \textit{A}'s encoder plus
+stylometric features, because CFG writer vectors scored below the encoder on
+writer verification; no profile tested so far is a reliable author-fit signal.
+
+\textit{B}'s proposed private adapters run in miner-owned Cloudflare accounts:
+miners pay their model bills but must not receive customer prompts or responses.
+Cloudflare and Slop Ninja remain trusted operators; private weights must be
+inaccessible to the general public. Mechanism \textit{C} supports the shared
+grammar by crediting accepted reusable contributions once. It activates
+separately and is not required for the \textit{A} launch.
+
+One lead validator, operated by Slop Ninja, serves as the coordinator.
+It runs entirely serverlessly. Miners commit artifact digests on chain and
+upload their models privately; the coordinator scores every entrant and the
+reference model on a fresh hidden batch of paired cases each day, then
+publishes the entrants' models, licensed CC BY-SA 4.0, and signed per-miner
+scores; Slop Ninja publishes its own reference models on the same terms,
+without evaluation text. Each batch is a fifth human-only, and on mainnet its human text comes
+from Common Crawl pages captured before November 30, 2022, a historical-human
+proxy drawn with capped domain shares that limit lookup by memorizing models and
+checked by era gates; testnet uses a smaller public stock and, for cohorts
+without a working outside entrant, reuses only documents already exposed.
+Testnet starts from the first reference and may replace it once, announced in
+advance, with the next qualified reference; mainnet later opens a fresh record
+of cohorts with the reference testnet then holds. Otherwise the
+reference changes only when an entrant beats it by a margin; until an entrant
+first does, miner rewards burn, which under the documented emission rules also withholds the subnet's
+TAO-side emission but not validator or owner alpha. Every validator independently derives the canonical native weight row
+with the same exact rules: subnet 78's geometric split of credit across score
+bands and ranks, extended with a fallback cutoff for cohorts in which no entrant
+beats the reference by the margin, no credit for copies of published models,
+a miner's own included, and one credit shared among near-duplicate entries; other validators receive no held-out data. The coordinator also signs, submits, and
+recovers its own native weight commitments within the serverless service.
+Validators re-commit the active row every tempo through native commit--reveal
+in parallel, without waiting for the coordinator's row. A cohort lasts at least
+20 tempos, about a day, ends with a transition that issues no new challenges,
+and is paid during the following cohort. Slow work, missed wakeups, and
+coordinator outages preserve the same cohort for recovery, and no record or
+gate depends on a chain runtime version. This protocol pause does not stop the
+chain or its emissions. Production applications use
+Rust: native participants use \texttt{rtao}, while the coordinator runs on
+Cloudflare Workers with durable state and separately qualified chain integration,
+woken by finalized-block notifications rather than a resident server.
+
+The coordinator opens the initial paid detection service when measured quality
+supports a bounded workload. Customers may fund jobs by card, TAO, or subnet alpha. Inference
+principal converts to alpha and is burned; it does not directly reimburse
+serving costs. Burns are intended to support token value, with no guaranteed
+market response. Slop Ninja funds public-model execution and operating reserves
+separately. Pricing and any emissions assigned to paid use require calibration
+against measured costs, demand, and abuse incentives. The mainnet split of
+emissions among owner, validators, and miners is not selected.

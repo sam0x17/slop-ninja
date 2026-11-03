@@ -1,0 +1,31 @@
+[package]
+name = "grammar-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "unslop-grammar"
+path = "src/main.rs"
+
+[[bin]]
+name = "slop_ninja_grammar_coverage"
+path = "src/coverage.rs"
+
+[[bin]]
+name = "slop_ninja_syntax_check"
+path = "src/syntax_check.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+grammar-core.workspace = true
+grammar-spacy.workspace = true
+sha2.workspace = true
+hex.workspace = true
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile.workspace = true

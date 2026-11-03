@@ -1,0 +1,2917 @@
+{
+  "schema": "slopninja-coordinate-tail-ablation-public-result-v1",
+  "interpretation": "conditional diagnostic of removing unselected feature tails under frozen raw-profile pooling/calibration; no isolation of pooling, cosine normalization, projection architecture, or alternative retraining",
+  "evaluation_status": "Retrospective diagnostic on previously evaluated Blog and Global Voices sources; not fresh confirmation.",
+  "source_bindings": [
+    {
+      "path": "data/author-corpora/blog-authorship-2004/author-projection-v1/tail-ablation-v1/protocol.json",
+      "sha256": "0639dfda331e336fae1557194bfe62b2688407967cb2c83a1560533321f17a9e"
+    },
+    {
+      "path": "data/author-corpora/blog-authorship-2004/author-projection-v1/tail-ablation-v1/run-v1/report.json",
+      "sha256": "24fd6e93101566d5c4657718e912422336956cb2af2d3976d64a54e531b0ef45"
+    },
+    {
+      "path": "data/author-corpora/blog-authorship-2004/author-projection-v1/tail-ablation-v1/execution-v1.json",
+      "sha256": "2c048d91858de7d6f63b4bbffa94abcfd209a50935c9c8b867c6cbc2e6122747"
+    }
+  ],
+  "implementation": {
+    "binary_sha256": "77211a654775300e54d577d08c807c5a799117ee93378bdf671f768ea5a366d7",
+    "coordinate_inference_sha256": "657b3d4f98fc055eeb7b9763e6a11884be7afc3d9d23b904bcf3cbe57a2477b6",
+    "grammar_eval_sha256": "9434781be2c7f9bc52a4036afb76b7627ace621cc87b7ffd929c28c0a8a308d0",
+    "source_sha256": "d3243209b7e07abba71c4f5411abd885aa40eacd6e67ee26f6c698cb4c71d13a"
+  },
+  "policy": {
+    "absolute_tolerance": 1E-10,
+    "baseline_gate": "all full logits match bound saved baseline within tolerance and all candidate ordering/ties match",
+    "coordinates": 3557,
+    "frozen": "original raw-profile date/post pooling, coordinate multipliers, family weights, spline and temperature; no renormalization",
+    "interpretation": "post-hoc conditional tail-removal diagnostic; does not isolate prototype pooling, normalization, cosine scoring or projection capacity",
+    "metrics": "exact ties averaged; query means within author, equal authors within corpus, then mean three seed summaries; galleries retained separately",
+    "missingness": "fail closed on any missing input, family, candidate, query, nonfinite score or baseline mismatch; no dropping",
+    "parser_calls": 0,
+    "selected_raw": "sum exact squared original transformed-coordinate differences within each original family, in artifact order",
+    "training_calls": 0,
+    "variants": [
+      "full",
+      "selected_coordinates_only"
+    ]
+  },
+  "coverage": {
+    "blog_authors": 600,
+    "blog_queries": 1206,
+    "blog_test_galleries": 6,
+    "global_voices_authors": 14,
+    "global_voices_queries": 58
+  },
+  "baseline_checked_candidate_scores": 364236,
+  "baseline_maximum_absolute_error": 0.0,
+  "all_full_orderings_and_ties_match": true,
+  "missing_or_excluded_queries": 0,
+  "training_calls": 0,
+  "parser_calls": 0,
+  "corpora": [
+    {
+      "corpus": "blog",
+      "authors": 600,
+      "variants": {
+        "full": {
+          "seed_mean_macro_author": {
+            "mrr": 0.6497553700634731,
+            "top1": 0.5629864824717763,
+            "top5": 0.7456758764111705
+          },
+          "seeds": [
+            {
+              "seed": 0,
+              "summary": {
+                "query_count": 1206,
+                "author_count": 600,
+                "macro_author": {
+                  "mrr": 0.6499005378714201,
+                  "top1": 0.5627087046939986,
+                  "top5": 0.746231431966726
+                }
+              }
+            },
+            {
+              "seed": 17,
+              "summary": {
+                "query_count": 1206,
+                "author_count": 600,
+                "macro_author": {
+                  "mrr": 0.6498385547109341,
+                  "top1": 0.5635420380273319,
+                  "top5": 0.7445647653000593
+                }
+              }
+            },
+            {
+              "seed": 29,
+              "summary": {
+                "query_count": 1206,
+                "author_count": 600,
+                "macro_author": {
+                  "mrr": 0.6495270176080651,
+                  "top1": 0.5627087046939986,
+                  "top5": 0.746231431966726
+                }
+              }
+            }
+          ]
+        },
+        "selected_coordinates_only": {
+          "seed_mean_macro_author": {
+            "mrr": 0.5177202507385003,
+            "top1": 0.4082516339869282,
+            "top5": 0.6458210784313725
+          },
+          "seeds": [
+            {
+              "seed": 0,
+              "summary": {
+                "query_count": 1206,
+                "author_count": 600,
+                "macro_author": {
+                  "mrr": 0.5178730445965813,
+                  "top1": 0.4076960784313726,
+                  "top5": 0.6455433006535947
+                }
+              }
+            },
+            {
+              "seed": 17,
+              "summary": {
+                "query_count": 1206,
+                "author_count": 600,
+                "macro_author": {
+                  "mrr": 0.5166442719252516,
+                  "top1": 0.4076960784313726,
+                  "top5": 0.646376633986928
+                }
+              }
+            },
+            {
+              "seed": 29,
+              "summary": {
+                "query_count": 1206,
+                "author_count": 600,
+                "macro_author": {
+                  "mrr": 0.5186434356936678,
+                  "top1": 0.40936274509803927,
+                  "top5": 0.6455433006535947
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "corpus": "global_voices",
+      "authors": 14,
+      "variants": {
+        "full": {
+          "seed_mean_macro_author": {
+            "mrr": 0.8208427815570672,
+            "top1": 0.7380952380952381,
+            "top5": 0.9226190476190478
+          },
+          "seeds": [
+            {
+              "seed": 0,
+              "summary": {
+                "query_count": 58,
+                "author_count": 14,
+                "macro_author": {
+                  "mrr": 0.8208427815570672,
+                  "top1": 0.7380952380952381,
+                  "top5": 0.9226190476190477
+                }
+              }
+            },
+            {
+              "seed": 17,
+              "summary": {
+                "query_count": 58,
+                "author_count": 14,
+                "macro_author": {
+                  "mrr": 0.8208427815570672,
+                  "top1": 0.7380952380952381,
+                  "top5": 0.9226190476190477
+                }
+              }
+            },
+            {
+              "seed": 29,
+              "summary": {
+                "query_count": 58,
+                "author_count": 14,
+                "macro_author": {
+                  "mrr": 0.8208427815570672,
+                  "top1": 0.7380952380952381,
+                  "top5": 0.9226190476190477
+                }
+              }
+            }
+          ]
+        },
+        "selected_coordinates_only": {
+          "seed_mean_macro_author": {
+            "mrr": 0.4543006431399288,
+            "top1": 0.29166666666666663,
+            "top5": 0.6607142857142857
+          },
+          "seeds": [
+            {
+              "seed": 0,
+              "summary": {
+                "query_count": 58,
+                "author_count": 14,
+                "macro_author": {
+                  "mrr": 0.45215310483167626,
+                  "top1": 0.29166666666666663,
+                  "top5": 0.6607142857142857
+                }
+              }
+            },
+            {
+              "seed": 17,
+              "summary": {
+                "query_count": 58,
+                "author_count": 14,
+                "macro_author": {
+                  "mrr": 0.4556968329289757,
+                  "top1": 0.29166666666666663,
+                  "top5": 0.6607142857142857
+                }
+              }
+            },
+            {
+              "seed": 29,
+              "summary": {
+                "query_count": 58,
+                "author_count": 14,
+                "macro_author": {
+                  "mrr": 0.45505199165913446,
+                  "top1": 0.29166666666666663,
+                  "top5": 0.6607142857142857
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "galleries": [
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-1",
+      "seed": 0,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 197,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6396132590431134,
+          "top1": 0.5516666666666666,
+          "top5": 0.74
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 197,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5324642072274522,
+          "top1": 0.4083333333333334,
+          "top5": 0.6908333333333333
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 197,
+      "maximum_unselected_family_distance": 0.9392971172667803,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 18604.611616474624,
+          "removed_fraction": 0.8413638188961639,
+          "removed_raw_sum": 15653.247078717022,
+          "selected_raw_sum": 2951.364537757601
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3352.4415766448565,
+          "removed_fraction": 0.22524692635632074,
+          "removed_raw_sum": 755.1271609283917,
+          "selected_raw_sum": 2597.3144157164647
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 8914.610558373035,
+          "removed_fraction": 0.6764893625844763,
+          "removed_raw_sum": 6030.639214322617,
+          "selected_raw_sum": 2883.971344050418
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11328.282386868968,
+          "removed_fraction": 0.7743249032043099,
+          "removed_raw_sum": 8771.771162683403,
+          "selected_raw_sum": 2556.511224185567
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1866.6549503167637,
+          "removed_fraction": 0.004259353371328241,
+          "removed_raw_sum": 7.950743055738258,
+          "selected_raw_sum": 1858.7042072610254
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5187.429142461639,
+          "removed_fraction": 0.6374856560567262,
+          "removed_raw_sum": 3306.9116701299386,
+          "selected_raw_sum": 1880.5174723317
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 529.7725956936564,
+          "removed_fraction": 0.00007850031719999542,
+          "removed_raw_sum": 0.041587316805816954,
+          "selected_raw_sum": 529.7310083768506
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 2844.627410817656,
+          "removed_fraction": 0.011062468010392191,
+          "removed_raw_sum": 31.468599733655083,
+          "selected_raw_sum": 2813.1588110840007
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1172.80112520956,
+          "removed_fraction": 0.0045490405410676645,
+          "removed_raw_sum": 5.335119865188062,
+          "selected_raw_sum": 1167.466005344372
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8266.84372985679,
+          "removed_fraction": 0.5756708537355867,
+          "removed_raw_sum": 4758.98098766534,
+          "selected_raw_sum": 3507.86274219145
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 8825.178787172332,
+          "removed_fraction": -4.1222720749630892E-16,
+          "removed_raw_sum": -3.637978807091713E-12,
+          "selected_raw_sum": 8825.178787172335
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 23319.687558514037,
+          "removed_fraction": -4.680138356866815E-16,
+          "removed_raw_sum": -1.0913936421275139E-11,
+          "selected_raw_sum": 23319.687558514048
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 9929.646925000096,
+          "removed_fraction": 0.37874972562753606,
+          "removed_raw_sum": 3760.8510484220933,
+          "selected_raw_sum": 6168.795876578002
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 18207.761343480608,
+          "removed_fraction": 0.7990024286242927,
+          "removed_raw_sum": 14548.04553325252,
+          "selected_raw_sum": 3659.715810228089
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-1",
+      "seed": 17,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 197,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6374474650746901,
+          "top1": 0.5466666666666666,
+          "top5": 0.74
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 197,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5354203504568836,
+          "top1": 0.41333333333333333,
+          "top5": 0.6908333333333333
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 197,
+      "maximum_unselected_family_distance": 0.9392971172667803,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 18604.611616474624,
+          "removed_fraction": 0.8413638188961639,
+          "removed_raw_sum": 15653.247078717022,
+          "selected_raw_sum": 2951.364537757601
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3352.4415766448565,
+          "removed_fraction": 0.22524692635632074,
+          "removed_raw_sum": 755.1271609283917,
+          "selected_raw_sum": 2597.3144157164647
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 8914.610558373035,
+          "removed_fraction": 0.6764893625844763,
+          "removed_raw_sum": 6030.639214322617,
+          "selected_raw_sum": 2883.971344050418
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11328.282386868968,
+          "removed_fraction": 0.7743249032043099,
+          "removed_raw_sum": 8771.771162683403,
+          "selected_raw_sum": 2556.511224185567
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1866.6549503167637,
+          "removed_fraction": 0.004259353371328241,
+          "removed_raw_sum": 7.950743055738258,
+          "selected_raw_sum": 1858.7042072610254
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5187.429142461639,
+          "removed_fraction": 0.6374856560567262,
+          "removed_raw_sum": 3306.9116701299386,
+          "selected_raw_sum": 1880.5174723317
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 529.7725956936564,
+          "removed_fraction": 0.00007850031719999542,
+          "removed_raw_sum": 0.041587316805816954,
+          "selected_raw_sum": 529.7310083768506
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 2844.627410817656,
+          "removed_fraction": 0.011062468010392191,
+          "removed_raw_sum": 31.468599733655083,
+          "selected_raw_sum": 2813.1588110840007
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1172.80112520956,
+          "removed_fraction": 0.0045490405410676645,
+          "removed_raw_sum": 5.335119865188062,
+          "selected_raw_sum": 1167.466005344372
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8266.84372985679,
+          "removed_fraction": 0.5756708537355867,
+          "removed_raw_sum": 4758.98098766534,
+          "selected_raw_sum": 3507.86274219145
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 8825.178787172332,
+          "removed_fraction": -4.1222720749630892E-16,
+          "removed_raw_sum": -3.637978807091713E-12,
+          "selected_raw_sum": 8825.178787172335
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 23319.687558514037,
+          "removed_fraction": -4.680138356866815E-16,
+          "removed_raw_sum": -1.0913936421275139E-11,
+          "selected_raw_sum": 23319.687558514048
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 9929.646925000096,
+          "removed_fraction": 0.37874972562753606,
+          "removed_raw_sum": 3760.8510484220933,
+          "selected_raw_sum": 6168.795876578002
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 18207.761343480608,
+          "removed_fraction": 0.7990024286242927,
+          "removed_raw_sum": 14548.04553325252,
+          "selected_raw_sum": 3659.715810228089
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-1",
+      "seed": 29,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 197,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6375596855037948,
+          "top1": 0.5466666666666666,
+          "top5": 0.74
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 197,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5359780787113029,
+          "top1": 0.41333333333333333,
+          "top5": 0.6908333333333333
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 197,
+      "maximum_unselected_family_distance": 0.9392971172667803,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 18604.611616474624,
+          "removed_fraction": 0.8413638188961639,
+          "removed_raw_sum": 15653.247078717022,
+          "selected_raw_sum": 2951.364537757601
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3352.4415766448565,
+          "removed_fraction": 0.22524692635632074,
+          "removed_raw_sum": 755.1271609283917,
+          "selected_raw_sum": 2597.3144157164647
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 8914.610558373035,
+          "removed_fraction": 0.6764893625844763,
+          "removed_raw_sum": 6030.639214322617,
+          "selected_raw_sum": 2883.971344050418
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11328.282386868968,
+          "removed_fraction": 0.7743249032043099,
+          "removed_raw_sum": 8771.771162683403,
+          "selected_raw_sum": 2556.511224185567
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1866.6549503167637,
+          "removed_fraction": 0.004259353371328241,
+          "removed_raw_sum": 7.950743055738258,
+          "selected_raw_sum": 1858.7042072610254
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5187.429142461639,
+          "removed_fraction": 0.6374856560567262,
+          "removed_raw_sum": 3306.9116701299386,
+          "selected_raw_sum": 1880.5174723317
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 529.7725956936564,
+          "removed_fraction": 0.00007850031719999542,
+          "removed_raw_sum": 0.041587316805816954,
+          "selected_raw_sum": 529.7310083768506
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 2844.627410817656,
+          "removed_fraction": 0.011062468010392191,
+          "removed_raw_sum": 31.468599733655083,
+          "selected_raw_sum": 2813.1588110840007
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1172.80112520956,
+          "removed_fraction": 0.0045490405410676645,
+          "removed_raw_sum": 5.335119865188062,
+          "selected_raw_sum": 1167.466005344372
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8266.84372985679,
+          "removed_fraction": 0.5756708537355867,
+          "removed_raw_sum": 4758.98098766534,
+          "selected_raw_sum": 3507.86274219145
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 8825.178787172332,
+          "removed_fraction": -4.1222720749630892E-16,
+          "removed_raw_sum": -3.637978807091713E-12,
+          "selected_raw_sum": 8825.178787172335
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 23319.687558514037,
+          "removed_fraction": -4.680138356866815E-16,
+          "removed_raw_sum": -1.0913936421275139E-11,
+          "selected_raw_sum": 23319.687558514048
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 9929.646925000096,
+          "removed_fraction": 0.37874972562753606,
+          "removed_raw_sum": 3760.8510484220933,
+          "selected_raw_sum": 6168.795876578002
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 18207.761343480608,
+          "removed_fraction": 0.7990024286242927,
+          "removed_raw_sum": 14548.04553325252,
+          "selected_raw_sum": 3659.715810228089
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-2",
+      "seed": 0,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 203,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6229624470680861,
+          "top1": 0.5158333333333333,
+          "top5": 0.7566666666666667
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 203,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5167760013997058,
+          "top1": 0.41666666666666674,
+          "top5": 0.6416666666666666
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 203,
+      "maximum_unselected_family_distance": 0.9223870465516573,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 19232.850322903312,
+          "removed_fraction": 0.8407100836776457,
+          "removed_raw_sum": 16169.251204327678,
+          "selected_raw_sum": 3063.5991185756334
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3506.1838563167967,
+          "removed_fraction": 0.22557547327774946,
+          "removed_raw_sum": 790.9090827874661,
+          "selected_raw_sum": 2715.2747735293306
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9318.58710612698,
+          "removed_fraction": 0.6758856822107548,
+          "removed_raw_sum": 6298.299603464979,
+          "selected_raw_sum": 3020.2875026620027
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11793.610588989843,
+          "removed_fraction": 0.7757427457573411,
+          "removed_raw_sum": 9148.807860695833,
+          "selected_raw_sum": 2644.8027282940084
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1981.3128244864997,
+          "removed_fraction": 0.0035107298479668866,
+          "removed_raw_sum": 6.955854071084332,
+          "selected_raw_sum": 1974.3569704154154
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5450.4298642420945,
+          "removed_fraction": 0.6294382356211038,
+          "removed_raw_sum": 3430.7089571251163,
+          "selected_raw_sum": 2019.720907116978
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 571.1627070679068,
+          "removed_fraction": 1.9904457401505304E-16,
+          "removed_raw_sum": 1.1368683772161603E-13,
+          "selected_raw_sum": 571.1627070679067
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 3009.2021539538264,
+          "removed_fraction": 0.013247980368092284,
+          "removed_raw_sum": 39.865851059201304,
+          "selected_raw_sum": 2969.336302894625
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1235.0412927065354,
+          "removed_fraction": 0.005585431483394964,
+          "removed_raw_sum": 6.898238519575898,
+          "selected_raw_sum": 1228.1430541869595
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8718.048619641013,
+          "removed_fraction": 0.5843458101583766,
+          "removed_raw_sum": 5094.355183644245,
+          "selected_raw_sum": 3623.693435996768
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 5994.209397917751,
+          "removed_fraction": -1.5172888389399037E-16,
+          "removed_raw_sum": -9.094947017729282E-13,
+          "selected_raw_sum": 5994.209397917752
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 46599.337114391885,
+          "removed_fraction": -1.5613865056325655E-16,
+          "removed_raw_sum": -7.275957614183426E-12,
+          "selected_raw_sum": 46599.33711439189
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10611.85533863385,
+          "removed_fraction": 0.40167143373265923,
+          "removed_raw_sum": 4262.479148432632,
+          "selected_raw_sum": 6349.3761902012175
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 18869.309586076186,
+          "removed_fraction": 0.8085467136358784,
+          "removed_raw_sum": 15256.718254399877,
+          "selected_raw_sum": 3612.591331676309
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-2",
+      "seed": 17,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 203,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6210380353617111,
+          "top1": 0.5158333333333333,
+          "top5": 0.7566666666666667
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 203,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5139104116398342,
+          "top1": 0.41166666666666674,
+          "top5": 0.6416666666666666
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 203,
+      "maximum_unselected_family_distance": 0.9223870465516573,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 19232.850322903312,
+          "removed_fraction": 0.8407100836776457,
+          "removed_raw_sum": 16169.251204327678,
+          "selected_raw_sum": 3063.5991185756334
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3506.1838563167967,
+          "removed_fraction": 0.22557547327774946,
+          "removed_raw_sum": 790.9090827874661,
+          "selected_raw_sum": 2715.2747735293306
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9318.58710612698,
+          "removed_fraction": 0.6758856822107548,
+          "removed_raw_sum": 6298.299603464979,
+          "selected_raw_sum": 3020.2875026620027
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11793.610588989843,
+          "removed_fraction": 0.7757427457573411,
+          "removed_raw_sum": 9148.807860695833,
+          "selected_raw_sum": 2644.8027282940084
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1981.3128244864997,
+          "removed_fraction": 0.0035107298479668866,
+          "removed_raw_sum": 6.955854071084332,
+          "selected_raw_sum": 1974.3569704154154
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5450.4298642420945,
+          "removed_fraction": 0.6294382356211038,
+          "removed_raw_sum": 3430.7089571251163,
+          "selected_raw_sum": 2019.720907116978
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 571.1627070679068,
+          "removed_fraction": 1.9904457401505304E-16,
+          "removed_raw_sum": 1.1368683772161603E-13,
+          "selected_raw_sum": 571.1627070679067
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 3009.2021539538264,
+          "removed_fraction": 0.013247980368092284,
+          "removed_raw_sum": 39.865851059201304,
+          "selected_raw_sum": 2969.336302894625
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1235.0412927065354,
+          "removed_fraction": 0.005585431483394964,
+          "removed_raw_sum": 6.898238519575898,
+          "selected_raw_sum": 1228.1430541869595
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8718.048619641013,
+          "removed_fraction": 0.5843458101583766,
+          "removed_raw_sum": 5094.355183644245,
+          "selected_raw_sum": 3623.693435996768
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 5994.209397917751,
+          "removed_fraction": -1.5172888389399037E-16,
+          "removed_raw_sum": -9.094947017729282E-13,
+          "selected_raw_sum": 5994.209397917752
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 46599.337114391885,
+          "removed_fraction": -1.5613865056325655E-16,
+          "removed_raw_sum": -7.275957614183426E-12,
+          "selected_raw_sum": 46599.33711439189
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10611.85533863385,
+          "removed_fraction": 0.40167143373265923,
+          "removed_raw_sum": 4262.479148432632,
+          "selected_raw_sum": 6349.3761902012175
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 18869.309586076186,
+          "removed_fraction": 0.8085467136358784,
+          "removed_raw_sum": 15256.718254399877,
+          "selected_raw_sum": 3612.591331676309
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-2",
+      "seed": 29,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 203,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6218603001611445,
+          "top1": 0.5158333333333333,
+          "top5": 0.7616666666666667
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 203,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5141478628709464,
+          "top1": 0.41166666666666674,
+          "top5": 0.6416666666666666
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 203,
+      "maximum_unselected_family_distance": 0.9223870465516573,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 19232.850322903312,
+          "removed_fraction": 0.8407100836776457,
+          "removed_raw_sum": 16169.251204327678,
+          "selected_raw_sum": 3063.5991185756334
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3506.1838563167967,
+          "removed_fraction": 0.22557547327774946,
+          "removed_raw_sum": 790.9090827874661,
+          "selected_raw_sum": 2715.2747735293306
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9318.58710612698,
+          "removed_fraction": 0.6758856822107548,
+          "removed_raw_sum": 6298.299603464979,
+          "selected_raw_sum": 3020.2875026620027
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11793.610588989843,
+          "removed_fraction": 0.7757427457573411,
+          "removed_raw_sum": 9148.807860695833,
+          "selected_raw_sum": 2644.8027282940084
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1981.3128244864997,
+          "removed_fraction": 0.0035107298479668866,
+          "removed_raw_sum": 6.955854071084332,
+          "selected_raw_sum": 1974.3569704154154
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5450.4298642420945,
+          "removed_fraction": 0.6294382356211038,
+          "removed_raw_sum": 3430.7089571251163,
+          "selected_raw_sum": 2019.720907116978
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 571.1627070679068,
+          "removed_fraction": 1.9904457401505304E-16,
+          "removed_raw_sum": 1.1368683772161603E-13,
+          "selected_raw_sum": 571.1627070679067
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 3009.2021539538264,
+          "removed_fraction": 0.013247980368092284,
+          "removed_raw_sum": 39.865851059201304,
+          "selected_raw_sum": 2969.336302894625
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1235.0412927065354,
+          "removed_fraction": 0.005585431483394964,
+          "removed_raw_sum": 6.898238519575898,
+          "selected_raw_sum": 1228.1430541869595
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8718.048619641013,
+          "removed_fraction": 0.5843458101583766,
+          "removed_raw_sum": 5094.355183644245,
+          "selected_raw_sum": 3623.693435996768
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 5994.209397917751,
+          "removed_fraction": -1.5172888389399037E-16,
+          "removed_raw_sum": -9.094947017729282E-13,
+          "selected_raw_sum": 5994.209397917752
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 46599.337114391885,
+          "removed_fraction": -1.5613865056325655E-16,
+          "removed_raw_sum": -7.275957614183426E-12,
+          "selected_raw_sum": 46599.33711439189
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10611.85533863385,
+          "removed_fraction": 0.40167143373265923,
+          "removed_raw_sum": 4262.479148432632,
+          "selected_raw_sum": 6349.3761902012175
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 18869.309586076186,
+          "removed_fraction": 0.8085467136358784,
+          "removed_raw_sum": 15256.718254399877,
+          "selected_raw_sum": 3612.591331676309
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-3",
+      "seed": 0,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 205,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5939139752061079,
+          "top1": 0.49090909090909096,
+          "top5": 0.7003787878787878
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 205,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.4344628887436772,
+          "top1": 0.31666666666666665,
+          "top5": 0.5545833333333333
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 205,
+      "maximum_unselected_family_distance": 0.9424005397496243,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 19390.106857989114,
+          "removed_fraction": 0.843051777476771,
+          "removed_raw_sum": 16346.864052092249,
+          "selected_raw_sum": 3043.2428058968644
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3466.2185240292356,
+          "removed_fraction": 0.23110562863256318,
+          "removed_raw_sum": 801.0626109736118,
+          "selected_raw_sum": 2665.155913055624
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9275.367743117265,
+          "removed_fraction": 0.675602350964823,
+          "removed_raw_sum": 6266.460253313309,
+          "selected_raw_sum": 3008.9074898039557
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11905.344829271471,
+          "removed_fraction": 0.7770033624172807,
+          "removed_raw_sum": 9250.49296308112,
+          "selected_raw_sum": 2654.8518661903518
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1923.4190521428557,
+          "removed_fraction": 0.004933118378626167,
+          "removed_raw_sum": 9.488453875925643,
+          "selected_raw_sum": 1913.93059826693
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5446.202617691547,
+          "removed_fraction": 0.6343988668896551,
+          "removed_raw_sum": 3455.064769514991,
+          "selected_raw_sum": 1991.1378481765562
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 541.1613971409787,
+          "removed_fraction": 0.0006263447949529605,
+          "removed_raw_sum": 0.3389536243287239,
+          "selected_raw_sum": 540.82244351665
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 2943.040760040752,
+          "removed_fraction": 0.014877573757780368,
+          "removed_raw_sum": 43.78530597966028,
+          "selected_raw_sum": 2899.2554540610918
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1201.8709648185097,
+          "removed_fraction": 0.007749755208815811,
+          "removed_raw_sum": 9.31420576992673,
+          "selected_raw_sum": 1192.556759048583
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8576.687929583131,
+          "removed_fraction": 0.5859248046792729,
+          "removed_raw_sum": 5025.294199936074,
+          "selected_raw_sum": 3551.393729647057
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 9055.39077140929,
+          "removed_fraction": -2.0087365078589174E-16,
+          "removed_raw_sum": -1.8189894035458565E-12,
+          "selected_raw_sum": 9055.390771409291
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 30909.01675533884,
+          "removed_fraction": -1.1769959671924323E-16,
+          "removed_raw_sum": -3.637978807091713E-12,
+          "selected_raw_sum": 30909.016755338842
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10642.437882847527,
+          "removed_fraction": 0.407097233091166,
+          "removed_raw_sum": 4332.507015451835,
+          "selected_raw_sum": 6309.930867395692
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 19073.158208669513,
+          "removed_fraction": 0.8148706733581427,
+          "removed_raw_sum": 15542.157272564913,
+          "selected_raw_sum": 3531.000936104599
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-3",
+      "seed": 17,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 205,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5950751664215201,
+          "top1": 0.49090909090909096,
+          "top5": 0.7053787878787878
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 205,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.43037241636774914,
+          "top1": 0.31166666666666665,
+          "top5": 0.5445833333333333
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 205,
+      "maximum_unselected_family_distance": 0.9424005397496243,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 19390.106857989114,
+          "removed_fraction": 0.843051777476771,
+          "removed_raw_sum": 16346.864052092249,
+          "selected_raw_sum": 3043.2428058968644
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3466.2185240292356,
+          "removed_fraction": 0.23110562863256318,
+          "removed_raw_sum": 801.0626109736118,
+          "selected_raw_sum": 2665.155913055624
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9275.367743117265,
+          "removed_fraction": 0.675602350964823,
+          "removed_raw_sum": 6266.460253313309,
+          "selected_raw_sum": 3008.9074898039557
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11905.344829271471,
+          "removed_fraction": 0.7770033624172807,
+          "removed_raw_sum": 9250.49296308112,
+          "selected_raw_sum": 2654.8518661903518
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1923.4190521428557,
+          "removed_fraction": 0.004933118378626167,
+          "removed_raw_sum": 9.488453875925643,
+          "selected_raw_sum": 1913.93059826693
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5446.202617691547,
+          "removed_fraction": 0.6343988668896551,
+          "removed_raw_sum": 3455.064769514991,
+          "selected_raw_sum": 1991.1378481765562
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 541.1613971409787,
+          "removed_fraction": 0.0006263447949529605,
+          "removed_raw_sum": 0.3389536243287239,
+          "selected_raw_sum": 540.82244351665
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 2943.040760040752,
+          "removed_fraction": 0.014877573757780368,
+          "removed_raw_sum": 43.78530597966028,
+          "selected_raw_sum": 2899.2554540610918
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1201.8709648185097,
+          "removed_fraction": 0.007749755208815811,
+          "removed_raw_sum": 9.31420576992673,
+          "selected_raw_sum": 1192.556759048583
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8576.687929583131,
+          "removed_fraction": 0.5859248046792729,
+          "removed_raw_sum": 5025.294199936074,
+          "selected_raw_sum": 3551.393729647057
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 9055.39077140929,
+          "removed_fraction": -2.0087365078589174E-16,
+          "removed_raw_sum": -1.8189894035458565E-12,
+          "selected_raw_sum": 9055.390771409291
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 30909.01675533884,
+          "removed_fraction": -1.1769959671924323E-16,
+          "removed_raw_sum": -3.637978807091713E-12,
+          "selected_raw_sum": 30909.016755338842
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10642.437882847527,
+          "removed_fraction": 0.407097233091166,
+          "removed_raw_sum": 4332.507015451835,
+          "selected_raw_sum": 6309.930867395692
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 19073.158208669513,
+          "removed_fraction": 0.8148706733581427,
+          "removed_raw_sum": 15542.157272564913,
+          "selected_raw_sum": 3531.000936104599
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-3",
+      "seed": 29,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 205,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5935653368771114,
+          "top1": 0.49090909090909096,
+          "top5": 0.7053787878787878
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 205,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.43408863180054846,
+          "top1": 0.31666666666666665,
+          "top5": 0.5545833333333333
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 205,
+      "maximum_unselected_family_distance": 0.9424005397496243,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 19390.106857989114,
+          "removed_fraction": 0.843051777476771,
+          "removed_raw_sum": 16346.864052092249,
+          "selected_raw_sum": 3043.2428058968644
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3466.2185240292356,
+          "removed_fraction": 0.23110562863256318,
+          "removed_raw_sum": 801.0626109736118,
+          "selected_raw_sum": 2665.155913055624
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9275.367743117265,
+          "removed_fraction": 0.675602350964823,
+          "removed_raw_sum": 6266.460253313309,
+          "selected_raw_sum": 3008.9074898039557
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11905.344829271471,
+          "removed_fraction": 0.7770033624172807,
+          "removed_raw_sum": 9250.49296308112,
+          "selected_raw_sum": 2654.8518661903518
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1923.4190521428557,
+          "removed_fraction": 0.004933118378626167,
+          "removed_raw_sum": 9.488453875925643,
+          "selected_raw_sum": 1913.93059826693
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5446.202617691547,
+          "removed_fraction": 0.6343988668896551,
+          "removed_raw_sum": 3455.064769514991,
+          "selected_raw_sum": 1991.1378481765562
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 541.1613971409787,
+          "removed_fraction": 0.0006263447949529605,
+          "removed_raw_sum": 0.3389536243287239,
+          "selected_raw_sum": 540.82244351665
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 2943.040760040752,
+          "removed_fraction": 0.014877573757780368,
+          "removed_raw_sum": 43.78530597966028,
+          "selected_raw_sum": 2899.2554540610918
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1201.8709648185097,
+          "removed_fraction": 0.007749755208815811,
+          "removed_raw_sum": 9.31420576992673,
+          "selected_raw_sum": 1192.556759048583
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8576.687929583131,
+          "removed_fraction": 0.5859248046792729,
+          "removed_raw_sum": 5025.294199936074,
+          "selected_raw_sum": 3551.393729647057
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 9055.39077140929,
+          "removed_fraction": -2.0087365078589174E-16,
+          "removed_raw_sum": -1.8189894035458565E-12,
+          "selected_raw_sum": 9055.390771409291
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 30909.01675533884,
+          "removed_fraction": -1.1769959671924323E-16,
+          "removed_raw_sum": -3.637978807091713E-12,
+          "selected_raw_sum": 30909.016755338842
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10642.437882847527,
+          "removed_fraction": 0.407097233091166,
+          "removed_raw_sum": 4332.507015451835,
+          "selected_raw_sum": 6309.930867395692
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 19073.158208669513,
+          "removed_fraction": 0.8148706733581427,
+          "removed_raw_sum": 15542.157272564913,
+          "selected_raw_sum": 3531.000936104599
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-4",
+      "seed": 0,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 194,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6715303455829347,
+          "top1": 0.5908333333333334,
+          "top5": 0.78
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 194,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5171305619381897,
+          "top1": 0.4016666666666667,
+          "top5": 0.6408333333333335
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 194,
+      "maximum_unselected_family_distance": 0.9391334749020283,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 18306.709437090583,
+          "removed_fraction": 0.8437134665944819,
+          "removed_raw_sum": 15445.617281105611,
+          "selected_raw_sum": 2861.0921559849717
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3259.601447752762,
+          "removed_fraction": 0.22995961807769677,
+          "removed_raw_sum": 749.5767040107326,
+          "selected_raw_sum": 2510.0247437420294
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 8744.78202292634,
+          "removed_fraction": 0.6828544780124135,
+          "removed_raw_sum": 5971.413563597704,
+          "selected_raw_sum": 2773.3684593286366
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11188.717523940242,
+          "removed_fraction": 0.7825427873963469,
+          "removed_raw_sum": 8755.650198574549,
+          "selected_raw_sum": 2433.0673253656923
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1747.1800672848478,
+          "removed_fraction": 0.004743762305721504,
+          "removed_raw_sum": 8.288206944493822,
+          "selected_raw_sum": 1738.891860340354
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5119.970110936038,
+          "removed_fraction": 0.6430369841240471,
+          "removed_raw_sum": 3292.3301389415724,
+          "selected_raw_sum": 1827.6399719944652
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 500.5472500194143,
+          "removed_fraction": 0.00041430909549030964,
+          "removed_raw_sum": 0.20738127840570542,
+          "selected_raw_sum": 500.3398687410086
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 2696.634633004345,
+          "removed_fraction": 0.01142724615350585,
+          "removed_raw_sum": 30.815107737409562,
+          "selected_raw_sum": 2665.819525266935
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1106.5868121517333,
+          "removed_fraction": 0.006259064565633151,
+          "removed_raw_sum": 6.926198304735863,
+          "selected_raw_sum": 1099.6606138469974
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8019.877622918643,
+          "removed_fraction": 0.5905937633555294,
+          "removed_raw_sum": 4736.489706970318,
+          "selected_raw_sum": 3283.3879159483254
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 7758.324320731214,
+          "removed_fraction": -1.1722823952366163E-16,
+          "removed_raw_sum": -9.094947017729282E-13,
+          "selected_raw_sum": 7758.324320731215
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 30117.57799626207,
+          "removed_fraction": -3.623776262031987E-16,
+          "removed_raw_sum": -1.0913936421275139E-11,
+          "selected_raw_sum": 30117.57799626208
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 9694.818246508443,
+          "removed_fraction": 0.39251234086270753,
+          "removed_raw_sum": 3805.335804175518,
+          "selected_raw_sum": 5889.482442332925
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 17871.60082756268,
+          "removed_fraction": 0.8030011507437335,
+          "removed_raw_sum": 14350.916030165492,
+          "selected_raw_sum": 3520.684797397189
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-4",
+      "seed": 17,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 194,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6725148509518791,
+          "top1": 0.5958333333333334,
+          "top5": 0.78
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 194,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5147231669099745,
+          "top1": 0.4016666666666667,
+          "top5": 0.6508333333333334
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 194,
+      "maximum_unselected_family_distance": 0.9391334749020283,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 18306.709437090583,
+          "removed_fraction": 0.8437134665944819,
+          "removed_raw_sum": 15445.617281105611,
+          "selected_raw_sum": 2861.0921559849717
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3259.601447752762,
+          "removed_fraction": 0.22995961807769677,
+          "removed_raw_sum": 749.5767040107326,
+          "selected_raw_sum": 2510.0247437420294
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 8744.78202292634,
+          "removed_fraction": 0.6828544780124135,
+          "removed_raw_sum": 5971.413563597704,
+          "selected_raw_sum": 2773.3684593286366
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11188.717523940242,
+          "removed_fraction": 0.7825427873963469,
+          "removed_raw_sum": 8755.650198574549,
+          "selected_raw_sum": 2433.0673253656923
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1747.1800672848478,
+          "removed_fraction": 0.004743762305721504,
+          "removed_raw_sum": 8.288206944493822,
+          "selected_raw_sum": 1738.891860340354
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5119.970110936038,
+          "removed_fraction": 0.6430369841240471,
+          "removed_raw_sum": 3292.3301389415724,
+          "selected_raw_sum": 1827.6399719944652
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 500.5472500194143,
+          "removed_fraction": 0.00041430909549030964,
+          "removed_raw_sum": 0.20738127840570542,
+          "selected_raw_sum": 500.3398687410086
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 2696.634633004345,
+          "removed_fraction": 0.01142724615350585,
+          "removed_raw_sum": 30.815107737409562,
+          "selected_raw_sum": 2665.819525266935
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1106.5868121517333,
+          "removed_fraction": 0.006259064565633151,
+          "removed_raw_sum": 6.926198304735863,
+          "selected_raw_sum": 1099.6606138469974
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8019.877622918643,
+          "removed_fraction": 0.5905937633555294,
+          "removed_raw_sum": 4736.489706970318,
+          "selected_raw_sum": 3283.3879159483254
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 7758.324320731214,
+          "removed_fraction": -1.1722823952366163E-16,
+          "removed_raw_sum": -9.094947017729282E-13,
+          "selected_raw_sum": 7758.324320731215
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 30117.57799626207,
+          "removed_fraction": -3.623776262031987E-16,
+          "removed_raw_sum": -1.0913936421275139E-11,
+          "selected_raw_sum": 30117.57799626208
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 9694.818246508443,
+          "removed_fraction": 0.39251234086270753,
+          "removed_raw_sum": 3805.335804175518,
+          "selected_raw_sum": 5889.482442332925
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 17871.60082756268,
+          "removed_fraction": 0.8030011507437335,
+          "removed_raw_sum": 14350.916030165492,
+          "selected_raw_sum": 3520.684797397189
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-4",
+      "seed": 29,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 194,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.668944927475987,
+          "top1": 0.5858333333333334,
+          "top5": 0.78
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 194,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.5165065840289462,
+          "top1": 0.4016666666666667,
+          "top5": 0.6408333333333335
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 194,
+      "maximum_unselected_family_distance": 0.9391334749020283,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 18306.709437090583,
+          "removed_fraction": 0.8437134665944819,
+          "removed_raw_sum": 15445.617281105611,
+          "selected_raw_sum": 2861.0921559849717
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3259.601447752762,
+          "removed_fraction": 0.22995961807769677,
+          "removed_raw_sum": 749.5767040107326,
+          "selected_raw_sum": 2510.0247437420294
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 8744.78202292634,
+          "removed_fraction": 0.6828544780124135,
+          "removed_raw_sum": 5971.413563597704,
+          "selected_raw_sum": 2773.3684593286366
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11188.717523940242,
+          "removed_fraction": 0.7825427873963469,
+          "removed_raw_sum": 8755.650198574549,
+          "selected_raw_sum": 2433.0673253656923
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1747.1800672848478,
+          "removed_fraction": 0.004743762305721504,
+          "removed_raw_sum": 8.288206944493822,
+          "selected_raw_sum": 1738.891860340354
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5119.970110936038,
+          "removed_fraction": 0.6430369841240471,
+          "removed_raw_sum": 3292.3301389415724,
+          "selected_raw_sum": 1827.6399719944652
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 500.5472500194143,
+          "removed_fraction": 0.00041430909549030964,
+          "removed_raw_sum": 0.20738127840570542,
+          "selected_raw_sum": 500.3398687410086
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 2696.634633004345,
+          "removed_fraction": 0.01142724615350585,
+          "removed_raw_sum": 30.815107737409562,
+          "selected_raw_sum": 2665.819525266935
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1106.5868121517333,
+          "removed_fraction": 0.006259064565633151,
+          "removed_raw_sum": 6.926198304735863,
+          "selected_raw_sum": 1099.6606138469974
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8019.877622918643,
+          "removed_fraction": 0.5905937633555294,
+          "removed_raw_sum": 4736.489706970318,
+          "selected_raw_sum": 3283.3879159483254
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 7758.324320731214,
+          "removed_fraction": -1.1722823952366163E-16,
+          "removed_raw_sum": -9.094947017729282E-13,
+          "selected_raw_sum": 7758.324320731215
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 30117.57799626207,
+          "removed_fraction": -3.623776262031987E-16,
+          "removed_raw_sum": -1.0913936421275139E-11,
+          "selected_raw_sum": 30117.57799626208
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 9694.818246508443,
+          "removed_fraction": 0.39251234086270753,
+          "removed_raw_sum": 3805.335804175518,
+          "selected_raw_sum": 5889.482442332925
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 17871.60082756268,
+          "removed_fraction": 0.8030011507437335,
+          "removed_raw_sum": 14350.916030165492,
+          "selected_raw_sum": 3520.684797397189
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-5",
+      "seed": 0,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 199,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6672609343801779,
+          "top1": 0.5958333333333333,
+          "top5": 0.7341666666666665
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 199,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.4912422174119574,
+          "top1": 0.38333333333333336,
+          "top5": 0.6158333333333333
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 199,
+      "maximum_unselected_family_distance": 0.9494164429713633,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 18814.585309789913,
+          "removed_fraction": 0.8413805699087656,
+          "removed_raw_sum": 15830.226510548127,
+          "selected_raw_sum": 2984.3587992417843
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3503.792024249306,
+          "removed_fraction": 0.23052590748240287,
+          "removed_raw_sum": 807.7148360196766,
+          "selected_raw_sum": 2696.0771882296294
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9107.260208726773,
+          "removed_fraction": 0.6749134043194904,
+          "removed_raw_sum": 6146.61199149522,
+          "selected_raw_sum": 2960.648217231554
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11573.09931159493,
+          "removed_fraction": 0.7758810704013185,
+          "removed_raw_sum": 8979.348681741036,
+          "selected_raw_sum": 2593.750629853894
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1942.2361286683124,
+          "removed_fraction": 0.00497910356995961,
+          "removed_raw_sum": 9.670594841956927,
+          "selected_raw_sum": 1932.5655338263555
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5399.639053980035,
+          "removed_fraction": 0.6265207487363931,
+          "removed_raw_sum": 3382.9859030058406,
+          "selected_raw_sum": 2016.6531509741947
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 603.4548782591105,
+          "removed_fraction": 0.0007603220114749389,
+          "removed_raw_sum": 0.45882002687233125,
+          "selected_raw_sum": 602.9960582322382
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 3013.1142942779984,
+          "removed_fraction": 0.011574288299366312,
+          "removed_raw_sum": 34.87465352091522,
+          "selected_raw_sum": 2978.239640757083
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1248.9502546207138,
+          "removed_fraction": 0.007787084246288473,
+          "removed_raw_sum": 9.725680852154937,
+          "selected_raw_sum": 1239.224573768559
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8533.072999420345,
+          "removed_fraction": 0.5789153855088194,
+          "removed_raw_sum": 4939.927245034327,
+          "selected_raw_sum": 3593.1457543860183
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 6869.001769129232,
+          "removed_fraction": -1.324056583971768E-16,
+          "removed_raw_sum": -9.094947017729282E-13,
+          "selected_raw_sum": 6869.001769129233
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 38525.75315124086,
+          "removed_fraction": 0.0,
+          "removed_raw_sum": 0.0,
+          "selected_raw_sum": 38525.75315124086
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10421.326499837598,
+          "removed_fraction": 0.4008422794847026,
+          "removed_raw_sum": 4177.30826944924,
+          "selected_raw_sum": 6244.0182303883585
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 18510.253589244006,
+          "removed_fraction": 0.8090098320997617,
+          "removed_raw_sum": 14974.977148358306,
+          "selected_raw_sum": 3535.2764408857
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-5",
+      "seed": 17,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 199,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6660522299225871,
+          "top1": 0.5958333333333333,
+          "top5": 0.7191666666666666
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 199,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.488164511320607,
+          "top1": 0.38333333333333336,
+          "top5": 0.6208333333333333
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 199,
+      "maximum_unselected_family_distance": 0.9494164429713633,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 18814.585309789913,
+          "removed_fraction": 0.8413805699087656,
+          "removed_raw_sum": 15830.226510548127,
+          "selected_raw_sum": 2984.3587992417843
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3503.792024249306,
+          "removed_fraction": 0.23052590748240287,
+          "removed_raw_sum": 807.7148360196766,
+          "selected_raw_sum": 2696.0771882296294
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9107.260208726773,
+          "removed_fraction": 0.6749134043194904,
+          "removed_raw_sum": 6146.61199149522,
+          "selected_raw_sum": 2960.648217231554
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11573.09931159493,
+          "removed_fraction": 0.7758810704013185,
+          "removed_raw_sum": 8979.348681741036,
+          "selected_raw_sum": 2593.750629853894
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1942.2361286683124,
+          "removed_fraction": 0.00497910356995961,
+          "removed_raw_sum": 9.670594841956927,
+          "selected_raw_sum": 1932.5655338263555
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5399.639053980035,
+          "removed_fraction": 0.6265207487363931,
+          "removed_raw_sum": 3382.9859030058406,
+          "selected_raw_sum": 2016.6531509741947
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 603.4548782591105,
+          "removed_fraction": 0.0007603220114749389,
+          "removed_raw_sum": 0.45882002687233125,
+          "selected_raw_sum": 602.9960582322382
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 3013.1142942779984,
+          "removed_fraction": 0.011574288299366312,
+          "removed_raw_sum": 34.87465352091522,
+          "selected_raw_sum": 2978.239640757083
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1248.9502546207138,
+          "removed_fraction": 0.007787084246288473,
+          "removed_raw_sum": 9.725680852154937,
+          "selected_raw_sum": 1239.224573768559
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8533.072999420345,
+          "removed_fraction": 0.5789153855088194,
+          "removed_raw_sum": 4939.927245034327,
+          "selected_raw_sum": 3593.1457543860183
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 6869.001769129232,
+          "removed_fraction": -1.324056583971768E-16,
+          "removed_raw_sum": -9.094947017729282E-13,
+          "selected_raw_sum": 6869.001769129233
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 38525.75315124086,
+          "removed_fraction": 0.0,
+          "removed_raw_sum": 0.0,
+          "selected_raw_sum": 38525.75315124086
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10421.326499837598,
+          "removed_fraction": 0.4008422794847026,
+          "removed_raw_sum": 4177.30826944924,
+          "selected_raw_sum": 6244.0182303883585
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 18510.253589244006,
+          "removed_fraction": 0.8090098320997617,
+          "removed_raw_sum": 14974.977148358306,
+          "selected_raw_sum": 3535.2764408857
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-5",
+      "seed": 29,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 199,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6667005575347055,
+          "top1": 0.5958333333333333,
+          "top5": 0.7241666666666666
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 199,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.4906021611428909,
+          "top1": 0.38333333333333336,
+          "top5": 0.6158333333333333
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 199,
+      "maximum_unselected_family_distance": 0.9494164429713633,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 18814.585309789913,
+          "removed_fraction": 0.8413805699087656,
+          "removed_raw_sum": 15830.226510548127,
+          "selected_raw_sum": 2984.3587992417843
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3503.792024249306,
+          "removed_fraction": 0.23052590748240287,
+          "removed_raw_sum": 807.7148360196766,
+          "selected_raw_sum": 2696.0771882296294
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9107.260208726773,
+          "removed_fraction": 0.6749134043194904,
+          "removed_raw_sum": 6146.61199149522,
+          "selected_raw_sum": 2960.648217231554
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 11573.09931159493,
+          "removed_fraction": 0.7758810704013185,
+          "removed_raw_sum": 8979.348681741036,
+          "selected_raw_sum": 2593.750629853894
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1942.2361286683124,
+          "removed_fraction": 0.00497910356995961,
+          "removed_raw_sum": 9.670594841956927,
+          "selected_raw_sum": 1932.5655338263555
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5399.639053980035,
+          "removed_fraction": 0.6265207487363931,
+          "removed_raw_sum": 3382.9859030058406,
+          "selected_raw_sum": 2016.6531509741947
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 603.4548782591105,
+          "removed_fraction": 0.0007603220114749389,
+          "removed_raw_sum": 0.45882002687233125,
+          "selected_raw_sum": 602.9960582322382
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 3013.1142942779984,
+          "removed_fraction": 0.011574288299366312,
+          "removed_raw_sum": 34.87465352091522,
+          "selected_raw_sum": 2978.239640757083
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1248.9502546207138,
+          "removed_fraction": 0.007787084246288473,
+          "removed_raw_sum": 9.725680852154937,
+          "selected_raw_sum": 1239.224573768559
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8533.072999420345,
+          "removed_fraction": 0.5789153855088194,
+          "removed_raw_sum": 4939.927245034327,
+          "selected_raw_sum": 3593.1457543860183
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 6869.001769129232,
+          "removed_fraction": -1.324056583971768E-16,
+          "removed_raw_sum": -9.094947017729282E-13,
+          "selected_raw_sum": 6869.001769129233
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 38525.75315124086,
+          "removed_fraction": 0.0,
+          "removed_raw_sum": 0.0,
+          "selected_raw_sum": 38525.75315124086
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10421.326499837598,
+          "removed_fraction": 0.4008422794847026,
+          "removed_raw_sum": 4177.30826944924,
+          "selected_raw_sum": 6244.0182303883585
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 18510.253589244006,
+          "removed_fraction": 0.8090098320997617,
+          "removed_raw_sum": 14974.977148358306,
+          "selected_raw_sum": 3535.2764408857
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-6",
+      "seed": 0,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 208,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.7041222659481035,
+          "top1": 0.6311764705882353,
+          "top5": 0.7661764705882353
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 208,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6151623908585057,
+          "top1": 0.5195098039215686,
+          "top5": 0.7295098039215686
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 208,
+      "maximum_unselected_family_distance": 0.9181071988304744,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 19683.747161147363,
+          "removed_fraction": 0.8432394479790164,
+          "removed_raw_sum": 16598.112090324434,
+          "selected_raw_sum": 3085.6350708229293
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3659.724141166866,
+          "removed_fraction": 0.22804381243567862,
+          "removed_raw_sum": 834.5774456145818,
+          "selected_raw_sum": 2825.146695552284
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9736.364406203442,
+          "removed_fraction": 0.6748259472713474,
+          "removed_raw_sum": 6570.351333395267,
+          "selected_raw_sum": 3166.0130728081754
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 12342.8598905307,
+          "removed_fraction": 0.7755101663325642,
+          "removed_raw_sum": 9572.013326724998,
+          "selected_raw_sum": 2770.8465638057028
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1976.130907894085,
+          "removed_fraction": 0.004375999022317344,
+          "removed_raw_sum": 8.647546920915602,
+          "selected_raw_sum": 1967.4833609731695
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5595.88546245898,
+          "removed_fraction": 0.6371999352045142,
+          "removed_raw_sum": 3565.6978540907453,
+          "selected_raw_sum": 2030.187608368235
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 555.7718059606502,
+          "removed_fraction": 0.00045691096330247933,
+          "removed_raw_sum": 0.2539382312378393,
+          "selected_raw_sum": 555.5178677294124
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 3025.801570476582,
+          "removed_fraction": 0.012602160690865885,
+          "removed_raw_sum": 38.131637609820245,
+          "selected_raw_sum": 2987.669932866762
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1246.905714798793,
+          "removed_fraction": 0.006443760030528367,
+          "removed_raw_sum": 8.034761206857866,
+          "selected_raw_sum": 1238.8709535919352
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8881.73326897512,
+          "removed_fraction": 0.5888132989985474,
+          "removed_raw_sum": 5229.682666930394,
+          "selected_raw_sum": 3652.0506020447265
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 9890.00361773535,
+          "removed_fraction": -3.6784403198476797E-16,
+          "removed_raw_sum": -3.637978807091713E-12,
+          "selected_raw_sum": 9890.003617735354
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 67468.19617099628,
+          "removed_fraction": -4.3137110680965667E-16,
+          "removed_raw_sum": -2.9103830456733704E-11,
+          "selected_raw_sum": 67468.1961709963
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10748.969250301123,
+          "removed_fraction": 0.39228324845768525,
+          "removed_raw_sum": 4216.640575079894,
+          "selected_raw_sum": 6532.328675221229
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 19299.897633722398,
+          "removed_fraction": 0.8054230857953012,
+          "removed_raw_sum": 15544.583107686125,
+          "selected_raw_sum": 3755.3145260362726
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-6",
+      "seed": 17,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 208,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.706903580533218,
+          "top1": 0.6361764705882353,
+          "top5": 0.7661764705882353
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 208,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6172747748564602,
+          "top1": 0.5245098039215687,
+          "top5": 0.7295098039215686
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 208,
+      "maximum_unselected_family_distance": 0.9181071988304744,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 19683.747161147363,
+          "removed_fraction": 0.8432394479790164,
+          "removed_raw_sum": 16598.112090324434,
+          "selected_raw_sum": 3085.6350708229293
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3659.724141166866,
+          "removed_fraction": 0.22804381243567862,
+          "removed_raw_sum": 834.5774456145818,
+          "selected_raw_sum": 2825.146695552284
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9736.364406203442,
+          "removed_fraction": 0.6748259472713474,
+          "removed_raw_sum": 6570.351333395267,
+          "selected_raw_sum": 3166.0130728081754
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 12342.8598905307,
+          "removed_fraction": 0.7755101663325642,
+          "removed_raw_sum": 9572.013326724998,
+          "selected_raw_sum": 2770.8465638057028
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1976.130907894085,
+          "removed_fraction": 0.004375999022317344,
+          "removed_raw_sum": 8.647546920915602,
+          "selected_raw_sum": 1967.4833609731695
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5595.88546245898,
+          "removed_fraction": 0.6371999352045142,
+          "removed_raw_sum": 3565.6978540907453,
+          "selected_raw_sum": 2030.187608368235
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 555.7718059606502,
+          "removed_fraction": 0.00045691096330247933,
+          "removed_raw_sum": 0.2539382312378393,
+          "selected_raw_sum": 555.5178677294124
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 3025.801570476582,
+          "removed_fraction": 0.012602160690865885,
+          "removed_raw_sum": 38.131637609820245,
+          "selected_raw_sum": 2987.669932866762
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1246.905714798793,
+          "removed_fraction": 0.006443760030528367,
+          "removed_raw_sum": 8.034761206857866,
+          "selected_raw_sum": 1238.8709535919352
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8881.73326897512,
+          "removed_fraction": 0.5888132989985474,
+          "removed_raw_sum": 5229.682666930394,
+          "selected_raw_sum": 3652.0506020447265
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 9890.00361773535,
+          "removed_fraction": -3.6784403198476797E-16,
+          "removed_raw_sum": -3.637978807091713E-12,
+          "selected_raw_sum": 9890.003617735354
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 67468.19617099628,
+          "removed_fraction": -4.3137110680965667E-16,
+          "removed_raw_sum": -2.9103830456733704E-11,
+          "selected_raw_sum": 67468.1961709963
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10748.969250301123,
+          "removed_fraction": 0.39228324845768525,
+          "removed_raw_sum": 4216.640575079894,
+          "selected_raw_sum": 6532.328675221229
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 19299.897633722398,
+          "removed_fraction": 0.8054230857953012,
+          "removed_raw_sum": 15544.583107686125,
+          "selected_raw_sum": 3755.3145260362726
+        }
+      ]
+    },
+    {
+      "corpus": "blog",
+      "gallery": "blog-test-6",
+      "seed": 29,
+      "candidate_authors": 100,
+      "full": {
+        "query_count": 208,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.7085312980956496,
+          "top1": 0.6411764705882353,
+          "top5": 0.7661764705882353
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 208,
+        "author_count": 100,
+        "macro_author": {
+          "mrr": 0.6205372956073729,
+          "top1": 0.5295098039215687,
+          "top5": 0.7295098039215686
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 208,
+      "maximum_unselected_family_distance": 0.9181071988304744,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 19683.747161147363,
+          "removed_fraction": 0.8432394479790164,
+          "removed_raw_sum": 16598.112090324434,
+          "selected_raw_sum": 3085.6350708229293
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 3659.724141166866,
+          "removed_fraction": 0.22804381243567862,
+          "removed_raw_sum": 834.5774456145818,
+          "selected_raw_sum": 2825.146695552284
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 9736.364406203442,
+          "removed_fraction": 0.6748259472713474,
+          "removed_raw_sum": 6570.351333395267,
+          "selected_raw_sum": 3166.0130728081754
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 12342.8598905307,
+          "removed_fraction": 0.7755101663325642,
+          "removed_raw_sum": 9572.013326724998,
+          "selected_raw_sum": 2770.8465638057028
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 1976.130907894085,
+          "removed_fraction": 0.004375999022317344,
+          "removed_raw_sum": 8.647546920915602,
+          "selected_raw_sum": 1967.4833609731695
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 5595.88546245898,
+          "removed_fraction": 0.6371999352045142,
+          "removed_raw_sum": 3565.6978540907453,
+          "selected_raw_sum": 2030.187608368235
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 555.7718059606502,
+          "removed_fraction": 0.00045691096330247933,
+          "removed_raw_sum": 0.2539382312378393,
+          "selected_raw_sum": 555.5178677294124
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 3025.801570476582,
+          "removed_fraction": 0.012602160690865885,
+          "removed_raw_sum": 38.131637609820245,
+          "selected_raw_sum": 2987.669932866762
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 1246.905714798793,
+          "removed_fraction": 0.006443760030528367,
+          "removed_raw_sum": 8.034761206857866,
+          "selected_raw_sum": 1238.8709535919352
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 8881.73326897512,
+          "removed_fraction": 0.5888132989985474,
+          "removed_raw_sum": 5229.682666930394,
+          "selected_raw_sum": 3652.0506020447265
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 9890.00361773535,
+          "removed_fraction": -3.6784403198476797E-16,
+          "removed_raw_sum": -3.637978807091713E-12,
+          "selected_raw_sum": 9890.003617735354
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 67468.19617099628,
+          "removed_fraction": -4.3137110680965667E-16,
+          "removed_raw_sum": -2.9103830456733704E-11,
+          "selected_raw_sum": 67468.1961709963
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 10748.969250301123,
+          "removed_fraction": 0.39228324845768525,
+          "removed_raw_sum": 4216.640575079894,
+          "selected_raw_sum": 6532.328675221229
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 19299.897633722398,
+          "removed_fraction": 0.8054230857953012,
+          "removed_raw_sum": 15544.583107686125,
+          "selected_raw_sum": 3755.3145260362726
+        }
+      ]
+    },
+    {
+      "corpus": "global_voices",
+      "gallery": "global-voices",
+      "seed": 0,
+      "candidate_authors": 14,
+      "full": {
+        "query_count": 58,
+        "author_count": 14,
+        "macro_author": {
+          "mrr": 0.8208427815570672,
+          "top1": 0.7380952380952381,
+          "top5": 0.9226190476190477
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 58,
+        "author_count": 14,
+        "macro_author": {
+          "mrr": 0.45215310483167626,
+          "top1": 0.29166666666666663,
+          "top5": 0.6607142857142857
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 58,
+      "maximum_unselected_family_distance": 0.9220674544854437,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 732.0606232992484,
+          "removed_fraction": 0.8582313765105832,
+          "removed_raw_sum": 628.2773964233095,
+          "selected_raw_sum": 103.78322687593887
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 90.66286583774279,
+          "removed_fraction": 0.1980914297827323,
+          "removed_raw_sum": 17.959536721998504,
+          "selected_raw_sum": 72.70332911574428
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 282.6237918383701,
+          "removed_fraction": 0.7184903491619832,
+          "removed_raw_sum": 203.0624668794342,
+          "selected_raw_sum": 79.5613249589359
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 417.1669096277096,
+          "removed_fraction": 0.8293806668481369,
+          "removed_raw_sum": 345.9901696940062,
+          "selected_raw_sum": 71.17673993370336
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 40.40848923761437,
+          "removed_fraction": 0.004585483489204262,
+          "removed_raw_sum": 0.1852924602227688,
+          "selected_raw_sum": 40.2231967773916
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 175.365536289319,
+          "removed_fraction": 0.6669257263064929,
+          "removed_raw_sum": 116.95578765888173,
+          "selected_raw_sum": 58.40974863043728
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 10.465905407385737,
+          "removed_fraction": 0.0018378936220984356,
+          "removed_raw_sum": 0.019235220797719776,
+          "selected_raw_sum": 10.446670186588017
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 77.09164871856483,
+          "removed_fraction": 0.008378082224120764,
+          "removed_raw_sum": 0.6458801717571703,
+          "selected_raw_sum": 76.44576854680766
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 29.19562119620008,
+          "removed_fraction": 0.005358653181436131,
+          "removed_raw_sum": 0.1564492084070217,
+          "selected_raw_sum": 29.039171987793058
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 258.0901696443135,
+          "removed_fraction": 0.6525563494297092,
+          "removed_raw_sum": 168.41837892678757,
+          "selected_raw_sum": 89.67179071752592
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 142.42307754181073,
+          "removed_fraction": -3.991166308291622E-16,
+          "removed_raw_sum": -5.684341886080802E-14,
+          "selected_raw_sum": 142.42307754181078
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 256.3723385740456,
+          "removed_fraction": -2.2172212172722552E-16,
+          "removed_raw_sum": -5.684341886080802E-14,
+          "selected_raw_sum": 256.37233857404567
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 467.13981953116684,
+          "removed_fraction": 0.7229202085592471,
+          "removed_raw_sum": 337.7048157618002,
+          "selected_raw_sum": 129.4350037693666
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 762.8637148440652,
+          "removed_fraction": 0.9310628034910908,
+          "removed_raw_sum": 710.2740290243433,
+          "selected_raw_sum": 52.58968581972178
+        }
+      ]
+    },
+    {
+      "corpus": "global_voices",
+      "gallery": "global-voices",
+      "seed": 17,
+      "candidate_authors": 14,
+      "full": {
+        "query_count": 58,
+        "author_count": 14,
+        "macro_author": {
+          "mrr": 0.8208427815570672,
+          "top1": 0.7380952380952381,
+          "top5": 0.9226190476190477
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 58,
+        "author_count": 14,
+        "macro_author": {
+          "mrr": 0.4556968329289757,
+          "top1": 0.29166666666666663,
+          "top5": 0.6607142857142857
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 58,
+      "maximum_unselected_family_distance": 0.9220674544854437,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 732.0606232992484,
+          "removed_fraction": 0.8582313765105832,
+          "removed_raw_sum": 628.2773964233095,
+          "selected_raw_sum": 103.78322687593887
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 90.66286583774279,
+          "removed_fraction": 0.1980914297827323,
+          "removed_raw_sum": 17.959536721998504,
+          "selected_raw_sum": 72.70332911574428
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 282.6237918383701,
+          "removed_fraction": 0.7184903491619832,
+          "removed_raw_sum": 203.0624668794342,
+          "selected_raw_sum": 79.5613249589359
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 417.1669096277096,
+          "removed_fraction": 0.8293806668481369,
+          "removed_raw_sum": 345.9901696940062,
+          "selected_raw_sum": 71.17673993370336
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 40.40848923761437,
+          "removed_fraction": 0.004585483489204262,
+          "removed_raw_sum": 0.1852924602227688,
+          "selected_raw_sum": 40.2231967773916
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 175.365536289319,
+          "removed_fraction": 0.6669257263064929,
+          "removed_raw_sum": 116.95578765888173,
+          "selected_raw_sum": 58.40974863043728
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 10.465905407385737,
+          "removed_fraction": 0.0018378936220984356,
+          "removed_raw_sum": 0.019235220797719776,
+          "selected_raw_sum": 10.446670186588017
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 77.09164871856483,
+          "removed_fraction": 0.008378082224120764,
+          "removed_raw_sum": 0.6458801717571703,
+          "selected_raw_sum": 76.44576854680766
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 29.19562119620008,
+          "removed_fraction": 0.005358653181436131,
+          "removed_raw_sum": 0.1564492084070217,
+          "selected_raw_sum": 29.039171987793058
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 258.0901696443135,
+          "removed_fraction": 0.6525563494297092,
+          "removed_raw_sum": 168.41837892678757,
+          "selected_raw_sum": 89.67179071752592
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 142.42307754181073,
+          "removed_fraction": -3.991166308291622E-16,
+          "removed_raw_sum": -5.684341886080802E-14,
+          "selected_raw_sum": 142.42307754181078
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 256.3723385740456,
+          "removed_fraction": -2.2172212172722552E-16,
+          "removed_raw_sum": -5.684341886080802E-14,
+          "selected_raw_sum": 256.37233857404567
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 467.13981953116684,
+          "removed_fraction": 0.7229202085592471,
+          "removed_raw_sum": 337.7048157618002,
+          "selected_raw_sum": 129.4350037693666
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 762.8637148440652,
+          "removed_fraction": 0.9310628034910908,
+          "removed_raw_sum": 710.2740290243433,
+          "selected_raw_sum": 52.58968581972178
+        }
+      ]
+    },
+    {
+      "corpus": "global_voices",
+      "gallery": "global-voices",
+      "seed": 29,
+      "candidate_authors": 14,
+      "full": {
+        "query_count": 58,
+        "author_count": 14,
+        "macro_author": {
+          "mrr": 0.8208427815570672,
+          "top1": 0.7380952380952381,
+          "top5": 0.9226190476190477
+        }
+      },
+      "selected_coordinates_only": {
+        "query_count": 58,
+        "author_count": 14,
+        "macro_author": {
+          "mrr": 0.45505199165913446,
+          "top1": 0.29166666666666663,
+          "top5": 0.6607142857142857
+        }
+      },
+      "baseline_maximum_absolute_error": 0.0,
+      "changed_query_rankings": 58,
+      "maximum_unselected_family_distance": 0.9220674544854437,
+      "family_distance_sums": [
+        {
+          "family": "clause_head_frame",
+          "full_raw_sum": 732.0606232992484,
+          "removed_fraction": 0.8582313765105832,
+          "removed_raw_sum": 628.2773964233095,
+          "selected_raw_sum": 103.78322687593887
+        },
+        {
+          "family": "dependency",
+          "full_raw_sum": 90.66286583774279,
+          "removed_fraction": 0.1980914297827323,
+          "removed_raw_sum": 17.959536721998504,
+          "selected_raw_sum": 72.70332911574428
+        },
+        {
+          "family": "dependency_path_2",
+          "full_raw_sum": 282.6237918383701,
+          "removed_fraction": 0.7184903491619832,
+          "removed_raw_sum": 203.0624668794342,
+          "selected_raw_sum": 79.5613249589359
+        },
+        {
+          "family": "dependency_path_3",
+          "full_raw_sum": 417.1669096277096,
+          "removed_fraction": 0.8293806668481369,
+          "removed_raw_sum": 345.9901696940062,
+          "selected_raw_sum": 71.17673993370336
+        },
+        {
+          "family": "morphology_bundle",
+          "full_raw_sum": 40.40848923761437,
+          "removed_fraction": 0.004585483489204262,
+          "removed_raw_sum": 0.1852924602227688,
+          "selected_raw_sum": 40.2231967773916
+        },
+        {
+          "family": "ordered_head_frame",
+          "full_raw_sum": 175.365536289319,
+          "removed_fraction": 0.6669257263064929,
+          "removed_raw_sum": 116.95578765888173,
+          "selected_raw_sum": 58.40974863043728
+        },
+        {
+          "family": "pos",
+          "full_raw_sum": 10.465905407385737,
+          "removed_fraction": 0.0018378936220984356,
+          "removed_raw_sum": 0.019235220797719776,
+          "selected_raw_sum": 10.446670186588017
+        },
+        {
+          "family": "pos_bigram",
+          "full_raw_sum": 77.09164871856483,
+          "removed_fraction": 0.008378082224120764,
+          "removed_raw_sum": 0.6458801717571703,
+          "selected_raw_sum": 76.44576854680766
+        },
+        {
+          "family": "pos_tag",
+          "full_raw_sum": 29.19562119620008,
+          "removed_fraction": 0.005358653181436131,
+          "removed_raw_sum": 0.1564492084070217,
+          "selected_raw_sum": 29.039171987793058
+        },
+        {
+          "family": "pos_trigram",
+          "full_raw_sum": 258.0901696443135,
+          "removed_fraction": 0.6525563494297092,
+          "removed_raw_sum": 168.41837892678757,
+          "selected_raw_sum": 89.67179071752592
+        },
+        {
+          "family": "syntax_load",
+          "full_raw_sum": 142.42307754181073,
+          "removed_fraction": -3.991166308291622E-16,
+          "removed_raw_sum": -5.684341886080802E-14,
+          "selected_raw_sum": 142.42307754181078
+        },
+        {
+          "family": "syntax_sentence_load",
+          "full_raw_sum": 256.3723385740456,
+          "removed_fraction": -2.2172212172722552E-16,
+          "removed_raw_sum": -5.684341886080802E-14,
+          "selected_raw_sum": 256.37233857404567
+        },
+        {
+          "family": "word",
+          "full_raw_sum": 467.13981953116684,
+          "removed_fraction": 0.7229202085592471,
+          "removed_raw_sum": 337.7048157618002,
+          "selected_raw_sum": 129.4350037693666
+        },
+        {
+          "family": "word_bigram",
+          "full_raw_sum": 762.8637148440652,
+          "removed_fraction": 0.9310628034910908,
+          "removed_raw_sum": 710.2740290243433,
+          "selected_raw_sum": 52.58968581972178
+        }
+      ]
+    }
+  ]
+}

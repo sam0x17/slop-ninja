@@ -1,0 +1,32 @@
+{
+  "seeds": [0, 17, 29],
+  "architectures": [
+    {"name": "linear", "hidden_dimension": null},
+    {"name": "mlp_gelu", "hidden_dimension": 256}
+  ],
+  "input_dimension": 3557,
+  "output_dimension": 128,
+  "bias": true,
+  "temperature": 0.1,
+  "norm_epsilon": 1e-12,
+  "norm_failure": "fail_on_norm_at_or_below_epsilon_or_nonfinite",
+  "pooling": "l2_documents_then_mean_documents_within_date_then_mean_dates_then_l2_prototype",
+  "training_positive": "exclude_whole_query_date_before_prototype_normalization",
+  "loss_weighting": "equal_authors_then_dates_then_posts;equal_train_panels",
+  "input_preprocessing": "frozen_original_columns_only;no_eta_no_dropout_no_batchnorm",
+  "optimizer": {
+    "name": "AdamW",
+    "learning_rate": 0.001,
+    "weight_decay": 0.01,
+    "betas": [0.9, 0.999],
+    "epsilon": 1e-8
+  },
+  "epochs": 200,
+  "development_every": 5,
+  "device": "cpu",
+  "dtype": "float32",
+  "threads": 8,
+  "checkpoint_selection": ["macro_author_top1", "macro_author_mrr", "earliest_epoch"],
+  "architecture_selection": ["mean_seed_macro_author_top1", "mean_seed_macro_author_mrr", "fewer_parameters"],
+  "identity_control": "same_pooling_on_original_3557_coordinates"
+}

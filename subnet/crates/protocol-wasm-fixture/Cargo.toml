@@ -1,0 +1,13 @@
+[package]
+name = "slop-ninja-protocol-wasm-fixture"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "wasm32-unknown-unknown module exporting the protocol golden report"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+slop-ninja-protocol = { path = "../protocol", features = ["fixtures"] }

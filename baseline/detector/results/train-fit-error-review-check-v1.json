@@ -1,0 +1,76 @@
+{
+  "schema": "slop_ninja_train_fit_error_review_check_v1",
+  "at": "2026-09-15T13:35:40Z",
+  "review_sha256": "037a3809b3b2d2629015222cec9338bc890e39ab7286416a6ab6a35a15ac9272",
+  "selection_sha256": "da9cc382871664e9dde06b824e58077b49fa6ba4a09902a941e0ad322f977f66",
+  "summary_sha256": "2bef9afaf4642774c65796ca44b5b36baa14b23233e76f166e55dc6b2a2f0bb4",
+  "review_rows_and_source_bindings_match": true,
+  "rows": [
+    {
+      "slot": "human-max-ai/cmu-books-historical",
+      "id": "cmu-books:5504833:4554119bb3bec65d",
+      "text_sha256": "4554119bb3bec65dd381ff6b9f3d65efafc9446eae14bef113c4dec047308a74",
+      "parent": null
+    },
+    {
+      "slot": "human-max-ai/hc3-wiki-historical",
+      "id": "hc3-wiki:daa19c307578a113792cc11bfd64e78633e977e4263ae0a18c19fff0026a63a0:0",
+      "text_sha256": "f5f093faeed6420b7cd3c7d58ffe775f2162bbc9c61a2745354c7856dd220a33",
+      "parent": null
+    },
+    {
+      "slot": "human-max-ai/plos_one",
+      "id": "plos:10.1371/journal.pone.0208384:abstract:94868201f5034070",
+      "text_sha256": "94868201f50340703f2ea23dc754e7d9c9d46a58afcd47f7ba0a44e86092ea98",
+      "parent": null
+    },
+    {
+      "slot": "human-max-ai/wikinews",
+      "id": "wikinews:2840087:4504156:09742b507aae6ee3",
+      "text_sha256": "09742b507aae6ee325e11df7e4d4612501a876d0fe6086bf0d806b4d61b4ddfb",
+      "parent": null
+    },
+    {
+      "slot": "model-max-human",
+      "id": "generation:3e44602735ec0e71082197c6943850e3830e4287cc62060f3ac5dbde7968d2b0",
+      "text_sha256": "80eedb8da1637b6b418af501a376a4c9798206894ad8a90f8a42e70e78098af9",
+      "parent": {
+        "id": "hc3-wiki:0ecb2e4a8e0e53344224ff21aa9e69af91f079e8f713d1f1be0eb050cc03081a:0",
+        "text_sha256": "5c3da95aa3eced1c2370670a47a586f22e940cbff8e8b5c499d502f79d28fbf2",
+        "prompt_source_equals_parent": true
+      }
+    },
+    {
+      "slot": "model-max-mixed",
+      "id": "generation:ee87b4d00eedf948731ab9121655fc94123c28ba84a5dc0ef21deb21f3799549",
+      "text_sha256": "91416dab274828a0540db4b9dd5e78c34487426b997a170ca3ed9bf22608f722",
+      "parent": {
+        "id": "cmu-books:25230784:44e6ff111ccaeedd",
+        "text_sha256": "44e6ff111ccaeedd89a5c8142ef5b6fc722179f489ff92901aabc175247cffec",
+        "prompt_source_equals_parent": true
+      }
+    },
+    {
+      "slot": "mixed-max-human",
+      "id": "generation:6374fe523bb7166f273a9a05c90ba02bfb36e50c814d1fbd1e499c566e28b556",
+      "text_sha256": "7d8ae71ccd5042063908b96cb053a3e2b4ef047d6742eb727e463a3b13090073",
+      "parent": {
+        "id": "hc3-wiki:09a6cbabc09fbad0ed6550589a36574c9aa942771ba29a7cdfc7ecddb8f0fdee:0",
+        "text_sha256": "4863ab4739cfa5c432fd8ea3d3aa880316bca6f0018d399b7123bfa185e20ec9",
+        "prompt_source_equals_parent": true
+      }
+    },
+    {
+      "slot": "mixed-max-model",
+      "id": "generation:a2201b0851c3db0dee9967de48954aec1a47927274600d9c775e12e236f993a8",
+      "text_sha256": "9fd6b84aea8c688fb891f5fc2c968214a4d4df3a38f5697a8f0137a59cae235b",
+      "parent": {
+        "id": "cmu-books:13039654:0c6a474d80bebfc9",
+        "text_sha256": "0c6a474d80bebfc96154887e3542a4c4125598b586cfdb583dd91632133a8139",
+        "prompt_source_equals_parent": true
+      }
+    }
+  ],
+  "semantic_judgments": "assistant_review_not_mechanical_proof",
+  "new_training_records": 0
+}

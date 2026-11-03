@@ -15,7 +15,11 @@ They are never used for evaluation selection.
 a_frontier_positives plan CONFIG.json SOURCES.jsonl VOICES.jsonl NEW_OUT
 a_frontier_positives collect OUT LABEL [--limit N] [--shard I/N] [--retry-uncertain]
     [--guard-config PATH] [--profile cc_cohort_profile_v2 --profile-population POPULATION]
+    [--recollect RECOLLECT_SHA256]
 a_frontier_positives assemble OUT LABEL NEW_EXPORT
+a_frontier_positives renorm OUT NEW_DEST --profile cc_cohort_profile_v2 --profile-population POPULATION
+a_frontier_positives recollect-prepare R0_PLAN REVERDICT NEW_RECOLLECTION --renorm-sha256 HEX
+    --records R0_RECORDS
 a_frontier_positives publish DEST PLAN_DIR...
 a_frontier_positives withdraw-eval-authors OUT MANIFEST...
 a_frontier_positives voices LIBRARY_DIR NEW_VOICES.jsonl
@@ -316,12 +320,103 @@ writes a new directory (files mode 600, directories 700).
   - The R-form documents of one run are unique by text; a duplicate refuses
     the run. N0's and S0-13's positives take the raw twins only; the stratum
     enters only the R-form evaluation populations.
-- Stage 0-H re-collects each `recollect` row for its own request id with this
-  run's prior record, keyed by the request id, continuing from
-  `attempts_used`. `collect --profile` refuses a label that already holds
-  profile-off requests and starts a new plan's attempts at zero, so no
-  collector mode does this yet; one must be reviewed and landed before any
-  Stage 0-H call.
+- Stage 0-H re-collects each `recollect` row of R0's records for its own
+  request id with this run's prior record, keyed by the request id,
+  continuing from `attempts_used` (next section).
+
+## Stage 0-H re-collection
+
+Protocol A2 §4.5 and amendment 20 item 20.6 (B4h). Two commands re-collect
+the R0 frontier records that fail the frontier re-verdict. Neither changes
+R0's plan or receipts. Stage 0-H is hosted and needs its own go; the code and
+its tests make no hosted call.
+
+`recollect-prepare R0_PLAN REVERDICT NEW_RECOLLECTION --renorm-sha256 HEX
+--records R0_RECORDS` makes the re-collection directory. It starts no CLI.
+- **Inputs.** `REVERDICT` is the frontier re-verdict of `R0_PLAN`. Its
+  `RENORM.json` must hash to `HEX`, its population must be `train2`, and its
+  `recollection-plan.jsonl`, `reverdict.jsonl` and `form-prior-<sha256>.json`
+  must hash to the digests it records. The plan, passages and request files
+  must hash to the re-verdict's inputs. The prior recomputed from the plan's
+  passages must equal the re-verdict's prior record byte for byte, so any
+  other prior, population or key is refused. Old Dev-select and the consumed
+  Test are refused from the lines' bytes before any parse; evaluation plans
+  and passages outside Train are refused.
+- **Rows.** `R0_RECORDS` lists R0's frontier records, one request id per
+  line (blank lines and `#` lines skipped, duplicates refused), as the §4.3
+  re-verdict counted them. Only `recollect` rows whose id it lists run.
+  `drop_out_of_attempts` rows get no attempt. Other rows, and listed ids that
+  are no row, are counted. Each row must agree with its re-verdict record and
+  with R0's request (passage, kind, transport, selector and domain; the span
+  is the request's, whose file the re-verdict's digest binds). R0's state
+  must still hold the record: accepted, its last attempt the record response
+  with the row's raw-response digest.
+- **The directory** (files 600, directories 700; built beside its final name
+  and renamed into place). It holds byte copies of R0's plan files
+  (`plan.json`, `passages.jsonl`, every request file, and `instructions.md`,
+  the model catalog and `withdrawn.jsonl` when the plan holds them), the
+  prior record, `recollect-rows.jsonl` (each row with its R0 binding and the
+  digests of its copied attempt files, no text) and `RECOLLECT.json` (the
+  binding record). Each re-collected request has a state that lists R0's
+  attempts unchanged, then `pending`, beside byte copies of R0's attempt
+  directories. Other requests have no state there. The command prints
+  `RECOLLECT.json`'s digest.
+
+`collect NEW_RECOLLECTION LABEL --recollect RECOLLECT_SHA256 --profile
+cc_cohort_profile_v2 --profile-population train2 [--limit N] [--shard I/N]
+[--retry-uncertain]` runs the label's rows.
+- Before any call it re-checks every binding: `RECOLLECT.json` by the given
+  digest, then the re-verdict's files, R0's
+  plan files and their copies, the rows file, the prior (recomputed from the
+  copied passages), and each row's state and copied attempt files. Another
+  population, or no `--profile`, is refused.
+- Attempts continue from R0's. They are counted as `collect` counts them
+  (rate-limit stops excluded, R0's included) and capped at two by the mode
+  itself: a pending request with no attempt left is made terminal before any
+  call, and the immediate retry runs only while an attempt is left. So a
+  record gets at most `attempts_remaining` more. New attempt directories are
+  numbered on from R0's.
+- New receipts are judged under the re-verdict's profile record. The binding
+  replaces `bind_form` for the re-collection only: plain `collect --profile`
+  still refuses a label that holds profile-off requests, and plain `collect`
+  refuses a re-collection directory.
+- R0's passage refusals and `STOP` file hold as well as the directory's own.
+  Logs, quota snapshots and refusals are written to the directory.
+- **Withdrawals.** The directory's requests are R0's. Its withdrawals are the
+  union of its own `withdrawn.jsonl` (R0's, copied at prepare, plus any later
+  `withdraw-eval-authors` run on the directory) and R0's current
+  `withdrawn.jsonl`. Every reader reads that union when it runs: `collect`,
+  assembly, the R-form outputs and `status`. So a withdrawal made in R0's plan
+  after prepare is enough. A request either file withdraws is never sent, and
+  the directory's re-verdict drops it even when its re-collection was already
+  accepted: it gets no N-form record and no raw twin, and it is counted as
+  `withdrawn` (amendment 25 item 25.2).
+
+`renorm NEW_RECOLLECTION NEW_DEST --profile cc_cohort_profile_v2
+--profile-population train2` re-verdicts the directory, after re-checking its
+bindings, and records it in `RENORM.json`'s inputs.
+- **Inputs.** The record also holds both withdrawal files, by digest and key
+  count, and their union's key count. The run is refused if either file
+  changes while it runs.
+- **Export.** It holds the accepted re-collections that are not withdrawn
+  (laid out, with raw twins of the new attempts), beside the first
+  re-verdict's export. The two exports hold disjoint record ids. Requests that
+  were not re-collected are not assembled there (`pending`).
+- **Outcomes.** `recollection-outcomes.jsonl` gives each re-collected row one
+  Stage 0-H outcome, with no text. The counts are in
+  `inputs.recollection.outcomes`. The outcomes are:
+  - `accepted_pass`: the row's record is exported;
+  - `accepted_fail_<action>`: the row was accepted but fails this re-verdict,
+    so its `recollection-plan.jsonl` row has that action
+    (`drop_out_of_attempts` once two attempts are used);
+  - `withdrawn`;
+  - otherwise, the status with which assembly leaves the row out, for example
+    `terminal_rejected`, `terminal_failed`, `terminal_refused`, `uncertain` or
+    `pending`.
+- **First raw response.** It is read across R0's receipts and the new ones by
+  attempt number (amendment 25 item 25.1). For a re-collected request it is
+  R0's accepted attempt, which the directory's re-verdict judges as accepted.
+  Its stratum document, if any, is the first re-verdict's.
 
 ## Transport
 

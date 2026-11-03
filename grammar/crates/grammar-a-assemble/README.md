@@ -195,6 +195,60 @@ The options:
   cohort or collection is listed, or its parent is a `C` human of the split)
   or `T`, and each manifest counts `rows_by_block`. Trainer rows do not carry
   the tag; the trainer manifest counts rows per split and block.
+- `rows_renorm: DIR` (`rows_renorm.rs`; protocol A2 amendment 20 item 20.7
+  and amendment 22) names a `renorm-rows` output directory: the rows
+  re-verdict of the Train rows that no journal regenerates (RAID rows, stage-3
+  legacy rows and hosted captures with model text) under profile
+  `cc_cohort_profile_v2`, population `train2`. The assembler checks `rows-reverdict.jsonl`,
+  `rows-normalised.jsonl` and the prior `form-prior-<sha256>.json` against
+  `ROWS-RENORM.json`'s digests before it uses a line, then every line against
+  the others and the summary's counts (two receipts with one raw digest are
+  refused: the re-verdicted rows are one bundle's Train rows, unique by text);
+  all four files are build inputs, bound in every manifest. As the Train
+  candidates are gathered, before selection, dedup and weights (so the
+  covariate bins, the Kish ESS and the RAID share see the laid-out rows), and
+  after the Train-mining parents and the source groups that captures name are
+  resolved from the candidates as gathered (a planned stage-3 row that the
+  re-verdict drops still names its source group):
+  - every candidate whose bundle row id has a receipt must be a row with model
+    text of the receipt's source kind, origin and cohort, and its text must
+    hash to the receipt's `raw_text_sha256` (the row as re-verdicted), or the
+    build is refused;
+  - a `keep` candidate takes the `text`, `text_sha256`, `ai_byte_spans` and
+    `share` of its `rows-normalised.jsonl` line (whose `raw_ai_byte_spans` must
+    equal the candidate's spans); origin and every other field, provenance
+    included, are kept;
+  - a `drop_with_receipt` candidate is excluded
+    (`rows_renorm_drop_with_receipt`, with the receipt's file digest, line and
+    reasons), and so is a `keep` candidate whose raw text is an evaluation
+    text (`rows_renorm_raw_text_in_evaluation_split`), since its raw twin would
+    repeat that text.
+
+  At selection's dedup step a laid-out row and its raw twin are one
+  document. In selection's order (humans first, then by source kind and id),
+  a laid-out row whose raw text an earlier kept row holds is excluded
+  (`rows_renorm_raw_text_duplicate`), and a kept one marks its text and its
+  raw text as seen, so a later row with the raw text is its `duplicate_text`,
+  as in R0's selection. A candidate with model text of those three kinds that
+  has no receipt and whose text is any receipt's `raw_text_sha256` (a kept or
+  dropped planned row) is that row's raw twin and is excluded
+  (`rows_renorm_duplicate_of_planned_raw_text`, naming the planned row and
+  its action). After selection, a Train row with model text of those three
+  source kinds that holds no laid-out text refuses the build (every Train-2
+  positive is under profile v2, §6.2); a candidate with no receipt that
+  selection drops for its own reason is not refused. `renorm-rows` plans
+  external-pool rows of `raid-v1-*` cohorts only, so a selected positive of
+  any other external pool always refuses the build. The Train manifest's
+  `rows_renorm` record gives the rules, the files' digests, the receipts'
+  counts, the candidates replaced, dropped and without a receipt, and the raw
+  twins and raw-text duplicates excluded, by source kind, and the receipts
+  without a candidate
+  (`receipts_without_a_candidate`, by action); counts and digests, no text. The private check
+  after the rows re-verdict compares the kept and dropped counts with
+  `ROWS-RENORM.json`'s and requires `receipts_without_a_candidate` to be empty
+  or each entry explained by a recorded difference between the Train-2 config
+  and R0's. Without the option, the fixture build's rows, weights and
+  exclusions keep the digests pinned on the assembler before it.
 
 A round-2 Train `weights.json` has a `round2` report
 (`slop_ninja_a_r2_train_weights_v1`): the Kish ESS, the human share of

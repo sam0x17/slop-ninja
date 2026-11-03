@@ -2015,3 +2015,788 @@ fn round2_cohort_roles_refuse_multipliers_foreign_writers_and_overlaps() {
     c["round2"]["block_tags"] = json!({});
     refused(&c, "empty-blocks", "block tags");
 }
+
+// ------------------------------------------------- B5c: the rows re-verdict's consumer
+
+/// A stage-3 legacy row with explicit targets (origin index 0 human, 1 model-only, 2 mixed).
+fn legacy_spans(id: &str, group: &str, text: &str, origin: u64, spans: Value, share: f64) -> Value {
+    let ai = (origin != 0).then_some("Qwen/Qwen3.6-35B-A3B:x");
+    json!({"id": id, "frozen_split": "train", "text": text, "text_sha256": sha_hex(text.as_bytes()),
+        "source_group": group, "purpose": "query",
+        "roles": {"ai": {"identity": ai, "known": ai.is_some(), "present": ai.is_some()}},
+        "targets": {"origin": origin, "share": share, "ai_byte_spans": spans}})
+}
+
+const S3_OPEN: &str = "Stage three opening sentence runs here. ";
+const S3_CLOSE: &str = " The closing sentence ends the passage.";
+
+/// A Train split with every row kind the rows re-verdict covers: RAID rows of
+/// an external pool (`raid-v1-books`), stage-3 legacy rows (a human, a
+/// model-only row and two mixed rows) and both hosted capture kinds, beside
+/// split humans, a local mirror and a frontier record; and a Dev-iter split.
+/// Returns the config JSON.
+fn b5c_fixture(d: &Path) -> Value {
+    write_jsonl(&d.join("train.jsonl"), &[
+        human("h-a1", "train", "ga1", &words_text("Human a1", 30)),
+        human("h-a2", "train", "ga2", &words_text("Human a2", 40)),
+        human("h-a3", "train", "ga3", &words_text("Human a3", 50)),
+    ]);
+    write_jsonl(&d.join("dev.jsonl"), &[human("d1", "dev_iter", "gd", &words_text("Dev human", 40))]);
+    write_frozen(&d.join("frozen.jsonl"));
+    write_jsonl(&d.join("local.jsonl"), &[
+        local("m-a1", "train", "h-a1", "ga1", &words_text("Mirror a1", 31), "mirror", Some("v-train")),
+        local("m-d1", "dev_iter", "d1", "gd", &words_text("Dev mirror", 45), "mirror", None),
+    ]);
+    write_jsonl(&d.join("fx/all/records.jsonl"), &[frontier("f-a2", "train", "h-a2", "ga2", &words_text("Frontier a2", 41), "claude-opus-5-5", "v-train", false)]);
+    let mid_x = "A model middle part says another thing.";
+    let mid_d = "A second model middle part is dropped.";
+    write_jsonl(&d.join("legacy.jsonl"), &[
+        legacy_spans("s3h", "doi:10.1/x", &format!("{S3_OPEN}The human middle part says one thing.{S3_CLOSE}"), 0, json!([]), 0.0),
+        legacy_spans("s3x", "doi:10.1/x", &format!("{S3_OPEN}{mid_x}{S3_CLOSE}"), 2, json!([[S3_OPEN.len(), S3_OPEN.len() + mid_x.len()]]), 0.4),
+        legacy_spans("s3d", "doi:10.1/z", &format!("Another opening sentence. {mid_d} Another close."), 2, json!([[26, 26 + mid_d.len()]]), 0.5),
+        legacy_spans("s3m", "doi:10.1/y", &words_text("Stage three model only", 35), 1, Value::Null, 1.0),
+    ]);
+    write_jsonl(&d.join("raid.jsonl"), &[
+        ext("rh1", "raid-v1-books", "raid:g1", &words_text("RAID human one", 36), None, 0.0),
+        ext("rm1", "raid-v1-books", "raid:g1", &words_text("RAID model one", 37), Some("gpt-4"), 0.0),
+        ext("rh2", "raid-v1-books", "raid:g2", &words_text("RAID human two", 38), None, 0.0),
+        ext("rm2", "raid-v1-books", "raid:g2", &words_text("RAID model two", 39), Some("gpt-4"), 0.0),
+    ]);
+    let review = words_text("A captured model draft", 33);
+    let mid_y = "A hosted style middle part rewrites it.";
+    let style = format!("{S3_OPEN}{mid_y}{S3_CLOSE}");
+    let adm = json!({"schema": captures::ADMISSION_SCHEMA, "cohorts": {
+        "frontier-captures-v1": {"records": [{"text_sha256": sha_hex(review.as_bytes()), "record_id": "cli-capture:r1",
+            "origin": "model_only", "identity": {"attribution_label": "claude-opus-5"}}]},
+        "hosted-style-v1": {"records": [{"text_sha256": sha_hex(style.as_bytes()), "record_id": "hs-1",
+            "origin": "mixed", "identity": {"attribution_label": "requested:gpt-6-astra"}}]}}});
+    fs::write(d.join("admission.json"), serde_json::to_vec(&adm).unwrap()).unwrap();
+    write_jsonl(&d.join("reviews.jsonl"), &[json!({"schema": "slop_ninja_cli_capture_review_v1", "text": review,
+        "text_sha256": sha_hex(review.as_bytes()), "request_sha256": "r1", "operation": "source_conditioned_draft",
+        "source_group": "doi:10.1/y", "source": {"collection": "plos_one"}})]);
+    write_jsonl(&d.join("styles.jsonl"), &[json!({"schema": "slop_ninja_a_supervised_record_v1", "id": "hs-1", "text": style,
+        "text_sha256": sha_hex(style.as_bytes()), "origin": "mixed", "source_group": "doi:10.1/x", "parent_id": "s3h",
+        "share_evidence": {"final_byte_span": [S3_OPEN.len(), S3_OPEN.len() + mid_y.len()]}, "share_target": 0.35,
+        "metadata": {"source_collection": "plos_one"}, "generation": {"style_name": "plain"}})]);
+    json!({"schema": bundle::CONFIG_SCHEMA,
+        "splits": {"train": {"humans": [d.join("train.jsonl")]}, "dev_iter": {"humans": [d.join("dev.jsonl")]}},
+        "local_positives": [d.join("local.jsonl")], "frontier_exports": [d.join("fx")],
+        "legacy_train": d.join("legacy.jsonl"), "legacy_families": {"Qwen/Qwen3.6-35B-A3B": "qwen3.6"},
+        "external_train_pools": [{"name": "raid", "documents": d.join("raid.jsonl"), "include_cohorts": ["raid-v1-books"],
+            "keep_all_cohorts": ["raid-v1-books"], "group_per_mille": 1000, "positive_per_mille": 1000, "seed": "s"}],
+        "hosted_captures": {"admission": d.join("admission.json"), "reviews": [d.join("reviews.jsonl")], "style_records": [d.join("styles.jsonl")]},
+        "frozen_partitions": d.join("frozen.jsonl")})
+}
+
+fn bundle_digests(build: &Path) -> Value {
+    let mut m = serde_json::Map::new();
+    for f in ["train/rows.jsonl", "train/weights.json", "train/exclusions.jsonl", "dev-iter/rows.jsonl", "dev-iter/weights.json"] {
+        m.insert(f.into(), json!(file_digest(&build.join(f))));
+    }
+    Value::Object(m)
+}
+
+/// With no `rows_renorm` option, the fixture build's rows, weights and
+/// exclusions are those of the assembler before B5c (digests pinned on
+/// origin/main 67f7e9d6), with no round-2 block and with an empty one.
+#[test]
+fn rows_renorm_absent_keeps_the_fixture_build_bytes() {
+    let t = tempfile::tempdir().unwrap();
+    let d = t.path();
+    let cfg = b5c_fixture(d);
+    let build = build_fixture(d, &cfg, "absent").unwrap();
+    let m: Value = serde_json::from_slice(&fs::read(build.join("train/MANIFEST.json")).unwrap()).unwrap();
+    assert_eq!((m["rows"].clone(), m["exclusions"].clone()), (json!(15), json!(0)));
+    let pinned = json!({
+        "dev-iter/rows.jsonl": "261c6244a940f9dd62f247c8237579ace8e01ad602979743e061844755969d31",
+        "dev-iter/weights.json": "5b3c7da57ddc823a13b385d15f654b111c21cea29802a2ea4bb27467afbbb496",
+        "train/exclusions.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "train/rows.jsonl": "b4e50626751c29f7425677ebf6c24ae47a85e80b1a5d6e6c64d630c755e3d6d1",
+        "train/weights.json": "e3766253291eaffe01d883a3abd122d949db33df63ad483a2eaf784868f0a0fe",
+    });
+    let got = bundle_digests(&build);
+    assert_eq!(got, pinned, "{}", serde_json::to_string_pretty(&got).unwrap());
+    let mut cfg2 = cfg.clone();
+    cfg2["round2"] = json!({});
+    assert_eq!(bundle_digests(&build_fixture(d, &cfg2, "absent-empty").unwrap()), pinned);
+}
+
+/// How the synthetic rows re-verdict treats one planned row.
+#[derive(Clone, Copy)]
+enum Verdict {
+    Keep,
+    Drop(&'static str),
+}
+
+fn read_rows(p: &Path) -> Vec<Value> {
+    fs::read_to_string(p).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+}
+
+/// A bundle row's laid-out form: its model text with a marker word before it.
+fn laid_out(r: &Value) -> (String, Vec<[usize; 2]>, f64) {
+    let text = r["text"].as_str().unwrap();
+    let sp: Vec<[usize; 2]> = serde_json::from_value(r["ai_byte_spans"].clone()).unwrap();
+    let words = |s: &str| s.split_whitespace().count();
+    if r["origin"] == "model_only" || sp == [[0, text.len()]] {
+        let t = format!("Laid {text}");
+        let n = t.len();
+        (t, vec![[0, n]], 1.0)
+    } else {
+        let [s, e] = sp[0];
+        let mid = format!("Laid {}", &text[s..e]);
+        let t = format!("{}{mid}{}", &text[..s], &text[e..]);
+        let share = words(&mid) as f64 / words(&t) as f64;
+        (t, vec![[s, s + mid.len()]], share)
+    }
+}
+
+/// The receipt and normalised lines that `renorm-rows` writes for the planned
+/// rows `plan` of the bundle rows file `rows_path` (renorm.rs's fields).
+fn rows_renorm_lines(rows_path: &Path, plan: &[(&str, Verdict)]) -> (Vec<Value>, Vec<Value>) {
+    let rows: HashMap<String, Value> = read_rows(rows_path).into_iter().map(|r| (r["id"].as_str().unwrap().to_string(), r)).collect();
+    let (mut rv, mut nm) = (Vec::new(), Vec::new());
+    for (id, v) in plan {
+        let r = &rows[*id];
+        let class = if r["cohort_id"].as_str().unwrap().starts_with("raid-v1-") { json!("raid") } else { r["source_kind"].clone() };
+        let (t, sp, share) = laid_out(r);
+        let keep = matches!(v, Verdict::Keep);
+        let src = json!({"kind": "layout_donor", "id": "h-a1", "domain": "plos"});
+        rv.push(json!({"schema": rows_renorm::REVERDICT_SCHEMA, "id": id, "class": class, "source_kind": r["source_kind"],
+            "cohort_id": r["cohort_id"], "origin": r["origin"], "domain": r["domain"], "layout_source": src, "pass": keep,
+            "reasons": match v { Verdict::Keep => json!([]), Verdict::Drop(x) => json!([x]) },
+            "action": if keep { "keep" } else { "drop_with_receipt" }, "raw_text_sha256": r["text_sha256"],
+            "text_sha256": sha_hex(t.as_bytes()), "record": {"profile": "cc_cohort_profile_v2"}}));
+        if keep {
+            nm.push(json!({"schema": rows_renorm::NORMALISED_SCHEMA, "id": id, "profile": "cc_cohort_profile_v2", "population": "train2",
+                "prior_sha256": "", "text": t, "text_sha256": sha_hex(t.as_bytes()), "origin": r["origin"], "ai_byte_spans": sp,
+                "share": share, "raw_text_sha256": r["text_sha256"], "raw_ai_byte_spans": r["ai_byte_spans"], "layout_source": src}));
+        }
+    }
+    (rv, nm)
+}
+
+/// Write a `renorm-rows` output directory from receipt and normalised lines,
+/// with its prior and a summary whose digests and counts agree with them.
+fn write_rows_renorm_dir(dir: &Path, rows_path: &Path, rv: &[Value], nm: &[Value], population: &str) {
+    fs::create_dir_all(dir).unwrap();
+    let prior = serde_json::to_vec(&json!({"schema": "slop_ninja_a_rows_form_prior_v2", "population": population, "parents": 0})).unwrap();
+    let prior_sha = sha_hex(&prior);
+    fs::write(dir.join(format!("form-prior-{prior_sha}.json")), &prior).unwrap();
+    let nm: Vec<Value> = nm.iter().map(|l| {
+        let mut l = l.clone();
+        if l["prior_sha256"] == "" {
+            l["prior_sha256"] = json!(prior_sha);
+        }
+        l
+    }).collect();
+    write_jsonl(&dir.join(rows_renorm::REVERDICT_FILE), rv);
+    write_jsonl(&dir.join(rows_renorm::NORMALISED_FILE), &nm);
+    let summary = json!({"schema": rows_renorm::SUMMARY_SCHEMA, "code": "test",
+        "profile": {"profile": "cc_cohort_profile_v2", "normaliser": "n"}, "population": population, "seed": "s", "prior_sha256": prior_sha,
+        "inputs": {"rows": {"path": rows_path, "sha256": file_digest(rows_path), "rows": read_rows(rows_path).len()}},
+        "counts": {"planned": rv.len(), "kept": nm.len()},
+        "outputs": {"prior": format!("form-prior-{prior_sha}.json"),
+            "reverdict": {"path": rows_renorm::REVERDICT_FILE, "sha256": file_digest(&dir.join(rows_renorm::REVERDICT_FILE))},
+            "normalised": {"path": rows_renorm::NORMALISED_FILE, "sha256": file_digest(&dir.join(rows_renorm::NORMALISED_FILE))}}});
+    fs::write(dir.join(rows_renorm::SUMMARY_FILE), serde_json::to_vec_pretty(&summary).unwrap()).unwrap();
+}
+
+/// The fixture's planned rows: every row with model text of the three kinds;
+/// two are dropped.
+const B5C_PLAN: [(&str, Verdict); 7] = [
+    ("rm1", Verdict::Keep),
+    ("rm2", Verdict::Drop("renorm_raid_human_missing")),
+    ("stage3:s3x", Verdict::Keep),
+    ("stage3:s3d", Verdict::Drop("form_screen:unlicensed_list")),
+    ("stage3:s3m", Verdict::Keep),
+    ("capture:cli-capture:r1", Verdict::Keep),
+    ("capture:hs-1", Verdict::Keep),
+];
+
+/// The fixture, its build without the option (R0's Train build in this
+/// test) and a rows re-verdict of that build's Train rows under `plan`.
+fn b5c_setup(d: &Path, plan: &[(&str, Verdict)]) -> (Value, PathBuf, PathBuf) {
+    let cfg = b5c_fixture(d);
+    let base = build_fixture(d, &cfg, "base").unwrap();
+    let rows = base.join("train/rows.jsonl");
+    let (rv, nm) = rows_renorm_lines(&rows, plan);
+    let rr = d.join("rows-renorm");
+    write_rows_renorm_dir(&rr, &rows, &rv, &nm, "train2");
+    (cfg, base, rr)
+}
+
+fn with_rows_renorm(cfg: &Value, rr: &Path) -> Value {
+    let mut c = cfg.clone();
+    c["round2"] = json!({"rows_renorm": rr});
+    c
+}
+
+fn train_candidates(cfg: &Value) -> Result<HashMap<String, Value>> {
+    let c: bundle::Config = serde_json::from_value(cfg.clone()).unwrap();
+    let g = bundle::gather(&c)?;
+    Ok(g.candidates["train"].iter().map(|r| (r.id.clone(), serde_json::to_value(r).unwrap())).collect())
+}
+
+/// The listed rows take the four fields of their normalised line; every
+/// other field of every candidate (provenance included) is unchanged; the
+/// planned rows left out are no candidates; the four files are inputs.
+#[test]
+fn rows_renorm_replaces_the_listed_fields_and_nothing_else() {
+    let t = tempfile::tempdir().unwrap();
+    let d = t.path();
+    let (cfg, _base, rr) = b5c_setup(d, &B5C_PLAN);
+    let off = train_candidates(&cfg).unwrap();
+    let on = train_candidates(&with_rows_renorm(&cfg, &rr)).unwrap();
+    let nm: HashMap<String, Value> = read_rows(&rr.join(rows_renorm::NORMALISED_FILE)).into_iter().map(|l| (l["id"].as_str().unwrap().to_string(), l)).collect();
+    assert_eq!(nm.len(), 5);
+    let mut ids: Vec<&String> = off.keys().filter(|k| !on.contains_key(*k)).collect();
+    ids.sort();
+    assert_eq!(ids, ["rm2", "stage3:s3d"]);
+    let replaced = ["text", "text_sha256", "ai_byte_spans", "share"];
+    for (id, a) in &on {
+        let b = &off[id];
+        match nm.get(id) {
+            Some(l) => {
+                for k in replaced {
+                    assert_eq!(&a[k], &l[k], "{id} {k}");
+                }
+                assert!(a["text"] != b["text"] && a["text_sha256"] != b["text_sha256"], "{id}");
+                assert_eq!(l["raw_text_sha256"], b["text_sha256"], "{id}");
+                assert_eq!(l["raw_ai_byte_spans"], b["ai_byte_spans"], "{id}");
+                let (mut a, mut b) = (a.clone(), b.clone());
+                for k in replaced {
+                    a.as_object_mut().unwrap().remove(k);
+                    b.as_object_mut().unwrap().remove(k);
+                }
+                assert_eq!(a, b, "{id}: a field other than the four changed");
+            }
+            None => assert_eq!(a, b, "{id}"),
+        }
+    }
+    // The model-only and mixed rows keep their origin and their spans' form.
+    assert_eq!(on["stage3:s3x"]["origin"], "mixed");
+    assert!(on["stage3:s3x"]["share"].as_f64().unwrap() < 1.0);
+    assert_eq!(on["rm1"]["ai_byte_spans"], json!([[0, on["rm1"]["text"].as_str().unwrap().len()]]));
+    // The build binds the four files in every manifest's inputs.
+    let _floor = covariate::test_floor::set(0.0);
+    let build = build_fixture(d, &with_rows_renorm(&cfg, &rr), "on").unwrap();
+    let files: Vec<(String, String)> = fs::read_dir(&rr).unwrap().map(|e| {
+        let p = e.unwrap().path();
+        (p.file_name().unwrap().to_string_lossy().into_owned(), file_digest(&p))
+    }).collect();
+    assert_eq!(files.len(), 4);
+    for split in ["train", "dev-iter"] {
+        let m: Value = serde_json::from_slice(&fs::read(build.join(split).join("MANIFEST.json")).unwrap()).unwrap();
+        for (f, sha) in &files {
+            assert!(m["inputs"].as_array().unwrap().iter().any(|i| i["path"] == rr.join(f).to_str().unwrap() && i["sha256"] == sha.as_str()
+                && i["kind"].as_str().unwrap().starts_with("rows_renorm_")), "{split}: {f}");
+        }
+    }
+}
+
+/// A built Train split with the option: the laid-out rows, the drops with
+/// their receipts, the manifest record, and a round-2 build (row schema v2,
+/// refused below R0's Kish ESS without the test floor).
+#[test]
+fn rows_renorm_build_drops_planned_rows_left_out_with_their_receipts() {
+    let t = tempfile::tempdir().unwrap();
+    let d = t.path();
+    let (cfg, _base, rr) = b5c_setup(d, &B5C_PLAN);
+    let on = with_rows_renorm(&cfg, &rr);
+    let e = format!("{:#}", build_fixture(d, &on, "ess").unwrap_err());
+    assert!(e.contains("Kish ESS") && e.contains("refused"), "{e}");
+    let _floor = covariate::test_floor::set(0.0);
+    let build = build_fixture(d, &on, "on").unwrap();
+    let rows = read_rows(&build.join("train/rows.jsonl"));
+    assert_eq!(rows.len(), 13);
+    assert!(rows.iter().all(|r| r["schema"] == ROW_SCHEMA_R2));
+    let nm: HashMap<String, Value> = read_rows(&rr.join(rows_renorm::NORMALISED_FILE)).into_iter().map(|l| (l["id"].as_str().unwrap().to_string(), l)).collect();
+    for r in &rows {
+        if let Some(l) = nm.get(r["id"].as_str().unwrap()) {
+            assert_eq!((&r["text"], &r["text_sha256"], &r["ai_byte_spans"], &r["share"]), (&l["text"], &l["text_sha256"], &l["ai_byte_spans"], &l["share"]));
+        }
+    }
+    let rv_sha = file_digest(&rr.join(rows_renorm::REVERDICT_FILE));
+    let ex = read_rows(&build.join("train/exclusions.jsonl"));
+    let mut got: Vec<(String, Value, Value)> = ex.iter().map(|e| {
+        assert_eq!((&e["reason"], &e["detail"]["receipt"]["file"], &e["detail"]["receipt"]["sha256"]),
+            (&json!(rows_renorm::DROP_REASON), &json!(rows_renorm::REVERDICT_FILE), &json!(rv_sha)));
+        (e["id"].as_str().unwrap().to_string(), e["detail"]["receipt"]["line"].clone(), e["detail"]["reasons"].clone())
+    }).collect();
+    got.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(got, vec![("rm2".into(), json!(2), json!(["renorm_raid_human_missing"])), ("stage3:s3d".into(), json!(4), json!(["form_screen:unlicensed_list"]))]);
+    let m: Value = serde_json::from_slice(&fs::read(build.join("train/MANIFEST.json")).unwrap()).unwrap();
+    let rec = &m["rows_renorm"];
+    assert_eq!(rec["receipts"], json!({"planned": 7, "keep": 5, "drop_with_receipt": 2}));
+    assert_eq!(rec["receipts_without_a_candidate"], json!({}));
+    assert_eq!(rec["candidates"]["replaced"], json!({"ExternalPool": 1, "HostedCapture": 2, "Stage3Legacy": 2}));
+    assert_eq!(rec["candidates"]["dropped_with_receipt"], json!({"ExternalPool": 1, "Stage3Legacy": 1}));
+    assert_eq!(rec["selected"]["replaced_rows"], json!({"ExternalPool": 1, "HostedCapture": 2, "Stage3Legacy": 2}));
+    assert_eq!(m["exclusions_by_reason"][rows_renorm::DROP_REASON], json!({"ExternalPool": 1, "Stage3Legacy": 1}));
+    // The weights see the laid-out rows: the RAID mass is the one kept RAID model row's.
+    let w: Value = serde_json::from_slice(&fs::read(build.join("train/weights.json")).unwrap()).unwrap();
+    let raid: f64 = rows.iter().filter(|r| r["cohort_id"] == "raid-v1-books" && r["origin"] != "human_only").map(|r| r["weight"].as_f64().unwrap()).sum();
+    let ai: f64 = rows.iter().filter(|r| r["origin"] != "human_only").map(|r| r["weight"].as_f64().unwrap()).sum();
+    assert!(rows.iter().filter(|r| r["cohort_id"] == "raid-v1-books" && r["origin"] == "model_only").count() == 1);
+    assert!((w["round2"]["raid"]["ai_involved_mass_share_before_trainer_caps"].as_f64().unwrap() - raid / ai).abs() < 1e-12);
+    // The other splits carry no record.
+    let dm: Value = serde_json::from_slice(&fs::read(build.join("dev-iter/MANIFEST.json")).unwrap()).unwrap();
+    assert!(dm["rows_renorm"].is_null());
+    // Receipts that name no Train candidate (a row the Train-2 config leaves out) are counted by action, not refused.
+    let (mut rv, nm) = rows_renorm_lines(&base_rows_path(&rr), &B5C_PLAN);
+    let mut gone = rv.iter().find(|l| l["id"] == "rm2").unwrap().clone();
+    gone["id"] = json!("rm9");
+    gone["raw_text_sha256"] = json!("9".repeat(64));
+    rv.push(gone);
+    let rr2 = d.join("rows-renorm-gone");
+    write_rows_renorm_dir(&rr2, &base_rows_path(&rr), &rv, &nm, "train2");
+    let build = build_fixture(d, &with_rows_renorm(&cfg, &rr2), "gone").unwrap();
+    let m: Value = serde_json::from_slice(&fs::read(build.join("train/MANIFEST.json")).unwrap()).unwrap();
+    assert_eq!(m["rows_renorm"]["receipts_without_a_candidate"], json!({"drop_with_receipt": 1}));
+    assert_eq!(m["rows_renorm"]["receipts"]["planned"], 8);
+}
+
+/// The rows file a rows re-verdict directory's summary names.
+fn base_rows_path(rr: &Path) -> PathBuf {
+    let s: Value = serde_json::from_slice(&fs::read(rr.join(rows_renorm::SUMMARY_FILE)).unwrap()).unwrap();
+    PathBuf::from(s["inputs"]["rows"]["path"].as_str().unwrap())
+}
+
+/// Selection, dedup and the evaluation closure see the laid-out text: a
+/// laid-out text equal to an evaluation text is dropped as one, and a raw
+/// text equal to one drops its laid-out row too (its raw twin would repeat it).
+#[test]
+fn rows_renorm_selection_sees_the_laid_out_rows_and_their_raw_twins() {
+    let t = tempfile::tempdir().unwrap();
+    let d = t.path();
+    let (cfg, base, rr) = b5c_setup(d, &B5C_PLAN);
+    let _floor = covariate::test_floor::set(0.0);
+    let rows: HashMap<String, Value> = read_rows(&base.join("train/rows.jsonl")).into_iter().map(|r| (r["id"].as_str().unwrap().to_string(), r)).collect();
+    let nm: HashMap<String, Value> = read_rows(&rr.join(rows_renorm::NORMALISED_FILE)).into_iter().map(|l| (l["id"].as_str().unwrap().to_string(), l)).collect();
+    for (name, text, reason) in [
+        ("eval-laid", nm["stage3:s3m"]["text"].as_str().unwrap(), "text_in_evaluation_split"),
+        ("eval-raw", rows["stage3:s3m"]["text"].as_str().unwrap(), rows_renorm::RAW_EVAL_REASON),
+    ] {
+        let mut c = with_rows_renorm(&cfg, &rr);
+        write_jsonl(&d.join(format!("{name}.jsonl")), &[human("d1", "dev_iter", "gd", &words_text("Dev human", 40)), human("d2", "dev_iter", "gd2", text)]);
+        c["splits"]["dev_iter"]["humans"] = json!([d.join(format!("{name}.jsonl"))]);
+        let build = build_fixture(d, &c, name).unwrap();
+        let ex = read_rows(&build.join("train/exclusions.jsonl"));
+        let e = ex.iter().find(|e| e["id"] == "stage3:s3m").unwrap_or_else(|| panic!("{name}: stage3:s3m kept"));
+        assert_eq!(e["reason"], reason, "{name}");
+        assert_eq!(e["detail"]["evaluation_split"], "dev_iter", "{name}");
+        assert!(!read_rows(&build.join("train/rows.jsonl")).iter().any(|r| r["id"] == "stage3:s3m"), "{name}");
+    }
+    // Two laid-out texts that are equal: dedup keeps one.
+    let (mut rv, mut nm) = rows_renorm_lines(&base.join("train/rows.jsonl"), &B5C_PLAN);
+    let twin = nm.iter().find(|l| l["id"] == "stage3:s3m").unwrap()["text"].clone();
+    let i = nm.iter().position(|l| l["id"] == "capture:cli-capture:r1").unwrap();
+    let n = twin.as_str().unwrap().len();
+    nm[i]["text"] = twin.clone();
+    nm[i]["text_sha256"] = json!(sha_hex(twin.as_str().unwrap().as_bytes()));
+    nm[i]["ai_byte_spans"] = json!([[0, n]]);
+    let j = rv.iter().position(|l| l["id"] == "capture:cli-capture:r1").unwrap();
+    rv[j]["text_sha256"] = nm[i]["text_sha256"].clone();
+    let rr2 = d.join("rows-renorm-dup");
+    write_rows_renorm_dir(&rr2, &base.join("train/rows.jsonl"), &rv, &nm, "train2");
+    let build = build_fixture(d, &with_rows_renorm(&cfg, &rr2), "dup").unwrap();
+    let ex = read_rows(&build.join("train/exclusions.jsonl"));
+    assert!(ex.iter().any(|e| e["reason"] == "duplicate_text" && e["id"] == "stage3:s3m"), "{ex:?}");
+}
+
+/// The candidate's own text must be the row as re-verdicted, and the files
+/// must match ROWS-RENORM.json's digests.
+#[test]
+fn rows_renorm_refuses_a_raw_text_or_file_digest_mismatch() {
+    let t = tempfile::tempdir().unwrap();
+    let d = t.path();
+    let (cfg, base, rr) = b5c_setup(d, &B5C_PLAN);
+    let _floor = covariate::test_floor::set(0.0);
+    let err = |c: &Value, name: &str| format!("{:#}", build_fixture(d, c, name).unwrap_err());
+    // A re-verdict of other bytes than the candidate's (one RAID row's text differs).
+    let mut rows = read_rows(&base.join("train/rows.jsonl"));
+    let r = rows.iter_mut().find(|r| r["id"] == "rm1").unwrap();
+    r["text"] = json!(format!("{} Edited.", r["text"].as_str().unwrap()));
+    let n = r["text"].as_str().unwrap().len();
+    r["text_sha256"] = json!(sha_hex(r["text"].as_str().unwrap().as_bytes()));
+    r["ai_byte_spans"] = json!([[0, n]]);
+    write_jsonl(&d.join("other-rows.jsonl"), &rows);
+    let (rv, nm) = rows_renorm_lines(&d.join("other-rows.jsonl"), &B5C_PLAN);
+    write_rows_renorm_dir(&d.join("rr-other"), &d.join("other-rows.jsonl"), &rv, &nm, "train2");
+    let e = err(&with_rows_renorm(&cfg, &d.join("rr-other")), "raw");
+    assert!(e.contains("row rm1") && e.contains("raw_text_sha256") && e.contains("refused"), "{e}");
+    // The same for a dropped row: the receipt names other bytes.
+    let (rv, nm) = rows_renorm_lines(&d.join("other-rows.jsonl"), &[("rm1", Verdict::Drop("x"))]);
+    write_rows_renorm_dir(&d.join("rr-other-drop"), &d.join("other-rows.jsonl"), &rv, &nm, "train2");
+    let e = err(&with_rows_renorm(&cfg, &d.join("rr-other-drop")), "raw-drop");
+    assert!(e.contains("row rm1") && e.contains("raw_text_sha256"), "{e}");
+    // Files changed after ROWS-RENORM.json was written.
+    for f in [rows_renorm::REVERDICT_FILE, rows_renorm::NORMALISED_FILE] {
+        let dir = d.join(format!("rr-{f}"));
+        let (rv, nm) = rows_renorm_lines(&base.join("train/rows.jsonl"), &B5C_PLAN);
+        write_rows_renorm_dir(&dir, &base.join("train/rows.jsonl"), &rv, &nm, "train2");
+        let mut b = fs::read(dir.join(f)).unwrap();
+        let cut = b[..b.len() - 1].iter().rposition(|&c| c == b'\n').unwrap() + 1;
+        b.truncate(cut);
+        fs::write(dir.join(f), b).unwrap();
+        let e = err(&with_rows_renorm(&cfg, &dir), f);
+        assert!(e.contains(f) && e.contains("ROWS-RENORM.json") && e.contains("refused"), "{f}: {e}");
+    }
+    // The prior named by the summary.
+    let dir = d.join("rr-prior");
+    let (rv, nm) = rows_renorm_lines(&base.join("train/rows.jsonl"), &B5C_PLAN);
+    write_rows_renorm_dir(&dir, &base.join("train/rows.jsonl"), &rv, &nm, "train2");
+    let p = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).find(|p| p.to_string_lossy().contains("form-prior-")).unwrap();
+    fs::write(&p, b"{}").unwrap();
+    let e = err(&with_rows_renorm(&cfg, &dir), "prior");
+    assert!(e.contains("form-prior-") && e.contains("refused"), "{e}");
+    // A summary that does not bind the files it names, or names other files.
+    let mut s: Value = serde_json::from_slice(&fs::read(rr.join(rows_renorm::SUMMARY_FILE)).unwrap()).unwrap();
+    s["outputs"]["normalised"]["path"] = json!("other.jsonl");
+    fs::write(rr.join(rows_renorm::SUMMARY_FILE), serde_json::to_vec(&s).unwrap()).unwrap();
+    assert!(err(&with_rows_renorm(&cfg, &rr), "names").contains("outputs name other files"));
+}
+
+/// Open item (a), read for selected rows (amendment 22): a selected Train
+/// positive of the three kinds without laid-out text refuses the build; one
+/// that selection drops for its own reason does not; a positive of an
+/// external pool that renorm-rows does not plan is always refused.
+#[test]
+fn rows_renorm_refuses_unplanned_positives_that_selection_keeps() {
+    let t = tempfile::tempdir().unwrap();
+    let d = t.path();
+    let _floor = covariate::test_floor::set(0.0);
+    for gone in ["capture:cli-capture:r1", "rm1", "stage3:s3x"] {
+        let plan: Vec<(&str, Verdict)> = B5C_PLAN.iter().copied().filter(|(id, _)| *id != gone).collect();
+        let (cfg, _base, rr) = b5c_setup(&d.join(gone.replace(':', "-")), &plan);
+        let e = format!("{:#}", build_fixture(d, &with_rows_renorm(&cfg, &rr), &gone.replace(':', "-")).unwrap_err());
+        assert!(e.contains("1 selected Train rows") && e.contains(gone) && e.contains("refused"), "{gone}: {e}");
+    }
+    // Unplanned, but closed by an evaluation group: selection drops it, and the build stands.
+    let plan: Vec<(&str, Verdict)> = B5C_PLAN.iter().copied().filter(|(id, _)| *id != "rm2").collect();
+    let (mut cfg, _base, rr) = b5c_setup(&d.join("closed"), &plan);
+    write_jsonl(&d.join("closed/test-manifest.jsonl"), &[json!({"family_key": "raid:g2", "split": "test"})]);
+    cfg["evaluation_manifests"] = json!({"test": [d.join("closed/test-manifest.jsonl")]});
+    let build = build_fixture(d, &with_rows_renorm(&cfg, &rr), "closed").unwrap();
+    let ex = read_rows(&build.join("train/exclusions.jsonl"));
+    assert!(ex.iter().any(|e| e["id"] == "rm2" && e["reason"] == "train_row_in_evaluation_group"), "{ex:?}");
+    let m: Value = serde_json::from_slice(&fs::read(build.join("train/MANIFEST.json")).unwrap()).unwrap();
+    assert_eq!(m["rows_renorm"]["candidates"]["in_scope_without_receipt"], json!({"ExternalPool": 1}));
+    assert_eq!(m["rows_renorm"]["selected"]["rows_without_laid_out_text"], 0);
+    // Humans of those kinds are never planned and never refused.
+    assert!(read_rows(&build.join("train/rows.jsonl")).iter().any(|r| r["id"] == "stage3:s3h" && r["origin"] == "human_only"));
+    // renorm-rows plans raid-v1-* external rows only: a selected positive of another external pool is refused.
+    let o = d.join("other-pool");
+    let (mut cfg, _base, _rr) = b5c_setup(&o, &B5C_PLAN);
+    write_jsonl(&o.join("other.jsonl"), &[
+        ext("oh1", "other-v1", "other:g1", &words_text("Other pool human", 36), None, 0.0),
+        ext("om1", "other-v1", "other:g1", &words_text("Other pool model", 37), Some("gpt-4"), 0.0),
+    ]);
+    cfg["external_train_pools"].as_array_mut().unwrap().push(json!({"name": "other", "documents": o.join("other.jsonl"),
+        "include_cohorts": ["other-v1"], "keep_all_cohorts": ["other-v1"], "group_per_mille": 1000, "positive_per_mille": 1000, "seed": "s"}));
+    let base = build_fixture(&o, &cfg, "base-other").unwrap();
+    let rows = base.join("train/rows.jsonl");
+    assert!(read_rows(&rows).iter().any(|r| r["id"] == "om1"));
+    let (rv, nm) = rows_renorm_lines(&rows, &B5C_PLAN);
+    write_rows_renorm_dir(&o.join("rr-other"), &rows, &rv, &nm, "train2");
+    let e = format!("{:#}", build_fixture(&o, &with_rows_renorm(&cfg, &o.join("rr-other")), "on-other").unwrap_err());
+    assert!(e.contains("1 selected Train rows") && e.contains("om1") && e.contains("cohort other-v1") && e.contains("raid-v1-* cohorts only"), "{e}");
+}
+
+/// Receipts and normalised lines must agree with each other, with the
+/// candidates they name and with the summary.
+#[test]
+fn rows_renorm_refuses_inconsistent_receipts_and_lines() {
+    let t = tempfile::tempdir().unwrap();
+    let d = t.path();
+    let (cfg, base, _rr) = b5c_setup(d, &B5C_PLAN);
+    let _floor = covariate::test_floor::set(0.0);
+    let rows_path = base.join("train/rows.jsonl");
+    let mut k = 0;
+    let mut case = |edit: &dyn Fn(&mut Vec<Value>, &mut Vec<Value>), population: &str, needle: &str| {
+        let (mut rv, mut nm) = rows_renorm_lines(&rows_path, &B5C_PLAN);
+        edit(&mut rv, &mut nm);
+        k += 1;
+        let dir = d.join(format!("case-{k}"));
+        write_rows_renorm_dir(&dir, &rows_path, &rv, &nm, population);
+        let e = format!("{:#}", build_fixture(d, &with_rows_renorm(&cfg, &dir), &format!("case-{k}")).unwrap_err());
+        assert!(e.contains(needle), "case {k}: {needle}: {e}");
+    };
+    let id_of = |v: &[Value], id: &str| v.iter().position(|l| l["id"] == id).unwrap();
+    // The rows of another population.
+    case(&|_, _| {}, "cal2_t", "population");
+    // A receipt that names a human row, or a candidate of another kind or cohort.
+    case(&|rv, _| {
+        rv.push(json!({"schema": rows_renorm::REVERDICT_SCHEMA, "id": "rh1", "source_kind": "external_pool", "cohort_id": "raid-v1-books",
+            "origin": "human_only", "pass": false, "reasons": ["x"], "action": "drop_with_receipt", "raw_text_sha256": "0".repeat(64)}));
+    }, "train2", "covers only rows with model text");
+    case(&|rv, _| {
+        let i = id_of(rv, "rm1");
+        rv[i]["cohort_id"] = json!("raid-v1-news");
+    }, "train2", "names source kind");
+    case(&|rv, _| {
+        let i = id_of(rv, "capture:hs-1");
+        rv[i]["source_kind"] = json!("stage3_legacy");
+    }, "train2", "names source kind");
+    // A kept receipt without its line, a line without a kept receipt, a line twice.
+    case(&|_, nm| {
+        let i = id_of(nm, "rm1");
+        nm.remove(i);
+    }, "train2", "rows are kept");
+    case(&|rv, _| {
+        let i = id_of(rv, "rm1");
+        rv[i]["action"] = json!("drop_with_receipt");
+        rv[i]["pass"] = json!(false);
+    }, "train2", "its receipt drops it");
+    case(&|_, nm| {
+        let l = nm[0].clone();
+        nm.push(l);
+    }, "train2", "normalised twice");
+    case(&|rv, _| {
+        let l = rv[0].clone();
+        rv.push(l);
+    }, "train2", "two receipts");
+    // Line fields that disagree.
+    case(&|_, nm| {
+        let i = id_of(nm, "stage3:s3x");
+        nm[i]["raw_ai_byte_spans"] = json!([[0, 5]]);
+    }, "train2", "raw_ai_byte_spans");
+    case(&|_, nm| {
+        let i = id_of(nm, "stage3:s3m");
+        nm[i]["text_sha256"] = json!("0".repeat(64));
+    }, "train2", "text_sha256");
+    case(&|_, nm| {
+        let i = id_of(nm, "stage3:s3x");
+        nm[i]["share"] = json!(0.0);
+    }, "train2", "normalised labels");
+    case(&|_, nm| {
+        let i = id_of(nm, "rm1");
+        nm[i]["ai_byte_spans"] = json!([[0, 3]]);
+    }, "train2", "normalised labels");
+    case(&|_, nm| {
+        let i = id_of(nm, "rm1");
+        nm[i]["origin"] = json!("mixed");
+    }, "train2", "origin or raw_text_sha256");
+    case(&|rv, _| {
+        let i = id_of(rv, "rm1");
+        rv[i]["action"] = json!("maybe");
+    }, "train2", "unknown action");
+    // A receipt and its line that agree with each other on another origin than the candidate's.
+    case(&|rv, nm| {
+        let i = id_of(rv, "rm1");
+        rv[i]["origin"] = json!("mixed");
+        let j = id_of(nm, "rm1");
+        nm[j]["origin"] = json!("mixed");
+    }, "train2", "names source kind external_pool, origin mixed");
+    // pass that disagrees with the action, and a kept receipt with a reason.
+    case(&|rv, _| {
+        let i = id_of(rv, "stage3:s3d");
+        rv[i]["pass"] = json!(true);
+    }, "train2", "pass and action differ");
+    case(&|rv, _| {
+        let i = id_of(rv, "rm1");
+        rv[i]["reasons"] = json!(["form_screen:unlicensed_list"]);
+    }, "train2", "a kept row needs its text digest and no reason");
+    // A normalised line of another profile, population or prior than the summary's.
+    case(&|_, nm| {
+        let i = id_of(nm, "rm1");
+        nm[i]["profile"] = json!("cc_cohort_profile_v1");
+    }, "train2", "profile, population or prior differ");
+    case(&|_, nm| {
+        let i = id_of(nm, "rm1");
+        nm[i]["population"] = json!("cal2_t");
+    }, "train2", "profile, population or prior differ");
+    case(&|_, nm| {
+        let i = id_of(nm, "rm1");
+        nm[i]["prior_sha256"] = json!("0".repeat(64));
+    }, "train2", "profile, population or prior differ");
+    // A receipt whose text digest is not its line's text.
+    case(&|rv, _| {
+        let i = id_of(rv, "stage3:s3x");
+        rv[i]["text_sha256"] = json!("0".repeat(64));
+    }, "train2", "the receipt's text_sha256 differ");
+    // Two receipts with one raw digest (the re-verdicted rows are unique by text).
+    case(&|rv, _| {
+        let i = id_of(rv, "rm1");
+        let j = id_of(rv, "rm2");
+        rv[j]["raw_text_sha256"] = rv[i]["raw_text_sha256"].clone();
+    }, "train2", "have the same raw_text_sha256");
+    // A summary of another profile, or whose counts are not the files'.
+    for (k2, (ptr, val, needle)) in [
+        ("/profile/profile", json!("cc_cohort_profile_v1"), "ROWS-RENORM.json: profile"),
+        ("/counts/planned", json!(8), "counts planned 8 and kept 5 differ"),
+        ("/counts/kept", json!(4), "counts planned 7 and kept 4 differ"),
+    ].into_iter().enumerate() {
+        let (rv, nm) = rows_renorm_lines(&rows_path, &B5C_PLAN);
+        let dir = d.join(format!("summary-{k2}"));
+        write_rows_renorm_dir(&dir, &rows_path, &rv, &nm, "train2");
+        let mut sm: Value = serde_json::from_slice(&fs::read(dir.join(rows_renorm::SUMMARY_FILE)).unwrap()).unwrap();
+        *sm.pointer_mut(ptr).unwrap() = val;
+        fs::write(dir.join(rows_renorm::SUMMARY_FILE), serde_json::to_vec_pretty(&sm).unwrap()).unwrap();
+        let e = format!("{:#}", build_fixture(d, &with_rows_renorm(&cfg, &dir), &format!("summary-{k2}")).unwrap_err());
+        assert!(e.contains(needle), "summary {k2}: {needle}: {e}");
+    }
+    // The option needs the Train split.
+    let mut c = with_rows_renorm(&cfg, &d.join("case-1"));
+    c["splits"].as_object_mut().unwrap().remove("train");
+    let e = format!("{:#}", build_fixture(d, &c, "no-train").unwrap_err());
+    assert!(e.contains("must build the Train split"), "{e}");
+}
+
+/// The ids and names this consumer reads are the producer's: renorm.rs's
+/// constants and output names, and profile.rs's profile and population ids
+/// (read from their sources, with no dependency on either crate).
+#[test]
+fn rows_renorm_ids_match_the_producer() {
+    let renorm = include_str!("../../grammar-a-positives/src/renorm.rs");
+    for (name, v) in [("ROWS_RENORM_SCHEMA", rows_renorm::SUMMARY_SCHEMA), ("ROWS_REVERDICT_SCHEMA", rows_renorm::REVERDICT_SCHEMA),
+        ("ROWS_NORMALISED_SCHEMA", rows_renorm::NORMALISED_SCHEMA)] {
+        assert!(renorm.contains(&format!("pub const {name}: &str = \"{v}\";")), "{name}");
+    }
+    for s in [format!("out.join(\"{}\")", rows_renorm::REVERDICT_FILE), format!("out.join(\"{}\")", rows_renorm::NORMALISED_FILE),
+        format!("out.join(\"{}\")", rows_renorm::SUMMARY_FILE), "format!(\"form-prior-{prior_sha}.json\")".into(),
+        format!("if pass {{ \"{}\" }} else {{ \"{}\" }}", rows_renorm::ACTION_KEEP, rows_renorm::ACTION_DROP),
+        "\"raw_text_sha256\": sha(r.text.as_bytes()), \"raw_ai_byte_spans\": r.ai_byte_spans".into()] {
+        assert!(renorm.contains(&s), "{s}");
+    }
+    let profile = include_str!("../../grammar-a-form/src/profile.rs");
+    assert!(profile.contains(&format!("pub const PROFILE_V2: &str = \"{}\";", rows_renorm::PROFILE_V2)));
+    assert!(profile.contains(&format!("    \"{}\",\n", rows_renorm::POPULATION)));
+}
+
+/// The capture source groups are resolved from the candidates as gathered:
+/// when the rows re-verdict drops the only stage-3 row of a capture's source
+/// group, the capture it keeps is still a Train row, laid out (review
+/// finding 1; `ORDER_RULE`).
+#[test]
+fn rows_renorm_keeps_a_capture_whose_groups_only_stage3_row_is_dropped() {
+    let t = tempfile::tempdir().unwrap();
+    let d = t.path();
+    let _floor = covariate::test_floor::set(0.0);
+    let plan: Vec<(&str, Verdict)> = B5C_PLAN.iter().copied()
+        .map(|(id, v)| if id == "stage3:s3m" { (id, Verdict::Drop("final_document_below_150_words")) } else { (id, v) }).collect();
+    let (cfg, base, rr) = b5c_setup(d, &plan);
+    let base_rows = read_rows(&base.join("train/rows.jsonl"));
+    // doi:10.1/y holds only the stage-3 model row and the review capture.
+    let in_y: Vec<&str> = base_rows.iter().filter(|r| r["source_group"] == "doi:10.1/y").map(|r| r["id"].as_str().unwrap()).collect();
+    assert_eq!(in_y, ["capture:cli-capture:r1", "stage3:s3m"]);
+    let build = build_fixture(d, &with_rows_renorm(&cfg, &rr), "on").unwrap();
+    let rows = read_rows(&build.join("train/rows.jsonl"));
+    let nm: HashMap<String, Value> = read_rows(&rr.join(rows_renorm::NORMALISED_FILE)).into_iter().map(|l| (l["id"].as_str().unwrap().to_string(), l)).collect();
+    let cap = rows.iter().find(|r| r["id"] == "capture:cli-capture:r1").expect("the kept capture is a Train row");
+    assert_eq!((&cap["text"], &cap["text_sha256"]), (&nm["capture:cli-capture:r1"]["text"], &nm["capture:cli-capture:r1"]["text_sha256"]));
+    let b = base_rows.iter().find(|r| r["id"] == "capture:cli-capture:r1").unwrap();
+    assert_eq!((&cap["domain"], &cap["source_group"]), (&b["domain"], &b["source_group"]));
+    assert!(!rows.iter().any(|r| r["id"] == "stage3:s3m"));
+    let ex = read_rows(&build.join("train/exclusions.jsonl"));
+    assert!(!ex.iter().any(|e| e["reason"] == "capture_source_not_train_family"), "{ex:?}");
+    assert!(ex.iter().any(|e| e["id"] == "stage3:s3m" && e["reason"] == rows_renorm::DROP_REASON), "{ex:?}");
+    let m: Value = serde_json::from_slice(&fs::read(build.join("train/MANIFEST.json")).unwrap()).unwrap();
+    assert_eq!(m["rows_renorm"]["candidates"]["replaced"]["HostedCapture"], 2);
+    assert_eq!(m["rows_renorm"]["selected"]["replaced_rows"]["HostedCapture"], 2);
+}
+
+/// A laid-out row and its raw twin are one document at dedup (review
+/// finding 2; `RAW_TWIN_RULE`). R0's selection excluded an in-scope row as
+/// the duplicate of a row that the rows re-verdict plans. With the option,
+/// when the planned row is kept and laid out, the row is still its
+/// `duplicate_text` (the laid-out row holds its raw text too); when the
+/// planned row is dropped, the row is excluded as its raw twin, naming it.
+#[test]
+fn rows_renorm_excludes_raw_twins_of_planned_rows() {
+    let _floor = covariate::test_floor::set(0.0);
+    for (name, v) in [("keep", Verdict::Keep), ("drop", Verdict::Drop("x"))] {
+        let t = tempfile::tempdir().unwrap();
+        let d = t.path();
+        let cfg = b5c_fixture(d);
+        let rm1 = words_text("RAID model one", 37);
+        write_jsonl(&d.join("raid.jsonl"), &[
+            ext("rh1", "raid-v1-books", "raid:g1", &words_text("RAID human one", 36), None, 0.0),
+            ext("rm1", "raid-v1-books", "raid:g1", &rm1, Some("gpt-4"), 0.0),
+            ext("rm3", "raid-v1-books", "raid:g1", &rm1, Some("mistral"), 0.0),
+            ext("rh2", "raid-v1-books", "raid:g2", &words_text("RAID human two", 38), None, 0.0),
+            ext("rm2", "raid-v1-books", "raid:g2", &words_text("RAID model two", 39), Some("gpt-4"), 0.0),
+        ]);
+        // A stage-3 model row with a capture's text: captures sort first, so R0 keeps the capture.
+        let review = words_text("A captured model draft", 33);
+        let mut legacy = fs::read_to_string(d.join("legacy.jsonl")).unwrap();
+        legacy.push_str(&serde_json::to_string(&legacy_spans("s3c", "doi:10.1/y", &review, 1, Value::Null, 1.0)).unwrap());
+        legacy.push('\n');
+        fs::write(d.join("legacy.jsonl"), legacy).unwrap();
+        let base = build_fixture(d, &cfg, "base").unwrap();
+        let ex = read_rows(&base.join("train/exclusions.jsonl"));
+        let pairs = [("rm3", "rm1", "external_pool"), ("stage3:s3c", "capture:cli-capture:r1", "stage3_legacy")];
+        for (twin, kept, _) in pairs {
+            assert!(ex.iter().any(|e| e["id"] == twin && e["reason"] == "duplicate_text" && e["detail"]["kept"] == kept), "{ex:?}");
+        }
+        let rows = base.join("train/rows.jsonl");
+        let plan: Vec<(&str, Verdict)> = B5C_PLAN.iter().copied()
+            .map(|(id, x)| if id == "rm1" || id == "capture:cli-capture:r1" { (id, v) } else { (id, x) }).collect();
+        let (rv, nm) = rows_renorm_lines(&rows, &plan);
+        let rr = d.join("rows-renorm");
+        write_rows_renorm_dir(&rr, &rows, &rv, &nm, "train2");
+        let build = build_fixture(d, &with_rows_renorm(&cfg, &rr), "on").unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        let ex = read_rows(&build.join("train/exclusions.jsonl"));
+        let rv_sha = file_digest(&rr.join(rows_renorm::REVERDICT_FILE));
+        for (twin, planned, kind) in pairs {
+            let e = ex.iter().find(|e| e["id"] == twin).unwrap_or_else(|| panic!("{name}: {twin} kept"));
+            assert_eq!(e["source_kind"], kind, "{name} {twin}");
+            match v {
+                Verdict::Keep => assert_eq!((&e["reason"], &e["detail"]), (&json!("duplicate_text"), &json!({"kept": planned})), "{name} {twin}"),
+                Verdict::Drop(_) => {
+                    assert_eq!(e["reason"], rows_renorm::RAW_TWIN_REASON, "{name} {twin}");
+                    assert_eq!((&e["detail"]["planned_row"], &e["detail"]["planned_action"]), (&json!(planned), &json!(rows_renorm::ACTION_DROP)), "{name} {twin}");
+                    assert_eq!(e["detail"]["receipts"]["sha256"], rv_sha.as_str(), "{name} {twin}");
+                }
+            }
+        }
+        let kept = read_rows(&build.join("train/rows.jsonl"));
+        assert!(!kept.iter().any(|r| r["id"] == "rm3" || r["id"] == "stage3:s3c"), "{name}");
+        let m: Value = serde_json::from_slice(&fs::read(build.join("train/MANIFEST.json")).unwrap()).unwrap();
+        let twins = if name == "drop" { json!({"ExternalPool": 1, "Stage3Legacy": 1}) } else { json!({}) };
+        assert_eq!(m["rows_renorm"]["selected"]["raw_twins_of_planned_rows_excluded"], twins, "{name}");
+        assert_eq!(m["rows_renorm"]["selected"]["raw_text_duplicates_excluded"], json!({}), "{name}");
+    }
+}
+
+/// A laid-out row whose raw text an earlier row holds (here a Train-2 human
+/// that R0 did not have) is that row's duplicate, as in R0's selection, where
+/// humans win; a laid-out text equal to its raw text is kept.
+#[test]
+fn rows_renorm_dedups_laid_out_rows_by_their_raw_text() {
+    let t = tempfile::tempdir().unwrap();
+    let d = t.path();
+    let _floor = covariate::test_floor::set(0.0);
+    let (cfg, base, _rr) = b5c_setup(d, &B5C_PLAN);
+    let rows_path = base.join("train/rows.jsonl");
+    let base_rows: HashMap<String, Value> = read_rows(&rows_path).into_iter().map(|r| (r["id"].as_str().unwrap().to_string(), r)).collect();
+    let (mut rv, mut nm) = rows_renorm_lines(&rows_path, &B5C_PLAN);
+    // stage3:s3x's layout changes nothing: its laid-out line is its raw row.
+    let x = &base_rows["stage3:s3x"];
+    let i = nm.iter().position(|l| l["id"] == "stage3:s3x").unwrap();
+    for (k, f) in [("text", "text"), ("text_sha256", "text_sha256"), ("ai_byte_spans", "ai_byte_spans"), ("share", "share")] {
+        nm[i][k] = x[f].clone();
+    }
+    let j = rv.iter().position(|l| l["id"] == "stage3:s3x").unwrap();
+    rv[j]["text_sha256"] = x["text_sha256"].clone();
+    let rr = d.join("rows-renorm-id");
+    write_rows_renorm_dir(&rr, &rows_path, &rv, &nm, "train2");
+    // A Train-2 human with rm1's raw text.
+    let mut c = with_rows_renorm(&cfg, &rr);
+    write_jsonl(&d.join("train2-humans.jsonl"), &[human("h-twin", "train", "gx", base_rows["rm1"]["text"].as_str().unwrap())]);
+    c["splits"]["train"]["humans"].as_array_mut().unwrap().push(json!(d.join("train2-humans.jsonl")));
+    let build = build_fixture(d, &c, "on").unwrap();
+    let kept = read_rows(&build.join("train/rows.jsonl"));
+    let s3x = kept.iter().find(|r| r["id"] == "stage3:s3x").expect("an unchanged layout is kept");
+    assert_eq!(s3x["text_sha256"], x["text_sha256"]);
+    assert!(kept.iter().any(|r| r["id"] == "h-twin") && !kept.iter().any(|r| r["id"] == "rm1"));
+    let ex = read_rows(&build.join("train/exclusions.jsonl"));
+    let e = ex.iter().find(|e| e["id"] == "rm1").expect("rm1 excluded");
+    assert_eq!((&e["reason"], &e["detail"]["kept"], &e["detail"]["raw_text_sha256"]),
+        (&json!(rows_renorm::RAW_DUP_REASON), &json!("h-twin"), &base_rows["rm1"]["text_sha256"]));
+    assert_eq!(ex.iter().filter(|e| e["reason"] == rows_renorm::RAW_DUP_REASON || e["reason"] == rows_renorm::RAW_TWIN_REASON).count(), 1, "{ex:?}");
+    let m: Value = serde_json::from_slice(&fs::read(build.join("train/MANIFEST.json")).unwrap()).unwrap();
+    assert_eq!(m["rows_renorm"]["selected"]["raw_text_duplicates_excluded"], json!({"ExternalPool": 1}));
+    assert_eq!(m["rows_renorm"]["candidates"]["replaced"]["ExternalPool"], 1);
+    assert!(m["rows_renorm"]["selected"]["replaced_rows"]["ExternalPool"].is_null());
+}

@@ -102,12 +102,18 @@ pub struct Round2 {
     /// Tag every row with its block (`T` or `C`).
     #[serde(default)]
     pub block_tags: Option<BlockTags>,
+    /// A `renorm-rows` output directory: the RAID, stage-3 legacy and
+    /// hosted-capture Train rows it lists take their laid-out text, and the
+    /// planned rows it leaves out are dropped with their receipts
+    /// (`rows_renorm`; amendment 20 item 20.7, ruling R3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows_renorm: Option<PathBuf>,
 }
 
 impl Round2 {
     /// True when any option is on (only then does the build change).
     pub fn on(&self) -> bool {
-        self.covariate_balance.is_some() || !self.cohort_roles.is_empty() || self.block_tags.is_some()
+        self.covariate_balance.is_some() || !self.cohort_roles.is_empty() || self.block_tags.is_some() || self.rows_renorm.is_some()
     }
 }
 
@@ -352,6 +358,8 @@ pub struct Gathered {
     pub excluded_groups: HashMap<String, Value>,
     /// Writer-key allow-lists of the round-2 cohort roles, in declaration order.
     pub round2_writer_keys: Vec<Option<HashSet<String>>>,
+    /// The rows re-verdict applied to the Train candidates (`round2.rows_renorm`).
+    pub rows_renorm: Option<rows_renorm::Applied>,
 }
 
 fn reject(read_errors: &mut Vec<Exclusion>, id: &str, split: &str, kind: SourceKind, e: anyhow::Error) {
@@ -614,12 +622,25 @@ pub fn gather_sealed(cfg: &Config, test_opened: bool) -> Result<Gathered> {
             }
         }
     }
+    // Round 2: the rows re-verdict's laid-out RAID, stage-3 and capture rows,
+    // before selection, dedup and weights (`rows_renorm`). It runs after the
+    // Train-mining parents and the capture source groups are resolved from the
+    // candidates as gathered, so a planned row it drops still names its source
+    // group and parent (`ORDER_RULE`); replacement changes neither.
+    let rows_renorm = match cfg.round2.as_ref().and_then(|r| r.rows_renorm.as_deref()) {
+        Some(dir) => {
+            ensure!(built.contains("train"), "round2.rows_renorm replaces Train rows: the config must build the Train split");
+            let rr = rows_renorm::RowsRenorm::read(dir, &mut inputs).with_context(|| format!("round2.rows_renorm {}", dir.display()))?;
+            Some(rr.apply(candidates.get_mut("train").unwrap(), &eval_texts)?)
+        }
+        None => None,
+    };
     let frozen_sha256 = styles.sha256.clone();
     let round2_writer_keys = match &cfg.round2 {
         Some(r2) => round2_inputs(r2, &mut inputs)?,
         None => Vec::new(),
     };
-    Ok(Gathered { inputs, candidates, parents, eval_keys, eval_texts, train_families, train_side_groups, frozen_sha256, read_errors, ignored_rows, excluded_groups, round2_writer_keys })
+    Ok(Gathered { inputs, candidates, parents, eval_keys, eval_texts, train_families, train_side_groups, frozen_sha256, read_errors, ignored_rows, excluded_groups, round2_writer_keys, rows_renorm })
 }
 
 fn write_atomic(p: &Path, b: &[u8]) -> Result<String> {
@@ -689,10 +710,18 @@ pub fn build_sealed(config_path: &Path, root: &Path, code: &Value, seal: Option<
                 None => true,
             });
         }
-        let (mut rows, mut ex) = select(&split, cands, &g.parents, &g.eval_keys, &g.eval_texts, &g.train_families,
-            if train { &g.train_side_groups } else { &empty_groups });
+        let (mut rows, mut ex) = select_with(&split, cands, &g.parents, &g.eval_keys, &g.eval_texts, &g.train_families,
+            if train { &g.train_side_groups } else { &empty_groups }, if train { g.rows_renorm.as_ref() } else { None });
         ex.extend(audit_ex);
         ex.extend(g.read_errors.iter().filter(|e| e.split == split).cloned());
+        let renorm_record = match (&g.rows_renorm, train) {
+            (Some(a), true) => {
+                let rec = a.check_selected(&rows, &ex)?;
+                ex.extend(a.drops.iter().cloned());
+                Some(rec)
+            }
+            _ => None,
+        };
         let block_tags = cfg.round2.as_ref().and_then(|r| r.block_tags.as_ref());
         if let Some(bt) = block_tags {
             tag_blocks(&mut rows, bt);
@@ -772,6 +801,9 @@ pub fn build_sealed(config_path: &Path, root: &Path, code: &Value, seal: Option<
                 *by_block.entry(r.block.as_deref().unwrap_or("")).or_default() += 1;
             }
             manifest["rows_by_block"] = json!(by_block);
+        }
+        if let Some(r) = renorm_record {
+            manifest["rows_renorm"] = r;
         }
         if split == TEST_SPLIT {
             manifest["seal"] = seal_record.clone().unwrap_or(Value::Null);

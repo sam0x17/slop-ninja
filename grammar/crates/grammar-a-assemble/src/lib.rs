@@ -7,12 +7,14 @@
 //! humans, local open-weight positives, hosted frontier positives (v2 records)
 //! and the stage-3 legacy Train rows. Every row keeps its exact text, its
 //! replacement spans as UTF-8 byte offsets and a digest of the input line it
-//! came from.
+//! came from. A round-2 build may replace the RAID, stage-3 and capture Train
+//! rows by their laid-out text from a rows re-verdict (`rows_renorm`).
 pub mod bundle;
 pub mod captures;
 pub mod consolidate;
 pub mod covariate;
 pub mod rights;
+pub mod rows_renorm;
 pub mod styles;
 pub mod successor;
 pub mod supervision;
@@ -752,6 +754,26 @@ pub fn select(
     train_families: &HashSet<String>,
     train_side_groups: &HashMap<String, String>,
 ) -> (Vec<Row>, Vec<Exclusion>) {
+    select_with(split, candidates, parents, eval_keys, eval_texts, train_families, train_side_groups, None)
+}
+
+/// `select`, with a round-2 rows re-verdict applied to the Train candidates
+/// (`round2.rows_renorm`): at the dedup step a laid-out row also holds its
+/// raw text, and a candidate of the three kinds that the re-verdict did not
+/// plan and whose text is a planned row's raw text is that row's raw twin
+/// and is excluded (`rows_renorm::RAW_TWIN_RULE`). With `None` this is
+/// `select`.
+#[allow(clippy::too_many_arguments)]
+pub fn select_with(
+    split: &str,
+    candidates: Vec<Row>,
+    parents: &HashMap<String, Parent>,
+    eval_keys: &EvalKeys,
+    eval_texts: &HashMap<String, String>,
+    train_families: &HashSet<String>,
+    train_side_groups: &HashMap<String, String>,
+    renorm: Option<&rows_renorm::Applied>,
+) -> (Vec<Row>, Vec<Exclusion>) {
     let train = split == "train";
     let mut kept: Vec<Row> = Vec::new();
     let mut ex = Vec::new();
@@ -840,7 +862,20 @@ pub fn select(
             drop(&r, "duplicate_text", json!({"kept": first}), &mut ex);
             continue;
         }
+        // A laid-out row also holds its raw text (`rows_renorm::RAW_TWIN_RULE`).
+        let raw = renorm.and_then(|a| a.replaced_raw(&r.id)).filter(|d| *d != r.text_sha256);
+        if let Some((d, first)) = raw.and_then(|d| seen_text.get(d).map(|f| (d, f))) {
+            drop(&r, rows_renorm::RAW_DUP_REASON, json!({"kept": first, "raw_text_sha256": d, "rule": rows_renorm::RAW_TWIN_RULE}), &mut ex);
+            continue;
+        }
+        if let Some(detail) = renorm.and_then(|a| a.raw_twin_of(&r)) {
+            drop(&r, rows_renorm::RAW_TWIN_REASON, detail, &mut ex);
+            continue;
+        }
         seen_text.insert(r.text_sha256.clone(), r.id.clone());
+        if let Some(d) = raw {
+            seen_text.insert(d.to_string(), r.id.clone());
+        }
         kept.push(r);
     }
     kept.sort_by(|a, b| a.id.cmp(&b.id));

@@ -3,7 +3,7 @@
 //! package-to-row application stage. Only `run --dispatch` loads a private
 //! key or submits.
 
-use std::{path::PathBuf, process::ExitCode};
+use std::{path::PathBuf, process::ExitCode, sync::OnceLock};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -24,8 +24,19 @@ const EXIT_HALTED: u8 = 3;
 /// Recovery is still in progress; systemd restarts the unit later.
 const EXIT_RETRY: u8 = 75;
 
+/// `slop_ninja_validator --version`: this crate's version and the build's
+/// commit (recorded by the subnet crate's build script; same repository).
+fn version() -> &'static str {
+    static VERSION: OnceLock<String> = OnceLock::new();
+    VERSION.get_or_init(|| slop_ninja_subnet::build_info::version_text(env!("CARGO_PKG_VERSION")))
+}
+
 #[derive(Parser)]
-#[command(about = "Slop Ninja native validator")]
+#[command(
+    name = "slop_ninja_validator",
+    version = version(),
+    about = "Slop Ninja native validator"
+)]
 struct Args {
     #[arg(long)]
     config: PathBuf,

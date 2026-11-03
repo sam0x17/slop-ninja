@@ -69,7 +69,7 @@ gate thresholds; a cohort's rules do not change after it opens. Later cohorts
 may run under new manifest versions. Testnet follows the whitepaper's reward
 rule: no miner earns until an entrant beats the reference by the margin, and
 until then the active target is the burn row, which pays no miner. Slop
-Ninja's validators do not yet commit that row on chain; the
+Ninja's validators commit that row on chain each tempo; the
 [miner guide](miner-guide.md#13-rewards) says what that means.
 
 ## No guarantee of service

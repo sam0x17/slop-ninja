@@ -701,6 +701,20 @@ slop-ninja-journal --journal <journal_path> inspect
 
 Never delete the journal or its lock to clear a refusal.
 
+### Version and build commit
+
+`slop_ninja_validator --version` and `slop-ninja-journal --version` (or
+`-V`) print the crate version and the commit the build came from; include
+that line when you report a problem. The subnet crate's build script reads
+the commit with `git rev-parse HEAD` and appends `-dirty` when tracked files
+had uncommitted changes the last time the script ran (Cargo re-runs it when
+HEAD moves, not on every edit). It records no commit when Git or the
+repository is unavailable, or when Git cannot name the files that change on
+a new commit (it falls back from `--git-path` to `--absolute-git-dir`, Git
+2.13 or later). For a build from a source archive, set
+`SLOP_NINJA_BUILD_COMMIT` to the full 40-digit commit; any other non-empty
+value fails the build. Release builds set it to the tagged commit.
+
 ## Fault-injection hooks
 
 `Faults` hooks sit at the journal boundaries: journal opened, each recovery

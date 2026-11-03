@@ -41,10 +41,10 @@ evaluation is part of the protocol.
 | Published packages on the public status host | not yet live |
 | The package fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, which must also publish the current authorization (below) |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
-| Committing the launch burn row | built and tested offline (rtao's owner-row opt-in, below); not yet committed live on subnet 601 |
+| Committing the launch burn row | live on subnet 601: both Slop Ninja validators commit and reveal it each tempo under rtao's owner-row opt-in (below); first native commit and reveal on November 3, 2026 |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Signed release binaries (Linux x86_64) | built and signed; published with the public repository |
+| Signed release binaries (Linux x86_64) | not yet live: binaries built from the public repository, signed and smoke-tested when it is published |
 
 Today an outside validator can install the binary, create its journal, run the
 startup checks and use `observe`. Committing rows waits for the pieces above.
@@ -496,7 +496,16 @@ queued, so the work never simply finishes. To roll back, stop the unit, run
 `slop_ninja_validator --config <config> rollback-check --retire`, and install
 the older build only when it exits 0 (see the validator README,
 [Rolling back past this rtao pin](../../subnet/crates/validator/README.md#rolling-back-past-this-rtao-pin)).
-**Not yet live:** this has not yet committed the burn row on subnet 601.
+**Live on subnet 601.** On November 3, 2026 a Slop Ninja validator that is
+not the owner, running at the current rtao pin, committed the launch burn row
+timelocked in block 8,362,443 and revealed it at 8,362,485 with the reveal
+matching its journaled row. Both Slop Ninja validators, that one and the
+coordinator, now commit and reveal it each tempo; read back at block
+8,363,204, the chain held both rows as weight 1.0 on the owner UID and
+nothing for any miner UID. They commit it under the launch authorization,
+which, like every authorization, does not expire
+([Fetching published packages](#fetching-published-packages)): it stops only
+when a successor target supersedes it or a signed revocation withdraws it.
 
 ## The journal
 
@@ -523,9 +532,11 @@ public anyway.
 ## Reporting problems
 
 Open an issue on the public repository's issue tracker (not yet live) with
-`slop_ninja_validator --version`, the command, the exit code and the logged
-event names. Never post the journal, keyfiles or mnemonics. Report a security
-problem privately; the contact will be on the [landing page](README.md).
+the output of `slop_ninja_validator --version` (the version and the commit the
+binary was built from; `slop-ninja-journal --version` prints the same), the
+command, the exit code and the logged event names. Never post the journal,
+keyfiles or mnemonics. Report a security problem privately; the contact will
+be on the [landing page](README.md).
 
 ## Reference
 

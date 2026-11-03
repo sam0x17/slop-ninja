@@ -60,10 +60,10 @@ not state yet:
   testnet cohorts reuse human documents that earlier cohorts already used.
   Fresh human stock is drawn only once outside miners have working artifacts.
 
-Two testnet limits also apply, as the miner guide explains: the gate
-thresholds are provisional, frozen in each signed cohort manifest, and Slop
-Ninja's validators do not yet commit the launch burn row
-([Rewards](miner-guide.md#13-rewards)).
+One testnet limit also applies, as the miner guide explains: the gate
+thresholds are provisional, frozen in each signed cohort manifest. Until an
+entrant beats the reference by δ, Slop Ninja's validators commit the launch
+burn row, which pays no miner ([Rewards](miner-guide.md#13-rewards)).
 
 ## What the recipe reproduces of R0, and what it does not
 

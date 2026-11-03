@@ -21,11 +21,11 @@ closes.
 | [Training guide](training-guide.md) and its public recipe, the path from ModernBERT-base and public data to an admissible artifact | in the repository; tested end to end on Linux x86_64 with CUDA (a smoke run) |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Signed release binaries (Linux x86_64) | built and signed; published with the public repository |
+| Signed release binaries (Linux x86_64) | not yet live: binaries built from the public repository, signed and smoke-tested when it is published |
 | Coordinator admission routes, used by `commit`, `upload`, `abort` and the hotkey view of `status` | not yet live |
 | Public status host, used by `status` and `next-cohort`, with the published packages, leaderboard and artifacts | not yet live |
 | The coordinator's admission origin pinned in the release trust file | not yet live |
-| Validators committing the launch burn row ([Rewards](#13-rewards)) | not yet live |
+| Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo |
 | Reference packages (`R_0` and the S2c span package) | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
 
 The [training guide](training-guide.md) produces an admissible artifact from
@@ -595,12 +595,11 @@ at the batch size. At 1,000 documents under the whitepaper's 20/55/25 mix,
 remaining loss by about 7%. Each manifest freezes its exact value. The status
 snapshot's mode and notice say which regime is in force.
 
-**Not yet live: committing the burn row.** The native validator can now
-commit that row (see the
-[validator guide](validator-guide.md#the-launch-burn-row)), but Slop Ninja's
-validators have not yet committed it on subnet 601. Until they do, emissions follow the chain's own rules
-applied to whatever weights are already on chain, and those weights reflect no
-cohort's scores. Expect no payout while the burn regime lasts.
+**Committing the burn row is live.** Both of Slop Ninja's validators commit
+and reveal the burn row on subnet 601 each tempo (see the
+[validator guide](validator-guide.md#the-launch-burn-row)). On November 3,
+2026 the chain held both validators' rows as weight 1.0 on the owner UID and
+nothing for any miner UID. Expect no payout while the burn regime lasts.
 
 When a gated entrant beats `R_k` by `δ`:
 

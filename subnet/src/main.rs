@@ -1,12 +1,22 @@
 //! Offline journal controls. No key loading, RPC connection or submission command.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::OnceLock};
 
 use clap::{Parser, Subcommand};
 use slop_ninja_subnet::JournalControls;
 
+/// `slop-ninja-journal --version`: the crate version and the build's commit.
+fn version() -> &'static str {
+    static VERSION: OnceLock<String> = OnceLock::new();
+    VERSION.get_or_init(|| slop_ninja_subnet::build_info::version_text(env!("CARGO_PKG_VERSION")))
+}
+
 #[derive(Parser)]
-#[command(about = "Inspect or pause an existing Slop Ninja native journal offline")]
+#[command(
+    name = "slop-ninja-journal",
+    version = version(),
+    about = "Inspect or pause an existing Slop Ninja native journal offline"
+)]
 struct Args {
     #[arg(long)]
     journal: PathBuf,

@@ -34,6 +34,7 @@ use rtao_signer::KeyView;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub mod build_info;
 pub mod surface;
 
 const APPLICATION_KEY: &str = "slopninja.native-weights.v1";

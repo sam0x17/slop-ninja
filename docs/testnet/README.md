@@ -5,8 +5,10 @@ first mechanism, *A*, rewards text models that estimate, for each document,
 the confidence that AI was involved and the share of words AI wrote or
 rewrote, with conditional human and AI attribution. Miners submit models, not
 answers: each cohort, the coordinator scores every submitted model on the same
-fresh hidden batch, signs the results, and every validator derives the weights
-from the signed scores.
+hidden batch, signs the results, and every validator derives the weights from
+the signed scores. On testnet, until outside miners have working artifacts,
+that batch reuses public human documents that earlier cohorts used
+([terms](terms.md)).
 
 Testnet subnet 601 is the rehearsal. It has no monetary value.
 
@@ -51,11 +53,11 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Training guide and public training recipe | in the repository; tested end to end on Linux x86_64 with CUDA (a smoke run) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Release public key | published below ([Release key](#release-key)) |
-| Signed release binaries (Linux x86_64) | built and signed; published with the public repository |
+| Signed release binaries (Linux x86_64) | not yet live: built from the public repository, signed and smoke-tested when it is published |
 | Coordinator admission routes (`commit`, `upload`, hotkey status) | not yet live |
 | Public status host: status snapshot, cohort index, signed packages, leaderboard, published artifacts | not yet live |
 | Validator package fetcher | not yet live |
-| Validators committing the launch burn row | not yet live |
+| Validators committing the launch burn row | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo, under a launch authorization that does not expire |
 | Reference packages (`R_0` and the S2c span package, CC BY-SA 4.0) | built and checked; downloadable when public access opens |
 
 The links below will appear here when each goes live:
@@ -112,8 +114,10 @@ and the second `OK` for every file. Stop if either does not. A release holds:
 | `SHA256SUMS`, `SHA256SUMS.sig` | the digests of the five files above, and the signature over them |
 | `allowed_signers`, `slop-ninja-release-testnet.pub` | copies of the key above, for convenience only |
 
-The binaries are for Linux x86_64. Their symbol versions require glibc 2.34
-or later; they were smoke-tested on one Linux x86_64 host with a newer glibc.
+The binaries are for Linux x86_64. Each release's notes will name the commit
+it was built from, the oldest glibc its binaries need (read from their symbol
+versions) and the results of a smoke test of the signed files on one Linux
+x86_64 host.
 There are no macOS or Linux arm64 binaries: build from source as the guides
 describe. Those platforms are untested.
 

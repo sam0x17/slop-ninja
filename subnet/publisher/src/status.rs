@@ -30,6 +30,9 @@ pub struct WorkerView {
     /// The active durable journal fault's kind.
     pub fault: Option<String>,
     pub signing: Option<SigningView>,
+    /// `chain_journal.watchdog.subscription.state`: `delivering`, `silent`
+    /// or `presumed_paused` (absent from Workers built before 2026-11-03).
+    pub subscription: Option<String>,
     /// The status had no `chain_journal.journal` block, so `fault` (and the
     /// watermark) say nothing: the alert rules treat that read as unknown.
     pub journal_missing: bool,
@@ -93,6 +96,13 @@ pub struct EvalView {
     pub cohorts_missing: bool,
     pub reward: Option<RewardView>,
     pub ledger_permille: Option<u64>,
+    /// `receipt_retention.stalled`, each entry as a content-free line: a due
+    /// cohort whose detailed receipts remain after a further completion, or
+    /// a predecessor not yet finished after one (absent from coordinators
+    /// built before the rule).
+    pub retention_stalled: Option<Vec<String>>,
+    /// `receipt_retention.last_error`: the last failed deletion step's code.
+    pub retention_error: Option<String>,
 }
 
 impl EvalView {
@@ -127,6 +137,19 @@ struct ChainJournalJson {
     mode_age_ms: Option<u64>,
     journal: Option<JournalJson>,
     signing: Option<SigningJson>,
+    watchdog: Option<WatchdogJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct WatchdogJson {
+    subscription: Option<SubscriptionJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct SubscriptionJson {
+    state: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -173,6 +196,45 @@ struct EvalJson {
     cohorts: Option<Vec<CohortJson>>,
     reward: Option<RewardJson>,
     ledger: LedgerJson,
+    receipt_retention: RetentionJson,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RetentionJson {
+    stalled: Option<Vec<StalledJson>>,
+    last_error: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct StalledJson {
+    kind: Option<String>,
+    cohort: Option<u64>,
+    label: Option<String>,
+    due_after_cohort: Option<u64>,
+    predecessor: Option<String>,
+    after_cohort: Option<u64>,
+    completions_since: Option<u64>,
+}
+
+impl StalledJson {
+    fn line(&self) -> String {
+        let n = self.completions_since.unwrap_or(0);
+        match self.kind.as_deref() {
+            Some("predecessor") => format!(
+                "predecessor {} not finished after cohort {}, {n} completion(s) since",
+                self.predecessor.as_deref().unwrap_or("?"),
+                self.after_cohort.map_or("?".into(), |c| c.to_string()),
+            ),
+            _ => format!(
+                "cohort {} ({}) due after cohort {}, {n} completion(s) since",
+                self.cohort.map_or("?".into(), |c| c.to_string()),
+                self.label.as_deref().unwrap_or("?"),
+                self.due_after_cohort.map_or("?".into(), |c| c.to_string()),
+            ),
+        }
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -244,6 +306,10 @@ fn worker_view(j: ServiceJson) -> WorkerView {
             .fault
             .map(|f| f.kind.unwrap_or_else(|| "fault".into())),
         journal_missing,
+        subscription: c
+            .watchdog
+            .and_then(|w| w.subscription)
+            .and_then(|s| s.state),
         signing: c.signing.and_then(|s| {
             Some(SigningView {
                 state: s.state?,
@@ -306,6 +372,11 @@ fn eval_view(j: EvalJson) -> EvalView {
             current_content: r.references.current_content,
         }),
         ledger_permille,
+        retention_stalled: j
+            .receipt_retention
+            .stalled
+            .map(|v| v.iter().map(StalledJson::line).collect()),
+        retention_error: j.receipt_retention.last_error,
     }
 }
 
@@ -540,6 +611,7 @@ pub(crate) mod tests {
                        "references": {"k": 0, "current_content": "22".repeat(32), "predecessor_content": null},
                        "note": "PRIVATE-DOCUMENT-TEXT"},
             "ledger": {"standing": {"cycle": "2026-11-01", "cap_microusd": 1000, "spent_microusd": 700, "reserved_microusd": 150}},
+            "receipt_retention": {"rule": "receipts_after_two_later_completions_v2", "stalled": [], "last_error": null},
         })
     }
 
@@ -549,6 +621,7 @@ pub(crate) mod tests {
             "config": {"rpc_host": "rpc.example.invalid"},
             "chain_journal": {
                 "mode": mode, "mode_age_ms": 1000,
+                "watchdog": {"source": "webhook", "subscription": {"state": "delivering", "silent_ms": 9000}},
                 "journal": {"confirmed": {"number": 8_340_010, "hash": "0xcd"}, "confirmed_age_ms": 40_000,
                             "fault": if fault { json!({"id": 1, "kind": "parent_conflict", "expected_hash": "fault-detail-hash"}) } else { Value::Null }},
                 "signing": {"state": "active", "reason": null, "ops": [

@@ -30,8 +30,9 @@ use sha2::{Digest as _, Sha256};
 use slop_ninja_admission_wire::json::{AUTHORIZATION_POINTER_SCHEMA, AuthorizationPointer, Chain, ObjectRef};
 use slop_ninja_protocol::{ChainBinding, Digest, Record, RewardIntentRevocation, Signed, TrustedKeys};
 
-/// The pointer's key in the receipts bucket.
-pub const POINTER_KEY: &str = "authorizations/current.json";
+/// The pointer's key in the receipts bucket: the shared contract's key,
+/// which the retention hold and the publisher read.
+pub const POINTER_KEY: &str = slop_ninja_admission_wire::receipts::AUTHORIZATION_POINTER_KEY;
 
 /// A signed authorization, renewal or revocation object's key.
 pub fn object_key(sha256: &str) -> String {

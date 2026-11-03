@@ -5,16 +5,19 @@
 //! (`config::Supersede`). The earlier authority records it in one
 //! transaction, and only while it holds no cohort that is not closed or
 //! abandoned, none of its labels or numbers falls within the successor's
-//! rule, and it has no work left (`engine::has_work`: a closure, a spend
-//! settlement, a purge of private results and summaries, or an admission
-//! clean-up). The Worker kicks a predecessor only until its successor's
+//! rule, and it has no work left (`engine::blocking_work`: a closure, a
+//! spend settlement, a purge of private results and summaries, or an
+//! admission clean-up; a due receipt deletion does not count). The Worker kicks a predecessor only until its successor's
 //! succession is complete, so work left at that point would never run: it
 //! refuses with `predecessor_work` instead, and finishes it under the kicks
 //! that continue meanwhile. From then on it admits no plan whatever a
 //! deployment names, and its calendar is paused, so a deploy that reverts the
 //! authority vars cannot re-admit cohort numbers or labels of the restarted
-//! chain record, and no new work reaches it. Nothing is deleted: its cohorts,
-//! references and receipts stay readable.
+//! chain record, and no new work reaches it. Its cohorts, references and
+//! signed records stay readable; its detailed receipts are deleted under the
+//! N+2 rule once its successor has completed two cohorts and tells it
+//! (`eval::retention`, `POST /succession/retention`), and deletions already
+//! due finish under those notices too.
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing))]
 
 use crate::config::Supersede;
@@ -41,7 +44,8 @@ pub fn superseded_by(sql: &impl Sql) -> R<Option<String>> {
 
 /// Records `req`'s successor, or says why not: `predecessor_busy`,
 /// `predecessor_numbers` ([`Supersede::check`]), or `predecessor_work` while
-/// [`crate::eval::engine::has_work`] under this authority's own
+/// [`crate::eval::engine::blocking_work`] (due receipt deletions excluded)
+/// under this authority's own
 /// configuration `cfg` (a retired one, whose calendar is never due) still
 /// finds work. Idempotent: an authority already superseded (by this
 /// successor or an earlier one) answers with the successor it recorded,
@@ -62,7 +66,7 @@ pub fn supersede(
     if let Err(code) = req.check(cohorts.iter().map(|(l, n, p)| (l.as_str(), *n, p.as_str()))) {
         return Ok(Err(code));
     }
-    if crate::eval::engine::has_work(sql, cfg)? {
+    if crate::eval::engine::blocking_work(sql, cfg)? {
         return Ok(Err("predecessor_work"));
     }
     sql.exec(

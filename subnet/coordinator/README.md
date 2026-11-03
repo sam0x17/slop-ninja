@@ -60,7 +60,7 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `POST /eval/probe`, `/eval/scorer-probe` | Pre-flight one generator, or the scorer path, on fixed synthetic text; the measured cost is settled in the spend ledger. Operator token. |
 | `POST /eval/template`, `/eval/template/pause`, `GET /eval/calendar` | Install the standing cohort template; pause or resume opening cohorts from it (`{"paused": bool}`); the cohort calendar. Operator token. |
 | `/admission/v1/...` | `EVAL_ROLE = "eval"` only, and only when `ADMISSION_ROUTES` opens them (`off`, the default: 404; `hotkeys`: the listed `ADMISSION_HOTKEYS` only; `open`): the admission API, contract `slop_ninja.admission/v1` (`docs/testnet/admission-api.md`). Hotkey-signed; the Worker checks the signature and body digest before forwarding. No token. |
-| cron `* * * * *` | The watchdog. On the coordinator it is the only timer, and no Durable Object alarms are set; on the eval Worker it also kicks the cohort authority and, outside scoring, stops idle scorer slots, while the cohort and scorer Durable Objects keep bounded alarms. |
+| cron `* * * * *` | The watchdog. On the coordinator it is the only timer, and no Durable Object alarms are set; on the eval Worker it also kicks the cohort authority and, outside scoring, stops idle scorer slots, while the cohort and scorer Durable Objects keep bounded alarms. The finalized commitment reader is per-block work: each new block's delivery drives it, and the cron only while the watchdog is in fallback (when no delivery arrives), never as its own schedule. |
 
 Without its token secret, a route returns 503. A wrong token gets 401. Both
 tokens must be at least 32 bytes. They are compared in constant time over
@@ -73,6 +73,11 @@ SHA-256 digests.
 - the provisional cursor, the RPC-confirmed watermark with its basis and age,
   and the count of provisional blocks
 - the mode, its reason and ages, the lag and the behind flag
+- `chain_journal.watchdog`, the same at a glance: `source` (`webhook` in
+  primary, `otf_rpc` while the cron walks the cursor through the public
+  RPC), `cursor_lag_blocks`, `last_finalized` (the cursor's height, hash and
+  age), `confirmed` (the RPC-confirmed watermark's), and `subscription`
+  ([Watchdog](#watchdog))
 - the last five mode transitions
 - the active fault, if any, with its public block hashes
 - the backfill claim's state
@@ -251,6 +256,32 @@ When the cursor has no anchor, the first tick's head read anchors it too, so a
 deployment with no subscription still starts following after the first tick,
 and switches to fallback once the silence threshold has passed.
 
+**A paused subscription.** The provider pauses a subscription after the last
+failed attempt of one delivery and never resumes it by itself
+([below](#long-work-claims-and-invocation-limits)). The coordinator cannot
+read the subscription's state (the provider's management API needs a
+credential the Worker does not hold), so it infers it from durable state
+(`watchdog::subscription`): `delivering` (a valid delivery within the
+silence threshold), `silent` (fallback carries the cursor; the provider may
+still be retrying), or `presumed_paused` once no valid delivery has arrived
+for longer than the provider can retry one delivery while the RPC finalized
+head is past the last delivered block. That horizon, `pause_horizon_ms`
+(about 7.0 h), is derived from the provider's versioned retry contract
+(`rtao_rpc_webhook_retry_v1`: ten delays at their full 20% jitter plus
+eleven 5 s acknowledgement windows; `/hook` never sends `Retry-After`). A
+chain that stops finalizing owes no delivery, so silence alone is never a
+pause. Failures on the provider's own side (`service_error`) never count
+toward its retries and never pause, so a provider-side stall longer than the
+horizon also reads as `presumed_paused`. Each tick that finds it presumed
+paused counts `subscription_presumed_paused_ticks`; the publisher's
+`webhook_paused` rule alerts on the state, and an operator checks the
+subscription's state (`GET`, TESTNET.md) and resumes it only when it is
+paused (blocks during a pause are not owed: fallback has already carried the
+cursor, and the next delivery returns the coordinator to primary). The
+service does not name its retry contract; the horizon assumes the deployed
+service runs the one above, which the operator checks against the service's
+`GET` shape when it changes.
+
 ## Long work: claims and invocation limits
 
 Each block's delivery is its own invocation, so a slow task started by block N
@@ -289,9 +320,10 @@ Two sets of limits shaped the design.
   from its finalized cursor through RPC. A registration starts paused.
 - Each subscription has one delivery in flight at a time, so a slow
   acknowledgment delays every later block.
-- The coordinator has no resume path: after a long outage the subscription
-  stays paused and the cron and RPC fallback carries progress; this is an
-  alerting condition, not a correctness one.
+- The coordinator has no resume path of its own: after a long outage the
+  subscription stays paused and the cron and RPC fallback carries progress;
+  the watchdog reports it `presumed_paused` and the publisher alerts
+  (`webhook_paused`), so it is an alerting condition, not a correctness one.
 
 The coordinator therefore acknowledges as soon as the delivery and its step are
 committed. It never holds the request open for slow work.
@@ -1045,8 +1077,9 @@ claim token and a lease and reserving its upper-bound cost (a claim succeeds
 only if spent plus reserved plus its bound fits the plan budget), run up to
 `inflight_per_lane` calls, refund unused grants, and commit. A result whose
 claim is no longer the item's latest records its usage and is discarded. A
-rejected answer (preamble, markup, thinking, unchanged, length, or empty after
-generating tokens) retries on the next generator, at most 4 answers per item,
+rejected answer (preamble, markup, thinking, unchanged, outside the length
+window, or empty after generating tokens) retries on the next generator, at
+most 4 answers per item,
 as does a model the provider no longer serves (5007, 3042). A throttle (a 429
 or 3040 by error text, since the Rust binding exposes neither status nor
 code) uses no answer and keeps the generator: the item backs off from 2 s to
@@ -1054,7 +1087,13 @@ code) uses no answer and keeps the generator: the item backs off from 2 s to
 after which a throttle counts as an outage. An outage (a transport failure, or
 no text and no generated tokens) uses no answer: the item backs off from 5 s
 doubling to 120 s, and its 10th consecutive outage (about 10 minutes) pauses
-the cohort, so an outage can never drop cases or change the mix.
+the cohort, so an outage can never drop cases or change the mix. A length
+rejection records its direction (`length_short` or `length_long`; before
+2026-11-03 both were `length`), and `/eval/status` counts each cohort's
+rejection codes overall (`rejects`) and per document kind
+(`rejects_by_kind`: rewrites are `mixed`, scratch writing `model_only`), so
+the rewrite window (0.5 to 1.8 times the source words plus 4) can be checked
+against measured rejections before it is changed.
 
 **Pre-start.** With `prestart_lead_ms` set, once the generation tail is
 projected (pending items times the mean time per resolved item) to end within
@@ -1209,6 +1248,97 @@ under `testnet-reward-v0` a copy can land on either side of R_k by noise. R_{k-1
 one. The v1 manifest has no predecessor field, so R_{k-1} is listed among the
 manifest's scored artifacts (its receipts verify) and never credited; manifest
 v2 should name it separately. While R_k is R_0 there is no predecessor.
+
+**Receipt retention (the N+2 rule).** Cohort N's detailed receipts are
+deleted once two later cohorts (N+1 and N+2) have completed in the same
+cohort object (`eval::retention`, rule
+`receipts_after_two_later_completions_v2`). Completion is durable: the
+cohort is `closed` and, for a `reward-v1` cohort, its closure is recorded.
+Probe builds (no package or target, outside the public record) and
+abandoned cohorts are not completions, so the coordinator's N+1 and N+2
+are the publisher's; their own receipts follow the same rule. Nothing
+reads wall time, tempos, adoption or publication, so silence or slow work
+only moves a deletion later.
+
+- **What goes:** in the receipts bucket, the chunk objects and bundles
+  under `cohorts/<label>/receipts/`, `receipt-index.signed` and
+  `chunk-map.json`, and a probe build's index and map under its probe
+  prefix (only by the latest finished build of that probe version, which
+  wrote them); in the cohort object, the cohort's `receipts` and
+  `receipt_objects` rows. These are the objects the publisher calls
+  detailed receipts. Before the first object goes, a content-free marker
+  `cohorts/<label>/receipts-retired.json` (`slop_ninja.receipts_retired/v1`:
+  label, cohort, rule, `due_after_cohort`) is written. The marker, the
+  pointer's key, kinds, checks and read bounds are one contract the
+  coordinator and the publisher both import
+  (`slop_ninja_admission_wire::receipts`).
+- **What stays:** the signed manifest, package (with the receipt root and
+  count), target, closure and their companions, the cohort row with
+  `receipt_root` and `receipt_count`, targets, rows, and every recovery
+  record.
+- **Held cohorts:** new commitments need the receipts of what they commit
+  to. A cohort is held, whatever completes after it, while its target is
+  one a signing path reads: the newest `reward-v1` target (the row
+  `active_target_digest` reads) or the newest target of any rule (the
+  predecessor a reward-v0 package chains to). A rule that stopped
+  producing targets is released once a later target activates. A
+  superseded authority holds no target once it accepted its successor's
+  notice. A cohort is also held while the current authorization names it,
+  as its carrying cohort or through its target. The authorization is read
+  from the private pointer `authorizations/current.json` and the object it
+  names before every deletion step; the pointer must carry the known
+  schema, this deployment's chain binding and content-addressed object
+  keys. It stays valid until a newer one replaces the pointer, so this hold
+  has no count or time limit; a revocation the pointer lists does not end
+  it by itself. A due cohort the pointer names goes back to waiting unless
+  its marker is already written. A pointer that cannot be read, parsed or
+  matched (including an unknown kind) stops deletion until it can, and the
+  stall is reported; without a pointer only the active targets are held,
+  and a launch authorization names no receipts.
+- **When:** a cohort becomes due at the first step at which it is not held
+  and two later completions exist. `due_after_cohort` is the completion
+  that satisfied the rule: the second later completion, or the cohort whose
+  target released N's when that is later. An authorization hold delays
+  deletion without changing it. Deletion steps (and predecessor notices)
+  run when the root has nothing else to do: with no active cohort, or while
+  the active cohort only waits on its lanes, so back-to-back cohorts never
+  hold the rule up.
+- **Predecessors:** a superseded main authority completes nothing more.
+  After its own second completion, the successor tells each predecessor
+  (`POST /succession/retention`, refused before supersession and for a
+  cohort number not later than the predecessor's own). The predecessor then
+  records the notice, stops holding its own targets (the chain-record
+  restart set them aside, and the successor's two completions show its own
+  chain is active) and marks every remaining cohort due; only a cohort its
+  current authorization still names waits, and the next notice marks it
+  again once the pointer moves on. The successor repeats the notice until the
+  predecessor reports nothing left, because a retired authority's alarm
+  re-arms only while it is kicked. An unanswered notice is retried whenever
+  the successor next steps; it never keeps the successor's alarm armed by
+  itself. Due deletions keep an object's alarm armed but are not `work` for
+  a succession or an authority switch (`engine::blocking_work`; the status
+  reports them as `retention_work`): whatever remains finishes under the
+  successor's notices, so a storage fault there never holds up a restart.
+- **Resumable:** each step deletes at most one listing page (R2's
+  1,000-key bound), then the two single objects, then one page of rows; the
+  transaction that removes a cohort's last row marks it deleted. A failed
+  step (pointer, marker, listing or delete) is recorded and retried at a
+  later step, and holds up nothing else.
+- **Status:** each cohort in `/eval/status` carries `receipt_retention`
+  (`retained`, `due_after_cohort`, `retiring_ms`, `deleted_ms`,
+  `objects_deleted`, `held`), and the top level the rule, the retained
+  count, the predecessor notices, the authorization hold, the last
+  failure (`last_error`, `error_since_ms`, `errors`), the notice a
+  superseded authority accepted (`notice_accepted_after`) and `stalled`:
+  each due cohort whose receipts remain after a completion later than the
+  one that made it due, and each predecessor not yet finished after a
+  completion later than the notice's. The publisher's `retention_stalled`
+  alert fires while that list is non-empty (completions, never a clock).
+- **Publisher:** a publisher that had not copied a cohort before its
+  receipts went finds the marker, deletes any detailed receipts an
+  interrupted copy left in the public bucket, and records the cohort once
+  in the public index's `retired_unpublished`, never pending or retried. A
+  retired record-starting cohort still starts the record for later ones.
 
 **Spend guards and the tracking ledger.** Evaluation spend per cohort is
 bounded by the Container `max_instances` (equal to `MAX_SCORE_LANES`), the
@@ -1440,10 +1570,12 @@ predecessor. Before a named authority takes its first plan or installs a
 template, and before its calendar opens a cohort, each predecessor records it
 as its successor (`/succession/supersede`, inside the predecessor's own
 transaction), which a predecessor does only while all its cohorts are closed
-or abandoned, it has no work left (`engine::has_work`: a closure, a spend
-settlement, a purge of private results and summaries, or an admission
+or abandoned, it has no work left (`engine::blocking_work`: a closure, a
+spend settlement, a purge of private results and summaries, or an admission
 clean-up; refused `predecessor_work`, since the ticks stop kicking it once
-succession is complete and work left then would never run), and none of its
+succession is complete and work left then would never run; a due receipt
+deletion does not count, since the successor's retention notices drive it
+to the end), and none of its
 labels has the new prefix or reaches the new first cohort. A predecessor already superseded answers with the successor it
 recorded first, after the same checks against the asking one; the named
 authority accepts that answer only when it names itself or an authority it
@@ -1728,8 +1860,7 @@ milestone M7.
   Framing is one non-resumable step that hashes the object four times; its
   CPU and peak memory at the spec's largest object are not measured on the
   load instance (`ADMISSION_STEP_BYTES` and `COMMITMENTS_CONTROL_BYTES` are
-  estimates). The cron, not the per-block delivery, drives the commitment
-  reader. A full 40-entrant template fits the coordinator's memory model
+  estimates). A full 40-entrant template fits the coordinator's memory model
   and one receipt index; a native validator holds its target's receipts
   only through bundle schema v3 (by reference), so a validator whose build
   predates it refuses such a target's bundle (`bundle_too_large`) and keeps
@@ -1741,12 +1872,20 @@ milestone M7.
   kept); a plan naming any other pool is refused at queue time, and the draw
   faults (`fresh_stock_refused`) unless the frozen roster unlocks the plan's
   fresh pool.
-- **Receipt retention.** Detailed receipts and their chunk objects are kept;
-  nothing deletes them yet. The rule to implement (whitepaper 07b): a
-  cohort's detailed receipts and index are deleted only once cohorts N+1 and
-  N+2 have completed (the coordinator's durable completion) and N's target
-  has been superseded; a target kept live through no-target cohorts keeps its
-  receipts, and chunk objects are never deleted while their target is active.
+- **Receipt retention, open points.** The N+2 rule is implemented
+  ([Receipt retention](#receipt-retention-the-n2-rule)). A publisher that
+  falls more than two completed cohorts behind cannot copy the deleted
+  receipts of the cohorts it missed; it lists them as retired before
+  publication (`retired_unpublished`), a gap in the public record. The
+  authorization hold protects the carrier and target the current
+  authorization names from the coordinator's first write of the private
+  pointer `authorizations/current.json` after the bundle's install (the
+  next cron tick; `/status` `signing.authorization` shows the write). A
+  deletion step in between reads the previous pointer, so a cohort
+  authorization whose carrier is older than the two newest completions is
+  not held until that write is confirmed. A retention step that keeps failing shows
+  in `/eval/status` and raises `retention_stalled` once a further cohort
+  completes.
 - **Published-index rebuilds.** Validators and the coordinator's signing path
   check the published index a bundle carries against the signed manifest
   binding (and that a carrier's index extends it), but do not rebuild it from

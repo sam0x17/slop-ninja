@@ -136,6 +136,11 @@ pub struct Report {
     /// Closed cohorts outside the record seen this run.
     pub outside: u32,
     pub receipts_deleted: u32,
+    /// Cohorts recorded this run as retired before publication: their
+    /// detailed receipts were deleted under the N+2 rule before they were
+    /// copied (`CohortIndex::retired_unpublished`). A final state: never
+    /// pending, never retried.
+    pub retired_unpublished: Vec<String>,
     pub publication_disabled: bool,
     pub index_written: bool,
     pub authorization_written: bool,
@@ -281,10 +286,17 @@ pub fn static_withhold(
 }
 
 /// The record starts at `R_0`: its first cohort's reference has index 0 and
-/// no predecessor. A later cohort waits until such a cohort is listed.
+/// no predecessor. A later cohort waits until such a cohort is listed, or
+/// recorded as retired before publication (its detailed receipts deleted
+/// under the coordinator's N+2 rule before they were copied: it will never
+/// be listed, and the index explains the gap).
 pub fn record_start(idx: &CohortIndex, v: &VerifiedCohort) -> Result<(), String> {
     let refs = &v.manifest.references;
-    if idx.cohorts.is_empty() && (refs.index != 0 || refs.predecessor.is_some()) {
+    let retired_start = idx
+        .retired_unpublished
+        .iter()
+        .any(|r| r.starts_record && r.cohort < v.manifest.cohort);
+    if idx.cohorts.is_empty() && !retired_start && (refs.index != 0 || refs.predecessor.is_some()) {
         return Err(format!(
             "waiting for the record's first cohort: this one's reference has index {}",
             refs.index
@@ -505,6 +517,14 @@ impl Keepalive for NoLease {
 pub use slop_ninja_admission_wire::json::{AuthorizationPointer, ObjectRef};
 
 pub const AUTHORIZATION_SCHEMA: &str = slop_ninja_admission_wire::json::AUTHORIZATION_POINTER_SCHEMA;
+
+/// The coordinator's marker, in a private cohort directory, that the
+/// cohort's detailed receipts were deleted under the N+2 rule, and its
+/// schema: the contract both crates import
+/// (`slop_ninja_admission_wire::receipts`).
+pub use slop_ninja_admission_wire::receipts::{
+    RETIRED_MARKER, RETIRED_MARKER_SCHEMA, RetiredMarker,
+};
 
 pub struct Run<'a, S, K> {
     pub buckets: Buckets<'a, S>,
@@ -758,13 +778,18 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             .list_dirs(layout::PRIVATE_COHORTS)
             .await
             .map_err(|e| e.to_string())?;
-        let mut candidates: Vec<(u64, String)> = Vec::new();
+        // (opened epoch, label, cohort number, whether it starts the
+        // record), from each opened manifest.
+        let mut candidates: Vec<(u64, String, u64, bool)> = Vec::new();
         for dir in dirs {
             let label = dir
                 .trim_start_matches(layout::PRIVATE_COHORTS)
                 .trim_end_matches('/')
                 .to_owned();
-            if !layout::safe_label(&label) || idx.contains(&label) {
+            if !layout::safe_label(&label)
+                || idx.contains(&label)
+                || idx.retired_unpublished.iter().any(|r| r.label == label)
+            {
                 continue;
             }
             if self
@@ -811,7 +836,8 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                         );
                         report.outside += 1;
                     } else {
-                        candidates.push((m.opened_epoch, label));
+                        let starts = m.references.index == 0 && m.references.predecessor.is_none();
+                        candidates.push((m.opened_epoch, label, m.cohort, starts));
                     }
                 }
                 Ok(ManifestCheck::Unverifiable(why)) => {
@@ -849,7 +875,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             }
         }
         candidates.sort();
-        for (_, label) in candidates {
+        for (opened_epoch, label, cohort, starts_record) in candidates {
             if !self.may_continue().await {
                 break;
             }
@@ -863,6 +889,46 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             .await
             {
                 Ok(v) => v,
+                Err(r @ Refusal::Missing(_)) => {
+                    // Objects deleted under the coordinator's N+2 rule never
+                    // return: its marker makes the cohort final here, once
+                    // any detailed receipts an interrupted earlier copy left
+                    // in the public bucket are gone too (no publication
+                    // record would ever delete them).
+                    match self.retired_marker(&label).await {
+                        Ok(Some(after)) => {
+                            match self.delete_partial_receipts(&label).await {
+                                Ok(true) => {}
+                                Ok(false) => {
+                                    report.pending.push((
+                                        label,
+                                        "retired before publication: deleting partial public copies".into(),
+                                    ));
+                                    continue;
+                                }
+                                Err(e) => {
+                                    report.pending.push((label, e.to_string()));
+                                    continue;
+                                }
+                            }
+                            idx.retired_unpublished.push(index::RetiredCohort {
+                                label: label.clone(),
+                                cohort,
+                                opened_epoch,
+                                due_after_cohort: after,
+                                starts_record,
+                            });
+                            put_json(b.public, layout::COHORT_INDEX, idx, Cache::Index)
+                                .await
+                                .map_err(|e| e.to_string())?;
+                            report.index_written = true;
+                            report.retired_unpublished.push(label);
+                        }
+                        Ok(None) => report.pending.push((label, r.to_string())),
+                        Err(e) => report.pending.push((label, e.to_string())),
+                    }
+                    continue;
+                }
                 Err(r) if r.retryable() => {
                     report.pending.push((label, r.to_string()));
                     continue;
@@ -893,6 +959,66 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             }
         }
         Ok(())
+    }
+
+    /// Deletes every detailed receipt of cohort `label` in the public bucket
+    /// (its receipt index, chunk map and everything under `receipts/`), one
+    /// listing page at a time: what an interrupted copy left behind before
+    /// the coordinator deleted the private objects. `false` when the run's
+    /// budget or lease ended first (the next run continues).
+    async fn delete_partial_receipts(&self, label: &str) -> Result<bool, StoreError> {
+        let p = self.buckets.public;
+        let dir = layout::cohort_dir(label);
+        for rel in [verify::RECEIPT_INDEX, verify::CHUNK_MAP] {
+            p.delete(&layout::join(&dir, rel)).await?;
+        }
+        let prefix = layout::join(&dir, "receipts/");
+        loop {
+            if !self.may_continue().await {
+                return Ok(false);
+            }
+            let keys = p.list_keys(&prefix, layout::LIST_PAGE).await?;
+            if keys.is_empty() {
+                return Ok(true);
+            }
+            let Ok(_hold) = self
+                .budget
+                .reserve(keys.iter().map(|k| k.len() as u64).sum())
+            else {
+                return Ok(false);
+            };
+            for k in keys {
+                p.delete(&k).await?;
+            }
+        }
+    }
+
+    /// The coordinator's `receipts-retired.json` marker for cohort `label`:
+    /// `Some(due_after_cohort)` when its detailed receipts were deleted under
+    /// the N+2 rule (content free; read within its bound), `None` when there
+    /// is no marker, so a missing object is still only not stored yet.
+    async fn retired_marker(&self, label: &str) -> Result<Option<u64>, Refusal> {
+        let key = layout::join(&layout::private_cohort_dir(label), RETIRED_MARKER);
+        let bytes = match self
+            .buckets
+            .receipts
+            .get(
+                &key,
+                slop_ninja_admission_wire::receipts::RETIRED_MARKER_BOUND,
+            )
+            .await
+        {
+            Ok(None) => return Ok(None),
+            Ok(Some(b)) => b,
+            Err(StoreError::TooLarge { .. }) => {
+                return Err(Refusal::Invalid(key, "larger than its bound".into()));
+            }
+            Err(e) => return Err(Refusal::Store(key, e)),
+        };
+        let m = RetiredMarker::parse(&bytes, label).map_err(|_| {
+            Refusal::Invalid(key, "unreadable, unknown schema or another label".into())
+        })?;
+        Ok(Some(m.due_after_cohort))
     }
 
     /// Deletes the detailed receipts of every published cohort N once two

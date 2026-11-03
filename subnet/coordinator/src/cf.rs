@@ -969,6 +969,11 @@ impl Budget {
         now_ms().saturating_add(worst_ms) <= self.until_ms
     }
 
+    /// The time left in the budget.
+    fn left_ms(&self) -> u64 {
+        self.until_ms.saturating_sub(now_ms())
+    }
+
     /// What a step planned after one more journal call may still take: the
     /// time left, less that call's allowance. The journal plans only a step
     /// whose worst case fits it (`signing::step_worst_ms`), so a round never
@@ -1330,8 +1335,9 @@ async fn hook(mut req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Res
             // ticket and a child scope with the 30 s `waitUntil` deadline.
             // It outlives this invocation, so what it needs is copied into
             // its scope while it is built (values cross scopes only by copy).
-            // Refused, nothing is spawned: the next delivery or the cron
-            // watchdog drives the same work.
+            // Refused, nothing is spawned: the next delivery drives the same
+            // work (the cron watchdog drives the signing and backfill work
+            // too, but the commitment reader only in fallback).
             let continuation = slop_ninja_arena::wait_until(
                 scope,
                 crate::arena_routes::R_HOOK_CONTINUATION,
@@ -1362,6 +1368,12 @@ async fn hook(mut req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Res
                         }
                         if new_block {
                             drive_sign(&env, &d, holder, DELIVERY_SIGN_ROUNDS, budget).await;
+                            // The finalized commitment reader runs on the
+                            // per-block path: each new block's delivery (the
+                            // cron drives it only in fallback, below).
+                            if eval {
+                                commitments_drive(&env, &d, budget).await;
+                            }
                         }
                     }
                 },
@@ -1897,7 +1909,12 @@ async fn scheduled(env: Env) {
                 }
             }
         }
-        commitments_drive(&env, &d, budget).await;
+        // The commitment reader is per-block work: deliveries drive it, and
+        // the cron only while the watchdog's fallback carries the per-block
+        // path through RPC (no delivery then), never as its own schedule.
+        if report.fallback {
+            commitments_drive(&env, &d, budget).await;
+        }
     }
 }
 
@@ -1954,23 +1971,37 @@ async fn pointer_drive(env: &Env, d: &Deployment) {
     }
 }
 
-/// The commitment reader's rounds for this tick: the cohort object plans
+/// The commitment reader's rounds for this block (a new block's delivery, or
+/// a fallback tick): the cohort object plans
 /// each round's reads within the reader's own share of the RPC budget
 /// ([`crate::eval::commitments::reader_share`]), every read is also reserved
 /// in the journal's shared budget, and the replies go back to the object.
-/// Stops when a round needs nothing, a reservation is refused or the tick's
-/// budget ends.
+/// Stops when a round needs nothing, a reservation is refused or the
+/// invocation's budget ends.
 async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
     let configured = env.var("READER_RPC_CALLS_PER_MINUTE").ok().and_then(|v| v.to_string().trim().parse::<u64>().ok());
     let share = crate::eval::commitments::reader_share(d.settings.rpc_calls_per_minute, configured);
-    let plan_body = serde_json::json!({"per_minute": share}).to_string();
     // A round is two journal-sized calls plus its RPC calls.
-    for _ in 0..d.settings.tick_rounds {
+    for n in 0..d.settings.tick_rounds {
         if !budget.allows(2 * eval_do::KICK_TIMEOUT_MS + rpc::METADATA_TIMEOUT_MS) {
+            // No room for even the first round (signing ran first in the
+            // same budget): counted, so per-block starvation shows in the
+            // reader's status (`rounds_starved`).
+            if n == 0
+                && budget.allows(eval_do::KICK_TIMEOUT_MS)
+                && let Ok(mut r) =
+                    eval_do::cohort_fetch_within(env, "main", Method::Post, "/commitments/starved", None, Some(eval_do::KICK_TIMEOUT_MS)).await
+            {
+                cf_io::discard(&mut r);
+            }
             return;
         }
+        // The round's claim lasts the rest of this invocation unless the
+        // ingest below ends it, so an overlapping invocation (the next
+        // block's delivery) plans nothing while these reads are in flight.
+        let plan_body = serde_json::json!({"per_minute": share, "lease_ms": budget.left_ms()}).to_string();
         let Ok(mut r) =
-            eval_do::cohort_fetch_within(env, "main", Method::Post, "/commitments/plan", Some(plan_body.clone()), Some(eval_do::KICK_TIMEOUT_MS)).await
+            eval_do::cohort_fetch_within(env, "main", Method::Post, "/commitments/plan", Some(plan_body), Some(eval_do::KICK_TIMEOUT_MS)).await
         else {
             return;
         };
@@ -2009,9 +2040,11 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
                 reply: reply.ok().and_then(|b| String::from_utf8(b).ok()),
             });
         }
-        if !results.is_empty() {
-            // Serialized straight from the replies (no intermediate JSON
-            // value), which are dropped before the call: one copy in flight.
+        {
+            // Sent even when no read went out (a refused reservation), so the
+            // round's claim ends now. Serialized straight from the replies (no
+            // intermediate JSON value), which are dropped before the call: one
+            // copy in flight.
             #[derive(serde::Serialize)]
             struct Body<'a> {
                 results: &'a [crate::eval::commitments::ReadResult],

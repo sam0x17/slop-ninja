@@ -1693,3 +1693,100 @@ fn a_record_restart_keeps_the_earlier_initial_references_withheld() {
         before.initial_references
     );
 }
+
+/// Receipts the coordinator deleted under its own N+2 rule before this
+/// publisher copied them never return: with the coordinator's marker the
+/// cohort is recorded once as retired before publication (explained in the
+/// public index), never pending, and not read again. Without the marker a
+/// missing object is still only not stored yet.
+#[test]
+fn a_cohort_retired_before_publication_is_final() {
+    let b = build(0);
+    let x = buckets(&b);
+    x.receipts
+        .remove(&format!("cohorts/{}/{}", b.label, verify::RECEIPT_INDEX));
+    let cfg = config(Some(0), false);
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.pending.len(), 1, "{report:?}");
+    assert!(idx.unwrap().retired_unpublished.is_empty());
+    let marker = serde_json::json!({
+        "schema": publish::RETIRED_MARKER_SCHEMA, "label": b.label, "cohort": b.c.manifest.cohort,
+        "rule": "receipts_after_two_later_completions_v2", "due_after_cohort": 9,
+    });
+    x.receipts.insert(
+        &format!("cohorts/{}/{}", b.label, publish::RETIRED_MARKER),
+        serde_json::to_vec(&marker).unwrap(),
+    );
+    // An interrupted earlier copy left detailed receipts in the public
+    // bucket: they go before the cohort is recorded (no publication record
+    // would ever delete them); other public objects stay.
+    let dir = format!("v1/cohorts/{}", b.label);
+    let partial = [
+        format!("{dir}/receipts/chunk-0.bin"),
+        format!("{dir}/receipts/bundle-0.json"),
+        format!("{dir}/{}", verify::RECEIPT_INDEX),
+        format!("{dir}/{}", verify::CHUNK_MAP),
+    ];
+    for k in &partial {
+        x.public.insert(k, vec![1]);
+    }
+    x.public.insert(&format!("{dir}/manifest.signed"), vec![2]);
+    let mut memo = Memo::default();
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    for k in &partial {
+        assert!(x.public.bytes(k).is_none(), "{k} deleted");
+    }
+    assert!(x.public.bytes(&format!("{dir}/manifest.signed")).is_some());
+    assert!(
+        report.pending.is_empty() && report.refused.is_empty(),
+        "{report:?}"
+    );
+    assert_eq!(report.retired_unpublished, vec![b.label.clone()]);
+    let idx = idx.unwrap();
+    assert!(!idx.contains(&b.label));
+    let want = vec![slop_ninja_publisher::index::RetiredCohort {
+        label: b.label.clone(),
+        cohort: b.c.manifest.cohort,
+        opened_epoch: b.c.manifest.opened_epoch,
+        due_after_cohort: 9,
+        starts_record: false,
+    }];
+    assert_eq!(idx.retired_unpublished, want);
+    let public: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    assert_eq!(public.retired_unpublished, want);
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert!(
+        report.pending.is_empty() && report.retired_unpublished.is_empty(),
+        "{report:?}"
+    );
+    assert_eq!(idx.unwrap().retired_unpublished, want, "recorded once");
+}
+
+/// A record whose first cohort (reference `R_0`) was retired before
+/// publication still starts: later cohorts are listed after it, since it
+/// will never be. Without such a retired start, a later cohort waits.
+#[test]
+fn the_record_starts_after_a_retired_first_cohort() {
+    let b = build(0);
+    assert_eq!(b.c.manifest.references.index, 1, "the fixture is R_1");
+    let m = &b.c.manifest;
+    for starts_record in [false, true] {
+        let x = buckets_unseeded(&b);
+        let mut idx = slop_ninja_publisher::index::CohortIndex::empty(&slop_ninja_protocol::fixtures_reward_v1::chain());
+        idx.retired_unpublished.push(slop_ninja_publisher::index::RetiredCohort {
+            label: "retired-start".into(),
+            cohort: m.cohort - 1,
+            opened_epoch: m.opened_epoch - 20,
+            due_after_cohort: m.cohort + 1,
+            starts_record,
+        });
+        x.public.insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+        let (report, idx) = run(&config(Some(0), false), &x, &mut Memo::default());
+        if starts_record {
+            assert_eq!(report.published, vec![b.label.clone()], "{report:?}");
+            assert!(idx.unwrap().contains(&b.label));
+        } else {
+            assert!(report.pending[0].1.contains("first cohort"), "{report:?}");
+        }
+    }
+}

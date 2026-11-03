@@ -729,3 +729,35 @@ fn a_snapshot_under_another_runtime_is_decoded_with_the_metadata_at_its_block() 
     .unwrap();
     assert_eq!(tx(&db, status).unwrap()["state_discarded"], 1);
 }
+
+/// Each block's delivery drives the reader, so invocations overlap: while a
+/// planned round's reads are in flight (until its ingest or the planning
+/// invocation's end), an overlapping plan sends nothing and is counted;
+/// rounds skipped for want of invocation time are counted too.
+#[test]
+fn an_overlapping_round_plans_nothing_while_reads_are_in_flight() {
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let at = BlockRef {
+        number: 8_340_100,
+        hash: Id([0xab; 32]),
+    };
+    let needs = Needs {
+        poll: true,
+        snapshot: None,
+    };
+    let first = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 1_000, 30_000)).unwrap();
+    assert_eq!(first.reads.len(), 3, "the runtime reads");
+    let overlap = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 12_000, 30_000)).unwrap();
+    assert!(overlap.reads.is_empty(), "the same reads are already in flight");
+    // The ingest ends the claim (here with no replies: nothing was sent).
+    tx(&db, |s| ingest(s, None, NETUID, &[], 13_000)).unwrap();
+    let again = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 14_000, 30_000)).unwrap();
+    assert_eq!(again.reads, first.reads);
+    // A claim whose invocation ended without an ingest expires with it.
+    let expired = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 44_000, 30_000)).unwrap();
+    assert_eq!(expired.reads.len(), 3);
+    tx(&db, note_starved).unwrap();
+    let st = tx(&db, status).unwrap();
+    assert_eq!((st["rounds_overlapped"].as_i64(), st["rounds_starved"].as_i64()), (Some(1), Some(1)));
+}

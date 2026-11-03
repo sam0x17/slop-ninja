@@ -216,6 +216,23 @@ impl Store for R2 {
         Ok(out)
     }
 
+    async fn list_keys(
+        &self,
+        prefix: &str,
+        limit: usize,
+    ) -> std::result::Result<Vec<String>, StoreError> {
+        let limit = u32::try_from(limit).map_err(|_| StoreError::Unavailable("r2 list limit"))?;
+        let page = self
+            .0
+            .list()
+            .prefix(prefix)
+            .limit(limit)
+            .execute()
+            .await
+            .map_err(|_| StoreError::Unavailable("r2 list"))?;
+        Ok(page.objects().iter().map(|o| o.key()).collect())
+    }
+
     async fn delete(&self, key: &str) -> std::result::Result<(), StoreError> {
         self.0
             .delete(key)
@@ -943,8 +960,9 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
     )
     .await;
     console_log!(
-        "publisher: published {:?}, {} artifacts copied, {} refused, {} pending, {} unverifiable, {} ms",
+        "publisher: published {:?}, retired before publication {:?}, {} artifacts copied, {} refused, {} pending, {} unverifiable, {} ms",
         report.published,
+        report.retired_unpublished,
         report.artifacts_copied,
         report.refused.len(),
         report.pending.len(),

@@ -124,13 +124,19 @@ pub fn cohort_receipts(entrants: u64, tasks: u64, max_attempts: u64) -> u64 {
 /// Bound of a stored `SubmissionUpload` envelope (fixed fields only).
 pub const ADMISSION_RECORD_BOUND: u64 = RECORD_OVERHEAD_BYTES;
 
-/// Bound of a signed authorization or renewal object (fixed fields only).
-pub const AUTHORIZATION_OBJECT_BOUND: u64 = RECORD_OVERHEAD_BYTES;
+/// Bound of a signed authorization or renewal object (fixed fields only),
+/// shared with the coordinator (`slop_ninja_admission_wire::receipts`).
+pub const AUTHORIZATION_OBJECT_BOUND: u64 =
+    slop_ninja_admission_wire::receipts::AUTHORIZATION_OBJECT_BOUND;
+const _: () = assert!(AUTHORIZATION_OBJECT_BOUND == RECORD_OVERHEAD_BYTES);
 
 /// Bound of the private authorization pointer: its schema, chain, kind and
-/// two object references, each a key under `authorizations/`, a 64-hex digest
-/// and a length; pretty-printed.
-pub const AUTHORIZATION_POINTER_BOUND: u64 = 4 * RECORD_OVERHEAD_BYTES;
+/// up to three object references, each a key under `authorizations/`, a
+/// 64-hex digest and a length; pretty-printed. Shared with the coordinator
+/// (`slop_ninja_admission_wire::receipts`).
+pub const AUTHORIZATION_POINTER_BOUND: u64 =
+    slop_ninja_admission_wire::receipts::AUTHORIZATION_POINTER_BOUND;
+const _: () = assert!(AUTHORIZATION_POINTER_BOUND == 4 * RECORD_OVERHEAD_BYTES);
 
 /// What one status body may hold: the remaining budget less a doubling
 /// buffer's old copy while it grows. The body is reserved while it is held

@@ -328,7 +328,10 @@ pub enum Reject {
     Markup,
     Thinking,
     Unchanged,
-    Length,
+    /// Fewer words than the length window allows (rewrite or scratch).
+    Short,
+    /// More words than the length window allows (rewrite or scratch).
+    Long,
     Transport,
     Budget,
     /// Workers AI rate limit or capacity (HTTP 429, code 3040): no attempt used.
@@ -346,7 +349,10 @@ impl Reject {
             Self::Markup => "markup",
             Self::Thinking => "thinking",
             Self::Unchanged => "unchanged",
-            Self::Length => "length",
+            // The direction is recorded so the window can be checked against
+            // measured rejections (before 2026-11-03 both were `length`).
+            Self::Short => "length_short",
+            Self::Long => "length_long",
             Self::Transport => "transport",
             Self::Budget => "budget",
             Self::Throttled => "throttled",
@@ -419,8 +425,11 @@ pub fn validate_rewrite(source: &str, out: &str) -> Result<String, Reject> {
         return Err(Reject::Unchanged);
     }
     let (a, b) = (words(source) as f64, words(&t) as f64);
-    if b < 0.5 * a || b > 1.8 * a + 4.0 {
-        return Err(Reject::Length);
+    if b < 0.5 * a {
+        return Err(Reject::Short);
+    }
+    if b > 1.8 * a + 4.0 {
+        return Err(Reject::Long);
     }
     // A single-paragraph source keeps a single paragraph.
     if !source.contains('\n') && t.contains('\n') {
@@ -433,8 +442,11 @@ pub fn validate_scratch(out: &str, target_words: usize) -> Result<String, Reject
     let t = common_checks(out)?;
     let n = words(&t) as f64;
     let target = target_words as f64;
-    if n < (0.6 * target).max(80.0) || n > 1.8 * target {
-        return Err(Reject::Length);
+    if n < (0.6 * target).max(80.0) {
+        return Err(Reject::Short);
+    }
+    if n > 1.8 * target {
+        return Err(Reject::Long);
     }
     Ok(t)
 }
@@ -572,11 +584,15 @@ mod tests {
         assert!(validate_scratch(&blog, 150).is_ok());
         assert_eq!(validate_rewrite(src, "**The council** approved it."), Err(Reject::Markup));
         assert_eq!(validate_rewrite(src, "<think>hmm</think> ok"), Err(Reject::Thinking));
-        assert_eq!(validate_rewrite(src, "Approved."), Err(Reject::Length));
+        assert_eq!(validate_rewrite(src, "Approved."), Err(Reject::Short));
+        let padded = format!("{src} {src} and then some more words about it");
+        assert_eq!(validate_rewrite(src, &padded), Err(Reject::Long));
+        assert_eq!((Reject::Short.code(), Reject::Long.code()), ("length_short", "length_long"));
         let ok = "On Monday, after lengthy debate over costs, the council gave the plan its approval.";
         assert_eq!(validate_rewrite(src, &format!("\"{ok}\"")).unwrap(), ok);
         let long = "word ".repeat(300);
-        assert_eq!(validate_scratch(&long, 150).unwrap_err(), Reject::Length);
+        assert_eq!(validate_scratch(&long, 150).unwrap_err(), Reject::Long);
+        assert_eq!(validate_scratch(&"word ".repeat(60), 150).unwrap_err(), Reject::Short);
         assert!(validate_scratch(&"word ".repeat(150), 150).is_ok());
     }
 

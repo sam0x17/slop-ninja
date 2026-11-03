@@ -25,7 +25,20 @@ into static public objects. Once a minute it:
 5. copies the current validator authorization, any renew-by hint refresh and
    the latest signed revocation once the authorization's cohort is listed;
 6. deletes cohort N's detailed receipts from the public host once N+1 and N+2
-   are published and N's target is superseded;
+   are published and N's target is superseded. A cohort whose private
+   detailed receipts the coordinator already deleted under its own N+2 rule
+   before this publisher copied it (its `receipts-retired.json` marker; for
+   example after a publisher outage of two completions) is recorded once in
+   the index's `retired_unpublished` (label, cohort, opening epoch, the
+   coordinator's `due_after_cohort` and whether it starts the record) and
+   never listed or retried, so the gap in the record is explained instead of
+   pending forever. Before recording it, any detailed receipts an
+   interrupted earlier copy left in the public bucket are deleted (no
+   publication record would delete them). A retired cohort that starts the
+   record (reference index 0) lets later cohorts be listed after it. The
+   marker's schema and the private authorization pointer's key, checks and
+   bounds come from the contract the coordinator also imports
+   (`slop_ninja_admission_wire::receipts`);
 7. pings an external dead-man URL when one is enabled, after a run that
    finished both phases.
 
@@ -234,15 +247,28 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v4`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v5`. The table is in
 `alerts.rs`:
 
 - durable faults;
 - fallback lasting a tempo;
+- a webhook subscription presumed paused (`webhook_paused`: the Worker's
+  `chain_journal.watchdog.subscription.state` is `presumed_paused`, so no
+  delivery has arrived for longer than the provider can retry one while
+  blocks are owed: the subscription is paused, which the provider keeps
+  until an operator resumes it, or the provider has a stall on its own side,
+  which never pauses; the operator checks the subscription's state before
+  resuming, and fallback carries the cursor meanwhile);
 - a stalled confirmed watermark;
 - a work phase past its package deadline;
 - scorer, budget and other cohort faults;
 - the ledger at 80%;
+- receipt deletion falling behind the N+2 rule (`retention_stalled`: the
+  eval status's `receipt_retention.stalled` lists a due cohort whose
+  detailed receipts remain after a further completion, or a predecessor
+  authority not finished after one; judged by completions, never a clock;
+  the detail names the last failed step's code, such as an unreadable
+  authorization pointer);
 - two tempos without a coordinator commit;
 - a coordinator reveal that differs from its committed row
   (`coordinator_reveal_mismatch`);
@@ -265,11 +291,13 @@ times out or fails, or answers without a field a rule reads, decides
 nothing: the open entries of the rules that read depends on
 (`durable_fault` on its Worker's journal block, and a `.signing` subject on
 its signing view; `fallback_too_long` on its Worker's mode, and the mode's
-age while in fallback; `watermark_stalled` on its Worker's answer; the cohort
+age while in fallback; `webhook_paused` on its Worker's subscription
+state; `watermark_stalled` on its Worker's answer; the cohort
 rules on the eval status's complete cohort list (every cohort with its
 number, label and phase); `phase_overrun` also on its epoch and, while its
 cohort is the active one in a work phase, that cohort's `opened_epoch` and
-`k_tempos`; `ledger_threshold` on its ledger ratio; `commit_gap` and
+`k_tempos`; `ledger_threshold` on its ledger ratio; `retention_stalled` on
+its `receipt_retention.stalled` list; `commit_gap` and
 `coordinator_reveal_mismatch` on the coordinator's signing view and the
 eval epoch) are carried, neither fired nor resolved. A carried entry keeps
 its last decided detail with a note of how long its read has been unknown
@@ -449,8 +477,6 @@ cargo check --manifest-path subnet/publisher/Cargo.toml --target wasm32-unknown-
     the regime, the ledger ratio and a journal summary). `/eval/status` lists
     every cohort ever held, so its size grows with the record; today it is
     about 6 KB a cohort, read within the arena budget;
-  - deletion of the private detailed receipts after N+2 (the public copies
-    already follow the rule).
 - AR-13 gaps:
   - a commit-gap view of validator2: the native validator's journal is not
     visible to the publisher, so only the coordinator's commits are watched;

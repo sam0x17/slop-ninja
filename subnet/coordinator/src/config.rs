@@ -719,8 +719,10 @@ pub struct DeployedAuthority {
     /// The predecessors whose succession its store recorded
     /// (`succession_recorded`): each of them is superseded.
     pub succession_recorded: Vec<String>,
-    /// Whether it still has work (`work`, `engine::has_work`): a closure, a
-    /// spend settlement, a purge or an admission clean-up.
+    /// Whether it still has work (`work`, `engine::blocking_work`): a
+    /// closure, a spend settlement, a purge or an admission clean-up. A due
+    /// receipt deletion is not included (`retention_work`): it finishes under
+    /// the successor's notices.
     pub work: bool,
 }
 
@@ -984,7 +986,8 @@ pub fn deploy_check(
         if d.work {
             return Err(format!(
                 "the deployed authority {} still has work (a closure, a spend settlement, a purge or an \
-                 admission clean-up): wait until its status reports work false",
+                 admission clean-up; due receipt deletions never count): wait until its status reports work \
+                 false",
                 d.name
             ));
         }

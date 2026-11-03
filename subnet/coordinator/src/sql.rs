@@ -677,5 +677,18 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 12,
             statements: crate::eval::succession::SCHEMA_V12,
         },
+        // v13: detailed receipt retention (the N+2 rule): when each cohort's
+        // receipts became due, started going and were deleted, the
+        // predecessors told, the authorization hold and the last failure.
+        Migration {
+            version: 13,
+            statements: crate::eval::retention::SCHEMA_V13,
+        },
+        // v14: the commitment reader's round claim and skipped-round counts
+        // (each block's delivery drives the reader).
+        Migration {
+            version: 14,
+            statements: crate::eval::commitments::SCHEMA_V14,
+        },
     ],
 };

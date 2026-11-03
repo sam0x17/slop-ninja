@@ -674,6 +674,9 @@ impl EvalCohort {
                 struct B {
                     /// The reader's share of the RPC budget, calls a minute.
                     per_minute: u64,
+                    /// The planning invocation's remaining time: how long a
+                    /// planned round's claim lasts unless its ingest ends it.
+                    lease_ms: u64,
                 }
                 let b: B = match super::cf_io::request_json(req, 1024).await {
                     Ok(b) => b,
@@ -686,13 +689,17 @@ impl EvalCohort {
                         snapshot: admission::snapshot_needs(sql)?,
                     };
                     let rt = runtime(sql)?;
-                    commitments::plan(sql, rt.as_ref(), netuid, o.confirmed, &needs, b.per_minute, now)
+                    commitments::plan_claimed(sql, rt.as_ref(), netuid, o.confirmed, &needs, b.per_minute, now, b.lease_ms)
                 });
                 match r {
                     Ok(round) => json(&round),
                     Err(_) => error("store_unavailable", 503),
                 }
             }
+            "/commitments/starved" => match transaction(&storage, commitments::note_starved) {
+                Ok(()) => json(&serde_json::json!({"ok": true})),
+                Err(_) => error("store_unavailable", 503),
+            },
             "/commitments/ingest" => {
                 #[derive(Deserialize)]
                 struct B {

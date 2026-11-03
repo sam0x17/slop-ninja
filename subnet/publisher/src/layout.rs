@@ -19,8 +19,11 @@ pub const REFERENCE_PREVIOUS: &str = "v1/reference/previous.json";
 pub const AUTHORIZATION_CURRENT: &str = "v1/authorizations/current.json";
 /// The coordinator's private pointer to the current authorization and its
 /// renewal, in the receipts bucket.
-pub const PRIVATE_AUTHORIZATION_POINTER: &str = "authorizations/current.json";
+pub const PRIVATE_AUTHORIZATION_POINTER: &str =
+    slop_ninja_admission_wire::receipts::AUTHORIZATION_POINTER_KEY;
 pub const SITE_INDEX: &str = "index.html";
+/// Keys per listing page: R2's `list` returns at most 1,000.
+pub const LIST_PAGE: usize = 1_000;
 pub const SITE_STYLE: &str = "style.css";
 
 /// Where a previous public record's index, leaderboard and reference

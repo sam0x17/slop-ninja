@@ -21,7 +21,10 @@
 //! - the `String`-returning `path` builders;
 //! - [`session_id`], which encodes the protocol record;
 //! - the [`json`] module (feature `json`): owned serde shapes of the
-//!   responses and errors.
+//!   responses and errors, and the authorization pointer;
+//! - the [`receipts`] module (feature `json`): the private receipts-bucket
+//!   contract the coordinator and the publisher share (pointer checks and
+//!   bounds, the receipt-retirement marker).
 //!
 //! Every deployment bound is a parameter the coordinator announces, never a
 //! constant here.
@@ -526,6 +529,8 @@ pub fn parse_valid_until(text: &str) -> Option<u64> {
 
 #[cfg(feature = "json")]
 pub mod json;
+#[cfg(feature = "json")]
+pub mod receipts;
 
 #[cfg(test)]
 mod tests;

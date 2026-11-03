@@ -26,6 +26,7 @@
 //! - [`commitments`]: the finalized commitment log admission reads.
 //! - [`calendar`]: the standing plan template and the cohort calendar.
 //! - [`succession`]: durable succession between main authorities.
+//! - [`retention`]: detailed receipt deletion after N+1 and N+2 complete.
 
 pub mod admission;
 pub mod calendar;
@@ -42,6 +43,7 @@ pub mod package;
 pub mod plan;
 pub mod pool;
 pub mod receipts;
+pub mod retention;
 pub mod score;
 pub mod scorer_client;
 pub mod succession;

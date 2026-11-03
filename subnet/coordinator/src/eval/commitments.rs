@@ -478,6 +478,54 @@ pub struct ReadResult {
     pub reply: Option<String>,
 }
 
+/// v14: the reader's round claim (`round_until_ms`: a planned round's reads
+/// are in flight until its ingest or the planning invocation's end) and the
+/// rounds skipped for an overlapping claim or for want of invocation time.
+pub const SCHEMA_V14: &[&str] = &[
+    "ALTER TABLE commit_reader ADD COLUMN round_until_ms INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE commit_reader ADD COLUMN rounds_overlapped INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE commit_reader ADD COLUMN rounds_starved INTEGER NOT NULL DEFAULT 0",
+];
+
+/// Plans one round ([`plan`]) under the reader's round claim: while an
+/// earlier round's reads are in flight (planned by an overlapping
+/// invocation: each block's delivery drives the reader), nothing is planned
+/// and the skip is counted, so two invocations never send the same reads.
+/// A planned round holds the claim for `lease_ms`, the planning invocation's
+/// remaining time; its ingest releases it ([`ingest`]).
+#[allow(clippy::too_many_arguments)]
+pub fn plan_claimed(
+    sql: &impl Sql,
+    rt: Option<&ChainRuntime>,
+    netuid: u16,
+    confirmed: Option<BlockRef>,
+    needs: &Needs,
+    per_minute: u64,
+    now_ms: u64,
+    lease_ms: u64,
+) -> R<Round> {
+    let held = sql.exec("SELECT round_until_ms FROM commit_reader WHERE id = 1", &[])?;
+    if held.first().map(|r| uint(r, 0)).transpose()?.unwrap_or(0) > now_ms {
+        sql.exec("UPDATE commit_reader SET rounds_overlapped = rounds_overlapped + 1 WHERE id = 1", &[])?;
+        return Ok(Round::default());
+    }
+    let round = plan(sql, rt, netuid, confirmed, needs, per_minute, now_ms)?;
+    if !round.reads.is_empty() {
+        sql.exec(
+            "UPDATE commit_reader SET round_until_ms = ? WHERE id = 1",
+            &[bind_u64(now_ms.saturating_add(lease_ms))?],
+        )?;
+    }
+    Ok(round)
+}
+
+/// An invocation that drives the reader had no time left for one round
+/// (the per-block path runs it after signing, in the same budget).
+pub fn note_starved(sql: &impl Sql) -> R<()> {
+    sql.exec("UPDATE commit_reader SET rounds_starved = rounds_starved + 1 WHERE id = 1", &[])?;
+    Ok(())
+}
+
 /// What the reader needs this round: independent reads, done in any order.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Round {
@@ -888,8 +936,9 @@ pub fn ingest(
     now_ms: u64,
 ) -> R<Ingested> {
     let mut out = Ingested::default();
+    // The round's reads are back (or were never sent): its claim ends.
     sql.exec(
-        "UPDATE commit_reader SET reads = reads + ? WHERE id = 1",
+        "UPDATE commit_reader SET reads = reads + ?, round_until_ms = 0 WHERE id = 1",
         &[i(results.len() as i64)],
     )?;
     let version = results.iter().find(|r| r.tag.starts_with("version@"));
@@ -1448,7 +1497,8 @@ fn ingest_snap_regs(
 pub fn status(sql: &impl Sql) -> R<Json> {
     let r = reader_row(sql)?;
     let x = sql.exec(
-        "SELECT polls, reads, last_error, discarded, undecodable FROM commit_reader WHERE id = 1",
+        "SELECT polls, reads, last_error, discarded, undecodable, round_until_ms, rounds_overlapped, rounds_starved
+         FROM commit_reader WHERE id = 1",
         &[],
     )?;
     let x = x.first().ok_or(EvalError::State("commit_reader row"))?;
@@ -1477,6 +1527,7 @@ pub fn status(sql: &impl Sql) -> R<Json> {
         "runtime_changed": opt_text(&r, 6).is_some_and(|o| spec.first().and_then(|r| opt_text(r, 2)).as_deref() != Some(o.as_str())),
         "runtime_spec": spec.first().and_then(|r| opt_int(r, 0)),
         "logged": logged, "seen": stages, "state_discarded": int(x, 3)?, "undecodable": int(x, 4)?,
+        "round_until_ms": int(x, 5)?, "rounds_overlapped": int(x, 6)?, "rounds_starved": int(x, 7)?,
     }))
 }
 

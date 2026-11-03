@@ -201,10 +201,24 @@ summary. When the verdict stays `unresponsive` for more than two minutes:
 4. Resume provider delivery:
    `hook_api --request POST "$RTAO_WEBHOOK_BASE/v1/subscriptions/coordinator-subscription-testnet/resume"`.
    Do this also when the provider paused the subscription on its own after
-   repeated failed deliveries (its retry schedule is 1 s, 5 s, 30 s, 5 min and
-   30 min, then a pause); `GET "$RTAO_WEBHOOK_BASE/v1/subscriptions/coordinator-subscription-testnet"`
-   shows `paused`. The watchdog covers the silence in fallback meanwhile, and
-   the backfill closes the gap after the resume.
+   repeated failed deliveries; `GET "$RTAO_WEBHOOK_BASE/v1/subscriptions/coordinator-subscription-testnet"`
+   shows `state: paused` with the cause `receiver_failures` and the last
+   undelivered block. The provider's current contract (the webhook service
+   README, "Retries and automatic pause") retries a failed block ten times
+   after the first attempt, after 2 s, 6 s, 18 s, 54 s, 2.7 min, 8.1 min,
+   24.3 min, 72.9 min, 2 h and 2 h, each with 20% jitter, then pauses; any
+   non-2xx answer or timeout counts as a failed attempt. Failures on the
+   provider's side (`service_error`) never count and never pause. So a
+   `webhook_paused` alert (about 7 h of silence while blocks are owed) is
+   either a pause or a provider-side stall: check `state`, `service_error`
+   and `pending` in the `GET` first, and resume only a paused subscription.
+   The watchdog covers the silence in fallback meanwhile, and the backfill
+   closes the gap after the resume. The 2026-10-30 outage below saw the
+   earlier schedule (1 s, 5 s, 30 s, 5 min, 30 min, then a pause); the
+   deployed service was read again on 2026-11-03 and has the journal-mode
+   shape of the current contract (`service_error`, `pending`, `mode`), but
+   names no contract version, so re-check the shape after a provider
+   upgrade.
 5. Record the window and the restart versions in the private inventory.
 
 ### Alerts
@@ -1964,7 +1978,8 @@ staged by the tracked pin, one change per deploy):
    deployed authority's and then the deployed one, the deployed authority
    holds no cohort that is not closed or abandoned and reports `work: false`
    (no closure, spend settlement, purge of private results and summaries, or
-   admission clean-up left), its standing template is paused (or none is
+   admission clean-up left; due receipt deletions, reported as
+   `retention_work`, never count), its standing template is paused (or none is
    installed), none of its labels or numbers falls within the new
    authority's (every number below `EVAL_MAIN_FIRST_COHORT`), and it
    recorded no other successor.
@@ -2320,6 +2335,64 @@ are evidence of the earlier design.
   `weights_match` true. No revocation was issued live. The lease end itself
   (epoch 117) is checked in tests with the chain 60 epochs past the hint;
   the live check comes when the chain passes epoch 117.
+
+### Coordinator follow-ups: receipts, watchdog, commitment reader (2026-11-03)
+
+Built on `subnet-testnet/receipts-watchdog`; not deployed by the build
+stage. Two eval-store migrations (v12 to v14) and no journal migration.
+
+- **Receipt retention (the N+2 rule).** The eval cohort object deletes
+  cohort N's detailed receipts once two later cohorts have completed there
+  (README, "Receipt retention"), keeping every signed record, the receipt
+  root and count, targets and rows. Probe builds and abandoned cohorts are
+  not completions, matching the publisher's record. The targets a signing
+  path reads (the newest `reward-v1` target and the newest target of any
+  rule) and every cohort the current authorization names (carrier or
+  target, from the private `authorizations/current.json`, read before each
+  deletion step) keep their receipts; a superseded authority holds no
+  target once it accepted its successor's notice. Deletion also runs while
+  an active cohort only waits on its lanes. A due cohort left after a
+  further completion, or a predecessor not finished after one, is listed in
+  `receipt_retention.stalled`, and the publisher alerts (`retention_stalled`). A marker `receipts-retired.json` is
+  written before a cohort's first object goes, so a publisher that fell
+  behind records the cohort as retired before publication instead of
+  waiting. A superseded authority deletes its remaining cohorts' receipts on
+  its successor's notice, after the successor's second completion; due
+  deletions never block a succession or an authority switch. Expected at
+  the first eval deploy of this build: the coordinator's cron tick writes
+  the pointer (journal v9), which names the r0 launch authorization and so
+  no receipts, so only the active targets are held; under `r0`, the probe build (cohort 14) is
+  due once cohorts 15 and 16 have completed, and each later cohort two
+  completions after it; the superseded `main` authority's cohorts are due
+  on `r0`'s first notice, after cohort 16. Check: `/eval/status` per-cohort
+  `receipt_retention`, the top-level `receipt_retention`
+  (`predecessor_notices`, `authorization_hold`, `last_error`, `stalled`
+  empty), `notice_accepted_after` on `main`,
+  `GET /eval/authority/main/status`, and a private listing of each deleted
+  cohort's `receipts/` prefix (empty) beside its `package.signed` and
+  `receipts-retired.json` (present).
+- **Watchdog view.** `/status` carries `chain_journal.watchdog`: `source`
+  (`webhook` or `otf_rpc`), `cursor_lag_blocks`, `last_finalized` and
+  `confirmed` (height, hash, age), and `subscription` (`delivering`,
+  `silent` or `presumed_paused`, with the derived pause horizon of about
+  7.0 h and its contract). The publisher rule `webhook_paused`
+  (`slop_ninja.publisher.alerts/v5`) alerts on `presumed_paused`, which is
+  a pause or a provider-side stall: the operator checks the subscription's
+  state (runbook step 4) and resumes only a paused one. Automatic resume
+  would need the provider's management credential in the Worker, which is
+  not configured.
+- **Commitment reader.** Each new block's delivery drives it; the cron
+  drives it only in fallback. It no longer runs on its own one-minute
+  schedule. A planned round holds a claim until its ingest (or the planning
+  invocation's end), so overlapping deliveries never send the same reads;
+  skipped rounds are counted in the reader's status (`rounds_overlapped`,
+  and `rounds_starved` when signing left no time in the invocation).
+- **Generation rejections.** Length rejections record their direction
+  (`length_short`, `length_long`) and `/eval/status` counts rejections per
+  document kind (`rejects_by_kind`). The restarted record's first cohorts
+  rejected 62, 6 and 13 answers for length (all in the earlier single
+  code), concentrated in two of the five generators; the window is
+  unchanged until the direction is measured.
 
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 

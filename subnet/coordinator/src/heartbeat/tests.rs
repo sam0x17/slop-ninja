@@ -597,3 +597,119 @@ fn fallback_blocks_from_rpc_are_confirmed_as_they_apply() {
     assert_eq!(st.journal.confirmed.map(|c| c.number), Some(130));
     assert_eq!(st.journal.provisional_blocks, Some(0));
 }
+
+/// The watchdog view: deliveries make the source `webhook` and the
+/// subscription `delivering`; silence moves to `otf_rpc` fallback with the
+/// subscription `silent`; silence past the provider's whole retry horizon
+/// while the RPC head is past the last delivered block is `presumed_paused`
+/// (a durable tick counter records it, and the operator resumes it); a
+/// resumed delivery returns both. A chain that stopped finalizing owes no
+/// delivery, so silence alone is never a pause.
+#[test]
+fn the_watchdog_view_reports_source_lag_last_block_and_a_presumed_pause() {
+    let db = journal();
+    let s = Settings::default();
+    let mut chain = Chain::at(100);
+    deliver(&db, &s, &mut chain, 100, T0);
+    let st = status_at(&db, &s, T0 + 1_000);
+    let w = &st.watchdog;
+    assert_eq!(w.source, "webhook");
+    assert_eq!(
+        w.subscription.state,
+        watchdog::SubscriptionState::Delivering
+    );
+    let last = w.last_finalized.as_ref().unwrap();
+    assert_eq!((last.number, last.hash), (100, chain.hash(100).unwrap()));
+    assert_eq!(
+        w.subscription.retry_contract,
+        watchdog::PROVIDER_RETRY_CONTRACT
+    );
+    // About 7.0 h: ten delays at full jitter plus eleven acknowledgement windows.
+    assert_eq!(
+        watchdog::pause_horizon_ms(),
+        20_960_000 * 12 / 10 + 11 * 5_000
+    );
+    // Silence: fallback through the public RPC, subscription silent.
+    chain.head = 125;
+    let now = T0 + 5 * MIN;
+    let (report, _) = tick(&db, &s, &mut chain, now);
+    assert!(report.fallback);
+    let st = status_at(&db, &s, now);
+    assert_eq!(st.watchdog.source, "otf_rpc");
+    assert_eq!(
+        st.watchdog.subscription.state,
+        watchdog::SubscriptionState::Silent
+    );
+    assert_eq!(st.watchdog.cursor_lag_blocks, Some(0));
+    assert_eq!(
+        st.watchdog.last_finalized.as_ref().map(|b| b.number),
+        Some(125)
+    );
+    assert_eq!(counter(&db, "subscription_presumed_paused_ticks"), 0);
+    // Past the horizon with blocks owed: presumed paused.
+    let late = T0 + watchdog::pause_horizon_ms() + MIN;
+    chain.head = 2_200;
+    tick(&db, &s, &mut chain, late);
+    let st = status_at(&db, &s, late);
+    let sub = &st.watchdog.subscription;
+    assert_eq!(sub.state, watchdog::SubscriptionState::PresumedPaused);
+    assert_eq!(
+        (sub.undelivered_blocks, sub.resume),
+        (Some(2_100), "operator")
+    );
+    assert_eq!(counter(&db, "subscription_presumed_paused_ticks"), 1);
+    let json = serde_json::to_value(&st).unwrap();
+    assert_eq!(json["watchdog"]["subscription"]["state"], "presumed_paused");
+    assert_eq!(json["watchdog"]["source"], "otf_rpc");
+    // A resumed subscription delivers again: the view follows at once.
+    let c = cursor_number(&db).unwrap();
+    deliver(&db, &s, &mut chain, c + 1, late + 1_000);
+    let st = status_at(&db, &s, late + 2_000);
+    assert_eq!(
+        st.watchdog.subscription.state,
+        watchdog::SubscriptionState::Delivering
+    );
+}
+
+#[test]
+fn silence_while_the_chain_stalls_is_not_a_pause() {
+    let w = watchdog::State {
+        mode: Mode::Fallback,
+        reason: Some("webhook_silent".into()),
+        mode_since_ms: T0,
+        last_delivery_ms: Some(T0),
+        first_tick_ms: Some(T0),
+        last_tick_ms: None,
+        last_head_read_ms: None,
+        behind: false,
+        lag_blocks: Some(0),
+    };
+    let b = |n| BlockRef {
+        number: n,
+        hash: chain_hash(n),
+    };
+    let late = T0 + watchdog::pause_horizon_ms();
+    let sub = watchdog::subscription(&w, 300_000, Some(b(100)), Some(b(100)), late);
+    assert_eq!(sub.state, watchdog::SubscriptionState::Silent);
+    let sub = watchdog::subscription(&w, 300_000, Some(b(100)), Some(b(101)), late - 1);
+    assert_eq!(
+        sub.state,
+        watchdog::SubscriptionState::Silent,
+        "inside the horizon the provider may still retry"
+    );
+    let sub = watchdog::subscription(&w, 300_000, Some(b(100)), Some(b(101)), late);
+    assert_eq!(sub.state, watchdog::SubscriptionState::PresumedPaused);
+    // Before any delivery the silence counts from the first tick.
+    let fresh = watchdog::State {
+        last_delivery_ms: None,
+        ..w
+    };
+    let sub = watchdog::subscription(&fresh, 300_000, None, Some(b(5)), T0 + 1_000);
+    assert_eq!(sub.state, watchdog::SubscriptionState::Silent);
+    let sub = watchdog::subscription(&fresh, 300_000, None, Some(b(5)), late);
+    assert_eq!(
+        sub.state,
+        watchdog::SubscriptionState::PresumedPaused,
+        "a registration starts paused"
+    );
+}

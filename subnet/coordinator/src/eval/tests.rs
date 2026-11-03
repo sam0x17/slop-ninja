@@ -395,6 +395,42 @@ impl<'a> Sim<'a> {
                     self.eval.retain(|k, _| !prefixes.iter().any(|p| k.starts_with(p)));
                     tx(self.db, |s| lanes::mark_purged(s, seq, now)).unwrap();
                 }
+                // Mirrors `cf_eval`'s step: the authorization hold, the
+                // marker, then one listing page, the single keys and the rows.
+                Work::RetireReceipts { seq, prefix, keys, marker } => {
+                    use super::retention::contract::AUTHORIZATION_POINTER_KEY;
+                    use super::retention::{Hold, apply_hold, hold_of, note_retiring, pointer_ref};
+                    let hold = match self.rcpt.get(AUTHORIZATION_POINTER_KEY) {
+                        None => Hold::None,
+                        Some(p) => {
+                            let (kind, r) = pointer_ref(p, &self.cfg.chain).unwrap();
+                            hold_of(&kind, &r, &self.rcpt[&r.path]).unwrap()
+                        }
+                    };
+                    if !tx(self.db, |s| apply_hold(s, &hold, seq, now)).unwrap() {
+                        continue;
+                    }
+                    if let Some((key, body)) = marker {
+                        self.rcpt.insert(key, body.into_bytes());
+                        tx(self.db, |s| note_retiring(s, seq, now)).unwrap();
+                    }
+                    let page: Vec<String> =
+                        self.rcpt.keys().filter(|k| k.starts_with(&prefix)).take(super::retention::PAGE).cloned().collect();
+                    if page.is_empty() {
+                        for k in &keys {
+                            self.rcpt.remove(k);
+                        }
+                        tx(self.db, |s| super::retention::finish(s, seq, super::retention::PAGE, now)).unwrap();
+                    } else {
+                        for k in &page {
+                            self.rcpt.remove(k);
+                        }
+                        let n = page.len() as u64;
+                        tx(self.db, |s| super::retention::note_page(s, seq, n)).unwrap();
+                    }
+                }
+                // Predecessor notices are driven by the retention tests.
+                Work::RetentionNotice { .. } => break,
                 // Admission I/O is driven by the admission tests themselves.
                 Work::AdmissionVerify { .. } | Work::AdmissionLanes | Work::AdmissionCleanup => break,
                 Work::OpenNext { plan, .. } => {
@@ -532,6 +568,10 @@ impl<'a> Sim<'a> {
             for (k, b) in &f.vectors {
                 self.eval.insert(k.clone(), b.clone());
             }
+            // The Worker's receipts-bucket objects (`cf_eval::package_v3`), by key.
+            let p = v3::probe_prefix(&c, v);
+            self.rcpt.insert(format!("{p}/receipt-index.signed"), index.to_bytes().unwrap());
+            self.rcpt.insert(format!("{p}/chunk-map.json"), b"{}".to_vec());
             tx(self.db, |s| v3::commit_probe_finish(s, seq, &f, now)).unwrap();
             return;
         }
@@ -549,6 +589,10 @@ impl<'a> Sim<'a> {
         for (k, v) in &b.vectors {
             self.eval.insert(k.clone(), v.clone());
         }
+        let prefix = engine::receipt_prefix(&cohort.label);
+        self.rcpt.insert(format!("{prefix}/receipt-index.signed"), index.to_bytes().unwrap());
+        self.rcpt.insert(format!("{prefix}/chunk-map.json"), b"{}".to_vec());
+        self.rcpt.insert(format!("{prefix}/package.signed"), b.package.to_bytes().unwrap());
         tx(self.db, |s| v3::commit_package(s, seq, &b, 6, now)).unwrap();
         self.packages_v3.push(b);
     }
@@ -1732,7 +1776,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 12));
+    assert_eq!((report.from, report.to), (3, 14));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -3280,4 +3324,602 @@ fn a_cohort_naming_an_artifact_spec_hands_its_digest_to_every_scoring_lane() {
     assert!(refused_plan(&bad, Ceilings { roster_cap: Some(40), accept_reward_v0: true }).contains("artifact_spec"));
     bad.fanout.as_mut().unwrap().score.artifact_spec = Some("slop_ninja_a_artifact_spec_v9".into());
     assert!(refused_plan(&bad, Ceilings { roster_cap: Some(40), accept_reward_v0: true }).contains("artifact_spec"));
+}
+
+// ------------------------------------------------------------ receipt retention
+
+fn receipts_under(sim: &Sim<'_>, label: &str) -> usize {
+    let p = format!("cohorts/{label}/receipts/");
+    sim.rcpt.keys().filter(|k| k.starts_with(&p)).count()
+}
+
+fn retention_of(db: &Sqlite, seq: i64) -> (Option<i64>, Option<i64>, i64, i64) {
+    db.conn
+        .query_row(
+            "SELECT receipts_due_after, receipts_deleted_ms, receipts_deleted_objects,
+                (SELECT COUNT(*) FROM receipts WHERE seq = ?1) + (SELECT COUNT(*) FROM receipt_objects WHERE seq = ?1)
+             FROM cohorts WHERE seq = ?1",
+            [seq],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .unwrap()
+}
+
+/// The N+2 rule end to end: a probe build and three reward-v1 cohorts. Each
+/// cohort's detailed receipts (chunk objects, bundles, receipt index, chunk
+/// map and receipt rows; a probe build's index under its probe prefix) stay
+/// until two later cohorts have completed, and are then deleted, while its
+/// package, the receipt root and count and the cohort row stay.
+#[test]
+fn detailed_receipts_are_deleted_after_two_later_cohorts_complete() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut sim = Sim::new(&db, cfg(), 2_000_000);
+    let (pool, texts) = pool_of(40);
+    sim.pool = pool;
+    sim.texts = texts;
+    let weak = v3_artifact(&mut sim, super::plan::tests::identity(0, 0xb0), [1, 2, 3, 4, 5]);
+    let mut probe = plan_v3(1, "testnet-probe-v1", 20, weak.clone());
+    probe.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    probe.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    probe.reward_v1.as_mut().unwrap().canary.draw_humans = 0;
+    sim.predict = Some(Box::new(|_, kind, task| {
+        let c = model_conf(1, kind, task, (35.0, 65.0, 70.0), 10.0);
+        (c, c * 0.4)
+    }));
+    let pseq = open_cohort(&db, &probe, 10, sim.now);
+    assert_eq!(sim.run(pseq, 3_000), "closed");
+    sim.tick();
+    let probe_ref = super::plan::ProbeRef {
+        version: 1,
+        size: 20,
+        key: "probes/v1/record.json".into(),
+        sha256: lane_logic::sha_hex(&sim.eval["probes/v1/record.json"]),
+    };
+    assert!(receipts_under(&sim, "testnet-probe-v1") > 0);
+    assert!(sim.rcpt.contains_key("probes/v1/receipt-index.signed"));
+    let mut epoch = 20;
+    let mut done: Vec<(i64, String)> = vec![(pseq, "testnet-probe-v1".into())];
+    let roots = |seq: i64| -> (Option<String>, Option<i64>) {
+        db.conn
+            .query_row("SELECT receipt_root, receipt_count FROM cohorts WHERE seq = ?1", [seq], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+    };
+    let probe_roots = roots(pseq);
+    for (k, cohort) in [2u64, 3, 4].into_iter().enumerate() {
+        let label = format!("testnet-rv1-r{k}");
+        let mut p = plan_v3(cohort, &label, 20, weak.clone());
+        p.reward_v1.as_mut().unwrap().probes = vec![probe_ref.clone()];
+        let seq = open_cohort(&db, &p, epoch, sim.now);
+        epoch = run_to_close(&mut sim, &db, seq, epoch + 2) + 2;
+        for _ in 0..3 {
+            sim.tick();
+        }
+        assert_eq!(fault_of(&db, seq), None);
+        assert!(receipts_under(&sim, &label) > 0, "{label}: its own receipts stay");
+        done.push((seq, label));
+        // Every cohort with two later completed cohorts is deleted; the two
+        // newest completed cohorts are retained.
+        let completed = done.len();
+        for (j, (s, l)) in done.iter().enumerate() {
+            let (due, deleted, objects, rows) = retention_of(&db, *s);
+            if j + 2 < completed {
+                assert_eq!(due, Some(cohort as i64 - (completed - j - 3) as i64), "{l}: due after N+2");
+                assert!(deleted.is_some(), "{l}: deleted");
+                assert!(objects > 0, "{l}: objects counted");
+                assert_eq!(rows, 0, "{l}: receipt rows deleted");
+                assert_eq!(receipts_under(&sim, l), 0, "{l}: chunk objects and bundles deleted");
+                assert!(!sim.rcpt.contains_key(&format!("cohorts/{l}/receipt-index.signed")), "{l}: index deleted");
+                assert!(!sim.rcpt.contains_key(&format!("cohorts/{l}/chunk-map.json")), "{l}: chunk map deleted");
+            } else {
+                assert_eq!((due, deleted), (None, None), "{l}: retained");
+                assert!(rows > 0, "{l}: receipt rows retained");
+            }
+        }
+        if k == 1 {
+            // The probe build's index and map under its probe prefix went too;
+            // its root and count stay on the cohort row.
+            assert!(!sim.rcpt.contains_key("probes/v1/receipt-index.signed"));
+            assert!(!sim.rcpt.contains_key("probes/v1/chunk-map.json"));
+            assert_eq!(roots(pseq), probe_roots);
+        }
+    }
+    // Signed packages are never deleted, and the status reports the rule.
+    assert!(sim.rcpt.contains_key("cohorts/testnet-rv1-r0/package.signed"));
+    let st = tx(&db, |s| engine::status(s, sim.now)).unwrap();
+    assert_eq!(st["receipt_retention"]["rule"], super::retention::RULE);
+    assert_eq!(st["receipt_retention"]["retained_cohorts"], 2);
+    let first = st["cohorts"].as_array().unwrap().iter().find(|c| c["label"] == "testnet-rv1-r0").unwrap();
+    assert_eq!(first["receipt_retention"]["retained"], false);
+    assert_eq!(first["receipt_retention"]["due_after_cohort"], 4);
+    assert!(first["receipt_count"].as_i64().unwrap() > 0, "the count stays");
+    assert!(!tx(&db, |s| engine::has_work(s, &cfg())).unwrap(), "nothing left to delete");
+}
+
+/// Closed cohorts set up directly (reward-v0 shape: no closure record).
+fn closed_cohorts(db: &Sqlite, numbers: &[u64]) -> Vec<i64> {
+    numbers
+        .iter()
+        .map(|n| {
+            let mut p = plan(10);
+            p.cohort = *n;
+            p.label = format!("testnet-ret-{n}");
+            let bytes = serde_json::to_vec(&p).unwrap();
+            let seq = tx(db, |s| engine::queue(s, &cfg(), &bytes, 1_000_000)).unwrap();
+            db.conn
+                .execute(
+                    "UPDATE cohorts SET phase = 'closed', v3 = NULL, reserved_microusd = 1, settled_microusd = 1,
+                        purged_ms = 1 WHERE seq = ?1",
+                    [seq],
+                )
+                .unwrap();
+            db.conn
+                .execute(
+                    "INSERT INTO receipts (seq, attempt_id, job, task, number, outcome, object_sha256, object_len, object_key)
+                     VALUES (?1, 'a', 0, 0, 1, 0, 'x', 1, 'k')",
+                    [seq],
+                )
+                .unwrap();
+            seq
+        })
+        .collect()
+}
+
+/// New commitments to a target need its receipts: while cohort N's target is
+/// the active one its receipts stay whatever completes after it, and they
+/// become due once a later target activates (at the next completion). An
+/// abandoned cohort is not a completion; its own receipts follow the rule.
+#[test]
+fn an_active_targets_receipts_stay_and_abandoned_cohorts_are_not_completions() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&db, &[1, 2, 3, 4, 5]);
+    db.conn.execute("INSERT INTO eval_targets (seq, target_digest, activated_epoch) VALUES (?1, 'aa', 1)", [seqs[0]]).unwrap();
+    db.conn.execute("UPDATE cohorts SET phase = 'abandoned' WHERE seq = ?1", [seqs[2]]).unwrap();
+    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 2);
+    let due = |s: i64| retention_of(&db, s).0;
+    // Completed: 2, 4, 5 (3 abandoned). Cohort 1's target is active.
+    assert_eq!(due(seqs[0]), None, "the active target's cohort is retained");
+    assert_eq!(due(seqs[1]), Some(5), "cohort 2: completions 4 and 5");
+    assert_eq!(due(seqs[2]), Some(5), "abandoned cohort 3: completions 4 and 5");
+    assert_eq!(due(seqs[3]), None);
+    assert_eq!(due(seqs[4]), None);
+    // A later target activates: cohort 1 is due after its second later completion.
+    db.conn.execute("INSERT INTO eval_targets (seq, target_digest, activated_epoch) VALUES (?1, 'bb', 2)", [seqs[3]]).unwrap();
+    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 1);
+    assert_eq!(due(seqs[0]), Some(4));
+    // Marking is idempotent and work is reported until deletion finishes.
+    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 0);
+    assert!(tx(&db, super::retention::has_work).unwrap());
+    let Some(Work::RetireReceipts { seq, prefix, keys, marker }) =
+        tx(&db, |s| super::retention::next_work(s, &cfg())).unwrap()
+    else {
+        panic!("retire")
+    };
+    assert_eq!(seq, seqs[0]);
+    assert_eq!(prefix, "cohorts/testnet-ret-1/receipts/");
+    assert_eq!(keys, vec!["cohorts/testnet-ret-1/receipt-index.signed", "cohorts/testnet-ret-1/chunk-map.json"]);
+    // The content-free marker goes first, until it is recorded.
+    let (key, body) = marker.expect("marker");
+    assert_eq!(key, "cohorts/testnet-ret-1/receipts-retired.json");
+    let m: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(m, json!({"schema": super::retention::contract::RETIRED_MARKER_SCHEMA, "label": "testnet-ret-1", "cohort": 1,
+        "rule": super::retention::RULE, "due_after_cohort": 4}));
+    tx(&db, |s| super::retention::note_retiring(s, seqs[0], 1)).unwrap();
+    let Some(Work::RetireReceipts { marker, .. }) = tx(&db, |s| super::retention::next_work(s, &cfg())).unwrap() else {
+        panic!("retire")
+    };
+    assert_eq!(marker, None, "recorded once");
+}
+
+/// Probe builds are not completions: they have no package or target and
+/// stay outside the public record, whose N+1 and N+2 the coordinator's rule
+/// must match. Their own receipts follow the rule.
+#[test]
+fn probe_builds_are_not_completions() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&db, &[1, 2, 3]);
+    db.conn.execute("UPDATE cohorts SET v3 = '{}', closure_digest = 'probe-build' WHERE seq = ?1", [seqs[1]]).unwrap();
+    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 0, "one later completion (3) for cohort 1");
+    let more = closed_cohorts(&db, &[4]);
+    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 2);
+    assert_eq!(retention_of(&db, seqs[0]).0, Some(4), "cohort 1: completions 3 and 4, not the probe build");
+    assert_eq!(retention_of(&db, seqs[1]).0, Some(4), "the probe build: completions 3 and 4");
+    assert_eq!(retention_of(&db, seqs[2]).0, None);
+    assert_eq!(retention_of(&db, more[0]).0, None);
+}
+
+/// The targets a signing path reads are held: the newest reward-v1 target
+/// (the row `v3::active_target_digest` signs for), which a later reward-v0
+/// target never releases, and the newest target of any rule (the
+/// predecessor a reward-v0 package chains to). A rule that stopped producing
+/// targets is released once a later target activates. A released target's
+/// cohort is due after the completion that released it when that is later
+/// than its second later completion.
+#[test]
+fn the_targets_signing_reads_are_held() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&db, &[1, 2, 3, 4, 5, 6]);
+    let target = |seq: i64, digest: &str, rule: &str| {
+        db.conn
+            .execute(
+                "INSERT INTO eval_targets (seq, target_digest, activated_epoch, rule) VALUES (?1, ?2, 1, ?3)",
+                rusqlite::params![seq, digest, rule],
+            )
+            .unwrap();
+    };
+    target(seqs[0], "aa", "reward-v1");
+    target(seqs[1], "bb", "testnet-reward-v0");
+    tx(&db, super::retention::mark_due).unwrap();
+    let due = |s: i64| retention_of(&db, s).0;
+    assert_eq!(due(seqs[0]), None, "the reward-v1 target's cohort stays after a later v0 target");
+    assert_eq!(due(seqs[1]), None, "the v0 rule's latest target stays too");
+    assert_eq!(due(seqs[2]), Some(5));
+    // A later v1 target (cohort 6) supersedes cohort 1's: due after 6, the
+    // completion that released it, not after 3.
+    target(seqs[5], "cc", "reward-v1");
+    tx(&db, super::retention::mark_due).unwrap();
+    assert_eq!(due(seqs[0]), Some(6));
+    assert_eq!(due(seqs[1]), Some(6), "the stale v0 target is released by the later target, at cohort 6");
+    let st = tx(&db, |s| engine::status(s, 0)).unwrap();
+    let held: Vec<i64> = st["cohorts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["receipt_retention"]["held"] == true)
+        .map(|c| c["cohort"].as_i64().unwrap())
+        .collect();
+    assert_eq!(held, vec![6]);
+}
+
+/// The current authorization holds the cohorts it names, its carrier and
+/// its target's, read from the private pointer before a deletion step,
+/// with no count or time limit: a due cohort it names goes back to waiting
+/// until its deletion has started, and becomes due again once the pointer
+/// names something else.
+#[test]
+fn the_current_authorization_holds_its_carrier_and_target() {
+    use super::retention::{Hold, apply_hold, hold_of, pointer_ref};
+    use slop_ninja_admission_wire::json::{AUTHORIZATION_POINTER_SCHEMA, Chain, ObjectRef};
+    use slop_ninja_protocol::{Digest, RewardIntentAuthorization, sign};
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&db, &[1, 2, 3, 4, 5, 6]);
+    let t1 = hex::encode([0xa1; 32]);
+    let m2 = hex::encode([0xb2; 32]);
+    db.conn.execute("UPDATE cohorts SET manifest_digest = ?1 WHERE seq = ?2", rusqlite::params![m2, seqs[1]]).unwrap();
+    for (seq, d) in [(seqs[0], t1.clone()), (seqs[3], hex::encode([0xa4; 32]))] {
+        db.conn
+            .execute(
+                "INSERT INTO eval_targets (seq, target_digest, activated_epoch, rule) VALUES (?1, ?2, 1, 'reward-v1')",
+                rusqlite::params![seq, d],
+            )
+            .unwrap();
+    }
+    // Without a hold: 1 (superseded by 4), 2 and 3 are due; 4 is active.
+    tx(&db, super::retention::mark_due).unwrap();
+    let due = |s: i64| retention_of(&db, s).0;
+    assert_eq!((due(seqs[0]), due(seqs[1]), due(seqs[2]), due(seqs[3])), (Some(4), Some(4), Some(5), None));
+    // The pointer still names an authorization for target 1, carried by
+    // cohort 2: both go back to waiting; cohort 3 stays due.
+    let key = slop_ninja_protocol::SigningKey::from_bytes(&[9; 32]);
+    let a = sign(
+        RewardIntentAuthorization {
+            chain: cfg().chain,
+            cohort: 2,
+            cohort_manifest: Digest([0xb2; 32]),
+            score_package: Digest([0xc2; 32]),
+            target: Digest([0xa1; 32]),
+            checkpoint_generation: 1,
+            issued_epoch: 10,
+            renew_by_epoch: 11,
+        },
+        &key,
+    )
+    .unwrap()
+    .to_bytes()
+    .unwrap();
+    let sha = slop_ninja_protocol::object_sha256(&a).hex();
+    let chain = Chain::from_binding(&cfg().chain);
+    let pointer = json!({"schema": AUTHORIZATION_POINTER_SCHEMA, "chain": chain, "kind": "cohort",
+        "authorization": {"path": format!("authorizations/{sha}.signed"), "sha256": sha, "bytes": a.len()},
+        "renewal": null});
+    let (kind, r) = pointer_ref(pointer.to_string().as_bytes(), &cfg().chain).unwrap();
+    let hold = hold_of(&kind, &r, &a).unwrap();
+    assert_eq!(hold, Hold::Cohort { cohort: 2, manifest: m2.clone(), target: t1.clone() });
+    assert!(!tx(&db, |s| apply_hold(s, &hold, seqs[0], 100)).unwrap(), "cohort 1 is held");
+    assert_eq!((due(seqs[0]), due(seqs[1]), due(seqs[2])), (None, None, Some(5)));
+    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 0, "still held");
+    let Some(Work::RetireReceipts { seq, .. }) = tx(&db, |s| super::retention::next_work(s, &cfg())).unwrap() else {
+        panic!("retire")
+    };
+    assert_eq!(seq, seqs[2]);
+    // Once a cohort's deletion started (its marker is stored), a hold no
+    // longer returns it to waiting.
+    tx(&db, |s| super::retention::note_retiring(s, seqs[2], 200)).unwrap();
+    let m3 = Hold::Cohort { cohort: 3, manifest: String::new(), target: String::new() };
+    db.conn.execute("UPDATE cohorts SET manifest_digest = '' WHERE seq = ?1", [seqs[2]]).unwrap();
+    assert!(tx(&db, |s| apply_hold(s, &m3, seqs[2], 300)).unwrap());
+    // A launch authorization (or no pointer) names no receipts: 1 and 2 are
+    // due again at the next marking.
+    assert!(tx(&db, |s| apply_hold(s, &Hold::Launch, seqs[2], 400)).unwrap());
+    assert_eq!(tx(&db, super::retention::mark_due).unwrap(), 2);
+    assert_eq!((due(seqs[0]), due(seqs[1])), (Some(4), Some(4)));
+    let st = tx(&db, super::retention::status).unwrap();
+    assert_eq!(st["authorization_hold"]["kind"], "launch");
+    // A pointer or object that does not match is refused (nothing deleted).
+    assert_eq!(pointer_ref(b"{}", &cfg().chain), Err("authorization_pointer"));
+    let elsewhere = slop_ninja_protocol::ChainBinding { netuid: 602, ..cfg().chain };
+    assert_eq!(pointer_ref(pointer.to_string().as_bytes(), &elsewhere), Err("authorization_chain"));
+    let other = ObjectRef { path: r.path.clone(), sha256: hex::encode([0; 32]), bytes: r.bytes };
+    assert_eq!(hold_of("cohort", &other, &a), Err("authorization_object"));
+    assert_eq!(hold_of("renewal", &r, &a), Err("authorization_kind"));
+    let moved = json!({"schema": AUTHORIZATION_POINTER_SCHEMA, "chain": chain, "kind": "cohort",
+        "authorization": {"path": "authorizations/other.signed", "sha256": sha, "bytes": a.len()}});
+    assert_eq!(pointer_ref(moved.to_string().as_bytes(), &cfg().chain), Err("authorization_pointer"));
+}
+
+/// A probe build's index and chunk map under its probe prefix belong to the
+/// latest finished build of that version: an earlier build of the same
+/// version (rebuilt) never deletes them; a later build abandoned before its
+/// finish never wrote them.
+#[test]
+fn probe_prefix_keys_belong_to_the_latest_build_of_their_version() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut sim = Sim::new(&db, cfg(), 2_000_000);
+    let weak = v3_artifact(&mut sim, super::plan::tests::identity(0, 0xb0), [1, 2, 3, 4, 5]);
+    let probe_plan = |cohort: u64, label: &str| {
+        let mut p = plan_v3(cohort, label, 20, weak.clone());
+        p.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+        p.reward_v1.as_mut().unwrap().probe_version = Some(1);
+        p.reward_v1.as_mut().unwrap().canary.draw_humans = 0;
+        serde_json::to_vec(&p).unwrap()
+    };
+    let mut probes = Vec::new();
+    for (n, l) in [(1u64, "testnet-probe-a"), (2, "testnet-probe-b"), (3, "testnet-probe-c")] {
+        let bytes = probe_plan(n, l);
+        let seq = tx(&db, |s| engine::queue(s, &cfg(), &bytes, 1_000)).unwrap();
+        db.conn
+            .execute(
+                "UPDATE cohorts SET phase = 'closed', closure_digest = 'probe-build', reserved_microusd = 1,
+                    settled_microusd = 1, purged_ms = 1 WHERE seq = ?1",
+                [seq],
+            )
+            .unwrap();
+        probes.push(seq);
+    }
+    // c was abandoned before its finish: it wrote nothing under the prefix.
+    db.conn.execute("UPDATE cohorts SET phase = 'abandoned', closure_digest = NULL WHERE seq = ?1", [probes[2]]).unwrap();
+    closed_cohorts(&db, &[4, 5, 6, 7]);
+    let probe_keys = ["probes/v1/receipt-index.signed".to_owned(), "probes/v1/chunk-map.json".to_owned()];
+    let mut seen = Vec::new();
+    while let Some(Work::RetireReceipts { seq, keys, .. }) = tx(&db, |s| super::retention::next_work(s, &cfg())).unwrap() {
+        seen.push((seq, probe_keys.iter().all(|k| keys.contains(k))));
+        tx(&db, |s| super::retention::finish(s, seq, super::retention::PAGE, 5_000)).unwrap();
+    }
+    assert_eq!(
+        seen,
+        vec![(probes[0], false), (probes[1], true), (probes[2], false), (seen[3].0, false), (seen[4].0, false)],
+        "a's keys were overwritten by b; b owns them; c never wrote them"
+    );
+}
+
+/// Row deletion is paged and resumable: each finish deletes at most a page
+/// of rows, and only the transaction that removes the last row marks the
+/// cohort deleted, so a step cut short at any point continues.
+#[test]
+fn receipt_row_deletion_is_paged_and_marks_only_when_empty() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&db, &[1, 2, 3]);
+    for a in ["b", "c"] {
+        db.conn
+            .execute(
+                "INSERT INTO receipts (seq, attempt_id, job, task, number, outcome, object_sha256, object_len, object_key)
+                 VALUES (?1, ?2, 0, 0, 1, 0, 'x', 1, 'k')",
+                rusqlite::params![seqs[0], a],
+            )
+            .unwrap();
+    }
+    db.conn
+        .execute("INSERT INTO receipt_objects (seq, key, sha256, bytes, receipts) VALUES (?1, 'k', 'x', 1, 3)", [seqs[0]])
+        .unwrap();
+    tx(&db, super::retention::mark_due).unwrap();
+    tx(&db, |s| super::retention::note_page(s, seqs[0], 7)).unwrap();
+    let mut rounds = 0;
+    while !tx(&db, |s| super::retention::finish(s, seqs[0], 1, 9_000)).unwrap() {
+        rounds += 1;
+        assert_eq!(retention_of(&db, seqs[0]).1, None, "not marked while rows remain");
+    }
+    assert_eq!(rounds, 2, "three receipt rows at one per page (the object row goes with the first two)");
+    let (due, deleted, objects, rows) = retention_of(&db, seqs[0]);
+    assert_eq!((due, deleted, objects, rows), (Some(3), Some(9_000), 7, 0));
+    // The other cohorts' rows are untouched.
+    assert_eq!(retention_of(&db, seqs[1]).3, 1);
+    // Finishing again is a no-op that keeps the first mark.
+    assert!(tx(&db, |s| super::retention::finish(s, seqs[0], 1, 10_000)).unwrap());
+    assert_eq!(retention_of(&db, seqs[0]).1, Some(9_000));
+}
+
+/// Drives `db`'s deletion steps in `cf_eval`'s order (hold, marker, pages,
+/// rows) with the authorization `hold`, until no step is due; the number of
+/// cohorts whose receipts it finished. Panics on a loop.
+fn retire_steps(db: &Sqlite, c: &EvalConfig, hold: &super::retention::Hold) -> usize {
+    let mut finished = 0;
+    for _ in 0..100 {
+        let Some(Work::RetireReceipts { seq, marker, .. }) = tx(db, |s| super::retention::next_work(s, c)).unwrap() else {
+            return finished;
+        };
+        if !tx(db, |s| super::retention::apply_hold(s, hold, seq, 3_000_000)).unwrap() {
+            continue;
+        }
+        if marker.is_some() {
+            tx(db, |s| super::retention::note_retiring(s, seq, 3_000_000)).unwrap();
+        }
+        if tx(db, |s| super::retention::finish(s, seq, super::retention::PAGE, 4_000_000)).unwrap() {
+            finished += 1;
+        }
+    }
+    panic!("deletion steps never end");
+}
+
+/// A superseded predecessor completes nothing more: its successor tells it
+/// after the successor's second completion, and every remaining cohort of the
+/// predecessor becomes due. The notice is refused before supersession and for
+/// a cohort number that is not later than the predecessor's own; the
+/// successor repeats it until the predecessor reports nothing left.
+#[test]
+fn a_superseded_predecessor_deletes_on_its_successors_notice() {
+    use crate::config::{Authority, Supersede};
+    // The predecessor: three closed cohorts, the last one's target active.
+    let old = Sqlite::open();
+    sql::migrate(&old, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&old, &[1, 2, 3]);
+    old.conn.execute("INSERT INTO eval_targets (seq, target_digest, activated_epoch) VALUES (?1, 'aa', 1)", [seqs[2]]).unwrap();
+    assert_eq!(tx(&old, |s| super::retention::accept_notice(s, 20)).unwrap(), Err("not_superseded"));
+    tx(&old, super::retention::mark_due).unwrap();
+    let retired = predecessor_cfg();
+    let req = Supersede::of(&Authority::named("r0b", 13).unwrap()).unwrap();
+    // Cohort 1 is due under the predecessor's own rule (2 and 3 completed).
+    // A due deletion is work for its alarm but never holds up succession:
+    // it finishes under the successor's notices.
+    assert!(tx(&old, |s| engine::has_work(s, &retired)).unwrap());
+    assert!(!tx(&old, |s| engine::blocking_work(s, &retired)).unwrap());
+    tx(&old, |s| super::succession::supersede(s, &retired, &req, 1_000_000)).unwrap().unwrap();
+    assert_eq!(retention_of(&old, seqs[0]).0, Some(3));
+    assert_eq!(tx(&old, |s| super::retention::accept_notice(s, 3)).unwrap(), Err("notice_cohort"));
+    // The successor: two completed cohorts (13 and 14) and two predecessors.
+    let new = Sqlite::open();
+    sql::migrate(&new, &EVAL_COHORT_SCHEMA).unwrap();
+    let succ = EvalConfig { authority: Authority::named_after("r0c", 13, &["r0b"]).unwrap(), ..cfg() };
+    closed_cohorts(&new, &[13]);
+    assert_eq!(tx(&new, |s| super::retention::notice_due(s, &succ)).unwrap(), None, "one completion is not enough");
+    closed_cohorts(&new, &[14, 15]);
+    let Some(Work::RetentionNotice { predecessor, after_cohort }) =
+        tx(&new, |s| super::retention::notice_due(s, &succ)).unwrap()
+    else {
+        panic!("notice")
+    };
+    assert_eq!((predecessor.as_str(), after_cohort), ("main", 14));
+    // The predecessor marks its remaining cohorts (2, and 3 whose target the
+    // restart superseded) due and reports what is left.
+    let v = tx(&old, |s| super::retention::accept_notice(s, after_cohort)).unwrap().unwrap();
+    assert_eq!(v["remaining"], 3);
+    assert_eq!(retention_of(&old, seqs[0]).0, Some(3), "already due under its own rule");
+    assert_eq!(retention_of(&old, seqs[2]).0, Some(14));
+    // Before the predecessor reports nothing left, the successor reports it
+    // as stalled once a completion follows the notice's (15 after 14).
+    let stalled = tx(&new, |s| super::retention::stalled(s, &succ)).unwrap();
+    let names: Vec<&str> = stalled.iter().map(|v| v["predecessor"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["main", "r0b"]);
+    assert_eq!(stalled[0]["completions_since"], 1);
+    // The real step order (`cf_eval`'s RetireReceipts arm): the hold first,
+    // then the marker, pages and rows. The accepted notice released the
+    // target the predecessor still lists, so the hold returns nothing to
+    // waiting and every cohort goes.
+    assert_eq!(retire_steps(&old, &retired, &super::retention::Hold::None), 3);
+    assert!(!tx(&old, |s| engine::has_work(s, &retired)).unwrap(), "no alarm left armed");
+    let v = tx(&old, |s| super::retention::accept_notice(s, after_cohort)).unwrap().unwrap();
+    assert_eq!(v["remaining"], 0);
+    tx(&new, |s| super::retention::record_notice(s, "main", after_cohort, 5_000_000)).unwrap();
+    let Some(Work::RetentionNotice { predecessor, .. }) = tx(&new, |s| super::retention::notice_due(s, &succ)).unwrap()
+    else {
+        panic!("second notice")
+    };
+    assert_eq!(predecessor, "r0b");
+    tx(&new, |s| super::retention::record_notice(s, "r0b", after_cohort, 5_000_000)).unwrap();
+    assert_eq!(tx(&new, |s| super::retention::notice_due(s, &succ)).unwrap(), None);
+    // The original authority, and a retired one, tell nobody.
+    assert_eq!(tx(&new, |s| super::retention::notice_due(s, &cfg())).unwrap(), None);
+    assert_eq!(tx(&new, |s| super::retention::notice_due(s, &retired)).unwrap(), None);
+}
+
+/// In a superseded predecessor, an authorization the pointer still names
+/// keeps its cohort through the accepted notice; once the pointer names
+/// something else, the successor's repeated notice marks it due again and it
+/// goes. Before any notice, the predecessor's own last target stays held.
+#[test]
+fn a_predecessors_authorization_hold_ends_with_the_pointer() {
+    use super::retention::Hold;
+    use crate::config::{Authority, Supersede};
+    let old = Sqlite::open();
+    sql::migrate(&old, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&old, &[1, 2, 3, 4]);
+    old.conn.execute("UPDATE cohorts SET manifest_digest = 'm4' WHERE seq = ?1", [seqs[3]]).unwrap();
+    old.conn
+        .execute("INSERT INTO eval_targets (seq, target_digest, activated_epoch, rule) VALUES (?1, 't1', 1, 'reward-v1')", [seqs[0]])
+        .unwrap();
+    let retired = predecessor_cfg();
+    let req = Supersede::of(&Authority::named("r0b", 13).unwrap()).unwrap();
+    tx(&old, |s| super::succession::supersede(s, &retired, &req, 1_000_000)).unwrap().unwrap();
+    // Its own rule: 2 is due (3 and 4 completed); 1's target is still held.
+    assert_eq!(retire_steps(&old, &retired, &Hold::None), 1);
+    assert_eq!(retention_of(&old, seqs[0]).1, None, "the predecessor's target stays before any notice");
+    let held = Hold::Cohort { cohort: 4, manifest: "m4".into(), target: "none".into() };
+    let v = tx(&old, |s| super::retention::accept_notice(s, 14)).unwrap().unwrap();
+    assert_eq!(v["remaining"], 3);
+    assert_eq!(retire_steps(&old, &retired, &held), 2, "1 (target released) and 3 go; 4 is held");
+    assert_eq!(retention_of(&old, seqs[3]).0, None);
+    let v = tx(&old, |s| super::retention::accept_notice(s, 14)).unwrap().unwrap();
+    assert_eq!(v["remaining"], 1);
+    assert_eq!(retire_steps(&old, &retired, &Hold::Launch), 1);
+    let v = tx(&old, |s| super::retention::accept_notice(s, 14)).unwrap().unwrap();
+    assert_eq!(v["remaining"], 0);
+    let st = tx(&old, super::retention::status).unwrap();
+    assert_eq!(st["notice_accepted_after"], 14);
+}
+
+/// A due cohort whose receipts remain after a further completion is
+/// reported as stalled (no clock: completions only); held cohorts are not.
+#[test]
+fn a_due_cohort_left_after_a_further_completion_is_stalled() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&db, &[1, 2, 3]);
+    assert!(tx(&db, |s| super::retention::stalled(s, &cfg())).unwrap().is_empty(), "due after 3, nothing later");
+    closed_cohorts(&db, &[4]);
+    let st = tx(&db, |s| super::retention::stalled(s, &cfg())).unwrap();
+    assert_eq!(st.len(), 1, "cohort 1 (due after 3) after completion 4; cohort 2 is due only now");
+    assert_eq!((st[0]["cohort"].as_u64(), st[0]["due_after_cohort"].as_u64()), (Some(1), Some(3)));
+    // Marking changes nothing: the report covers due and newly due alike.
+    tx(&db, super::retention::mark_due).unwrap();
+    assert_eq!(tx(&db, |s| super::retention::stalled(s, &cfg())).unwrap().len(), 1);
+    assert_eq!(retire_steps(&db, &cfg(), &super::retention::Hold::None), 2);
+    assert_eq!(retention_of(&db, seqs[0]).1, Some(4_000_000));
+    assert!(tx(&db, |s| super::retention::stalled(s, &cfg())).unwrap().is_empty());
+}
+
+/// While the active cohort only waits on its lanes (nothing to send), a due
+/// deletion runs; root work of the active cohort still comes first.
+#[test]
+fn deletion_runs_while_the_active_cohort_waits_on_its_lanes() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&db, &[1, 2, 3]);
+    let mut p = plan(10);
+    p.cohort = 4;
+    p.label = "testnet-ret-4".into();
+    let active = tx(&db, |s| engine::queue(s, &cfg(), &serde_json::to_vec(&p).unwrap(), 1_000_000)).unwrap();
+    db.conn.execute("UPDATE cohorts SET phase = 'generating' WHERE seq = ?1", [active]).unwrap();
+    // No documents yet: the draw is root work and comes first.
+    assert!(matches!(tx(&db, |s| engine::next_work(s, &cfg(), 2_000_000)).unwrap(), Some(Work::Draw { .. })));
+    db.conn
+        .execute(
+            "INSERT INTO docs (seq, idx, key, kind, domain, source_group, status) VALUES (?1, 0, 'k', 'ai_only', 'd', 'g', 'pending')",
+            [active],
+        )
+        .unwrap();
+    // Generation pending and no lane to kick (no heartbeat yet): deletion runs.
+    let Some(Work::RetireReceipts { seq, .. }) = tx(&db, |s| engine::next_work(s, &cfg(), 2_000_000)).unwrap() else {
+        panic!("retire while the active cohort waits")
+    };
+    assert_eq!(seq, seqs[0]);
+    assert_eq!(retire_steps(&db, &cfg(), &super::retention::Hold::None), 1);
+    assert!(matches!(
+        tx(&db, |s| engine::next_work(s, &cfg(), 2_000_000)).unwrap(),
+        Some(Work::Dispatch { ref kicks, .. }) if kicks.is_empty()
+    ));
 }

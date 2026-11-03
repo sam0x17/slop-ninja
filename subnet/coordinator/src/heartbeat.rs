@@ -224,6 +224,18 @@ pub struct TickReport {
 pub fn on_tick(sql: &impl Sql, settings: &Settings, now_ms: u64) -> Result<TickReport, StoreError> {
     let state = watchdog::begin_tick(sql, settings.silence_ms, now_ms)?;
     let fallback = state.mode == Mode::Fallback;
+    // A durable count of ticks that found the subscription presumed paused
+    // (the status view and the alert read the state itself).
+    let sub = watchdog::subscription(
+        &state,
+        settings.silence_ms,
+        journal::notified_head(sql)?,
+        journal::rpc_finalized_head(sql)?,
+        now_ms,
+    );
+    if sub.state == watchdog::SubscriptionState::PresumedPaused {
+        journal::bump(sql, "subscription_presumed_paused_ticks")?;
+    }
     if journal::active_fault(sql)?.is_some() {
         return Ok(TickReport {
             fallback,
@@ -451,10 +463,68 @@ pub struct Status {
     pub transitions: u64,
     pub recent_transitions: Vec<watchdog::Transition>,
     pub journal: journal::JournalStatus,
+    /// The watchdog at a glance: where blocks come from, how far behind the
+    /// cursor is, the last finalized block followed, and the subscription.
+    pub watchdog: WatchdogView,
     pub backfill_claim: Option<claims::ClaimStatus>,
     pub rpc_calls_this_minute: u64,
     pub settings: Settings,
     pub counters: std::collections::BTreeMap<String, u64>,
+}
+
+/// A block the watchdog reports, with its age in this store.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct BlockAt {
+    pub number: u64,
+    pub hash: crate::wire::Id,
+    pub age_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct WatchdogView {
+    /// `webhook` (primary: rtao-rpc deliveries drive the per-block path) or
+    /// `otf_rpc` (fallback: the cron walks the cursor through the public RPC,
+    /// through the same per-block path).
+    pub source: &'static str,
+    /// RPC finalized height minus the cursor height, from this store.
+    pub cursor_lag_blocks: Option<u64>,
+    /// The cursor: the last finalized block followed (provisional until the
+    /// RPC-confirmed watermark reaches it).
+    pub last_finalized: Option<BlockAt>,
+    /// The RPC-confirmed watermark work acts on.
+    pub confirmed: Option<BlockAt>,
+    pub subscription: watchdog::Subscription,
+}
+
+pub fn watchdog_view(
+    settings: &Settings,
+    w: &watchdog::State,
+    j: &journal::JournalStatus,
+    now_ms: u64,
+) -> WatchdogView {
+    let at = |b: Option<BlockRef>, age: Option<u64>| {
+        b.map(|b| BlockAt {
+            number: b.number,
+            hash: b.hash,
+            age_ms: age,
+        })
+    };
+    WatchdogView {
+        source: match w.mode {
+            Mode::Primary => "webhook",
+            Mode::Fallback => "otf_rpc",
+        },
+        cursor_lag_blocks: j.lag_blocks,
+        last_finalized: at(j.cursor, j.cursor_age_ms),
+        confirmed: at(j.confirmed, j.confirmed_age_ms),
+        subscription: watchdog::subscription(
+            w,
+            settings.silence_ms,
+            j.notified_head,
+            j.rpc_finalized_head,
+            now_ms,
+        ),
+    }
 }
 
 pub fn status(
@@ -465,6 +535,8 @@ pub fn status(
 ) -> Result<Status, StoreError> {
     let w = watchdog::load(sql)?;
     let age = |at: Option<u64>| at.map(|at| now_ms.saturating_sub(at));
+    let journal = journal::status(sql, now_ms)?;
+    let view = watchdog_view(settings, &w, &journal, now_ms);
     Ok(Status {
         schema_version,
         mode: w.mode,
@@ -476,7 +548,8 @@ pub fn status(
         watchdog_lag_blocks: w.lag_blocks,
         transitions: watchdog::transition_count(sql)?,
         recent_transitions: watchdog::transitions(sql, 5)?,
-        journal: journal::status(sql, now_ms)?,
+        journal,
+        watchdog: view,
         backfill_claim: claims::status(sql, BACKFILL_OP, now_ms)?,
         rpc_calls_this_minute: claims::rpc_used(sql, now_ms)?,
         settings: *settings,

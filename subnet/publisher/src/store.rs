@@ -87,6 +87,9 @@ pub trait Store {
     /// its trailing `/`.
     async fn list_dirs(&self, prefix: &str) -> Result<Vec<String>, StoreError>;
 
+    /// At most `limit` keys under `prefix` (one listing page, in key order).
+    async fn list_keys(&self, prefix: &str, limit: usize) -> Result<Vec<String>, StoreError>;
+
     /// Deletes `key`; deleting a missing key succeeds.
     async fn delete(&self, key: &str) -> Result<(), StoreError>;
 }
@@ -230,6 +233,17 @@ impl Store for MemStore {
             }
         }
         Ok(dirs.into_iter().collect())
+    }
+
+    async fn list_keys(&self, prefix: &str, limit: usize) -> Result<Vec<String>, StoreError> {
+        Ok(self
+            .objects
+            .borrow()
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .take(limit)
+            .cloned()
+            .collect())
     }
 
     async fn delete(&self, key: &str) -> Result<(), StoreError> {

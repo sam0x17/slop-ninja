@@ -44,11 +44,13 @@
 //! | `status_incomplete` | a status source answered without a field an open status rule reads, for two runs |
 //! | `durable_fault` | a Worker's journal holds a durable fault, or signing is in `fault` |
 //! | `fallback_too_long` | a Worker has been in fallback mode for a whole tempo |
+//! | `webhook_paused` | a Worker reports its webhook subscription presumed paused: no delivery for longer than the provider can retry one, while blocks are owed (paused, or a provider-side stall: an operator checks the subscription's state and resumes it only when paused) |
 //! | `watermark_stalled` | a Worker's RPC-confirmed watermark is older than the watchdog silence plus two cron periods, or absent |
 //! | `phase_overrun` | the active cohort is still in a work phase at its package deadline (`K - transition` tempos after it opened) |
 //! | `scorer_budget_fault` | the active cohort is paused by a scorer or budget fault |
 //! | `cohort_fault` | the active cohort is paused by any other fault |
 //! | `ledger_threshold` | the monthly ledger's spend plus reservations reach 80% of its cap |
+//! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error) |
 //! | `commit_gap` | the coordinator has not committed weights for two or more tempos |
 //! | `coordinator_reveal_mismatch` | a reveal of the coordinator's weights did not match its committed row |
 //! | `publication_refused` | a closed cohort, an artifact's admission record or copy, or the authorization failed verification or the memory budget |
@@ -73,11 +75,12 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v4: an unknown status read (unanswered, or answered without a field an
-/// open entry needs) carries the open entries it would decide, and alerts
-/// after its hold (`status_unreachable`, `status_incomplete`) (v3:
-/// `config_warning`, and resolutions of attempted firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v4";
+/// v5: `webhook_paused` and `retention_stalled` (v4: an unknown status read, unanswered or answered
+/// without a field an open entry needs, carries the open entries it would
+/// decide, and alerts after its hold, `status_unreachable` and
+/// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
+/// firings).
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v5";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -190,6 +193,16 @@ fn worker_conditions(name: &str, w: &WorkerView, r: &Rules, out: &mut Vec<Condit
             0,
         ));
     }
+    if w.subscription.as_deref() == Some("presumed_paused") {
+        out.push(cond(
+            "webhook_paused",
+            name,
+            "no webhook delivery for longer than the provider retries one: paused, or a provider-side \
+             stall; check the subscription's state (GET) before resuming"
+                .into(),
+            0,
+        ));
+    }
     match w.confirmed_age_ms {
         Some(age) if age < r.watermark_stall_ms => {}
         Some(age) => out.push(cond(
@@ -266,6 +279,18 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                     ));
                 }
             }
+        }
+        if let Some(stalled) = e.retention_stalled.as_ref().filter(|v| !v.is_empty()) {
+            out.push(cond(
+                "retention_stalled",
+                "receipts",
+                format!(
+                    "{}; last error: {}",
+                    stalled.join("; "),
+                    e.retention_error.as_deref().unwrap_or("none")
+                ),
+                0,
+            ));
         }
         if e.ledger_permille.is_some_and(|p| p >= r.ledger_permille) {
             out.push(cond(
@@ -372,11 +397,13 @@ pub const STATUS_RULES: &[&str] = &[
     "status_incomplete",
     "durable_fault",
     "fallback_too_long",
+    "webhook_paused",
     "watermark_stalled",
     "phase_overrun",
     "scorer_budget_fault",
     "cohort_fault",
     "ledger_threshold",
+    "retention_stalled",
     "commit_gap",
     "coordinator_reveal_mismatch",
 ];
@@ -402,6 +429,8 @@ const MODE: WorkerField = ("mode", |w| w.mode.is_some());
 const MODE_AGE: WorkerField = ("mode_age_ms", |w| {
     w.mode.as_deref() != Some("fallback") || w.mode_age_ms.is_some()
 });
+/// The subscription state `webhook_paused` reads.
+const SUBSCRIPTION: WorkerField = ("watchdog.subscription", |w| w.subscription.is_some());
 
 fn need_worker(o: &Observed, name: &str, fields: &[WorkerField], n: &mut Vec<Need>) {
     let (source, view) = match name {
@@ -440,10 +469,11 @@ const COHORTS: EvalField = ("cohorts", |e| !e.cohorts_missing);
 /// view and the eval status's epoch; the cohort rules the eval status's
 /// complete cohort list, and `phase_overrun` also its epoch and, while its
 /// cohort is the active one in a work phase, that cohort's `opened_epoch`
-/// and `k_tempos`; `ledger_threshold` the eval status's ledger ratio; a
+/// and `k_tempos`; `ledger_threshold` the eval status's ledger ratio,
+/// `retention_stalled` its `receipt_retention.stalled` list; a
 /// Worker's `durable_fault` its journal block (a `.signing` subject the
 /// signing view instead), `fallback_too_long` its mode (and the mode's age
-/// in fallback), `watermark_stalled` its answer (a missing watermark fires);
+/// in fallback), `webhook_paused` its subscription state, `watermark_stalled` its answer (a missing watermark fires);
 /// `status_incomplete` its source's answer.
 pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
     let mut n = Vec::new();
@@ -453,6 +483,7 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
             None => need_worker(o, subject, &[JOURNAL], &mut n),
         },
         "fallback_too_long" => need_worker(o, subject, &[MODE, MODE_AGE], &mut n),
+        "webhook_paused" => need_worker(o, subject, &[SUBSCRIPTION], &mut n),
         "watermark_stalled" => need_worker(o, subject, &[], &mut n),
         "scorer_budget_fault" | "cohort_fault" => need_eval(o, Some(COHORTS), &mut n),
         "phase_overrun" => {
@@ -475,6 +506,13 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
         "ledger_threshold" => need_eval(
             o,
             Some(("ledger ratio", |e| e.ledger_permille.is_some())),
+            &mut n,
+        ),
+        "retention_stalled" => need_eval(
+            o,
+            Some(("receipt_retention.stalled", |e| {
+                e.retention_stalled.is_some()
+            })),
             &mut n,
         ),
         "commit_gap" | "coordinator_reveal_mismatch" => {
@@ -867,6 +905,25 @@ mod tests {
         assert_eq!(rules_of(&evaluate(&o, &p, &r)), vec!["scorer_budget_fault"]);
         o.eval.as_mut().unwrap().cohorts[1].fault = Some("draw_shortfall".into());
         assert_eq!(rules_of(&evaluate(&o, &p, &r)), vec!["cohort_fault"]);
+        // A retention stall the coordinator reports (completions, not a
+        // clock), with its last error.
+        let mut o = healthy();
+        let mut j = eval_status("admission");
+        j["receipt_retention"]["stalled"] = json!([
+            {"kind": "cohort", "cohort": 3, "label": "testnet-c3", "due_after_cohort": 5, "completions_since": 1},
+            {"kind": "predecessor", "predecessor": "main", "after_cohort": 14, "completions_since": 2}
+        ]);
+        j["receipt_retention"]["last_error"] = json!("authorization_pointer");
+        let mut e = parse_eval(&j);
+        e.ledger_permille = Some(500);
+        o.eval = Some(e);
+        let c = evaluate(&o, &p, &r);
+        assert_eq!(rules_of(&c), vec!["retention_stalled"]);
+        assert_eq!(
+            c[0].detail,
+            "cohort 3 (testnet-c3) due after cohort 5, 1 completion(s) since; predecessor main not \
+             finished after cohort 14, 2 completion(s) since; last error: authorization_pointer"
+        );
         // Ledger at 80%: the fixture's status reads 850 per mille.
         let mut o = healthy();
         o.eval.as_mut().unwrap().ledger_permille =
@@ -1165,7 +1222,7 @@ mod tests {
         let r = rules();
         let p = PublisherObs::default();
         type Edit = fn(&mut Observed);
-        let firing: [(&str, &str, Edit); 9] = [
+        let firing: [(&str, &str, Edit); 11] = [
             ("durable_fault", "coordinator", |o| {
                 o.coordinator = Some(parse_worker(&worker_status("primary", true)))
             }),
@@ -1186,6 +1243,9 @@ mod tests {
             ("watermark_stalled", "eval_worker", |o| {
                 o.eval_worker.as_mut().unwrap().confirmed_age_ms = None
             }),
+            ("webhook_paused", "coordinator", |o| {
+                o.coordinator.as_mut().unwrap().subscription = Some("presumed_paused".into())
+            }),
             ("phase_overrun", "testnet-c7", |o| {
                 o.coordinator.as_mut().unwrap().signing = None;
                 let e = o.eval.as_mut().unwrap();
@@ -1204,6 +1264,9 @@ mod tests {
             ("commit_gap", "coordinator", |o| {
                 o.eval.as_mut().unwrap().epoch = Some(23_169 + 2)
             }),
+            ("retention_stalled", "receipts", |o| {
+                o.eval.as_mut().unwrap().retention_stalled = Some(vec!["cohort 1".into()])
+            }),
         ];
         for (rule, subject, edit) in firing {
             let mut bad = healthy();
@@ -1220,7 +1283,8 @@ mod tests {
                 let mut v = Vec::new();
                 let mut o = bad.clone();
                 match rule {
-                    "durable_fault" | "fallback_too_long" | "watermark_stalled" => {
+                    "durable_fault" | "fallback_too_long" | "watermark_stalled"
+                    | "webhook_paused" => {
                         let name = subject.trim_end_matches(".signing");
                         if name == "coordinator" {
                             o.coordinator = None;
@@ -1255,6 +1319,10 @@ mod tests {
                             v.push(o);
                             let mut o = bad.clone();
                             view(&mut o, name).mode_age_ms = None;
+                            v.push(o);
+                        } else if rule == "webhook_paused" {
+                            let mut o = bad.clone();
+                            view(&mut o, name).subscription = None;
                             v.push(o);
                         }
                     }
@@ -1299,6 +1367,15 @@ mod tests {
                         o.eval = None;
                         v.push(o);
                     }
+                    "retention_stalled" => {
+                        // A coordinator built before the rule answers
+                        // without the list.
+                        o.eval.as_mut().unwrap().retention_stalled = None;
+                        v.push(o);
+                        let mut o = bad.clone();
+                        o.eval = None;
+                        v.push(o);
+                    }
                     _ => {
                         o.coordinator = None;
                         v.push(o);
@@ -1333,13 +1410,13 @@ mod tests {
             // an unrelated source is unknown.
             let mut clear = healthy();
             let other_missing = match rule {
-                "durable_fault" | "fallback_too_long" | "watermark_stalled"
+                "durable_fault" | "fallback_too_long" | "watermark_stalled" | "webhook_paused"
                     if subject.starts_with("coordinator") =>
                 {
                     clear.eval_worker = None;
                     true
                 }
-                "durable_fault" | "fallback_too_long" | "watermark_stalled" => {
+                "durable_fault" | "fallback_too_long" | "watermark_stalled" | "webhook_paused" => {
                     clear.coordinator = None;
                     true
                 }
@@ -1396,7 +1473,7 @@ mod tests {
         let r = rules();
         let runs = r.unreachable_hold_ms / CRON_PERIOD_MS + 3;
         type Edit = fn(&mut Observed);
-        let cases: [(&str, &str, Edit, Edit, &str); 7] = [
+        let cases: [(&str, &str, Edit, Edit, &str); 8] = [
             (
                 "durable_fault",
                 "coordinator",
@@ -1438,6 +1515,13 @@ mod tests {
                 "ledger",
                 |o| o.eval.as_mut().unwrap().ledger_permille = Some(900),
                 |o| o.eval.as_mut().unwrap().ledger_permille = None,
+                "eval",
+            ),
+            (
+                "retention_stalled",
+                "receipts",
+                |o| o.eval.as_mut().unwrap().retention_stalled = Some(vec!["cohort 1".into()]),
+                |o| o.eval.as_mut().unwrap().retention_stalled = None,
                 "eval",
             ),
             (

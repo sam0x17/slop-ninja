@@ -673,6 +673,38 @@ impl DurableObject for EvalCohort {
                     Err(_) => error("store_unavailable", 503),
                 }
             }
+            (Method::Post, "/succession/retention") if instance == engine::INSTANCE_MAIN => {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Notice {
+                    after_cohort: u64,
+                }
+                let n = match super::cf_io::request_json::<Notice>(&mut req, OPERATOR_BODY_BYTES).await {
+                    Ok(n) => n,
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                let c2 = cfg.clone();
+                let r = transaction(&storage, move |sql| {
+                    let r = crate::eval::retention::accept_notice(sql, n.after_cohort)?;
+                    Ok::<_, engine::EvalError>((r, engine::has_work(sql, &c2)?))
+                });
+                match r {
+                    Ok((Ok(v), work)) => {
+                        // A retired authority is no longer kicked: the notice
+                        // arms the step that deletes what became due.
+                        if work && storage.get_alarm().await?.is_none() {
+                            storage.set_alarm(500i64).await?;
+                        }
+                        json(&v)
+                    }
+                    Ok((Err(code), _)) => {
+                        let mut resp = Response::from_json(&j!({"refused": code}))?.with_status(409);
+                        resp.headers_mut().set("Cache-Control", "no-store")?;
+                        Ok(resp)
+                    }
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
             (Method::Post, "/kick") => {
                 let kick = match super::cf_io::request_json::<Kick>(&mut req, OPERATOR_BODY_BYTES).await {
                     Ok(k) => k,
@@ -709,8 +741,13 @@ impl DurableObject for EvalCohort {
                         v["reward"] = v3::regime(sql, chain)?;
                     }
                     // Whether it still has work (the deploy check's switch
-                    // waits for none: `config::deploy_check`).
-                    v["work"] = j!(engine::has_work(sql, &c2)?);
+                    // waits for none: `config::deploy_check`); a due receipt
+                    // deletion is reported apart and never holds a switch.
+                    v["work"] = j!(engine::blocking_work(sql, &c2)?);
+                    v["retention_work"] = j!(crate::eval::retention::has_work(sql)?);
+                    // Structural stalls (completions, never a clock): the
+                    // publisher's `retention_stalled` reads this list.
+                    v["receipt_retention"]["stalled"] = j!(crate::eval::retention::stalled(sql, &c2)?);
                     Ok::<_, engine::EvalError>(v)
                 }) {
                     Ok(mut v) => {
@@ -1313,6 +1350,66 @@ impl EvalCohort {
                     let now = now_ms();
                     transaction(&storage, move |sql| lanes::mark_purged(sql, seq, now)).map_err(|_| "purge commit")?;
                 }
+                Work::RetireReceipts { seq, prefix, keys, marker } => {
+                    // Detailed receipts leave the receipts bucket under the
+                    // N+2 rule (`eval::retention`). The current authorization
+                    // is read first: a cohort it names goes back to waiting.
+                    // A failure is recorded and retried at a later step;
+                    // nothing else waits on it.
+                    let now = now_ms();
+                    let note = |code: &'static str| {
+                        let _ = transaction(&storage, move |sql| crate::eval::retention::note_error(sql, code, now));
+                    };
+                    let hold = match self.authorization_hold(&cfg.chain).await {
+                        Ok(h) => h,
+                        Err(code) => {
+                            note(code);
+                            return Ok(progress);
+                        }
+                    };
+                    let due = transaction(&storage, move |sql| crate::eval::retention::apply_hold(sql, &hold, seq, now))
+                        .map_err(|_| "retention commit")?;
+                    if !due {
+                        progress = true;
+                        continue;
+                    }
+                    if let Some((key, body)) = marker {
+                        if put(&self.env, RECEIPTS_BUCKET, &key, body.into_bytes()).await.is_err() {
+                            note("retention_marker");
+                            return Ok(progress);
+                        }
+                        transaction(&storage, move |sql| crate::eval::retention::note_retiring(sql, seq, now))
+                            .map_err(|_| "retention commit")?;
+                    }
+                    let deleted = match self.retire_page(&prefix, &keys).await {
+                        Ok(d) => d,
+                        Err(code) => {
+                            note(code);
+                            return Ok(progress);
+                        }
+                    };
+                    let r = match deleted {
+                        Some(n) => transaction(&storage, move |sql| {
+                            crate::eval::retention::note_page(sql, seq, n)?;
+                            crate::eval::retention::clear_error(sql)
+                        }),
+                        None => transaction(&storage, move |sql| {
+                            crate::eval::retention::finish(sql, seq, crate::eval::retention::PAGE, now)?;
+                            crate::eval::retention::clear_error(sql)
+                        }),
+                    };
+                    r.map_err(|_| "retention commit")?;
+                }
+                Work::RetentionNotice { predecessor, after_cohort } => {
+                    // Retried whenever a step runs until the predecessor
+                    // reports nothing left (its alarm re-arms only while kicked).
+                    if !self.retention_notice(&predecessor, after_cohort).await {
+                        return Ok(progress);
+                    }
+                    let now = now_ms();
+                    transaction(&storage, move |sql| crate::eval::retention::record_notice(sql, &predecessor, after_cohort, now))
+                        .map_err(|_| "notice commit")?;
+                }
                 Work::AdmissionVerify { .. } | Work::AdmissionLanes | Work::AdmissionCleanup | Work::OpenNext { .. } => {}
                 Work::Dispatch { seq, kicks, stop } => {
                     let faults = transaction(&storage, move |sql| {
@@ -1337,6 +1434,83 @@ impl EvalCohort {
             }
         }
         Ok(progress)
+    }
+
+    /// Deletes one listing page of detailed receipt objects under `prefix` in
+    /// the receipts bucket: `Some(n)` keys deleted, or `None` once the listing
+    /// is empty and the single `keys` are deleted too (a missing key is a
+    /// successful delete).
+    async fn retire_page(&self, prefix: &str, keys: &[String]) -> std::result::Result<Option<u64>, &'static str> {
+        let bucket = self.env.bucket(RECEIPTS_BUCKET).map_err(|_| "receipts_bucket")?;
+        let listed = bucket
+            .list()
+            .prefix(prefix.to_owned())
+            .limit(crate::eval::retention::PAGE as u32)
+            .execute()
+            .await
+            .map_err(|_| "retention_list")?;
+        let page: Vec<String> = listed.objects().iter().map(|o| o.key()).collect();
+        if !page.is_empty() {
+            let n = page.len() as u64;
+            bucket.delete_multiple(page).await.map_err(|_| "retention_delete")?;
+            return Ok(Some(n));
+        }
+        for k in keys {
+            bucket.delete(k).await.map_err(|_| "retention_delete")?;
+        }
+        Ok(None)
+    }
+
+    /// What the current authorization names (`eval::retention::Hold`), from
+    /// the private pointer in the receipts bucket and the object it names,
+    /// each read within its bound (together at most 5 KiB, inside the
+    /// alarm's base footprint, `arena_routes::ALARM_CONTROL_BYTES`). No
+    /// pointer holds nothing; one that cannot be read or parsed is an error,
+    /// so nothing is deleted until it can.
+    async fn authorization_hold(
+        &self,
+        chain: &slop_ninja_protocol::ChainBinding,
+    ) -> std::result::Result<crate::eval::retention::Hold, &'static str> {
+        use crate::eval::retention::contract::{AUTHORIZATION_OBJECT_BOUND, AUTHORIZATION_POINTER_BOUND, AUTHORIZATION_POINTER_KEY};
+        use crate::eval::retention::{Hold, hold_of, pointer_ref};
+        let Some(bytes) = get_bounded(&self.env, RECEIPTS_BUCKET, AUTHORIZATION_POINTER_KEY, AUTHORIZATION_POINTER_BOUND as usize)
+            .await
+            .map_err(|_| "authorization_pointer")?
+        else {
+            return Ok(Hold::None);
+        };
+        let (kind, r) = pointer_ref(&bytes, chain)?;
+        let object = get_bounded(&self.env, RECEIPTS_BUCKET, &r.path, AUTHORIZATION_OBJECT_BOUND as usize)
+            .await
+            .map_err(|_| "authorization_object")?
+            .ok_or("authorization_object")?;
+        hold_of(&kind, &r, &object)
+    }
+
+    /// Tells predecessor `predecessor` that `after_cohort` is this authority's
+    /// second completed cohort (`/succession/retention`). `true` once it
+    /// answers with nothing left to delete; any other answer is retried.
+    async fn retention_notice(&self, predecessor: &str, after_cohort: u64) -> bool {
+        let body = j!({"after_cohort": after_cohort}).to_string();
+        let Ok(mut r) = authority_fetch(
+            &self.env,
+            engine::INSTANCE_MAIN,
+            predecessor,
+            Method::Post,
+            "/succession/retention",
+            Some(body),
+            Some(KICK_TIMEOUT_MS),
+        )
+        .await
+        else {
+            return false;
+        };
+        if r.status_code() != 200 {
+            super::cf_io::discard(&mut r);
+            return false;
+        }
+        let v = super::cf_io::response_json::<Value>(&mut r, DO_REPLY_BYTES).await.unwrap_or_default();
+        v["remaining"].as_u64() == Some(0)
     }
 
     /// Deletes every object under `prefixes` in the eval bucket (deletes are free).

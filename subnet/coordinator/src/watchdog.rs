@@ -252,6 +252,113 @@ pub fn after_head(
     load(sql)
 }
 
+/// The hosted rtao-rpc webhook service's delivery retry contract ("Retries
+/// and automatic pause"): a failed delivery is retried with the same ID and
+/// body ten times after the first attempt, after about these delays, each
+/// with up to 20% jitter; every attempt has 5 s to be acknowledged; after the
+/// last failed attempt the subscription pauses and stays paused until it is
+/// resumed. `Retry-After` can lengthen a delay, but this receiver never
+/// sends it from `/hook`. Blocks during a pause are not owed. Failures on
+/// the provider's side (`service_error`: its chain source, journal or
+/// platform) never count and never pause; they only delay delivery, so a
+/// long provider-side stall looks the same from here. The service does not
+/// name its contract in `GET /v1/subscriptions/{name}`; the operator checks
+/// the deployed service's shape against this contract (TESTNET.md).
+pub const PROVIDER_RETRY_CONTRACT: &str = "rtao_rpc_webhook_retry_v1";
+pub const PROVIDER_RETRY_DELAYS_MS: [u64; 10] = [
+    2_000, 6_000, 18_000, 54_000, 162_000, 486_000, 1_458_000, 4_374_000, 7_200_000, 7_200_000,
+];
+pub const PROVIDER_JITTER_PERMILLE: u64 = 200;
+pub const PROVIDER_ACK_MS: u64 = 5_000;
+
+/// The longest the provider can keep retrying one delivery before it pauses
+/// the subscription: every delay at its full jitter, plus every attempt's
+/// acknowledgement window (about 7.0 h). Derived from the contract above.
+pub const fn pause_horizon_ms() -> u64 {
+    let mut sum = 0;
+    let mut rest: &[u64] = &PROVIDER_RETRY_DELAYS_MS;
+    while let [first, tail @ ..] = rest {
+        sum += *first;
+        rest = tail;
+    }
+    sum * (1_000 + PROVIDER_JITTER_PERMILLE) / 1_000
+        + (PROVIDER_RETRY_DELAYS_MS.len() as u64 + 1) * PROVIDER_ACK_MS
+}
+
+/// What the coordinator can tell about its webhook subscription without the
+/// provider's management API (which needs a credential the Worker does not
+/// hold): from its own durable delivery time, the last block a delivery
+/// named, and the RPC finalized head.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionState {
+    /// A valid delivery within the silence threshold.
+    Delivering,
+    /// No valid delivery for the silence threshold (fallback carries the
+    /// cursor through RPC), but not yet for the provider's whole retry
+    /// horizon: the provider may still be retrying, or recovering.
+    Silent,
+    /// No valid delivery for longer than the provider can retry one delivery,
+    /// while the RPC finalized head is past the last delivered block: every
+    /// owed delivery has exhausted its attempts, so the subscription is
+    /// paused (or gone) and will not resume by itself, or the provider has a
+    /// stall on its own side (`service_error`), which never pauses. An
+    /// operator checks the subscription's state (`GET`) and resumes it only
+    /// when it is paused; fallback keeps the cursor moving meanwhile.
+    PresumedPaused,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Subscription {
+    pub state: SubscriptionState,
+    /// Since the last valid delivery (or the first tick, before any).
+    pub silent_ms: Option<u64>,
+    /// [`pause_horizon_ms`], and the contract it derives from.
+    pub pause_horizon_ms: u64,
+    pub retry_contract: &'static str,
+    /// RPC finalized height minus the last delivered block's height.
+    pub undelivered_blocks: Option<u64>,
+    /// Who resumes a paused subscription: the operator (the alert names it).
+    pub resume: &'static str,
+}
+
+/// The subscription view for `state`, given the last block a delivery named
+/// and the RPC finalized head.
+pub fn subscription(
+    state: &State,
+    silence_ms: u64,
+    delivered: Option<BlockRef>,
+    rpc_head: Option<BlockRef>,
+    now_ms: u64,
+) -> Subscription {
+    let silent_ms = state
+        .last_delivery_ms
+        .or(state.first_tick_ms)
+        .map(|t| now_ms.saturating_sub(t));
+    let undelivered_blocks = match (delivered, rpc_head) {
+        (Some(d), Some(h)) => Some(h.number.saturating_sub(d.number)),
+        (None, Some(h)) => Some(h.number),
+        _ => None,
+    };
+    let horizon = pause_horizon_ms();
+    let state = match silent_ms {
+        Some(s) if s >= horizon && undelivered_blocks.is_some_and(|u| u > 0) => {
+            SubscriptionState::PresumedPaused
+        }
+        Some(s) if s >= silence_ms => SubscriptionState::Silent,
+        Some(_) if state.last_delivery_ms.is_some() => SubscriptionState::Delivering,
+        _ => SubscriptionState::Silent,
+    };
+    Subscription {
+        state,
+        silent_ms,
+        pause_horizon_ms: horizon,
+        retry_contract: PROVIDER_RETRY_CONTRACT,
+        undelivered_blocks,
+        resume: "operator",
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Transition {
     pub seq: u64,

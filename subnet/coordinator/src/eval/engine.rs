@@ -727,10 +727,12 @@ pub fn clear_fault(sql: &impl Sql, label: &str, now_ms: u64) -> R<Cleared> {
 }
 
 /// Operator action: end a faulted cohort without a target, so later cohorts can
-/// open. `reason` is a short content-free code. Everything recorded stays: the
-/// phase log, receipts, the used set (drawn humans are never reused) and the
-/// sealed batch in the eval bucket; private texts leave Durable Object storage
-/// as at a close. The calculation target stays the previous cohort's.
+/// open. `reason` is a short content-free code. The phase log, the used set
+/// (drawn humans are never reused), the sealed batch in the eval bucket and
+/// the cohort row with its receipt root and count stay; its detailed receipts
+/// follow the N+2 rule like any other cohort's (`eval::retention`). Private
+/// texts leave Durable Object storage as at a close. The calculation target
+/// stays the previous cohort's.
 pub fn abandon(sql: &impl Sql, label: &str, reason: &str, now_ms: u64) -> R<bool> {
     let code_ok = !reason.is_empty()
         && reason.len() <= 64
@@ -1278,6 +1280,15 @@ pub enum Work {
     /// Delete a finished cohort's private results objects and summaries (per-
     /// document predictions) from the eval bucket, as its texts are deleted.
     Purge { seq: i64, prefixes: Vec<String> },
+    /// Delete one page of a cohort's detailed receipts from the receipts
+    /// bucket under the N+2 rule (`eval::retention`), after reading the
+    /// current authorization's hold: the content-free `marker` (key, JSON)
+    /// first while it is not yet recorded, then objects under `prefix`, then
+    /// the single `keys`, then its receipt rows.
+    RetireReceipts { seq: i64, prefix: String, keys: Vec<String>, marker: Option<(String, String)> },
+    /// Tell a superseded predecessor that this authority completed two
+    /// cohorts, the second numbered `after_cohort` (`eval::retention`).
+    RetentionNotice { predecessor: String, after_cohort: u64 },
     /// Publish a closed reward-v1 cohort's signed closure and index.
     Close { seq: i64 },
     /// Admission: frame a completed upload (`frame`) or copy its slices to
@@ -1307,11 +1318,39 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work
         return Ok(Some(w));
     }
     let Some(c) = active(sql)? else {
-        return match crate::eval::lanes::settle_due(sql, cfg, now_ms)? {
-            Some(w) => Ok(Some(w)),
-            None => crate::eval::lanes::purge_due(sql, now_ms),
-        };
+        if let Some(w) = crate::eval::lanes::settle_due(sql, cfg, now_ms)? {
+            return Ok(Some(w));
+        }
+        if let Some(w) = crate::eval::lanes::purge_due(sql, now_ms)? {
+            return Ok(Some(w));
+        }
+        return retention_work(sql, cfg);
     };
+    let work = active_work(sql, cfg, c, now_ms)?;
+    // While the active cohort only waits on its lanes (a sweep with nothing
+    // to send or stop), receipt deletion and predecessor notices run, so
+    // back-to-back cohorts never leave the N+2 rule waiting for an idle gap.
+    if let Some(Work::Dispatch { kicks, stop, .. }) = &work
+        && kicks.is_empty()
+        && stop.is_empty()
+        && let Some(w) = retention_work(sql, cfg)?
+    {
+        return Ok(Some(w));
+    }
+    Ok(work)
+}
+
+/// The next receipt deletion step, else a due predecessor notice
+/// (`eval::retention`).
+fn retention_work(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<Work>> {
+    if let Some(w) = crate::eval::retention::next_work(sql, cfg)? {
+        return Ok(Some(w));
+    }
+    crate::eval::retention::notice_due(sql, cfg)
+}
+
+/// The active cohort's next root step or sweep.
+fn active_work(sql: &impl Sql, cfg: &EvalConfig, c: Cohort, now_ms: u64) -> R<Option<Work>> {
     let seq = c.seq;
     match c.phase.as_str() {
         "generating" => {
@@ -2466,6 +2505,7 @@ pub fn note_step(sql: &impl Sql, seq: i64, ms: u64) -> R<()> {
 /// Content-free status: phases, counts, costs, timings and public digests.
 pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
     let o = observed(sql)?;
+    let held = crate::eval::retention::held_seqs(sql)?;
     let mut out = Vec::new();
     for c in cohorts(sql)? {
         let q = |query: &str| -> R<Vec<Row>> { Ok(sql.exec(query, &[i(c.seq)])?) };
@@ -2488,6 +2528,15 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
                 *m.entry(k).or_default() += 1;
                 m
             });
+        // The same codes by document kind (rewrites are `mixed`, scratch
+        // writing `model_only`), so a rejection window is checked per kind.
+        let mut rejects_by_kind: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+        for r in &q("SELECT kind, rejects FROM docs WHERE seq = ? AND rejects != ''")? {
+            let m = rejects_by_kind.entry(text(r, 0)?.to_owned()).or_default();
+            for k in text(r, 1)?.split(';').filter(|x| !x.is_empty()) {
+                *m.entry(k.to_owned()).or_default() += 1;
+            }
+        }
         let usage: Vec<Value> = q("SELECT model, calls, accepted, rejected, errors, prompt_tokens, completion_tokens,
                 cost_microusd, ms, throttled, fenced FROM gen_usage WHERE seq = ? ORDER BY model")?
             .iter()
@@ -2535,6 +2584,7 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
                 target_digest, steps, step_ms, r2_puts, draw, opened_epoch, opened_block, packaged_epoch, closed_epoch,
                 counts, abandoned_reason, abandoned_fault FROM cohorts WHERE seq = ?")?[0];
         let receipts = int(&q("SELECT COUNT(*) FROM receipts WHERE seq = ?")?[0], 0)?;
+        let retention = crate::eval::retention::cohort_status(sql, c.seq, &held)?;
         let v3 = if c.plan.is_v3() {
             let st = crate::eval::v3::state(sql, c.seq)?;
             let e = &q("SELECT admission_closed_epoch, published_epoch, closure_digest FROM cohorts WHERE seq = ?")?[0];
@@ -2557,11 +2607,11 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             "abandoned": opt_text(row, 16).map(|r| json!({"reason": r, "fault": opt_text(row, 17)})),
             "chunk_attempts": chunk_attempts,
             "draw": opt_text(row, 10).and_then(|d| serde_json::from_str::<Value>(&d).ok()),
-            "docs": docs, "rejects": rejects, "generation": usage,
+            "docs": docs, "rejects": rejects, "rejects_by_kind": rejects_by_kind, "generation": usage,
             "generation_cost_microusd": c.gen_cost_microusd,
             "budget_microusd": c.plan.generation_budget_microusd,
             "jobs": jobs, "job_count": job_rows.len(), "job_status": job_status, "lanes": lanes, "load": c.plan.is_load(),
-            "receipts_recorded": receipts,
+            "receipts_recorded": receipts, "receipt_retention": retention,
             "manifest": opt_text(row, 0), "evaluation_set": opt_text(row, 1), "task_count": opt_int(row, 2),
             "receipt_root": opt_text(row, 3), "receipt_count": opt_int(row, 4),
             "package": opt_text(row, 5), "target": opt_text(row, 6),
@@ -2574,15 +2624,28 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
     Ok(json!({
         "observed": o, "kick_age_ms": now_ms.saturating_sub(o.kick_ms),
         "active_tempo_rule": ACTIVE_TEMPO_RULE, "resumable_faults": RESUMABLE_FAULTS,
-        "pool_rows_used": used, "cohorts": out,
+        "pool_rows_used": used, "receipt_retention": crate::eval::retention::status(sql)?, "cohorts": out,
     }))
 }
 
-/// Ensures there is a reason to keep stepping: an active cohort with work, or
-/// a finished cohort whose spend is not yet charged to the ledger, or
-/// admission or calendar work under `cfg` (a retired authority's calendar
-/// opens nothing, so it is no reason to step).
+/// Ensures there is a reason to keep stepping: [`blocking_work`], or a due
+/// receipt deletion (`eval::retention`). A predecessor notice is not work:
+/// it is retried whenever a step runs, so an unreachable predecessor never
+/// keeps this object's alarm armed on its own.
 pub fn has_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
+    Ok(blocking_work(sql, cfg)? || crate::eval::retention::has_work(sql)?)
+}
+
+/// The work a succession or an authority switch waits for (`work` in the
+/// status; `eval::succession::supersede`, `config::deploy_check`): an active
+/// cohort with work, a closure, a finished cohort whose spend is not yet
+/// charged to the ledger or whose private results are not yet purged, or
+/// admission or calendar work under `cfg` (a retired authority's calendar
+/// opens nothing, so it is no reason to step). Due receipt deletions are not
+/// included: a superseded authority finishes them under its successor's
+/// notices (`eval::retention`), so waiting for them adds nothing, and a
+/// storage fault there never holds up a restart.
+pub fn blocking_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
     Ok(active(sql)?.is_some()
         || crate::eval::admission::has_work(sql, cfg)?
         || crate::eval::v3::closure_due(sql)?.is_some()

@@ -2383,6 +2383,17 @@ fn the_authorization_pointer_names_the_installed_authorization_and_latest_revoca
     assert_eq!(o.key, format!("authorizations/{}.signed", hex::encode(sha2::Sha256::digest(&bytes))));
     assert_eq!(pointer.authorization.bytes, bytes.len() as u64);
     slop_ninja_protocol::Signed::<slop_ninja_protocol::LaunchAuthorization>::open(&bytes, &h.trusted).unwrap();
+    // The receipts contract the retention hold and the publisher read accepts
+    // what this writes, within its read bounds; a launch hold names no cohort.
+    use slop_ninja_admission_wire::receipts as contract;
+    assert_eq!(super::authority::POINTER_KEY, contract::AUTHORIZATION_POINTER_KEY);
+    assert!(plan.body.len() as u64 <= contract::AUTHORIZATION_POINTER_BOUND);
+    assert!(bytes.len() as u64 <= contract::AUTHORIZATION_OBJECT_BOUND);
+    let checked = contract::parse_pointer(plan.body.as_bytes(), &chain_binding()).unwrap();
+    assert_eq!(
+        crate::eval::retention::hold_of(&checked.kind, &checked.authorization, &bytes),
+        Ok(crate::eval::retention::Hold::Launch)
+    );
     assert_eq!(plan.sha256, hex::encode(sha2::Sha256::digest(plan.body.as_bytes())));
     // Recorded once; the same plan reports it written.
     assert!(tx(&h.db, |sql| pointer_written(sql, &plan.sha256, T0)).unwrap());
@@ -2399,6 +2410,9 @@ fn the_authorization_pointer_names_the_installed_authorization_and_latest_revoca
     let r = pointer.revocation.unwrap();
     let robj = revoked.objects.iter().find(|o| o.key == r.path).unwrap();
     assert_eq!(robj.hex, hex_rev);
+    assert!(revoked.body.len() as u64 <= contract::AUTHORIZATION_POINTER_BOUND);
+    assert!(hex_rev.len() as u64 / 2 <= contract::AUTHORIZATION_OBJECT_BOUND);
+    contract::parse_pointer(revoked.body.as_bytes(), &chain_binding()).unwrap();
     assert_eq!(h.status().authorization.unwrap().revocations, 1);
 }
 

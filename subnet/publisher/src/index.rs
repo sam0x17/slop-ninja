@@ -145,6 +145,29 @@ pub struct CohortIndex {
     /// detailed receipts were still published wait here for the N+2 rule.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_records: Vec<ArchivedRecord>,
+    /// Closed cohorts of this record whose detailed receipts the coordinator
+    /// deleted under the N+2 rule before this publisher copied them (its
+    /// `receipts-retired.json` marker): never listed, so the gap in the
+    /// record is explained here. Their signed manifest, package and closure
+    /// stay in the private bucket.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired_unpublished: Vec<RetiredCohort>,
+}
+
+/// A closed cohort whose detailed receipts were deleted before publication.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetiredCohort {
+    pub label: String,
+    /// From its signed manifest.
+    pub cohort: u64,
+    pub opened_epoch: u64,
+    /// The coordinator's completion after which they were deleted.
+    pub due_after_cohort: u64,
+    /// Its manifest starts the record (reference index 0, no predecessor):
+    /// later cohorts are listed after it although it is not
+    /// (`publish::record_start`).
+    #[serde(default)]
+    pub starts_record: bool,
 }
 
 /// An earlier public record, moved under `v1/records/<first_label>/` when a
@@ -302,6 +325,7 @@ impl CohortIndex {
             initial_references: Vec::new(),
             record_prefix: None,
             previous_records: Vec::new(),
+            retired_unpublished: Vec::new(),
         };
         index.refresh(chain);
         index

@@ -18,6 +18,7 @@ a_frontier_positives collect OUT LABEL [--limit N] [--shard I/N] [--retry-uncert
     [--recollect RECOLLECT_SHA256]
 a_frontier_positives assemble OUT LABEL NEW_EXPORT
 a_frontier_positives renorm OUT NEW_DEST --profile cc_cohort_profile_v2 --profile-population POPULATION
+    [--rform-duplicates drop-later]
 a_frontier_positives recollect-prepare R0_PLAN REVERDICT NEW_RECOLLECTION --renorm-sha256 HEX
     --records R0_RECORDS
 a_frontier_positives publish DEST PLAN_DIR...
@@ -256,7 +257,8 @@ refused.
 
 ## Frontier re-verdict
 
-`renorm OUT NEW_DEST --profile cc_cohort_profile_v2 --profile-population P`
+`renorm OUT NEW_DEST --profile cc_cohort_profile_v2 --profile-population P
+[--rform-duplicates drop-later]`
 re-verdicts the plan's frontier records under profile v2 with no model call
 (protocol A2 §4.3, B4, with amendment 20's readings). It invokes no CLI and
 writes a new directory (files mode 600, directories 700).
@@ -318,8 +320,38 @@ writes a new directory (files mode 600, directories 700).
     collected with the profile off never does. A withdrawn request has no
     R-form document, as assembly drops its N-form record (item 25.2).
   - The R-form documents of one run are unique by text; a duplicate refuses
-    the run. N0's and S0-13's positives take the raw twins only; the stratum
-    enters only the R-form evaluation populations.
+    the run (protocol A2 item 19.6), naming both ids, unless the run takes
+    `--rform-duplicates drop-later` (next bullet). N0's and S0-13's
+    positives take the raw twins only; the stratum enters only the R-form
+    evaluation populations.
+  - **Duplicate R-form texts** (protocol A2 amendment 37 item 37.1; B28).
+    The option is for a re-run under item 29.3 of a batch whose records were
+    made before B3b. Every other run, including a `finalize` run, a CC
+    assembly and a new collection's re-verdict, keeps item 19.6's refusal.
+    With the option:
+    - the R-form documents that share a `text_sha256` (raw twins and stratum
+      documents, every label) form a group. In key order (labels in the
+      plan's inputs order, requests in each label's request-file order, a
+      raw twin before its request's stratum document), the first keeps its
+      document unchanged;
+    - each later document is not exported. `NEW_DEST/rform-duplicate-drops.jsonl`
+      records it in a line with no text: its id, label and kind (`raw_twin`
+      or `rform_screen_fail_v1`), the reason `duplicate_rform_text`, the kept
+      id and label, the shared digest and, for a raw twin, `twin_of`;
+    - a dropped raw twin's N-form record is still exported, byte for byte.
+      `NEW_DEST/no-raw-twin.jsonl` records it as having no raw twin (the
+      reason, the dropped id and the kept id), so form-sensitivity pairing
+      has no pair for it and N0's raw-twin rows take the kept document only;
+    - `RENORM.json` names the rule and the option (`rules.rform.duplicates`,
+      `rules.rform.duplicates_option`), counts the drops per label and kind
+      (`counts.rform_duplicate_drops`) and binds both files by digest
+      (`outputs.rform_duplicates`). The raw twins' and stratum documents'
+      own rule texts are unchanged.
+
+    The option changes no other output byte: the per-request records, the
+    re-collection plan, the N-form exports and the R-form exports of a run
+    with no duplicate are as without it. Without the option, the summary
+    holds none of these members.
 - Stage 0-H re-collects each `recollect` row of R0's records for its own
   request id with this run's prior record, keyed by the request id,
   continuing from `attempts_used` (next section).

@@ -2210,7 +2210,7 @@ fn reward_v1_cohorts_run_end_to_end_with_probe_copies_canary_and_promotion() {
         target: target.digest().unwrap(),
         checkpoint_generation: 1,
         issued_epoch: cb.closure.closed_epoch,
-        expires_epoch: cb.closure.closed_epoch + u64::from(pb.manifest.schedule.lease_tempos),
+        renew_by_epoch: cb.closure.closed_epoch + u64::from(pb.manifest.schedule.lease_tempos),
     };
     let bundle = crate::target::BundleV2 {
         schema: crate::target::BUNDLE_SCHEMA_V2.into(),
@@ -2244,8 +2244,8 @@ fn reward_v1_cohorts_run_end_to_end_with_probe_copies_canary_and_promotion() {
     assert_eq!(v.derive_row(&snapshot).unwrap(), row, "the validator's row is the coordinator's, bit for bit");
     let vhk = AccountId([0x66; 32]);
     let closed = cb.closure.closed_epoch;
-    assert!(v.operation(&fx_keys, vhk, closed).is_ok());
-    assert!(v.operation(&fx_keys, vhk, closed - 1).is_err(), "never before the target activates");
+    assert!(v.operation(&fx_keys, &[], vhk, closed).is_ok());
+    assert!(v.operation(&fx_keys, &[], vhk, closed - 1).is_err(), "never before the target activates");
     // A tampered unit split is refused before any row exists.
     let mut tampered = p.clone();
     tampered.entrants[0].units -= 1;

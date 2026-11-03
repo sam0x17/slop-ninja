@@ -210,6 +210,8 @@ pub fn migrate(sql: &impl Sql, schema: &Schema) -> Result<MigrationReport, Migra
 ///   a settled diagnostic (for example `reveal_unverifiable`).
 /// - v6: the reveal search's bounds (`commit_ops.reveal_lo`, `reveal_hi`), so
 ///   a search cut short by a round's step limit continues where it stopped.
+/// - v7-v8: the held reward-v1 target and its restarts (see each migration).
+/// - v9: signed revocations and the authorization pointer's confirmed write.
 pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
     family: "chain_journal",
     migrations: &[
@@ -563,6 +565,30 @@ pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     epoch INTEGER NOT NULL,
                     updated_at_ms INTEGER NOT NULL
+                ) STRICT",
+            ],
+        },
+        // v9: no authorization expires. The signed revocations this
+        // coordinator accepted (each withdraws every authorization of its
+        // target issued at or before its epoch; only ever added), and the
+        // authorization pointer it last confirmed written to the receipts
+        // bucket (`authorizations/current.json`, by the SHA-256 of its body).
+        Migration {
+            version: 9,
+            statements: &[
+                "CREATE TABLE sign_revocations (
+                    seq INTEGER PRIMARY KEY,
+                    digest TEXT NOT NULL UNIQUE,
+                    target TEXT NOT NULL,
+                    authorization TEXT NOT NULL,
+                    issued_epoch INTEGER NOT NULL,
+                    signed_hex TEXT NOT NULL,
+                    at_ms INTEGER NOT NULL
+                ) STRICT",
+                "CREATE TABLE sign_pointer (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    sha256 TEXT NOT NULL,
+                    written_at_ms INTEGER NOT NULL
                 ) STRICT",
             ],
         },

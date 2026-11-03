@@ -4,7 +4,7 @@
 //! the protocol's own calculation stays exact.
 
 use slop_ninja_protocol::{
-    CohortSchedule, DECAY_BPS, FALLBACK_BPS, IMPROVEMENT_DIVISOR, LAUNCH_LEASE_TEMPOS,
+    CohortSchedule, DECAY_BPS, FALLBACK_BPS, IMPROVEMENT_DIVISOR, LAUNCH_RENEW_BY_TEMPOS,
     LAUNCH_ORIGIN_MIX, MARGIN_FLOOR, MARGIN_SIGMAS, NEAR_COPY_PPB, NEAR_EQUAL_DIVISOR, SCORE_SCALE,
 };
 
@@ -191,9 +191,11 @@ fn daily_cadence_lease_and_payout_delay() {
         f64::from(schedule.lease_tempos) * tempo_minutes / 60.0,
         48.0
     );
-    // The launch authorization's fixed lease: "40 tempos", two launch cohorts.
-    assert_eq!(LAUNCH_LEASE_TEMPOS, u64::from(schedule.lease_tempos));
-    assert_eq!(LAUNCH_LEASE_TEMPOS as f64 * tempo_minutes / 60.0, 48.0);
+    // The launch authorization's "40 tempos", two launch cohorts: now only
+    // the distance of its non-binding renew-by hint (no authorization
+    // expires; the whitepaper's lease wording awaits its no-expiry update).
+    assert_eq!(LAUNCH_RENEW_BY_TEMPOS, u64::from(schedule.lease_tempos));
+    assert_eq!(LAUNCH_RENEW_BY_TEMPOS as f64 * tempo_minutes / 60.0, 48.0);
     // "A package finished by tempo 18": block 6,480 of the cohort.
     assert_eq!(18 * 360, 6480);
     // First payout: a commitment at the admission cutoff waits until the

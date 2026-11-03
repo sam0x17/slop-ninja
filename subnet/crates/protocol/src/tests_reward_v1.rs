@@ -921,7 +921,7 @@ fn per_tempo_operation_ids_bind_epoch_validator_and_target() -> Result<()> {
     assert_ne!(base, id(&launch, v, e)?);
     let authorized = c.checked_authorization()?;
     let active = c.active_after()?;
-    let op = |e| authorized.operation(None, &active, v, e);
+    let op = |e| authorized.operation(None, &[], &active, v, e);
     assert_eq!(
         op(e - 1).unwrap_err(),
         Error::Invalid("epoch before target activation")
@@ -931,7 +931,7 @@ fn per_tempo_operation_ids_bind_epoch_validator_and_target() -> Result<()> {
 }
 
 #[test]
-fn reward_intent_lease_bounds_new_commitments() -> Result<()> {
+fn reward_intent_authorization_never_expires() -> Result<()> {
     let c = computed()?;
     let keys = crate::fixtures::trusted_keys();
     let v = AccountId([0x66; 32]);
@@ -943,51 +943,35 @@ fn reward_intent_lease_bounds_new_commitments() -> Result<()> {
     assert_eq!(authorized.package(), Some(&c.package));
     assert_eq!(authorized.target(), &c.target);
     assert_eq!(authorized.digest(), a.digest()?);
-    // The lease is the manifest's 2K tempos from publication at tempo 16.
-    assert_eq!(a.lease_tempos(), 40);
+    // The renew-by hint is the manifest's 2K tempos after publication at
+    // tempo 16; it is only a hint.
+    assert_eq!(a.renew_by_tempos(), 40);
     assert_eq!(a.issued_epoch, c.manifest.opened_epoch + 16);
+    assert_eq!(authorized.renew_by_epoch(), a.renew_by_epoch);
     let active = c.active_after()?;
-    let op = |renewal: Option<&CheckedRenewal<'_>>, e| authorized.operation(renewal, &active, v, e);
-    for e in c.closure.closed_epoch..=a.expires_epoch {
+    let op = |renewal: Option<&CheckedRenewal<'_>>, e| authorized.operation(renewal, &[], &active, v, e);
+    // Every epoch from activation on, through and long past the hint, with
+    // no renewal: a coordinator silent for any length of time stops nothing.
+    for e in (c.closure.closed_epoch..=a.renew_by_epoch + 3).chain([a.renew_by_epoch + 100, 1_000_000, u64::MAX]) {
         assert_eq!(
             op(None, e)?,
             WeightOperationV2::for_target(&c.target, v, e)?
         );
     }
-    assert_eq!(
-        op(None, a.expires_epoch + 1).unwrap_err(),
-        Error::Expired("reward intent lease")
-    );
-    // A renewal moves the end forward by the same length and keeps the target.
+    // A hint refresh names the authorization and changes nothing else.
     let renewal = c.checked_renewal(&authorized)?;
     let r = &c.renewal.record;
     assert_eq!(renewal.renewal(), r);
-    assert_eq!(r.expires_epoch, c.manifest.opened_epoch + 30 + 40);
-    assert!(authorized.covers(Some(&renewal), r.expires_epoch)?);
-    op(Some(&renewal), r.expires_epoch)?;
+    assert_eq!(r.renew_by_epoch, c.manifest.opened_epoch + 30 + 40);
+    assert_eq!(op(Some(&renewal), r.renew_by_epoch + 1)?, op(None, r.renew_by_epoch + 1)?);
+    // Before its own issue an authorization yields nothing.
+    let late = fx::signed(fx::authorization(&c.manifest, &c.package, &c.target, 2, a.renew_by_epoch + 20)?)?;
+    let late = RewardIntentAuthorization::check(&late, &keys, &c.manifest, &c.package, &c.target, &active)?;
     assert_eq!(
-        op(Some(&renewal), r.expires_epoch + 1).unwrap_err(),
-        Error::Expired("reward intent lease")
+        late.operation(None, &[], &active, v, a.renew_by_epoch + 19).unwrap_err(),
+        Error::Invalid("epoch before authorization")
     );
-    // A one-day outage after the last renewal stays inside the lease.
-    op(Some(&renewal), r.issued_epoch + 20)?;
-    // A renewal takes effect only from its issue epoch: the lease lapsed at
-    // the authorization's end, and a renewal issued 20 tempos later resumes
-    // commitments there, not before.
-    let late = fx::signed(RewardIntentRenewal::new(
-        &authorized,
-        3,
-        a.expires_epoch + 20,
-    )?)?;
-    let late = RewardIntentRenewal::check(&late, &keys, &authorized)?;
-    assert_eq!(
-        op(Some(&late), a.expires_epoch + 10).unwrap_err(),
-        Error::Invalid("epoch before renewal issue")
-    );
-    assert!(!authorized.covers(Some(&late), a.expires_epoch + 10)?);
-    op(Some(&late), a.expires_epoch + 20)?;
-    // Inside the authorization's own lease the late renewal changes nothing.
-    op(Some(&late), a.expires_epoch)?;
+    late.operation(None, &[], &active, v, a.renew_by_epoch + 20)?;
     // Neither the authorization nor a renewal can retarget a commitment: the
     // authorization is checked against the one target it names, and a renewal
     // extends only the checked authorization it names.
@@ -1012,7 +996,7 @@ fn reward_intent_lease_bounds_new_commitments() -> Result<()> {
     );
     assert_eq!(
         first
-            .operation(Some(&renewal), &c.active_before()?, v, r.issued_epoch)
+            .operation(Some(&renewal), &[], &c.active_before()?, v, r.issued_epoch)
             .unwrap_err(),
         Error::Mismatch("renewed authorization")
     );
@@ -1056,14 +1040,11 @@ fn a_no_target_package_authorizes_the_target_it_leaves_live() -> Result<()> {
     let authorized =
         RewardIntentAuthorization::check(&carried, &keys, &m4, &p4, &c.target, &active)?;
     // Cohort 3's closure still activates its target; cohort 4's package
-    // renews the lease past cohort 3's own.
-    let end = carried.record.expires_epoch;
-    assert!(end > c.authorization.record.expires_epoch);
-    authorized.operation(None, &active, v, end)?;
-    assert_eq!(
-        authorized.operation(None, &active, v, end + 1).unwrap_err(),
-        Error::Expired("reward intent lease")
-    );
+    // authorizes it again, with no end either.
+    let end = carried.record.renew_by_epoch;
+    assert!(end > c.authorization.record.renew_by_epoch);
+    authorized.operation(None, &[], &active, v, end)?;
+    authorized.operation(None, &[], &active, v, end + 1)?;
     // Cohort 4's own closure names no target, so it activates nothing and
     // cohort 3's target stays the active one.
     let closure4 = fx::closure(&m4, &p4, None, &specs)?;
@@ -1076,7 +1057,7 @@ fn a_no_target_package_authorizes_the_target_it_leaves_live() -> Result<()> {
     // commits nothing under the checked authorization.
     assert_eq!(
         authorized
-            .operation(None, &c.active_before()?, v, end)
+            .operation(None, &[], &c.active_before()?, v, end)
             .unwrap_err(),
         Error::Mismatch("authorized target not active")
     );
@@ -1096,10 +1077,10 @@ fn a_no_target_package_authorizes_the_target_it_leaves_live() -> Result<()> {
     let burn = fx::signed(fx::authorization(&m0, &p0, &launch, 1, 16)?)?;
     let unactivated = ActiveTarget::launch(&chain())?;
     let first = RewardIntentAuthorization::check(&burn, &keys, &m0, &p0, &launch, &unactivated)?;
-    first.operation(None, &unactivated, v, 16)?;
+    first.operation(None, &[], &unactivated, v, 16)?;
     // Once cohort 3's target is active, the carried burn row commits nothing.
     assert_eq!(
-        first.operation(None, &active, v, 16).unwrap_err(),
+        first.operation(None, &[], &active, v, 16).unwrap_err(),
         Error::Mismatch("authorized target not active")
     );
     assert_eq!(
@@ -1118,11 +1099,11 @@ fn launch_authorization_serves_until_the_first_target_activates() -> Result<()> 
     assert!(unactivated.is_launch_burn());
     assert_eq!(unactivated.digest(), launch.digest()?);
     // Issued at the first tempo of cohort 1 (epoch 20), before any manifest:
-    // it names only the chain and the burn row, with the fixed lease.
+    // it names only the chain and the burn row, with the fixed hint distance.
     let first = LaunchAuthorization::new(&chain(), 1, 20)?;
     assert_eq!(
-        first.expires_epoch - first.issued_epoch,
-        LAUNCH_LEASE_TEMPOS
+        first.renew_by_epoch - first.issued_epoch,
+        LAUNCH_RENEW_BY_TEMPOS
     );
     assert_eq!(first.target, launch.digest()?);
     let signed = fx::signed(first.clone())?;
@@ -1131,23 +1112,22 @@ fn launch_authorization_serves_until_the_first_target_activates() -> Result<()> 
     assert_eq!((checked.manifest(), checked.package()), (None, None));
     assert_eq!(checked.target(), &launch);
     assert_eq!(
-        checked.operation(None, &unactivated, v, 20)?,
+        checked.operation(None, &[], &unactivated, v, 20)?,
         WeightOperationV2::for_target(&launch, v, 20)?
     );
-    checked.operation(None, &unactivated, v, 60)?;
     assert_eq!(
-        checked.operation(None, &unactivated, v, 19).unwrap_err(),
+        checked.operation(None, &[], &unactivated, v, 19).unwrap_err(),
         Error::Invalid("epoch before authorization")
     );
-    assert_eq!(
-        checked.operation(None, &unactivated, v, 61).unwrap_err(),
-        Error::Expired("reward intent lease")
-    );
-    // Renewed like any authorization, with the same fixed lease.
+    // No end: the hint (epoch 60) passes and the burn row keeps committing.
+    for e in [60, 61, 117, 118, 10_000] {
+        checked.operation(None, &[], &unactivated, v, e)?;
+    }
+    // A hint refresh keeps the same fixed distance and is never needed.
     let renewal = fx::signed(RewardIntentRenewal::new(&checked, 1, 30)?)?;
-    assert_eq!(renewal.record.expires_epoch, 30 + LAUNCH_LEASE_TEMPOS);
+    assert_eq!(renewal.record.renew_by_epoch, 30 + LAUNCH_RENEW_BY_TEMPOS);
     let renewal = RewardIntentRenewal::check(&renewal, &keys, &checked)?;
-    checked.operation(Some(&renewal), &unactivated, v, 70)?;
+    checked.operation(Some(&renewal), &[], &unactivated, v, 70)?;
     // Cohort 1 publishes the first package with a new target. Its target is
     // pending until the closing boundary, so the burn row stays active and
     // the launch authorization keeps serving.
@@ -1160,6 +1140,7 @@ fn launch_authorization_serves_until_the_first_target_activates() -> Result<()> 
     RewardIntentAuthorization::check(&a1, &keys, &m1, &p1, &t1, &unactivated)?;
     LaunchAuthorization::check(&signed, &keys, &chain(), &unactivated)?.operation(
         None,
+        &[],
         &unactivated,
         v,
         37,
@@ -1176,13 +1157,13 @@ fn launch_authorization_serves_until_the_first_target_activates() -> Result<()> 
         Error::Invalid("launch authorization after activation")
     );
     let a1 = RewardIntentAuthorization::check(&a1, &keys, &m1, &p1, &t1, &activated)?;
-    a1.operation(None, &activated, v, closure1.closed_epoch)?;
-    // Lease, chain, target and signer are fixed.
+    a1.operation(None, &[], &activated, v, closure1.closed_epoch)?;
+    // Hint distance, chain, target and signer are fixed.
     let mut long = first.clone();
-    long.expires_epoch += 1;
+    long.renew_by_epoch += 1;
     assert_eq!(
         LaunchAuthorization::check(&fx::signed(long)?, &keys, &chain(), &unactivated).unwrap_err(),
-        Error::Mismatch("authorization lease")
+        Error::Mismatch("authorization renew-by hint")
     );
     assert_eq!(
         LaunchAuthorization::check(&signed, &keys, &finney(), &ActiveTarget::launch(&finney())?)
@@ -1602,7 +1583,7 @@ fn only_a_checked_closure_activates_its_target() -> Result<()> {
         closure
             .check(&c.manifest, &c.package, Some(&c.target))
             .and_then(|k| ActiveTarget::activated(&k))
-            .and_then(|a| authorized.operation(None, &a, v, c.authorization.record.issued_epoch))
+            .and_then(|a| authorized.operation(None, &[], &a, v, c.authorization.record.issued_epoch))
     };
     assert_eq!(
         activation(&early).unwrap_err(),
@@ -1623,13 +1604,13 @@ fn only_a_checked_closure_activates_its_target() -> Result<()> {
     assert_eq!(active.activated_epoch(), Some(c.closure.closed_epoch));
     assert_eq!(
         authorized
-            .operation(None, &active, v, c.closure.closed_epoch)?
+            .operation(None, &[], &active, v, c.closure.closed_epoch)?
             .id(),
         WeightOperationV2::for_target(&c.target, v, c.closure.closed_epoch)?.id()
     );
     assert_eq!(
         authorized
-            .operation(None, &active, v, c.closure.closed_epoch - 1)
+            .operation(None, &[], &active, v, c.closure.closed_epoch - 1)
             .unwrap_err(),
         Error::Invalid("epoch before target activation")
     );
@@ -1650,17 +1631,16 @@ fn only_a_checked_authorization_yields_an_operation() -> Result<()> {
     // a `CheckedAuthorization`; the doctests on `CheckedAuthorization` show
     // that neither compiles otherwise. Each authorization below meets every
     // condition the operation itself applies at its epoch (the target and its
-    // closure, the issue epoch and its own lease end), but fails its check,
-    // so it yields no operation.
+    // closure and the issue epoch), but fails its check, so it yields no
+    // operation.
     let base = c.authorization.record.clone();
-    // A lease one tempo longer than the frozen `lease_tempos`, used one tempo
-    // past the frozen lease end.
+    // A renew-by hint one tempo past the frozen `lease_tempos` distance.
     let mut long = base.clone();
-    long.expires_epoch += 1;
+    long.renew_by_epoch += 1;
     // Issued before the cohort opened.
     let mut early = base.clone();
     early.issued_epoch = c.manifest.opened_epoch - 1;
-    early.expires_epoch = early.issued_epoch + lease;
+    early.renew_by_epoch = early.issued_epoch + lease;
     // The launch burn row under a package that produced a target.
     let burn = fx::authorization(&c.manifest, &c.package, &launch, 1, epoch - 4)?;
     // The package's own target, but signed under the package key.
@@ -1668,9 +1648,9 @@ fn only_a_checked_authorization_yields_an_operation() -> Result<()> {
         (
             fx::signed(long.clone())?,
             &c.target,
-            long.expires_epoch,
+            long.renew_by_epoch,
             &active,
-            Error::Mismatch("authorization lease"),
+            Error::Mismatch("authorization renew-by hint"),
         ),
         (
             fx::signed(early.clone())?,
@@ -1697,7 +1677,7 @@ fn only_a_checked_authorization_yields_an_operation() -> Result<()> {
     for (authorization, target, at, active, refusal) in cases {
         let record = &authorization.record;
         assert_eq!(record.target, target.digest()?);
-        assert!(record.issued_epoch <= at && at <= record.expires_epoch);
+        assert!(record.issued_epoch <= at);
         assert!(active.activated_epoch().is_none_or(|a| at >= a));
         assert_eq!(
             RewardIntentAuthorization::check(
@@ -1708,7 +1688,7 @@ fn only_a_checked_authorization_yields_an_operation() -> Result<()> {
                 target,
                 active
             )
-            .and_then(|a| a.operation(None, active, v, at))
+            .and_then(|a| a.operation(None, &[], active, v, at))
             .unwrap_err(),
             refusal
         );
@@ -1764,7 +1744,7 @@ fn only_a_checked_authorization_yields_an_operation() -> Result<()> {
     let authorized = c.checked_authorization()?;
     let renewal = c.checked_renewal(&authorized)?;
     assert_eq!(
-        authorized.operation(Some(&renewal), &active, v, epoch)?,
+        authorized.operation(Some(&renewal), &[], &active, v, epoch)?,
         WeightOperationV2::for_target(&c.target, v, epoch)?
     );
     Ok(())
@@ -2580,8 +2560,8 @@ fn operations_recheck_the_active_target_every_tempo() -> Result<()> {
     let c = computed()?;
     let keys = crate::fixtures::trusted_keys();
     let v = AccountId([0x66; 32]);
-    // A launch authorization checked before cohort 3's closing boundary, and
-    // renewed, keeps the burn row committed while cohort 3's target is
+    // A launch authorization checked before cohort 3's closing boundary, with
+    // a hint refresh, keeps the burn row committed while cohort 3's target is
     // pending.
     let unactivated = c.active_before()?;
     let issued = c.manifest.opened_epoch;
@@ -2595,16 +2575,15 @@ fn operations_recheck_the_active_target_every_tempo() -> Result<()> {
     let renewal = RewardIntentRenewal::check(&renewal, &keys, &kept)?;
     let boundary = c.closure.closed_epoch;
     assert_eq!(
-        kept.operation(Some(&renewal), &unactivated, v, boundary - 1)?,
+        kept.operation(Some(&renewal), &[], &unactivated, v, boundary - 1)?,
         WeightOperationV2::for_target(&CalculationTargetV2::launch_burn(chain()), v, boundary - 1)?
     );
-    // Kept across the boundary, it commits the burn row no longer, although
-    // its lease and its renewal still cover these epochs.
+    // Kept across the boundary, it commits the burn row no longer: it is
+    // superseded by cohort 3's activation, with no end epoch involved.
     let active = c.active_after()?;
-    for e in [boundary, boundary + 1, renewal.renewal().expires_epoch] {
-        assert!(kept.covers(Some(&renewal), e)?);
+    for e in [boundary, boundary + 1, renewal.renewal().renew_by_epoch] {
         assert_eq!(
-            kept.operation(Some(&renewal), &active, v, e).unwrap_err(),
+            kept.operation(Some(&renewal), &[], &active, v, e).unwrap_err(),
             Error::Invalid("launch authorization after activation")
         );
     }
@@ -2613,13 +2592,12 @@ fn operations_recheck_the_active_target_every_tempo() -> Result<()> {
     let authorized = c.checked_authorization()?;
     assert_eq!(
         authorized
-            .operation(None, &unactivated, v, boundary)
+            .operation(None, &[], &unactivated, v, boundary)
             .unwrap_err(),
         Error::Mismatch("authorized target not active")
     );
-    authorized.operation(None, &active, v, boundary)?;
-    // Once a successor target activates, cohort 3's authorization stops too,
-    // inside its renewed lease.
+    authorized.operation(None, &[], &active, v, boundary)?;
+    // Once a successor target activates, cohort 3's authorization stops too.
     let successor = fx::successor_of(&c)?;
     let checked = successor.closure.check(
         &successor.manifest,
@@ -2629,17 +2607,16 @@ fn operations_recheck_the_active_target_every_tempo() -> Result<()> {
     let next = ActiveTarget::activated(&checked)?;
     let e = successor.closure.closed_epoch;
     let renewal3 = c.checked_renewal(&authorized)?;
-    assert!(authorized.covers(Some(&renewal3), e)?);
-    authorized.operation(Some(&renewal3), &active, v, e)?;
+    authorized.operation(Some(&renewal3), &[], &active, v, e)?;
     assert_eq!(
         authorized
-            .operation(Some(&renewal3), &next, v, e)
+            .operation(Some(&renewal3), &[], &next, v, e)
             .unwrap_err(),
         Error::Mismatch("authorized target not active")
     );
     // An active target on another chain is never the authorized one.
     assert_eq!(
-        kept.operation(None, &ActiveTarget::launch(&finney())?, v, issued)
+        kept.operation(None, &[], &ActiveTarget::launch(&finney())?, v, issued)
             .unwrap_err(),
         Error::Mismatch("authorized target not active")
     );
@@ -3093,16 +3070,44 @@ fn print_golden_reward_v1_report() -> Result<()> {
 }
 
 #[test]
-fn a_launch_bundle_commits_only_the_burn_row_within_its_lease() -> Result<()> {
+fn a_launch_bundle_commits_only_the_burn_row_with_no_end() -> Result<()> {
     let keys = crate::fixtures::trusted_keys();
     let launch = fx::signed(LaunchAuthorization::new(&chain(), 1, 100)?)?.to_bytes()?;
     let v = target_bundle::verify(&chain(), &keys, &ActiveTarget::launch(&chain())?, None, Authorizing::Launch { authorization: &launch, renewal: None })?;
     assert_eq!(v.target, CalculationTargetV2::launch_burn(chain()));
-    assert_eq!(v.checked_lease(&keys)?, (100, 140));
+    let terms = v.checked_terms(&keys)?;
+    assert_eq!((terms.issued_epoch, terms.renew_by_epoch, terms.checkpoint_generation), (100, 140, 1));
     let hk = AccountId([0x66; 32]);
-    let op = v.operation(&keys, hk, 120)?;
+    let op = v.operation(&keys, &[], hk, 120)?;
     assert_eq!(op, WeightOperationV2::for_target(&v.target, hk, 120)?);
-    assert_eq!(v.operation(&keys, hk, 141).unwrap_err(), Error::Expired("reward intent lease"));
+    // Past the renew-by hint the burn row keeps committing.
+    for e in [140, 141, 100_000] {
+        assert_eq!(v.operation(&keys, &[], hk, e)?, WeightOperationV2::for_target(&v.target, hk, e)?);
+    }
+    assert_eq!(v.operation(&keys, &[], hk, 99).unwrap_err(), Error::Invalid("epoch before authorization"));
+    // A signed revocation of the burn row's authorization stops it; one of
+    // another target, or a forged one, does not pass for it.
+    let auth = Signed::<LaunchAuthorization>::from_bytes(&launch)?;
+    let checked = LaunchAuthorization::check(&auth, &keys, &chain(), &ActiveTarget::launch(&chain())?)?;
+    let revocation = fx::signed(RewardIntentRevocation::new(&checked, 1, 150)?)?;
+    assert_eq!(v.revoked_by(&keys, std::slice::from_ref(&revocation))?, Some(revocation.record.digest()?));
+    assert_eq!(
+        v.operation(&keys, std::slice::from_ref(&revocation), hk, 151).unwrap_err(),
+        Error::Revoked("reward intent authorization")
+    );
+    let mut other = revocation.record.clone();
+    other.target = Digest([7; 32]);
+    let other = fx::signed(other)?;
+    assert_eq!(v.revoked_by(&keys, std::slice::from_ref(&other))?, None);
+    v.operation(&keys, std::slice::from_ref(&other), hk, 151)?;
+    let mut forged = revocation.clone();
+    forged.signature[1] ^= 4;
+    assert_eq!(v.operation(&keys, &[forged], hk, 151).unwrap_err(), Error::BadSignature);
+    // A later launch authorization re-authorizes the burn row.
+    let again = fx::signed(LaunchAuthorization::new(&chain(), 2, 151)?)?.to_bytes()?;
+    let again = target_bundle::verify(&chain(), &keys, &ActiveTarget::launch(&chain())?, None, Authorizing::Launch { authorization: &again, renewal: None })?;
+    assert_eq!(again.revoked_by(&keys, std::slice::from_ref(&revocation))?, None);
+    again.operation(&keys, std::slice::from_ref(&revocation), hk, 151)?;
     // The row burns through the owner hotkey of the holder's snapshot.
     let snapshot = RegistrationSnapshotV2 {
         chain: chain(),

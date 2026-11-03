@@ -22,7 +22,8 @@ pub enum Error {
     Duplicate(&'static str),
     Mismatch(&'static str),
     Overflow(&'static str),
-    Expired(&'static str),
+    /// A signed revocation withdrew the authorization.
+    Revoked(&'static str),
     Deferred(&'static str),
     WrongRole,
     UntrustedKey,
@@ -50,7 +51,7 @@ impl Error {
             Self::Duplicate(_) => "duplicate",
             Self::Mismatch(_) => "mismatch",
             Self::Overflow(_) => "overflow",
-            Self::Expired(_) => "expired",
+            Self::Revoked(_) => "revoked",
             Self::Deferred(_) => "deferred",
             Self::WrongRole => "wrong_role",
             Self::UntrustedKey => "untrusted_key",
@@ -75,7 +76,7 @@ impl fmt::Display for Error {
             | Self::Duplicate(what)
             | Self::Mismatch(what)
             | Self::Overflow(what)
-            | Self::Expired(what)
+            | Self::Revoked(what)
             | Self::Deferred(what) => write!(f, "{}: {what}", self.code()),
             _ => f.write_str(self.code()),
         }

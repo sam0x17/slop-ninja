@@ -5,8 +5,11 @@
 //! The layout is the publisher's `v1` (`docs/testnet/public-layout.md`):
 //!
 //! - `v1/authorizations/current.json` names the authorization that lets
-//!   validators commit now (launch or cohort), and any renewal of it, each a
-//!   content-addressed object with its SHA-256 and length;
+//!   validators commit now (launch or cohort), any renew-by hint refresh of
+//!   it, and the latest signed revocation, if any, each a content-addressed
+//!   object with its SHA-256 and length. A named revocation is checked and
+//!   journaled ([`crate::revocations`]) before anything else is fetched, so
+//!   it takes effect whatever the rest of the session does;
 //! - `v1/cohorts/index.json` lists every published cohort with its target
 //!   digest and whether its detailed receipts are still published;
 //! - each cohort's `publication.json` lists every object copied, with its
@@ -19,7 +22,7 @@
 //! change what is verified, and it cannot grow the cache or the process past
 //! the session bound:
 //!
-//! - authorization and renewal objects are fixed-size records: their listed
+//! - authorization, renewal and revocation objects are fixed-size records: their listed
 //!   length must be the schema's exact signed length, they are read into
 //!   memory and their signature is checked before anything else is fetched;
 //!   they are never cached;
@@ -81,7 +84,8 @@ use slop_ninja_protocol::submission::CohortClosure;
 use slop_ninja_protocol::{
     ActiveTarget, CalculationTargetV2, ChainBinding, CohortManifestV2, Digest, FingerprintIndex,
     LaunchAuthorization, PublishedContents, PublishedIndex, ReceiptIndex, Record,
-    RewardIntentAuthorization, RewardIntentRenewal, ScorePackageV2, Signed, TrustedKeys,
+    RewardIntentAuthorization, RewardIntentRenewal, RewardIntentRevocation, ScorePackageV2, Signed,
+    TrustedKeys,
 };
 
 use crate::package::{MAX_BUNDLE_BYTES, Refusal, protocol};
@@ -126,6 +130,17 @@ fn signed_len<R: Record>(record: R) -> Result<u64> {
     Ok(bytes.len() as u64)
 }
 
+/// Schema-exact signed length of a revocation.
+pub fn revocation_length(chain: &ChainBinding) -> Result<u64> {
+    signed_len(RewardIntentRevocation {
+        chain: chain.clone(),
+        target: Digest([0; 32]),
+        authorization: Digest([0; 32]),
+        checkpoint_generation: 0,
+        issued_epoch: 0,
+    })
+}
+
 /// Schema-exact signed lengths of a launch authorization, a reward-intent
 /// authorization and a renewal.
 pub fn authorization_lengths(chain: &ChainBinding) -> Result<(u64, u64, u64)> {
@@ -139,13 +154,13 @@ pub fn authorization_lengths(chain: &ChainBinding) -> Result<(u64, u64, u64)> {
         target: Digest([0; 32]),
         checkpoint_generation: 0,
         issued_epoch: 0,
-        expires_epoch: 1,
+        renew_by_epoch: 1,
     };
     let renewal = RewardIntentRenewal {
         authorization: Digest([0; 32]),
         checkpoint_generation: 0,
         issued_epoch: 0,
-        expires_epoch: 1,
+        renew_by_epoch: 1,
     };
     Ok((signed_len(launch)?, signed_len(cohort)?, signed_len(renewal)?))
 }
@@ -222,6 +237,9 @@ pub struct AuthorizationPointer {
     pub authorization: ObjectRef,
     #[serde(default)]
     pub renewal: Option<ObjectRef>,
+    /// The latest signed revocation the coordinator issued, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revocation: Option<ObjectRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -857,10 +875,13 @@ pub struct BundleInfo {
     pub kind: String,
     pub target: String,
     pub activated_epoch: Option<u64>,
-    /// The authorization's own lease, inclusive.
-    pub lease: (u64, u64),
-    /// The last epoch the authorization or its renewal covers.
-    pub lease_end: u64,
+    /// Digest of the authorization record.
+    pub authorization: String,
+    /// First epoch at which the authorization yields a commitment.
+    pub issued_epoch: u64,
+    /// Its non-binding renew-by hint (or a refresh's). It never pauses
+    /// anything.
+    pub renew_by_epoch: u64,
     pub cohort: Option<String>,
     pub carrier: Option<u64>,
     pub receipts_verified: u64,
@@ -870,25 +891,17 @@ impl BundleInfo {
     /// Read from a bundle that [`crate::package_v2::verify`] accepted.
     pub fn of(bytes: &[u8], authorized: &Authorized) -> Result<Self> {
         let b: BundleV2 = serde_json::from_slice(bytes)?;
-        let lease = authorized
+        let terms = authorized
             .verified
-            .checked_lease(&authorized.keys)
-            .map_err(|e| anyhow::anyhow!("lease: {e}"))?;
-        let renewal_end = match &b.authorization.renewal {
-            Some(r) => Some(
-                Signed::<RewardIntentRenewal>::from_bytes(&hex::decode(r)?)
-                    .map_err(|e| anyhow::anyhow!("renewal: {e}"))?
-                    .record
-                    .expires_epoch,
-            ),
-            None => None,
-        };
+            .checked_terms(&authorized.keys)
+            .map_err(|e| anyhow::anyhow!("authorization: {e}"))?;
         Ok(Self {
             kind: b.authorization.kind.clone(),
             target: authorized.verified.target_digest.to_string(),
             activated_epoch: authorized.verified.active.activated_epoch(),
-            lease,
-            lease_end: lease.1.max(renewal_end.unwrap_or(0)),
+            authorization: terms.digest.to_string(),
+            issued_epoch: terms.issued_epoch,
+            renew_by_epoch: terms.renew_by_epoch,
             cohort: authorized
                 .verified
                 .source
@@ -912,6 +925,9 @@ pub struct Session<'a, T: Transport> {
     pub previous: Option<&'a str>,
     /// Cohorts of the installed bundle, which pruning keeps.
     pub keep: &'a [String],
+    /// Where a revocation the pointer names is journaled
+    /// ([`crate::revocations::record`]); `None` checks it without keeping it.
+    pub revocations: Option<&'a Path>,
 }
 
 /// Holds the cache for one session; released on drop.
@@ -1075,6 +1091,27 @@ impl<T: Transport> Session<'_, T> {
         pointer
             .chain
             .check(self.chain, "the authorization pointer")?;
+        if let Some(r) = &pointer.revocation {
+            let bytes = step!(
+                self.authorization_object::<RewardIntentRevocation>(reader, r, revocation_length(self.chain)?)
+                    .await?
+            );
+            if let Err(error) = crate::revocations::check(&bytes, self.keys, self.chain) {
+                return Ok(Outcome::Refused(Refusal::new("revocation_refused", format!("{error:#}"))));
+            }
+            if let Some(store) = self.revocations {
+                let recorded = crate::revocations::record(store, self.keys, self.chain, &bytes)?;
+                if recorded.new {
+                    tracing::warn!(
+                        event = "revocation_recorded",
+                        source = "fetch",
+                        revocation = %recorded.entry.digest,
+                        target = %recorded.entry.target,
+                        alert = true
+                    );
+                }
+            }
+        }
         let (launch_len, cohort_len, renewal_len) = authorization_lengths(self.chain)?;
         let authorization = match pointer.kind.as_str() {
             "launch" => step!(

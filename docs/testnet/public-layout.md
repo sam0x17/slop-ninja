@@ -52,8 +52,8 @@ up at announce time. `{public}` below is the host's base URL.
 | `v1/reference/current.json`, `v1/reference/previous.json` | `R_k` and `R_k-1` after the newest cohort's close, schema `slop_ninja.public.reference/v1` | when a cohort closes |
 | `v1/reference/packages/<sha256>/...` | One staged [reference package](reference-packages.md), named by its parts manifest's SHA-256: `artifact-files.json`, `parts/<sha256>`, `package.json`, `NOTICE.md`, `upstream/` and `reference/`, and for `R_0` its training companion `training/` | never, once staged |
 | `v1/artifacts/<sha256>.bin` | An admitted outside entrant's artifact object, named by its SHA-256 | never, once written |
-| `v1/authorizations/current.json` | The authorization validators commit under now, and its renewal, schema `slop_ninja.public.authorization/v1` | when the coordinator issues or renews one |
-| `v1/authorizations/<sha256>.signed` | One signed authorization or renewal, named by its SHA-256 | never, once written |
+| `v1/authorizations/current.json` | The authorization validators commit under now, any renew-by hint refresh and the latest signed revocation, schema `slop_ninja.public.authorization/v1` | when the coordinator installs an authorization or journals a revocation |
+| `v1/authorizations/<sha256>.signed` | One signed authorization, refresh or revocation, named by its SHA-256 | never, once written |
 | `v1/trust/testnet-trust.json` | The trust roots, byte-identical to the release's file | when the roots rotate (decision D20) |
 
 ### One cohort: `v1/cohorts/<label>/`
@@ -179,7 +179,8 @@ role.
 ## Authorizations
 
 `v1/authorizations/current.json` names the authorization validators commit
-under now and, when there is one, its latest renewal:
+under now and, when there are any, a refresh of its renew-by hint and the
+latest signed revocation:
 
 ```json
 {
@@ -187,25 +188,34 @@ under now and, when there is one, its latest renewal:
   "chain": { "genesis": "8f9c…3105", "netuid": 601, "mechanism": 0 },
   "kind": "cohort",
   "authorization": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> },
-  "renewal": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
+  "renewal": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> },
+  "revocation": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
 }
 ```
 
 - `kind` is `launch` (a `LaunchAuthorization` of the launch burn row) or
   `cohort` (a `RewardIntentAuthorization`); `renewal` is a
-  `RewardIntentRenewal` of that authorization, or absent.
+  `RewardIntentRenewal` of that authorization, or absent; `revocation` is a
+  `RewardIntentRevocation`, or absent (the key is left out).
+- No authorization expires. Its `renew_by_epoch` is a non-binding hint: an
+  authorization keeps validators committing its target until a newer one
+  supersedes it or a revocation withdraws it (every authorization of the
+  revocation's target issued at or before the revocation's epoch). Validators
+  journal a revocation before anything else.
 - Each object is content-addressed and signed with the authorization key.
   Check its SHA-256 and length, then open it under the trust roots.
 - A `cohort` authorization appears only once the cohort that carries it is
   listed in the index, with the manifest and package digests it names.
-- The pointer is rewritten when the coordinator issues or renews an
-  authorization. Objects are never deleted.
+- The pointer is rewritten when the coordinator installs an authorization or
+  journals a revocation. It has no validity window. Objects are never
+  deleted.
 
 The publisher's source is the coordinator's private pointer
 `authorizations/current.json` in the receipts bucket, with the same schema
 and private object keys `authorizations/<sha256>.signed`. The publisher
-checks each object's digest, length and signature, and that a renewal renews
-the named authorization, before it copies anything.
+checks each object's digest, length and signature, that a renewal renews
+the named authorization and that a revocation names this chain, before it
+copies anything.
 
 ## The status snapshot: `v1/status.json`
 

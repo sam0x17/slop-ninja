@@ -12,7 +12,9 @@
 //! closure is checked against the manifest's frozen minimums and activates the
 //! target; and the reward-intent (or launch) authorization is checked against
 //! the active target and its carrying cohort. Each per-tempo commitment checks
-//! the authorization again for its epoch.
+//! the authorization again for its epoch and against this validator's
+//! journaled revocations ([`crate::revocations`]). No authorization expires:
+//! its renew-by hint never refuses a commitment.
 //!
 //! Bundle schema v3 (`slop_ninja.reward_v1_bundle/v3`) carries the same
 //! records, except that the receipt indexes and receipt chunk objects of the
@@ -34,7 +36,7 @@ use rtao_primitives::{MechId, Uid};
 use serde::{Deserialize, Serialize};
 use slop_ninja_protocol::{
     AccountId, ActiveTarget, ChainBinding, Digest, NeuronIdentity, Record, RegistrationSnapshot,
-    RegistrationSnapshotV2, TrustedKeys, VerifiedTarget,
+    RegistrationSnapshotV2, RewardIntentRevocation, Signed, TrustedKeys, VerifiedTarget,
 };
 use slop_ninja_subnet::WeightWork;
 
@@ -178,8 +180,9 @@ fn unhex(field: &str, value: &str) -> Result<Vec<u8>, Refusal> {
     hex::decode(value).map_err(|_| Refusal::new("bundle_malformed", format!("{field} is not hex")))
 }
 
-/// A verified bundle with the keys and this validator's hotkey, so each
-/// per-tempo commitment can check the authorization again.
+/// A verified bundle with the keys and this validator's journaled
+/// revocations, so each per-tempo commitment can check the authorization
+/// again.
 #[derive(Debug)]
 pub struct Authorized {
     pub verified: VerifiedTarget,
@@ -187,14 +190,38 @@ pub struct Authorized {
     /// Receipts verified against the index (0 when the bundle retains none),
     /// the carrying cohort's included.
     pub receipts_verified: u64,
+    /// This validator's journaled revocations, refreshed by the dispatch loop
+    /// from [`crate::revocations`] ([`Self::set_revocations`]).
+    revocations: std::sync::Mutex<Vec<Signed<RewardIntentRevocation>>>,
 }
 
 impl Authorized {
+    /// The authorization for `hotkey` at `epoch`: refused only when the
+    /// target is not the held active one, the epoch precedes the
+    /// authorization's issue or the target's activation
+    /// (`authorization_refused`), or a journaled revocation withdraws it
+    /// (`authorization_revoked`). It has no end epoch.
     pub fn check_epoch(&self, hotkey: [u8; 32], epoch: u64) -> Result<String, Refusal> {
+        let revocations = self.revocations.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         self.verified
-            .operation(&self.keys, AccountId(hotkey), epoch)
+            .operation(&self.keys, &revocations, AccountId(hotkey), epoch)
             .map(|op| op.id())
-            .map_err(protocol("authorization_refused"))
+            .map_err(|e| match e {
+                slop_ninja_protocol::Error::Revoked(_) => protocol("authorization_revoked")(e),
+                e => protocol("authorization_refused")(e),
+            })
+    }
+
+    /// Replaces the revocations every later check uses.
+    pub fn set_revocations(&self, revocations: Vec<Signed<RewardIntentRevocation>>) {
+        *self.revocations.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = revocations;
+    }
+
+    /// The digest of the journaled revocation that withdraws this bundle's
+    /// authorization, if any.
+    pub fn revoked_by(&self) -> Option<Digest> {
+        let revocations = self.revocations.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        self.verified.revoked_by(&self.keys, &revocations).ok().flatten()
     }
 
     pub fn summary(&self) -> PackageSummary {
@@ -356,7 +383,7 @@ pub fn verify(
             receipts_verified += verify_chunk_refs(v, &r.chunks, "carrier_receipts.chunks")?;
         }
         MechId::new(verified.chain.mechanism).map_err(|error| Refusal::new("package_mechanism", error.to_string()))?;
-        return Ok(Authorized { verified, keys: keys.clone(), receipts_verified });
+        return Ok(Authorized { verified, keys: keys.clone(), receipts_verified, revocations: Default::default() });
     }
     if verified.source.is_some() {
         if b.receipt_chunks.is_empty() {
@@ -377,7 +404,7 @@ pub fn verify(
             verified.verify_carrier_receipts(&refs).map_err(protocol("receipt_object_mismatch"))?;
     }
     MechId::new(verified.chain.mechanism).map_err(|error| Refusal::new("package_mechanism", error.to_string()))?;
-    Ok(Authorized { verified, keys: keys.clone(), receipts_verified })
+    Ok(Authorized { verified, keys: keys.clone(), receipts_verified, revocations: Default::default() })
 }
 
 /// The reward-v1 snapshot: this validator's finalized registrations and the

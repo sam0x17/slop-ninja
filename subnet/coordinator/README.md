@@ -707,6 +707,45 @@ also stops reconciliation and needs `clear_fault` before `resume`; clearing it
 also lets a settled attempt be retried. A chain-journal fault stops signing
 too.
 
+### Authorization without expiry
+
+No authorization expires. An installed reward-v1 bundle yields one operation
+per epoch for as long as its target is the held one: its renew-by hint is
+shown in `/status` (`signing.authorization.renew_by_epoch`) and never
+refuses or pauses anything, so a coordinator outage of any length resumes
+committing the same target. It stops only when a newer bundle supersedes it
+or a signed revocation withdraws it.
+
+`POST /signing/revoke` (operator token), with a signed
+`RewardIntentRevocation` as the body (the bytes `reward_v1_verify revoke`
+writes), runs the journal action `revoke`, which `/signing/control` refuses.
+It checks the signature under the trusted authorization key and this chain,
+journals the revocation in `sign_revocations` (schema v9; only ever added;
+a second post answers `new: false`), and applies it in the same transaction:
+when it withdraws the installed authorization (same target, authorization
+issued at or before the revocation's epoch), every preparing operation of
+that target, never signed, fails `authorization_revoked`, and from then on
+the active target is refused with that code at every step, before any
+preflight, registration read or signature. Committed operations keep their
+read-back and reveal checks. It answers `{"revoked": {...,
+"withdraws_installed": ..., "failed_ops": ...}}` or `{"refused": {"code":
+"revocation_malformed" | "revocation_refused", ...}}` with nothing changed.
+Installing a bundle whose authorization a journaled revocation withdraws is
+refused (`authorization_revoked`); a bundle with an authorization of the same
+target issued after the revocation re-authorizes it. Signing may be paused
+or active.
+
+The cron tick keeps the private authorization pointer
+(`authorizations/current.json` in the receipts bucket) equal to the journal:
+the installed bundle's authorization, its hint refresh if any, and the
+latest journaled revocation, each stored first as
+`authorizations/<sha256>.signed`. It reads the stored pointer back every
+minute and rewrites it whenever its bytes differ (a lost write, a deleted
+object, another writer), then records the write (`sign_pointer`,
+`signing.authorization.pointer_sha256` and `pointer_age_ms` in `/status`).
+The publisher copies it to `v1/authorizations/` for validators. Neither the
+pointer nor the authorization has a validity window.
+
 `POST /signing/restart?from_epoch=F`, with the launch bundle as the request
 body (operator token; signing paused only, refused `signing_active`
 otherwise), is the coordinator's counterpart of the native validator's
@@ -1720,15 +1759,15 @@ milestone M7.
   keeping it in R2 or chunked rows is still to do. The flat receipt index is
   bounded by the canonical sequence bound (2^20 entries), and plans are
   refused when a cohort's receipts could exceed it.
-- **Authorization issue and renewal.** Reward-intent and launch
-  authorizations are signed by the operator tool (`reward_v1_verify`) under
-  the T12 authorization key and installed with the bundle; nothing issues
-  per-tempo renewals yet, so a bundle commits only within its lease. The
-  coordinator checks each bundle against the target it holds active
+- **Authorization issue.** Reward-intent and launch authorizations are
+  signed by the operator tool (`reward_v1_verify`) under the T12
+  authorization key and installed with the bundle; the coordinator does not
+  sign them itself yet. None expires: the coordinator commits its installed
+  target, whatever time has passed, until a newer bundle supersedes it or a
+  signed revocation withdraws it ([Authorization without expiry](#authorization-without-expiry)).
+  The coordinator checks each bundle against the target it holds active
   (`sign_held_target`, recorded from checked closures), so a replaced target
-  or the launch bundle after the first activation is refused; until a
-  renewal names the active target, a holder that has not seen a newer bundle
-  keeps its held target to the end of its lease.
+  or the launch bundle after the first activation is refused.
 - **Native validators during the burn regime.** rtao holds a row whose
   positive entries are only the owner hotkey's (or the validator's own) UID
   unless the work opts in with `OwnerRowPolicy::Submit`. A native validator

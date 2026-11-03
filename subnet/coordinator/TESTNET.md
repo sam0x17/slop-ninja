@@ -2046,10 +2046,11 @@ staged by the tracked pin, one change per deploy):
    read-back and reveal checks, no epoch takes a second operation, and no
    bundle issued or opened before `F` installs again (`restarted_from_epoch`
    in `/status`), nor any T12 bundle (`v1_after_restart`).
-7. **validator2 and the authorization.** No component writes the private
-   authorization pointer yet (`authorizations/current.json` in the receipts
-   bucket; publisher README, "Not yet done"), so outside validators see no
-   restarted authorization until that follow-up lands. validator2 holds the
+7. **validator2 and the authorization.** The coordinator writes the private
+   authorization pointer (`authorizations/current.json` in the receipts
+   bucket) from its installed bundle at the next cron tick, and the publisher
+   copies it; outside validators fetch it once the public host is deployed.
+   validator2 holds the
    earlier chain's target under the same trust roots, so install by hand
    (validator README, "Trust roots and restarted chain records"): stop the
    dispatch unit, run `reset-target`, install the launch bundle file from
@@ -2262,7 +2263,7 @@ standing template (AR-7). Code (branch `subnet-testnet/standing-r0`):
   scoring budget at the plan's upper bound for that cap (a runaway guard).
 
 The daily shape is n = 1,000, K = 20 (one admission tempo, two transition
-tempos), lease 40 tempos, the 1,024-document probe, 200 audit humans, three
+tempos), renew-by hint 40 tempos (no expiry), the 1,024-document probe, 200 audit humans, three
 attempts, one scoring lane per artifact, no pre-start, spec v3, the exposed
 pool `testnet-human-pool-pc1`, and the incentive rule with provisional
 gates. Spec v3's tower-class object needs the longest step the alarm wall
@@ -2274,6 +2275,37 @@ refuses 65). A validator whose build predates bundle schema v3 refuses a
 target bundle beyond the embedded bound (`bundle_too_large`) and keeps its
 old target, so every native validator needs a v3 build before a cohort with
 more than 10 scored entrants produces a target.
+
+### Authorization without expiry and signed revocation (2026-11-03)
+
+Design rule from 2026-11-03: nothing stops validators or progress by
+expiring. The dated records above that describe a lease end (`lease to epoch
+117`, deferrals with `authorization_refused` after a lease, `lease_paused`)
+are evidence of the earlier design.
+
+- **Rule.** An authorization yields commitments from its issue epoch for as
+  long as its target is the held active target, with no end epoch, until a
+  newer authorization supersedes it or a signed `RewardIntentRevocation`
+  withdraws it (every authorization of its target issued at or before its
+  epoch; a later authorization of the same target re-authorizes it). Each
+  record's former expiry field is now `renew_by_epoch`, a non-binding hint
+  that is part of the record's format only; record kinds, versions and bytes
+  are unchanged, so the installed r0 launch bundle (issued at 77, hint 117)
+  keeps verifying and keeps committing after epoch 117.
+- **Coordinator.** Journal schema v9 (`sign_revocations`, `sign_pointer`).
+  `POST /signing/revoke` takes a signed revocation (coordinator README,
+  "Authorization without expiry"); `/status` shows
+  `signing.authorization` (kind, digest, issue, hint, `revoked_by`, pointer
+  write). The cron tick writes the private pointer and its objects and
+  rewrites them whenever they differ.
+- **Native validator.** `revoke <file>` journals a revocation in
+  `<journal>.revocations.json`; the fetcher journals one the pointer names.
+  A revoked authorization pauses new commitments (`authorization_paused`),
+  retires never-signed work of its target and withdraws its signing grants.
+- **Publisher.** Copies the pointer's `revocation` object with the rest.
+- **Operator tool.** `reward_v1_verify revoke --bundle B --issued-epoch E
+  --out R` signs a revocation of `B`'s authorization; `launch` and `cohort`
+  take `--generation G`. Never revoke the live target except to withdraw it.
 
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 

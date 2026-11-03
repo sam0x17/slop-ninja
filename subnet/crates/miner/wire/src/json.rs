@@ -18,6 +18,9 @@ pub const SCHEMA_COHORT: &str = "slop_ninja.admission.cohort/v1";
 pub const SCHEMA_SESSION: &str = "slop_ninja.admission.session/v1";
 pub const SCHEMA_HOTKEY: &str = "slop_ninja.admission.hotkey/v1";
 pub const SCHEMA_ERROR: &str = "slop_ninja.admission.error/v1";
+/// The authorization pointer (`docs/testnet/public-layout.md`,
+/// "Authorizations"), private and public.
+pub const AUTHORIZATION_POINTER_SCHEMA: &str = "slop_ninja.public.authorization/v1";
 
 /// A chain binding as JSON.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -305,4 +308,37 @@ impl ErrorBody {
             },
         }
     }
+}
+
+/// `authorizations/current.json`, written by the coordinator in the private
+/// receipts bucket, and its public copy `v1/authorizations/current.json`: the
+/// authorization validators commit under now, any refresh of its renew-by
+/// hint, and the latest signed revocation the coordinator holds, each a
+/// content-addressed signed object. An authorization never expires, so the
+/// pointer has no validity window: it stays current until the coordinator
+/// writes another. Unlike the admission shapes, unknown fields are refused:
+/// the coordinator and the publisher share this exact type.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorizationPointer {
+    pub schema: String,
+    pub chain: Chain,
+    /// `launch` or `cohort`.
+    pub kind: String,
+    pub authorization: ObjectRef,
+    #[serde(default)]
+    pub renewal: Option<ObjectRef>,
+    /// The latest signed revocation; absent when there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revocation: Option<ObjectRef>,
+}
+
+/// A content-addressed object a document names: its key, SHA-256 (hex) and
+/// length.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectRef {
+    pub path: String,
+    pub sha256: String,
+    pub bytes: u64,
 }

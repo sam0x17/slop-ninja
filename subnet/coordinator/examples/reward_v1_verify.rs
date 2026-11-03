@@ -6,7 +6,9 @@
 //! reward_v1_verify cohort DIR --trust TRUST.json [--snapshot-owner HOTKEY --snapshot UID:HOTKEY:REG ...
 //!     [--snapshot-at BLOCK:HASH]]
 //!     [--authorization-seed FILE --issued-epoch E --carrier DIR2]
-//! reward_v1_verify launch --trust TRUST.json --authorization-seed FILE --issued-epoch E --out FILE
+//! reward_v1_verify launch --trust TRUST.json --authorization-seed FILE --issued-epoch E [--generation G] --out FILE
+//! reward_v1_verify revoke --trust TRUST.json --authorization-seed FILE --bundle FILE --issued-epoch E
+//!     [--generation G] --out FILE
 //! ```
 //!
 //! `cohort`: DIR holds the cohort's receipts-bucket objects at their key
@@ -47,6 +49,17 @@
 //!
 //! `launch`: signs the launch authorization of the burn row and writes its bundle.
 //!
+//! No authorization expires: each record's `renew_by_epoch` is a non-binding
+//! hint, reported as `renew_by`. A newer bundle supersedes an authorization;
+//! only a signed revocation withdraws it.
+//!
+//! `revoke`: signs the revocation of the authorization in `--bundle` (either
+//! form): it withdraws every authorization of that bundle's target issued at
+//! or before `--issued-epoch`, which must not precede the authorization's
+//! own issue. Writes the signed record's bytes to `--out`, the body that
+//! `POST /signing/revoke` and `slop_ninja_validator revoke` take. Never run
+//! against the live target except to withdraw it.
+//!
 //! Prints a content-free JSON report.
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -55,7 +68,8 @@ use slop_ninja_protocol::submission::CohortClosure;
 use slop_ninja_protocol::{
     AccountId, CalculationTargetV2, ChainBinding, CohortManifestV2, Digest, EntrantFingerprint, FingerprintIndex,
     LaunchAuthorization, NeuronIdentity, PublishedContents, PublishedIndex, ReceiptIndex, Record,
-    RegistrationSnapshotV2, RewardIntentAuthorization, ScorePackageV2, Signed, SigningKey, TESTNET_GENESIS,
+    RegistrationSnapshotV2, RewardIntentAuthorization, RewardIntentRevocation, ScorePackageV2, Signed, SigningKey,
+    TESTNET_GENESIS,
     TrustedKeys, sign,
 };
 use std::path::{Path, PathBuf};
@@ -80,6 +94,8 @@ struct Args {
     issued: Option<u64>,
     carrier: Option<PathBuf>,
     out: Option<PathBuf>,
+    bundle: Option<PathBuf>,
+    generation: u64,
     owner: Option<[u8; 32]>,
     snapshot: Vec<NeuronIdentity>,
     at: (u64, [u8; 32]),
@@ -96,6 +112,8 @@ fn args() -> Args {
         issued: None,
         carrier: None,
         out: None,
+        bundle: None,
+        generation: 1,
         owner: None,
         snapshot: Vec::new(),
         at: (0, [0; 32]),
@@ -108,6 +126,8 @@ fn args() -> Args {
             "--issued-epoch" => a.issued = Some(val("--issued-epoch").parse().unwrap_or_else(|_| fail("epoch"))),
             "--carrier" => a.carrier = Some(PathBuf::from(val("--carrier"))),
             "--out" => a.out = Some(PathBuf::from(val("--out"))),
+            "--bundle" => a.bundle = Some(PathBuf::from(val("--bundle"))),
+            "--generation" => a.generation = val("--generation").parse().unwrap_or_else(|_| fail("generation")),
             "--snapshot-owner" => a.owner = Some(key32(&val("--snapshot-owner"), "owner hotkey")),
             "--snapshot" => {
                 let v = val("--snapshot");
@@ -169,6 +189,7 @@ fn main() {
     match a.mode.as_str() {
         "launch" => launch(&a, &keys, &auth_root),
         "cohort" => cohort(&a, &keys, &auth_root),
+        "revoke" => revoke(&a, &keys, &auth_root),
         m => fail(format!("unknown mode {m}")),
     }
 }
@@ -176,7 +197,7 @@ fn main() {
 fn launch(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
     let k = authorization_key(a.seed.as_deref().unwrap_or_else(|| fail("--authorization-seed")), root);
     let issued = a.issued.unwrap_or_else(|| fail("--issued-epoch"));
-    let auth = LaunchAuthorization::new(&chain(), 1, issued).unwrap_or_else(|e| fail(e));
+    let auth = LaunchAuthorization::new(&chain(), a.generation, issued).unwrap_or_else(|e| fail(e));
     let signed = sign(auth, &k).and_then(|s| s.to_bytes()).unwrap_or_else(|e| fail(e));
     let b = target::BundleV2 {
         schema: target::BUNDLE_SCHEMA_V2.into(),
@@ -197,11 +218,12 @@ fn launch(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
         .unwrap_or_else(|r| fail(format!("{}: {}", r.code, r.detail)));
     let out = a.out.clone().unwrap_or_else(|| fail("--out"));
     std::fs::write(&out, &bytes).unwrap_or_else(|_| fail("write bundle"));
-    let (issued, expires) = v.checked_lease(keys).unwrap_or_else(|e| fail(e));
+    let terms = v.checked_terms(keys).unwrap_or_else(|e| fail(e));
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({"verified": true, "kind": "launch", "target": v.target_digest.to_string(),
-            "lease": [issued, expires], "bundle": out.display().to_string(),
+            "authorization": terms.digest.to_string(), "issued_epoch": terms.issued_epoch,
+            "renew_by": terms.renew_by_epoch, "bundle": out.display().to_string(),
             "bundle_sha256": hex::encode(Sha256::digest(&bytes))}))
         .unwrap_or_default()
     );
@@ -351,9 +373,9 @@ fn cohort(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
             cohort_manifest: carrier_manifest.digest().unwrap_or_else(|e| fail(e)),
             score_package: carrier_package.digest().unwrap_or_else(|e| fail(e)),
             target: t.digest().unwrap_or_else(|e| fail(e)),
-            checkpoint_generation: 1,
+            checkpoint_generation: a.generation,
             issued_epoch: issued,
-            expires_epoch: issued + u64::from(carrier_manifest.schedule.lease_tempos),
+            renew_by_epoch: issued + u64::from(carrier_manifest.schedule.lease_tempos),
         };
         let signed = sign(auth, &k).and_then(|s| s.to_bytes()).unwrap_or_else(|e| fail(e));
         let source = target::SourceHex {
@@ -410,14 +432,15 @@ fn cohort(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
         target::verify_v2(&target::parse_v2(&small).unwrap_or_else(|r| fail(r.detail)), keys, &TESTNET_GENESIS.0, 601, &held)
             .unwrap_or_else(|r| fail(format!("{}: {}", r.code, r.detail)));
         std::fs::write(dir.join("reward-v1-bundle-coordinator.json"), &small).unwrap_or_else(|_| fail("write bundle"));
-        let (i, e) = v.checked_lease(keys).unwrap_or_else(|e| fail(e));
+        let terms = v.checked_terms(keys).unwrap_or_else(|e| fail(e));
         report["bundles"] = json!({"validator": "reward-v1-bundle.json", "validator_sha256": hex::encode(Sha256::digest(&full)),
             "validator_bytes": full.len(),
             "validator_fits_v2": full.len() as u64 <= slop_ninja_protocol::target_bundle::VALIDATOR_BUNDLE_BYTES,
             "validator_v3": "reward-v1-bundle-v3.json", "validator_v3_sha256": hex::encode(Sha256::digest(&v3)),
             "validator_v3_bytes": v3.len(), "coordinator": "reward-v1-bundle-coordinator.json",
             "coordinator_sha256": hex::encode(Sha256::digest(&small)), "coordinator_bytes": small.len(),
-            "lease": [i, e], "activated_epoch": c.closed_epoch});
+            "authorization": terms.digest.to_string(), "issued_epoch": terms.issued_epoch,
+            "renew_by": terms.renew_by_epoch, "activated_epoch": c.closed_epoch});
     }
     println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
 }
@@ -448,6 +471,54 @@ fn receipt_refs(dir: &Path, label: &str) -> Value {
         })
         .collect();
     json!({"index": object_ref(dir, "receipt-index.signed"), "chunks": chunks})
+}
+
+/// Signs the revocation of `--bundle`'s authorization (module docs).
+fn revoke(a: &Args, keys: &TrustedKeys, root: &[u8; 32]) {
+    let k = authorization_key(a.seed.as_deref().unwrap_or_else(|| fail("--authorization-seed")), root);
+    let issued = a.issued.unwrap_or_else(|| fail("--issued-epoch"));
+    let path = a.bundle.clone().unwrap_or_else(|| fail("--bundle"));
+    let b: target::BundleV2 = serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|_| fail("read bundle")))
+        .unwrap_or_else(|_| fail("bundle json"));
+    let bytes = hex::decode(&b.authorization.authorization).unwrap_or_else(|_| fail("authorization hex"));
+    let (auth_chain, target, digest, auth_issued, generation) = match b.authorization.kind.as_str() {
+        "launch" => {
+            let r = Signed::<LaunchAuthorization>::open(&bytes, keys).unwrap_or_else(|e| fail(format!("authorization: {e}")));
+            (r.chain.clone(), r.target, r.digest().unwrap_or_else(|e| fail(e)), r.issued_epoch, r.checkpoint_generation)
+        }
+        "cohort" => {
+            let r = Signed::<RewardIntentAuthorization>::open(&bytes, keys)
+                .unwrap_or_else(|e| fail(format!("authorization: {e}")));
+            (r.chain.clone(), r.target, r.digest().unwrap_or_else(|e| fail(e)), r.issued_epoch, r.checkpoint_generation)
+        }
+        other => fail(format!("unknown authorization kind {other}")),
+    };
+    if auth_chain != chain() {
+        fail("the bundle's authorization names another chain or subnet");
+    }
+    if issued < auth_issued {
+        fail(format!("--issued-epoch precedes the authorization's issue (epoch {auth_issued})"));
+    }
+    let revocation = RewardIntentRevocation {
+        chain: chain(),
+        target,
+        authorization: digest,
+        checkpoint_generation: a.generation.max(generation),
+        issued_epoch: issued,
+    };
+    let signed = sign(revocation, &k).unwrap_or_else(|e| fail(e));
+    let checked = RewardIntentRevocation::check(&signed, keys, &chain()).unwrap_or_else(|e| fail(e));
+    let out_bytes = signed.to_bytes().unwrap_or_else(|e| fail(e));
+    let out = a.out.clone().unwrap_or_else(|| fail("--out"));
+    std::fs::write(&out, &out_bytes).unwrap_or_else(|_| fail("write revocation"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({"signed": true, "revocation": checked.digest().to_string(),
+            "target": target.to_string(), "authorization": digest.to_string(), "issued_epoch": issued,
+            "withdraws": "every authorization of the target issued at or before issued_epoch",
+            "out": out.display().to_string(), "sha256": hex::encode(Sha256::digest(&out_bytes))}))
+        .unwrap_or_default()
+    );
 }
 
 /// Every chunk object of a cohort's receipt index, checked against its chunk

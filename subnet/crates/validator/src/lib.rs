@@ -24,6 +24,7 @@ pub mod logging;
 pub mod package;
 pub mod package_v2;
 pub mod reveals;
+pub mod revocations;
 pub mod payload;
 pub mod startup;
 pub mod supersede;

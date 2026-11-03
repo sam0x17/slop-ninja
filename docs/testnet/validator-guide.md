@@ -297,12 +297,11 @@ host, in the publisher's layout `v1` (see [the public
 layout](public-layout.md)):
 
 - `v1/authorizations/current.json`: the authorization that lets validators
-  commit now (`launch` or `cohort`) and any renewal of it, each a
-  content-addressed object listed with its SHA-256 and its exact signed
-  length. **The public host is not deployed yet, and the coordinator does
-  not yet store the authorizations the publisher copies**; until both
-  happen, the fetcher reports `unpublished` and the validator keeps the
-  bundle you install;
+  commit now (`launch` or `cohort`), any refresh of its renew-by hint, and
+  the latest signed revocation, each a content-addressed object listed with
+  its SHA-256 and its exact signed length. **The public host is not deployed
+  yet**; until it is, the fetcher reports `unpublished` and the validator
+  keeps the bundle you install;
 - `v1/cohorts/index.json`: every published cohort, its target digest and
   whether its detailed receipts are still published;
 - each cohort's `publication.json`, which lists every object with its SHA-256
@@ -334,9 +333,10 @@ cache: `fetch` exits 75 while the running unit holds it.
 
 What the validator does with a verified bundle:
 
-- **The same target with a longer lease** (a renewal, or a newer carrying
-  cohort's authorization): it is installed at once, and a continuous run
-  uses it from the next tempo. Operation IDs bind the target, not the
+- **The same target under a newer authorization** (issued later: a newer
+  carrying cohort's authorization, or a re-authorization after a
+  revocation): it is installed at once, and a continuous run uses it from
+  the next tempo. Operation IDs bind the target, not the
   authorization, so nothing already queued changes.
 - **A successor target**: it is installed at the eligible boundary, once the
   finalized epoch reaches the successor's activation (the closing boundary of
@@ -368,12 +368,24 @@ installed bundle; one that fetched them earlier assembles from its own
 verified cache. Commitments already submitted recover from the journal
 without receipts.
 
-When the authorization's lease ends with no renewal or successor fetched,
-new commitments pause (`lease_paused`, logged with `alert = true`), while
-reconciliation and reveal checks continue; the next fetched renewal, carrier
-or successor resumes them. Without `[fetch]`, the run first stays until the
-reveals of its last commitments have been compared, then waits for the next
-epoch in the same process and reads the bundle file again.
+**No authorization expires.** Your validator keeps committing the installed
+target for as long as it is the held target, however long the coordinator is
+silent. The record's `renew_by_epoch` is only a hint. An authorization stops
+only when a newer one supersedes it or a signed revocation withdraws it:
+
+- the fetcher journals a revocation that the pointer names before anything
+  else (`revocation_recorded`, `alert = true`), and you can install one
+  yourself with `slop_ninja_validator --config <config> revoke <file>`; both
+  are checked under your pinned authorization key and kept in
+  `<journal>.revocations.json`;
+- once a revocation withdraws the installed authorization, new commitments
+  pause (`authorization_revoked` / `authorization_paused`, logged with
+  `alert = true`), work of that target that never signed is retired and no
+  new attempt is signed for it, while reconciliation and reveal checks
+  continue; a newer authorization or successor resumes commitments. Without
+  `[fetch]`, the run first stays until the reveals of its last commitments
+  have been compared, then waits for the next epoch in the same process and
+  reads the bundle file again.
 
 **Trust-root rotation and restarted chain records.** Your held-target record
 names the trust roots it was written under. After a rotation (new keys in
@@ -415,7 +427,8 @@ For `reward-v1` bundles (from the first signed release, not yet published)
 it also checks every receipt chunk, the published-artifact index against the
 manifest's binding, the recomputed outcome, the cohort closure against the
 manifest's minimums, and the reward-intent authorization against the active
-target and its lease, at every tempo's re-commit as well.
+target and your journaled revocations (it has no end epoch), at every tempo's
+re-commit as well.
 
 It then reads the subnet's registrations (`SubnetworkN`, `Keys`,
 `BlockAtRegistration`, `SubnetOwnerHotkey`) at the same finalized block and
@@ -448,10 +461,10 @@ proves that a validator calculated the row itself.
 
 Each active cohort target is re-derived and committed once per tempo, about 20
 commitments a day, against a fresh finalized registration snapshot. During a
-coordinator outage, validators keep re-committing the last active target within
-its authorization lease; past the lease they pause new commitments
-(`lease_paused`) until a renewal or successor is published. Cohorts are
-delayed, never skipped.
+coordinator outage, validators keep re-committing the last active target for as
+long as the outage lasts: no authorization expires. Only a newer authorization
+or a signed revocation changes what they commit. Cohorts are delayed, never
+skipped.
 
 ### The launch burn row
 

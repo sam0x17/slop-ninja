@@ -281,7 +281,7 @@ fn bundles_are_checked_against_the_holders_active_target() -> Result<()> {
     let a = c.authorization.to_bytes()?;
     let v = target_bundle::verify(&chain(), &keys, &launch_held, Some(b.source()), cohort(&a))?;
     assert_eq!(v.active, after);
-    v.operation(&keys, hk, boundary)?;
+    v.operation(&keys, &[], hk, boundary)?;
     let v = target_bundle::verify(&chain(), &keys, &after, Some(b.source()), cohort(&a))?;
     assert_eq!(v.active, after);
     // A held record of the same target with another activation epoch is refused.
@@ -300,7 +300,7 @@ fn bundles_are_checked_against_the_holders_active_target() -> Result<()> {
     let sv = target_bundle::verify(&chain(), &keys, &after, Some(sb.source()), cohort(&sa))?;
     let next = sv.active.clone();
     assert_eq!(next.activated_epoch(), Some(s.closure.closed_epoch));
-    sv.operation(&keys, hk, s.closure.closed_epoch)?;
+    sv.operation(&keys, &[], hk, s.closure.closed_epoch)?;
     // Not the launch burn row's successor: refused while the launch row is held.
     assert_eq!(
         target_bundle::verify(&chain(), &keys, &launch_held, Some(sb.source()), cohort(&sa)).unwrap_err(),
@@ -369,7 +369,7 @@ fn a_carrier_package_is_recomputed_and_must_produce_no_target() -> Result<()> {
     assert_eq!(p.mode, CutoffMode::NoTarget);
     let v = verify_with(&m, &p, &index)?;
     assert!(v.carrier().is_some());
-    v.operation(&keys, hk, m.opened_epoch + 16)?;
+    v.operation(&keys, &[], hk, m.opened_epoch + 16)?;
     // A margin outcome relabelled `NoTarget` is structurally valid but refused.
     let high = [Spec::new(0x94, bp(9990))];
     let (m, p, index) = carrier_cohort(&c, &high, bp(9600), bp(9500))?;

@@ -137,8 +137,10 @@ canonical_struct! {
         pub admission_min: u16,
         /// The transition lasts at least this many tempos (at least 2).
         pub transition_min: u16,
-        /// Lease of the validators' reward-intent authorization: at least two
-        /// cohort lengths, `2K` tempos.
+        /// Distance of the reward-intent authorization's non-binding renew-by
+        /// hint from its issue: at least two cohort lengths, `2K` tempos. The
+        /// field keeps its name for the frozen manifest format; no
+        /// authorization expires (`authorization` module docs).
         pub lease_tempos: u32,
     }
 }
@@ -155,7 +157,7 @@ impl CohortSchedule {
             return Err(Error::Invalid("phase minimums exceed cohort length"));
         }
         if self.lease_tempos < 2 * u32::from(self.tempos) {
-            return Err(Error::Invalid("authorization lease below two cohorts"));
+            return Err(Error::Invalid("renew-by hint below two cohorts"));
         }
         Ok(())
     }

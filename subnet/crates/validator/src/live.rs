@@ -1402,6 +1402,12 @@ impl AppPorts for LivePorts {
         read_held(&held_target_path(&self.config.journal_path), &self.trusted_keys()?, !self.dry_run)
     }
 
+    fn revocations(&self) -> Result<Vec<slop_ninja_protocol::Signed<slop_ninja_protocol::RewardIntentRevocation>>> {
+        let (genesis, netuid) = AppPorts::chain(self);
+        let chain = ChainBinding { genesis: slop_ninja_protocol::Digest(genesis), netuid, mechanism: 0 };
+        crate::revocations::load(&crate::revocations::path(&self.config.journal_path), &self.trusted_keys()?, &chain)
+    }
+
     fn record_target(&mut self, held: &crate::package_v2::HeldTargetFile) -> Result<()> {
         if self.dry_run {
             tracing::info!(event = "held_target_not_recorded", reason = "dry_run", target = %held.target);
@@ -1529,8 +1535,10 @@ impl AppPorts for LivePorts {
         let mut retry_after_epoch: Option<u64> = None;
         // reward-v1 with [fetch]: the authorization each re-commit is derived
         // under (a refresh swaps it in place), fetched bundles' supersession
-        // state, and whether new commitments are paused because the lease
-        // ended.
+        // state, and whether new commitments are paused because the
+        // authorization does not yield one (a journaled signed revocation, or
+        // the target is no longer the held one). Nothing pauses by time: an
+        // authorization has no end epoch.
         let mut authority = derived.reward_v1.clone();
         let mut background = match &authority {
             Some(_) => self.spawn_fetcher()?,
@@ -1550,7 +1558,9 @@ impl AppPorts for LivePorts {
                 authorized: current.clone(),
             });
         }
-        let mut lease_paused = false;
+        let mut authorization_paused = false;
+        // The revocation that withdrew the current authorization, once alerted.
+        let mut revoked_alerted: Option<String> = None;
         let mut last_decision_error: Option<String> = None;
         // What rtao reported for the tracked operation while it waits to be
         // signed: alerted once per distinct outcome kind ([`not_submitted`]).
@@ -2092,9 +2102,9 @@ impl AppPorts for LivePorts {
                                 authorized: staged.authorized.clone(),
                             });
                         }
-                        if lease_paused {
-                            tracing::info!(event = "lease_resumed", height = header.number);
-                            lease_paused = false;
+                        if authorization_paused {
+                            tracing::info!(event = "authorization_resumed", height = header.number);
+                            authorization_paused = false;
                             retry_after_epoch = None;
                         }
                     }
@@ -2115,6 +2125,52 @@ impl AppPorts for LivePorts {
                     }
                 }
                 report.last_fetch = fetch_state.last_code().to_owned();
+
+                // Journaled revocations take effect at the next finalized
+                // head: the withdrawn target's queued work loses its signing
+                // grant (no new attempt is signed), work that never signed is
+                // retired, and new commitments pause until a newer
+                // authorization is installed.
+                if let Some(current) = &authority {
+                    match AppPorts::revocations(self) {
+                        Ok(revocations) => current.set_revocations(revocations),
+                        Err(error) => {
+                            // The previous revocations stay in force.
+                            tracing::warn!(event = "revocation_store_unreadable", error = %format!("{error:#}"), alert = true);
+                        }
+                    }
+                    match current.revoked_by() {
+                        Some(revocation) => {
+                            let target = current.verified.target_digest.0;
+                            let mut withdrawn = 0usize;
+                            let mut retired = 0usize;
+                            for pending in AppPorts::pending_operations(self, mechanism.0)? {
+                                if pending.work.as_ref().and_then(|w| w.v2_target) != Some(target) {
+                                    continue;
+                                }
+                                if self.authorized.withdraw(&pending.id) {
+                                    withdrawn += 1;
+                                }
+                                if pending.retirable() && AppPorts::retire(self, &pending.id, "authorization_revoked")? {
+                                    retired += 1;
+                                }
+                            }
+                            if revoked_alerted.as_deref() != Some(revocation.hex().as_str()) {
+                                tracing::warn!(
+                                    event = "authorization_revoked",
+                                    target = %current.verified.target_digest,
+                                    revocation = %revocation,
+                                    withdrawn,
+                                    retired,
+                                    alert = true
+                                );
+                                revoked_alerted = Some(revocation.hex());
+                            }
+                            authorization_paused = true;
+                        }
+                        None => revoked_alerted = None,
+                    }
+                }
 
                 // Commitments whose reveal is not yet compared: rtao still
                 // tracks one, its watcher is behind this head, or a landed
@@ -2163,10 +2219,10 @@ impl AppPorts for LivePorts {
                         // The label follows the journal's last commit; after
                         // a deferral it is never behind the finalized epoch.
                         let finalized_epoch = self.finalized_epoch_index().await?;
-                        // Without a fetcher, a lease that ended keeps the
-                        // run only until its outstanding reveals compared.
+                        // Without a fetcher, a paused authorization keeps
+                        // the run only until its outstanding reveals compared.
                         let due = retry_after_epoch.is_none_or(|after| finalized_epoch > after)
-                            || (lease_paused && background.is_none() && !awaiting_reveals);
+                            || (authorization_paused && background.is_none() && !awaiting_reveals);
                         if due {
                             let label = crate::app::next_tempo(last.max(finalized_epoch.saturating_sub(1)), &retained)?;
                             // reward-v1: each tempo's row is derived afresh
@@ -2208,7 +2264,7 @@ impl AppPorts for LivePorts {
                                     limits_checked_for = None;
                                     read_back = false;
                                     retry_after_epoch = None;
-                                    lease_paused = false;
+                                    authorization_paused = false;
                                 }
                                 Err(refusal) if crate::app::is_row_deferral(refusal.code) => {
                                     // Nothing to commit this tempo; a later
@@ -2221,38 +2277,40 @@ impl AppPorts for LivePorts {
                                     retry_after_epoch = Some(finalized_epoch);
                                 }
                                 Err(refusal)
-                                    if refusal.code == "authorization_refused"
+                                    if matches!(refusal.code, "authorization_refused" | "authorization_revoked")
                                         && (background.is_some() || awaiting_reveals) =>
                                 {
-                                    // The lease ended: new commitments pause
-                                    // here, reconciliation continues, and
-                                    // the fetcher's next renewal, carrier or
+                                    // The authorization yields no commitment
+                                    // (revoked, or its target is no longer
+                                    // the held one): new commitments pause
+                                    // here, reconciliation continues, and the
+                                    // fetcher's newer authorization or
                                     // successor resumes them. Without a
                                     // fetcher the run stays only until this
                                     // target's outstanding reveals compared,
-                                    // then ends to read the bundle (and an
-                                    // installed renewal) again.
-                                    if !lease_paused {
+                                    // then ends to read the bundle again.
+                                    if !authorization_paused {
                                         tracing::warn!(
-                                            event = "lease_paused",
+                                            event = "authorization_paused",
+                                            code = refusal.code,
                                             tempo = label,
                                             awaiting_reveals,
                                             fetcher = background.is_some(),
                                             alert = true
                                         );
                                     }
-                                    lease_paused = true;
-                                    report.tempo_deferred.push((label, "lease_paused".to_owned()));
+                                    authorization_paused = true;
+                                    report.tempo_deferred.push((label, refusal.code.to_owned()));
                                     if report.tempo_deferred.len() > crate::app::REPORT_RECENT {
                                         report.tempo_deferred.remove(0);
                                     }
                                     retry_after_epoch = Some(finalized_epoch);
                                 }
                                 Err(refusal) => {
-                                    // The lease ended or the row cannot be
-                                    // derived: end the run, which the caller
-                                    // retries after reading the bundle (and
-                                    // any renewal) again.
+                                    // The authorization yields nothing or the
+                                    // row cannot be derived: end the run,
+                                    // which the caller retries after reading
+                                    // the bundle and revocations again.
                                     tracing::warn!(event = "tempo_deferred", tempo = label, code = refusal.code);
                                     report.stop = format!("tempo_deferred:{}", refusal.code);
                                     return Ok(());
@@ -2474,6 +2532,9 @@ struct FetchSetup {
     keys: TrustedKeys,
     chain: ChainBinding,
     held_path: std::path::PathBuf,
+    /// [`crate::revocations::path`] of the journal: revocations the pointer
+    /// names are journaled here.
+    revocation_store: std::path::PathBuf,
     /// A session never outlives the interval to the next one.
     deadline: Duration,
     /// [`Staged::fingerprint`] of the last bundle a session produced.
@@ -2504,6 +2565,7 @@ impl FetchSetup {
                 held,
                 previous: self.previous.as_deref(),
                 keep: &keep,
+                revocations: Some(&self.revocation_store),
             };
             match tokio::time::timeout(self.deadline, session.run()).await {
                 Ok(result) => result?,
@@ -2581,6 +2643,7 @@ impl LivePorts {
             keys: self.trusted_keys()?,
             chain: self.chain_binding(),
             held_path: held_target_path(&self.config.journal_path),
+            revocation_store: crate::revocations::path(&self.config.journal_path),
             deadline,
             previous: None,
             keep: self.keep_cohorts.clone(),
@@ -2910,13 +2973,19 @@ impl LoopPorts for LivePorts {
     }
 
     fn installed(&mut self, epoch: u64) -> Result<Option<Candidate>> {
+        let revocations = AppPorts::revocations(self)?;
         Ok(self.loop_installed.as_ref().map(|installed| {
+            installed.authorized.set_revocations(revocations);
             let covers = installed.authorized.check_epoch(self.identity.hotkey.0, epoch).is_ok();
             Candidate::of(&installed.sha256, &installed.info, covers)
         }))
     }
 
     fn covers(&self, staged: &Staged, epoch: u64) -> bool {
+        // A store that cannot be read counts as no cover: nothing is
+        // installed on a revocation check that did not run.
+        let Ok(revocations) = AppPorts::revocations(self) else { return false };
+        staged.authorized.set_revocations(revocations);
         staged.authorized.check_epoch(self.identity.hotkey.0, epoch).is_ok()
     }
 }
@@ -2956,6 +3025,28 @@ fn remove_if_present(path: &std::path::Path) -> Result<()> {
 /// does so, so it refuses while a run holds the journal. The journal, its
 /// retained work and the reveal ledger are untouched: work of the old target
 /// that never landed is retired as superseded by the next dispatch run.
+/// Journals a signed revocation from `file` ([`crate::revocations::record`]),
+/// checked under the configured trust roots and this chain. Safe while a
+/// run holds the journal: the store has its own lock, and the running loop
+/// applies it at its next finalized head. Reads no chain and loads no key.
+pub fn record_revocation(config: &ValidatorConfig, file: &std::path::Path) -> Result<serde_json::Value> {
+    let keys = config.package.as_ref().context("no [package] is configured")?.trusted_keys.keys()?;
+    let chain = ChainBinding {
+        genesis: slop_ninja_protocol::Digest(config.network.genesis()?.0),
+        netuid: config.netuid,
+        mechanism: 0,
+    };
+    let bytes = std::fs::read(file).context("revocation file")?;
+    let recorded = crate::revocations::record(&crate::revocations::path(&config.journal_path), &keys, &chain, &bytes)?;
+    Ok(serde_json::json!({
+        "revocation": recorded.entry.digest,
+        "target": recorded.entry.target,
+        "authorization": recorded.entry.authorization,
+        "issued_epoch": recorded.entry.issued_epoch,
+        "new": recorded.new,
+    }))
+}
+
 pub fn reset_target(config: &ValidatorConfig) -> Result<serde_json::Value> {
     let _lock = slop_ninja_subnet::JournalControls::open_existing(&config.journal_path)
         .context("the journal is held by a running validator, or missing; stop the unit first")?;

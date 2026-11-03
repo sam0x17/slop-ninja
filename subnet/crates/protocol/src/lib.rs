@@ -2,7 +2,7 @@
 //! domain-separated digests and signatures, stable operation identities,
 //! private submission records, artifact objects and their inference-content
 //! identity, the published-artifact index and the near-copy relation, the
-//! validators' launch and reward-intent authorizations, and deterministic
+//! validators' launch and reward-intent authorizations and their revocation, and deterministic
 //! reward arithmetic for `testnet-reward-v0` (testnet only) and `reward-v1`.
 //!
 //! The crate is pure computation. It performs no I/O, reads no clock or
@@ -35,10 +35,10 @@ pub use artifact::{
     VerifiedArtifact, artifact_object,
 };
 pub use authorization::{
-    ActiveTarget, CheckedAuthorization, CheckedRenewal, LAUNCH_LEASE_TEMPOS, LaunchAuthorization,
-    RewardIntentAuthorization, RewardIntentRenewal,
+    ActiveTarget, CheckedAuthorization, CheckedRenewal, CheckedRevocation, LAUNCH_RENEW_BY_TEMPOS,
+    LaunchAuthorization, RewardIntentAuthorization, RewardIntentRenewal, RewardIntentRevocation,
 };
-pub use target_bundle::{Authorizing, Carrier, Source, VerifiedCarrier, VerifiedSource, VerifiedTarget};
+pub use target_bundle::{AuthorizationTerms, Authorizing, Carrier, Source, VerifiedCarrier, VerifiedSource, VerifiedTarget};
 pub use codec::{
     Canonical, Decoder, Encoder, MAX_PREALLOC_BYTES, MAX_SEQUENCE_LEN, MAX_STRING_LEN,
 };

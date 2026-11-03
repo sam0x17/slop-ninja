@@ -13,7 +13,7 @@
 //!   where the holder retains them, the receipt chunk objects, each receipt
 //!   checked against its index entry exactly once;
 //! - the reward-intent authorization for the target, with an optional
-//!   renewal, checked against its carrying cohort's manifest and package
+//!   renew-by hint refresh, checked against its carrying cohort's manifest and package
 //!   (the target's own cohort, or a later cohort that produced no target and
 //!   carried it).
 //!
@@ -35,7 +35,8 @@
 //! holder records [`VerifiedTarget::active`] after a successful verification,
 //! so a superseded bundle, or the launch authorization after the first
 //! activation, is refused from then on. [`VerifiedTarget::operation`]
-//! re-checks the authorization at every tempo and
+//! re-checks the authorization at every tempo, against the holder's journaled
+//! revocations and with no end epoch (an authorization never expires), and
 //! [`VerifiedTarget::derive_row`] derives the canonical row against the
 //! holder's own finalized snapshot.
 //!
@@ -43,7 +44,9 @@
 //! checks it against the signed manifest binding and that a carrier's index
 //! extends it, but does not rebuild it from every closed cohort's packages.
 
-use crate::authorization::{ActiveTarget, LaunchAuthorization, RewardIntentAuthorization, RewardIntentRenewal};
+use crate::authorization::{
+    ActiveTarget, LaunchAuthorization, RewardIntentAuthorization, RewardIntentRenewal, RewardIntentRevocation,
+};
 use crate::records_v2::{
     CalculationTargetV2, CohortManifestV2, FingerprintIndex, PublishedContents, PublishedIndex,
     RegistrationSnapshotV2, ScorePackageV2, WeightRowV2,
@@ -435,14 +438,44 @@ pub fn verify(
         auth,
     };
     // The authorization must check now; each operation checks it again.
-    verified.checked_lease(keys)?;
+    verified.checked_terms(keys)?;
     Ok(verified)
 }
 
+/// The checked authorization's identity and epochs ([`VerifiedTarget::checked_terms`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuthorizationTerms {
+    /// Digest of the authorization record.
+    pub digest: Digest,
+    pub checkpoint_generation: u64,
+    /// First epoch at which it yields a commitment.
+    pub issued_epoch: u64,
+    /// The non-binding renew-by hint (the later of the authorization's and a
+    /// carried refresh's). Nothing pauses when it passes.
+    pub renew_by_epoch: u64,
+}
+
 impl VerifiedTarget {
-    /// The authorization's lease `(issued, expires)` after its check.
-    pub fn checked_lease(&self, keys: &TrustedKeys) -> Result<(u64, u64)> {
-        self.with_checked(keys, |checked, _| Ok((checked.issued_epoch(), checked.expires_epoch())))
+    /// The authorization's terms after its check.
+    pub fn checked_terms(&self, keys: &TrustedKeys) -> Result<AuthorizationTerms> {
+        self.with_checked(keys, |checked, renewal| {
+            Ok(AuthorizationTerms {
+                digest: checked.digest(),
+                checkpoint_generation: checked.checkpoint_generation(),
+                issued_epoch: checked.issued_epoch(),
+                renew_by_epoch: renewal
+                    .map_or(0, |r| r.renewal().renew_by_epoch)
+                    .max(checked.renew_by_epoch()),
+            })
+        })
+    }
+
+    /// The first of the holder's signed `revocations` that withdraws this
+    /// bundle's authorization, by its digest. Each is checked under `keys`
+    /// and the bundle's chain; one that fails its check is an error.
+    pub fn revoked_by(&self, keys: &TrustedKeys, revocations: &[Signed<RewardIntentRevocation>]) -> Result<Option<Digest>> {
+        let checked = check_revocations(keys, &self.chain, revocations)?;
+        self.with_checked(keys, |authorization, _| Ok(authorization.revoked_by(&checked).map(|r| r.digest())))
     }
 
     fn with_checked<T>(
@@ -476,9 +509,19 @@ impl VerifiedTarget {
 
     /// The per-tempo operation of validator `hotkey` at `epoch`, read from a
     /// fresh finalized view: the authorization is checked again, against the
-    /// active target, its activation epoch and the lease.
-    pub fn operation(&self, keys: &TrustedKeys, hotkey: AccountId, epoch: u64) -> Result<WeightOperationV2> {
-        self.with_checked(keys, |checked, renewal| checked.operation(renewal, &self.active, hotkey, epoch))
+    /// active target, its activation epoch, its issue epoch and every one of
+    /// the holder's journaled `revocations`. No end epoch applies.
+    pub fn operation(
+        &self,
+        keys: &TrustedKeys,
+        revocations: &[Signed<RewardIntentRevocation>],
+        hotkey: AccountId,
+        epoch: u64,
+    ) -> Result<WeightOperationV2> {
+        let checked_revocations = check_revocations(keys, &self.chain, revocations)?;
+        self.with_checked(keys, |checked, renewal| {
+            checked.operation(renewal, &checked_revocations, &self.active, hotkey, epoch)
+        })
     }
 
     /// The canonical row against the holder's own finalized snapshot.
@@ -528,4 +571,13 @@ impl VerifiedTarget {
         let index = c.receipt_index.as_ref().ok_or(Error::Invalid("carrier carries no receipt index"))?;
         Ok(verify_receipt_chunks(index, chunks)?.len() as u64)
     }
+}
+
+/// Checks each signed revocation under `keys` for `chain`.
+fn check_revocations<'a>(
+    keys: &TrustedKeys,
+    chain: &ChainBinding,
+    revocations: &'a [Signed<RewardIntentRevocation>],
+) -> Result<Vec<crate::CheckedRevocation<'a>>> {
+    revocations.iter().map(|r| RewardIntentRevocation::check(r, keys, chain)).collect()
 }

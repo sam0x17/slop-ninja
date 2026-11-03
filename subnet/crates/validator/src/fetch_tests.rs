@@ -230,6 +230,17 @@ fn point(
     authorization: &[u8],
     renewal: Option<&[u8]>,
 ) {
+    point_revoked(host, chain, kind, authorization, renewal, None);
+}
+
+fn point_revoked(
+    host: &Host,
+    chain: &ChainBinding,
+    kind: &str,
+    authorization: &[u8],
+    renewal: Option<&[u8]>,
+    revocation: Option<&[u8]>,
+) {
     let object = |bytes: &[u8]| {
         let digest = sha(bytes);
         let path = format!("v1/authorizations/{digest}.signed");
@@ -243,6 +254,7 @@ fn point(
         "kind": kind,
         "authorization": object(authorization),
         "renewal": renewal.map(object),
+        "revocation": revocation.map(object),
     });
     host.put(
         fetch::AUTHORIZATION_PATH,
@@ -294,6 +306,7 @@ fn run_with(
             held,
             previous,
             keep,
+            revocations: None,
         }
         .run(),
     )
@@ -629,9 +642,14 @@ fn the_launch_pointer_and_foreign_or_missing_pointers() -> Result<()> {
     assert_eq!(staged.info.kind, "launch");
     assert_eq!(staged.info.activated_epoch, None);
     assert_eq!(
-        staged.info.lease,
-        (10, 10 + slop_ninja_protocol::LAUNCH_LEASE_TEMPOS)
+        (staged.info.issued_epoch, staged.info.renew_by_epoch),
+        (10, 10 + slop_ninja_protocol::LAUNCH_RENEW_BY_TEMPOS)
     );
+    // No end epoch: the staged launch authorization yields the burn row past
+    // its renew-by hint, at any later epoch.
+    for epoch in [10, 50, 51, 10_000] {
+        staged.authorized.check_epoch([0x42; 32], epoch).map_err(|r| anyhow::anyhow!("{}: {}", r.code, r.detail))?;
+    }
     let activated = ActiveTarget::activated(&first.closure.check(
         &first.manifest,
         &first.package,
@@ -654,9 +672,11 @@ fn the_launch_pointer_and_foreign_or_missing_pointers() -> Result<()> {
     Ok(())
 }
 
-/// A renewal published with the authorization extends the bundle's coverage.
+/// A hint refresh published with the authorization changes nothing a
+/// validator acts on: the same authorization, so no refresh is installed for
+/// it. A re-authorization of the same target issued later is a refresh.
 #[test]
-fn a_published_renewal_extends_the_lease_end() -> Result<()> {
+fn a_published_hint_refresh_is_not_newer_but_a_reauthorization_is() -> Result<()> {
     let root = scratch()?;
     let (first, _, _) = rv1::cohorts();
     let host = Host::default();
@@ -681,9 +701,10 @@ fn a_published_renewal_extends_the_lease_end() -> Result<()> {
         &first.target,
         &active,
     )?;
-    let renewal_at = plain.info.lease.1 - 1;
     let renewal = fx::signed(slop_ninja_protocol::RewardIntentRenewal::new(
-        &checked, 2, renewal_at,
+        &checked,
+        2,
+        plain.info.renew_by_epoch - 1,
     )?)?
     .to_bytes()?;
     point(
@@ -693,11 +714,26 @@ fn a_published_renewal_extends_the_lease_end() -> Result<()> {
         &first.authorization,
         Some(&renewal),
     );
-    let renewed = ready(run(&host, root.path(), launch_held())?);
-    assert_eq!(renewed.info.lease, plain.info.lease);
-    assert!(renewed.info.lease_end > plain.info.lease_end);
+    let refreshed = ready(run(&host, root.path(), launch_held())?);
+    assert_eq!(refreshed.info.issued_epoch, plain.info.issued_epoch);
+    assert!(refreshed.info.renew_by_epoch > plain.info.renew_by_epoch);
     let installed = Candidate::of(&plain.sha256, &plain.info, true);
-    let staged = Candidate::of(&renewed.sha256, &renewed.info, true);
+    let staged = Candidate::of(&refreshed.sha256, &refreshed.info, true);
+    assert_eq!(
+        supersede::decide(Some(&installed), &staged, 90, &[]),
+        Decision::Keep {
+            reason: "authorization_not_newer"
+        }
+    );
+    // A re-authorization of the same target, issued later.
+    let mut again = signed.record.clone();
+    again.issued_epoch = plain.info.renew_by_epoch + 5;
+    again.renew_by_epoch = again.issued_epoch + (signed.record.renew_by_epoch - signed.record.issued_epoch);
+    again.checkpoint_generation += 1;
+    let again = fx::signed(again)?.to_bytes()?;
+    point(&host, &fx::chain(), "cohort", &again, None);
+    let reauthorized = ready(run(&host, root.path(), launch_held())?);
+    let staged = Candidate::of(&reauthorized.sha256, &reauthorized.info, true);
     assert_eq!(
         supersede::decide(Some(&installed), &staged, 90, &[]),
         Decision::Refresh
@@ -705,18 +741,78 @@ fn a_published_renewal_extends_the_lease_end() -> Result<()> {
     Ok(())
 }
 
+/// A revocation the pointer names is checked and journaled before anything
+/// else; the staged authorization it withdraws yields no operation
+/// (`authorization_revoked`), and a forged one is refused without being
+/// journaled.
+#[test]
+fn a_pointer_revocation_is_journaled_and_withdraws_the_authorization() -> Result<()> {
+    let root = scratch()?;
+    let host = Host::default();
+    let keys = slop_ninja_protocol::fixtures::trusted_keys();
+    let chain = fx::chain();
+    let launch = fx::signed(slop_ninja_protocol::LaunchAuthorization::new(&chain, 1, 10)?)?;
+    let checked = slop_ninja_protocol::LaunchAuthorization::check(&launch, &keys, &chain, &launch_held())?;
+    let revocation = fx::signed(slop_ninja_protocol::RewardIntentRevocation::new(&checked, 1, 20)?)?.to_bytes()?;
+    let launch = launch.to_bytes()?;
+    point_revoked(&host, &chain, "launch", &launch, None, Some(&revocation));
+    let store = root.path().join("journal.json.revocations.json");
+    let staged = ready(block_on(
+        Session {
+            transport: &host,
+            cache: &root.path().join("cache"),
+            keys: &keys,
+            chain: &chain,
+            held: launch_held(),
+            previous: None,
+            keep: &[],
+            revocations: Some(&store),
+        }
+        .run(),
+    )?);
+    let journaled = crate::revocations::load(&store, &keys, &chain)?;
+    assert_eq!(journaled.len(), 1);
+    staged.authorized.set_revocations(journaled);
+    assert_eq!(staged.authorized.check_epoch([0x42; 32], 21).unwrap_err().code, "authorization_revoked");
+    assert!(staged.authorized.revoked_by().is_some());
+    // Recording it again changes nothing.
+    assert!(!crate::revocations::record(&store, &keys, &chain, &revocation)?.new);
+    // A forged revocation is refused and not journaled.
+    let mut forged = revocation.clone();
+    let last = forged.len() - 1;
+    forged[last] ^= 1;
+    point_revoked(&host, &chain, "launch", &launch, None, Some(&forged));
+    let other_store = root.path().join("other.revocations.json");
+    let outcome = block_on(
+        Session {
+            transport: &host,
+            cache: &root.path().join("cache2"),
+            keys: &keys,
+            chain: &chain,
+            held: launch_held(),
+            previous: None,
+            keep: &[],
+            revocations: Some(&other_store),
+        }
+        .run(),
+    )?;
+    assert!(matches!(outcome, Outcome::Refused(_)), "{outcome:?}");
+    assert!(crate::revocations::load(&other_store, &keys, &chain)?.is_empty());
+    Ok(())
+}
+
 fn candidate(
     sha: &str,
     target: &str,
     activated: Option<u64>,
-    lease_end: u64,
+    issued_epoch: u64,
     covers: bool,
 ) -> Candidate {
     Candidate {
         sha256: sha.into(),
         target: target.into(),
         activated_epoch: activated,
-        lease_end,
+        issued_epoch,
         covers_now: covers,
     }
 }
@@ -728,11 +824,12 @@ fn pending(id: &str, retirable: bool) -> Pending {
     }
 }
 
-/// Every branch of the decision: unchanged, refresh by lease or coverage, a
-/// lease that is not longer, a successor before its activation, waiting for
-/// an in-flight commitment, and a switch that retires never-signed work.
+/// Every branch of the decision: unchanged, refresh by a newer authorization
+/// or by coverage, an authorization that is not newer, a successor before its
+/// activation, waiting for an in-flight commitment, and a switch that retires
+/// never-signed work.
 #[test]
-fn supersession_waits_for_in_flight_work_and_never_regresses_a_lease() {
+fn supersession_waits_for_in_flight_work_and_never_regresses_an_authorization() {
     let installed = candidate("a", "t1", Some(80), 96, true);
     let decide = supersede::decide;
     assert_eq!(
@@ -758,7 +855,7 @@ fn supersession_waits_for_in_flight_work_and_never_regresses_a_lease() {
             &[]
         ),
         Decision::Refresh,
-        "a lapsed lease is refreshed by one covering the epoch"
+        "an authorization that yields nothing (revoked) is refreshed by one that does"
     );
     assert_eq!(
         decide(
@@ -768,7 +865,7 @@ fn supersession_waits_for_in_flight_work_and_never_regresses_a_lease() {
             &[]
         ),
         Decision::Keep {
-            reason: "lease_not_longer"
+            reason: "authorization_not_newer"
         }
     );
     let successor = candidate("c", "t2", Some(100), 116, true);
@@ -1886,7 +1983,7 @@ impl supersede::LoopPorts for FakeLoop {
         Ok(self.installed.clone())
     }
     fn covers(&self, staged: &Staged, epoch: u64) -> bool {
-        staged.info.lease.0 <= epoch && epoch <= staged.info.lease_end
+        staged.authorized.check_epoch([0x42; 32], epoch).is_ok()
     }
 }
 
@@ -2014,10 +2111,10 @@ fn the_dispatch_loop_waits_then_switches_then_compares_the_old_reveal() -> Resul
     Ok(())
 }
 
-/// A renewal fetched while the lease lapsed refreshes in place (one chain
-/// read), and the same bundle again needs none.
+/// A re-authorization fetched while the installed authorization is revoked
+/// refreshes in place (one chain read), and the same bundle again needs none.
 #[test]
-fn a_fetched_renewal_refreshes_the_loop_in_place() -> Result<()> {
+fn a_fetched_reauthorization_refreshes_the_loop_in_place() -> Result<()> {
     use crate::supersede::{FetchState, LoopStep};
     let root = scratch()?;
     let (first, _, _) = rv1::cohorts();
@@ -2026,32 +2123,23 @@ fn a_fetched_renewal_refreshes_the_loop_in_place() -> Result<()> {
     index(&host, &[(&first, true)]);
     point(&host, &fx::chain(), "cohort", &first.authorization, None);
     let plain = ready(run(&host, root.path(), launch_held())?);
-    let active = activated(&first)?;
     let signed =
         slop_ninja_protocol::Signed::<slop_ninja_protocol::RewardIntentAuthorization>::from_bytes(
             &first.authorization,
         )?;
-    let checked = slop_ninja_protocol::RewardIntentAuthorization::check(
-        &signed,
-        &slop_ninja_protocol::fixtures::trusted_keys(),
-        &first.manifest,
-        &first.package,
-        &first.target,
-        &active,
-    )?;
-    let renewal = fx::signed(slop_ninja_protocol::RewardIntentRenewal::new(
-        &checked,
-        2,
-        plain.info.lease.1 - 1,
-    )?)?
-    .to_bytes()?;
-    point(&host, &fx::chain(), "cohort", &first.authorization, Some(&renewal));
+    let mut again = signed.record.clone();
+    again.issued_epoch = plain.info.renew_by_epoch + 1;
+    again.renew_by_epoch = again.issued_epoch + (signed.record.renew_by_epoch - signed.record.issued_epoch);
+    again.checkpoint_generation += 1;
+    let again = fx::signed(again)?.to_bytes()?;
+    point(&host, &fx::chain(), "cohort", &again, None);
     let renewed = ready(run(&host, root.path(), launch_held())?);
-    let lapsed = plain.info.lease_end + 1;
+    let epoch = plain.info.renew_by_epoch + 1;
     let mut ports = FakeLoop {
-        epoch: lapsed,
+        epoch,
         epoch_reads: 0,
         pending: Vec::new(),
+        // The installed authorization was revoked: it covers nothing.
         installed: Some(Candidate::of(&plain.sha256, &plain.info, false)),
         install: FakeInstall::default(),
     };

@@ -25,7 +25,8 @@ use crate::{
     InferenceContent, LaunchAuthorization, NEAR_COPY_PPB, NearStats, NeuronIdentity, Nonce, Origin,
     OriginMix, Probability, ProbeBinding, ProbeMatch, PromotionAudit, PublicCopy,
     PublishedContents, PublishedIndex, Record, ReferenceModel, ReferenceScore, ReferenceSet,
-    RegistrationSnapshotV2, Result, RewardIntentAuthorization, RewardIntentRenewal, RewardRule,
+    RegistrationSnapshotV2, Result, RewardIntentAuthorization, RewardIntentRenewal,
+    RewardIntentRevocation, RewardRule,
     RewardV1Params, RosterEntry, SCORE_SCALE, Score, ScorePackageV2, Signed, Stratum,
     TESTNET_GENESIS, VerifiedArtifact, WeightRowV2, domain_hash, object_sha256, sign,
     signing_payload,
@@ -67,7 +68,7 @@ pub fn sigma_permille(value: u64) -> u64 {
 }
 
 /// The launch schedule: `K = 20`, admission at least 1, transition at least
-/// 2, lease `2K`.
+/// 2, renew-by hint distance `2K` (never an expiry).
 pub fn schedule() -> CohortSchedule {
     CohortSchedule {
         tempos: 20,
@@ -291,7 +292,7 @@ pub fn admitted(chain: &ChainBinding, cohort: u64, spec: &Spec, block: u64) -> R
 }
 
 /// The reward-intent authorization a package carries for `target`, issued at
-/// `issued_epoch` with the manifest's lease, unsigned.
+/// `issued_epoch` with the manifest's renew-by distance, unsigned.
 pub fn authorization(
     manifest: &CohortManifestV2,
     package: &ScorePackageV2,
@@ -307,7 +308,7 @@ pub fn authorization(
         target: target.digest()?,
         checkpoint_generation,
         issued_epoch,
-        expires_epoch: issued_epoch + u64::from(manifest.schedule.lease_tempos),
+        renew_by_epoch: issued_epoch + u64::from(manifest.schedule.lease_tempos),
     })
 }
 
@@ -1065,7 +1066,8 @@ pub struct Computed {
     pub target: CalculationTargetV2,
     /// Carried with the package, issued at publication (tempo 16).
     pub authorization: Signed<RewardIntentAuthorization>,
-    /// The coordinator's renewal at tempo 30 of the cohort.
+    /// A refresh of the renew-by hint at tempo 30 of the cohort (never
+    /// required).
     pub renewal: Signed<RewardIntentRenewal>,
     pub closure: CohortClosure,
 }
@@ -1101,7 +1103,7 @@ impl Computed {
         )
     }
 
-    /// The tempo-30 renewal checked against the checked authorization.
+    /// The tempo-30 hint refresh checked against the checked authorization.
     pub fn checked_renewal<'a>(
         &'a self,
         authorization: &CheckedAuthorization<'_>,
@@ -1112,8 +1114,7 @@ impl Computed {
 
 /// A cohort after the computed one whose entrant beats its reference by the
 /// margin, so that its target, the computed target's successor, activates at
-/// its closing boundary (epoch 100), inside the computed authorization's
-/// lease.
+/// its closing boundary (epoch 100).
 pub struct Successor {
     pub manifest: CohortManifestV2,
     pub package: ScorePackageV2,
@@ -2105,33 +2106,33 @@ fn computed_cohort(r: &mut Report) -> Result<()> {
     let renewal = c.checked_renewal(&authorized)?;
     let validator = AccountId([0x66; 32]);
     let epoch = c.closure.closed_epoch;
-    let lease_end = c.authorization.record.expires_epoch;
-    let renewed_end = c.renewal.record.expires_epoch;
+    let renew_by = c.authorization.record.renew_by_epoch;
     let active = c.active_after()?;
+    // No end epoch: the renew-by hint passes and commitments continue, with
+    // or without a hint refresh, for as long as the target stays active.
     for (name, renewal, e) in [
         ("activation", None, epoch),
         ("next_tempo", None, epoch + 1),
-        ("lease_end", None, lease_end),
-        ("past_lease", None, lease_end + 1),
-        ("renewed", Some(&renewal), lease_end + 1),
-        ("renewed_end", Some(&renewal), renewed_end),
-        ("past_renewal", Some(&renewal), renewed_end + 1),
+        ("renew_by", None, renew_by),
+        ("past_renew_by", None, renew_by + 1),
+        ("refreshed", Some(&renewal), renew_by + 1),
+        ("long_silence", None, renew_by + 10_000),
         ("before_activation", None, epoch - 1),
     ] {
         r.result(
             &format!("cohort.operation.{name}.epoch_{e}"),
             authorized
-                .operation(renewal, &active, validator, e)
+                .operation(renewal, &[], &active, validator, e)
                 .map(|o| o.id()),
         );
     }
     // The operation re-checks the validator's active target at every tempo:
     // a validator still on the launch burn row (a gap in its history) commits
-    // nothing, and once a successor target activates, cohort 3's
-    // authorization yields no further commitment inside its lease.
+    // nothing, and once a successor target activates (supersession), cohort
+    // 3's authorization yields no further commitment.
     r.code(
         &format!("cohort.operation.stale_active.epoch_{epoch}"),
-        authorized.operation(None, &c.active_before()?, validator, epoch),
+        authorized.operation(None, &[], &c.active_before()?, validator, epoch),
     );
     let successor = successor_of(&c)?;
     let next_closure = &successor.closure;
@@ -2144,26 +2145,70 @@ fn computed_cohort(r: &mut Report) -> Result<()> {
     let e5 = next_closure.closed_epoch;
     r.code(
         &format!("cohort.operation.after_successor_activation.epoch_{e5}"),
-        authorized.operation(Some(&renewal), &after_successor, validator, e5),
+        authorized.operation(Some(&renewal), &[], &after_successor, validator, e5),
     );
-    // A renewal issued after the lease lapsed takes effect only from its own
-    // issue epoch.
-    let late = signed(RewardIntentRenewal::new(&authorized, 3, lease_end + 10)?)?;
-    let late = RewardIntentRenewal::check(&late, &keys, &authorized)?;
-    for (name, e) in [("gap", lease_end + 5), ("resumed", lease_end + 10)] {
-        r.result(
-            &format!("cohort.operation.late_renewal.{name}.epoch_{e}"),
-            authorized
-                .operation(Some(&late), &active, validator, e)
-                .map(|o| o.id()),
-        );
-    }
+    revocation_report(r, &c, &authorized, &active)?;
     Ok(())
 }
 
-/// The reward-intent lease across a cohort that produces no target, the
-/// launch burn row carried by a no-target package, and the manifest-free
-/// launch authorization before and after the first package.
+/// A signed revocation withdraws a target's authorizations issued at or
+/// before it; a later authorization of the same target re-authorizes it.
+fn revocation_report(
+    r: &mut Report,
+    c: &Computed,
+    authorized: &CheckedAuthorization<'_>,
+    active: &ActiveTarget,
+) -> Result<()> {
+    let keys = trusted_keys();
+    let validator = AccountId([0x66; 32]);
+    let revoked_at = c.authorization.record.renew_by_epoch + 5;
+    let revocation = signed(RewardIntentRevocation::new(authorized, 3, revoked_at)?)?;
+    r.record("revocation", &revocation.record)?;
+    r.signed("revocation.signed", &revocation)?;
+    let chain = c.manifest.chain.clone();
+    r.code("revocation.check", RewardIntentRevocation::check(&revocation, &keys, &chain));
+    let checked = RewardIntentRevocation::check(&revocation, &keys, &chain)?;
+    r.line("revocation.withdraws", checked.withdraws(authorized));
+    for e in [revoked_at - 1, revoked_at, revoked_at + 1000] {
+        r.code(
+            &format!("revocation.operation.epoch_{e}"),
+            authorized.operation(None, &[checked], active, validator, e),
+        );
+    }
+    // A later authorization of the same target re-authorizes it.
+    let mut again = c.authorization.record.clone();
+    again.issued_epoch = revoked_at + 1;
+    again.renew_by_epoch = again.issued_epoch + u64::from(c.manifest.schedule.lease_tempos);
+    again.checkpoint_generation = 4;
+    let again = signed(again)?;
+    let reauthorized = RewardIntentAuthorization::check(&again, &keys, &c.manifest, &c.package, &c.target, active)?;
+    r.line("revocation.withdraws_later_authorization", checked.withdraws(&reauthorized));
+    r.result(
+        &format!("revocation.reauthorized.epoch_{}", revoked_at + 1),
+        reauthorized
+            .operation(None, &[checked], active, validator, revoked_at + 1)
+            .map(|o| o.id()),
+    );
+    // Refusals: another chain, the wrong key, a forged signature, and a
+    // revocation dated before the authorization it names.
+    r.code(
+        "reject.revocation_chain",
+        RewardIntentRevocation::check(&revocation, &keys, &finney()),
+    );
+    r.code(
+        "reject.revocation_signed_by_package_key",
+        RewardIntentRevocation::check(&sign(revocation.record.clone(), &package_key())?, &keys, &chain),
+    );
+    let mut forged = revocation.clone();
+    forged.signature[0] ^= 1;
+    r.code("reject.revocation_bad_signature", RewardIntentRevocation::check(&forged, &keys, &chain));
+    r.code(
+        "reject.revocation_before_authorization",
+        RewardIntentRevocation::new(authorized, 3, c.authorization.record.issued_epoch - 1),
+    );
+    Ok(())
+}
+
 /// The public-copy gate needs no earning floor: a repackaged `R_k-1` that
 /// clears the margin cutoff, and a later copy of an executed entrant that
 /// scored below `S_Rk-1` in its own cohort, both earn nothing.
@@ -2254,12 +2299,15 @@ fn copy_scenarios(r: &mut Report) -> Result<()> {
     Ok(())
 }
 
+/// Reward intent across a cohort that produces no target, the launch burn row
+/// carried by a no-target package, and the manifest-free launch authorization
+/// before and after the first package. None of them expires.
 fn reward_intent(r: &mut Report) -> Result<()> {
     let c = computed()?;
     let keys = trusted_keys();
     let validator = AccountId([0x66; 32]);
     // Cohort 4 produces no target, so its package authorizes cohort 3's
-    // target, which stays active under the fresh lease.
+    // target, which stays active under the fresh authorization.
     let specs = [Spec::new(0x91, bp(9050))];
     let m4 = manifest(chain(), 4, 1000, sigma_permille(40), 2, &specs);
     let (p4, _) = finalized(&m4, bp(9600), Some(bp(9100)), &specs)?;
@@ -2273,22 +2321,22 @@ fn reward_intent(r: &mut Report) -> Result<()> {
     );
     let authorized =
         RewardIntentAuthorization::check(&carried, &keys, &m4, &p4, &c.target, &active)?;
-    let e = carried.record.expires_epoch;
+    let e = carried.record.renew_by_epoch;
     r.result(
         &format!("intent.no_target.operation.epoch_{e}"),
         authorized
-            .operation(None, &active, validator, e)
+            .operation(None, &[], &active, validator, e)
             .map(|o| o.id()),
     );
     r.code(
-        "intent.no_target.past_lease",
-        authorized.operation(None, &active, validator, e + 1),
+        "intent.no_target.past_renew_by",
+        authorized.operation(None, &[], &active, validator, e + 1),
     );
     // A validator still on the launch burn row (it has not checked cohort 3's
     // closure) commits nothing under it.
     r.code(
         "intent.no_target.stale_active",
-        authorized.operation(None, &ActiveTarget::launch(&chain())?, validator, e),
+        authorized.operation(None, &[], &ActiveTarget::launch(&chain())?, validator, e),
     );
     // Cohort 4's own checked closure names no target, so it activates
     // nothing; cohort 3's target stays active.
@@ -2312,7 +2360,7 @@ fn reward_intent(r: &mut Report) -> Result<()> {
     r.result(
         "intent.launch_burn.operation.epoch_16",
         RewardIntentAuthorization::check(&burn, &keys, &m0, &p0, &launch, &unactivated)?
-            .operation(None, &unactivated, validator, 16)
+            .operation(None, &[], &unactivated, validator, 16)
             .map(|o| o.id()),
     );
     // The manifest-free launch authorization, from the first tempo of cohort
@@ -2327,14 +2375,15 @@ fn reward_intent(r: &mut Report) -> Result<()> {
     let launch_authorized = LaunchAuthorization::check(&first, &keys, &chain(), &unactivated)?;
     for (name, e) in [
         ("first_tempo", 20),
-        ("lease_end", 60),
-        ("past_lease", 61),
+        ("renew_by", 60),
+        ("past_renew_by", 61),
+        ("long_silence", 10_061),
         ("before_issue", 19),
     ] {
         r.result(
             &format!("intent.launch.operation.{name}.epoch_{e}"),
             launch_authorized
-                .operation(None, &unactivated, validator, e)
+                .operation(None, &[], &unactivated, validator, e)
                 .map(|o| o.id()),
         );
     }
@@ -2342,9 +2391,9 @@ fn reward_intent(r: &mut Report) -> Result<()> {
     r.record("intent.launch.renewal", &renewal.record)?;
     let renewal = RewardIntentRenewal::check(&renewal, &keys, &launch_authorized)?;
     r.result(
-        "intent.launch.operation.renewed.epoch_61",
+        "intent.launch.operation.refreshed.epoch_61",
         launch_authorized
-            .operation(Some(&renewal), &unactivated, validator, 61)
+            .operation(Some(&renewal), &[], &unactivated, validator, 61)
             .map(|o| o.id()),
     );
     // Cohort 1 publishes the first package at tempo 16 (epoch 36) with a new
@@ -2367,7 +2416,7 @@ fn reward_intent(r: &mut Report) -> Result<()> {
     r.result(
         "intent.launch.operation.after_first_package.epoch_37",
         launch_authorized
-            .operation(Some(&renewal), &unactivated, validator, 37)
+            .operation(Some(&renewal), &[], &unactivated, validator, 37)
             .map(|o| o.id()),
     );
     // From the closing boundary on, every validator refuses the launch
@@ -2380,10 +2429,10 @@ fn reward_intent(r: &mut Report) -> Result<()> {
     );
     // A validator that kept the launch authorization checked before the
     // closing boundary commits the burn row no longer: the operation re-checks
-    // the active target, inside the renewed lease.
+    // the active target.
     r.code(
         "intent.launch.operation.after_activation.epoch_40",
-        launch_authorized.operation(Some(&renewal), &activated, validator, 40),
+        launch_authorized.operation(Some(&renewal), &[], &activated, validator, 40),
     );
     let a1 = signed(authorization(&m1, &p1, &t1, 2, m1.opened_epoch + 16)?)?;
     r.code(
@@ -2394,7 +2443,7 @@ fn reward_intent(r: &mut Report) -> Result<()> {
     r.result(
         "intent.first_target.operation.epoch_40",
         first_target
-            .operation(None, &activated, validator, 40)
+            .operation(None, &[], &activated, validator, 40)
             .map(|o| o.id()),
     );
     Ok(())
@@ -3189,7 +3238,7 @@ fn rejections(r: &mut Report) -> Result<()> {
     Ok(())
 }
 
-/// Reward-intent, launch and renewal refusals.
+/// Reward-intent, launch and hint-refresh refusals.
 fn authorization_rejections(r: &mut Report, c: &Computed) -> Result<()> {
     let keys = trusted_keys();
     let validator = AccountId([0x66; 32]);
@@ -3205,15 +3254,15 @@ fn authorization_rejections(r: &mut Report, c: &Computed) -> Result<()> {
         RewardIntentAuthorization::check(&a, &keys, &c.manifest, p, t, active).map(|_| ())
     };
     let base = c.authorization.record.clone();
-    let mut lease = base.clone();
-    lease.expires_epoch += 1;
+    let mut hint = base.clone();
+    hint.renew_by_epoch += 1;
     r.code(
-        "reject.authorization_lease",
-        check(lease, &c.package, &c.target, &active),
+        "reject.authorization_renew_by",
+        check(hint, &c.package, &c.target, &active),
     );
     let mut early = base.clone();
     early.issued_epoch = c.manifest.opened_epoch - 1;
-    early.expires_epoch = early.issued_epoch + u64::from(c.manifest.schedule.lease_tempos);
+    early.renew_by_epoch = early.issued_epoch + u64::from(c.manifest.schedule.lease_tempos);
     r.code(
         "reject.authorization_before_cohort",
         check(early, &c.package, &c.target, &active),
@@ -3298,9 +3347,9 @@ fn authorization_rejections(r: &mut Report, c: &Computed) -> Result<()> {
         LaunchAuthorization::check(&a, &keys, chain, active).map(|_| ())
     };
     let mut long = first.clone();
-    long.expires_epoch += 1;
+    long.renew_by_epoch += 1;
     r.code(
-        "reject.launch_lease",
+        "reject.launch_renew_by",
         launch_check(long, &chain(), &unactivated),
     );
     r.code(
@@ -3330,21 +3379,21 @@ fn authorization_rejections(r: &mut Report, c: &Computed) -> Result<()> {
             &unactivated,
         ),
     );
-    // Renewals.
+    // Renew-by hint refreshes.
     let authorized = c.checked_authorization()?;
     let renew = |renewal: RewardIntentRenewal, a: &CheckedAuthorization<'_>| -> Result<()> {
         let renewal = signed(renewal)?;
         RewardIntentRenewal::check(&renewal, &keys, a).map(|_| ())
     };
     let mut renewal = c.renewal.record.clone();
-    renewal.expires_epoch += 1;
-    r.code("reject.renewal_lease", renew(renewal, &authorized));
+    renewal.renew_by_epoch += 1;
+    r.code("reject.renewal_renew_by", renew(renewal, &authorized));
     let mut renewal = c.renewal.record.clone();
     renewal.checkpoint_generation = 0;
     r.code("reject.renewal_generation", renew(renewal, &authorized));
     let mut renewal = c.renewal.record.clone();
     renewal.issued_epoch = base.issued_epoch - 1;
-    renewal.expires_epoch = base.expires_epoch - 1;
+    renewal.renew_by_epoch = base.renew_by_epoch - 1;
     r.code(
         "reject.renewal_before_authorization",
         renew(renewal, &authorized),
@@ -3384,7 +3433,7 @@ fn authorization_rejections(r: &mut Report, c: &Computed) -> Result<()> {
             &authorized,
         ),
     );
-    // A renewal cannot carry the lease over to another target: an
+    // A renewal cannot carry an authorization over to another target: an
     // authorization naming the launch burn row under a package that produced
     // a target is refused at its check, so no renewal is ever checked against
     // it and it yields no operation.
@@ -3402,19 +3451,16 @@ fn authorization_rejections(r: &mut Report, c: &Computed) -> Result<()> {
         )
         .and_then(|a| {
             let renewal = RewardIntentRenewal::check(&c.renewal, &keys, &a)?;
-            a.operation(Some(&renewal), &active, validator, epoch)
+            a.operation(Some(&renewal), &[], &active, validator, epoch)
         }),
     );
-    // A renewal takes effect only from its issue epoch.
-    let late = signed(RewardIntentRenewal::new(
-        &authorized,
-        3,
-        base.expires_epoch + 10,
-    )?)?;
-    let late = RewardIntentRenewal::check(&late, &keys, &authorized)?;
+    // An authorization yields nothing before its own issue epoch (a reissue
+    // at a later epoch than the closure).
+    let reissued_late = signed(authorization(&c.manifest, &c.package, &c.target, 2, epoch + 10)?)?;
     r.code(
-        "reject.epoch_before_renewal_issue",
-        authorized.operation(Some(&late), &active, validator, base.expires_epoch + 5),
+        "reject.epoch_before_authorization",
+        RewardIntentAuthorization::check(&reissued_late, &keys, &c.manifest, &c.package, &c.target, &active)
+            .and_then(|a| a.operation(None, &[], &active, validator, epoch + 9)),
     );
     // Only a checked closure activates a target, so a closure naming another
     // target, or one that closed before the frozen minimums, never does.
@@ -3425,7 +3471,7 @@ fn authorization_rejections(r: &mut Report, c: &Computed) -> Result<()> {
         other_closure
             .check(&c.manifest, &c.package, Some(&c.target))
             .and_then(|k| ActiveTarget::activated(&k))
-            .and_then(|a| authorized.operation(None, &a, validator, epoch)),
+            .and_then(|a| authorized.operation(None, &[], &a, validator, epoch)),
     );
     let mut early = c.closure.clone();
     early.published_epoch = c.manifest.opened_epoch + 2;
@@ -3435,7 +3481,7 @@ fn authorization_rejections(r: &mut Report, c: &Computed) -> Result<()> {
         early
             .check(&c.manifest, &c.package, Some(&c.target))
             .and_then(|k| ActiveTarget::activated(&k))
-            .and_then(|a| authorized.operation(None, &a, validator, base.issued_epoch)),
+            .and_then(|a| authorized.operation(None, &[], &a, validator, base.issued_epoch)),
     );
     Ok(())
 }

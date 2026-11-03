@@ -12,11 +12,13 @@
 //!    it: an intent journaled under another policy than this process chose is
 //!    refused, and a `Submit` intent must be a burn row, every positive entry
 //!    on the owner UID recorded with the authorization;
+//!    an operation whose target a journaled signed revocation withdrew has
+//!    its grant withdrawn and is refused at every later attempt;
 //! 2. the call is a timelocked commit, never direct weights;
 //! 3. commit/reveal is enabled at fresh best-block state. A disabled flag
 //!    refuses the attempt, which pauses new commitments without any fallback.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use rtao_client::journal::{Incompatibility, OperationIntent, SemanticGuard};
@@ -54,9 +56,17 @@ pub struct Grant {
     pub owner_rows: OwnerRowChoice,
 }
 
+#[derive(Default)]
+struct Grants {
+    granted: BTreeMap<String, Grant>,
+    /// Operations whose target a signed revocation withdrew; a later grant
+    /// (a newer authorization of the same target) clears the mark.
+    withdrawn: BTreeSet<String>,
+}
+
 /// Operation IDs verified in this process, each with its [`Grant`].
 #[derive(Clone, Default)]
-pub struct Authorized(Arc<Mutex<BTreeMap<String, Grant>>>);
+pub struct Authorized(Arc<Mutex<Grants>>);
 
 impl Authorized {
     /// Authorize under [`OwnerRowChoice::Hold`].
@@ -65,16 +75,33 @@ impl Authorized {
     }
 
     pub fn grant(&self, operation_id: &str, row_hash: &str, owner_rows: OwnerRowChoice) {
+        let mut grants = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        grants.withdrawn.remove(operation_id);
+        grants.granted.insert(operation_id.into(), Grant { row_hash: row_hash.into(), owner_rows });
+    }
+
+    /// Withdraws an operation's grant after a signed revocation of its
+    /// target: every later attempt is refused (`slop_ninja_authorization_revoked`).
+    /// Returns whether it held a grant.
+    pub fn withdraw(&self, operation_id: &str) -> bool {
+        let mut grants = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        grants.withdrawn.insert(operation_id.into());
+        grants.granted.remove(operation_id).is_some()
+    }
+
+    pub fn is_withdrawn(&self, operation_id: &str) -> bool {
         self.0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(operation_id.into(), Grant { row_hash: row_hash.into(), owner_rows });
+            .withdrawn
+            .contains(operation_id)
     }
 
     pub fn get(&self, operation_id: &str) -> Option<Grant> {
         self.0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .granted
             .get(operation_id)
             .cloned()
     }
@@ -115,6 +142,12 @@ pub fn check_intent(
     authorized: &Authorized,
     intent: &OperationIntent,
 ) -> Result<(), Incompatibility> {
+    if authorized.is_withdrawn(&intent.id) {
+        return Err(refusal(
+            "slop_ninja_authorization_revoked",
+            "A signed revocation withdrew this operation's target.",
+        ));
+    }
     let Some(grant) = authorized.get(&intent.id) else {
         return Err(refusal(
             "slop_ninja_package_unverified",

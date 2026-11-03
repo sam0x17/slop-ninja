@@ -8,11 +8,17 @@
 //! - `GET /status`: content-free JSON; requires `COORDINATOR_STATUS_TOKEN`.
 //! - `POST /fault/clear`: operator action; requires `COORDINATOR_OPERATOR_TOKEN`.
 //! - `POST /signing/target`, `POST /signing/control`, `POST /signing/kick`,
-//!   `POST /signing/restart?from_epoch=F`: operator actions for the signing
-//!   journal (install the T12 target, resume/pause/clear/arm a testnet drill,
-//!   run one signing round now, restart the held target with the restarted
-//!   chain record's launch bundle).
-//! - cron (`* * * * *`): the watchdog, the only timer.
+//!   `POST /signing/restart?from_epoch=F`, `POST /signing/revoke`: operator
+//!   actions for the signing journal (install the T12 target,
+//!   resume/pause/clear/arm a testnet drill, run one signing round now,
+//!   restart the held target with the restarted chain record's launch
+//!   bundle, journal a signed revocation: the body is the signed record's
+//!   bytes).
+//! - cron (`* * * * *`): the watchdog, the only timer. It also keeps the
+//!   private authorization pointer (`authorizations/current.json` in the
+//!   receipts bucket) equal to what the signing journal holds
+//!   ([`pointer_drive`]). Nothing expires: neither the pointer nor the
+//!   authorization it names has a validity window.
 //!
 //! Memory: every export is hand-written in `cf_arena.rs` and runs its handler
 //! inside its own bounded arena scope (`arena_routes`); bodies are read with
@@ -284,6 +290,12 @@ struct ResultRequest {
 
 fn more_default() -> bool {
     true
+}
+
+/// `/sign-pointer-written`: the SHA-256 of the pointer body read back.
+#[derive(Deserialize)]
+struct PointerWritten {
+    sha256: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -604,6 +616,20 @@ impl ChainJournal {
                     Err(_) => error("store_unavailable", 503),
                 }
             }
+            "/sign-pointer" => match transaction(&storage, move |sql| signing::pointer_plan(sql, &cfg)) {
+                Ok(plan) => json(&plan),
+                Err(_) => error("store_unavailable", 503),
+            },
+            "/sign-pointer-written" => {
+                let r = match cf_io::request_json::<PointerWritten>(&mut req, SMALL_BODY_BYTES).await {
+                    Ok(v) => v,
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                match transaction(&storage, move |sql| signing::pointer_written(sql, &r.sha256, now)) {
+                    Ok(changed) => json(&changed),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
             _ => error("not_found", 404),
         }
     }
@@ -646,6 +672,12 @@ fn admin(
             now,
         )? {
             Ok(done) => json!({"restarted": done}),
+            Err(refusal) => json!({"refused": refusal}),
+        },
+        // A signed revocation (hex): journaled and applied at once, refused
+        // with nothing changed (`signing::install_revocation`).
+        "revoke" => match signing::install_revocation(sql, cfg, trusted, r.bundle.as_deref().unwrap_or_default(), now)? {
+            Ok(done) => json!({"revoked": done}),
             Err(refusal) => json!({"refused": refusal}),
         },
         "arm_drill" => json!({
@@ -1550,6 +1582,13 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
                 from_epoch: Some(from_epoch),
             })?
         }
+        "revoke" => serde_json::to_string(&AdminRequest {
+            action: "revoke".into(),
+            bundle: Some(hex::encode(&raw)),
+            drill: None,
+            count: None,
+            from_epoch: None,
+        })?,
         "kick" => {
             let budget = Budget::new(crate::arena_routes::UNBOUNDED_FETCH_MS);
             let rounds = drive_sign(&env, &d, format!("kick:{}", now_ms()), TICK_SIGN_ROUNDS, budget).await;
@@ -1559,7 +1598,7 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
             let Ok(r) = serde_json::from_slice::<AdminRequest>(&raw) else {
                 return error("bad_request", 400);
             };
-            if r.action == "install_target" || r.action == "restart_target" {
+            if r.action == "install_target" || r.action == "restart_target" || r.action == "revoke" {
                 return error("bad_request", 400);
             }
             serde_json::to_string(&r)?
@@ -1778,12 +1817,13 @@ async fn fetch(req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Result
         (Method::Post, "/signing/control") => signing_admin(req, env, "control").await,
         (Method::Post, "/signing/kick") => signing_admin(req, env, "kick").await,
         (Method::Post, "/signing/restart") => signing_admin(req, env, "restart").await,
+        (Method::Post, "/signing/revoke") => signing_admin(req, env, "revoke").await,
         (_, p) if p.starts_with("/eval/") => eval_route(req, env).await,
         (_, p) if p.starts_with("/admission/") => admission_do::route(req, env).await,
         (
             _,
             "/hook" | "/status" | "/fault/clear" | "/signing/target" | "/signing/control"
-            | "/signing/kick" | "/signing/restart",
+            | "/signing/kick" | "/signing/restart" | "/signing/revoke",
         ) => error("method_not_allowed", 405),
         _ => error("not_found", 404),
     }
@@ -1828,6 +1868,9 @@ async fn scheduled(env: Env) {
     let budget = Budget { until_ms: started.saturating_add(slop_ninja_arena::limits::CRON_MS) };
     drive(&env, &d, report.plan, d.settings.tick_rounds, holder.clone(), budget).await;
     drive_sign(&env, &d, holder, TICK_SIGN_ROUNDS, budget).await;
+    if budget.allows(2 * JOURNAL_CALL_MS) {
+        pointer_drive(&env, &d).await;
+    }
     if eval_do::enabled(&env) && config::eval_cohort_name(&d.chain).is_some() {
         let epoch = epoch_read(&env, &d).await;
         let confirmed = epoch.map(|e| e.block);
@@ -1855,6 +1898,59 @@ async fn scheduled(env: Env) {
             }
         }
         commitments_drive(&env, &d, budget).await;
+    }
+}
+
+/// Keeps `authorizations/current.json` in the receipts bucket equal to the
+/// signing journal's pointer ([`signing::pointer_plan`]): reads the stored
+/// pointer back and, when its bytes differ or it is missing, writes the
+/// signed objects it names (content-addressed), then the pointer, reads it
+/// back and records the write. A deployment without signing, or with no
+/// reward-v1 bundle installed, writes nothing. Every failure is retried at
+/// the next tick; nothing here expires.
+async fn pointer_drive(env: &Env, d: &Deployment) {
+    let Ok(mut r) = journal_call(env, d, Method::Post, "/sign-pointer", None).await else {
+        return;
+    };
+    if r.status_code() != 200 {
+        cf_io::discard(&mut r);
+        return;
+    }
+    let Ok(Some(plan)) = cf_io::response_json::<Option<signing::PointerPlan>>(&mut r, ROUTE_REPLY_BYTES).await else {
+        return;
+    };
+    let Ok(bucket) = env.bucket(eval_do::RECEIPTS_BUCKET) else {
+        return;
+    };
+    // The stored pointer, bounded by the exact length it should have: a
+    // longer object differs.
+    let stored = cf_io::r2_bytes(&bucket, signing::authority::POINTER_KEY, plan.body.len(), None).await;
+    let current = matches!(&stored, Ok(Some(bytes)) if bytes.as_slice() == plan.body.as_bytes());
+    if !current {
+        for o in &plan.objects {
+            let Ok(bytes) = hex::decode(&o.hex) else { return };
+            if bucket.put(&o.key, bytes).execute().await.is_err() {
+                return;
+            }
+        }
+        if bucket
+            .put(signing::authority::POINTER_KEY, plan.body.as_bytes().to_vec())
+            .execute()
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let back = cf_io::r2_bytes(&bucket, signing::authority::POINTER_KEY, plan.body.len(), None).await;
+        if !matches!(&back, Ok(Some(bytes)) if bytes.as_slice() == plan.body.as_bytes()) {
+            return;
+        }
+    }
+    if plan.written.as_deref() != Some(plan.sha256.as_str()) {
+        let body = serde_json::json!({"sha256": plan.sha256}).to_string();
+        if let Ok(mut r) = journal_call(env, d, Method::Post, "/sign-pointer-written", Some(body)).await {
+            cf_io::discard(&mut r);
+        }
     }
 }
 

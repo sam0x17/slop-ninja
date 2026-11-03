@@ -1239,6 +1239,16 @@ fn write_pointer(
     auth: publish::ObjectRef,
     renewal: Option<publish::ObjectRef>,
 ) {
+    write_pointer_revoked(x, kind, auth, renewal, None);
+}
+
+fn write_pointer_revoked(
+    x: &Buckets3,
+    kind: &str,
+    auth: publish::ObjectRef,
+    renewal: Option<publish::ObjectRef>,
+    revocation: Option<publish::ObjectRef>,
+) {
     let pointer = publish::AuthorizationPointer {
         schema: publish::AUTHORIZATION_SCHEMA.into(),
         chain: slop_ninja_admission_wire::json::Chain::from_binding(
@@ -1247,6 +1257,7 @@ fn write_pointer(
         kind: kind.into(),
         authorization: auth,
         renewal,
+        revocation,
     };
     x.receipts.insert(
         layout::PRIVATE_AUTHORIZATION_POINTER,
@@ -1274,13 +1285,13 @@ fn authorizations_are_published_once_their_cohort_is_listed() {
         target: b.c.target.digest().unwrap(),
         checkpoint_generation: 1,
         issued_epoch: m.opened_epoch + 16,
-        expires_epoch: m.opened_epoch + 56,
+        renew_by_epoch: m.opened_epoch + 56,
     };
     let renewal = RewardIntentRenewal {
         authorization: auth.digest().unwrap(),
         checkpoint_generation: 2,
         issued_epoch: m.opened_epoch + 30,
-        expires_epoch: m.opened_epoch + 70,
+        renew_by_epoch: m.opened_epoch + 70,
     };
     let auth_bytes = fx::signed(auth.clone()).unwrap().to_bytes().unwrap();
     let renewal_bytes = fx::signed(renewal).unwrap().to_bytes().unwrap();
@@ -1328,7 +1339,7 @@ fn authorizations_are_published_once_their_cohort_is_listed() {
         authorization: slop_ninja_protocol::domain_hash("publisher-test/other", b""),
         checkpoint_generation: 2,
         issued_epoch: m.opened_epoch + 30,
-        expires_epoch: m.opened_epoch + 70,
+        renew_by_epoch: m.opened_epoch + 70,
     };
     let r = store_authorization(&x, fx::signed(other).unwrap().to_bytes().unwrap());
     write_pointer(&x, "cohort", a, Some(r));
@@ -1350,12 +1361,40 @@ fn authorizations_are_published_once_their_cohort_is_listed() {
             .unwrap(),
         checkpoint_generation: 1,
         issued_epoch: 10,
-        expires_epoch: 50,
+        renew_by_epoch: 50,
     };
-    let a = store_authorization(&x, fx::signed(launch).unwrap().to_bytes().unwrap());
-    write_pointer(&x, "launch", a, None);
+    let launch_bytes = fx::signed(launch.clone()).unwrap().to_bytes().unwrap();
+    let a = store_authorization(&x, launch_bytes.clone());
+    write_pointer(&x, "launch", a.clone(), None);
     let (report, _) = run(&config(None, false), &x, &mut Memo::default());
     assert!(report.authorization_written, "{report:?}");
+    // A signed revocation the pointer names is copied with it, byte for byte;
+    // one for another chain is refused.
+    let revocation = slop_ninja_protocol::RewardIntentRevocation {
+        chain: m.chain.clone(),
+        target: launch.target,
+        authorization: launch.digest().unwrap(),
+        checkpoint_generation: 1,
+        issued_epoch: 12,
+    };
+    let revocation_bytes = fx::signed(revocation.clone()).unwrap().to_bytes().unwrap();
+    let rv = store_authorization(&x, revocation_bytes.clone());
+    write_pointer_revoked(&x, "launch", a.clone(), None, Some(rv));
+    let (report, _) = run(&config(None, false), &x, &mut Memo::default());
+    assert!(report.authorization_written, "{report:?}");
+    let public: publish::AuthorizationPointer = public_json(&x, layout::AUTHORIZATION_CURRENT);
+    let obj = public.revocation.as_ref().unwrap();
+    assert!(obj.path.starts_with("v1/authorizations/"));
+    assert_eq!(&x.public.bytes(&obj.path).unwrap(), &revocation_bytes);
+    let mut foreign = revocation;
+    foreign.chain.netuid += 1;
+    let rv = store_authorization(&x, fx::signed(foreign).unwrap().to_bytes().unwrap());
+    write_pointer_revoked(&x, "launch", a, None, Some(rv));
+    let (report, _) = run(&config(None, false), &x, &mut Memo::default());
+    assert!(
+        report.refused.iter().any(|(s, why)| s == "authorizations" && why.contains("revocation names another chain")),
+        "{report:?}"
+    );
     // Signed by another key: refused.
     let x = buckets(&b);
     let forged = slop_ninja_protocol::sign(auth, &slop_ninja_protocol::fixtures::package_key())

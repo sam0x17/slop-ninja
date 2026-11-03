@@ -46,7 +46,7 @@ use slop_ninja_admission_wire::json::Chain;
 use slop_ninja_protocol::submission::SubmissionUpload;
 use slop_ninja_protocol::{
     AccountId, CalculationTargetV2, Digest, EntrantScore, LaunchAuthorization, Nonce, Record,
-    ReferenceModel, RewardIntentAuthorization, RewardIntentRenewal, Signed,
+    ReferenceModel, RewardIntentAuthorization, RewardIntentRenewal, RewardIntentRevocation, Signed,
 };
 
 use crate::arena::{self, Budget};
@@ -499,29 +499,12 @@ impl Keepalive for NoLease {
 }
 
 /// `v1/authorizations/current.json` and its private source: the
-/// authorization that lets validators commit now and its renewal, each a
-/// content-addressed object.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AuthorizationPointer {
-    pub schema: String,
-    pub chain: Chain,
-    /// `launch` or `cohort`.
-    pub kind: String,
-    pub authorization: ObjectRef,
-    #[serde(default)]
-    pub renewal: Option<ObjectRef>,
-}
+/// authorization that lets validators commit now, any renew-by hint refresh
+/// and the latest signed revocation, each a content-addressed object. The
+/// coordinator writes the private one with the same type.
+pub use slop_ninja_admission_wire::json::{AuthorizationPointer, ObjectRef};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ObjectRef {
-    pub path: String,
-    pub sha256: String,
-    pub bytes: u64,
-}
-
-pub const AUTHORIZATION_SCHEMA: &str = "slop_ninja.public.authorization/v1";
+pub const AUTHORIZATION_SCHEMA: &str = slop_ninja_admission_wire::json::AUTHORIZATION_POINTER_SCHEMA;
 
 pub struct Run<'a, S, K> {
     pub buckets: Buckets<'a, S>,
@@ -1612,6 +1595,20 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 Some((r, sha))
             }
         };
+        // A revocation is copied whatever it names: validators check it and
+        // journal it before anything else.
+        let revocation = match &pointer.revocation {
+            None => None,
+            Some(r) => {
+                let (sha, bytes) = self.authorization_object(r).await?;
+                let revocation = Signed::<RewardIntentRevocation>::open(&bytes, keys)
+                    .map_err(|e| invalid(&format!("revocation: {e}")))?;
+                if revocation.chain != self.cfg.chain {
+                    return Err(invalid("the revocation names another chain or subnet"));
+                }
+                Some((r, sha))
+            }
+        };
         let public = AuthorizationPointer {
             schema: AUTHORIZATION_SCHEMA.into(),
             chain: pointer.chain.clone(),
@@ -1620,6 +1617,10 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 .copy_authorization(&pointer.authorization, auth_sha)
                 .await?,
             renewal: match renewal {
+                Some((r, sha)) => Some(self.copy_authorization(r, sha).await?),
+                None => None,
+            },
+            revocation: match revocation {
                 Some((r, sha)) => Some(self.copy_authorization(r, sha).await?),
                 None => None,
             },

@@ -74,6 +74,17 @@ enum Command {
         #[arg(long)]
         retire: bool,
     },
+    /// Journal a signed reward-intent revocation (a file of its signed
+    /// bytes, as `reward_v1_verify revoke` writes it): checked under the
+    /// configured trust roots and this chain, then kept in
+    /// `<journal>.revocations.json`. Safe while the unit runs; it stops new
+    /// commitments of the withdrawn target at the next finalized head, and
+    /// only a newer authorization of that target resumes them. Reads no
+    /// chain and loads no key.
+    Revoke {
+        /// The signed revocation file.
+        file: PathBuf,
+    },
     /// Read-only finalized observation: epoch state, this hotkey's
     /// `TimelockedWeightCommits` entries for recent epochs, its `Weights` row,
     /// and `Incentive` at the row's UIDs. Opens no journal or key.
@@ -108,6 +119,11 @@ fn main() -> ExitCode {
         Command::ResetTarget => report(slop_ninja_validator::live::reset_target(&config).and_then(|done| {
             println!("{}", serde_json::to_string_pretty(&done)?);
             tracing::info!(event = "target_reset");
+            Ok(())
+        })),
+        Command::Revoke { file } => report(slop_ninja_validator::live::record_revocation(&config, &file).and_then(|done| {
+            println!("{}", serde_json::to_string_pretty(&done)?);
+            tracing::info!(event = "revocation_recorded", new = done["new"].as_bool().unwrap_or(false));
             Ok(())
         })),
         Command::RollbackCheck { retire } => match slop_ninja_validator::live::rollback_check(&config, retire) {
@@ -285,7 +301,7 @@ async fn run_async(config: ValidatorConfig, mode: Mode) -> Option<u8> {
     }
     // A continuous dispatch run never exits for routine work: it continues
     // on an installed successor in this process, and waits out a deferred
-    // tempo for the next epoch (or a fetched renewal) instead of exiting, so
+    // tempo for the next epoch (or a fetched newer authorization) instead of exiting, so
     // neither a supersession nor a burn-only row costs a restart.
     let continuous = mode == Mode::Dispatch && ports.continuous();
 
@@ -338,9 +354,10 @@ async fn run_async(config: ValidatorConfig, mode: Mode) -> Option<u8> {
                             continue;
                         }
                         AppOutcome::Enqueued { dispatch, .. }
-                            if dispatch.stop.starts_with("tempo_deferred:authorization_refused") =>
+                            if dispatch.stop.starts_with("tempo_deferred:authorization_refused")
+                                || dispatch.stop.starts_with("tempo_deferred:authorization_revoked") =>
                         {
-                            tracing::info!(event = "tempo_waiting", code = "authorization_refused");
+                            tracing::info!(event = "tempo_waiting", code = dispatch.stop.trim_start_matches("tempo_deferred:"));
                             ports.wait_after_deferral().await?;
                             continue;
                         }

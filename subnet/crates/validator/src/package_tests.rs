@@ -314,6 +314,73 @@ fn intent(id: &str, row_hash: &str, contract: &str) -> OperationIntent {
     }
 }
 
+/// A revocation withdraws an operation's grant: every later attempt is
+/// refused, until a newer authorization grants the operation again.
+#[test]
+fn guard_refuses_attempts_of_a_withdrawn_operation() {
+    let authorized = Authorized::default();
+    authorized.insert("op", "h");
+    assert!(check_intent(&authorized, &intent("op", "h", PACKAGE_CONTRACT)).is_ok());
+    assert!(authorized.withdraw("op"));
+    assert_eq!(
+        check_intent(&authorized, &intent("op", "h", PACKAGE_CONTRACT)).unwrap_err().code,
+        "slop_ninja_authorization_revoked"
+    );
+    assert!(!authorized.withdraw("op"), "no grant left to withdraw");
+    // Withdrawn without a grant (work recovered from an earlier process).
+    assert!(!authorized.withdraw("other"));
+    assert_eq!(
+        check_intent(&authorized, &intent("other", "h", PACKAGE_CONTRACT)).unwrap_err().code,
+        "slop_ninja_authorization_revoked"
+    );
+    authorized.insert("op", "h");
+    assert!(check_intent(&authorized, &intent("op", "h", PACKAGE_CONTRACT)).is_ok());
+}
+
+/// The revocation store keeps each checked revocation once, across reloads,
+/// and refuses a forged one, another chain's, and an altered file.
+#[test]
+fn the_revocation_store_journals_checked_revocations_once() -> Result<()> {
+    let root = scratch()?;
+    let store = root.path().join("journal.json.revocations.json");
+    let launch = slop_ninja_protocol::sign(
+        slop_ninja_protocol::LaunchAuthorization::new(&chain(), 1, 10).unwrap(),
+        &authorization_key(),
+    )
+    .unwrap();
+    let held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
+    let checked = slop_ninja_protocol::LaunchAuthorization::check(&launch, &trusted(), &chain(), &held).unwrap();
+    let revocation = |epoch: u64, key: &SigningKey| {
+        slop_ninja_protocol::sign(slop_ninja_protocol::RewardIntentRevocation::new(&checked, 1, epoch).unwrap(), key)
+            .unwrap()
+            .to_bytes()
+            .unwrap()
+    };
+    assert!(crate::revocations::load(&store, &trusted(), &chain())?.is_empty());
+    let first = revocation(20, &authorization_key());
+    assert!(crate::revocations::record(&store, &trusted(), &chain(), &first)?.new);
+    assert!(!crate::revocations::record(&store, &trusted(), &chain(), &first)?.new);
+    assert!(crate::revocations::record(&store, &trusted(), &chain(), &revocation(30, &authorization_key()))?.new);
+    assert_eq!(crate::revocations::load(&store, &trusted(), &chain())?.len(), 2);
+    assert_eq!(crate::revocations::entries(&store)?[0].issued_epoch, 20);
+    use std::os::unix::fs::PermissionsExt as _;
+    assert_eq!(std::fs::metadata(&store)?.permissions().mode() & 0o777, 0o600);
+    // Signed by another key, or for another chain: refused, nothing written.
+    assert!(crate::revocations::record(&store, &trusted(), &chain(), &revocation(40, &package_key())).is_err());
+    let other = ChainBinding { netuid: NETUID + 1, ..chain() };
+    assert!(crate::revocations::record(&store, &trusted(), &other, &first).is_err());
+    assert_eq!(crate::revocations::load(&store, &trusted(), &chain())?.len(), 2);
+    // An altered entry fails the whole load: the operator must look.
+    let text = std::fs::read_to_string(&store)?;
+    let entry = &crate::revocations::entries(&store)?[0].signed;
+    let mut flipped = entry.clone();
+    let last = flipped.pop().unwrap();
+    flipped.push(if last == '0' { '1' } else { '0' });
+    std::fs::write(&store, text.replace(entry.as_str(), &flipped))?;
+    assert!(crate::revocations::load(&store, &trusted(), &chain()).is_err());
+    Ok(())
+}
+
 #[test]
 fn guard_signs_only_verified_rows_as_timelocked_commits() {
     let authorized = Authorized::default();
@@ -483,6 +550,8 @@ struct TestApp {
     /// Weight limits `weight_limits` returns, and how often it was read.
     limits: crate::app::WeightLimits,
     limit_reads: usize,
+    /// The journaled revocation store, when the test uses one.
+    revocation_store: Option<std::path::PathBuf>,
 }
 
 impl TestApp {
@@ -509,6 +578,7 @@ impl TestApp {
                 null_consensus: false,
             },
             limit_reads: 0,
+            revocation_store: None,
         })
     }
 
@@ -529,6 +599,15 @@ impl AppPorts for TestApp {
     }
     fn chain(&self) -> ([u8; 32], u16) {
         self.served
+    }
+    fn revocations(&self) -> Result<Vec<slop_ninja_protocol::Signed<slop_ninja_protocol::RewardIntentRevocation>>> {
+        let Some(store) = &self.revocation_store else { return Ok(Vec::new()) };
+        let chain = ChainBinding {
+            genesis: slop_ninja_protocol::Digest(self.served.0),
+            netuid: self.served.1,
+            mechanism: 0,
+        };
+        crate::revocations::load(store, &AppPorts::trusted_keys(self)?, &chain)
     }
     async fn registration_snapshot(
         &mut self,
@@ -1236,17 +1315,56 @@ fn the_rollback_check_finds_the_queued_submit_burn_row() -> Result<()> {
 }
 
 #[test]
-fn a_reward_v1_launch_bundle_checks_its_lease_and_derivation() -> Result<()> {
+fn a_reward_v1_launch_bundle_never_expires_and_a_revocation_stops_it() -> Result<()> {
     let root = scratch()?;
     let config = config(root.path())?;
     init_journal(&config, identity())?;
     let mut app = TestApp::open(&config, &bundle())?;
     app.bundle = launch_bundle(10);
-    // A lease that does not cover the epoch defers too.
+    // Past the renew-by hint (epoch 50) the burn row is still queued: an
+    // authorization has no end epoch.
     app.epoch = 60;
     match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
-        AppOutcome::Deferred { code, .. } => assert_eq!(code, "authorization_refused"),
-        other => panic!("expected the lease deferral, got {other:?}"),
+        AppOutcome::Enqueued { .. } => {}
+        other => panic!("expected the burn row queued past the hint, got {other:?}"),
+    }
+    app.epoch = 10_000;
+    match block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))? {
+        AppOutcome::DryRun { .. } => {}
+        other => panic!("expected a dry run long past the hint, got {other:?}"),
+    }
+    // A signed revocation, journaled, stops it: the tempo defers
+    // (`authorization_revoked`) and queued work that never signed is retired.
+    let store = crate::revocations::path(&config.journal_path);
+    let launch = slop_ninja_protocol::sign(
+        slop_ninja_protocol::LaunchAuthorization::new(&chain(), 1, 10).unwrap(),
+        &authorization_key(),
+    )
+    .unwrap();
+    let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
+    let checked = slop_ninja_protocol::LaunchAuthorization::check(&launch, &trusted(), &chain(), &launch_held).unwrap();
+    let revocation = slop_ninja_protocol::sign(
+        slop_ninja_protocol::RewardIntentRevocation::new(&checked, 1, 61).unwrap(),
+        &authorization_key(),
+    )
+    .unwrap()
+    .to_bytes()
+    .unwrap();
+    assert!(crate::revocations::record(&store, &trusted(), &chain(), &revocation)?.new);
+    app.revocation_store = Some(store.clone());
+    app.epoch = 62;
+    match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Deferred { code, .. } => assert_eq!(code, "authorization_revoked"),
+        other => panic!("expected the revocation deferral, got {other:?}"),
+    }
+    let pending = AppPorts::pending_operations(&app, 0)?;
+    assert!(pending.iter().all(|p| !p.retirable()), "never-signed work of the revoked target is retired: {pending:?}");
+    // A later launch authorization re-authorizes the burn row.
+    app.bundle = launch_bundle(63);
+    app.epoch = 63;
+    match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Enqueued { .. } => {}
+        other => panic!("expected the re-authorized burn row queued, got {other:?}"),
     }
     // The derivation itself, and the authorization's epoch checks.
     let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
@@ -1258,7 +1376,9 @@ fn a_reward_v1_launch_bundle_checks_its_lease_and_derivation() -> Result<()> {
     assert_eq!(d.entries(), vec![(owner().uid, 65535)]);
     assert!(d.work.operation_id(&identity())?.starts_with(slop_ninja_protocol::WEIGHT_OPERATION_V2_PREFIX));
     assert_eq!(d.work_for_tempo(validator2().hotkey.0, 13).unwrap().tempo, Some(13));
-    assert_eq!(d.work_for_tempo(validator2().hotkey.0, 51).unwrap_err().code, "authorization_refused");
+    // No end epoch: past the hint the next tempo's work is still derived.
+    assert_eq!(d.work_for_tempo(validator2().hotkey.0, 51).unwrap().tempo, Some(51));
+    assert_eq!(d.work_for_tempo(validator2().hotkey.0, 100_000).unwrap().tempo, Some(100_000));
     assert_eq!(crate::package_v2::derive(a, &snap, validator2().hotkey.0, 9).unwrap_err().code, "authorization_refused");
     // Under another key the bundle is refused before any row.
     let mut forged: serde_json::Value = serde_json::from_slice(&launch_bundle(10))?;
@@ -1513,6 +1633,7 @@ fn rv1_app(root: &Path) -> Result<TestApp> {
             null_consensus: false,
         },
         limit_reads: 0,
+        revocation_store: None,
     })
 }
 

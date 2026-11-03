@@ -1053,6 +1053,9 @@ pub enum Verified {
 pub struct ActiveTarget {
     pub digest: String,
     pub verified: Verified,
+    /// The journaled signed revocations every reward-v1 operation is checked
+    /// against ([`authority`]).
+    pub revocations: Vec<slop_ninja_protocol::Signed<slop_ninja_protocol::RewardIntentRevocation>>,
     /// v1: the protocol weight operation of (target, hotkey); each epoch's
     /// identity is [`commit_op_id`]. v2: the target digest; each epoch's
     /// identity is the protocol `WeightOperationV2`, issued only under the
@@ -1063,7 +1066,9 @@ pub struct ActiveTarget {
 
 impl ActiveTarget {
     /// This validator's operation identity at `epoch`. A reward-v1 target
-    /// re-checks its authorization (active target, activation, lease) here.
+    /// re-checks its authorization here: the held active target, its
+    /// activation, the authorization's issue and the journaled revocations
+    /// (`authorization_revoked`). There is no end epoch.
     pub fn op_id(
         &self,
         keys: &slop_ninja_protocol::TrustedKeys,
@@ -1073,10 +1078,14 @@ impl ActiveTarget {
         match &self.verified {
             Verified::V1(_) => Ok(commit_op_id(&self.base_op, epoch)),
             Verified::V2(v) => v
-                .operation(keys, slop_ninja_protocol::AccountId(hotkey), epoch)
+                .operation(keys, &self.revocations, slop_ninja_protocol::AccountId(hotkey), epoch)
                 .map(|op| op.id())
                 .map_err(|e| target::Refusal {
-                    code: "authorization_refused",
+                    code: if matches!(e, slop_ninja_protocol::Error::Revoked(_)) {
+                        "authorization_revoked"
+                    } else {
+                        "authorization_refused"
+                    },
                     detail: format!("{e} ({})", e.code()),
                 }),
         }
@@ -1359,8 +1368,8 @@ pub fn restart_target(
             "a restart installs the restarted record's launch bundle",
         );
     }
-    let issued = match verified.checked_lease(keys) {
-        Ok((issued, _)) => issued,
+    let issued = match verified.checked_terms(keys) {
+        Ok(terms) => terms.issued_epoch,
         Err(e) => return refuse("authorization_refused", &e.to_string()),
     };
     if let Err(code) = restart_floor_ok(from_epoch, Some(issued), None) {
@@ -1444,7 +1453,7 @@ fn install_target_v2(
     };
     // The epoch the bundle was issued (launch) or opened (cohort) at.
     let launch_issued = match &verified.source {
-        None => verified.checked_lease(keys).ok().map(|(issued, _)| issued),
+        None => verified.checked_terms(keys).ok().map(|terms| terms.issued_epoch),
         Some(_) => None,
     };
     let opened = verified.source.as_ref().map(|s| s.manifest.opened_epoch);
@@ -1456,6 +1465,23 @@ fn install_target_v2(
             code,
             detail: format!("the restarted record starts at epoch {floor}"),
         }));
+    }
+    // A bundle whose authorization a journaled revocation withdraws would
+    // commit nothing; a newer authorization of the target is needed.
+    match verified.revoked_by(keys, &authority::revocations(sql)?) {
+        Ok(None) => {}
+        Ok(Some(revocation)) => {
+            return Ok(Err(target::Refusal {
+                code: "authorization_revoked",
+                detail: format!("revocation {revocation} withdraws this authorization"),
+            }));
+        }
+        Err(e) => {
+            return Ok(Err(target::Refusal {
+                code: "revocation_unverified",
+                detail: format!("{e} ({})", e.code()),
+            }));
+        }
     }
     if let Err(r) = record_held(sql, &held, &verified.active, now_ms)? {
         return Ok(Err(r));
@@ -1525,11 +1551,31 @@ fn active_target(
         if verified.target_digest.to_string() != digest {
             return Ok(Some(Err(target::Refusal { code: "target_digest_changed", detail: String::new() })));
         }
+        // A journaled signed revocation withdraws the installed
+        // authorization: nothing of its target is planned or signed until a
+        // newer authorization is installed. Time alone never refuses it.
+        let revocations = authority::revocations(sql)?;
+        match verified.revoked_by(keys, &revocations) {
+            Ok(None) => {}
+            Ok(Some(revocation)) => {
+                return Ok(Some(Err(target::Refusal {
+                    code: "authorization_revoked",
+                    detail: format!("revocation {revocation}"),
+                })));
+            }
+            Err(e) => {
+                return Ok(Some(Err(target::Refusal {
+                    code: "revocation_unverified",
+                    detail: format!("{e} ({})", e.code()),
+                })));
+            }
+        }
         let mechanism = verified.chain.mechanism;
         return Ok(Some(Ok(ActiveTarget {
             base_op: digest.clone(),
             digest,
             verified: Verified::V2(Box::new(verified)),
+            revocations,
             mechanism,
         })));
     }
@@ -1564,6 +1610,7 @@ fn active_target(
     Ok(Some(Ok(ActiveTarget {
         digest,
         verified: Verified::V1(Box::new(verified)),
+        revocations: Vec::new(),
         base_op,
         mechanism,
     })))
@@ -3484,6 +3531,13 @@ fn sign_op(
     if o.state != "preparing" || p.block != at_block || live_attempt(sql)?.is_some() {
         return Ok(());
     }
+    // A revocation journaled since the row was derived: never sign.
+    if let Some(Err(r)) = active_target(sql, ctx.cfg, ctx.trusted)?
+        && r.code == "authorization_revoked"
+    {
+        fail_op(sql, op_id, r.code, now_ms)?;
+        return Ok(());
+    }
     sign_attempt(sql, ctx, rt, &o, &p, &row, now_ms)
 }
 
@@ -4425,6 +4479,9 @@ pub struct SigningStatus {
     /// The highest epoch an installed bundle was issued or opened at: a
     /// restart's `from_epoch` must exceed it.
     pub record_epoch: Option<u64>,
+    /// The installed authorization, its revocation state and the pointer's
+    /// last confirmed write ([`authority::view`]).
+    pub authorization: Option<authority::AuthorizationView>,
     pub schedule_block: Option<u64>,
     pub claim: Option<claims::ClaimStatus>,
     pub ops: Vec<OpStatus>,
@@ -4604,6 +4661,7 @@ pub fn status(
             .transpose()?,
         restarted_from_epoch: restart_floor(sql)?,
         record_epoch: record_epoch(sql)?,
+        authorization: authority::view(sql, now_ms)?,
         schedule_block: sql
             .exec("SELECT block_number FROM chain_schedule WHERE id = 1", &[])?
             .first()
@@ -4614,6 +4672,17 @@ pub fn status(
         drills,
         log,
     })
+}
+
+pub mod authority;
+pub use authority::{PointerPlan, Revoked, install_revocation, pointer_plan, pointer_written};
+
+/// The installed target's digest and stored bundle, if any.
+fn signer_target_bundle(sql: &impl Sql) -> Result<Option<(String, String)>, StoreError> {
+    let rows = sql.exec("SELECT target, bundle FROM sign_targets WHERE active = 1", &[])?;
+    rows.first()
+        .map(|r| Ok((text(r, 0)?.to_owned(), text(r, 1)?.to_owned())))
+        .transpose()
 }
 
 #[cfg(test)]

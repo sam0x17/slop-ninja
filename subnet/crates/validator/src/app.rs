@@ -176,6 +176,11 @@ pub trait AppPorts {
     /// reward-v1: this validator's durable record of the target it holds
     /// active; `None` before it accepted any bundle (the launch burn row).
     fn held_target(&self) -> Result<Option<crate::package_v2::HeldTargetFile>>;
+    /// Every signed revocation this validator journaled ([`crate::revocations`]),
+    /// checked under the trusted keys. None by default.
+    fn revocations(&self) -> Result<Vec<slop_ninja_protocol::Signed<slop_ninja_protocol::RewardIntentRevocation>>> {
+        Ok(Vec::new())
+    }
     /// Durably records the target held active after a verified bundle.
     fn record_target(&mut self, held: &crate::package_v2::HeldTargetFile) -> Result<()>;
     /// Operations of `mechanism` that rtao has not handed back, any target.
@@ -242,7 +247,10 @@ pub enum AppOutcome {
     /// (`burn_row_weights_limit`), this non-owner validator holds no
     /// validator permit the chain would require of its burn row at reveal
     /// (`burn_row_no_permit`), the authorization does not cover this
-    /// epoch (`authorization_refused`, until a renewal or a new bundle), or a
+    /// epoch (`authorization_refused`: the target is not the held one or the
+    /// epoch precedes the authorization; never an expiry), a journaled
+    /// signed revocation withdraws it (`authorization_revoked`, until a newer
+    /// authorization), or a
     /// pending operation still awaits recovery (`pending_operation_unsettled`).
     /// The process exits for a later retry (75); the journal is unchanged
     /// apart from retiring superseded work that never landed.
@@ -251,7 +259,8 @@ pub enum AppOutcome {
 
 /// Refusal codes that defer a tempo rather than halt the validator.
 pub fn is_deferral(code: &str) -> bool {
-    is_row_deferral(code) || matches!(code, "authorization_refused" | "pending_operation_unsettled")
+    is_row_deferral(code)
+        || matches!(code, "authorization_refused" | "authorization_revoked" | "pending_operation_unsettled")
 }
 
 /// Deferrals about the row itself: a later snapshot or chain state is tried
@@ -455,6 +464,7 @@ async fn apply_v2<P: AppPorts>(
         Ok(a) => std::sync::Arc::new(a),
         Err(refusal) => return Ok(refused(refusal)),
     };
+    authorized.set_revocations(ports.revocations().context("revocation store read failed")?);
     let active = authorized.verified.active.clone();
     if active != held {
         if !advances(&held, &active) {
@@ -476,6 +486,28 @@ async fn apply_v2<P: AppPorts>(
         miners = summary.scored_miners
     );
     faults.hit(Phase::PackageVerified)?;
+    if let Some(revocation) = authorized.revoked_by() {
+        // A signed revocation withdrew this authorization: no commitment of
+        // its target is queued, and queued work of it that never signed is
+        // retired. Work with a signed attempt is left to recovery. A newer
+        // authorization resumes commitments.
+        let retired = if mode == Mode::Dispatch {
+            retire_revoked(ports, authorized.verified.chain.mechanism, authorized.verified.target_digest.0)?
+        } else {
+            0
+        };
+        tracing::warn!(
+            event = "authorization_revoked",
+            target = %summary.target,
+            revocation = %revocation,
+            retired,
+            alert = true
+        );
+        return Ok(deferred(Refusal {
+            code: "authorization_revoked",
+            detail: format!("revocation {revocation} withdraws the installed authorization"),
+        }));
+    }
     let chain = authorized.verified.chain.clone();
     let v1 = ports
         .registration_snapshot(head, &chain)
@@ -811,6 +843,24 @@ pub async fn burn_row_limits<P: AppPorts>(
     }
     tracing::info!(event = "burn_row_submit", kind = ?kind, min_allowed_weights = limits.min_allowed_weights, max_weights_limit = limits.max_weights_limit, population = limits.population, own_permit = limits.own_permit, null_consensus = limits.null_consensus);
     Ok(Ok(()))
+}
+
+/// Retires every pending operation of `mechanism` for the revoked `target`
+/// that never landed (`authorization_revoked`). One with a signed attempt
+/// awaiting recovery, or a landed one, is left for recovery. Returns how many
+/// were retired.
+pub fn retire_revoked<P: AppPorts>(ports: &mut P, mechanism: u8, target: [u8; 32]) -> Result<usize> {
+    let mut retired = 0;
+    for pending in ports.pending_operations(mechanism)? {
+        if pending.work.as_ref().and_then(|w| w.v2_target) != Some(target) || !pending.retirable() {
+            continue;
+        }
+        if ports.retire(&pending.id, "authorization_revoked")? {
+            tracing::info!(event = "operation_retired", reason = "authorization_revoked", tempo = ?pending.work.and_then(|w| w.tempo));
+            retired += 1;
+        }
+    }
+    Ok(retired)
 }
 
 /// Retires every pending `Submit` operation of `mechanism` with the row

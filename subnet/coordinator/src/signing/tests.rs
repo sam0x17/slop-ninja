@@ -1741,7 +1741,7 @@ fn v4_storage_upgrades_with_its_signing_journal_intact() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (4, 8));
+    assert_eq!((report.from, report.to), (4, 9));
     let s = tx(&db, signer).unwrap();
     assert_eq!(
         (s.state.as_str(), s.nonce_floor, s.runtime, s.runtime_block),
@@ -2265,12 +2265,141 @@ fn a_reward_v1_launch_bundle_commits_the_burn_row_to_the_owner_uid_each_epoch() 
     let ops = h.ops();
     assert_eq!(ops[1].epoch, ops[0].epoch + 1);
     assert_ne!(ops[0].op_id, ops[1].op_id, "one identity per tempo");
-    // Outside its lease the launch authorization yields no operation: the
-    // tempo is deferred, never committed.
+    // Before its issue the launch authorization yields no operation; from
+    // its issue on it has no end, its renew-by hint (epoch 540) included.
     tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(500), T0)).unwrap().unwrap();
     let t = tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted)).unwrap().unwrap().unwrap();
     assert_eq!(t.op_id(&h.trusted, h.cfg.hotkey, 9).unwrap_err().code, "authorization_refused");
-    assert!(t.op_id(&h.trusted, h.cfg.hotkey, 500).is_ok());
+    for epoch in [500, 540, 541, 1_000_000] {
+        assert!(t.op_id(&h.trusted, h.cfg.hotkey, epoch).is_ok(), "epoch {epoch}");
+    }
+}
+
+fn chain_binding() -> slop_ninja_protocol::ChainBinding {
+    slop_ninja_protocol::ChainBinding {
+        genesis: slop_ninja_protocol::TESTNET_GENESIS,
+        netuid: NETUID,
+        mechanism: 0,
+    }
+}
+
+/// A signed revocation of the launch authorization issued at
+/// `authorization_issued`, dated `issued_epoch`, as hex.
+fn launch_revocation_hex(authorization_issued: u64, issued_epoch: u64) -> String {
+    let chain = chain_binding();
+    let auth = sign(
+        slop_ninja_protocol::LaunchAuthorization::new(&chain, 1, authorization_issued).unwrap(),
+        &fx::authorization_key(),
+    )
+    .unwrap();
+    let launch = slop_ninja_protocol::ActiveTarget::launch(&chain).unwrap();
+    let checked = slop_ninja_protocol::LaunchAuthorization::check(&auth, &fx::trusted_keys(), &chain, &launch).unwrap();
+    let revocation = slop_ninja_protocol::RewardIntentRevocation::new(&checked, 1, issued_epoch).unwrap();
+    hex::encode(sign(revocation, &fx::authorization_key()).unwrap().to_bytes().unwrap())
+}
+
+/// No authorization expires (simulated): the chain is at epoch 106, long
+/// past the launch authorization's renew-by hint (epoch 41), as after a long
+/// coordinator silence, and the coordinator still commits the burn row each
+/// epoch. A signed revocation stops commits of the revoked target at once
+/// (no new operation is signed); a later authorization resumes them.
+#[test]
+fn the_coordinator_commits_past_the_renew_by_hint_until_a_signed_revocation() {
+    let mut h = H::new();
+    h.chain.sched.subnet_epoch_index += 100;
+    h.chain.snapshot(START - 1, vec![]);
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let view = h.status().authorization.unwrap();
+    assert_eq!((view.kind.as_str(), view.issued_epoch, view.renew_by_epoch, view.revoked_by.as_deref()), ("launch", 1, 41, None));
+    h.resume();
+    h.until(80, committed);
+    let first = h.ops()[0].clone();
+    assert!(first.epoch > 41 + 60, "the hint passed long ago: epoch {}", first.epoch);
+    h.until(400, |h| h.ops().len() == 2 && h.ops()[1].state == "committed");
+    let second = h.ops()[1].clone();
+    assert_eq!(second.epoch, first.epoch + 1);
+
+    // A forged or foreign revocation is refused and changes nothing.
+    let mut forged = hex::decode(launch_revocation_hex(1, second.epoch)).unwrap();
+    let last = forged.len() - 1;
+    forged[last] ^= 1;
+    let refused = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex::encode(&forged), T0)).unwrap().unwrap_err();
+    assert_eq!(refused.code, "revocation_refused");
+    assert!(tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted)).unwrap().unwrap().is_ok());
+
+    // The signed revocation withdraws the installed launch authorization.
+    let revoked_at = second.epoch;
+    let hex_rev = launch_revocation_hex(1, revoked_at);
+    let r = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_rev, T0)).unwrap().unwrap();
+    assert!(r.new && r.withdraws_installed, "{r:?}");
+    let again = tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_rev, T0)).unwrap().unwrap();
+    assert!(!again.new, "journaled once");
+    match tx(&h.db, |sql| active_target(sql, &h.cfg, &h.trusted)).unwrap().unwrap() {
+        Err(r) => assert_eq!(r.code, "authorization_revoked"),
+        Ok(_) => panic!("the revoked authorization is still active"),
+    }
+    assert_eq!(h.status().authorization.unwrap().revoked_by.as_deref(), Some(r.revocation.as_str()));
+    // Reinstalling the revoked authorization is refused.
+    let reinstall = tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap();
+    assert_eq!(reinstall.unwrap_err().code, "authorization_revoked");
+    // Three more epochs: nothing of the revoked target is committed.
+    h.blocks(3 * 360);
+    let after: Vec<_> = h.ops().into_iter().filter(|o| o.epoch > second.epoch).collect();
+    assert!(
+        after.iter().all(|o| o.state != "committed" && o.attempts.is_empty()),
+        "no operation of the revoked target is signed: {after:#?}"
+    );
+    assert!(h.status().log.iter().any(|l| l["event"] == "authorization_revoked"));
+
+    // A launch authorization issued after the revocation resumes commits.
+    let resume_at = h.chain.sched.subnet_epoch_index;
+    assert!(resume_at > revoked_at);
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(resume_at), T0)).unwrap().unwrap();
+    assert!(h.status().authorization.unwrap().revoked_by.is_none());
+    h.until(800, |h| h.ops().iter().any(|o| o.epoch >= resume_at && o.state == "committed"));
+}
+
+/// The pointer names the installed authorization and the latest revocation
+/// by content; it is rewritten only when its bytes change, and the write is
+/// recorded once.
+#[test]
+fn the_authorization_pointer_names_the_installed_authorization_and_latest_revocation() {
+    let h = H::new();
+    // A T12 v1 bundle has no reward-v1 authorization: no pointer.
+    assert!(tx(&h.db, |sql| pointer_plan(sql, &h.cfg)).unwrap().is_none());
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let plan = tx(&h.db, |sql| pointer_plan(sql, &h.cfg)).unwrap().unwrap();
+    assert_eq!(plan.written, None);
+    let pointer: slop_ninja_admission_wire::json::AuthorizationPointer = serde_json::from_str(&plan.body).unwrap();
+    assert_eq!(pointer.kind, "launch");
+    assert_eq!(pointer.schema, slop_ninja_admission_wire::json::AUTHORIZATION_POINTER_SCHEMA);
+    assert_eq!(pointer.chain.binding(), Some(chain_binding()));
+    assert!(pointer.revocation.is_none() && pointer.renewal.is_none());
+    assert!(!plan.body.contains("revocation"), "an absent revocation is not written");
+    assert_eq!(plan.objects.len(), 1);
+    let o = &plan.objects[0];
+    let bytes = hex::decode(&o.hex).unwrap();
+    assert_eq!(o.key, pointer.authorization.path);
+    assert_eq!(o.key, format!("authorizations/{}.signed", hex::encode(sha2::Sha256::digest(&bytes))));
+    assert_eq!(pointer.authorization.bytes, bytes.len() as u64);
+    slop_ninja_protocol::Signed::<slop_ninja_protocol::LaunchAuthorization>::open(&bytes, &h.trusted).unwrap();
+    assert_eq!(plan.sha256, hex::encode(sha2::Sha256::digest(plan.body.as_bytes())));
+    // Recorded once; the same plan reports it written.
+    assert!(tx(&h.db, |sql| pointer_written(sql, &plan.sha256, T0)).unwrap());
+    assert!(!tx(&h.db, |sql| pointer_written(sql, &plan.sha256, T0 + 1)).unwrap());
+    let again = tx(&h.db, |sql| pointer_plan(sql, &h.cfg)).unwrap().unwrap();
+    assert_eq!(again.written.as_deref(), Some(plan.sha256.as_str()));
+    assert_eq!(again.body, plan.body, "the pointer does not change with time");
+    // A revocation changes the pointer: it names the revocation object.
+    let hex_rev = launch_revocation_hex(1, 5);
+    tx(&h.db, |sql| install_revocation(sql, &h.cfg, &h.trusted, &hex_rev, T0)).unwrap().unwrap();
+    let revoked = tx(&h.db, |sql| pointer_plan(sql, &h.cfg)).unwrap().unwrap();
+    assert_ne!(revoked.sha256, plan.sha256);
+    let pointer: slop_ninja_admission_wire::json::AuthorizationPointer = serde_json::from_str(&revoked.body).unwrap();
+    let r = pointer.revocation.unwrap();
+    let robj = revoked.objects.iter().find(|o| o.key == r.path).unwrap();
+    assert_eq!(robj.hex, hex_rev);
+    assert_eq!(h.status().authorization.unwrap().revocations, 1);
 }
 
 #[test]

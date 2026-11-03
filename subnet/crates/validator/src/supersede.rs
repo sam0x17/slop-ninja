@@ -8,9 +8,11 @@
 //! [`decide`] compares the verified candidate with the installed bundle:
 //!
 //! - the same bytes: nothing to do;
-//! - the same target with a longer lease, or one that covers the finalized
-//!   epoch where the installed one no longer does (a new per-cohort
-//!   authorization, a renewal, a newer carrier): a refresh. Operation IDs
+//! - the same target under a newer authorization (issued later, such as a
+//!   new per-cohort authorization, a newer carrier or a re-authorization
+//!   after a revocation), or one that yields an operation at the finalized
+//!   epoch where the installed one does not: a refresh. An authorization
+//!   never expires, so nothing is refreshed for time alone. Operation IDs
 //!   bind the target, not the authorization, so a refresh never changes the
 //!   operation a commitment belongs to;
 //! - another target (the verified successor of the held target, possibly
@@ -56,8 +58,8 @@ pub struct Candidate {
     pub sha256: String,
     pub target: String,
     pub activated_epoch: Option<u64>,
-    /// Last epoch the authorization or its renewal covers.
-    pub lease_end: u64,
+    /// First epoch of the authorization: a later one is newer.
+    pub issued_epoch: u64,
     /// Whether the authorization yields an operation at the finalized epoch.
     pub covers_now: bool,
 }
@@ -68,7 +70,7 @@ impl Candidate {
             sha256: sha256.to_owned(),
             target: info.target.clone(),
             activated_epoch: info.activated_epoch,
-            lease_end: info.lease_end,
+            issued_epoch: info.issued_epoch,
             covers_now,
         }
     }
@@ -121,13 +123,13 @@ pub fn decide(
             };
         }
         if current.target == staged.target {
-            return if staged.lease_end > current.lease_end
+            return if staged.issued_epoch > current.issued_epoch
                 || (staged.covers_now && !current.covers_now)
             {
                 Decision::Refresh
             } else {
                 Decision::Keep {
-                    reason: "lease_not_longer",
+                    reason: "authorization_not_newer",
                 }
             };
         }
@@ -367,7 +369,7 @@ impl FetchState {
                 decision = %text,
                 epoch,
                 target = %staged.info.target,
-                lease_end = staged.info.lease_end
+                issued_epoch = staged.info.issued_epoch
             );
             self.last_logged = text;
         }

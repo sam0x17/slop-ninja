@@ -130,11 +130,15 @@ procedure for subnet 601 is [TESTNET-M2.md](TESTNET-M2.md).
    `row_would_be_held` and every `burn_row_*` deferral are logged as
    `tempo_deferred` with `alert = true`: each leaves this validator
    committing nothing that tempo. A row that must burn while the owner hotkey holds no
-   UID (`row_deferred`), and an authorization that does not cover the epoch
-   (`authorization_refused`, until a renewal or a new bundle), defer the same
+   UID (`row_deferred`), an authorization that yields no operation at the
+   epoch (`authorization_refused`: its target is not the held one, or the
+   epoch precedes its issue; never an expiry), and one a journaled signed
+   revocation withdraws (`authorization_revoked`, logged with `alert = true`;
+   queued work of that target that never signed is retired), defer the same
    way. A continuous dispatch run waits in the same process for the next
    epoch (with `[fetch]`, fetching every `poll_secs` and continuing at once
-   when a renewal or successor is installed) and applies the bundle again;
+   when a newer authorization or successor is installed) and applies the
+   bundle again;
    a dry run or bounded run exits 75. Inside the dispatch loop the tempo is
    skipped and the next epoch is tried afresh. The first commitment and each
    per-tempo re-commit resolve the label against the journal the same way
@@ -209,23 +213,55 @@ procedure for subnet 601 is [TESTNET-M2.md](TESTNET-M2.md).
     committed it, read at the block that observed the reveal
     ([Reveal checks](#reveal-checks)). With `[dispatch] max_finalized_blocks`
     unset the run is continuous: it re-commits the target once per tempo
-    until a signal or a check. A fetched authorization for the same target
-    with a longer lease replaces the one each re-commit is derived under, in
-    place. A fetched successor is installed at its eligible boundary and the
+    until a signal or a check. **No authorization expires**: a bundle keeps
+    yielding re-commits for as long as its target is the held one, whatever
+    time has passed, with or without a coordinator. A fetched newer
+    authorization for the same target (issued later) replaces the one each
+    re-commit is derived under, in place. A fetched successor is installed at its eligible boundary and the
     run continues on it in the same process (`continuing_on_successor`): the
     recovered journal and reveal watcher carry over, so no restart, recovery
     replay or restart delay separates the old target's last commit from the
-    successor's first. When the lease ends with `[fetch]` configured, new
-    commitments pause (`lease_paused`, `alert = true`) while reconciliation
-    continues, until a renewal or successor arrives. Without `[fetch]` the
+    successor's first. At each finalized head the run reloads the journaled
+    revocations ([Revocations](#revocations)); when one withdraws the
+    current authorization, the withdrawn target's queued work loses its
+    signing grant (the guard refuses every later attempt with
+    `slop_ninja_authorization_revoked`), work that never signed is retired
+    (`authorization_revoked`), and new commitments pause
+    (`authorization_paused`, `alert = true`) while reconciliation continues,
+    until a newer authorization or successor arrives. Without `[fetch]` the
     run first stays until this target's outstanding reveals have been
-    compared (`lease_paused`, `fetcher: false`), then waits as in step 9 and
-    reads the bundle file again each epoch.
+    compared, then waits as in step 9 and reads the bundle file again each
+    epoch.
 
 Before each signature the guard requires that the operation and exact row
-were verified in this process, that the call is a timelocked commit (direct
-weights are never a fallback), and that commit/reveal is enabled at fresh
-best-block state. The adapter's live-surface check runs first.
+were verified in this process (and that no revocation withdrew its target
+since), that the call is a timelocked commit (direct weights are never a
+fallback), and that commit/reveal is enabled at fresh best-block state. The
+adapter's live-surface check runs first.
+
+## Revocations
+
+An authorization stops yielding commitments only when a newer one
+supersedes it or a signed `RewardIntentRevocation` withdraws it. A
+revocation withdraws every authorization of its target issued at or before
+its own epoch; a later authorization of the same target re-authorizes it.
+This validator journals each revocation it accepts in
+`<journal>.revocations.json` (mode 600, only ever added, read-modify-write
+under `<journal>.revocations.json.lock`) after checking its signature under
+the configured authorization key and this chain, and checks every per-tempo
+commitment against all of them. Revocations arrive two ways:
+
+- `slop_ninja_validator --config ... revoke <file>`: the signed record's
+  bytes, as `reward_v1_verify revoke` writes them. Safe while the unit runs;
+  the run applies it at its next finalized head.
+- the fetcher: when `v1/authorizations/current.json` names a `revocation`,
+  it is checked and journaled before anything else in the session
+  (`revocation_recorded`, `alert = true`); a forged one refuses the session
+  and is not journaled.
+
+A store entry that no longer verifies (rotated trust roots or an altered
+file) is an error the operator resolves; the run keeps the revocations it
+already loaded (`revocation_store_unreadable`, `alert = true`).
 
 Any refusal leaves the journal paused, and the journal is paused again before
 exit, so the next run recovers first.
@@ -358,7 +394,8 @@ Dependency crates log at `warn` and above.
 `fetch.rs` reads the publisher's layout `v1`
 ([`docs/testnet/public-layout.md`](../../../docs/testnet/public-layout.md)):
 `v1/authorizations/current.json` names the current
-authorization and any renewal as content-addressed objects; the cohort index
+authorization, any renew-by hint refresh and the latest revocation as
+content-addressed objects; the cohort index
 names each cohort's target and whether its receipts are retained; each
 cohort's `publication.json` and `chunk-map.json` list every object's SHA-256
 and length. These documents are unsigned and only locate objects: every
@@ -366,12 +403,14 @@ object must match its listed digest and length, and the assembled bundle is
 then verified by `package_v2::verify` against the held target, like an
 installed file.
 
-**Not live yet.** The public host is not deployed, and the coordinator does
-not yet write the private pointer and objects the publisher copies to
-`v1/authorizations/` (authorizations and renewals are still signed by the
-operator tool, T12); until both exist the fetcher reports `unpublished` and
-the validator keeps the bundle the operator installs. The pointer, as the
-layout defines it:
+**Not live yet.** The coordinator writes the private pointer and objects
+(`authorizations/current.json` and `authorizations/<sha256>.signed` in the
+receipts bucket, rewritten whenever they differ from its installed bundle and
+revocations), and the publisher copies them to `v1/authorizations/`, but the
+public host is not deployed; until it is the fetcher reports `unpublished`
+and the validator keeps the bundle the operator installs (authorizations are
+still signed by the operator tool, T12). The pointer, as the layout defines
+it:
 
 ```json
 {
@@ -379,18 +418,23 @@ layout defines it:
   "chain": { "genesis": "<64 hex>", "netuid": 601, "mechanism": 0 },
   "kind": "cohort",
   "authorization": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": 309 },
-  "renewal": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": 196 }
+  "renewal": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": 196 },
+  "revocation": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
 }
 ```
 
 `kind` is `launch` (a `LaunchAuthorization`) or `cohort` (a
-`RewardIntentAuthorization`); `renewal` is the newest `RewardIntentRenewal`
-of that authorization, or absent. Each object is the coordinator's signed
-bytes, named by its SHA-256, and its `bytes` must be the record's exact
-signed length (fixed by the schema, `fetch::authorization_lengths`: 230
-bytes for a launch authorization, 309 for a reward-intent authorization,
-196 for a renewal). The
-pointer is rewritten in place (`max-age=60`); the objects are never deleted.
+`RewardIntentAuthorization`); `renewal` is a refresh of that
+authorization's renew-by hint, or absent; `revocation` is the latest
+`RewardIntentRevocation` the coordinator holds, or absent. Each object is
+the coordinator's signed bytes, named by its SHA-256, and its `bytes` must be
+the record's exact signed length (fixed by the schema,
+`fetch::authorization_lengths` and `fetch::revocation_length`: 230 bytes for
+a launch authorization, 309 for a reward-intent authorization, 196 for a
+renewal). The pointer is rewritten in place (`max-age=60`); the objects are
+never deleted. Neither the pointer nor the authorization has a validity
+window: a pointer that stops changing keeps validators committing its
+authorization.
 
 A session reads at most `SESSION_BYTES` into memory: `MAX_BUNDLE_BYTES`
 (64 MiB, the bundle file bound), documents and objects together, counting
@@ -459,8 +503,9 @@ chain and checks each intermediate target's records and closure without
 receipts (`fetch::advance`), since it commits nothing for them.
 
 `supersede.rs` decides what a verified bundle does: the same bytes keep the
-installed one; the same target with a longer lease, or one covering the
-finalized epoch where the installed one does not, is a refresh (installed,
+installed one; the same target under a newer authorization (issued later),
+or one that yields an operation at the finalized epoch where the installed
+one does not (a re-authorization after a revocation), is a refresh (installed,
 and swapped into a continuous run in place); a target that activates no
 later than the installed one's is kept out (`regression`: a stale or
 rolled-back pointer); a later target is a switch at the eligible boundary
@@ -578,9 +623,7 @@ rtao has followed one the rollback is roll-forward only. 601 uses the native
 tag 4 today. A validator of this build started again queues the retired
 tempo's work afresh under the next label, because a retired label is never
 joined. From then on each label is one epoch ahead of the epoch it commits
-in, so the last epoch of an authorization lease is deferred
-(`authorization_refused`) one tempo early. Nothing is lost or committed
-twice. The same shift follows any retirement of a label's never-signed
+in. Nothing is lost or committed twice. The same shift follows any retirement of a label's never-signed
 work after which the validator restarts in the same epoch
 (`owner_row_policy_changed`, `burn_row_limits_changed`).
 
@@ -704,8 +747,12 @@ connection. They cover:
   receipts produces no bundle; receipts deleted under N+2 come only from the
   cache; a validator holding the launch row advances through an intermediate
   target without its receipts, a tampered intermediate and a held target
-  outside the chain are refused; the launch pointer, a foreign chain, a
-  renewal's longer lease; and the real HTTP transport against a loopback
+  outside the chain are refused; the launch pointer (committing at any
+  epoch past its renew-by hint), a foreign chain, a hint refresh that is not
+  a newer authorization and a re-authorization that is; a pointer
+  revocation journaled before anything else, withdrawing the staged
+  authorization, and a forged one refused unjournaled; and the real HTTP
+  transport against a loopback
   server (range continued or ignored, 404, a redirect refused);
 - the fetcher's bounds against a hostile host: an authorization of the wrong
   length is never requested and one with a bad signature stops the session
@@ -715,8 +762,9 @@ connection. They cover:
   refused ones included, prunes the cache to what it named and the installed
   cohorts; an unchanged session reads no object; a trickling HTTP host is
   cut off by the total bound;
-- every supersession decision (unchanged, refresh by lease or coverage, a
-  shorter lease, a regression to an earlier target, a successor before
+- every supersession decision (unchanged, refresh by a newer authorization
+  or by coverage, an authorization that is not newer, a regression to an
+  earlier target, a successor before
   activation, waiting on in-flight work, a switch retiring never-signed
   work), the install order (intermediate, bundle, successor's record), and
   a stale pointer after a switch refused by the held record and by the
@@ -725,7 +773,7 @@ connection. They cover:
   chain read while work is in flight, then switch, then compare the old
   target's last reveal with its own row from the reveal ledger (never the
   successor's), observe an unattributed reveal without halting, and refresh
-  a lapsed lease in place; the ledger itself (operations that never commit,
+  a revoked authorization in place with a re-authorization; the ledger itself (operations that never commit,
   a full 256-entry outcome ring, expiry, an unreadable file);
 - held-target records bound to the trust roots (another authority set
   aside, an unbound record bound) and a dry run that stages a fetched bundle
@@ -751,8 +799,9 @@ On `build-host` (Linux x86_64, Rust 1.99.1), 40 tests passed on 2026-10-30 at
 rtao `b5553a76`, and Clippy passed with warnings denied; with the `reward-v1`
 bundle path, 45 tests passed on 2026-10-31. The new test drives a launch
 bundle: the burn row, a bundle signed under another key refused before any
-row, the per-tempo authorization inside and past its lease, and the rtao
-hold. Cohort bundles are covered by the protocol crate's `target_bundle`
+row, the per-tempo authorization (since 2026-11-03: past its renew-by hint,
+then stopped by a journaled revocation and resumed by a later
+authorization), and the rtao hold. Cohort bundles are covered by the protocol crate's `target_bundle`
 tests and the coordinator's end-to-end simulation, and ran live in the
 `reward-v1` rehearsal ([coordinator TESTNET.md](../../coordinator/TESTNET.md)). The default dry run
 ran against testnet subnet 601 on 2026-10-30
@@ -766,7 +815,7 @@ clean under denied warnings and the `no_runtime_gates` lint passing. The
 tests are offline (an in-memory public host, a loopback HTTP server, the
 real file journal, a fake dispatch loop); the dispatch loop's chain reads
 themselves have no fake-chain test. With the staged install and the
-no-fetcher lease-end wait, 73 tests passed on 2026-11-02 (the memory
+no-fetcher pause wait, 73 tests passed on 2026-11-02 (the memory
 measurement above is the one ignored test). The fetcher has not run against
 a live public host, which is not yet deployed (the authorization pointer is
 not published), and no continuous run has crossed a cohort boundary on

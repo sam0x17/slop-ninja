@@ -22,8 +22,8 @@ into static public objects. Once a minute it:
    staged reference package (`v1/reference/packages/<sha256>/`, CC BY-SA 4.0)
    when the public bucket holds its parts manifest with that SHA-256; the
    operator stages packages and the publisher never writes under that prefix;
-5. copies the current validator authorization and its renewal once their
-   cohort is listed;
+5. copies the current validator authorization, any renew-by hint refresh and
+   the latest signed revocation once the authorization's cohort is listed;
 6. deletes cohort N's detailed receipts from the public host once N+1 and N+2
    are published and N's target is superseded;
 7. pings an external dead-man URL when one is enabled, after a run that
@@ -407,8 +407,11 @@ receipts bucket, with the same schema and private keys
 opens it under the authorization key, and checks that a renewal renews that
 authorization. A launch authorization must name the launch burn target. A
 cohort authorization waits until its cohort is listed with the same manifest
-and package. The objects are then copied to `v1/authorizations/` and the
-public pointer is written.
+and package. A revocation must name this chain and is copied whatever target
+it names (validators journal it before anything else). The objects are then
+copied to `v1/authorizations/` and the public pointer is written. The
+coordinator rewrites the private pointer whenever it differs from its
+installed bundle and journaled revocations; nothing in it expires.
 
 ## Checks
 
@@ -441,7 +444,6 @@ cargo check --manifest-path subnet/publisher/Cargo.toml --target wasm32-unknown-
   that branch lands):
   - store each admitted upload's `SubmissionUpload` envelope at the key
     `ADMISSION_RECORD_KEY` names (W3); until then no artifact is published;
-  - store signed authorizations and renewals with the private pointer above;
   - refuse plans whose receipt count exceeds the publisher's bound above;
   - a compact status route for the publisher (the active and next cohort,
     the regime, the ledger ratio and a journal summary). `/eval/status` lists

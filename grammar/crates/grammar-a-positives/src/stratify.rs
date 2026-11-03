@@ -138,12 +138,37 @@ pub fn quotas(
     q
 }
 
+/// S0-10's value (B5b part 2 item 5): the base-cohort stratification.
+pub const S0_10_SCHEMA: &str = "slop_ninja_a_positives_base_stratification_v1";
+/// How S0-10 is fixed and read.
+pub const S0_10_RULE: &str = "S0-10, the base-cohort stratification (protocol A2 sections 6.4 and 12.6: stratify-train by human counts, before D7; B5b part 2 item 5; amendment 27): stratify-train --target granite_base --target smollm3_base --target ernie_base --values VALUES-R2.json --write-stratification ENTRY runs part 1's selection at v_fam (S0-7) over the base plan and records, per Train base family and Train domain, the target of accepted rows = the existing accepted Train items (this plan's runs and --prior, the plans and runs of the existing base rows) + the selection's domain quota, water-filled so existing plus new track the base plan's Train human counts (plan.json humans.train), bounded by availability, with floor 0, no domain weights, no priority domains, cohort shares train_base_v3=1 and the seed r2_base_cohort_stratification_v1 (any other option value is refused); the entry (values.S0-10 with id S0-10, name base_cohort_stratification and value) is copied unchanged into VALUES-R2.json by a later A9 step; D7's step, stratify-train --target ... --values --stratification, takes the same fixed options and is refused while S0-10 is absent or when its plan, v_fam, prior plans, partitions, floor, seed, cohort shares, domain weights or Train human counts differ from S0-10's, and selects per domain the target less the accepted items so far (bounded by availability), so a first pass equals part 1's selection and later passes fill the frozen targets";
+/// S0-10's floor (amendment 27): stratified by Train human counts alone.
+pub const S0_10_FLOOR: usize = 0;
+/// S0-10's selection seed (amendment 27).
+pub const S0_10_SEED: &str = "r2_base_cohort_stratification_v1";
+/// `stratify-train`'s floor when S0-10's options are off (the tool's
+/// default, not a protocol value).
+pub const DEFAULT_FLOOR: usize = 60;
+
 /// Choose and order items for one generator.
 pub fn select(
     cands: &[Item],
     humans: &BTreeMap<String, f64>,
     existing: &BTreeMap<String, usize>,
     p: &Params,
+) -> Result<Selection> {
+    select_with(cands, humans, existing, p, None)
+}
+
+/// [`select`] with the per-domain quotas `fixed` (S0-10's targets less the
+/// accepted items, D7's step) in place of [`quotas`]; each is bounded by the
+/// domain's availability, and a domain `fixed` omits gets none.
+pub fn select_with(
+    cands: &[Item],
+    humans: &BTreeMap<String, f64>,
+    existing: &BTreeMap<String, usize>,
+    p: &Params,
+    fixed: Option<&BTreeMap<String, usize>>,
 ) -> Result<Selection> {
     // selection units: whole ladders, otherwise single items
     let mut units: BTreeMap<String, Vec<&Item>> = BTreeMap::new();
@@ -175,7 +200,10 @@ pub fn select(
             }
         }
     }
-    let quota = quotas(humans, &available, existing, p.budget, p.floor);
+    let quota = match fixed {
+        Some(f) => available.iter().map(|(d, a)| (d.clone(), f.get(d).copied().unwrap_or(0).min(*a))).collect(),
+        None => quotas(humans, &available, existing, p.budget, p.floor),
+    };
     // per-domain picks
     let mut picks: BTreeMap<String, Vec<Vec<&Item>>> = BTreeMap::new();
     for (dom, cs) in &by_dom {
@@ -417,6 +445,28 @@ mod tests {
             [(("d1".to_owned(), "other".to_owned(), "continuation".to_owned()), 5)].into();
         let s3 = select(&c, &h, &BTreeMap::new(), &p(true, other)).unwrap();
         assert_eq!(s3.order, s1.order);
+    }
+
+    #[test]
+    fn fixed_quotas_replace_the_water_fill_bounded_by_availability() {
+        let mut c = Vec::new();
+        for i in 0..40 {
+            c.push(item(&format!("b{i:02}"), "big", "mix", "R0", None));
+        }
+        for i in 0..6 {
+            c.push(item(&format!("s{i:02}"), "small", "mix", "R0", None));
+        }
+        let h: BTreeMap<String, f64> = [("big".to_owned(), 900.0), ("small".to_owned(), 100.0)].into();
+        let p = params(20, 0);
+        let s = select(&c, &h, &BTreeMap::new(), &p).unwrap();
+        // the fixed quotas equal to the water-fill's give the same selection
+        let same = select_with(&c, &h, &BTreeMap::new(), &p, Some(&s.quota)).unwrap();
+        assert_eq!((same.order, same.quota), (s.order.clone(), s.quota.clone()));
+        // other quotas: bounded by availability, and an omitted domain gets none
+        let f: BTreeMap<String, usize> = [("small".to_owned(), 9)].into();
+        let t = select_with(&c, &h, &BTreeMap::new(), &p, Some(&f)).unwrap();
+        assert_eq!((t.quota["small"], t.quota["big"], t.order.len()), (6, 0, 6));
+        assert!(t.order.iter().all(|x| x.starts_with('s')));
     }
 
     #[test]

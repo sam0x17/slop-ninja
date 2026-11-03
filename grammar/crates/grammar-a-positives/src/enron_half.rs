@@ -171,6 +171,47 @@ pub fn run(pool: &Path, root: &Path, values: &Path, out: &Path) -> Result<Value>
         "out": out, "out_sha256": hh}))
 }
 
+/// D6's plan rule (B5b part 2 item 3).
+pub const D6_PLAN_RULE: &str = "D6 (protocol A2 sections 4.4 and 6.1, V23, S0-9; B5b part 2 item 3; amendment 27): the plan reads only enron-half's Train file; each line's collection, writer_key and frozen_split are read from its bytes before any parse, and a line of another collection or split, a writer key outside S0-9's Train half (a diagnostic-half key among them) or a line whose keys cannot be read refuses the plan by line number (keys never printed); every parsed line carries enron-half's split_rule; the documents and words equal S0-9's train_half; then one mirror per document (paired local positives, so the domain does not mean human) from the Train-only mirror planner (train_mirror_plan_v1) at mirror_target_words_v2, the seven Train instruct families only (local, never hosted, section 2.7), with R0's CAL overlap extra (--cal-from, required); one batch on its own runs directory, population train2; profile v2 copies the parent's hard wraps at generation (section 6.2, B2)";
+
+/// D6's plan over the Enron Train half `train_half` (enron-half's output):
+/// every binding above ([`D6_PLAN_RULE`]) is checked before the plan is
+/// written to the new directory `out` by `train_mirror::run`.
+pub fn plan_d6(train_half: &Path, values: &crate::values::Values, cal_src: &Path, out: &Path) -> Result<Value> {
+    ensure!(!out.exists(), "{} exists: the plan is a new directory", out.display());
+    let (h, values_sha) = EnronHalves::from_values_file(&values.path)?;
+    ensure!(values_sha == values.sha256, "VALUES-R2.json changed while it was read");
+    let vals: Value = serde_json::from_slice(&fs::read(&values.path)?)?;
+    let s9 = &vals["values"]["S0-9"];
+    let train: BTreeSet<&str> = h.train.iter().map(String::as_str).collect();
+    let diag: BTreeSet<&str> = h.diagnostic.iter().map(String::as_str).collect();
+    let b = fs::read(train_half).with_context(|| train_half.display().to_string())?;
+    let (mut docs, mut words) = (0usize, 0usize);
+    for (n, l) in b.split(|&x| x == b'\n').enumerate() {
+        if l.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        ensure!(one_value(l, "collection", n)? == ENRON_COLLECTION, "Train-half line {}: not an {ENRON_COLLECTION} document", n + 1);
+        let k = one_value(l, "writer_key", n)?;
+        ensure!(!diag.contains(k), "Train-half line {}: a diagnostic-half writer key (V23): D6 reads the Train half only; refused before any parse", n + 1);
+        ensure!(train.contains(k), "Train-half line {}: a writer key outside S0-9's Train half; refused before any parse", n + 1);
+        ensure!(one_value(l, "frozen_split", n)? == "train", "Train-half line {}: not a Train document", n + 1);
+        let v: Value = serde_json::from_slice(l).with_context(|| format!("Train-half line {}", n + 1))?;
+        ensure!(v["split_rule"] == ENRON_HALF_RULE, "Train-half line {}: not written by enron-half (its split_rule differs)", n + 1);
+        let t = v["text"].as_str().context("text")?;
+        ensure!(v["word_count"].as_u64() == Some(text::words(t) as u64), "Train-half line {}: its word_count is not its whitespace words", n + 1);
+        docs += 1;
+        words += text::words(t);
+    }
+    ensure!(s9["train_half"]["documents"].as_u64() == Some(docs as u64), "the Train-half file holds {docs} documents, S0-9 records another count");
+    ensure!(s9["train_half"]["words"].as_u64() == Some(words as u64), "the Train-half file holds {words} words, S0-9 records another count");
+    let source = json!({"step": "D6", "rule": D6_PLAN_RULE, "train_half": {"path": train_half, "sha256": text::sha_hex(&b), "documents": docs, "words": words,
+        "writer_keys_in_s0_9_train_half": train.len(), "list_sha256": list_sha256(&h.train)}, "values_sha256": values_sha,
+        "checks": {"collection_and_split_from_bytes": true, "writer_keys_in_train_half": true, "split_rule_is_enron_halfs": true, "documents_and_words_equal_s0_9": true}});
+    let spec = crate::train_mirror::Spec { cohort: crate::train_mirror::COHORT_ENRON_MIRROR, groups: None, source, train_sha256: Some(text::sha_hex(&b)) };
+    crate::train_mirror::run(train_half, cal_src, values, &spec, out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

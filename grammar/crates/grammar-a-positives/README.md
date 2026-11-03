@@ -17,6 +17,10 @@ slop_ninja_a_positives plan-test --train T --test TEST --seal SEAL.json --seal-s
 slop_ninja_a_positives replan-check --plan PLAN_DIR [--library L --fix-slop F] --out NEW_DIR
 slop_ninja_a_positives stratify-train --plan PLAN_DIR --runs RUNS --partitions P \
     --generator KEY=BUDGET ... --cohort-shares C=S,... --seed S --out OUT
+slop_ninja_a_positives train-mirror-plan --train T --values VALUES-R2.json --cal-from R0_PLAN [--topup TOPUP] --out PLAN_DIR
+slop_ninja_a_positives enron-plan --train-half T --values VALUES-R2.json --cal-from R0_PLAN --out PLAN_DIR
+slop_ninja_a_positives topup-plan --values VALUES-R2.json --train-mining M --train-mining-manifest MM --train R0 --train-manifest R0M ... --out TOPUP
+slop_ninja_a_positives topup-check --topup TOPUP --values VALUES-R2.json
 slop_ninja_a_positives generate --plan PLAN_DIR --generator KEY ... [--request-order FILE] \
     [--profile cc_cohort_profile_v2 --profile-population POPULATION --splits SPLIT]
 slop_ninja_a_positives finalize --plan PLAN_DIR ...
@@ -383,8 +387,8 @@ rulings R2 and R6). Every output is a new directory or file, mode 700 and
   touched cell; when a touched cell holds fewer than 59 rows in the whole
   D-step, the D-step is piloted whole. It writes `pilot-order-GEN.txt`,
   `bulk-order-GEN.txt` (input order) and `PILOT.json`, the record S0-11
-  binds. Pilot and bulk are one batch. D8's spliced plans are not piloted
-  here.
+  binds. Pilot and bulk are one batch. D8's spliced plans take
+  `--population` and `--renorm` (part 2, below).
 - **`enron-half --pool POOL --root ROOT --values VALUES-R2.json --out
   TRAIN`** (`enron_half.rs`, V23): the writer keys ordered by plan key
   `SHA-256("slop_ninja_a_comp_r2_plan_v1:enron_half:" + key)`, the first 50
@@ -408,10 +412,113 @@ split checks of `generate --profile` and `finalize`, mirror-plan's renorm
 bindings and order files, carried limits in renorm and `rates`, the pilot's
 order files, the Enron bindings).
 
-**Not built here** (BUILD-PLAN section 4's B5b scope, open): a Train-only
-planner for new mirrors (D5's top-up mirrors, D6's Enron positives) at
-`mirror_target_words_v2`, the top-up plan from Train-mining against S0-8,
-D6's plan over the Enron Train half, and D8's pilot on spliced plans.
+## Train-only mirrors, the top-up plan, D6, D8's pilot and S0-10 (B5b part 2)
+
+Round 2's remaining planner steps (protocol A2 §4.3, §4.5, §6.3, §6.4,
+§12.6, amendment 24 item 24.4's items 1–5 and amendment 27, which fixes
+the rules below that the text left open; BUILD-PLAN 11.4). Every output
+is a new directory or file (mode 700 and 600); records hold ids, counts and
+digests. Measurement-fixed values come from `VALUES-R2.json` and each step
+is refused while its value is absent (S0-6, S0-8, S0-9, S0-10).
+- **`train-mirror-plan --train T --values VALUES-R2.json --cal-from R0_PLAN
+  [--topup TOPUP] --out PLAN`** (`train_mirror.rs`): the Train-only planner for new
+  mirrors. One mirror per Train human of T, requested at
+  `mirror_target_words_v2` (r05 from S0-6) with R0's mirror template and key
+  terms from T's per-domain IDF; the seven Train instruct families
+  (`FAMILY_ORDER`), assigned within a quota group in V21 key order
+  (`train_mirror_gen`), the group's quota split equally after any per-family
+  minimum; R0's Train decoding profiles and two attempts per request. T
+  holds Train lines only: every line's `frozen_split` is read from its bytes
+  and a line of another split (old Dev-select and Test included) refuses the
+  plan unparsed, since `generate` and `finalize` read the input whole. There
+  is no `--dev-select`. `--cal-from` (required) names an R0 local plan v1 or
+  v2, or a one-split copy of one: its recorded CAL input record is copied
+  unchanged as `generate`'s overlap extra, so the plan keeps R0's screen;
+  the planner opens no CAL file. Train rows take
+  `plan::train_only_domain_of`: enron-v1's Train half is a domain only in
+  this planner's plans and their `generate` and `finalize` runs, and every
+  other Train reader still refuses it. The plan holds one split, so `generate --profile
+  cc_cohort_profile_v2 --profile-population train2 --splits train`,
+  `finalize` and `pilot` take it; it is one batch on a runs directory of its
+  own. With `--topup`, T is the top-up plan's `parents.jsonl` and the quota
+  groups are its S0-8 domains (D5's local part, cohort
+  `train2_topup_mirror`): `--values` must hold S0-8, the value the top-up
+  plan was written from, and the top-up's check is re-run; T is read by its
+  split bytes before any parse and must have the digest the top-up records.
+  Otherwise the cohort is `train2_mirror`.
+- **`enron-plan --train-half TRAIN_HALF --values VALUES-R2.json --cal-from
+  R0_PLAN --out PLAN`** (`enron_half::plan_d6`; D6): the plan reads only
+  `enron-half`'s Train file. Each line's collection, writer key and split
+  are read from its bytes before any parse; a writer key outside S0-9's
+  Train half (a diagnostic-half key among them) refuses the plan by line
+  number, with no key printed; every line must carry `enron-half`'s split
+  rule, and the documents and words must be S0-9's. Then one mirror per
+  document (cohort `train2_enron_mirror`, domain `enron_email`), local
+  families only: Enron text never goes to a hosted model. Plans v1, v2 and v3
+  refuse Enron rows as an unadmitted collection.
+- **`topup-plan --values VALUES-R2.json --train-mining DOCS
+  --train-mining-manifest MANIFEST --train R0_TRAIN --train-manifest
+  R0_MANIFEST --configs CONFIGS --frontier-config COLLECTOR_CONFIG --out
+  TOPUP`** (`topup.rs`): the top-up from Train-mining against S0-8 (read by
+  its schema string; refused while absent). Per S0-8 domain (a Train-mining
+  human's domain is its manifest's, as the assembler assigns it), in-window
+  Train-mining humans in V21 key order (`topup_human`), never an R0 Train
+  id (R0's Train is required), fill rule 4 (`humans.jsonl`, a Train humans
+  file of Train-2's assembly); `add.local_positives` mirror parents are the
+  added humans, then R0's Train humans in the window (`topup_parent`;
+  `parents.jsonl`), with each family's quota starting at its config family
+  label's rule-3 addition (another label's rule-3 rows stay in the equal
+  split and its cell is recorded as unfilled); the second pass over each
+  input re-hashes the file and reads each selected line's split from its
+  bytes; `add.frontier_records` are allocated over the collector's labels
+  (`frontier/ALLOCATION.json`; amendment 5 item 5.3) and checked before the
+  plan is written. An Enron domain gets no Train-mining human and no
+  frontier record. Every shortfall is recorded by domain and rule where
+  supply ends. **`topup-check --topup TOPUP --values VALUES-R2.json`**
+  re-checks the allocation against S0-8: ALLOCATION.json is the file
+  TOPUP.json records and covers S0-8's domains, the counts sum to S0-8's, Enron
+  holds none, Terra ≥ Astra, more to gpt-6.1-terra than gpt-5.6-terra, and
+  the other labels are balanced, with the Terra pair at its balanced share.
+  No Stage 0-H collection starts before the plan and its check exist.
+- **`pilot --plan SPLICED --population POP --renorm RENORM --step D8 --out
+  P`** (`pilot::run_spliced`): D8's pilot. Its rows are the items of POP
+  that renorm's spliced regeneration plan marks `regenerate`, one per item,
+  all `mixed`; key, prefix and the whole-step rule are the local pilot's
+  (item 24.1). It writes `PILOT.json` and `pilot-order-GEN.txt` /
+  `bulk-order-GEN.txt` in plan order, an item under every generator with an
+  edit in it. **`slop_ninja_a_spliced generate --request-order FILE`** runs
+  only the listed items of the population, in list order (no `--from` or
+  `--to` beside it), with the population's prior: pilot and bulk are one
+  batch.
+- **S0-10** (`stratify::S0_10_RULE`). `stratify-train --target granite_base
+  --target smollm3_base --target ernie_base --cohort-shares train_base_v3=1
+  --seed r2_base_cohort_stratification_v1 --values VALUES-R2.json
+  --write-stratification ENTRY` writes S0-10's
+  register entry (`values.S0-10`: `id`, `name` `base_cohort_stratification`,
+  `value`) from part 1's selection at v_fam: per Train base family and
+  domain, the existing accepted items plus the selection's quota, by Train
+  human counts: floor 0, no `--domain-weights` and no `--priority-domains`
+  (any other option value is refused, here and in D7's step). Writing it
+  into `VALUES-R2.json` is a later A9 step. D7's step is `stratify-train
+  --target GEN ... --values VALUES-R2.json --stratification`: refused while
+  S0-10 is absent or when its plan, v_fam, prior plans, partitions, floor,
+  seed, cohort shares, domain weights or human counts differ from S0-10's;
+  each domain's quota is S0-10's target less the accepted items, so a first
+  pass equals part 1's selection and later passes fill the frozen targets.
+  With neither flag, `stratify-train`'s bytes are part 1's.
+
+`tests/b5b_p2_cli.rs` runs these on synthetic text: Train-only refusals and
+a `generate --profile` / `finalize` run against a loopback stand-in server,
+D6's bindings with a diagnostic-half key, the top-up's supply exclusions,
+shortfalls, allocation and check refusals and D5's plan on its parents, D8's
+pilot with the spliced generator's dry run on its order files, and S0-10's
+entry, refusals, tampered entries and two D7 passes. The spliced binary's
+own test runs D8 end to end on synthetic text: renorm's real re-verdict,
+the pilot and the generator's dry run with and without the order file. The
+rules the text left open (BUILD-PLAN 11.4 (a)–(d)) are fixed by amendment
+27 and stated in each record (`ALLOCATION_RULE`,
+`train_mirror::OVERLAP_READING`, `train_mirror::BATCH_READING`,
+`pilot::SPLICED_ROWS_READING`).
 
 ## Plan v3: exact-span supervision cohorts
 

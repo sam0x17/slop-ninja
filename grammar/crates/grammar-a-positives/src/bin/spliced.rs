@@ -145,6 +145,12 @@ enum Cmd {
         /// prior), e.g. `span_select2`; distinct from the plan's `--population`.
         #[arg(long)]
         profile_population: Option<String>,
+        /// Item-id list (one per line; `{GEN}` is the generator key) that
+        /// replaces the order window: only the listed items of the population
+        /// run, in list order, each with an edit of this generator (D8's
+        /// pilot and bulk, B5b part 2). The prior stays the population's.
+        #[arg(long)]
+        request_order: Option<PathBuf>,
     },
     /// Requests and documents done, accepted and pending per population and generator.
     Progress {
@@ -578,7 +584,8 @@ fn run_generate(
     to: usize,
     dry: bool,
     form_population: Option<&str>,
-) -> Result<()> {
+    request_order: Option<&Path>,
+) -> Result<Option<Value>> {
     let meta: Value = serde_json::from_slice(&fs::read(pdir.join("plan.json"))?)?;
     let cfg_bytes = fs::read(config)?;
     let cfg: Value = serde_json::from_slice(&cfg_bytes)?;
@@ -597,9 +604,28 @@ fn run_generate(
     let form_rec = form.as_ref().map(|f| f.record());
     let mut window: HashMap<String, usize> = HashMap::new();
     let mut edits: HashMap<String, Edit> = HashMap::new();
+    // an order file (D8's pilot or bulk) replaces the window: the listed
+    // items, in list order, each an item of the population with an edit of
+    // this generator
+    let listed: Option<(HashMap<String, usize>, Value)> = match request_order {
+        Some(p) => {
+            let b = fs::read(p).with_context(|| p.display().to_string())?;
+            let ids = grammar_a_positives::order::parse_order(std::str::from_utf8(&b)?)?;
+            let mut pos = HashMap::new();
+            for (k, id) in ids.iter().enumerate() {
+                ensure!(pos.insert(id.clone(), k).is_none(), "{}: item {id} is listed twice", p.display());
+            }
+            Some((pos, json!({"path": p.display().to_string(), "sha256": text::sha_hex(&b), "items": ids.len()})))
+        }
+        None => None,
+    };
     for it in &items {
-        if it.population == population && it.order >= from && it.order < to {
-            window.insert(it.item_id.clone(), it.order);
+        let at = match &listed {
+            Some((pos, _)) => pos.get(&it.item_id).copied().filter(|_| it.population == population),
+            None => (it.population == population && it.order >= from && it.order < to).then_some(it.order),
+        };
+        if let Some(at) = at {
+            window.insert(it.item_id.clone(), at);
             for e in &it.edits {
                 if e.generator == generator {
                     edits.insert(e.request_id.clone(), e.clone());
@@ -607,6 +633,13 @@ fn run_generate(
             }
         }
     }
+    if let Some((pos, rec)) = &listed {
+        for id in pos.keys() {
+            let it = items.iter().find(|i| &i.item_id == id && i.population == population);
+            ensure!(it.is_some_and(|i| i.edits.iter().any(|e| e.generator == generator)), "{}: item {id} is not a {population} item with an edit of {generator}", rec["path"]);
+        }
+    }
+    let order_rec = listed.as_ref().map(|(_, r)| r.clone());
     let allowed: Vec<String> = cfg["allowed_splits"].as_array().context("allowed_splits")?.iter().filter_map(|v| v.as_str().map(String::from)).collect();
     let mut reqs: Vec<plan::Request> = Vec::new();
     for v in read_jsonl(&rf)? {
@@ -655,6 +688,13 @@ fn run_generate(
     }
     if dry {
         let mut rec = json!({"generator":generator,"population":population,"from":from,"to":to,"pending":pending.len(),"items_in_window":window.len()});
+        if let Some(o) = &order_rec {
+            rec["request_order"] = o.clone();
+            let mut its: Vec<(&usize, &String)> = window.iter().map(|(k, v)| (v, k)).collect();
+            its.sort();
+            rec["item_order"] = json!(its.into_iter().map(|(_, k)| k).collect::<Vec<_>>());
+            rec["pending_items"] = json!(pending.iter().map(|(r, _)| r.item_id.as_str()).collect::<std::collections::BTreeSet<_>>());
+        }
         if let (Some(r), Some(f)) = (form_rec, &form) {
             rec["profile"] = r;
             rec["profile_prior"] = f.prior_record();
@@ -662,13 +702,13 @@ fn run_generate(
             rec["profile_binding"] = json!(batch_path.display().to_string());
         }
         println!("{}", serde_json::to_string(&rec)?);
-        return Ok(());
+        return Ok(Some(rec));
     }
     let out = runs.join(generator);
     fs::create_dir_all(&out)?;
     if pending.is_empty() {
         println!("{}", serde_json::to_string(&json!({"generator":generator,"population":population,"from":from,"to":to,"pending":0}))?);
-        return Ok(());
+        return Ok(None);
     }
     let endpoint = cfg["endpoint"].as_str().context("endpoint")?.trim_end_matches('/').to_owned();
     let client = generation::client()?;
@@ -714,9 +754,12 @@ fn run_generate(
         rec["profile"] = f;
         rec["profile_items"] = items_rec.unwrap_or(Value::Null);
     }
+    if let Some(o) = order_rec {
+        rec["request_order"] = o;
+    }
     write_json(&out.join(format!("run-{t0}.json")), &rec)?;
     println!("{}", serde_json::to_string(&rec)?);
-    Ok(())
+    Ok(None)
 }
 
 fn run_progress(pdir: &Path, runs: &Path, from: usize, to: usize) -> Result<()> {
@@ -1259,9 +1302,11 @@ fn main() -> Result<()> {
             &bundle, &bundle_sha256, &splits_v5, &dev_iter_humans, &library, &partitions, &partitions_sha256, &fix_slop, &tokenizer, &raid_lineage, train_target, floor, cap,
             overprovision, dev_variants, &out,
         ),
-        Cmd::Generate { plan, population, generator, config, runs, index, workers, from, to, dry_run, profile, profile_population } => {
+        Cmd::Generate { plan, population, generator, config, runs, index, workers, from, to, dry_run, profile, profile_population, request_order } => {
             let form_population = form_post::profile_population(profile.as_deref(), profile_population.as_deref())?;
-            run_generate(&plan, &population, &generator, &config, &runs, &index, workers, from, to, dry_run, form_population.as_deref())
+            ensure!(request_order.is_none() || (from == 0 && to == usize::MAX), "--request-order replaces the order window: no --from or --to");
+            let order = request_order.map(|p| PathBuf::from(p.to_string_lossy().replace(grammar_a_positives::order::GEN_PLACEHOLDER, &generator)));
+            run_generate(&plan, &population, &generator, &config, &runs, &index, workers, from, to, dry_run, form_population.as_deref(), order.as_deref()).map(|_| ())
         }
         Cmd::Progress { plan, runs, from, to } => run_progress(&plan, &runs, from, to),
         Cmd::Finalize { plan, runs, configs, tokenizer, train_target, train_through, out, label, domain_cap } => {
@@ -2478,5 +2523,57 @@ mod tests {
         let q: Value = serde_json::from_slice(&fs::read(out.join("reports").join("quality.json")).unwrap()).unwrap();
         assert_eq!(q["counts"][splice::DEV_SET][SCREEN_FAIL_ID], json!({"emitted": 1.0}));
         assert_eq!(q["counts"][splice::DEV_SET]["documents"]["not_run"], 1.0);
+    }
+
+    /// D8 end to end on synthetic text (B5b part 2; amendment 27; the part
+    /// 2 review's finding 9): renorm's real spliced re-verdict of a
+    /// profile-off journal, then `pilot`'s D8 rows (renorm's `regenerate`
+    /// items), then `generate --dry-run --profile` with the pilot's order
+    /// file: the run lists only the pilot's items, in list order, under the
+    /// population's prior, the same record as a run without the order file.
+    #[test]
+    fn d8_pilot_on_renorms_real_output_keeps_the_populations_prior() {
+        use std::collections::BTreeSet;
+        let r = battery_run(false);
+        let d = r.dir.path();
+        let pdir = r.pdir();
+        // the plan's digests, as the spliced planner records them
+        let mut meta: Value = serde_json::from_slice(&fs::read(pdir.join("plan.json")).unwrap()).unwrap();
+        meta["items"] = json!({"sha256": file_sha(&pdir.join("items.jsonl")).unwrap()});
+        meta["parents"] = json!({"sha256": file_sha(&pdir.join("parents.jsonl")).unwrap()});
+        meta["request_files"] = json!({"g": {"sha256": file_sha(&pdir.join("requests").join("g.jsonl")).unwrap()}});
+        write_json(&pdir.join("plan.json"), &meta).unwrap();
+        // renorm, as `renorm --population train --profile cc_cohort_profile_v2 --profile-population train2` runs it
+        let rn = d.join("renorm");
+        let b = grammar_a_positives::renorm::spliced_batch(&pdir, splice::TRAIN, "train2").unwrap();
+        let sum = grammar_a_positives::renorm::run_batch(&b, &d.join("runs"), &rn).unwrap();
+        assert_eq!(sum["plan_kind"], "spliced");
+        let rg = read_rows(&rn.join("regeneration-plan-population-train.jsonl"));
+        let regen: BTreeSet<String> = rg.iter().filter(|x| x["action"] == "regenerate").map(|x| x["item_id"].as_str().unwrap().to_string()).collect();
+        assert!(!regen.is_empty() && regen.len() < r.cases.iter().filter(|c| c.item.population == splice::TRAIN).count(), "{regen:?}");
+        // D8's pilot: renorm's regenerate items, one row per item; one cell below 59 rows, so piloted whole
+        let pp = d.join("pilot");
+        let pj = grammar_a_positives::pilot::run_spliced(&pdir, splice::TRAIN, &rn, "D8", &pp).unwrap();
+        assert_eq!((pj["rows"].as_u64(), pj["whole_step_is_pilot"].as_bool()), (Some(regen.len() as u64), Some(true)));
+        let mut by_order: Vec<&Item> = r.cases.iter().map(|c| &c.item).filter(|i| regen.contains(&i.item_id)).collect();
+        by_order.sort_by_key(|i| i.order);
+        let listed: Vec<String> = fs::read_to_string(pp.join("pilot-order-g.txt")).unwrap().lines().map(String::from).collect();
+        assert_eq!(listed, by_order.iter().map(|i| i.item_id.clone()).collect::<Vec<_>>());
+        // the spliced generator on renorm's output, the pilot's order file reversed (list order, not plan order)
+        let cfg = d.join("g-gen.json");
+        write_json(&cfg, &json!({"key": "g", "allowed_splits": ["train"]})).unwrap();
+        let rev = d.join("order-reversed.txt");
+        fs::write(&rev, listed.iter().rev().map(|i| format!("{i}\n")).collect::<String>()).unwrap();
+        let dry = |order: Option<&Path>| run_generate(&pdir, splice::TRAIN, "g", &cfg, &rn, &d.join("no-index"), 1, 0, usize::MAX, true, Some("train2"), order).unwrap().unwrap();
+        let with = dry(Some(&rev));
+        let without = dry(None);
+        assert_eq!(with["item_order"], json!(listed.iter().rev().collect::<Vec<_>>()));
+        assert_eq!(with["pending_items"], json!(regen));
+        assert_eq!((with["items_in_window"].as_u64(), without["items_in_window"].as_u64()), (Some(regen.len() as u64), Some(8)));
+        // the profile and its prior are the population's either way, and renorm's binding holds
+        assert_eq!(with["profile"], without["profile"]);
+        assert_eq!(with["profile_prior"], without["profile_prior"]);
+        assert_eq!(with["profile"], b.form.record());
+        assert!(without.get("item_order").is_none());
     }
 }

@@ -136,8 +136,21 @@ enum Cmd {
         /// VALUES-R2.json, whose S0-7 (v_fam) --target reads.
         #[arg(long)]
         values: Option<PathBuf>,
-        #[arg(long, default_value_t = 60)]
-        floor: usize,
+        /// S0-10 (B5b part 2): write the base-cohort stratification's
+        /// register entry (values.S0-10) of this --target selection to this
+        /// new file, and no order file; a later A9 step writes it into
+        /// VALUES-R2.json.
+        #[arg(long)]
+        write_stratification: Option<PathBuf>,
+        /// D7's step (B5b part 2): per-domain quotas from --values' S0-10
+        /// (refused while absent, or when its inputs differ from this run's).
+        #[arg(long)]
+        stratification: bool,
+        /// Per-domain floor of new items (bounded by availability); 60 when
+        /// absent (the tool's default, not a protocol value). S0-10's
+        /// modes take floor 0 and refuse any other value (amendment 27).
+        #[arg(long)]
+        floor: Option<usize>,
         /// COHORT=SHARE list; items of unlisted cohorts are not selected.
         #[arg(long)]
         cohort_shares: String,
@@ -411,20 +424,111 @@ enum Cmd {
         out: PathBuf,
     },
     /// Keyed pilot prefix of a D-step (B5b; V22, S0-11): pilot and bulk
-    /// request-order files and PILOT.json.
+    /// request-order files and PILOT.json. A spliced plan (D8) takes
+    /// --population and --renorm: its rows are renorm's regenerate items.
     Pilot {
         #[arg(long)]
         plan: PathBuf,
         /// The D-step's `generate --request-order` files, with `{GEN}`
-        /// (default: every item of the plan).
+        /// (default: every item of the plan). Local plans only.
         #[arg(long)]
         request_order: Option<String>,
+        /// D8: the spliced plan population.
+        #[arg(long)]
+        population: Option<String>,
+        /// D8: renorm's spliced output for the population.
+        #[arg(long)]
+        renorm: Option<PathBuf>,
         /// The D-step's name (D4 ... D7).
         #[arg(long)]
         step: String,
         /// New output directory.
         #[arg(long)]
         out: PathBuf,
+    },
+    /// The Train-only planner for new mirrors (B5b part 2 item 1): one mirror
+    /// per Train human of --train at mirror_target_words_v2 (r05 from
+    /// --values' S0-6), the seven Train instruct families. With --topup it is
+    /// D5's local part: --train is the top-up plan's parents.jsonl and the
+    /// family quotas are its own. There is no --dev-select.
+    TrainMirrorPlan {
+        /// The Train input (frozen_split train only: a line of another split,
+        /// or of none, refuses the plan from its bytes, before any parse).
+        #[arg(long)]
+        train: PathBuf,
+        /// VALUES-R2.json, whose S0-6 (r05) the requests' length reads; with
+        /// --topup also its S0-8, which must be the top-up plan's.
+        #[arg(long)]
+        values: PathBuf,
+        /// An R0 local plan (v1 or v2, or a one-split copy of one) whose
+        /// recorded CAL input the plan keeps as generate's overlap extra
+        /// (required; the CAL file is not opened here).
+        #[arg(long)]
+        cal_from: PathBuf,
+        /// D5: the top-up plan directory (topup-plan's output).
+        #[arg(long)]
+        topup: Option<PathBuf>,
+        /// New output directory.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// D6's plan (B5b part 2 item 3): one mirror per document of the Enron
+    /// Train half (enron-half's output, checked against S0-9), local only.
+    EnronPlan {
+        /// enron-half's Train file.
+        #[arg(long)]
+        train_half: PathBuf,
+        /// VALUES-R2.json (S0-9's halves, S0-6's r05).
+        #[arg(long)]
+        values: PathBuf,
+        /// An R0 local plan (v1 or v2, or a one-split copy of one) whose
+        /// recorded CAL input the plan keeps as generate's overlap extra
+        /// (required; the CAL file is not opened here).
+        #[arg(long)]
+        cal_from: PathBuf,
+        /// New output directory.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// The domain-supervision top-up plan from Train-mining against S0-8
+    /// (B5b part 2 item 2): added humans, D5's mirror parents and family
+    /// quotas, and Stage 0-H's frontier label allocation with its check.
+    TopupPlan {
+        /// VALUES-R2.json, whose S0-8 the targets are.
+        #[arg(long)]
+        values: PathBuf,
+        /// Train-mining documents (frozen_split train_mining).
+        #[arg(long)]
+        train_mining: PathBuf,
+        /// Train-mining's split manifest (id, split, domain): S0-8's domains.
+        #[arg(long)]
+        train_mining_manifest: PathBuf,
+        /// R0's Train humans (required): R0 Train ids are never added again
+        /// as rule-4 humans, and they are the second parent source of D5's
+        /// mirrors.
+        #[arg(long)]
+        train: PathBuf,
+        /// R0's Train split manifest (id, split, domain).
+        #[arg(long)]
+        train_manifest: PathBuf,
+        /// Generator configs (key, family) of the seven Train instruct families.
+        #[arg(long)]
+        configs: PathBuf,
+        /// The frontier collector's plan config whose models' labels the
+        /// allocation splits over.
+        #[arg(long)]
+        frontier_config: PathBuf,
+        /// New output directory.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Re-checks a top-up plan's frontier allocation against S0-8 (amendment
+    /// 5 item 5.3; exit 0 only when every domain passes).
+    TopupCheck {
+        #[arg(long)]
+        topup: PathBuf,
+        #[arg(long)]
+        values: PathBuf,
     },
     /// The Enron Train half (V23, S0-9): its writer keys' documents as a Train
     /// input file; the diagnostic half's lines are skipped unparsed.
@@ -487,10 +591,17 @@ fn refuse_old_dev_select_inputs(meta: &Value) -> Result<()> {
     Ok(())
 }
 
+/// A Train-only mirror plan's Train rows take `plan::train_only_domain_of`
+/// (enron-v1's Train half is D6's); every other plan's take `domain_of`,
+/// which refuses enron-v1 (B5b part 2; amendment 27).
+fn train_only_plan(plan_meta: &Value) -> bool {
+    plan_meta["schema"] == grammar_a_positives::train_mirror::TRAIN_MIRROR_SCHEMA
+}
 
 fn load_humans(plan_meta: &Value) -> Result<(Vec<plan::Human>, HashMap<String, (String, Value)>)> {
     let mut hs = Vec::new();
     let mut rows = HashMap::new();
+    let train_only = train_only_plan(plan_meta);
     for split in plan::ALL_SPLITS {
         let inp = &plan_meta["inputs"][split];
         if inp.is_null() || !span_ops::plan_reads_input(plan_meta["schema"].as_str(), split) {
@@ -499,7 +610,7 @@ fn load_humans(plan_meta: &Value) -> Result<(Vec<plan::Human>, HashMap<String, (
         let p = PathBuf::from(inp["path"].as_str().context("input path")?);
         ensure!(file_sha(&p)? == inp["sha256"], "input {split} changed since planning");
         for row in read_jsonl(&p)? {
-            let h = plan::human_from(&row, split)?;
+            let h = plan::human_from_in(&row, split, train_only)?;
             let mut meta = row.clone();
             meta.as_object_mut().unwrap().remove("text");
             ensure!(rows.insert(h.id.clone(), (h.text.clone(), meta)).is_none(), "duplicate human id {}", h.id);
@@ -554,8 +665,9 @@ fn form_for_split(
     let p = PathBuf::from(inp["path"].as_str().context("input path")?);
     ensure!(file_sha(&p)? == inp["sha256"], "input {split} changed since planning");
     let mut parents: Vec<plan::Human> = Vec::new();
+    let train_only = train_only_plan(meta);
     for row in read_jsonl(&p)? {
-        let h = plan::human_from(&row, split)?;
+        let h = plan::human_from_in(&row, split, train_only)?;
         if ids.contains(&h.id) {
             parents.push(h);
         }
@@ -658,6 +770,17 @@ fn accepted_train(plan_dir: &Path, runs: &Path, acc: &mut BTreeMap<(String, Stri
     Ok(n)
 }
 
+/// `stratify-train`'s S0-10 mode (B5b part 2 item 5; `stratify::S0_10_RULE`).
+#[derive(Clone, Copy)]
+enum StratMode<'a> {
+    /// Part 1's selection (budgets and v_fam targets).
+    Off,
+    /// Write S0-10's register entry of the --target selection to this file.
+    Write(&'a Path),
+    /// D7's step: the per-domain quotas of --values' S0-10.
+    Frozen,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn stratify_train(
     pdir: &Path,
@@ -667,6 +790,7 @@ fn stratify_train(
     generators: &[String],
     targets: &[String],
     values: Option<&Path>,
+    mode: StratMode,
     floor: usize,
     cohort_shares: &str,
     priority_domains: &str,
@@ -729,11 +853,32 @@ fn stratify_train(
     // a target of v_fam accepted rows per listed generator, v_fam read from
     // VALUES-R2.json (S0-7; protocol A2 sections 2.8 and 6.4): the budget is
     // the target less the generator's existing accepted Train items (B5b: D7)
+    if !matches!(mode, StratMode::Off) {
+        ensure!(!targets.is_empty() && gens.is_empty(), "S0-10 is the base cohort's stratification at v_fam: --target generators only, no --generator budget");
+        for k in targets {
+            ensure!(plan::TRAIN_BASE.contains(&k.as_str()), "--target {k}: S0-10 stratifies the Train base families ({:?})", plan::TRAIN_BASE);
+        }
+        if let StratMode::Write(p) = mode {
+            ensure!(!p.exists(), "{} exists: S0-10's entry is written once", p.display());
+            let set: BTreeSet<&str> = targets.iter().map(String::as_str).collect();
+            ensure!(set.len() == targets.len() && set == plan::TRAIN_BASE.iter().copied().collect::<BTreeSet<_>>(),
+                "S0-10 stratifies every Train base family once ({:?}; protocol A2 section 6.4)", plan::TRAIN_BASE);
+        }
+        // S0-10's fixed options (amendment 27): by Train human counts (the
+        // floor is fixed where the options are read)
+        ensure!(dweights.is_empty(), "S0-10 stratifies by the base plan's Train human counts (protocol A2 sections 6.4 and 12.6; amendment 27): --domain-weights is refused");
+        ensure!(prio.is_empty(), "S0-10's order has no priority domains (amendment 27): --priority-domains is refused");
+        ensure!(shares.len() == 1 && shares[0].0 == span_ops::COHORT_BASE && shares[0].1 == 1.0, "S0-10's cohort shares are {}=1 (amendment 27)", span_ops::COHORT_BASE);
+        ensure!(seed == stratify::S0_10_SEED, "S0-10's seed is {} (amendment 27)", stratify::S0_10_SEED);
+    }
     let mut gens = gens;
     let mut values_rec = Value::Null;
+    let mut values_open: Option<values::Values> = None;
     if !targets.is_empty() {
         let vp = values.context("--target reads v_fam from --values VALUES-R2.json (S0-7)")?;
-        let (t, rec) = values::v_fam(&values::Values::open(vp)?)?;
+        let vv = values::Values::open(vp)?;
+        let (t, rec) = values::v_fam(&vv)?;
+        values_open = Some(vv);
         values_rec = rec;
         for k in targets {
             ensure!(!k.contains('='), "--target {k}: a generator name; its target is S0-7's v_fam, read from --values");
@@ -771,6 +916,88 @@ fn stratify_train(
             None => cands.entry(it.generator.clone()).or_default().push(it),
         }
     }
+    let balanced: BTreeSet<String> = stratify::BALANCED_COHORTS.iter().map(|c| c.to_string()).collect();
+    let params_of = |g: &str, budget: usize| -> stratify::Params {
+        let credit: BTreeMap<(String, String, String), usize> = acc_strata
+            .iter()
+            .filter(|((gg, _, c, _), _)| gg == g && balanced.contains(c))
+            .map(|((_, d, c, s), ids)| ((d.clone(), c.clone(), s.clone()), ids.len()))
+            .collect();
+        stratify::Params {
+            budget,
+            floor,
+            cohort_shares: shares.clone(),
+            priority_domains: prio.clone(),
+            seed: format!("{seed}:{g}"),
+            balanced_cohorts: balanced.clone(),
+            stratum_credit: credit,
+        }
+    };
+    let existing_of = |g: &str| -> BTreeMap<String, usize> { acc.iter().filter(|((gg, _), _)| gg == g).map(|((_, d), s)| (d.clone(), s.len())).collect() };
+    let prior_inputs: Vec<Value> = prior_rec.iter().skip(1).map(|r| json!({"plan": r["plan"], "plan_sha256": r["plan_sha256"]})).collect();
+    let s0_10_inputs = json!({"plan": {"plan_sha256": file_sha(&pdir.join("plan.json"))?, "items_sha256": file_sha(&pdir.join("items.jsonl"))?},
+        "v_fam": values_rec["value"], "prior_plans": prior_inputs, "partitions_sha256": file_sha(partitions)?, "floor": floor, "seed": seed,
+        "cohort_shares": shares.iter().map(|(c, s)| json!([c, s])).collect::<Vec<_>>(), "domain_weights": dweights, "train_humans": humans});
+    // S0-10: write its entry, or read it for D7's step (B5b part 2 item 5)
+    let mut fixed: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    let mut strat_rec = Value::Null;
+    match mode {
+        StratMode::Off => {}
+        StratMode::Write(p) => {
+            let mut tg = serde_json::Map::new();
+            let mut ex = serde_json::Map::new();
+            let mut av = serde_json::Map::new();
+            let mut pq = serde_json::Map::new();
+            for (g, budget) in &gens {
+                let cs = cands.get(g).map(Vec::as_slice).unwrap_or(&[]);
+                let existing = existing_of(g);
+                let sel = stratify::select(cs, &quota_humans, &existing, &params_of(g, *budget))?;
+                let mut t: BTreeMap<String, usize> = sel.quota.iter().map(|(d, q)| (d.clone(), q + existing.get(d).copied().unwrap_or(0))).collect();
+                for (d, n) in &existing {
+                    t.entry(d.clone()).or_insert(*n);
+                }
+                tg.insert(g.clone(), json!(t));
+                ex.insert(g.clone(), json!(existing));
+                av.insert(g.clone(), json!(sel.available));
+                pq.insert(g.clone(), json!(sel.quota));
+            }
+            let mut value = s0_10_inputs.clone();
+            value["schema"] = json!(stratify::S0_10_SCHEMA);
+            value["rule"] = json!(stratify::S0_10_RULE);
+            value["targets"] = json!(tg);
+            value["existing_accepted_train"] = json!(ex);
+            value["available"] = json!(av);
+            value["first_pass_quota"] = json!(pq);
+            value["v_fam_record"] = values_rec.clone();
+            let (id, name) = values::S0_10_ID;
+            let entry = json!({"id": id, "name": name, "value": value});
+            let mut b = serde_json::to_vec_pretty(&entry)?;
+            b.push(b'\n');
+            let h = split_copy::write_new(p, &b)?;
+            println!("{}", serde_json::to_string(&json!({"s0_10_entry": p.display().to_string(), "sha256": h, "targets": entry["value"]["targets"]}))?);
+            return Ok(());
+        }
+        StratMode::Frozen => {
+            let vv = values_open.as_ref().context("--stratification reads S0-10 from --values")?;
+            let (st, rec) = values::base_stratification(vv)?;
+            for k in ["plan", "v_fam", "prior_plans", "partitions_sha256", "floor", "seed", "cohort_shares", "domain_weights", "train_humans"] {
+                ensure!(st[k] == s0_10_inputs[k], "S0-10's {k} differs from this run's: D7 follows the frozen stratification (protocol A2 section 12.6)");
+            }
+            let tg = st["targets"].as_object().context("S0-10 targets")?;
+            ensure!(tg.keys().cloned().collect::<BTreeSet<_>>() == gens.iter().map(|(g, _)| g.clone()).collect::<BTreeSet<_>>(), "S0-10 stratifies other generators than --target names");
+            for (g, budget) in gens.iter_mut() {
+                let existing = existing_of(g);
+                let mut q = BTreeMap::new();
+                for (d, t) in tg[g.as_str()].as_object().context("S0-10 targets of a generator")? {
+                    let t = t.as_u64().context("an S0-10 target")? as usize;
+                    q.insert(d.clone(), t.saturating_sub(existing.get(d).copied().unwrap_or(0)));
+                }
+                *budget = q.values().sum();
+                fixed.insert(g.clone(), q);
+            }
+            strat_rec = json!({"record": rec, "rule": stratify::S0_10_RULE, "quota_this_pass": fixed});
+        }
+    }
     fs::create_dir_all(out)?;
     let mut table = serde_json::Map::new();
     for (g, budget) in &gens {
@@ -792,7 +1019,7 @@ fn stratify_train(
             balanced_cohorts: balanced,
             stratum_credit: credit.clone(),
         };
-        let sel = stratify::select(cs, &quota_humans, &existing, &p)?;
+        let sel = stratify::select_with(cs, &quota_humans, &existing, &p, fixed.get(g))?;
         let by_id: HashMap<&str, &stratify::Item> = cs.iter().map(|i| (i.item_id.as_str(), i)).collect();
         let mut dom: BTreeMap<&str, usize> = BTreeMap::new();
         let mut coh: BTreeMap<String, usize> = BTreeMap::new();
@@ -837,6 +1064,11 @@ fn stratify_train(
         "lines_of_other_splits_skipped_unparsed":skipped,
         "policy":"per-generator domain quotas water-filled so existing accepted plus new Train items track the Train human mix, floor per domain bounded by availability; cohort shares and share-bin rotation inside a domain (in the balanced cohorts, train_base_v3, the kind with the fewest accepted plus selected items in the domain first, so kinds stay 1:1 across batches); voice ladders whole; styles only from the frozen Train partition; domains interleaved so any prefix is stratified, priority domains front-loaded",
         "generators":table});
+    let mut rec = rec;
+    if !strat_rec.is_null() {
+        // D7's step only: with the S0-10 options off the record's bytes are part 1's
+        rec["stratification"] = strat_rec;
+    }
     write_json(&out.join("selection.json"), &rec)?;
     println!("{}", serde_json::to_string(&rec)?);
     Ok(())
@@ -1483,8 +1715,21 @@ fn main() -> Result<()> {
                 std::process::exit(3);
             }
         }
-        Cmd::StratifyTrain { plan: pdir, runs, prior, partitions, generators, targets, values, floor, cohort_shares, priority_domains, domain_weights, seed, out } => {
-            stratify_train(&pdir, &runs, &prior, &partitions, &generators, &targets, values.as_deref(), floor, &cohort_shares, &priority_domains, &domain_weights, &seed, &out)?;
+        Cmd::StratifyTrain { plan: pdir, runs, prior, partitions, generators, targets, values, write_stratification, stratification, floor, cohort_shares, priority_domains, domain_weights, seed, out } => {
+            let mode = match (write_stratification.as_deref(), stratification) {
+                (None, false) => StratMode::Off,
+                (Some(p), false) => StratMode::Write(p),
+                (None, true) => StratMode::Frozen,
+                (Some(_), true) => anyhow::bail!("--write-stratification fixes S0-10 and --stratification reads it: not both"),
+            };
+            let floor = match mode {
+                StratMode::Off => floor.unwrap_or(stratify::DEFAULT_FLOOR),
+                _ => {
+                    ensure!(matches!(floor, None | Some(stratify::S0_10_FLOOR)), "S0-10's floor is {} (amendment 27: stratified by Train human counts): --floor {} is refused", stratify::S0_10_FLOOR, floor.unwrap_or_default());
+                    stratify::S0_10_FLOOR
+                }
+            };
+            stratify_train(&pdir, &runs, &prior, &partitions, &generators, &targets, values.as_deref(), mode, floor, &cohort_shares, &priority_domains, &domain_weights, &seed, &out)?;
         }
         Cmd::Generate {
             plan: pdir,
@@ -2018,9 +2263,48 @@ fn main() -> Result<()> {
             let r = mirror_regen::mirror_plan(&pdir, &rdir, &split, &values::Values::open(&values)?, &out)?;
             println!("{}", serde_json::to_string(&json!({"regenerated_mirrors": r["regenerated_mirrors"], "rows_by_action": r["rows_by_action"], "d4_orders": r["d4_orders"], "plan_sha256": r["plan_sha256"]}))?);
         }
-        Cmd::Pilot { plan: pdir, request_order, step, out } => {
-            let r = pilot::run(&pdir, request_order.as_deref(), &step, &out)?;
+        Cmd::Pilot { plan: pdir, request_order, population, renorm, step, out } => {
+            let spliced = serde_json::from_slice::<Value>(&fs::read(pdir.join("plan.json"))?)?["schema"] == grammar_a_positives::splice::PLAN_SCHEMA;
+            let r = match (spliced, population, renorm) {
+                (false, None, None) => pilot::run(&pdir, request_order.as_deref(), &step, &out)?,
+                (true, Some(pop), Some(rn)) => {
+                    ensure!(request_order.is_none(), "a spliced plan's pilot reads its rows from renorm's regeneration plan, not --request-order");
+                    pilot::run_spliced(&pdir, &pop, &rn, &step, &out)?
+                }
+                (false, ..) => anyhow::bail!("a local plan's pilot takes no --population or --renorm"),
+                (true, ..) => anyhow::bail!("a spliced plan's pilot (D8) takes --population and --renorm (renorm's spliced output)"),
+            };
             println!("{}", serde_json::to_string(&json!({"rows": r["rows"], "pilot_rows": r["pilot_rows"], "bulk_rows": r["bulk_rows"], "pilot_sha256": r["pilot_sha256"]}))?);
+        }
+        Cmd::TrainMirrorPlan { train, values, cal_from, topup, out } => {
+            let vals = values::Values::open(&values)?;
+            let (cohort, groups, source, train_sha256) = match &topup {
+                Some(t) => {
+                    let (g, src, sha) = grammar_a_positives::topup::groups_of(t, &train, &vals)?;
+                    (grammar_a_positives::train_mirror::COHORT_TOPUP_MIRROR, Some(g), src, Some(sha))
+                }
+                None => (grammar_a_positives::train_mirror::COHORT_TRAIN_MIRROR, None, json!({"step": null}), None),
+            };
+            let spec = grammar_a_positives::train_mirror::Spec { cohort, groups, source, train_sha256 };
+            let r = grammar_a_positives::train_mirror::run(&train, &cal_from, &vals, &spec, &out)?;
+            println!("{}", serde_json::to_string(&json!({"cohort": r["cohort"], "items": r["items"], "plan_sha256": r["plan_sha256"], "values": r["values"]}))?);
+        }
+        Cmd::EnronPlan { train_half, values, cal_from, out } => {
+            let vals = values::Values::open(&values)?;
+            let r = enron_half::plan_d6(&train_half, &vals, &cal_from, &out)?;
+            println!("{}", serde_json::to_string(&json!({"cohort": r["cohort"], "items": r["items"], "plan_sha256": r["plan_sha256"]}))?);
+        }
+        Cmd::TopupPlan { values, train_mining, train_mining_manifest, train, train_manifest, configs, frontier_config, out } => {
+            let vals = values::Values::open(&values)?;
+            let tr = (train.as_path(), train_manifest.as_path());
+            let inp = grammar_a_positives::topup::Inputs { values: &vals, train_mining: &train_mining, train_mining_manifest: &train_mining_manifest, train: tr,
+                configs: &configs, frontier_config: &frontier_config };
+            let r = grammar_a_positives::topup::run(&inp, &out)?;
+            println!("{}", serde_json::to_string(&json!({"totals": r["totals"], "topup_sha256": r["topup_sha256"]}))?);
+        }
+        Cmd::TopupCheck { topup, values } => {
+            let r = grammar_a_positives::topup::check(&topup, &values::Values::open(&values)?)?;
+            println!("{}", serde_json::to_string(&r)?);
         }
         Cmd::EnronHalf { pool, root, values, out } => {
             let r = enron_half::run(&pool, &root, &values, &out)?;

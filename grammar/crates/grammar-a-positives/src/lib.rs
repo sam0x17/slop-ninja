@@ -27,6 +27,8 @@ pub mod splice_bundle;
 pub mod split_copy;
 pub mod stratify;
 pub mod text;
+pub mod topup;
+pub mod train_mirror;
 pub mod values;
 
 /// Version tag bound into every plan and record.

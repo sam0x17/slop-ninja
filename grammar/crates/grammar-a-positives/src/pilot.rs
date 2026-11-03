@@ -32,10 +32,23 @@
 //! The pilot and bulk order files keep the input order (a stratified order
 //! stays stratified); the record names the prefix size, the last key, the
 //! per-cell counts, the cells below the floor and every input digest, which
-//! S0-11 records in `STAGE0.json`. D8's spliced plans are not piloted here
-//! (their generator runs order windows).
-use crate::split_copy::{OneSplit, new_dir, one_split, write_new};
-use crate::{order, plan, span_ops, text};
+//! S0-11 records in `STAGE0.json`.
+//!
+//! **D8's spliced plans** ([`run_spliced`]; B5b part 2 item 4; item 24.1:
+//! "D8's spliced plans take the same rule"). D8 re-makes the spliced rows
+//! that fail profile v2 at the §4.3 re-verdict (amendment 20 item 20.5: "the
+//! spliced plans' failures are D8's"), so its rows are the items of one plan
+//! population that renorm's spliced regeneration plan marks `regenerate`,
+//! one row per item ([`SPLICED_ROWS_READING`]). Every spliced item is mixed
+//! (a human parent with model edits), so a row's cell is domain × `mixed`;
+//! the key, the prefix and the whole-step rule are the local pilot's. The
+//! spliced generator takes the pilot and bulk as `--request-order` files
+//! (`pilot-order-GEN.txt`, `bulk-order-GEN.txt`, in plan order: each item
+//! under every generator with an edit in it), which restrict its run to the
+//! listed items while its prior stays the whole plan population's: pilot and
+//! bulk are one batch (item 10.8).
+use crate::split_copy::{OneSplit, Skipped, new_dir, one_split, write_new};
+use crate::{order, plan, span_ops, splice, text};
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -119,7 +132,7 @@ pub fn run(pdir: &Path, order_tpl: Option<&str>, step: &str, out: &Path) -> Resu
     ensure!(!out.exists(), "{} exists: the pilot is a new directory", out.display());
     let pj = fs::read(pdir.join("plan.json"))?;
     let meta: Value = serde_json::from_slice(&pj)?;
-    ensure!(meta["schema"] != crate::splice::PLAN_SCHEMA, "{} is a spliced plan: its generator runs order windows (D8's pilot is not built here)", pdir.display());
+    ensure!(meta["schema"] != crate::splice::PLAN_SCHEMA, "{} is a spliced plan: its pilot is D8's (pilot --population POP --renorm OUT)", pdir.display());
     let ib = fs::read(pdir.join("items.jsonl"))?;
     ensure!(meta["items_sha256"] == text::sha_hex(&ib).as_str(), "items.jsonl changed since planning");
     let split = one_split(&ib, "split", "items.jsonl", OneSplit::Rows)?.context("the plan has no item")?;
@@ -205,6 +218,136 @@ pub fn run(pdir: &Path, order_tpl: Option<&str>, step: &str, out: &Path) -> Resu
         "last_pilot_key": last, "cells": cells_rec, "cells_below_floor": cells_below_floor(&rows), "by_generator": files,
         "rule_source": "protocol A2 amendment 24 (rows, cells, key and the whole-step rule); section 4.3, V22 and amendment 17 item 17.1",
         "batch": "pilot and bulk are one batch: generate --profile --plan <plan> --request-order <this>/pilot-order-{GEN}.txt, then bulk-order-{GEN}.txt, under the plan's one prior (item 10.8)"});
+    let mut b = serde_json::to_vec_pretty(&summary)?;
+    b.push(b'\n');
+    let h = write_new(&out.join("PILOT.json"), &b)?;
+    let mut s = summary;
+    s["pilot_sha256"] = json!(h);
+    Ok(s)
+}
+
+/// Which rows D8's pilot takes (BUILD-PLAN 11.4's open item (d), with the
+/// form of the inputs; fixed by amendment 27).
+pub const SPLICED_ROWS_READING: &str = "amendment 27: D8's rows are the items of one spliced plan population whose requests renorm's spliced regeneration plan marks regenerate (amendment 20 item 20.5: the spliced plans' failures are D8's; drop_out_of_attempts items are refilled by section 6.4's rules, not regenerated), one row per item (item 24.1); every spliced item is mixed; the pilot and bulk are request-order files of the spliced generator (slop_ninja_a_spliced generate --request-order, in plan order, an item listed under every generator with an edit in it), which keeps the plan population's prior, so pilot and bulk are one batch (item 10.8); the spliced generator's order windows (--from/--to) cannot hold a keyed prefix, since the pilot key is not the plan order";
+
+/// The lines of a spliced plan file whose `split` is not refused, parsed;
+/// lines naming `dev_select` or `test` are skipped unparsed and counted, and
+/// a line whose split cannot be read refuses the file.
+fn spliced_lines(p: &Path, skipped: &mut Skipped) -> Result<Vec<Value>> {
+    let b = fs::read(p).with_context(|| p.display().to_string())?;
+    let mut v = Vec::new();
+    for (n, l) in b.split(|&x| x == b'\n').enumerate() {
+        if l.iter().all(u8::is_ascii_whitespace) {
+            continue;
+        }
+        match crate::renorm::line_split(l, "split") {
+            crate::renorm::LineSplit::One(s) if !crate::renorm::refused_split(&s) => v.push(serde_json::from_slice(l).with_context(|| format!("{} line {}", p.display(), n + 1))?),
+            crate::renorm::LineSplit::One(s) => *skipped.entry(p.display().to_string()).or_default().entry(s).or_default() += 1,
+            _ => anyhow::bail!("{} line {}: no split that can be read from the line's bytes; refused before any parse", p.display(), n + 1),
+        }
+    }
+    Ok(v)
+}
+
+/// Writes D8's pilot of plan population `population` of the spliced plan
+/// `pdir` to the new directory `out`, its rows read from renorm's spliced
+/// output `renorm` for that population ([`SPLICED_ROWS_READING`]).
+pub fn run_spliced(pdir: &Path, population: &str, renorm: &Path, step: &str, out: &Path) -> Result<Value> {
+    ensure!(!step.is_empty() && step.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'), "step {step:?}: a D-step name such as D8");
+    ensure!(!out.exists(), "{} exists: the pilot is a new directory", out.display());
+    let pj = fs::read(pdir.join("plan.json"))?;
+    let meta: Value = serde_json::from_slice(&pj)?;
+    ensure!(meta["schema"] == splice::PLAN_SCHEMA, "{} is not a spliced plan", pdir.display());
+    let ib = fs::read(pdir.join("items.jsonl"))?;
+    ensure!(meta["items"]["sha256"] == text::sha_hex(&ib).as_str(), "items.jsonl changed since planning");
+    let mut skipped = Skipped::new();
+    let items: Vec<splice::Item> = spliced_lines(&pdir.join("items.jsonl"), &mut skipped)?.into_iter().map(serde_json::from_value).collect::<Result<_, _>>()?;
+    let pop: Vec<&splice::Item> = items.iter().filter(|i| i.population == population).collect();
+    ensure!(!pop.is_empty(), "the plan has no {population} item");
+    let split = pop[0].split.clone();
+    ensure!(pop.iter().all(|i| i.split == split) && !crate::renorm::refused_split(&split), "plan population {population}: its items are not of one split");
+    let by_id: HashMap<&str, &splice::Item> = pop.iter().map(|i| (i.item_id.as_str(), *i)).collect();
+    ensure!(by_id.len() == pop.len(), "duplicate item id");
+    // renorm's spliced summary and regeneration plan for this population
+    let batch = format!("population-{population}");
+    let sp = renorm.join(format!("RENORM-{batch}.json"));
+    let sb = fs::read(&sp).with_context(|| sp.display().to_string())?;
+    let sum: Value = serde_json::from_slice(&sb)?;
+    ensure!(sum["schema"] == crate::renorm::RENORM_SCHEMA && sum["plan_kind"] == "spliced" && sum["batch"] == batch.as_str(),
+        "{}: not renorm's spliced summary of population {population}", sp.display());
+    ensure!(sum["inputs"]["plan_sha256"] == text::sha_hex(&pj).as_str() && sum["inputs"]["items_sha256"] == meta["items"]["sha256"],
+        "renorm re-verdicted another plan than {}", pdir.display());
+    let rg = &sum["outputs"]["regeneration_plan"];
+    let rgb = fs::read(renorm.join(rg["path"].as_str().context("regeneration plan path")?))?;
+    ensure!(rg["sha256"] == text::sha_hex(&rgb).as_str(), "the regeneration plan differs from renorm's summary");
+    let mut want: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    let mut actions: BTreeMap<String, usize> = BTreeMap::new();
+    let rows_v: Vec<Value> = rgb.split(|&x| x == b'\n').filter(|l| !l.iter().all(u8::is_ascii_whitespace)).map(serde_json::from_slice).collect::<Result<_, _>>()?;
+    for r in &rows_v {
+        ensure!(r["schema"] == crate::renorm::REGEN_SCHEMA && r["batch"] == batch.as_str(), "a regeneration plan row of another schema or batch");
+        let a = r["action"].as_str().context("action")?;
+        *actions.entry(a.to_string()).or_default() += 1;
+        let iid = r["item_id"].as_str().context("item_id")?;
+        let it = by_id.get(iid).with_context(|| format!("regeneration row: item {iid} is not a {population} item of the plan"))?;
+        let rid = r["request_id"].as_str().context("request_id")?;
+        ensure!(it.edits.iter().any(|e| e.request_id == rid && r["generator"] == e.generator.as_str()), "regeneration row of request {rid}: not an edit of item {iid} with its generator");
+        if a == "regenerate" {
+            want.insert(iid);
+        }
+    }
+    // rows in plan order
+    let mut rows: Vec<Row> = Vec::new();
+    let mut ordered: Vec<&splice::Item> = pop.iter().filter(|i| want.contains(i.item_id.as_str())).copied().collect();
+    ordered.sort_by_key(|i| i.order);
+    for it in &ordered {
+        let g = it.edits.first().map(|e| e.generator.clone()).context("an item without an edit")?;
+        rows.push(Row { item_id: it.item_id.clone(), generator: g, domain: it.domain.clone(), origin: "mixed" });
+    }
+    ensure!(!rows.is_empty(), "renorm's regeneration plan marks no {population} item regenerate: D8 has no row");
+    let (pilot, k, last) = prefix(&rows);
+    let mut cells: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for r in &rows {
+        let c = cells.entry(format!("{}|{}", r.domain, r.origin)).or_default();
+        c.0 += 1;
+        c.1 += usize::from(pilot.contains(&r.item_id));
+    }
+    let cells_rec: serde_json::Map<String, Value> = cells
+        .iter()
+        .map(|(c, (n, p))| (c.clone(), json!({"rows": n, "pilot": p, "bulk": n - p, "at_floor": *n >= PILOT_FLOOR})))
+        .collect();
+    // per generator: every item with an edit of it, in plan order
+    let mut lists: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for it in &ordered {
+        let gens: std::collections::BTreeSet<&str> = it.edits.iter().map(|e| e.generator.as_str()).collect();
+        for g in gens {
+            lists.entry(g.to_string()).or_default().push(it.item_id.as_str());
+        }
+    }
+    new_dir(out)?;
+    let mut files = serde_json::Map::new();
+    for (g, ids) in &lists {
+        let (pl, bu): (Vec<&&str>, Vec<&&str>) = ids.iter().partition(|id| pilot.contains(**id));
+        let mut rec = json!({"items": ids.len(), "pilot": pl.len(), "bulk": bu.len()});
+        for (name, part) in [("pilot", pl), ("bulk", bu)] {
+            if part.is_empty() {
+                continue;
+            }
+            let f = format!("{name}-order-{g}.txt");
+            let b: String = part.iter().map(|i| format!("{i}\n")).collect();
+            rec[name] = json!({"path": f, "sha256": write_new(&out.join(&f), b.as_bytes())?, "items": part.len()});
+        }
+        files.insert(g.clone(), rec);
+    }
+    let summary = json!({"schema": PILOT_SCHEMA, "code": crate::CODE_ID, "rule": PILOT_RULE, "rows_reading": SPLICED_ROWS_READING, "step": step,
+        "plan_kind": "spliced", "population": population, "split": split,
+        "key": {"x": PILOT_KEY, "prefix": span_ops::R2_PLAN_KEY_PREFIX, "d_id": "item id", "a6_key": false}, "floor": PILOT_FLOOR,
+        "plan": {"dir": pdir, "plan_sha256": text::sha_hex(&pj), "items_sha256": meta["items"]["sha256"]},
+        "renorm": {"dir": renorm, "summary_sha256": text::sha_hex(&sb), "regeneration_plan_sha256": rg["sha256"], "actions": actions},
+        "plan_lines_skipped_unparsed": skipped,
+        "rows": rows.len(), "pilot_rows": k, "bulk_rows": rows.len() - k, "whole_step_is_pilot": k == rows.len(),
+        "last_pilot_key": last, "cells": cells_rec, "cells_below_floor": cells_below_floor(&rows), "by_generator": files,
+        "rule_source": "protocol A2 amendment 24 item 24.1 (rows, cells, key and the whole-step rule; D8's spliced plans take the same rule); section 4.3, V22 and amendment 17 item 17.1",
+        "batch": format!("pilot and bulk are one batch: slop_ninja_a_spliced generate --plan <plan> --population {population} --profile cc_cohort_profile_v2 --profile-population <P> --runs <renorm output> --request-order <this>/pilot-order-{{GEN}}.txt, then bulk-order-{{GEN}}.txt, under the plan population's one prior (item 10.8)")});
     let mut b = serde_json::to_vec_pretty(&summary)?;
     b.push(b'\n');
     let h = write_new(&out.join("PILOT.json"), &b)?;

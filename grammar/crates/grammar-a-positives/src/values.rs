@@ -15,6 +15,21 @@
 //!   its shortest round-trip decimal text. S0-6 is not written yet: its
 //!   estimator and word unit wait for a forward amendment (the §4.3
 //!   re-verdict's stop record), which also fixes this entry's form.
+//! * S0-8 (`id` `S0-8`, `name` `supervision_targets`; amendment 27):
+//!   its `value` is the output of `slop_ninja_a_assemble supervision`
+//!   (schema [`SUPERVISION_SCHEMA`], rule [`SUPERVISION_RULE`]), whole and
+//!   unchanged: each covered domain's targets under
+//!   `r2_domain_supervision_v1` (B5b part 2's top-up plan and D5's step read
+//!   it; BUILD-PLAN 11.4: "the plan reads S0-8 from the register by its
+//!   schema string"). Not written yet.
+//! * S0-10 (`id` `S0-10`, `name` `base_cohort_stratification`; amendment
+//!   27): its `value` is the base-cohort stratification
+//!   ([`crate::stratify::S0_10_SCHEMA`]): per Train base family, the
+//!   per-domain targets of accepted rows at v_fam, written by
+//!   `stratify-train --write-stratification` and read by D7's step
+//!   (`stratify-train --stratification`). Writing it into the register (the
+//!   entry file's `id`, `name` and `value`, unchanged) is a later A9 step,
+//!   not part of the build. Not written yet.
 use crate::plan::R05;
 use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
@@ -26,6 +41,18 @@ pub const VALUES_SCHEMA: &str = "slop_ninja_a_round2_values_v1";
 pub const R05_ID: (&str, &str) = ("S0-6", "r05");
 /// v_fam's register id and name.
 pub const V_FAM_ID: (&str, &str) = ("S0-7", "v_fam");
+/// S0-8's register id and name (protocol A2 §12.6: "Supervision targets";
+/// fixed by amendment 27).
+pub const S0_8_ID: (&str, &str) = ("S0-8", "supervision_targets");
+/// S0-10's register id and name (protocol A2 §12.6: "Base-cohort
+/// stratification"; fixed by amendment 27).
+pub const S0_10_ID: (&str, &str) = ("S0-10", "base_cohort_stratification");
+/// The schema of S0-8's value: `slop_ninja_a_assemble supervision`'s output
+/// (`grammar_a_assemble::supervision::OUTPUT_SCHEMA`; read by its string, so
+/// this crate does not depend on the assembler).
+pub const SUPERVISION_SCHEMA: &str = "slop_ninja_a_r2_domain_supervision_v1";
+/// The rule S0-8's value names (`grammar_a_assemble::supervision::SUPERVISION_RULE`).
+pub const SUPERVISION_RULE: &str = "r2_domain_supervision_v1";
 
 /// `VALUES-R2.json`, read once and hashed.
 pub struct Values {
@@ -75,6 +102,30 @@ pub fn v_fam(v: &Values) -> Result<(usize, Value)> {
     Ok((n as usize, v.record(V_FAM_ID, json!(n))))
 }
 
+/// S0-8 (the supervision targets) from the register: its value, which must
+/// be the supervision tool's output by schema and rule, and the record (the
+/// register's path and digest, and the value's digest; the value itself is
+/// counts and shares, never text).
+pub fn supervision(v: &Values) -> Result<(Value, Value)> {
+    let e = v.entry(S0_8_ID)?;
+    let val = &e["value"];
+    ensure!(val["schema"] == SUPERVISION_SCHEMA && val["rule"] == SUPERVISION_RULE,
+        "{}: S0-8's value is not the {SUPERVISION_SCHEMA} output of rule {SUPERVISION_RULE}", v.path.display());
+    ensure!(val["domains"].as_object().is_some_and(|d| !d.is_empty()), "{}: S0-8's value covers no domain", v.path.display());
+    let digest = crate::text::sha_hex(&serde_json::to_vec(val)?);
+    Ok((val.clone(), v.record(S0_8_ID, json!({"schema": SUPERVISION_SCHEMA, "value_json_sha256": digest}))))
+}
+
+/// S0-10 (the base-cohort stratification) from the register: its value,
+/// which must be [`crate::stratify::S0_10_SCHEMA`]'s, and the record.
+pub fn base_stratification(v: &Values) -> Result<(Value, Value)> {
+    let e = v.entry(S0_10_ID)?;
+    let val = &e["value"];
+    ensure!(val["schema"] == crate::stratify::S0_10_SCHEMA, "{}: S0-10's value is not a {} record", v.path.display(), crate::stratify::S0_10_SCHEMA);
+    let digest = crate::text::sha_hex(&serde_json::to_vec(val)?);
+    Ok((val.clone(), v.record(S0_10_ID, json!({"schema": crate::stratify::S0_10_SCHEMA, "value_json_sha256": digest}))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +167,33 @@ mod tests {
         assert!(Values::open(&p).is_err());
         let p = file(d, json!({"schema": VALUES_SCHEMA, "values": {"S0-7": {"id": "S0-7", "name": "v_fam", "value": -1}}}));
         assert!(v_fam(&Values::open(&p).unwrap()).is_err());
+    }
+
+    #[test]
+    fn s0_8_and_s0_10_are_read_by_schema_and_refused_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let p = file(d, json!({"schema": VALUES_SCHEMA, "values": {"S0-7": {"id": "S0-7", "name": "v_fam", "value": 5}}}));
+        let v = Values::open(&p).unwrap();
+        assert!(supervision(&v).err().unwrap().to_string().contains("holds no S0-8"));
+        assert!(base_stratification(&v).err().unwrap().to_string().contains("holds no S0-10"));
+        let sup = json!({"schema": SUPERVISION_SCHEMA, "rule": SUPERVISION_RULE, "domains": {"legal": {}}});
+        let p = file(d, json!({"schema": VALUES_SCHEMA, "values": {"S0-8": {"id": "S0-8", "name": "supervision_targets", "value": sup}}}));
+        let (val, rec) = supervision(&Values::open(&p).unwrap()).unwrap();
+        assert_eq!(val["domains"], json!({"legal": {}}));
+        assert_eq!((rec["id"].as_str(), rec["sha256"].as_str()), (Some("S0-8"), Some(crate::text::sha_hex(&std::fs::read(&p).unwrap()).as_str())));
+        // another schema, another rule, no domain, another name
+        for bad in [json!({"schema": "x", "rule": SUPERVISION_RULE, "domains": {"a": {}}}), json!({"schema": SUPERVISION_SCHEMA, "rule": "x", "domains": {"a": {}}}),
+            json!({"schema": SUPERVISION_SCHEMA, "rule": SUPERVISION_RULE, "domains": {}})] {
+            let p = file(d, json!({"schema": VALUES_SCHEMA, "values": {"S0-8": {"id": "S0-8", "name": "supervision_targets", "value": bad}}}));
+            assert!(supervision(&Values::open(&p).unwrap()).is_err());
+        }
+        let p = file(d, json!({"schema": VALUES_SCHEMA, "values": {"S0-8": {"id": "S0-8", "name": "targets", "value": sup}}}));
+        assert!(supervision(&Values::open(&p).unwrap()).err().unwrap().to_string().contains("not the S0-8 supervision_targets entry"));
+        let st = json!({"schema": crate::stratify::S0_10_SCHEMA, "targets": {}});
+        let p = file(d, json!({"schema": VALUES_SCHEMA, "values": {"S0-10": {"id": "S0-10", "name": "base_cohort_stratification", "value": st}}}));
+        assert_eq!(base_stratification(&Values::open(&p).unwrap()).unwrap().0, st);
+        let p = file(d, json!({"schema": VALUES_SCHEMA, "values": {"S0-10": {"id": "S0-10", "name": "base_cohort_stratification", "value": {"schema": "x"}}}}));
+        assert!(base_stratification(&Values::open(&p).unwrap()).is_err());
     }
 }

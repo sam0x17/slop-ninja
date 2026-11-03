@@ -135,6 +135,21 @@ pub fn domain_of(collection: &str) -> Result<&'static str> {
     })
 }
 
+/// The planner domain of enron-v1's Train half (protocol A2 §6.1; B5b part
+/// 2's D6 plan). Not in [`DOMAINS`]: no plan v1, v2 or v3 IDF table holds it.
+pub const ENRON_DOMAIN: &str = "enron_email";
+
+/// Collection -> domain for the Train inputs of the Train-only mirror
+/// planner's plans only (`train_mirror`; B5b part 2; protocol A2 amendment
+/// 27): [`domain_of`], plus enron-v1's Train half as [`ENRON_DOMAIN`]
+/// (§6.1, V23). Every other Train reader keeps [`domain_of`], which refuses
+/// enron-v1 as an unadmitted collection, so no style, brief or library
+/// reader can take an Enron row into a prompt (§2.7: Enron text never goes
+/// to a hosted model).
+pub fn train_only_domain_of(collection: &str) -> Result<&'static str> {
+    if collection == grammar_a_pools::pile::ENRON_COLLECTION { Ok(ENRON_DOMAIN) } else { domain_of(collection) }
+}
+
 pub const DOMAINS: [&str; 23] = [
     "project_gutenberg", "wikipedia", "wikinews", "plos", "us_federal_register", "fineweb", "global_voices", "fineweb_blogs", "plos_blogs",
     "reddit", "ubuntu_irc", "wikipedia_talk", "wikisource", "instructional", "peer_review", "legal_opinions", "consumer_reviews",
@@ -168,6 +183,7 @@ pub fn register(domain: &str) -> &'static str {
         "spoken_transcripts" => "a speaker's turn from a meeting transcript",
         "student_essays" => "a student essay",
         "stackexchange" => "an answer on a question-and-answer website",
+        ENRON_DOMAIN => "an email message written by an employee of a company",
         _ => unreachable!("register for {domain}"),
     }
 }
@@ -280,6 +296,13 @@ pub struct Human {
 }
 
 pub fn human_from(row: &Value, split: &str) -> Result<Human> {
+    human_from_in(row, split, false)
+}
+
+/// [`human_from`]; with `train_only` a Train row's domain is
+/// [`train_only_domain_of`]'s (the Train-only mirror planner's plans, whose
+/// `generate` and `finalize` read their Train input this way).
+pub fn human_from_in(row: &Value, split: &str, train_only: bool) -> Result<Human> {
     let fs = row["frozen_split"].as_str().context("frozen_split")?;
     ensure!(fs == split, "row {} has frozen_split {fs}, expected {split}", row["id"]);
     ensure!(row["origin"] == "human_only", "human source required");
@@ -289,7 +312,7 @@ pub fn human_from(row: &Value, split: &str) -> Result<Human> {
     ensure!(row["word_count"].as_u64() == Some(wc as u64), "word count mismatch");
     let collection = row["collection"].as_str().context("collection")?;
     let domain = if split == "train" {
-        domain_of(collection)?
+        if train_only { train_only_domain_of(collection)? } else { domain_of(collection)? }
     } else {
         eval_domain_of(collection).with_context(|| format!("collection {collection} has no evaluation domain ({split})"))?
     };
@@ -461,11 +484,17 @@ pub fn seed_of(request_sha: &str) -> u32 {
 }
 
 pub fn mirror_prompt(h: &Human, terms: &[String]) -> String {
+    mirror_prompt_words(h, terms, h.word_count)
+}
+
+/// The mirror prompt asking for `words` words: [`mirror_prompt`] at the
+/// parent's length, or a new mirror at `mirror_target_words_v2` (B5b part 2).
+pub fn mirror_prompt_words(h: &Human, terms: &[String], words: usize) -> String {
     let title = h.title.as_ref().map(|t| format!(" Title or subject: {t}.")).unwrap_or_default();
     format!(
         "Write {} in English, about {} words long.{} Cover these key terms: {}. Write natural, original prose. Return only the passage, with no title, heading, preface, analysis, or explanation.",
         split_register(&h.split, h.domain),
-        h.word_count,
+        words,
         title,
         terms.join(", ")
     )
@@ -1103,5 +1132,19 @@ mod tests {
         assert_eq!(base_runs(&cum(&[100]), true), None);
         assert_eq!(base_runs(&cum(&[30, 40, 30]), false), Some((1, 2)));
         assert_eq!(base_runs(&cum(&[50, 50]), false), None);
+    }
+    #[test]
+    fn enron_rows_are_a_domain_of_the_train_only_planner_only() {
+        let t = "Synthetic words of one message.";
+        let row = json!({"id": "e1", "frozen_split": "train", "origin": "human_only", "text": t, "text_sha256": text::sha_hex(t.as_bytes()),
+            "word_count": text::words(t), "collection": grammar_a_pools::pile::ENRON_COLLECTION, "provenance": {}, "source_group": "g", "domain": "email"});
+        // every shared Train reader refuses it as before (style, brief, library and plan readers)
+        assert!(domain_of(grammar_a_pools::pile::ENRON_COLLECTION).is_err());
+        assert_eq!(human_from(&row, "train").err().unwrap().to_string(), format!("unadmitted collection {}", grammar_a_pools::pile::ENRON_COLLECTION));
+        // the Train-only planner's reader maps it, and maps every other collection as domain_of does
+        assert_eq!(human_from_in(&row, "train", true).unwrap().domain, ENRON_DOMAIN);
+        assert_eq!(train_only_domain_of("wikipedia_enwiki_historical").unwrap(), "wikipedia");
+        assert!(train_only_domain_of("mystery_archive_historical").is_err());
+        assert!(!DOMAINS.contains(&ENRON_DOMAIN));
     }
 }

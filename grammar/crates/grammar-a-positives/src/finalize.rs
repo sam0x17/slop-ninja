@@ -59,6 +59,12 @@
 //! and stratum documents, are unique by text across every split: one whose
 //! text an earlier one holds, in plan order, refuses the run.
 //!
+//! **Other generators** (BUILD-PLAN 10.6, B3b). `raw_twin_of` and
+//! `screen_fail_of` hold these rules for any item given its requests in edit
+//! order and the generator's own assembly; `raw_twin` and `screen_fail` are
+//! them with `rebuild`. `slop_ninja_a_spliced finalize` calls them with
+//! `splice::assemble_parts`.
+//!
 //! Records hold text; the left-out notes and every rule string hold none.
 use crate::generation::{self, ReqState, doc_window_reasons};
 use crate::overlap;
@@ -232,7 +238,8 @@ pub struct RawResponse {
 }
 
 impl RawResponse {
-    fn of(request_id: &str, attempt: u32, line: &Value) -> RawResponse {
+    /// The raw response of `request_id`'s journal response line `line`.
+    pub fn of(request_id: &str, attempt: u32, line: &Value) -> RawResponse {
         let v = &line["verdict"];
         RawResponse {
             request_id: request_id.to_string(),
@@ -243,7 +250,8 @@ impl RawResponse {
         }
     }
 
-    fn record(&self) -> Value {
+    /// Its text-free record (an R-form record's `rform.raw_responses` entry).
+    pub fn record(&self) -> Value {
         json!({"request_id": self.request_id, "attempt": self.attempt, "raw_response_sha256": self.raw_response_sha256,
             "accepted": self.accepted, "reasons": self.reasons})
     }
@@ -271,33 +279,47 @@ fn check_parent(it: &Item, ptext: &str) -> Result<()> {
 /// raw text fails its digest, the parent fails its digest, an item check
 /// read other raw children, or the splice fails.
 pub fn raw_twin(it: &Item, ptext: &str, states: &HashMap<String, ReqState>) -> Result<Option<RawDoc>> {
+    raw_twin_of(&it.item_id, &it.requests, states, || check_parent(it, ptext), |raws| rebuild(ptext, &it.kind, &it.source_spans, raws))
+}
+
+/// `raw_twin` for any generator's item: `item_id` with its requests `rids`
+/// in edit order, `check_parent` checking the parent against the item's
+/// digest and `splice` assembling the raw children (in `rids`' order) into
+/// the parent as the generator's own finalize assembles accepted responses.
+/// `slop_ninja_a_spliced finalize` calls it with `splice::assemble_parts`.
+pub fn raw_twin_of(
+    item_id: &str,
+    rids: &[String],
+    states: &HashMap<String, ReqState>,
+    check_parent: impl FnOnce() -> Result<()>,
+    splice: impl FnOnce(&[&str]) -> Result<Spliced>,
+) -> Result<Option<RawDoc>> {
     let mut found: Vec<(&str, u32, &Value, Option<&str>)> = Vec::new();
-    for rid in &it.requests {
-        let st = states.get(rid).with_context(|| format!("{}: request {rid} has no journal", it.item_id))?;
-        let (a, line) = st.responses.iter().find(|(_, v)| v["verdict"]["accepted"] == true).with_context(|| format!("{}: request {rid} has no accepted response", it.item_id))?;
-        let raw = raw_child(&line["verdict"]).with_context(|| format!("{}: request {rid} attempt {a}", it.item_id))?;
+    for rid in rids {
+        let st = states.get(rid).with_context(|| format!("{item_id}: request {rid} has no journal"))?;
+        let (a, line) = st.responses.iter().find(|(_, v)| v["verdict"]["accepted"] == true).with_context(|| format!("{item_id}: request {rid} has no accepted response"))?;
+        let raw = raw_child(&line["verdict"]).with_context(|| format!("{item_id}: request {rid} attempt {a}"))?;
         found.push((rid, *a, line, raw));
     }
     let with = found.iter().filter(|f| f.3.is_some()).count();
     if with == 0 {
         return Ok(None);
     }
-    ensure!(with == found.len(), "{}: {with} of {} accepted requests carry a profile v2 raw_response_sha256", it.item_id, found.len());
-    check_parent(it, ptext)?;
+    ensure!(with == found.len(), "{item_id}: {with} of {} accepted requests carry a profile v2 raw_response_sha256", found.len());
+    check_parent()?;
     let responses: Vec<RawResponse> = found.iter().map(|(rid, a, line, _)| RawResponse::of(rid, *a, line)).collect();
     for (rid, _, line, _) in &found {
         let post = &line["verdict"]["diag"]["post"];
         if post["item_check"]["last"] == true {
-            let edits = post["edits"].as_array().with_context(|| format!("{}: request {rid}'s item check has no edits", it.item_id))?;
+            let edits = post["edits"].as_array().with_context(|| format!("{item_id}: request {rid}'s item check has no edits"))?;
             ensure!(
                 edits.len() == responses.len() && edits.iter().zip(&responses).all(|(e, r)| e["raw_response_sha256"] == r.raw_response_sha256.as_str()),
-                "{}: request {rid}'s item check read other raw children than the accepted ones",
-                it.item_id
+                "{item_id}: request {rid}'s item check read other raw children than the accepted ones"
             );
         }
     }
     let raws: Vec<&str> = found.iter().map(|f| f.3.unwrap_or_default()).collect();
-    let (text, ai_spans, share) = rebuild(ptext, &it.kind, &it.source_spans, &raws).with_context(|| format!("{}: raw twin", it.item_id))?;
+    let (text, ai_spans, share) = splice(&raws).with_context(|| format!("{item_id}: raw twin"))?;
     Ok(Some(RawDoc { text, ai_spans, share, raws: raws.iter().map(|r| r.to_string()).collect(), responses }))
 }
 
@@ -318,8 +340,21 @@ pub enum ScreenFail {
 /// step included). An error when a first raw response in the stratum
 /// carries no raw child, or a raw text or the parent fails its digest.
 pub fn screen_fail(it: &Item, ptext: &str, states: &HashMap<String, ReqState>) -> Result<Option<ScreenFail>> {
+    screen_fail_of(&it.item_id, &it.requests, states, || check_parent(it, ptext), |raws| rebuild(ptext, &it.kind, &it.source_spans, raws))
+}
+
+/// `screen_fail` for any generator's item: `item_id` with its requests
+/// `rids` in edit order, `check_parent` and `splice` as in `raw_twin_of`.
+/// The document is window-checked here (`cc_final_length_window_v1`).
+pub fn screen_fail_of(
+    item_id: &str,
+    rids: &[String],
+    states: &HashMap<String, ReqState>,
+    check_parent: impl FnOnce() -> Result<()>,
+    splice: impl FnOnce(&[&str]) -> Result<Spliced>,
+) -> Result<Option<ScreenFail>> {
     let mut first: Vec<(&str, u32, &Value)> = Vec::new();
-    for rid in &it.requests {
+    for rid in rids {
         let Some((a, line)) = states.get(rid).and_then(first_raw_response) else {
             return Ok(None);
         };
@@ -329,14 +364,14 @@ pub fn screen_fail(it: &Item, ptext: &str, states: &HashMap<String, ReqState>) -
     if rejected.peek().is_none() || !rejected.all(|f| failed_form_screen_only(&f.2["verdict"])) {
         return Ok(None);
     }
-    check_parent(it, ptext)?;
+    check_parent()?;
     let mut raws: Vec<&str> = Vec::new();
     for (rid, a, line) in &first {
-        let raw = raw_child(&line["verdict"]).with_context(|| format!("{}: request {rid} attempt {a}", it.item_id))?;
-        raws.push(raw.with_context(|| format!("{}: request {rid} attempt {a} has no raw child", it.item_id))?);
+        let raw = raw_child(&line["verdict"]).with_context(|| format!("{item_id}: request {rid} attempt {a}"))?;
+        raws.push(raw.with_context(|| format!("{item_id}: request {rid} attempt {a} has no raw child"))?);
     }
     let responses: Vec<RawResponse> = first.iter().map(|(rid, a, line)| RawResponse::of(rid, *a, line)).collect();
-    Ok(Some(match rebuild(ptext, &it.kind, &it.source_spans, &raws) {
+    Ok(Some(match splice(&raws) {
         Err(e) => ScreenFail::LeftOut { reasons: vec![format!("assembly_error:{e}")], words: None, responses },
         Ok((text, ai_spans, share)) => {
             let n = text::words(&text);
@@ -370,7 +405,7 @@ pub fn screen_fail_doc(entry: &Value) -> Option<&Value> {
 
 /// Refuses an R-form document whose text an earlier one of the run holds
 /// (amendment 19 item 19.6); `seen` maps text digests to ids.
-fn unique_rform(seen: &mut HashMap<String, String>, d: &Value) -> Result<()> {
+pub fn unique_rform(seen: &mut HashMap<String, String>, d: &Value) -> Result<()> {
     let (sha, id) = (d["text_sha256"].as_str().context("R-form text_sha256")?, d["id"].as_str().context("R-form id")?);
     if let Some(first) = seen.get(sha) {
         anyhow::bail!("duplicate R-form text: {id} has the text of {first}");
@@ -513,7 +548,7 @@ fn rform_record(c: &ItemCtx, d: &RawDoc, tok: &Tokenizer, id: String, stratum: &
 
 /// Puts an item's stratum outcome under `rform_screen_fail_v1` in its entry,
 /// refusing a document whose text an earlier R-form document holds.
-fn put_stratum(entry: &mut Value, s: Option<Value>, seen: &mut HashMap<String, String>) -> Result<()> {
+pub fn put_stratum(entry: &mut Value, s: Option<Value>, seen: &mut HashMap<String, String>) -> Result<()> {
     if let Some(s) = s {
         if rform_doc(&s, SCREEN_FAIL_ID).is_some() {
             unique_rform(seen, &s)?;
@@ -523,7 +558,8 @@ fn put_stratum(entry: &mut Value, s: Option<Value>, seen: &mut HashMap<String, S
     Ok(())
 }
 
-fn responses_record(rs: &[RawResponse]) -> Value {
+/// The text-free records of an R-form document's raw responses.
+pub fn responses_record(rs: &[RawResponse]) -> Value {
     json!(rs.iter().map(RawResponse::record).collect::<Vec<_>>())
 }
 
@@ -1237,6 +1273,24 @@ mod tests {
             assert_eq!(screen_fail_doc(entry(&o.failures, id)), Some(d));
         }
         assert_eq!(o.summary["counts"]["train"][SCREEN_FAIL_ID], json!({"emitted": 4, "left_out:final_document_below_150_words": 1}));
+    }
+
+    #[test]
+    fn finalize_v2_raw_twin_takes_the_n_form_window_verdict() {
+        let ps = parents();
+        let (p1, p2) = (&ps["p1"], &ps["p2"]);
+        let mut cases = battery(p1, p2);
+        // a mirror of P2 (spaced em dashes) with closed dashes, accepted: its raw twin has 148 words, its laid-out record 160
+        cases.push(mirror("twin-w", "p2", p2, vec![prose_d(&ALT, 53, 14, 11, 6)]));
+        let st = v2(&ps, &cases);
+        let o = run(&ps, &cases, &st).unwrap();
+        let n = rec(&o, "twin-w");
+        let tw = &n[RAW_TWIN_FIELD];
+        let w = |d: &Value| text::words(d["text"].as_str().unwrap());
+        assert_eq!((w(n), w(tw)), (160, 148));
+        assert_eq!(tw["word_count"].as_u64(), Some(148));
+        assert_eq!(tw["twin_of"].as_str(), Some("twin-w"));
+        assert_eq!(raw_twin_doc(n), Some(tw));
     }
 
     #[test]

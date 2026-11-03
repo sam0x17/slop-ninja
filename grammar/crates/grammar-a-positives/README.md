@@ -106,6 +106,37 @@ for an R-form evaluation population. `fs_pairs` pairs N-form records with
 their twins and never with the stratum. The R-form documents of one run are
 unique by text: a duplicate refuses the run.
 
+## Raw twins and the screen-fail stratum in the spliced `finalize`
+
+`slop_ninja_a_spliced finalize` emits the same two R-form outputs for the
+spliced span sets (protocol A2 §7.2 and §7.5; amendment 19), through
+`finalize`'s own helpers (`raw_twin_of`, `screen_fail_of`), whenever its
+journals' verdicts carry profile v2's raw-response digest. With the profile
+off its outputs are byte for byte those of the code before them.
+- **`raw_twin`**, in each accepted record: the accepted raw responses (each
+  verdict's `raw_text`, digest-checked) assembled into the parent as the
+  accepted texts are (`splice::assemble_parts`, insertions with their
+  separator). It is a whole spliced record with the N-form record's labels
+  and its own text, spans, share, words, tokens and edit history; `id` is
+  `rform:<id>` and `twin_of` names the N-form record. Its window verdict is
+  the N-form document's.
+- **`rform_screen_fail_v1`**, in the record or `failures/<population>.jsonl`
+  entry of each item whose edits' first raw responses include a rejection
+  and every rejected one failed the form screen only (the spliced
+  generator's own checks are outside the screen). The document is every
+  edit's first raw response, accepted ones included, assembled the same way
+  and window-checked at finalize; a window or assembly failure leaves a note
+  with the reasons and no text. Its edit history gives, per edit, the attempt
+  of the response it splices (`accepted_attempt`) and that response's
+  `verdict` (`accepted` or `rejected`). The stratum outcome rides with the
+  item's entry, so an item not yet generated (`not_run`), which the spliced
+  `finalize` gives no entry, has none (protocol A2 amendment 25 item
+  25.4); the local `finalize` keeps its `not_run` failures' outcome.
+
+Both are counted in `reports/quality.json` (`rform_raw_twin`,
+`rform_screen_fail_v1`); the R-form documents of one run, both populations,
+are unique by text.
+
 ## Form profile in the acceptance path
 
 `generate` and `slop_ninja_a_spliced generate` take `--profile

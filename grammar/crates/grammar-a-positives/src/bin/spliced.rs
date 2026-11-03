@@ -7,10 +7,28 @@
 //! `finalize` assembles accepted documents, retains failures and writes the
 //! manifests and reports. All outputs hold private prose: write them only to
 //! ignored storage.
+//!
+//! **R-form** (protocol A2 §7.2 and §7.5, amendment 19; B3b). `finalize`
+//! emits raw twins and `rform_screen_fail_v1` whenever its journals'
+//! verdicts carry profile v2's raw-response digest, as the local `finalize`
+//! does, through its helpers (`finalize::raw_twin_of`, `screen_fail_of`,
+//! `first_raw_response`, `failed_form_screen_only`); with the profile off its
+//! outputs are byte for byte those of the code before. A raw twin is the
+//! accepted raw responses (each verdict's `raw_text`, digest-checked)
+//! assembled into the parent as the accepted texts are
+//! (`splice::assemble_parts`, insertions with their separator), under the
+//! accepted record's `raw_twin` with the N-form record's labels; it takes the
+//! N-form document's window verdict. The stratum document is every edit's
+//! first raw response, accepted ones included, assembled the same way and
+//! window-checked here, under the record's or failure's
+//! `rform_screen_fail_v1` (a left-out note without text on a window or
+//! assembly failure). An item not yet generated (`not_run`) has no entry and
+//! so no stratum outcome (amendment 25 item 25.4). The R-form documents
+//! of one run are unique by text.
 use anyhow::{Context, Result, ensure};
 use clap::{Parser, Subcommand};
 use grammar_a_positives::splice::{self, Edit, Item, Parent};
-use grammar_a_positives::{diverse, form_post, generation, library, overlap, plan, text, write_json, write_jsonl};
+use grammar_a_positives::{diverse, finalize, form_post, generation, library, overlap, plan, text, write_json, write_jsonl};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -766,6 +784,177 @@ fn tokens_bin(n: usize) -> &'static str {
     }
 }
 
+/// A spliced raw twin's rule, as its record states it (protocol A2 §7.2 and
+/// §7.5; amendment 19).
+const RAW_TWIN_RULE: &str = "protocol A2 sections 7.2 and 7.5 raw twin of a spliced document, as finalize's (amendment 19): the item's accepted responses spliced raw into the same parent by splice::assemble_parts (insertions with their separator), as finalize assembles the accepted laid-out texts; each raw child is the accepted verdict's raw_text, read exactly and refused unless its SHA-256 is the verdict's profile v2 raw_response_sha256 (finalize::raw_twin_of); the parent must match parent_text_sha256 and an item check's record must name the same raw digests; the N-form record's labels, with text, spans, share, words, tokens and edit history measured on this document; the window verdict is the N-form document's; the R-form documents of one run (both populations) are unique by text, a duplicate refusing the run (item 19.6)";
+/// The spliced screen-fail stratum's rule, as its record states it.
+const SCREEN_FAIL_RULE: &str = "protocol A2 sections 7.2 and 7.5 rform_screen_fail_v1 of a spliced item, as read by amendment 19 items 19.1, 19.2 and 19.4 (finalize::screen_fail_of): each edit's request's first raw response is its lowest attempt whose response verdict carries none of transport_error, http_status_<code> or no_content, accepted or not (a response rejected before the profile step, or with empty content, is one; an intent with no response is not); an item whose first raw responses include a rejection, every rejected one failing the form screen only (each reason one of the post record's form_reasons and a form_line_, form_paragraph_ or form_frame_ code; the spliced generator's own checks are outside the screen), gets one document: every edit's first raw response, accepted ones included, spliced into the parent by splice::assemble_parts (insertions with their separator), window-checked at finalize (cc_final_length_window_v1); a request with no raw response, or any other rejection, keeps the item out; a window or assembly failure leaves the document out, noted without text; no N-form twin; an item not yet generated (not_run) has no entry and no stratum outcome, since its entry is where that outcome rides (amendment 25 item 25.4); the R-form documents of one run are unique by text, a duplicate refusing the run (item 19.6)";
+
+/// What a spliced document's record reads besides the item and its text.
+struct RecCtx<'a> {
+    reqs: &'a HashMap<String, plan::Request>,
+    gens: &'a HashMap<String, Value>,
+    plan_sha: &'a str,
+}
+
+/// Per edit: the attempt, seed and `diag` of the response the document
+/// splices there, and that response's verdict (`accepted` or `rejected`).
+type EditOutcome = (u64, Value, Value, &'static str);
+
+/// The record of one spliced document of item `it`: `asm`, assembled from
+/// `rr` (one text per edit, in edit order), with `outcomes` per edit and
+/// `ntok` A tokens. The N-form record and every R-form document take it.
+fn doc_record(c: &RecCtx, it: &Item, parent: &Parent, asm: &splice::Assembled, rr: &[&str], outcomes: &[EditOutcome], ntok: usize) -> Value {
+    let share = asm.ai_words as f64 / asm.total_words as f64;
+    let ai_char_spans: Vec<(usize, usize)> = asm.ai_byte_spans.iter().map(|&(a, b)| (splice::char_index(&asm.text, a), splice::char_index(&asm.text, b))).collect();
+    let mut hist = Vec::new();
+    for (k, e) in it.edits.iter().enumerate() {
+        let r = &c.reqs[&e.request_id];
+        let (fs, fe) = asm.edit_spans[k];
+        let src = &parent.text[e.parent_span.0..e.parent_span.1];
+        let rep = rr[k];
+        let (attempt, seed, diag, verdict) = &outcomes[k];
+        let g = c.gens.get(&e.generator).cloned().unwrap_or(Value::Null);
+        let cf = if e.kind == "insert" { None } else { Some(diverse::change_fraction(src, rep)) };
+        hist.push(json!({
+            "edit_index": e.edit_index, "policy": it.policy, "component": e.component, "kind": e.kind, "operation": e.operation,
+            "operation_family": e.family, "operation_requested": e.operation_requested, "generator": e.generator, "generator_family": g["family"],
+            "model_sha256": g["sha256"], "config_sha256": g["config_sha256"],
+            "voice_id": e.style["voice_id"], "brief_id": e.style["brief_id"], "style_kind": e.style["style_kind"], "style_scope": e.style["style_scope"],
+            "style_text_sha256": e.style["style_text"].as_str().map(|s| text::sha_hex(s.as_bytes())),
+            "template_id": e.template_id, "prompt_sha256": text::sha_hex(r.prompt.as_bytes()), "request_id": e.request_id, "request_sha256": r.request_sha256,
+            "decoding": r.decoding, "seed": seed, "accepted_attempt": attempt, "context_included": e.context_included,
+            "parent_span_bytes": e.parent_span, "insert_separator": e.insert_sep,
+            "final_span_bytes": [fs, fe], "final_span_chars": [splice::char_index(&asm.text, fs), splice::char_index(&asm.text, fe)],
+            "before_sha256": text::sha_hex(src.as_bytes()), "after_sha256": text::sha_hex(rep.as_bytes()),
+            "words_before": splice::py_words(src), "words_after": splice::py_words(rep), "change_fraction": cf,
+            "finish_reason": diag["finish_reason"], "verdict": verdict
+        }));
+    }
+    let gl: Vec<String> = it.generators.iter().map(|k| c.gens.get(k).and_then(|g| g["family"].as_str()).unwrap_or(k).to_owned()).collect();
+    let generator_label = if gl.len() == 1 { Some(gl[0].clone()) } else { None };
+    let hist_bytes = serde_json::to_vec(&hist).expect("edit history serialises");
+    json!({
+        "schema": splice::RECORD_SCHEMA, "id": it.item_id, "population": it.population, "split": it.split, "frozen_split": it.split,
+        "span_half": it.span_half, "parent_id": it.parent_id, "parent_text_sha256": it.parent_text_sha256, "pair_id": it.parent_id,
+        "pair_policy": "the untouched parent is the paired human-only negative (already a release-bundle row: reuse it, no duplicate)",
+        "parent_cohort_id": parent.cohort_id, "parent_provenance_sha256": parent.provenance_sha256,
+        "source_group": it.source_group, "writer_key": it.writer_key, "domain": it.domain, "genre": parent.genre,
+        "text": asm.text, "text_sha256": text::sha_hex(asm.text.as_bytes()), "origin": "mixed", "human_role_present": true, "ai_role_present": true,
+        "source_kind": splice::SOURCE_KIND, "cohort_id": splice::COHORT_ID, "operation": format!("spliced:{}", it.policy),
+        "policy": it.policy, "policy_requested": it.policy_requested, "variant": it.variant, "plan_order": it.order,
+        "share": share, "share_bin": splice::share_bin(share), "word_policy": splice::WORD_POLICY,
+        "words": asm.total_words, "ai_words": asm.ai_words, "a_tokens_with_specials": ntok,
+        "ai_byte_spans": asm.ai_byte_spans, "ai_char_spans": ai_char_spans,
+        "generator_label": generator_label, "generator_labels": gl, "generators": it.generators, "two_generators": it.two_generators,
+        "voice_scope": it.voice_scope, "edits": hist, "edit_history_sha256": text::sha_hex(&hist_bytes),
+        "context_basis": "original", "plan_sha256": c.plan_sha,
+        "rights": {"inherits_parent": true, "generated_text": "local open-weight generation; model licence in the generator config; no detector output used"},
+        "detector_outputs_used": false,
+    })
+}
+
+/// The edits' parts as assembly reads them, in edit order.
+fn parts_of(it: &Item) -> Vec<splice::Part<'_>> {
+    it.edits.iter().map(|e| splice::Part { parent_span: e.parent_span, insert_sep: e.insert_sep.as_deref() }).collect()
+}
+
+/// An R-form document's splice: raw children assembled into the parent as
+/// finalize assembles accepted texts (`splice::assemble_parts`), with the
+/// realised word share.
+fn raw_splice(parent: &str, parts: &[splice::Part], raws: &[&str]) -> Result<finalize::Spliced> {
+    let a = splice::assemble_parts(parent, parts, raws)?;
+    let share = a.ai_words as f64 / a.total_words as f64;
+    Ok((a.text, a.ai_byte_spans, share))
+}
+
+fn check_parent(it: &Item, parent: &Parent) -> Result<()> {
+    ensure!(text::sha_hex(parent.text.as_bytes()) == it.parent_text_sha256, "{}: the parent text does not match parent_text_sha256", it.item_id);
+    Ok(())
+}
+
+/// The record's assembly (with each edit's span) is the document the shared
+/// rule gave: the same text, spans and share.
+fn same_doc(it: &Item, d: &finalize::RawDoc, asm: &splice::Assembled) -> Result<()> {
+    let share = asm.ai_words as f64 / asm.total_words as f64;
+    ensure!(asm.text == d.text && asm.ai_byte_spans == d.ai_spans && share == d.share, "{}: the R-form record's assembly differs from its document", it.item_id);
+    Ok(())
+}
+
+/// Marks a spliced document record as an R-form document.
+fn rform_fields(d: &mut Value, id: String, stratum: &str, twin_of: Option<&str>, evidence: Value) {
+    d["id"] = json!(id);
+    d["form"] = json!(finalize::R_FORM);
+    d["stratum"] = json!(stratum);
+    d["twin_of"] = json!(twin_of);
+    d["rform"] = evidence;
+}
+
+/// The raw twin of an accepted spliced item whose N-form text is `n_text`
+/// (`finalize::raw_twin_of` with the spliced assembly). `Ok(None)` when its
+/// accepted verdicts carry no profile v2 raw-response digest.
+fn twin_record(c: &RecCtx, it: &Item, parent: &Parent, states: &HashMap<String, generation::ReqState>, tok: &tokenizers::Tokenizer, n_text: &str, edit_hist: &[EditOutcome]) -> Result<Option<Value>> {
+    let rids: Vec<String> = it.edits.iter().map(|e| e.request_id.clone()).collect();
+    let parts = parts_of(it);
+    let Some(d) = finalize::raw_twin_of(&it.item_id, &rids, states, || check_parent(it, parent), |raws| raw_splice(&parent.text, &parts, raws))? else {
+        return Ok(None);
+    };
+    let raws: Vec<&str> = d.raws.iter().map(String::as_str).collect();
+    let asm = splice::assemble_parts(&parent.text, &parts, &raws)?;
+    same_doc(it, &d, &asm)?;
+    let mut t = doc_record(c, it, parent, &asm, &raws, edit_hist, a_tokens(tok, &asm.text)?);
+    let same = grammar_a_pools::text::folded_tokens(&asm.text) == grammar_a_pools::text::folded_tokens(n_text);
+    let ev = json!({"rule": RAW_TWIN_RULE, "parent_text_sha256": it.parent_text_sha256, "raw_responses": finalize::responses_record(&d.responses),
+        "n_form_text_sha256": text::sha_hex(n_text.as_bytes()), "folded_tokens_equal_n_form": same, "window": "the N-form document's verdict (protocol A2 section 7.2)"});
+    rform_fields(&mut t, format!("{}{}", finalize::RAW_TWIN_ID_PREFIX, it.item_id), finalize::RAW_TWIN_STRATUM, Some(&it.item_id), ev);
+    Ok(Some(t))
+}
+
+/// The spliced item's `rform_screen_fail_v1` outcome for its entry
+/// (`finalize::screen_fail_of` with the spliced assembly): the document, a
+/// left-out note without text, or `None` when the item is not in the
+/// stratum. Counted in `q`.
+fn stratum_entry(c: &RecCtx, it: &Item, parent: &Parent, states: &HashMap<String, generation::ReqState>, tok: &tokenizers::Tokenizer, q: &mut Counters) -> Result<Option<Value>> {
+    use finalize::{SCREEN_FAIL_ID, ScreenFail};
+    use grammar_a_form::window::{LENGTH_WINDOW, LENGTH_WINDOW_ID};
+    let pop = it.population.as_str();
+    let rids: Vec<String> = it.edits.iter().map(|e| e.request_id.clone()).collect();
+    let parts = parts_of(it);
+    let Some(sf) = finalize::screen_fail_of(&it.item_id, &rids, states, || check_parent(it, parent), |raws| raw_splice(&parent.text, &parts, raws))? else {
+        return Ok(None);
+    };
+    let id = format!("{SCREEN_FAIL_ID}:{}", it.item_id);
+    Ok(Some(match sf {
+        ScreenFail::Doc(d) => {
+            q.inc(pop, SCREEN_FAIL_ID, "emitted");
+            let raws: Vec<&str> = d.raws.iter().map(String::as_str).collect();
+            let asm = splice::assemble_parts(&parent.text, &parts, &raws)?;
+            same_doc(it, &d, &asm)?;
+            let outcomes: Vec<EditOutcome> = d
+                .responses
+                .iter()
+                .map(|r| {
+                    let line = &states[&r.request_id].responses[&r.attempt];
+                    (u64::from(r.attempt), line["seed"].clone(), line["verdict"]["diag"].clone(), if r.accepted { "accepted" } else { "rejected" })
+                })
+                .collect();
+            let mut doc = doc_record(c, it, parent, &asm, &raws, &outcomes, a_tokens(tok, &asm.text)?);
+            let ev = json!({"rule": SCREEN_FAIL_RULE, "parent_text_sha256": it.parent_text_sha256, "raw_responses": finalize::responses_record(&d.responses),
+                "length_window": {"id": LENGTH_WINDOW_ID, "min_words": LENGTH_WINDOW.0, "max_words": LENGTH_WINDOW.1, "words": text::words(&asm.text), "pass": true}});
+            rform_fields(&mut doc, id, SCREEN_FAIL_ID, None, ev);
+            doc
+        }
+        ScreenFail::LeftOut { reasons, words, responses } => {
+            for r in &reasons {
+                q.inc(pop, SCREEN_FAIL_ID, &format!("left_out:{}", r.split(':').next().unwrap_or(r)));
+            }
+            json!({"stratum": SCREEN_FAIL_ID, "id": id, "left_out": true, "reasons": reasons, "words": words,
+                "length_window": {"id": LENGTH_WINDOW_ID, "min_words": LENGTH_WINDOW.0, "max_words": LENGTH_WINDOW.1},
+                "raw_responses": finalize::responses_record(&responses), "parent_text_sha256": it.parent_text_sha256, "rule": SCREEN_FAIL_RULE})
+        }
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train_target: usize, train_through: usize, out: &Path, label: &str, domain_cap: usize) -> Result<()> {
     let meta: Value = serde_json::from_slice(&fs::read(pdir.join("plan.json"))?)?;
@@ -803,6 +992,9 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
     let mut accepted_train = 0usize;
     let mut last_train_order: Option<usize> = None;
     let mut noop = (0usize, 0usize);
+    // R-form text digests -> the first document's id (amendment 19 item 19.6)
+    let mut seen_rform: HashMap<String, String> = HashMap::new();
+    let rc = RecCtx { reqs: &reqs, gens: &gens, plan_sha: &plan_sha };
     // Train is a prefix in plan order: after the cut (target reached, bound
     // passed or the first item not yet generated) every later Train item is
     // skipped; the Dev-iter set is processed in full either way.
@@ -865,7 +1057,7 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
             match st.accepted() {
                 Some(v) => {
                     reps.push(v["verdict"]["text"].as_str().context("accepted text")?.to_owned());
-                    edit_hist.push((v["attempt"].as_u64().unwrap_or(0), v["seed"].clone(), v["verdict"]["diag"].clone()));
+                    edit_hist.push((v["attempt"].as_u64().unwrap_or(0), v["seed"].clone(), v["verdict"]["diag"].clone(), "accepted"));
                 }
                 None => {
                     if st.done() {
@@ -879,6 +1071,11 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
         let fail = |status: &str, reasons: Vec<String>| json!({"schema":splice::FAILURE_SCHEMA,"item_id":it.item_id,"population":it.population,
             "split":it.split,"parent_id":it.parent_id,"pair_id":it.parent_id,"source_group":it.source_group,"domain":it.domain,"order":it.order,
             "policy":it.policy,"generators":it.generators,"stage":"generation","status":status,"reasons":reasons,"edits":attempt_rows});
+        // The screen-fail stratum reads the item's first raw responses,
+        // whatever the item's outcome (protocol A2 §7.2; amendment 19); it
+        // rides with the item's entry, and an item not yet generated has
+        // none (amendment 25 item 25.4).
+        let stratum = if status == "not_run" { None } else { stratum_entry(&rc, it, parent, &states, &tok, &mut q)? };
         if status != "accepted" {
             q.inc(pop, "documents", status);
             q.inc(pop, &format!("documents_{status}_by_policy"), &it.policy);
@@ -889,7 +1086,9 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
                 }
                 continue;
             }
-            failures.entry(pop.into()).or_default().push(fail(status, vec![]));
+            let mut f = fail(status, vec![]);
+            finalize::put_stratum(&mut f, stratum, &mut seen_rform)?;
+            failures.entry(pop.into()).or_default().push(f);
             if pop == splice::TRAIN {
                 last_train_order = Some(it.order);
             }
@@ -902,7 +1101,9 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
             Err(err) => {
                 q.inc(pop, "documents", "excluded_in_finalize");
                 q.inc(pop, "finalize_exclusion", &format!("assembly:{err}"));
-                failures.entry(pop.into()).or_default().push(fail("excluded_in_finalize", vec![format!("assembly:{err}")]));
+                let mut f = fail("excluded_in_finalize", vec![format!("assembly:{err}")]);
+                finalize::put_stratum(&mut f, stratum, &mut seen_rform)?;
+                failures.entry(pop.into()).or_default().push(f);
                 continue;
             }
         };
@@ -926,7 +1127,9 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
             for w in &why {
                 q.inc(pop, "finalize_exclusion", w);
             }
-            failures.entry(pop.into()).or_default().push(fail("excluded_in_finalize", why));
+            let mut f = fail("excluded_in_finalize", why);
+            finalize::put_stratum(&mut f, stratum, &mut seen_rform)?;
+            failures.entry(pop.into()).or_default().push(f);
             continue;
         }
         for r in &rr {
@@ -934,30 +1137,11 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
             seen_ws.extend(grammar_a_pools::text::shingles_ws(r));
         }
         let share = asm.ai_words as f64 / asm.total_words as f64;
-        let ai_char_spans: Vec<(usize, usize)> = asm.ai_byte_spans.iter().map(|&(a, b)| (splice::char_index(&asm.text, a), splice::char_index(&asm.text, b))).collect();
-        let mut hist = Vec::new();
+        let mut rec = doc_record(&rc, it, parent, &asm, &rr, &edit_hist, ntok);
         for (k, e) in it.edits.iter().enumerate() {
-            let r = &reqs[&e.request_id];
-            let (fs, fe) = asm.edit_spans[k];
             let src = &parent.text[e.parent_span.0..e.parent_span.1];
             let rep = rr[k];
-            let (attempt, seed, diag) = &edit_hist[k];
-            let g = gens.get(&e.generator).cloned().unwrap_or(Value::Null);
             let cf = if e.kind == "insert" { None } else { Some(diverse::change_fraction(src, rep)) };
-            hist.push(json!({
-                "edit_index": e.edit_index, "policy": it.policy, "component": e.component, "kind": e.kind, "operation": e.operation,
-                "operation_family": e.family, "operation_requested": e.operation_requested, "generator": e.generator, "generator_family": g["family"],
-                "model_sha256": g["sha256"], "config_sha256": g["config_sha256"],
-                "voice_id": e.style["voice_id"], "brief_id": e.style["brief_id"], "style_kind": e.style["style_kind"], "style_scope": e.style["style_scope"],
-                "style_text_sha256": e.style["style_text"].as_str().map(|s| text::sha_hex(s.as_bytes())),
-                "template_id": e.template_id, "prompt_sha256": text::sha_hex(r.prompt.as_bytes()), "request_id": e.request_id, "request_sha256": r.request_sha256,
-                "decoding": r.decoding, "seed": seed, "accepted_attempt": attempt, "context_included": e.context_included,
-                "parent_span_bytes": e.parent_span, "insert_separator": e.insert_sep,
-                "final_span_bytes": [fs, fe], "final_span_chars": [splice::char_index(&asm.text, fs), splice::char_index(&asm.text, fe)],
-                "before_sha256": text::sha_hex(src.as_bytes()), "after_sha256": text::sha_hex(rep.as_bytes()),
-                "words_before": splice::py_words(src), "words_after": splice::py_words(rep), "change_fraction": cf,
-                "finish_reason": diag["finish_reason"], "verdict": "accepted"
-            }));
             dist.inc(pop, "edit_operation", &e.operation);
             dist.inc(pop, "edit_family", &e.family);
             dist.inc(pop, "edit_kind", &e.kind);
@@ -972,27 +1156,7 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
                 dist.add(pop, "edit_change_fraction_sum", &e.operation, cf);
             }
         }
-        let gl: Vec<String> = it.generators.iter().map(|k| gens.get(k).and_then(|g| g["family"].as_str()).unwrap_or(k).to_owned()).collect();
-        let generator_label = if gl.len() == 1 { Some(gl[0].clone()) } else { None };
-        let hist_bytes = serde_json::to_vec(&hist)?;
-        let rec = json!({
-            "schema": splice::RECORD_SCHEMA, "id": it.item_id, "population": it.population, "split": it.split, "frozen_split": it.split,
-            "span_half": it.span_half, "parent_id": it.parent_id, "parent_text_sha256": it.parent_text_sha256, "pair_id": it.parent_id,
-            "pair_policy": "the untouched parent is the paired human-only negative (already a release-bundle row: reuse it, no duplicate)",
-            "parent_cohort_id": parent.cohort_id, "parent_provenance_sha256": parent.provenance_sha256,
-            "source_group": it.source_group, "writer_key": it.writer_key, "domain": it.domain, "genre": parent.genre,
-            "text": asm.text, "text_sha256": text::sha_hex(asm.text.as_bytes()), "origin": "mixed", "human_role_present": true, "ai_role_present": true,
-            "source_kind": splice::SOURCE_KIND, "cohort_id": splice::COHORT_ID, "operation": format!("spliced:{}", it.policy),
-            "policy": it.policy, "policy_requested": it.policy_requested, "variant": it.variant, "plan_order": it.order,
-            "share": share, "share_bin": splice::share_bin(share), "word_policy": splice::WORD_POLICY,
-            "words": asm.total_words, "ai_words": asm.ai_words, "a_tokens_with_specials": ntok,
-            "ai_byte_spans": asm.ai_byte_spans, "ai_char_spans": ai_char_spans,
-            "generator_label": generator_label, "generator_labels": gl, "generators": it.generators, "two_generators": it.two_generators,
-            "voice_scope": it.voice_scope, "edits": hist, "edit_history_sha256": text::sha_hex(&hist_bytes),
-            "context_basis": "original", "plan_sha256": plan_sha,
-            "rights": {"inherits_parent": true, "generated_text": "local open-weight generation; model licence in the generator config; no detector output used"},
-            "detector_outputs_used": false,
-        });
+        let generator_label = rec["generator_label"].as_str().map(String::from);
         dist.inc(pop, "documents_policy", &it.policy);
         dist.inc(pop, "documents_domain", &it.domain);
         dist.inc(pop, "documents_share_bin", splice::share_bin(share));
@@ -1010,6 +1174,14 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
             dist.inc(pop, "documents_span_half", h);
         }
         q.inc(pop, "documents", "accepted");
+        // The raw twin (protocol A2 §7.2): the accepted raw responses spliced into the parent.
+        if let Some(twin) = twin_record(&rc, it, parent, &states, &tok, &asm.text, &edit_hist)? {
+            q.inc(pop, "rform_raw_twin", "emitted");
+            q.inc(pop, "rform_raw_twin_folded_tokens", if twin["rform"]["folded_tokens_equal_n_form"] == true { "equal_n_form" } else { "differ_from_n_form" });
+            finalize::unique_rform(&mut seen_rform, &twin)?;
+            rec[finalize::RAW_TWIN_FIELD] = twin;
+        }
+        finalize::put_stratum(&mut rec, stratum, &mut seen_rform)?;
         records.entry(pop.into()).or_default().push(rec);
         if pop == splice::TRAIN {
             accepted_train += 1;
@@ -1527,4 +1699,784 @@ fn run_project_dev(data: &Path, half: &str, out: &Path) -> Result<()> {
     write_json(&out.with_extension("receipt.json"), &receipt)?;
     println!("{}", serde_json::to_string(&receipt)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    //! `finalize`'s R-form outputs (protocol A2 §7.2 and §7.5, amendment 19)
+    //! on a synthetic plan: synthetic text only, no model, detector or
+    //! network call. Verdicts come from the spliced acceptance functions
+    //! themselves (`form_post::spliced_wiring`), journaled as `generate`
+    //! journals them.
+    use super::*;
+    use grammar_a_positives::finalize::{self, R_FORM, RAW_TWIN_FIELD, RAW_TWIN_STRATUM, SCREEN_FAIL_ID};
+    use grammar_a_positives::generation::Ctx;
+    use grammar_a_positives::overlap::{Overlap, PriorIndex};
+
+    const SYN: [&str; 20] = [
+        "amber", "basalt", "cobalt", "delta", "ember", "fjord", "garnet", "harbor", "indigo", "juniper", "kestrel", "lantern", "meadow",
+        "nectar", "orchid", "pebble", "quartz", "river", "saffron", "timber",
+    ];
+    const ALT: [&str; 20] = [
+        "acorn", "bramble", "canyon", "dune", "estuary", "fern", "glacier", "heather", "inlet", "jasper", "knoll", "lichen", "marsh",
+        "nettle", "oasis", "prairie", "quarry", "ridge", "sorrel", "thicket",
+    ];
+
+    /// `n` sentences of `len` words drawn by a seeded LCG, capitalised and
+    /// ending with a full stop; in the first `dashed` sentences words 2 and 3
+    /// are joined by a closed em dash.
+    fn prose_d(vocab: &[&str], seed: u64, n: usize, len: usize, dashed: usize) -> String {
+        let mut st = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let mut out = Vec::new();
+        for k in 0..n {
+            let mut s = String::new();
+            for i in 0..len {
+                st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                if i > 0 {
+                    s.push_str(if i == 2 && k < dashed { "\u{2014}" } else { " " });
+                }
+                s.push_str(vocab[((st >> 33) as usize) % vocab.len()]);
+            }
+            out.push(format!("{}{}.", s[..1].to_uppercase(), &s[1..]));
+        }
+        out.join(" ")
+    }
+
+    fn prose(vocab: &[&str], seed: u64, n: usize, len: usize) -> String {
+        prose_d(vocab, seed, n, len, 0)
+    }
+
+    /// P1: three paragraphs, about 194 words; curly double quotes and spaced
+    /// em dashes are its majorities.
+    fn parent_one() -> String {
+        let a = format!("{} The keeper called it \u{201C}amber harbor\u{201D} again \u{2014} twice. {}", prose(&SYN, 1, 3, 11), prose(&SYN, 2, 2, 10));
+        let b = prose(&SYN, 3, 6, 11);
+        let c = format!("{} They named it \u{201C}quiet fjord\u{201D} later \u{2014} much later. {}", prose(&SYN, 4, 2, 12), prose(&SYN, 5, 3, 11));
+        format!("{a}\n\n{b}\n\n{c}")
+    }
+
+    /// P2: two paragraphs, about 165 words; spaced em dashes are its majority.
+    fn parent_two() -> String {
+        let a = format!("{} The pier stayed open \u{2014} briefly. {}", prose(&SYN, 61, 4, 11), prose(&SYN, 62, 3, 11));
+        let b = format!("{} The tide turned \u{2014} slowly. {}", prose(&SYN, 63, 3, 11), prose(&SYN, 64, 4, 11));
+        format!("{a}\n\n{b}")
+    }
+
+    fn sha(s: &str) -> String {
+        text::sha_hex(s.as_bytes())
+    }
+
+    fn sentence(p: &str, k: usize) -> (usize, usize) {
+        let s = text::sentences(p)[k];
+        (s.start, s.end)
+    }
+
+    /// Sentences `a..=b` of `p` as one run.
+    fn run_of(p: &str, a: usize, b: usize) -> (usize, usize) {
+        (sentence(p, a).0, sentence(p, b).1)
+    }
+
+    const TOKENIZER: &str = r#"{"version":"1.0","truncation":null,"padding":null,"added_tokens":[],"normalizer":null,"pre_tokenizer":{"type":"Whitespace"},"post_processor":null,"decoder":null,"model":{"type":"WordLevel","vocab":{"[UNK]":0},"unk_token":"[UNK]"}}"#;
+
+    fn tok() -> tokenizers::Tokenizer {
+        TOKENIZER.parse().unwrap()
+    }
+
+    fn parent(id: &str, split: &str, text: String) -> Parent {
+        Parent {
+            id: id.into(),
+            split: split.into(),
+            domain: "synthetic_domain".into(),
+            genre: None,
+            source_group: format!("g-{id}"),
+            writer_key: Some(format!("w-{id}")),
+            cohort_id: "synthetic_cohort".into(),
+            provenance_sha256: None,
+            text_sha256: sha(&text),
+            a_tokens: 0,
+            words: splice::py_words(&text),
+            text,
+        }
+    }
+
+    /// A run edit over `span`, or an insertion at `span.0` (separator one
+    /// space) when `span.0 == span.1`, with permissive spliced checks.
+    fn edit(k: usize, rid: &str, p: &str, span: (usize, usize)) -> Edit {
+        let insert = span.0 == span.1;
+        let words = splice::py_words(&p[span.0..span.1]);
+        let (kind, op) = if insert { ("insert", "elaborate") } else { ("run", "paraphrase") };
+        Edit {
+            edit_index: k,
+            component: if insert { "insert" } else { "one_sentence" }.into(),
+            kind: kind.into(),
+            operation: op.into(),
+            family: op.into(),
+            operation_requested: op.into(),
+            generator: "g".into(),
+            parent_span: span,
+            insert_sep: insert.then(|| " ".to_string()),
+            sentence_range: (0, 0),
+            context_included: false,
+            context_spans: vec![],
+            style: json!({"style_kind": "none", "style_text": null, "voice_id": null, "brief_id": null, "style_scope": null}),
+            template_id: "t".into(),
+            source_words: words,
+            target_words: words.max(10),
+            len_lo: 1.0,
+            len_hi: 400.0,
+            min_change: None,
+            start_rule: "any".into(),
+            end_rule: "any".into(),
+            newline_ok: true,
+            request_id: rid.into(),
+        }
+    }
+
+    /// One plan item with its edits' replies, one per attempt.
+    struct Case {
+        item: Item,
+        replies: Vec<Vec<String>>,
+    }
+
+    fn case(id: &str, pop: &str, order: usize, p: &Parent, spans: &[(usize, usize)], replies: Vec<Vec<String>>) -> Case {
+        assert_eq!(spans.len(), replies.len());
+        let edits: Vec<Edit> = spans.iter().enumerate().map(|(k, &sp)| edit(k, &format!("{id}-e{k}"), &p.text, sp)).collect();
+        let item = Item {
+            item_id: id.into(),
+            population: pop.into(),
+            split: if pop == splice::TRAIN { "train" } else { "dev_iter" }.into(),
+            domain: p.domain.clone(),
+            parent_id: p.id.clone(),
+            parent_text_sha256: p.text_sha256.clone(),
+            source_group: p.source_group.clone(),
+            writer_key: p.writer_key.clone(),
+            variant: 0,
+            order,
+            order_t: 0.5,
+            policy: "one_sentence".into(),
+            policy_requested: "one_sentence".into(),
+            policy_fallback_steps: 0,
+            generators: vec!["g".into()],
+            two_generators: false,
+            voice_scope: "document".into(),
+            span_half: (pop == splice::DEV_SET).then(|| "span_select".to_string()),
+            edits,
+        };
+        Case { item, replies }
+    }
+
+    /// The plan request of edit `e`, read as `finalize` reads a request line,
+    /// so a field that a later build adds with a serde default needs no change
+    /// here (amendment 25 item 25.5).
+    fn request(it: &Item, e: &Edit) -> plan::Request {
+        serde_json::from_value(json!({
+            "request_id": e.request_id, "item_id": it.item_id, "parent_id": it.parent_id, "split": it.split, "generator": "g", "endpoint": "chat",
+            "template_id": "t", "prompt": format!("prompt {}", e.request_id), "span_index": e.edit_index, "source_span": [e.parent_span.0, e.parent_span.1],
+            "target_words": e.target_words, "cut_budget": null, "decoding": plan::profile("A", 0.7, 0.9, 512), "request_sha256": sha(&e.request_id),
+            "seed": 7, "op": null, "cohort": null,
+        }))
+        .unwrap()
+    }
+
+    /// A reply that stands for a chat body with no content (`no_content`).
+    const NO_CONTENT_REPLY: &str = "\u{0}no content";
+
+    fn body(reply: &str) -> (u16, Value) {
+        match reply {
+            NO_CONTENT_REPLY => (200, json!({"choices":[{"message":{},"finish_reason":"stop"}]})),
+            _ => (200, json!({"choices":[{"message":{"content":reply},"finish_reason":"stop"}]})),
+        }
+    }
+
+    fn s(x: &str) -> Vec<String> {
+        vec![x.to_string()]
+    }
+
+    fn title(t: &str, body: String) -> String {
+        format!("{t}\n{body}")
+    }
+
+    /// A title line over a short run whose `k` word pairs are joined by
+    /// closed em dashes (P2's laid-out child spaces them: two words each).
+    fn dashed(t: &str, seed: u64, k: usize) -> String {
+        title(t, dashed_run(seed, k))
+    }
+
+    /// `dashed`'s run, without the title line.
+    fn dashed_run(seed: u64, k: usize) -> String {
+        let words: Vec<&str> = (0..2 * k + 4).map(|i| ALT[(seed as usize + 3 * i) % ALT.len()]).collect();
+        let mut out = String::new();
+        for (i, w) in words.iter().enumerate() {
+            if i > 0 {
+                out.push_str(if i % 2 == 1 && i < 2 * k { "\u{2014}" } else { " " });
+            }
+            out.push_str(w);
+        }
+        format!("{}{}.", out[..1].to_uppercase(), &out[1..])
+    }
+
+    /// The battery over P1 (Train) and P2, plus one Dev-iter item over P3.
+    fn battery(p1: &Parent, p2: &Parent, p3: &Parent) -> Vec<Case> {
+        let t1 = &p1.text;
+        let tr = splice::TRAIN;
+        vec![
+            // one run edit in ASCII quotes: accepted at attempt 0
+            case("sa", tr, 0, p1, &[sentence(t1, 1)], vec![s("The ranger said \"marsh nettle\" twice near the quiet ridge today.")]),
+            // a run edit and an insertion: each accepted at attempt 0, the insertion judged on the item
+            case("sb", tr, 1, p1, &[sentence(t1, 2), (sentence(t1, 7).1, sentence(t1, 7).1)], vec![
+                s("Lichen and fern covered the old marsh wall near the ridge."),
+                s("Heather and sorrel grew by the quiet inlet near the thicket."),
+            ]),
+            // a run edit whose first response has a title line (the form screen only), then accepted
+            case("sc", tr, 2, p1, &[sentence(t1, 9)], vec![vec![title("Quiet Harbor Notes", prose(&ALT, 31, 1, 11)), prose(&ALT, 32, 1, 11)]]),
+            // a run edit accepted at once, and an insertion whose first response has a title line, then accepted
+            case("sd", tr, 3, p1, &[sentence(t1, 4), (sentence(t1, 13).1, sentence(t1, 13).1)], vec![
+                s(&prose(&ALT, 41, 1, 10)),
+                vec![title("Quiet Fern Valley", prose(&ALT, 42, 1, 11)), prose(&ALT, 43, 1, 11)],
+            ]),
+            // a run edit whose first response has markdown emphasis (the spliced check), then accepted
+            case("se", tr, 4, p1, &[sentence(t1, 15)], vec![vec![format!("**Acorn** {}", &prose(&ALT, 51, 1, 10)), prose(&ALT, 52, 1, 11)]]),
+            // P2: a long run replaced by a short titled reply twice; the raw document is below 150 words,
+            // the laid-out one (spaced dashes) is not
+            case("sf", tr, 5, p2, &[run_of(&p2.text, 0, 3)], vec![vec![dashed("Quiet Harbor Notes", 1, 8), dashed("Quiet Harbor Notes", 2, 8)]]),
+            // no content first, then the form screen only: attempt 1 is the first raw response
+            case("sg", tr, 6, p1, &[sentence(t1, 16)], vec![vec![NO_CONTENT_REPLY.into(), title("Quiet Dune Night", prose(&ALT, 71, 1, 11))]]),
+            // a reasoning block first (content rejected before the profile step), then the form screen only
+            case("sh", tr, 7, p1, &[sentence(t1, 17)], vec![vec![format!("<think>Plan it.</think>\n{}", prose(&ALT, 81, 1, 11)), title("Quiet Marsh Dawn", prose(&ALT, 82, 1, 11))]]),
+            // Dev-iter: one run edit over P3 whose first response has a title line, then accepted
+            case("dv", splice::DEV_SET, 0, p3, &[sentence(&p3.text, 3)], vec![vec![title("Quiet Pier Evening", prose(&ALT, 91, 1, 11)), prose(&ALT, 92, 1, 11)]]),
+        ]
+    }
+
+    fn parents() -> Vec<Parent> {
+        vec![
+            parent("p1", "train", parent_one()),
+            parent("p2", "train", parent_two()),
+            parent("p3", "dev_iter", format!("{}\n\n{}", prose(&SYN, 21, 7, 12), prose(&SYN, 22, 7, 12))),
+        ]
+    }
+
+    /// Journal lines of every request of `cases` (intents and responses), each
+    /// request's attempts judged in plan order until one is accepted, with the
+    /// profile off (`pop` None) or under profile v2 for population `pop`.
+    fn judge(ps: &[Parent], cases: &[&Case], pop: Option<&str>) -> Vec<Value> {
+        let edits: HashMap<String, Edit> = cases.iter().flat_map(|c| c.item.edits.iter().map(|e| (e.request_id.clone(), e.clone()))).collect();
+        let form = pop.map(|p| {
+            let ids: HashSet<&str> = cases.iter().map(|c| c.item.parent_id.as_str()).collect();
+            let rows = ps.iter().filter(|x| ids.contains(x.id.as_str())).map(|x| (x.id.as_str(), x.domain.as_str(), x.text.as_str()));
+            let specs: Vec<form_post::ItemSpec> = cases
+                .iter()
+                .filter(|c| c.item.edits.len() > 1)
+                .map(|c| form_post::ItemSpec { item_id: c.item.item_id.clone(), parts: c.item.edits.iter().map(|e| (e.request_id.clone(), e.parent_span, e.insert_sep.clone())).collect() })
+                .collect();
+            form_post::FormPost::new(p, rows).unwrap().with_items(specs, &HashMap::new()).unwrap()
+        });
+        let ((post, doc_words), vf) = form_post::spliced_wiring(form, edits).unwrap();
+        let ctx = Ctx {
+            endpoint: String::new(),
+            alias: "m".into(),
+            config: json!({}),
+            tokenizer: tok(),
+            overlap: Overlap::new(PriorIndex::empty()),
+            parents: ps.iter().map(|p| (p.id.clone(), p.text.clone())).collect(),
+            client: generation::client().unwrap(),
+            post,
+            doc_words,
+        };
+        let mut lines = Vec::new();
+        for c in cases {
+            for (e, replies) in c.item.edits.iter().zip(&c.replies) {
+                let r = request(&c.item, e);
+                for (a, reply) in replies.iter().enumerate().take(generation::ATTEMPTS as usize) {
+                    let a = a as u32;
+                    lines.push(json!({"kind": "intent", "request_id": r.request_id, "item_id": r.item_id, "attempt": a}));
+                    let (status, parsed) = body(reply);
+                    let v = vf(&ctx, &r, status, &parsed);
+                    let ok = v["accepted"] == true;
+                    lines.push(json!({"kind": "response", "request_id": r.request_id, "item_id": r.item_id, "split": r.split, "generator": "g",
+                        "attempt": a, "seed": r.seed + a, "status": status, "elapsed_ms": 0, "raw_body": "", "verdict": v}));
+                    if ok {
+                        break;
+                    }
+                }
+            }
+        }
+        lines
+    }
+
+    /// A plan directory, its runs and its finalize output.
+    struct Run {
+        dir: tempfile::TempDir,
+        ps: Vec<Parent>,
+        cases: Vec<Case>,
+        lines: Vec<Value>,
+    }
+
+    impl Run {
+        fn pdir(&self) -> PathBuf {
+            self.dir.path().join("plan")
+        }
+        fn out(&self) -> PathBuf {
+            self.dir.path().join("out")
+        }
+    }
+
+    fn write_lines(p: &Path, rows: &[Value]) {
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        let mut b = String::new();
+        for r in rows {
+            b.push_str(&serde_json::to_string(r).unwrap());
+            b.push('\n');
+        }
+        fs::write(p, b).unwrap();
+    }
+
+    /// Builds the plan for `cases`, judges every request (`v2`: Train under
+    /// `train2`, Dev-iter under `span_select2`) and writes the journals.
+    fn setup(ps: Vec<Parent>, cases: Vec<Case>, v2: bool) -> Run {
+        let dir = tempfile::tempdir().unwrap();
+        let pdir = dir.path().join("plan");
+        fs::create_dir_all(pdir.join("requests")).unwrap();
+        fs::write(pdir.join("tokenizer.json"), TOKENIZER).unwrap();
+        write_json(&pdir.join("plan.json"), &json!({"schema": splice::PLAN_SCHEMA, "inputs": {"tokenizer": {"sha256": sha(TOKENIZER)}}})).unwrap();
+        write_jsonl(&pdir.join("parents.jsonl"), &ps).unwrap();
+        let items: Vec<&Item> = cases.iter().map(|c| &c.item).collect();
+        write_jsonl(&pdir.join("items.jsonl"), &items).unwrap();
+        let reqs: Vec<plan::Request> = cases.iter().flat_map(|c| c.item.edits.iter().map(|e| request(&c.item, e))).collect();
+        write_jsonl(&pdir.join("requests").join("g.jsonl"), &reqs).unwrap();
+        let cfg = dir.path().join("configs");
+        fs::create_dir_all(&cfg).unwrap();
+        write_json(&cfg.join("g.json"), &json!({"key": "g", "family": "fam-g", "identity": "synthetic", "repo": "r", "revision": "v", "filename": "f",
+            "sha256": "0".repeat(64), "quantization": "q", "licence": "synthetic", "runtime": "rt"})).unwrap();
+        let train: Vec<&Case> = cases.iter().filter(|c| c.item.population == splice::TRAIN).collect();
+        let dev: Vec<&Case> = cases.iter().filter(|c| c.item.population == splice::DEV_SET).collect();
+        let mut lines = judge(&ps, &train, v2.then_some("train2"));
+        lines.extend(judge(&ps, &dev, v2.then_some("span_select2")));
+        write_lines(&dir.path().join("runs").join("g").join("journal-0.jsonl"), &lines);
+        Run { dir, ps, cases, lines }
+    }
+
+    fn finalize_run(r: &Run) -> Result<()> {
+        let d = r.dir.path();
+        run_finalize(&r.pdir(), &d.join("runs"), &d.join("configs"), &r.pdir().join("tokenizer.json"), 1000, usize::MAX, &r.out(), "test", usize::MAX)
+    }
+
+    fn battery_run(v2: bool) -> Run {
+        let ps = parents();
+        let cases = battery(&ps[0], &ps[1], &ps[2]);
+        setup(ps, cases, v2)
+    }
+
+    fn read_rows(p: &Path) -> Vec<Value> {
+        fs::read_to_string(p).unwrap().lines().filter(|l| !l.trim().is_empty()).map(|l| serde_json::from_str(l).unwrap()).collect()
+    }
+
+    /// The output files `SHA256SUMS` names (records, failures, pairs and
+    /// reports), in its order.
+    fn outputs(out: &Path) -> Vec<String> {
+        fs::read_to_string(out.join("SHA256SUMS")).unwrap().lines().map(|l| l.split("  ").nth(1).unwrap().to_string()).collect()
+    }
+
+    /// Every output `SHA256SUMS` names with the R-form parts taken out (each
+    /// entry's `raw_twin` and `rform_screen_fail_v1`, and the quality
+    /// report's `rform` counters), re-serialised: the N-form outputs.
+    fn n_form_digest(out: &Path) -> String {
+        let mut b = String::new();
+        for rel in outputs(out) {
+            b.push_str(&rel);
+            b.push('\n');
+            let p = out.join(&rel);
+            if rel.ends_with(".jsonl") {
+                for mut v in read_rows(&p) {
+                    let o = v.as_object_mut().unwrap();
+                    o.remove(RAW_TWIN_FIELD);
+                    o.remove(SCREEN_FAIL_ID);
+                    b.push_str(&serde_json::to_string(&v).unwrap());
+                    b.push('\n');
+                }
+            } else {
+                let mut v: Value = serde_json::from_slice(&fs::read(&p).unwrap()).unwrap();
+                for (_, dims) in v["counts"].as_object_mut().into_iter().flatten() {
+                    if let Some(o) = dims.as_object_mut() {
+                        o.retain(|k, _| !k.starts_with("rform"));
+                    }
+                }
+                b.push_str(&serde_json::to_string(&v).unwrap());
+                b.push('\n');
+            }
+        }
+        sha(&b)
+    }
+
+    /// The digest of `SHA256SUMS` (every output but the manifest, which names
+    /// the binary) with the profile off, and of the N-form outputs under
+    /// profile v2, both recorded by these tests from the code before raw twins
+    /// existed in the spliced finalize.
+    const OFF_GOLDEN: &str = "4c0aa6753c72f489fc6cb34bc9de930b57f8377bb936550f23f5c4665c33446e";
+    const V2_N_FORM_GOLDEN: &str = "d95a7e6dea9e8897802b844f9f54bbbf0bdcd7b5bf3a0eccff330daec7938602";
+
+    #[test]
+    fn spliced_finalize_profile_off_outputs_are_the_pre_twin_bytes() {
+        let r = battery_run(false);
+        finalize_run(&r).unwrap();
+        let d = sha(&fs::read_to_string(r.out().join("SHA256SUMS")).unwrap());
+        eprintln!("OFF_DIGEST {d}");
+        assert_eq!(d, OFF_GOLDEN);
+        for rel in outputs(&r.out()) {
+            let s = fs::read_to_string(r.out().join(&rel)).unwrap();
+            assert!(!s.contains("rform") && !s.contains(RAW_TWIN_FIELD), "{rel}");
+        }
+    }
+
+    #[test]
+    fn spliced_finalize_v2_n_form_outputs_are_unchanged() {
+        let r = battery_run(true);
+        finalize_run(&r).unwrap();
+        let d = n_form_digest(&r.out());
+        eprintln!("V2_N_FORM_DIGEST {d}");
+        assert_eq!(d, V2_N_FORM_GOLDEN);
+    }
+
+    fn rows(out: &Path, kind: &str, pop: &str) -> Vec<Value> {
+        let p = if kind == "records" { out.join("records").join(pop).join("records.jsonl") } else { out.join("failures").join(format!("{pop}.jsonl")) };
+        read_rows(&p)
+    }
+
+    /// The record (by `id`) or failure (by `item_id`) of item `id`.
+    fn entry<'a>(rs: &'a [Value], id: &str) -> &'a Value {
+        rs.iter().find(|x| x["id"] == id || x["item_id"] == id).unwrap_or_else(|| panic!("no entry {id}"))
+    }
+
+    /// A request's journal response line at `attempt`.
+    fn response<'a>(r: &'a Run, rid: &str, attempt: u64) -> &'a Value {
+        r.lines.iter().find(|l| l["kind"] == "response" && l["request_id"] == rid && l["attempt"] == attempt).unwrap_or_else(|| panic!("no response {rid} {attempt}"))
+    }
+
+    fn accepted_raw(r: &Run, rid: &str) -> String {
+        let l = r.lines.iter().find(|l| l["kind"] == "response" && l["request_id"] == rid && l["verdict"]["accepted"] == true).unwrap();
+        l["verdict"]["raw_text"].as_str().unwrap().to_string()
+    }
+
+    fn parent_of<'a>(r: &'a Run, c: &Case) -> &'a Parent {
+        r.ps.iter().find(|p| p.id == c.item.parent_id).unwrap()
+    }
+
+    /// No sentence of four or more words from `texts` appears in `v`.
+    fn assert_no_text(v: &Value, texts: &[&str]) {
+        let s = v.to_string();
+        for t in texts {
+            for sent in text::sentences(t) {
+                let x = &t[sent.start..sent.end];
+                if text::words(x) >= 4 {
+                    assert!(!s.contains(x), "holds text: {x:?}");
+                }
+            }
+        }
+    }
+
+    /// The labels an R-form document shares with its item's N-form record.
+    const LABELS: [&str; 20] = [
+        "schema", "population", "split", "frozen_split", "span_half", "parent_id", "parent_text_sha256", "pair_id", "source_group", "writer_key", "domain",
+        "origin", "source_kind", "cohort_id", "operation", "policy", "generator_label", "generators", "plan_sha256", "rights",
+    ];
+
+    #[test]
+    fn spliced_finalize_v2_raw_twins_rebuild_byte_exactly_insertions_included() {
+        let r = battery_run(true);
+        finalize_run(&r).unwrap();
+        let out = r.out();
+        let all: Vec<Value> = [splice::TRAIN, splice::DEV_SET].iter().flat_map(|p| rows(&out, "records", p)).collect();
+        let ids: Vec<&str> = all.iter().map(|x| x["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["sa", "sb", "sc", "sd", "se", "dv"]);
+        for n in &all {
+            let id = n["id"].as_str().unwrap();
+            let c = r.cases.iter().find(|c| c.item.item_id == id).unwrap();
+            let p = &parent_of(&r, c).text;
+            let tw = &n[RAW_TWIN_FIELD];
+            // the twin is the parent with the accepted raw responses spliced in, insertions with their separator
+            let raws: Vec<String> = c.item.edits.iter().map(|e| accepted_raw(&r, &e.request_id)).collect();
+            let rr: Vec<&str> = raws.iter().map(String::as_str).collect();
+            let eds: Vec<&Edit> = c.item.edits.iter().collect();
+            let want = splice::assemble(p, &eds, &rr).unwrap();
+            assert_eq!(tw["text"].as_str(), Some(want.text.as_str()), "{id}");
+            assert_eq!(tw["text_sha256"].as_str(), Some(sha(&want.text).as_str()));
+            assert_eq!((tw["ai_byte_spans"].clone(), tw["words"].clone(), tw["ai_words"].clone()), (json!(want.ai_byte_spans), json!(want.total_words), json!(want.ai_words)));
+            assert_eq!(tw["share"].as_f64(), Some(want.ai_words as f64 / want.total_words as f64));
+            for (k, raw) in rr.iter().enumerate() {
+                let e = &tw["edits"][k];
+                let (a, b) = (e["final_span_bytes"][0].as_u64().unwrap() as usize, e["final_span_bytes"][1].as_u64().unwrap() as usize);
+                assert_eq!(&want.text[a..b], *raw);
+                assert_eq!(e["after_sha256"].as_str(), Some(sha(raw).as_str()));
+                assert_eq!((e["verdict"].as_str(), e["request_id"].as_str()), (Some("accepted"), Some(c.item.edits[k].request_id.as_str())));
+                let ev = &tw["rform"]["raw_responses"][k];
+                assert_eq!((ev["raw_response_sha256"].as_str(), ev["request_id"].as_str(), ev["accepted"].as_bool()), (Some(sha(raw).as_str()), e["request_id"].as_str(), Some(true)));
+                assert_eq!(e["accepted_attempt"], n["edits"][k]["accepted_attempt"]);
+            }
+            // ids, form, the pair and the N-form record's labels
+            assert_eq!(tw["id"].as_str(), Some(format!("rform:{id}").as_str()));
+            assert_eq!((tw["form"].as_str(), tw["stratum"].as_str(), tw["twin_of"].as_str()), (Some(R_FORM), Some(RAW_TWIN_STRATUM), Some(id)));
+            assert_eq!(tw["rform"]["n_form_text_sha256"], n["text_sha256"]);
+            assert_eq!(tw["rform"]["parent_text_sha256"].as_str(), Some(sha(p).as_str()));
+            for k in LABELS {
+                assert_eq!(tw[k], n[k], "{id} {k}");
+            }
+            assert!(tw.get(RAW_TWIN_FIELD).is_none() && tw.get(SCREEN_FAIL_ID).is_none());
+            assert_eq!(finalize::raw_twin_doc(n), Some(tw));
+            assert!(finalize::screen_fail_doc(n).is_none_or(|d| d != tw));
+        }
+        // the twin is raw: ASCII quotes stay where the N-form record took the parent's curly ones
+        let sa = entry(&all, "sa");
+        assert!(sa[RAW_TWIN_FIELD]["text"].as_str().unwrap().contains("\"marsh nettle\"") && !sa["text"].as_str().unwrap().contains("\"marsh nettle\""));
+        // the insertion: its separator before it, the parent's text after it
+        let sb = entry(&all, "sb");
+        let at = sentence(&r.ps[0].text, 7).1;
+        let ins = accepted_raw(&r, "sb-e1");
+        let t = sb[RAW_TWIN_FIELD]["text"].as_str().unwrap();
+        let fs_ = sb[RAW_TWIN_FIELD]["edits"][1]["final_span_bytes"][0].as_u64().unwrap() as usize;
+        assert_eq!(&t[fs_ - 1..fs_], " ");
+        assert!(t[fs_..].starts_with(&format!("{ins}{}", &r.ps[0].text[at..at + 1])));
+        assert_eq!(sb[RAW_TWIN_FIELD]["edits"][1]["insert_separator"], " ");
+        // counted; the pairs pair N-form records with their twins and never the stratum
+        let q: Value = serde_json::from_slice(&fs::read(out.join("reports").join("quality.json")).unwrap()).unwrap();
+        assert_eq!(q["counts"]["train"]["rform_raw_twin"]["emitted"], 5.0);
+        assert_eq!(q["counts"][splice::DEV_SET]["rform_raw_twin"]["emitted"], 1.0);
+        let fails: Vec<Value> = [splice::TRAIN, splice::DEV_SET].iter().flat_map(|p| rows(&out, "failures", p)).collect();
+        let docs: Vec<&Value> = all.iter().chain(&fails).flat_map(|e| finalize::raw_twin_doc(e).into_iter().chain(finalize::screen_fail_doc(e))).collect();
+        let pairs = finalize::fs_pairs(all.iter(), docs.iter().copied());
+        let want: Vec<(String, String)> = ids.iter().map(|i| (i.to_string(), format!("rform:{i}"))).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+        assert_eq!(pairs, want);
+    }
+
+    #[test]
+    fn spliced_finalize_v2_screen_fail_stratum_follows_amendment_19() {
+        let r = battery_run(true);
+        finalize_run(&r).unwrap();
+        let out = r.out();
+        let recs: Vec<Value> = [splice::TRAIN, splice::DEV_SET].iter().flat_map(|p| rows(&out, "records", p)).collect();
+        let fails = rows(&out, "failures", splice::TRAIN);
+        let first_raw = |rid: &str, a: u64| response(&r, rid, a)["verdict"]["raw_text"].as_str().unwrap().to_string();
+        let doc_of = |id: &str, raws: Vec<String>| {
+            let c = r.cases.iter().find(|c| c.item.item_id == id).unwrap();
+            let eds: Vec<&Edit> = c.item.edits.iter().collect();
+            let rr: Vec<&str> = raws.iter().map(String::as_str).collect();
+            splice::assemble(&parent_of(&r, c).text, &eds, &rr).unwrap()
+        };
+        // one edit: its first raw response (a title line), spliced in; the record also keeps its twin
+        let sc = &entry(&recs, "sc")[SCREEN_FAIL_ID];
+        let want = doc_of("sc", vec![first_raw("sc-e0", 0)]);
+        assert_eq!(sc["text"].as_str(), Some(want.text.as_str()));
+        assert!(sc["text"].as_str().unwrap().contains("Quiet Harbor Notes\n"));
+        assert_eq!((sc["id"].as_str(), sc["form"].as_str(), sc["stratum"].as_str()), (Some("rform_screen_fail_v1:sc"), Some(R_FORM), Some(SCREEN_FAIL_ID)));
+        assert!(sc["twin_of"].is_null());
+        assert_eq!(sc["rform"]["raw_responses"], json!([{"request_id": "sc-e0", "attempt": 0, "raw_response_sha256": sha(&first_raw("sc-e0", 0)), "accepted": false, "reasons": ["form_line_no_sentence_end"]}]));
+        assert_eq!((sc["rform"]["length_window"]["words"].as_u64(), sc["rform"]["length_window"]["pass"].as_bool()), (Some(text::words(&want.text) as u64), Some(true)));
+        assert_eq!((sc["edits"][0]["verdict"].as_str(), sc["edits"][0]["accepted_attempt"].as_u64()), (Some("rejected"), Some(0)));
+        assert_ne!(entry(&recs, "sc")[RAW_TWIN_FIELD]["text"], sc["text"]);
+        assert_eq!(finalize::screen_fail_doc(entry(&recs, "sc")), Some(sc));
+        for k in LABELS {
+            assert_eq!(sc[k], entry(&recs, "sc")[k], "{k}");
+        }
+        // several edits (item 19.2): every request's first raw response, the accepted one included, and the insertion's separator
+        let sd = &entry(&recs, "sd")[SCREEN_FAIL_ID];
+        let want = doc_of("sd", vec![first_raw("sd-e0", 0), first_raw("sd-e1", 0)]);
+        assert_eq!(sd["text"].as_str(), Some(want.text.as_str()));
+        let rs = &sd["rform"]["raw_responses"];
+        assert_eq!((rs[0]["accepted"].as_bool(), rs[1]["accepted"].as_bool(), rs[1]["reasons"].clone()), (Some(true), Some(false), json!(["form_line_no_sentence_end"])));
+        assert_eq!((sd["edits"][0]["verdict"].as_str(), sd["edits"][1]["verdict"].as_str(), sd["edits"][1]["insert_separator"].as_str()), (Some("accepted"), Some("rejected"), Some(" ")));
+        assert_eq!(response(&r, "sd-e1", 0)["verdict"]["diag"]["post"]["item_check"]["last"], true);
+        // no content first (item 19.1): attempt 1 is the first raw response; the failure keeps the document
+        let sg = entry(&fails, "sg");
+        assert_eq!(sg["status"], "terminal_failure");
+        assert_eq!(sg[SCREEN_FAIL_ID]["text"].as_str(), Some(doc_of("sg", vec![first_raw("sg-e0", 1)]).text.as_str()));
+        assert_eq!(sg[SCREEN_FAIL_ID]["rform"]["raw_responses"][0]["attempt"], 1);
+        assert_eq!((sg[SCREEN_FAIL_ID]["edits"][0]["accepted_attempt"].as_u64(), sg[SCREEN_FAIL_ID]["edits"][0]["verdict"].as_str()), (Some(1), Some("rejected")));
+        assert_eq!(finalize::screen_fail_doc(sg), Some(&sg[SCREEN_FAIL_ID]));
+        // a window failure leaves it out: the raw document has 136 words, its laid-out one 152
+        let sf = entry(&fails, "sf");
+        let note = &sf[SCREEN_FAIL_ID];
+        assert_eq!((note["left_out"].as_bool(), note["reasons"].clone(), note["words"].as_u64()), (Some(true), json!(["final_document_below_150_words"]), Some(136)));
+        assert_eq!(response(&r, "sf-e0", 0)["verdict"]["diag"]["post"]["length_window"]["words"], 152);
+        assert!(note.get("text").is_none() && finalize::screen_fail_doc(sf).is_none());
+        assert_no_text(note, &[&first_raw("sf-e0", 0), &r.ps[1].text]);
+        // outside the stratum: a reasoning block first (rejected before the profile step), the spliced generator's
+        // own check (markdown), and first raw responses that were accepted
+        assert_eq!(response(&r, "sh-e0", 0)["verdict"]["reasons"], json!(["nonempty_reasoning_in_content"]));
+        assert!(entry(&fails, "sh").get(SCREEN_FAIL_ID).is_none());
+        assert!(response(&r, "se-e0", 0)["verdict"]["reasons"].to_string().contains("markdown:bold"));
+        for id in ["se", "sa", "sb"] {
+            assert!(entry(&recs, id).get(SCREEN_FAIL_ID).is_none(), "{id}");
+        }
+        // the Dev-iter population
+        assert_eq!(entry(&recs, "dv")[SCREEN_FAIL_ID]["text"].as_str(), Some(doc_of("dv", vec![first_raw("dv-e0", 0)]).text.as_str()));
+        let q: Value = serde_json::from_slice(&fs::read(out.join("reports").join("quality.json")).unwrap()).unwrap();
+        assert_eq!(q["counts"]["train"][SCREEN_FAIL_ID], json!({"emitted": 3.0, "left_out:final_document_below_150_words": 1.0}));
+        assert_eq!(q["counts"][splice::DEV_SET][SCREEN_FAIL_ID], json!({"emitted": 1.0}));
+    }
+
+    /// The run's journal rewritten with `edit` applied to response line
+    /// (`rid`, `attempt`), finalized into a new directory; the error, if any.
+    fn tampered(r: &Run, rid: &str, attempt: u64, edit: &dyn Fn(&mut Value)) -> String {
+        let mut lines = r.lines.clone();
+        let l = lines.iter_mut().find(|l| l["kind"] == "response" && l["request_id"] == rid && l["attempt"] == attempt).unwrap();
+        edit(l);
+        let j = r.dir.path().join("runs").join("g").join("journal-0.jsonl");
+        write_lines(&j, &lines);
+        let o = r.dir.path().join(format!("out-{rid}-{attempt}"));
+        let d = r.dir.path();
+        let e = run_finalize(&r.pdir(), &d.join("runs"), &d.join("configs"), &r.pdir().join("tokenizer.json"), 1000, usize::MAX, &o, "test", usize::MAX)
+            .err()
+            .map(|e| format!("{e:#}"))
+            .unwrap_or_default();
+        write_lines(&j, &r.lines);
+        e
+    }
+
+    #[test]
+    fn spliced_finalize_v2_refuses_a_digest_mismatch() {
+        let r = battery_run(true);
+        // an accepted raw text that is not the digested one
+        let e = tampered(&r, "sa-e0", 0, &|l| {
+            let t = format!("{} again", l["verdict"]["raw_text"].as_str().unwrap());
+            l["verdict"]["raw_text"] = json!(t);
+        });
+        assert!(e.contains("sa") && e.contains("raw_text does not match"), "{e}");
+        // a digest with no raw text
+        let e = tampered(&r, "sb-e0", 0, &|l| {
+            l["verdict"].as_object_mut().unwrap().remove("raw_text");
+        });
+        assert!(e.contains("sb") && e.contains("no raw_text"), "{e}");
+        // a first raw response (the stratum) that is not the digested one
+        let e = tampered(&r, "sc-e0", 0, &|l| {
+            l["verdict"]["raw_text"] = json!("Quiet Harbor Notes\nSomething else entirely.");
+        });
+        assert!(e.contains("sc") && e.contains("raw_text does not match"), "{e}");
+        // an item check that read another raw response
+        let e = tampered(&r, "sb-e1", 0, &|l| {
+            l["verdict"]["diag"]["post"]["edits"][0]["raw_response_sha256"] = json!(sha("another"));
+        });
+        assert!(e.contains("sb") && e.contains("item check read other raw children"), "{e}");
+        // an item whose parent is not the planned one
+        let items = r.pdir().join("items.jsonl");
+        let orig = fs::read(&items).unwrap();
+        let mut its = read_rows(&items);
+        its[0]["parent_text_sha256"] = json!(sha("another parent"));
+        write_lines(&items, &its);
+        let e = tampered(&r, "sa-e0", 0, &|_| {});
+        assert!(e.contains("sa") && e.contains("parent_text_sha256"), "{e}");
+        fs::write(&items, orig).unwrap();
+        // the untouched journals finalize
+        assert!(finalize_run(&r).is_ok());
+    }
+
+    #[test]
+    fn spliced_finalize_v2_refuses_a_duplicate_rform_text() {
+        let ps = parents();
+        let mut cases = battery(&ps[0], &ps[1], &ps[2]);
+        // over P1's sentence 9, sc's first reply again, then another accepted reply: two stratum documents with one text
+        let first = cases[2].replies[0][0].clone();
+        cases.push(case("si", splice::TRAIN, 8, &ps[0], &[sentence(&ps[0].text, 9)], vec![vec![first, prose(&ALT, 99, 1, 11)]]));
+        let r = setup(ps, cases, true);
+        let e = finalize_run(&r).err().map(|e| format!("{e:#}")).unwrap_or_default();
+        assert!(e.contains("duplicate R-form text: rform_screen_fail_v1:si has the text of rform_screen_fail_v1:sc"), "{e}");
+        // with another first reply the run finalizes
+        let ps = parents();
+        let mut cases = battery(&ps[0], &ps[1], &ps[2]);
+        cases.push(case("si", splice::TRAIN, 8, &ps[0], &[sentence(&ps[0].text, 9)], vec![vec![title("Quiet Ridge Evening", prose(&ALT, 98, 1, 11)), prose(&ALT, 99, 1, 11)]]));
+        let r = setup(ps, cases, true);
+        assert!(finalize_run(&r).is_ok());
+        // a raw twin is checked too: sa2, over sa's span, journaled with sa's accepted raw response
+        // (its digest made to match) has sa's twin text
+        let ps = parents();
+        let mut cases = battery(&ps[0], &ps[1], &ps[2]);
+        cases.push(case("sa2", splice::TRAIN, 8, &ps[0], &[sentence(&ps[0].text, 1)], vec![s(&prose(&ALT, 97, 1, 11))]));
+        let r = setup(ps, cases, true);
+        let raw = accepted_raw(&r, "sa-e0");
+        let e = tampered(&r, "sa2-e0", 0, &|l| {
+            l["verdict"]["raw_text"] = json!(raw);
+            l["verdict"]["diag"]["post"]["edits"][0]["raw_response_sha256"] = json!(sha(&raw));
+        });
+        assert!(e.contains("duplicate R-form text: rform:sa2 has the text of rform:sa"), "{e}");
+    }
+
+    #[test]
+    fn spliced_finalize_v2_stratum_rides_with_items_excluded_in_finalize() {
+        let ps = parents();
+        let mut cases = battery(&ps[0], &ps[1], &ps[2]);
+        // a title line first (the form screen only), then sa's accepted reply again over another sentence: excluded by the generated-text dedup
+        let again = cases[0].replies[0][0].clone();
+        cases.push(case("sj", splice::TRAIN, 8, &ps[0], &[sentence(&ps[0].text, 11)], vec![vec![title("Quiet Ridge Evening", prose(&ALT, 101, 1, 11)), again]]));
+        let r = setup(ps, cases, true);
+        finalize_run(&r).unwrap();
+        let first_doc = |r: &Run, id: &str, rid: &str| {
+            let c = r.cases.iter().find(|c| c.item.item_id == id).unwrap();
+            let eds: Vec<&Edit> = c.item.edits.iter().collect();
+            let raw = response(r, rid, 0)["verdict"]["raw_text"].as_str().unwrap().to_string();
+            splice::assemble(&parent_of(r, c).text, &eds, &[raw.as_str()]).unwrap().text
+        };
+        let fails = rows(&r.out(), "failures", splice::TRAIN);
+        let sj = entry(&fails, "sj");
+        assert_eq!((sj["status"].as_str(), sj["reasons"].clone()), (Some("excluded_in_finalize"), json!(["generated_normalized_text_duplicate"])));
+        // the exclusion keeps the item's stratum document, and no twin
+        let d = &sj[SCREEN_FAIL_ID];
+        assert_eq!((d["text"].as_str(), d["id"].as_str()), (Some(first_doc(&r, "sj", "sj-e0").as_str()), Some("rform_screen_fail_v1:sj")));
+        assert_eq!(finalize::screen_fail_doc(sj), Some(d));
+        assert!(sj.get(RAW_TWIN_FIELD).is_none());
+        // an assembly error: sc's accepted laid-out text made to end with a space; its exclusion keeps sc's stratum document
+        let e = tampered(&r, "sc-e0", 1, &|l| {
+            let t = format!("{} ", l["verdict"]["text"].as_str().unwrap());
+            l["verdict"]["text"] = json!(t);
+        });
+        assert!(e.is_empty(), "{e}");
+        let fails = rows(&r.dir.path().join("out-sc-e0-1"), "failures", splice::TRAIN);
+        let sc = entry(&fails, "sc");
+        assert_eq!((sc["status"].as_str(), sc["reasons"].clone()), (Some("excluded_in_finalize"), json!(["assembly:replacement layout"])));
+        assert_eq!(sc[SCREEN_FAIL_ID]["text"].as_str(), Some(first_doc(&r, "sc", "sc-e0").as_str()));
+        assert_eq!(finalize::screen_fail_doc(sc), Some(&sc[SCREEN_FAIL_ID]));
+        assert!(sc.get(RAW_TWIN_FIELD).is_none());
+    }
+
+    #[test]
+    fn spliced_finalize_v2_rform_texts_are_unique_across_both_populations() {
+        let ps = parents();
+        let mut cases = battery(&ps[0], &ps[1], &ps[2]);
+        // a Dev-iter item over sc's parent and sentence whose first reply is sc's: its stratum document has sc's (Train) text
+        let first = cases[2].replies[0][0].clone();
+        cases.push(case("dx", splice::DEV_SET, 1, &ps[0], &[sentence(&ps[0].text, 9)], vec![vec![first, prose(&ALT, 102, 1, 11)]]));
+        let r = setup(ps, cases, true);
+        let e = finalize_run(&r).err().map(|e| format!("{e:#}")).unwrap_or_default();
+        assert!(e.contains("duplicate R-form text: rform_screen_fail_v1:dx has the text of rform_screen_fail_v1:sc"), "{e}");
+    }
+
+    #[test]
+    fn spliced_finalize_v2_raw_twin_takes_the_n_form_window_verdict() {
+        let ps = parents();
+        let mut cases = battery(&ps[0], &ps[1], &ps[2]);
+        // P2: a long run replaced by a short reply with closed dashes, accepted: the raw twin has 135 words, the laid-out record (spaced) 155
+        cases.push(case("sk", splice::TRAIN, 8, &ps[1], &[run_of(&ps[1].text, 0, 3)], vec![s(&dashed_run(3, 10))]));
+        let r = setup(ps, cases, true);
+        finalize_run(&r).unwrap();
+        let recs = rows(&r.out(), "records", splice::TRAIN);
+        let sk = entry(&recs, "sk");
+        let tw = &sk[RAW_TWIN_FIELD];
+        let w = |d: &Value| text::words(d["text"].as_str().unwrap());
+        assert_eq!((w(sk), w(tw)), (155, 135));
+        assert_eq!((tw["twin_of"].as_str(), tw["rform"]["window"].as_str()), (Some("sk"), Some("the N-form document's verdict (protocol A2 section 7.2)")));
+        assert_eq!(finalize::raw_twin_doc(sk), Some(tw));
+    }
+
+    #[test]
+    fn spliced_finalize_v2_an_item_not_yet_generated_has_no_stratum() {
+        let ps = parents();
+        let mut cases = battery(&ps[0], &ps[1], &ps[2]);
+        // a Dev-iter item with one attempt so far, rejected by the form screen only: not_run, so no entry
+        cases.push(case("dw", splice::DEV_SET, 1, &ps[2], &[sentence(&ps[2].text, 6)], vec![vec![title("Quiet Knoll Morning", prose(&ALT, 96, 1, 11))]]));
+        let r = setup(ps, cases, true);
+        assert_eq!(response(&r, "dw-e0", 0)["verdict"]["reasons"], json!(["form_line_no_sentence_end"]));
+        finalize_run(&r).unwrap();
+        let out = r.out();
+        assert!(rows(&out, "records", splice::DEV_SET).iter().chain(&rows(&out, "failures", splice::DEV_SET)).all(|e| e["id"] != "dw" && e["item_id"] != "dw"));
+        let q: Value = serde_json::from_slice(&fs::read(out.join("reports").join("quality.json")).unwrap()).unwrap();
+        assert_eq!(q["counts"][splice::DEV_SET][SCREEN_FAIL_ID], json!({"emitted": 1.0}));
+        assert_eq!(q["counts"][splice::DEV_SET]["documents"]["not_run"], 1.0);
+    }
 }

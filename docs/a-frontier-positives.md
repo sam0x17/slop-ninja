@@ -276,6 +276,46 @@ writes a new directory (files mode 600, directories 700).
   fail, for Stage 0-H: `recollect` while `collect`'s attempt count (rate
   limits excluded, at most two) leaves an attempt, otherwise
   `drop_out_of_attempts`. The prior record and `RENORM.json` complete it.
+- **R-form** (protocol A2 §7.2, amendment 19; B3b). Beside each label's
+  export, under names that no export reader takes for N-form records, and
+  with the N-form files unchanged:
+  - `NEW_DEST/LABEL/raw-twins.jsonl`: each passing record's raw twin, the
+    assembled raw export row (the receipt text trimmed, as the mirror or in
+    the passage at the request's span) with the N-form record's labels, id
+    `rform:<id>`, `twin_of` and the N-form document's window verdict. It is
+    rebuilt from the passage and the raw response and refused unless the
+    receipt's `text_sha256`, the row's `replacement_sha256` and, for a
+    receipt collected under the profile, its `form_check`
+    `raw_response_sha256` all name that raw response.
+  - `NEW_DEST/LABEL/screen-fail.jsonl`: `rform_screen_fail_v1`, one document
+    per request whose first raw response failed the form screen only, read
+    from the attempt receipts and window-checked; its labels are an export
+    row built from that attempt's receipt.
+    `NEW_DEST/LABEL/screen-fail-left-out.jsonl` notes, without text, the
+    documents left out (window, assembly, a lost event stream or a receipt
+    text that differs from its events).
+  - A raw response is an attempt with status `accepted`, or
+    `rejected_output` with exit code 0 (protocol A2 amendment 25 item
+    25.1). The CLI's exit status is the frontier transport's response
+    status, as item 19.1 reads an HTTP status: an attempt whose CLI did not
+    exit with 0 is no raw response, whatever text its receipt holds. That
+    covers `failed` (a text that passed the screen from a CLI that exited
+    non-zero included), `rejected_output` with a non-zero or missing exit
+    code, `uncertain_timeout` and `uncertain_interrupted`. `refused`,
+    `not_generated_rate_limited` and `in_flight` are not raw responses
+    either. Every attempt with a receipt must have its state's status. A
+    request's first raw response is its lowest-numbered one, judged as
+    recorded: the record response by this re-verdict, a `rejected_output` by
+    its receipt, which fails the form screen only when its `form_check`
+    reasons are all form-screen codes (`form_line_*`, `form_paragraph_*`,
+    `form_frame_*`) and its `screen_error` is exactly the profile's rejection
+    of them, so the plan's own acceptance (`screen_text`, with
+    `eval_acceptance` for an evaluation plan) passed (item 25.3). A receipt
+    collected with the profile off never does. A withdrawn request has no
+    R-form document, as assembly drops its N-form record (item 25.2).
+  - The R-form documents of one run are unique by text; a duplicate refuses
+    the run. N0's and S0-13's positives take the raw twins only; the stratum
+    enters only the R-form evaluation populations.
 - Stage 0-H re-collects each `recollect` row for its own request id with this
   run's prior record, keyed by the request id, continuing from
   `attempts_used`. `collect --profile` refuses a label that already holds

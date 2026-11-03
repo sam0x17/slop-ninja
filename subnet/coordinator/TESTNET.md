@@ -2113,6 +2113,90 @@ names its spec only in the admission block included, binds limits record
 v1, so a stored plan's record never changes with the build. Admission runs
 (the admission lane's `/run`) still load by spec v2 only.
 
+### Chain-record restart, live (2026-11-02)
+
+The main instance's reference chain was restarted once, before the
+announcement, under the named authority `r0`, with the path-stripped R0
+package as R_0 and no predecessor (`restart --decision` names the recorded
+decisions: strip R0's provenance paths, and publish the rewritten
+`fit_binding.contract_sha256` with the rewrite record beside the package).
+Nothing of the original authority was reset or deleted.
+
+- **Deploys**, each in its own deploy window from a clean main commit that
+  contained the deployed one and the scorer pin, with the scorer build
+  context staged by the tracked pin:
+  1. the coordinator from `bbeed582`: signing paused, journal schema 7 to 8
+     read in `/status`, signing resumed;
+  2. eval-testnet from `bbeed582` after `authority-check --first-deploy`:
+     store schema 11 to 12, `authority_name: "main"`, `work: false`; the
+     scorer image was unchanged;
+  3. the switch commit `04d01160` (`EVAL_MAIN_AUTHORITY = "r0"`,
+     `EVAL_MAIN_FIRST_COHORT = "14"`) after `authority-check --switch`;
+     after the 5-minute rollout `/eval/status` named `r0` with predecessors
+     `["main"]`, no cohorts and label prefix `testnet-r0-`, and the original
+     reported `authority_retired: true`;
+  4. the publisher commit `72c311cd` (`PUBLISH_FROM_EPOCH = "76"`,
+     `RECORD_LABEL_PREFIX = "testnet-r0-"`) after `record-check --restart`.
+  No record var was passed with `--var`. The platform truncates a long
+  deployment message (one eval deploy's reads `... chain-restart-live
+  bbee...`; its commit is `bbeed582`), so keep messages short enough to show
+  the commit, which the deploy rule reads.
+- **R_0.** Package `143ca2d9…` (content `d7232991…`), the spec v2 pack of the
+  stripped files, was uploaded to the private eval bucket with its
+  provenance rewrite record. Operator probes, unnamed and naming spec v3,
+  scored both texts: equal to the local scorer bit for bit on one Container
+  host class, and within 2.3e-5 on the other (where they equal the earlier
+  live probe of the unstripped R_0 bit for bit).
+- **Restart record.** `restart --authority r0 --expect-package 143ca2d9…`:
+  first cohort 14, label prefix `testnet-r0-`, record epoch F = 76.
+- **Chain record.** `POST /eval/plan` with the probe build recorded main's
+  succession (`superseded_by: "r0"`; `succession_recorded` `[{main, 14}]`)
+  and queued it. The probe build `testnet-r0-probe-v1` (cohort 14, exposed
+  pool, 1,024 documents) opened, packaged and closed within epoch 77, with
+  `reward.references` `{k: 0, current_content: d7232991…,
+  predecessor_content: null}` and the launch burn; its record
+  `probes/authority/r0/v1/record.json` was read back privately.
+- **Coordinator.** `POST /signing/restart?from_epoch=76` with a launch
+  bundle issued at epoch 77 (lease to epoch 117) replaced the earlier held
+  target; signing was paused around it. The coordinator commits the burn row
+  `[[0, 65535]]` each tempo from epoch 77; epoch 77's reveal read back with
+  `weights_match`.
+- **validator2.** Stopped, `reset-target`, the launch bundle installed, and
+  started (validator README, "Trust roots and restarted chain records"). It
+  verifies the launch target and defers each tempo with
+  `row_would_be_held`: the burn row pays only the owner hotkey's UID, which
+  rtao `hold_previous` holds at the pinned revision. So under the launch
+  burn only the coordinator commits; validator2 commits again once a target
+  pays a registered miner or the burn-row opt-in lands.
+- **Publisher.** Its first run archived the earlier record's index at
+  `v1/records/testnet-rv1-d/cohorts/index.json` (the only object there),
+  removed the live leaderboard and reference pointer, and started a fresh
+  index for `testnet-r0-` that lists the earlier record under
+  `previous_records`.
+- **Reference packages** (public-candidate bucket, public access off): the
+  directories of R_0 `143ca2d9…` and the S2c span package `daff49c2…`, each
+  with its `provenance-rewrite.json`, and `packages/index.json`, staged from
+  one tree that the package-corpus scan, the byte-level quoted and bare id
+  passes and a home-path check passed on the exact bytes; every object read
+  back equal to the scan's sums. The unstripped R_0 directory `2f88b0d2…`
+  was then deleted and read back absent.
+- **S2c.** An operator probe naming spec v3 with `"spans": true` scored both
+  texts; on the bit-exact host class its predictions, sentences and spans
+  equal the local scorer's. The probe reply carries no measured memory peak
+  (the tower class's four-session bound, 12.08 GB, is within the instance's
+  12.81 GB limit), and its host capture reads `cpu_model` from the scorer's
+  `/info`, which reports `cpu.model_name`, so probe replies name no host.
+  Cohorts still name spec v2, so S2c is probe-qualified, not yet scored in a
+  cohort.
+- **Rehearsal cohorts** `testnet-r0-a`, `-b` and `-c` (15 to 17) were built
+  with `restart-cohort` from the standing template's plan without its
+  admission block (n = 200, K = 4, spec v2 named, exposed pool, no entrants,
+  W = 1, no pre-start, 64 lanes) and queued back to back. Cohort 15 opened at
+  epoch 78 and packaged at epoch 79: R_0 scored the 200 cases (one job, no
+  scorer failure), the outcome is `NoTarget`, so the launch burn continues,
+  and `reward_v1_verify cohort` verified the signed manifest, package and
+  all 200 receipts from the receipts bucket.
+
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 
 The projection's inputs come from the load rehearsals of 2026-10-31 (3 to 129

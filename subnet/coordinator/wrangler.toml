@@ -225,8 +225,8 @@ SCORER_START_WAIT_MS = "60000"
 # superseded authority admits no plan again, even if a later deploy names it.
 # Earlier authorities are kicked on ticks while they hold work, and are
 # readable at GET /eval/authority/<name>/status.
-EVAL_MAIN_AUTHORITY = "main"
-EVAL_MAIN_FIRST_COHORT = ""
+EVAL_MAIN_AUTHORITY = "r0"
+EVAL_MAIN_FIRST_COHORT = "14"
 EVAL_MAIN_PREVIOUS = ""
 
 [env.eval-testnet.ai]

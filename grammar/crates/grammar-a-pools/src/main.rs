@@ -363,10 +363,64 @@ enum Command {
         #[arg(long)]
         max_candidates: Option<u64>,
         /// Keep only messages whose mailbox-owner key hashes into buckets LO..HI.
+        /// Rendering the reserved buckets 900..1000 needs `--metadata-only`
+        /// (their prose is rendered only by `enron-reserved`).
         #[arg(long, value_parser = grammar_a_pools::adapter::parse_buckets)]
         buckets: Option<(u32, u32)>,
         #[command(flatten)]
         select: Select,
+    },
+    /// B22: the reserved Enron mailboxes (buckets 900..1000) rendered at
+    /// Stage 1 under the enron-v1 admission's rules as an ungated FPR
+    /// diagnostic (never trained on, never hosted). Every input is verified
+    /// against STAGE0.json, S0-9, the pool's SHA256SUMS and the admission's
+    /// records before the archive is opened; the prior set is the one
+    /// protocol A2 amendment 23 fixes.
+    EnronReserved {
+        /// VALUES-R2.json holding S0-9 (V23's Enron halves).
+        #[arg(long)]
+        values: PathBuf,
+        /// STAGE0.json; refused unless it records Stage 0 closed.
+        #[arg(long)]
+        stage0: PathBuf,
+        /// The enron-v1 pool directory (SHA256SUMS bound by S0-9).
+        #[arg(long)]
+        pool: PathBuf,
+        /// The admission's other admitted pools (europarl-v1,
+        /// nih-exporter-v1): exactly one per other source of its dedup
+        /// (repeatable).
+        #[arg(long = "also-pool")]
+        also_pools: Vec<PathBuf>,
+        #[arg(long)]
+        archive: PathBuf,
+        #[arg(long)]
+        archive_url: String,
+        /// The repository root (S0-9's input paths and the admission
+        /// registries' relative paths resolve against it).
+        #[arg(long)]
+        root: PathBuf,
+        /// Prior-index build threads.
+        #[arg(long, default_value_t = 1)]
+        threads: usize,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// R0's out-of-domain email selection restricted to S0-9's
+    /// diagnostic-half mailboxes (ids, pools and writer keys only).
+    EnronOodRestrict {
+        #[arg(long)]
+        values: PathBuf,
+        /// The enron-v1 pool directory (SHA256SUMS bound by S0-9).
+        #[arg(long)]
+        pool: PathBuf,
+        /// `ood/selection.json`.
+        #[arg(long)]
+        selection: PathBuf,
+        /// `ood/meta.jsonl` (id, pool, writer_key).
+        #[arg(long)]
+        meta: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
     },
     /// EuroParl v7 source release (europarl.tgz): English-original speaker turns.
     Europarl {
@@ -1278,11 +1332,23 @@ fn main() -> Result<()> {
             print(&run.finish(extra)?);
         }
         Command::Enron { archive, archive_url, out, max_candidates, buckets, select } => {
+            grammar_a_pools::pile::enron_train_buckets(buckets, select.metadata_only)?;
             let mut run = Run::start_sampled(&out, "enron", grammar_a_pools::pile::ENRON_COLLECTION, json!({"archive": archive, "archive_url": archive_url, "bucket_key": "enron_mailbox:<opaque owner>"}), max_candidates, buckets)?;
             select.apply(&mut run)?;
             let extra = grammar_a_pools::pile::enron(&archive, &archive_url, &mut run)?;
             run.input(json!({"role": "enron_maildir_tar_gz", "path": archive, "sha256": extra["archive"]["sha256"], "bytes": extra["archive"]["bytes"]}));
             print(&run.finish(extra)?);
+        }
+        Command::EnronReserved { values, stage0, pool, also_pools, archive, archive_url, root, threads, out } => {
+            let r = grammar_a_pools::pile::enron_reserved(&grammar_a_pools::pile::ReservedInputs {
+                values: &values, stage0: &stage0, pool: &pool, also_pools: &also_pools, archive: &archive, archive_url: &archive_url,
+                root: &root, threads, out: &out,
+            })?;
+            print(&json!({"reservation": r["reservation"], "steps": r["steps"], "diagnostic": r["diagnostic"], "calls": r["calls"]}));
+        }
+        Command::EnronOodRestrict { values, pool, selection, meta, out } => {
+            let r = grammar_a_pools::pile::enron_ood_restrict(&values, &pool, &selection, &meta, &out)?;
+            print(&json!({"output": r["output"], "restriction": r["restriction"]}));
         }
         Command::Europarl { archive, archive_url, out, max_candidates, buckets, select } => {
             let mut run = Run::start_sampled(&out, "europarl", grammar_a_pools::pile::EUROPARL_COLLECTION, json!({"archive": archive, "archive_url": archive_url, "bucket_key": "europarl_speaker:<opaque speaker>"}), max_candidates, buckets)?;

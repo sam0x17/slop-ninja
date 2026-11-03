@@ -23,6 +23,8 @@ ignored private storage.
 | `ubuntu-irc` | Common Pile `ubuntu_irc` raw shards (`*.jsonl.gz`) | `ubuntu_irc_historical` | `ubuntu_irc:<channel>:<date>:<opaque>` (group `ubuntu_irc_speaker:<opaque>`) |
 | `wikiconv` | ConvoKit WikiConv English `full.corpus.zip` per year | `wikipedia_talk_wikiconv_historical` | `wikiconv_utterance:<id>` (group `wikipedia_talk_user:<opaque>`) |
 | `enron` | CMU Enron mail `tar.gz` (2015-05-07 release) | `enron_email_historical` | `enron_message:<hash>` (group `enron_mailbox:<opaque owner>`) |
+| `enron-reserved` | `STAGE0.json` (closed), `VALUES-R2.json` (S0-9), the enron-v1 pool and the admission's other pools, the archive | reserved mailboxes (buckets 900..1000) as a Stage 1 diagnostic: render, cap and dedup under the admission's rules | as `enron` |
+| `enron-ood-restrict` | `VALUES-R2.json` (S0-9), the enron-v1 pool, OOD `selection.json` and `meta.jsonl` | the OOD email rows of diagnostic-half mailboxes (text-free) | |
 | `europarl` | Europarl v7 source release `europarl.tgz` (`txt/en/`) | `europarl_en_original_historical` | `europarl_turn:<file>:<turn>` (group `europarl_speaker:<opaque name>`) |
 | `nih-exporter` | RePORTER ExPORTER `RePORTER_PRJ_C_FYyyyy.zip` + `RePORTER_PRJABS_C_FYyyyy.zip` pairs | `nih_exporter_abstract_historical` | `nih_core_project:<number>` (group `nih_contact_pi:<opaque id>`) |
 | `uspto-appxml` | USPTO APPXML weekly zips (pre-grant publications, no images) | `uspto_application_background_historical` | `uspto_app:<application>` (group: opaque practitioner, first-inventor, applicant or assignee key) |
@@ -413,6 +415,52 @@ The family key formats match the existing corpus (`wikipedia:page:`, `doi:`,
     4.0 in its licensing section; see the USPTO rules below.
   - Bucket keys are opaque contributor hashes: mailbox owner, speaker name
     (order-free, initials dropped) and contact PI.
+  - Reserved Enron mailboxes (buckets 900..1000). The `enron` adapter
+    renders them only as a metadata-only listing: a Train run whose range
+    holds a reserved mailbox's sent message stops before reading it, and the
+    CLI refuses such a range up front. `enron-reserved` renders them at
+    Stage 1 as an ungated false-positive-rate diagnostic, never trained on
+    and never sent to a hosted model (protocol A2 amendment 23):
+    - Before the archive is opened it verifies `STAGE0.json` (Stage 0
+      closed), the Enron halves record (`VALUES-R2.json` S0-9: list digests,
+      plan-key order, the first 50 keys as the Train half, bucket ranges), that
+      the pool is the one S0-9 names under `--root`, the pool's `SHA256SUMS`
+      against S0-9, every pool file it reads against `SHA256SUMS`, the
+      reservation listing (`reserved-metadata.jsonl`) against S0-9's reserved
+      mailboxes, the reservation scan's report (buckets, listing digest,
+      archive digest), the admission's other pools and prior registries (below)
+      and the archive's digest.
+    - The adapter then renders exactly the listed messages: an unlisted sent
+      message of a reserved mailbox or a listed message missing from the
+      archive stops the run before `report.json` is written.
+    - The admission's recorded contributor cap and dedup parameters are
+      applied. The prior, all derived from the bound pool:
+      - the admission registry (`admission/prior-registry-*.json`): its exact
+        files whose given and resolved paths pass the restricted
+        evaluation-partition name rule, read as they stand; restricted entries
+        are dropped unopened and directory-walk entries unwalked;
+      - the admission's admitted pools: enron-v1's documents and one
+        `--also-pool` per other source of the admission's dedup (EuroParl and
+        NIH), each `documents.jsonl` bound to that dedup's
+        `by_collection_sha256`; a missing, extra or repeated pool is refused;
+      - the supplementary (RAID) registry, each file bound to the digest the
+        admission's reverse scan read and reverse-scanned the same way, its
+        hits prior conflicts.
+      The within-collection short-window screen runs against every admitted
+      Enron row, which ranks first; the reserved-family rule is not applied
+      (the listing is this population).
+    - Rows carry `evaluation_use: diagnostic_only`, `train_use: false` and
+      `hosted_model_use: never`. Ids, text and the cap and dedup ranks equal
+      what the Train adapter's rules give for the same messages.
+    - The output directory is mode 700 before anything is written, and its
+      tree is 700/600 afterwards whether the run succeeds or fails. The
+      report holds counts, labels and digests, never a mailbox key or a
+      restricted path.
+  - `enron-ood-restrict` restricts the out-of-domain human selection's email
+    pool to S0-9's diagnostic-half mailboxes. It reads ids, pools and writer
+    keys only, checks each pool's ids against the selection's digest and the
+    email pool's documents against the S0-9-bound pool, and refuses a writer
+    in neither half. The other pools pass unchanged.
 
 - **USPTO application backgrounds** (`uspto.rs`). Read from the USPTO bulk
   product "Patent Application Full-Text Data (No Images)" (APPXML weekly

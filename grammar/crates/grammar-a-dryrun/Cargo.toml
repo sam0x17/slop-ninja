@@ -1,0 +1,18 @@
+[package]
+name = "grammar-a-dryrun"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Counting kernel for the section 4.3 dry run's uncounted figures and child-side stop invariants (protocol A2 item 14.1; B23): re-derivation identity, the amendment-7 comparison, counts by source x class x domain"
+publish = false
+
+[lib]
+name = "grammar_a_dryrun"
+doctest = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+grammar-a-form = { path = "../grammar-a-form" }
+grammar-a-form-a7 = { path = "../grammar-a-form-a7" }

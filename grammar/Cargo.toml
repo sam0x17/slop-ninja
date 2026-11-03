@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/grammar-core", "crates/grammar-spacy", "crates/grammar-cli", "crates/grammar-corpus", "crates/grammar-eval", "crates/grammar-markdown", "crates/grammar-a-baseline", "crates/grammar-a-pools", "crates/grammar-a-assemble", "crates/grammar-a-positives", "crates/grammar-a-augment", "crates/grammar-cc-human", "crates/grammar-a-form"]
+members = ["crates/grammar-core", "crates/grammar-spacy", "crates/grammar-cli", "crates/grammar-corpus", "crates/grammar-eval", "crates/grammar-markdown", "crates/grammar-a-baseline", "crates/grammar-a-pools", "crates/grammar-a-assemble", "crates/grammar-a-positives", "crates/grammar-a-augment", "crates/grammar-cc-human", "crates/grammar-a-form", "crates/grammar-a-form-a7", "crates/grammar-a-dryrun"]
 resolver = "3"
 
 [workspace.package]

@@ -824,7 +824,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "grammar-a-dryrun"
+version = "0.1.0"
+dependencies = [
+ "grammar-a-form",
+ "grammar-a-form-a7",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "grammar-a-form"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "grammar-a-form-a7"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -2484,6 +2504,7 @@ dependencies = [
  "chrono",
  "clap",
  "getrandom 0.4.3",
+ "grammar-a-dryrun",
  "grammar-a-form",
  "hex",
  "hpke",

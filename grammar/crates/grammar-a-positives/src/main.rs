@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, ensure};
 use clap::{Parser, Subcommand};
-use grammar_a_positives::{CODE_ID, briefs, diverse, enron_half, finalize, form_post, generation, library, mirror_regen, order, overlap, pilot, plan, renorm, span_ops, split_copy, stratify, text, values};
+use grammar_a_positives::{CODE_ID, briefs, diverse, dryrun_count, enron_half, finalize, form_post, generation, library, mirror_regen, order, overlap, pilot, plan, renorm, span_ops, split_copy, stratify, text, values};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -239,6 +239,66 @@ enum Cmd {
         #[arg(long)]
         profile_population: String,
         /// New output directory.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// The §4.3 dry run's uncounted figures and child-side stop invariants
+    /// (protocol A2 item 14.1; B23) for one local, spliced or rows batch,
+    /// from its recorded outputs only: a counts record and an ids-only file
+    /// (mode 600; counts, ids and digests, no text). Refuses when any child's
+    /// re-derived laid-out text or verdict differs from its record.
+    DryrunCount {
+        /// local | spliced | rows
+        #[arg(long)]
+        batch: String,
+        /// The batch's label in the records (for example local-plan-v1-train).
+        #[arg(long)]
+        label: String,
+        /// The batch's renorm output directory.
+        #[arg(long)]
+        renorm_out: PathBuf,
+        /// The SHA-256 the batch's summary must have (log index 60's).
+        #[arg(long)]
+        summary_sha256: String,
+        /// Local batches: R0's Train build rows (each child's class and domain).
+        #[arg(long)]
+        r0_rows: Option<PathBuf>,
+        /// The SHA-256 `--r0-rows` must have (the one bound with the dry
+        /// run); checked before any line is read.
+        #[arg(long)]
+        r0_rows_sha256: Option<String>,
+        /// The spliced batch: the S0+ snapshot's Train records (R0's items).
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+        /// The SHA-256 `--snapshot` must have (the one bound with the dry
+        /// run); checked before any line is read.
+        #[arg(long)]
+        snapshot_sha256: Option<String>,
+        /// The commit this binary was built from (recorded with its digest).
+        #[arg(long)]
+        code_commit: String,
+        /// New counts record.
+        #[arg(long)]
+        out: PathBuf,
+        /// New ids-only file.
+        #[arg(long)]
+        ids_out: PathBuf,
+    },
+    /// Merges the dry run's batch count records into `DRY-RUN-COUNTS.json`
+    /// (`slop_ninja_a_r2_reverdict_dry_run_counts_v1`), checking every cell's
+    /// children against `DRY-RUN-FIGURES.json`.
+    DryrunMerge {
+        /// The batch count records (local, spliced, rows and frontier).
+        #[arg(long, num_args = 1..)]
+        batch: Vec<PathBuf>,
+        #[arg(long)]
+        figures: PathBuf,
+        /// The SHA-256 `DRY-RUN-FIGURES.json` must have (log index 60's).
+        #[arg(long)]
+        figures_sha256: String,
+        #[arg(long)]
+        code_commit: String,
+        /// New counts record.
         #[arg(long)]
         out: PathBuf,
     },
@@ -547,6 +607,13 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+}
+
+/// The running binary's record: the commit it was built from (given) and
+/// its own path and SHA-256.
+fn binary_code(commit: &str) -> Result<Value> {
+    let exe = std::env::current_exe()?;
+    Ok(json!({"commit": commit, "binary": exe, "binary_sha256": text::sha_hex(&fs::read(&exe)?), "code_id": CODE_ID}))
 }
 
 fn read_jsonl(path: &Path) -> Result<Vec<Value>> {
@@ -2049,6 +2116,29 @@ fn main() -> Result<()> {
             let pop = form_post::profile_population(Some(&profile), Some(&profile_population))?.context("renorm-rows applies profile cc_cohort_profile_v2")?;
             let s = renorm::renorm_rows(&rows, donors.as_deref(), raid_documents.as_deref(), &pop, &out, plan_only)?;
             println!("{}", serde_json::to_string(&json!({"counts": s["counts"], "planned_by_class": s["planned_by_class"], "prior_sha256": s["prior_sha256"]}))?);
+        }
+        Cmd::DryrunCount { batch, label, renorm_out, summary_sha256, r0_rows, r0_rows_sha256, snapshot, snapshot_sha256, code_commit, out, ids_out } => {
+            grammar_a_dryrun::engine::quiet_panics();
+            let code = binary_code(&code_commit)?;
+            let c = match (batch.as_str(), r0_rows.zip(r0_rows_sha256), snapshot.zip(snapshot_sha256)) {
+                ("local", Some((r0, h)), None) => dryrun_count::count_local(&label, &renorm_out, &summary_sha256, &r0, &h)?,
+                ("spliced", None, Some((snap, h))) => dryrun_count::count_spliced(&label, &renorm_out, &summary_sha256, &snap, &h)?,
+                ("rows", None, None) => dryrun_count::count_rows(&label, &renorm_out, &summary_sha256)?,
+                _ => anyhow::bail!(
+                    "--batch local takes --r0-rows with --r0-rows-sha256; --batch spliced takes --snapshot with --snapshot-sha256; --batch rows takes neither"
+                ),
+            };
+            let summary = json!({"batch": label, "children": c.children, "gate": c.tally.to_json()["gate"], "mismatches": c.tally.mismatches});
+            println!("{}", serde_json::to_string(&summary)?);
+            dryrun_count::write_batch(&out, &ids_out, &label, &c, &code)?;
+        }
+        Cmd::DryrunMerge { batch, figures, figures_sha256, code_commit, out } => {
+            let code = binary_code(&code_commit)?;
+            let r = dryrun_count::merge(&batch, &figures, &figures_sha256, &out, &code);
+            match r {
+                Ok(v) => println!("{}", serde_json::to_string(&json!({"gate": v["counts"]["gate"], "population_check": v["population_check"]}))?),
+                Err(e) => return Err(e),
+            }
         }
         Cmd::Briefs { config, train, root, target, max_draws, workers } => {
             let cfg_bytes = fs::read(&config)?;

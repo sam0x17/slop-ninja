@@ -27,9 +27,10 @@ unicode_categories = "0.1"
 zeroize = "1"
 
 [dev-dependencies]
-# Form rules and a tokenizer used by research examples not included in this
-# snapshot.
+# Form rules, the dry run's counting kernel and a tokenizer used by research
+# examples not included in this snapshot.
 grammar-a-form = { path = "grammar/crates/grammar-a-form" }
+grammar-a-dryrun = { path = "grammar/crates/grammar-a-dryrun" }
 tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
 
 [lib]

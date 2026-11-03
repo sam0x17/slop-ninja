@@ -268,6 +268,41 @@ pub struct Rebuilt {
     pub changes: Changes,
     pub layout: Layout,
     pub line_reasons: Vec<String>,
+    /// Where each paragraph of `paragraphs` comes from in the input, in
+    /// order. A diagnostic for the §4.3 dry run's counts (B23; protocol A2
+    /// items 10.12, 13.10 and 14.1): no rule reads it, and every other field
+    /// is unchanged by it.
+    pub sources: Vec<ParagraphSource>,
+}
+
+/// Where a rebuilt paragraph's text comes from in `rebuild_child`'s input
+/// (a diagnostic; no rule reads it). Every boundary between two paragraphs
+/// of one `rebuild_child` call is a break `place_breaks` placed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ParagraphSource {
+    /// The byte range of the input from the start of the first line the
+    /// paragraph draws a sentence from to the end of the last (the line's
+    /// newline excluded).
+    pub raw: (usize, usize),
+    /// The paragraph starts after a sentence of its first line: a break
+    /// placed inside a line.
+    pub starts_mid_line: bool,
+    /// The paragraph ends before a sentence of its last line.
+    pub ends_mid_line: bool,
+}
+
+/// The byte ranges of `t`'s lines (split on `'\n'`, the newline excluded)
+/// that `layout_lines` keeps, in its order.
+fn kept_line_ranges(t: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    for l in t.split('\n') {
+        if !text::squash(l).is_empty() {
+            out.push((at, at + l.len()));
+        }
+        at += l.len() + 1;
+    }
+    out
 }
 
 /// `normalise_child` up to the join: lines squashed and blank lines dropped,
@@ -279,13 +314,17 @@ pub struct Rebuilt {
 pub fn rebuild_child(t: &str, conv: &Conventions, st: &Structure, keep_emphasis: bool) -> Rebuilt {
     let mut ch = Changes::default();
     let mut lines: Vec<String> = Vec::new();
-    for l in layout_lines(t, &mut ch) {
+    // each kept line's byte range in `t` (the `sources` diagnostic)
+    let mut line_raw: Vec<(usize, usize)> = Vec::new();
+    let ranges = kept_line_ranges(t);
+    for (k, l) in layout_lines(t, &mut ch).into_iter().enumerate() {
         let l = if keep_emphasis { l } else { strip_emphasis(&l, &mut ch) };
         if l.is_empty() {
             continue;
         }
         let l = render_sites(&l, conv, &mut ch);
         lines.push(render_quotes(&l, conv, &mut ch));
+        line_raw.push(ranges.get(k).copied().unwrap_or_default());
     }
     let mut line_reasons = Vec::new();
     for l in &lines {
@@ -300,9 +339,11 @@ pub fn rebuild_child(t: &str, conv: &Conventions, st: &Structure, keep_emphasis:
     line_reasons.dedup();
     // Sentences per line; a boundary between lines is always admissible.
     let mut sents: Vec<(String, bool)> = Vec::new();
-    for l in &lines {
+    let mut sent_line: Vec<usize> = Vec::new();
+    for (li, l) in lines.iter().enumerate() {
         for (k, s) in text::sentences(l).into_iter().enumerate() {
             sents.push((l[s.start..s.end].to_string(), k == 0));
+            sent_line.push(li);
         }
     }
     let words: Vec<usize> = sents.iter().map(|s| text::words(&s.0)).collect();
@@ -311,12 +352,24 @@ pub fn rebuild_child(t: &str, conv: &Conventions, st: &Structure, keep_emphasis:
         .collect();
     let (breaks, dropped) = place_breaks(&words, &allowed, st);
     let mut paras: Vec<String> = Vec::new();
+    let mut sources: Vec<ParagraphSource> = Vec::new();
     let mut start = 0;
     for &b in breaks.iter().chain(std::iter::once(&sents.len())) {
         paras.push(sents[start..b].iter().map(|s| s.0.as_str()).collect::<Vec<_>>().join(" "));
+        sources.push(if start < b {
+            ParagraphSource {
+                raw: (line_raw[sent_line[start]].0, line_raw[sent_line[b - 1]].1),
+                starts_mid_line: !sents[start].1,
+                ends_mid_line: b < sents.len() && !sents[b].1,
+            }
+        } else {
+            ParagraphSource::default()
+        });
         start = b;
     }
+    let sources = paras.iter().zip(sources).filter(|(p, _)| !p.is_empty()).map(|(_, s)| s).collect();
     Rebuilt {
+        sources,
         paragraphs: paras.into_iter().filter(|p| !p.is_empty()).collect(),
         changes: ch,
         layout: Layout {

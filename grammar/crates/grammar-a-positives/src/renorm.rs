@@ -462,13 +462,24 @@ pub fn local_batch<'a>(pdir: &Path, split: &str, population: &str, tokenizer: &'
 /// requests are selected by their split read from their bytes: lines naming
 /// `dev_select` or `test` are skipped unparsed (spliced plans hold none).
 pub fn spliced_batch(pdir: &Path, plan_population: &str, population: &str) -> Result<Batch<'static>> {
+    spliced_batch_of(pdir, plan_population, population, &|s: &str| !refused_split(s))
+}
+
+/// `spliced_batch` reading only the items, parents and request lines whose
+/// split (read from the line's bytes) `keep` takes; every other line is
+/// skipped unparsed and counted in `Batch::skipped`. `spliced_batch` keeps
+/// every split but `dev_select` and `test`; the dry run's counts (B23) keep
+/// Train lines only (BUILD-PLAN 12.3). A plan population's items are of one
+/// split, so a `keep` that takes it gives the same items, parents, requests
+/// and prior.
+pub fn spliced_batch_of(pdir: &Path, plan_population: &str, population: &str, keep: &dyn Fn(&str) -> bool) -> Result<Batch<'static>> {
     let meta = read_json(&pdir.join("plan.json"))?;
     ensure!(meta["schema"] == splice::PLAN_SCHEMA, "{} is not a spliced plan ({})", pdir.display(), splice::PLAN_SCHEMA);
     let items_sha = file_sha(&pdir.join("items.jsonl"))?;
     ensure!(meta["items"]["sha256"] == items_sha.as_str(), "items.jsonl changed since planning");
     let parents_sha = file_sha(&pdir.join("parents.jsonl"))?;
     ensure!(meta["parents"]["sha256"] == parents_sha.as_str(), "parents.jsonl changed since planning");
-    let keep = |s: &str| !refused_split(s);
+    let keep = |s: &str| !refused_split(s) && keep(s);
     let mut skipped = Skipped::new();
     let all: Vec<splice::Item> =
         read_split_lines(&pdir.join("items.jsonl"), "split", &keep, "items", &mut skipped)?.into_iter().map(serde_json::from_value).collect::<Result<_, _>>()?;

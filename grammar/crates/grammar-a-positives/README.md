@@ -520,6 +520,85 @@ rules the text left open (BUILD-PLAN 11.4 (a)–(d)) are fixed by amendment
 `train_mirror::OVERLAP_READING`, `train_mirror::BATCH_READING`,
 `pilot::SPLICED_ROWS_READING`).
 
+## The dry run's counts (`dryrun-count`, `dryrun-merge`; B23)
+
+Protocol A2 item 14.1 counts figures and stop invariants on the children of
+the §4.3 re-verdict's dry run (log index 60) that its records do not hold
+(BUILD-PLAN 12.3; ruling W7-R1). The counting rules live in the crate
+`grammar-a-dryrun` (`engine`, `figures`, `invariants`, `tally`); this crate
+reads the local, spliced and rows batches (`dryrun_count.rs`), and the
+frontier example reads the frontier plans (`docs/a-frontier-positives.md`).
+- **`dryrun-count --batch local|spliced|rows --label L --renorm-out DIR
+  --summary-sha256 HEX [--r0-rows ROWS --r0-rows-sha256 HEX | --snapshot
+  SNAP --snapshot-sha256 HEX] --code-commit C --out NEW --ids-out NEW_IDS`**
+  counts one batch from its recorded outputs only: the batch summary
+  (refused unless its SHA-256 is HEX), R0's Train build rows or the S0+
+  snapshot (each refused unless its SHA-256 is the bound one given, before
+  any line is read), the
+  per-request re-verdict records, the output journals' laid-out and raw
+  children and profile records, and the parents from the batch's recorded
+  inputs (`renorm::local_batch`, `renorm::spliced_batch_of` with Train
+  lines kept, the rows and RAID documents of the rows summary). Every file
+  the summary names is checked against its recorded digest before it is
+  read, and the rebuilt batch's prior must be the summary's. Every plan,
+  input, rows, snapshot and journal line is selected by its split read from
+  its bytes before any parse; only Train lines are parsed (a journal line
+  naming no split only when its `request_id` bytes name one of the batch's
+  requests), and every other line is skipped unparsed and counted in the
+  record's inputs. There is no re-verdict re-run, generation, model call or
+  keyed draw: each child's conventions are its record's, for both codes, so
+  count 1 holds no verdict change that convention resolution would make.
+  - **Population**: R0's records, as `DRY-RUN-FIGURES.json` restricts them:
+    local items with `r0_record` (`--r0-rows` gives their class and domain),
+    the S0+ snapshot's spliced items (`--snapshot`), every planned rows row.
+    A child is one judged generated unit: each request of a complete R0 item
+    whose record response the journals hold, each rows row with a transfer
+    record.
+  - **Identity**: each child is re-derived with the landed `grammar-a-form`
+    from its raw child, source and conventions, and its landed verdict is
+    recomputed through the verdict path's wiring (`FormPost::single` and
+    `of_item`'s steps with the recorded conventions, renorm's two item
+    bindings, then `renorm::reverdict_local` or `reverdict_spliced`). A
+    child whose laid-out text, acceptance or reasons differ from its record
+    is a mismatch: it is counted and named in the ids-only file, both files
+    are written, and the command exits non-zero.
+  - **Counts** (cells by source × class × domain, totals by source, by
+    source × class and over all): count 1, verdict changes by reason under
+    amendment 7's code (`grammar-a-form-a7`, `ed25a148` byte for byte)
+    through the same wiring; counts 2 and 3, greeting and sign-off merges and
+    list markers left mid-line, under both codes; counts 4-6, the stop
+    invariants, under the landed code, read from the transfer's diagnostics
+    (`TransferDiag`). Each record's `rules` states every definition and
+    reading this build fixes, and `counts.gate` the gating figures: count 4
+    on accepted children, a line over its budget under either reading;
+    counts 5 and 6 on every child, count 6 on the paragraph's own words; the
+    narrower readings beside them.
+  - **Outputs** (new files, mode 600): the counts record
+    (`slop_ninja_a_r2_reverdict_dry_run_counts_batch_v1`; counts, reason
+    codes and digests, no text) and the ids-only file (the item and request
+    ids behind each non-zero stop invariant and each mismatch; no text).
+- **`dryrun-merge --batch RECORD... --figures DRY-RUN-FIGURES.json
+  --figures-sha256 HEX --code-commit C --out NEW`** writes
+  `DRY-RUN-COUNTS.json` (`slop_ninja_a_r2_reverdict_dry_run_counts_v1`):
+  the batches' cells, reasons and totals summed, with the gate. It refuses a
+  batch that mismatched or is given twice, and any cell whose children or
+  accepted children differ from the figures file's (nothing is written
+  then).
+
+`tests/dryrun_count_cli.rs` runs both commands on a local batch that
+`generate` (against a local stand-in server) and `renorm` made, with
+deliberately unparsable `cal`, `dev_iter`, `dev_select` and `test` lines in
+its plan, journals and rows file; amendment 7's code panics on its
+children's spaced hyphens, so count 1 runs through the local wiring end to
+end. `dryrun_count.rs`'s tests count a spliced batch (an item of
+two edits, one an insertion; reasons that differ between the codes; an
+amendment-7 panic; an item whose first request fails; an incomplete item;
+another plan population; unparsable lines of every other split in its
+plan and journals) and a rows batch made by renorm (an email row that
+changes verdict, an amendment-7 panic, a tampered final-document digest),
+and stop on a recorded child whose laid-out text was altered. The kernel's
+own tests are in `grammar-a-dryrun/tests/counts.rs`.
+
 ## Plan v3: exact-span supervision cohorts
 
 Plan v3 is additive. It holds only two cohorts, keyed under its own prefix

@@ -101,7 +101,7 @@
 //! Records (`TransferRecord`, `LayoutCounts`) hold counts, widths, classes,
 //! reason names, escaped whitespace strings and digests, never text.
 use crate::conventions::{Changes, Conventions, render_quotes, render_sites};
-use crate::layout::{Layout, MIN_PARAGRAPH_WORDS, Structure, layout_lines, rebuild_child, strip_emphasis};
+use crate::layout::{Layout, MIN_PARAGRAPH_WORDS, ParagraphSource, Structure, layout_lines, rebuild_child, strip_emphasis};
 use crate::measure::{GapKind, LayoutClass, LayoutCounts, Measure};
 use crate::screen::{LIST_MARKER, QUOTED_LINE, classify_all, list_reason};
 use crate::text;
@@ -495,6 +495,69 @@ pub struct TransferRecord {
     pub tail_budget_splits: usize,
 }
 
+/// What kind of unit of a laid-out child a unit is (a diagnostic).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnitRole {
+    /// A head frame line (amendment 10 item 10.4).
+    HeadFrame,
+    /// A tail frame line.
+    TailFrame,
+    /// A body paragraph of the prose path.
+    Body,
+    /// A kept list line: its own paragraph, never wrapped (item 10.6(b)).
+    KeptLine,
+    /// A line of a line-form child.
+    Line,
+}
+
+/// One unit of a laid-out child (a diagnostic; no rule reads it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UnitDiag {
+    pub role: UnitRole,
+    /// A body paragraph that is wrapped (item 10.3).
+    pub wrapped: bool,
+    /// For a body paragraph, the prose segment whose `place_breaks` made it:
+    /// two body paragraphs of one segment are separated by a placed break;
+    /// every other boundary is fixed (a frame edge, a kept unit's edge, a
+    /// closed paragraph's end; item 10.6(b)). `None` for other units.
+    pub segment: Option<usize>,
+    /// Where the unit comes from in the raw child (byte offsets of `t`).
+    pub source: ParagraphSource,
+}
+
+/// A kept unit of the raw child (item 10.6(b)).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeptKind {
+    /// A line of a raw child body paragraph that holds a licensed list or
+    /// quoted line; each such line is its own unit.
+    ListLine,
+    /// A raw child body paragraph of at least `MIN_PARAGRAPH_WORDS` words
+    /// whose end is unpunctuated, closed where it ends.
+    Closed,
+}
+
+/// A kept unit and its byte range in the raw child, from its first line's
+/// start to its last line's end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeptUnit {
+    pub kind: KeptKind,
+    pub raw: (usize, usize),
+}
+
+/// Diagnostics of one transfer for the §4.3 dry run's counts (B23; protocol
+/// A2 items 10.12, 13.10 and 14.1): the units' roles, the segments that tell
+/// placed breaks from fixed boundaries, and the kept units. No rule and no
+/// record reads them; the text and every other field are unchanged by them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TransferDiag {
+    /// One per unit of `Transferred::paragraphs`, in order.
+    pub units: Vec<UnitDiag>,
+    /// The raw child's kept units, in order.
+    pub kept: Vec<KeptUnit>,
+}
+
 /// A transferred child.
 #[derive(Clone, Debug)]
 pub struct Transferred {
@@ -518,6 +581,8 @@ pub struct Transferred {
     /// Byte ranges in `text` of the frame lines.
     pub frame_lines: Vec<(usize, usize)>,
     pub record: TransferRecord,
+    /// The dry run's diagnostics (`TransferDiag`): read by no rule.
+    pub diag: TransferDiag,
 }
 
 /// Greedy wrap of one squashed paragraph at `w` characters, the first line
@@ -668,6 +733,17 @@ struct Body {
     kept_list_lines: usize,
     closed: usize,
     on_fixed: usize,
+    /// Per unit (diagnostic): its prose segment (`None` for a kept list
+    /// line) and its source in `t`.
+    sources: Vec<(Option<usize>, ParagraphSource)>,
+    /// The kept units (diagnostic).
+    kept: Vec<KeptUnit>,
+}
+
+/// `rebuild_child`'s paragraph sources for input `t[off..]`, as offsets of
+/// `t`, in segment `seg`.
+fn offset_sources(r: &crate::layout::Rebuilt, off: usize, seg: usize) -> Vec<(Option<usize>, ParagraphSource)> {
+    r.sources.iter().map(|s| (Some(seg), ParagraphSource { raw: (s.raw.0 + off, s.raw.1 + off), ..*s })).collect()
 }
 
 /// The child body (amendment 10 item 10.6(a) and (b)): `t[a..b]` is the raw
@@ -680,6 +756,7 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
     // Segments over `t`: (start, end, words, kept list).
     let mut segs: Vec<(usize, usize, usize, bool)> = Vec::new();
     let mut closed = 0;
+    let mut closed_units: Vec<KeptUnit> = Vec::new();
     if let Some((mc, paras)) = kept.filter(|_| keep_list || close) {
         let mut cur: Option<(usize, usize, usize)> = None;
         for k in paras {
@@ -697,6 +774,7 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
             c.2 += p.words;
             if close && p.words >= MIN_PARAGRAPH_WORDS && !text::ends_sentence(&text::squash(&mc.text[p.range.0..p.range.1])) {
                 closed += 1;
+                closed_units.push(KeptUnit { kind: KeptKind::Closed, raw: (pa, pb) });
                 let c = cur.take().expect("current segment");
                 segs.push((c.0, c.1, c.2, false));
             }
@@ -710,6 +788,7 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
     if !segs.iter().any(|s| s.3) && closed == 0 {
         // (a) No kept unit: v1's rebuild exactly.
         let r = rebuild_child(body, conv, &src.structure, src.emphasis);
+        let sources = offset_sources(&r, a, 0);
         let line_unlicensed = if licensed_any {
             line_unlicensed
         } else {
@@ -734,6 +813,8 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
             kept_list_lines: 0,
             closed: 0,
             on_fixed: 0,
+            sources,
+            kept: Vec::new(),
         };
     }
     // (b) Kept units are fixed boundaries; each target goes to the prose
@@ -782,16 +863,28 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
         post_words: src.structure.post_words,
     };
     let mut kept_list_lines = 0;
+    let mut sources: Vec<(Option<usize>, ParagraphSource)> = Vec::new();
+    let mut kept_units: Vec<KeptUnit> = Vec::new();
+    let mut closed_iter = closed_units.into_iter().peekable();
     let last = segs.len() - 1;
     for (j, &(sa, sb, _, is_list)) in segs.iter().enumerate() {
         let seg = &t[sa..sb];
+        // the closed units inside this segment, in order (diagnostic)
+        while let Some(k) = closed_iter.next_if(|k| k.raw.0 < sb) {
+            kept_units.push(k);
+        }
         if is_list {
+            let mut at = sa;
             for l in seg.split('\n') {
+                let raw = (at, at + l.len());
+                at += l.len() + 1;
                 if let Some(s) = render_line(l, conv, src.emphasis, &mut changes) {
                     layout.own_lines += 1;
                     layout.sentences += text::sentences(&s).len();
                     kept_list_lines += 1;
                     units.push((s, true));
+                    sources.push((None, ParagraphSource { raw, starts_mid_line: false, ends_mid_line: false }));
+                    kept_units.push(KeptUnit { kind: KeptKind::ListLine, raw });
                 }
             }
             continue;
@@ -807,9 +900,11 @@ fn build_body(t: &str, (a, b): (usize, usize), conv: &Conventions, src: &SourceL
         layout.sentences += r.layout.sentences;
         layout.realised_breaks += r.layout.realised_breaks;
         layout.dropped_breaks += r.layout.dropped_breaks;
+        sources.extend(offset_sources(&r, sa, j));
         units.extend(r.paragraphs.into_iter().map(|p| (p, false)));
     }
-    Body { units, changes, layout, line_reasons: filtered, line_unlicensed, kept_list_lines, closed, on_fixed }
+    kept_units.extend(closed_iter);
+    Body { units, changes, layout, line_reasons: filtered, line_unlicensed, kept_list_lines, closed, on_fixed, sources, kept: kept_units }
 }
 
 /// The list reasons (`quoted_line`, `list_marker`) of the rendered lines.
@@ -1099,29 +1194,35 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
         let mut frame_changes = Changes::default();
         let mut head_lines: Vec<String> = Vec::new();
         let mut tail_lines: Vec<String> = Vec::new();
+        // each frame line's byte range in `t` (diagnostic)
+        let mut head_src: Vec<(usize, usize)> = Vec::new();
+        let mut tail_src: Vec<(usize, usize)> = Vec::new();
         let body = match &mc {
             Some(m) if h + tl > 0 => {
                 let np = m.paragraphs.len();
-                let mut frame = |ps: &[crate::measure::Paragraph], out: &mut Vec<String>| {
+                let mut frame = |ps: &[crate::measure::Paragraph], out: &mut Vec<String>, at: &mut Vec<(usize, usize)>| {
                     for p in ps {
                         for i in p.lines.clone() {
                             if let Some(s) = render_line(&t[m.lines[i].start..m.lines[i].end], conv, src.emphasis, &mut frame_changes) {
                                 out.push(s);
+                                at.push((m.lines[i].start, m.lines[i].end));
                             }
                         }
                     }
                 };
-                frame(&m.paragraphs[..h], &mut head_lines);
-                frame(&m.paragraphs[np - tl..], &mut tail_lines);
+                frame(&m.paragraphs[..h], &mut head_lines, &mut head_src);
+                frame(&m.paragraphs[np - tl..], &mut tail_lines, &mut tail_src);
                 let range = (m.lines[m.paragraphs[h].lines.start].start, m.lines[m.paragraphs[np - tl - 1].lines.end - 1].end);
                 build_body(t, range, conv, src, Some((m, h..np - tl)))
             }
             _ => build_body(t, (0, t.len()), conv, src, mc.as_ref().map(|m| (m, 0..m.paragraphs.len()))),
         };
         let n_words: usize = body.units.iter().map(|u| text::words(&u.0)).sum();
+        let frame_diag = |role: UnitRole, raw: (usize, usize)| UnitDiag { role, wrapped: false, segment: None, source: ParagraphSource { raw, starts_mid_line: false, ends_mid_line: false } };
+        let mut diag_units: Vec<UnitDiag> = head_src.iter().map(|&r| frame_diag(UnitRole::HeadFrame, r)).collect();
         let mut units: Vec<(String, Role)> = head_lines.into_iter().enumerate().map(|(k, s)| (s, Role::Head(k))).collect();
         let mut c = 0;
-        for (p, kept) in body.units {
+        for ((p, kept), &(segment, source)) in body.units.into_iter().zip(&body.sources) {
             let w = text::words(&p);
             let role = if kept {
                 Role::Kept
@@ -1133,9 +1234,16 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
                 }
                 Role::Body(f)
             };
+            diag_units.push(UnitDiag {
+                role: if kept { UnitRole::KeptLine } else { UnitRole::Body },
+                wrapped: role == Role::Body(true),
+                segment,
+                source,
+            });
             c += w;
             units.push((p, role));
         }
+        diag_units.extend(tail_src.iter().map(|&r| frame_diag(UnitRole::TailFrame, r)));
         units.extend(tail_lines.into_iter().enumerate().map(|(k, s)| (s, Role::Tail(k))));
         rec.kept_list_lines = body.kept_list_lines;
         rec.closed_paragraphs = body.closed;
@@ -1150,6 +1258,7 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
             _ => None,
         };
         let frame_lines = (0..units.len()).filter(|&k| matches!(units[k].1, Role::Head(_) | Role::Tail(_))).map(|k| paragraphs[k]).collect();
+        let diag = if diag_units.len() == paragraphs.len() { TransferDiag { units: diag_units, kept: body.kept } } else { TransferDiag::default() };
         return Transferred {
             text,
             changes,
@@ -1160,6 +1269,7 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
             body: body_range,
             frame_lines,
             record: rec,
+            diag,
         };
     }
     // Line-form: the child's own lines in order, each its own block, so every
@@ -1167,13 +1277,19 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
     let mut ch = Changes::default();
     let mut blocks: Vec<String> = Vec::new();
     let mut sentences = 0;
+    let mut diag_units: Vec<UnitDiag> = Vec::new();
+    let mut at = 0usize;
     for l in t.split('\n') {
+        let raw = (at, at + l.len());
+        at += l.len() + 1;
         if let Some(s) = render_line(l, conv, src.emphasis, &mut ch) {
             sentences += text::sentences(&s).len();
             blocks.push(s);
+            diag_units.push(UnitDiag { role: UnitRole::Line, wrapped: false, segment: None, source: ParagraphSource { raw, starts_mid_line: false, ends_mid_line: false } });
         }
     }
     let (text, paragraphs) = lay_out_lines(&blocks, src, &mut rec);
+    let diag = if diag_units.len() == paragraphs.len() { TransferDiag { units: diag_units, kept: Vec::new() } } else { TransferDiag::default() };
     let body = match (paragraphs.first(), paragraphs.last()) {
         (Some(a), Some(b)) => Some((a.0, b.1)),
         _ => None,
@@ -1196,6 +1312,7 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
         body,
         frame_lines: Vec::new(),
         record: rec,
+        diag,
     }
 }
 #[cfg(test)]

@@ -192,6 +192,24 @@ supply the parent, the span and the cleaned response, and keep the records.
     `tests/a10_rules.rs` and `tests/a13_rules.rs` pin them.
 - **Records** hold ids, counts, outcomes and digests, never text.
 
+## Diagnostics for the dry run's counts
+
+`Transferred::diag` (`TransferDiag`) and `Rebuilt::sources`
+(`ParagraphSource`) are diagnostics for the §4.3 dry run's counting tool
+(protocol A2 item 14.1; B23, crate `grammar-a-dryrun`). No rule and no
+record reads them, and every text and record is unchanged by them; the
+tests `v1_identity`, `profile_v2`, `a10_rules` and `a13_rules` are
+unchanged.
+- One `UnitDiag` per unit of `Transferred::paragraphs`: its role (head or
+  tail frame line, body paragraph, kept list line, line-form line), whether
+  a body paragraph is wrapped, the prose segment whose `place_breaks` made it
+  (two body paragraphs of one segment are separated by a placed break; every
+  other boundary is fixed), and the raw child's byte range it draws from.
+- One `KeptUnit` per kept unit of the raw child (a kept list line, or a
+  closed unpunctuated paragraph), with its byte range.
+- `ParagraphSource` gives each paragraph `rebuild_child` rebuilds the input
+  lines it draws from and whether a break was placed inside a line.
+
 ## Purity and Wasm
 
 No function performs I/O, reads a clock or uses global or thread-local

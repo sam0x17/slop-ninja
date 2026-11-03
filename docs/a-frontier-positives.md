@@ -324,6 +324,45 @@ writes a new directory (files mode 600, directories 700).
   request id with this run's prior record, keyed by the request id,
   continuing from `attempts_used` (next section).
 
+## The dry run's counts (`dryrun-count`)
+
+`dryrun-count R0_PLAN RENORM_DEST --summary-sha256 HEX --r0-rows ROWS
+--r0-rows-sha256 HEX --label LABEL --code-commit COMMIT --out NEW_COUNTS
+--ids-out NEW_IDS`
+counts the §4.3 dry run's uncounted figures and child-side stop invariants
+(protocol A2 item 14.1; BUILD-PLAN 12.3, "B23") for one frontier plan's R0
+records. The counting rules are the crate `grammar-a-dryrun`'s; this
+subcommand reads the frontier records as the re-verdict read them, and
+`slop_ninja_a_positives dryrun-merge` merges its record with the local,
+spliced and rows batches'.
+- It reads the dry run's recorded outputs only: `RENORM_DEST/RENORM.json`
+  (refused unless its SHA-256 is HEX), its `reverdict.jsonl`, and the plan
+  `R0_PLAN` it names: `plan.json` and every request file by the summary's
+  digests, the passages by the manifest's, each record's request and its
+  accepted receipt (its event stream digest-checked). The plan's prior must
+  be the re-verdict's. The children are the re-verdict's records whose
+  request ids are R0's, and every one must be counted.
+- Train only: each line's split is read from its bytes before any parse.
+  The plan is refused unless every passage's `frozen_split` is `train` (the
+  prior is built from every passage). A request line is parsed only when its
+  `split` is `train` or it names none; every other request line (another
+  split such as `train_mining`, or several values) is skipped unparsed and
+  counted, and an R0 record whose request is such a line refuses the plan.
+  ROWS (refused unless its SHA-256 is the bound one given, before any line is
+  read) is read for its Train lines and gives the R0 frontier request ids,
+  with each child's class and domain.
+- Each child is re-derived with the landed form code from the receipt text
+  trimmed, the passage and the recorded conventions, and refused unless it
+  gives the recorded laid-out child's digest and, through `FormCheck::check`'s
+  wiring, the recorded verdict; amendment 7's verdict comes from the same
+  wiring with `grammar-a-form-a7`. Any mismatch is counted, both files are
+  written, and the run exits non-zero.
+- Outputs (new files, mode 600): the counts record
+  (`slop_ninja_a_r2_reverdict_dry_run_counts_batch_v1`; counts, reason
+  codes and digests) and the ids-only file (the request ids behind each
+  non-zero stop invariant and each mismatch; no text). It makes no model,
+  detector or network call.
+
 ## Stage 0-H re-collection
 
 Protocol A2 §4.5 and amendment 20 item 20.6 (B4h). Two commands re-collect

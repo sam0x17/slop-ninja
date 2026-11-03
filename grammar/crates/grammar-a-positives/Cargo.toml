@@ -24,6 +24,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 grammar-a-form = { path = "../grammar-a-form" }
+grammar-a-dryrun = { path = "../grammar-a-dryrun" }
 grammar-a-pools = { path = "../grammar-a-pools" }
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }

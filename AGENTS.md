@@ -204,7 +204,9 @@ never skip. It ends with a transition of at least two tempos that issues no new
 challenges. Cohort N's target activates at the first eligible tempo boundary
 after its package and receipts are durable, and validators re-derive and commit
 it every tempo with commit-reveal on, with no per-validator activation gate
-(native validators abstain while the row is all burn; the coordinator commits it).
+(native validators commit an owner burn row under rtao's
+`OwnerRowPolicy::Submit` when the chain limits allow it, and otherwise defer
+that tempo; the coordinator commits it too).
 Reward-intent authorization is per cohort with a bounded lease of at least two
 cohorts (48 h), renewed by each package and, while the coordinator is live, each
 tempo without changing the target; beyond the lease validators pause new
@@ -231,16 +233,30 @@ calls, storage, signed extensions and runtime APIs by name from live metadata an
 encode adaptively where mechanically safe. Defer only an operation with no
 type-correct encoding, and re-evaluate it automatically. Record spec versions
 only as observations; signing reads them fresh. The native chain adapter pins
-rtao main `b5553a76ff67f0f54350472ef0306f225e8a4c44` (journal schema 3,
-migrating schema 1 and 2 journals on open) and uses its durable journal and
-weight/reveal recovery APIs, with no spec-number refusal; rtao records no
-validated runtime range, and nothing here requires one. The native validator's
-live commits, per-tempo re-commits and fault drills passed on testnet subnet 601
-at that pin. There rtao still composes weight calls through compiled
-descriptors, reads its scheduler's storage by type and supports one
-commit-reveal version; the adapter defers those cases instead of halting.
-Journaled MEV-shield dispatch remains refused at that revision; never bypass
-journaling to enable shielding. See `subnet/README.md`.
+rtao `0c12816009baa65eec3135bac9a9dbcc8eaba77d` (immutable tag
+`snapshot-2026-11-03.2`; pin the full commit, never a branch) in every crate
+that uses rtao, and uses its durable journal (schema 3, migrating schema 1 and 2
+journals on open) and weight/reveal recovery APIs, with no spec-number refusal;
+rtao records no validated runtime range, and nothing here requires one. At that
+pin rtao composes weight calls and reads its validator storage by name when its
+compiled descriptors no longer match, follows a changed commit-reveal tag only
+under reviewed or proven runtime code, and lets work opt in to committing an
+owner burn row (`OwnerRowPolicy::Submit`, journaled with the work). The
+validator uses `Submit` only for the burn row under a valid launch authorization
+or a burn target, after checking `MinAllowedWeights`, `MaxWeightsLimit` and its
+own validator permit in rtao's weight preflight, and holds every other owner or
+self row. A build at the previous pin cannot open a journal holding pending (not
+handed-off) `Submit` work, or reveal-watcher state from a followed non-native
+commit-reveal tag; before any rollback, stop the validator and run its
+`rollback-check --retire`, which retires never-signed blocking work and passes
+only when both have settled (after a followed non-native tag, roll forward
+only). Journaled MEV-shield dispatch (supported upstream from per-runtime
+evidence), the v482 port (its upstream semantic review is still open) and any
+runtime range remain unqualified here; the adapter submits unshielded and never
+bypasses journaling to enable shielding. The native validator's live commits,
+per-tempo re-commits and fault drills passed on testnet subnet 601 at the
+previous pin `b5553a76`; at this pin both our validators committed, revealed and
+read back the launch burn row on 601 (2026-11-03). See `subnet/README.md`.
 Coinbase Onramp is selected for card-to-native-TAO funding, then subnet alpha
 burning, subject to qualifying our integration, payment methods, and settlement.
 Solana is preferred for any additional crypto entry route; Ethereum mainnet is

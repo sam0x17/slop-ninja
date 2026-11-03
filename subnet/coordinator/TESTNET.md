@@ -2172,8 +2172,8 @@ Nothing of the original authority was reset or deleted.
   predecessor_content: null}` and the launch burn; its record
   `probes/authority/r0/v1/record.json` was read back privately.
 - **Coordinator.** `POST /signing/restart?from_epoch=76` with a launch
-  bundle issued at epoch 77 (lease to epoch 117) replaced the earlier held
-  target; signing was paused around it. The coordinator commits the burn row
+  bundle issued at epoch 77 (lease to epoch 117) replaced the target the
+  coordinator held until then; signing was paused around it. The coordinator commits the burn row
   `[[0, 65535]]` each tempo from epoch 77; epoch 77's reveal read back with
   `weights_match`.
 - **validator2.** Stopped, `reset-target`, the launch bundle installed, and
@@ -2210,7 +2210,18 @@ Nothing of the original authority was reset or deleted.
   epoch 78 and packaged at epoch 79: R_0 scored the 200 cases (one job, no
   scorer failure), the outcome is `NoTarget`, so the launch burn continues,
   and `reward_v1_verify cohort` verified the signed manifest, package and
-  all 200 receipts from the receipts bucket.
+  all 200 receipts from the receipts bucket. It closed at epoch 82, and its
+  closure verified the same way. The publisher then published it: the
+  index lists it, and the reference pointer and leaderboard name R_0 by
+  content (`d7232991…`) and package (`143ca2d9…`), linked to the staged
+  directory under CC BY-SA 4.0, with nothing withheld. Cohort 16 opened at
+  epoch 82, back to back, and packaged at epoch 83 (`NoTarget`, 200
+  receipts, verified the same way); cohort 17 is queued behind it.
+- **Chain.** The coordinator's burn rows for epochs 77 to 81 were each
+  revealed with `weights_match`, and its on-chain row is `[[0, 65535]]`.
+  validator2's on-chain row is still the earlier record's `[[3, 65535]]`,
+  which pays one of our own test UIDs; it is replaced only when validator2
+  can commit again.
 
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 

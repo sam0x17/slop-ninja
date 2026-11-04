@@ -210,7 +210,10 @@ that matters.
   produced.
 - Before an entrant becomes the reference, a lookup canary audits it. Two
   flags block its promotion, with no reward penalty: the next qualifying
-  entrant is promoted instead.
+  entrant is promoted instead. **Testnet only:** promotions on testnet run
+  without the lookup canary (decision D12b), and the leaderboard says so; an
+  operator drill of the blocking path can still flag a candidate. The canary
+  is required before mainnet.
 - Recognition learned in the weights cannot be excluded. Testnet's human
   stock is public text, and cohorts now reuse human documents that earlier
   cohorts used. A testnet score therefore shows that an artifact runs and is

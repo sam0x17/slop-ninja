@@ -1,0 +1,17 @@
+[package]
+name = "slop-ninja-admission-gate"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "The Slop Ninja upload Worker's front gate: what it decides about an admission request before it forwards anything"
+
+[dependencies]
+hex = "0.4"
+# sr25519 verification and SS58 (rtao's portable core seam, no host I/O).
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d", default-features = false }
+serde_json = "1"
+sha2 = "0.10"
+slop-ninja-admission-wire = { path = "../miner/wire" }
+slop-ninja-artifact-check = { path = "../artifact-check", default-features = false }
+slop-ninja-protocol = { path = "../protocol" }

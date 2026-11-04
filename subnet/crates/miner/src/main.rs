@@ -340,16 +340,24 @@ impl Endpoints {
     }
 
     /// The coordinator to talk to and why it was chosen: `--coordinator`, or
-    /// the unsigned snapshot's coordinator when the trust file pins it.
+    /// the unsigned snapshot's coordinator when the trust file pins it, or,
+    /// when neither is given, the one origin the trust file pins.
     async fn coordinator(&self, http: &reqwest::Client) -> Result<(url::Url, Source)> {
         let trust = self.trust()?;
+        if self.coordinator.is_none()
+            && self.public.is_none()
+            && let Some(only) = trust.single()
+        {
+            return Ok((only, Source::Pinned));
+        }
         let advertised = match &self.coordinator {
             Some(_) => None,
             None => {
                 self.public_status(http)
                     .await?
                     .context(
-                        "pass --coordinator, or --public with a trust file (--trust) that pins \
+                        "pass --trust with the release's testnet-trust.json (it pins the one \
+                         upload origin), --coordinator, or --public with a trust file that pins \
                          the coordinator's origin",
                     )?
                     .coordinator

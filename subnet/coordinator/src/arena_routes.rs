@@ -71,9 +71,9 @@ pub const R_EVAL: AsyncRoute = AsyncRoute::new(id::EVAL, "worker/eval", UNBOUNDE
 pub const R_OTHER: AsyncRoute = AsyncRoute::new(id::OTHER, "worker/other", UNBOUNDED_FETCH_MS);
 pub const R_SCHEDULED: AsyncRoute = AsyncRoute::new(id::SCHEDULED, "worker/scheduled", limits::CRON_MS);
 pub const R_QUEUE: AsyncRoute = AsyncRoute::new(id::QUEUE, "worker/queue", limits::QUEUE_MS);
-/// The public admission routes: a part streams from the request to R2
-/// outside Rust, so the route holds only the signed fields and the cohort
-/// object's reply.
+/// The internal admission interface (the upload Worker's service binding
+/// only; no public route): the route holds one forwarded message and the
+/// cohort object's reply. No part body reaches this Worker.
 pub const R_ADMISSION: AsyncRoute = AsyncRoute::new(id::ADMISSION, "worker/admission", UNBOUNDED_FETCH_MS);
 /// A Durable Object constructor's storage migration: synchronous.
 pub const R_JOURNAL_NEW: Route = Route::new(id::JOURNAL_NEW, "journal/new");

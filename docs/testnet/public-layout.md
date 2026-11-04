@@ -369,5 +369,10 @@ The document also carries:
 - the cutoff and the band width;
 - the reference's and predecessor's scores;
 - the promoted hotkey;
+- `promotion_rule`: whether promotions run the lookup canary
+  (`lookup_canary`, `false` on testnet), its `scope` (`testnet-only`) and a
+  `note`, which the page shows. Testnet promotions run without the lookup
+  canary (decision D12b), though an operator drill named in the cohort's
+  plan can still block a candidate; the canary is required before mainnet;
 - the active target;
 - the reference pointers after this close.

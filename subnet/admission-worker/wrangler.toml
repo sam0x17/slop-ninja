@@ -1,0 +1,88 @@
+# Slop Ninja upload Worker: Wrangler configuration (tracked).
+#
+# The key-free Worker that takes all untrusted admission upload traffic
+# (contract slop_ninja.admission/v1, docs/testnet/admission-api.md). It holds
+# no signing key. Deploy only the testnet environment:
+#
+#   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
+#     --env testnet --tag testnet --message "slop-ninja testnet admission <sha8> <mode>"
+#
+# No account ID belongs here: Wrangler resolves the account from the
+# operator's existing login. Its one secret, ADMISSION_INTERFACE_TOKEN (the
+# token it shares with the eval Worker's internal interface, at least 32
+# bytes), is installed with `wrangler secret put --env testnet` from stdin; it
+# never appears in tracked files.
+#
+# The top level is a local-only shell (no vars, bindings, routes or
+# workers.dev name), named with the testnet marker.
+
+name = "slop-ninja-admission-local-testnet"
+main = "build/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+# ------------------------------------------------------------------ testnet
+
+[env.testnet]
+name = "slop-ninja-admission-testnet"
+# The custom domain is the only public ingress: no workers.dev name, no
+# preview URLs. The internal framing route is reached only through the eval
+# Worker's service binding (the internal host and the interface token).
+workers_dev = false
+preview_urls = false
+routes = [
+  { pattern = "testnet-admission.slop.ninja", custom_domain = true },
+]
+
+[env.testnet.observability]
+enabled = false
+
+# Framing streams one uploaded object through SHA-256 four times; the
+# platform's largest CPU limit, not a tuned value (framing CPU at the spec's
+# largest object is not measured yet).
+[env.testnet.limits]
+cpu_ms = 300000
+
+[env.testnet.vars]
+# The build serves testnet only (it refuses any other genesis or network).
+NETWORK = "testnet"
+CHAIN_GENESIS = "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+SUBNET_NETUID = "601"
+# Read-only public OpenTensor testnet RPC, as the coordinator's own testnet
+# reads (the rtao-rpc service is its block-webhook source): the finalized
+# head, the runtime version and metadata, and the roster of the subnet's
+# hotkeys (SubnetworkN and Keys), read once a block per isolate.
+RPC_URL = "https://test.finney.opentensor.ai"
+# Who the public routes serve. "open": every hotkey registered on the subnet
+# (user decision D6, 2026-11-03: protocol bounds only). "hotkeys": only the
+# SS58 hotkeys ADMISSION_HOTKEYS lists (comma separated), for operator drills.
+# "off" (also when absent): the routes do not exist (404).
+#
+# "hotkeys" until the deployed two-Worker path has been drilled end to end
+# (TESTNET.md, "Upload Worker"): the drill deploy passes the test hotkeys with
+# `--var ADMISSION_HOTKEYS:<list>`, so no hotkey list is tracked here. The
+# switch to "open" is its own commit and its own one-change deploy.
+ADMISSION_ROUTES = "hotkeys"
+
+# Uploaded objects only (private: no public access, no custom domain): the
+# parts this Worker streams and the objects it frames, and the cohort
+# snapshot the eval Worker writes (cohort/v1/current.json), which this
+# Worker serves as the unsigned cohort read. The eval Worker binds
+# the same bucket for the multipart control operations, slice copies and
+# deletes. Create it before the first deploy:
+#   wrangler r2 bucket create admission-bucket-testnet
+[[env.testnet.r2_buckets]]
+binding = "ADMISSION_TESTNET"
+bucket_name = "admission-bucket-testnet"
+
+# The eval Worker's internal admission interface (no public route).
+[[env.testnet.services]]
+binding = "EVAL_ADMISSION_TESTNET"
+service = "slop-ninja-eval-testnet"

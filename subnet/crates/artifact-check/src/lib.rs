@@ -37,6 +37,7 @@
 //! `wasm32-unknown-unknown`; filesystem helpers sit behind the `native`
 //! feature.
 
+pub mod admission;
 pub mod canonical;
 pub mod guard;
 pub mod mapping;

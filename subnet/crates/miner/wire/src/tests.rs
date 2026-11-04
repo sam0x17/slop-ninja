@@ -251,6 +251,10 @@ fn routes_parse_without_copying_and_round_trip_through_the_writers() {
         ("POST", format!("{}/extra", path::complete(&id))),
         ("GET", "/admission/v1/cohorts/7/hotkeys/".to_owned()),
         ("GET", "/admission/v1/cohorts/x/hotkeys/5F".to_owned()),
+        // The hotkey segment is bounded by the SS58 shape.
+        ("GET", path::hotkey(7, &"5".repeat(SS58_ACCOUNT_MAX_CHARS + 1))),
+        ("GET", path::hotkey(7, "5F0l")),
+        ("GET", path::hotkey(7, "5F%20")),
         ("GET", "/admission/v2/cohort".to_owned()),
         ("POST", path::COHORT.to_owned()),
     ] {

@@ -1,7 +1,8 @@
 //! Wire helpers for the admission API contract `slop_ninja.admission/v1`
 //! (`docs/testnet/admission-api.md`).
 //!
-//! Shared by the native miner client and the Workers coordinator.
+//! Shared by the native miner client, the key-free upload Worker and the
+//! Workers coordinator.
 //!
 //! **Arena-safe items** allocate nothing, keep no global state and borrow
 //! their inputs, so Workers code can use them inside a bounded memory arena:
@@ -22,6 +23,10 @@
 //! - [`session_id`], which encodes the protocol record;
 //! - the [`json`] module (feature `json`): owned serde shapes of the
 //!   responses and errors, and the authorization pointer;
+//! - the [`internal`] module (feature `json`): the internal interface between
+//!   the key-free upload Worker and the eval Worker (the forwarded request,
+//!   the part target, the reply, the framing request, the internal origins
+//!   and the interface token check);
 //! - the [`receipts`] module (feature `json`): the private receipts-bucket
 //!   contract the coordinator and the publisher share (pointer checks and
 //!   bounds, the receipt-retirement marker).
@@ -172,7 +177,7 @@ impl<'a> Route<'a> {
                     return None;
                 }
                 let hotkey = segments.next()?;
-                if hotkey.is_empty() {
+                if !is_ss58_shape(hotkey) {
                     return None;
                 }
                 Self::ReadHotkey { cohort, hotkey }
@@ -190,6 +195,27 @@ impl<'a> Route<'a> {
         !matches!(self, Self::ReadCohort)
     }
 }
+
+/// The longest SS58 text of a 32-byte account: the largest (two-byte)
+/// network prefix, the key and the two-byte checksum, 36 bytes, in base58:
+/// `ceil(36 * log(256) / log(58))` = 50 characters.
+pub const SS58_ACCOUNT_MAX_CHARS: usize = 50;
+
+const BASE58: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/// Whether `text` has the shape of an SS58 account address: 1 to
+/// [`SS58_ACCOUNT_MAX_CHARS`] base58 characters. The parser bounds the
+/// route's one free segment by it; whoever needs the account decodes it
+/// (checksum and key) and refuses one that does not decode.
+pub fn is_ss58_shape(text: &str) -> bool {
+    !text.is_empty() && text.len() <= SS58_ACCOUNT_MAX_CHARS && text.bytes().all(|b| BASE58.contains(&b))
+}
+
+/// The exact length of a session-creation body: one canonical
+/// `SubmissionUpload` record, whose fields are all fixed-size
+/// ([`SubmissionUpload::ENCODED_LEN`]). A larger body is refused with
+/// `bad_request`.
+pub const UPLOAD_RECORD_BYTES: usize = SubmissionUpload::ENCODED_LEN;
 
 /// Whether `text` is a session id: 64 lowercase hex digits.
 pub fn is_session_id(text: &str) -> bool {
@@ -533,6 +559,8 @@ pub fn parse_valid_until(text: &str) -> Option<u64> {
     text.parse().ok()
 }
 
+#[cfg(feature = "json")]
+pub mod internal;
 #[cfg(feature = "json")]
 pub mod json;
 #[cfg(feature = "json")]

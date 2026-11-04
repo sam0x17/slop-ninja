@@ -112,6 +112,9 @@ fn publishes_a_closed_cohort_and_the_copies_verify() {
     );
     let page = String::from_utf8(x.public.bytes(layout::SITE_INDEX).unwrap()).unwrap();
     assert!(page.contains(&b.label) && page.contains("Brier utility"));
+    // D12b: the testnet-only promotion label is on the page.
+    assert!(page.contains("id=\"promotion-rule\"") && page.contains("without the lookup canary"));
+    assert!(page.contains("mailto:security@slop.ninja"), "the security contact");
     assert!(x.public.bytes(layout::SITE_STYLE).is_some());
 
     // A second run is a no-op.
@@ -130,6 +133,12 @@ fn leaderboard_and_references_come_from_the_verified_outcome() {
         .unwrap();
     let doc: LeaderboardDoc = public_json(&x, layout::LEADERBOARD);
     let p = &b.c.package;
+    // D12b: promotions of the testnet record run without the lookup canary,
+    // labelled testnet-only in the leaderboard JSON.
+    let rule = doc.promotion_rule.as_ref().expect("a testnet record carries the label");
+    assert!(!rule.lookup_canary);
+    assert_eq!(rule.scope, "testnet-only");
+    assert!(rule.note.contains("required before mainnet"));
     assert_eq!(doc.entrants.len(), p.entrants.len());
     assert_eq!(doc.mode, slop_ninja_publisher::index::mode_name(p.mode));
     let units: u32 = doc.entrants.iter().map(|e| u32::from(e.units)).sum();

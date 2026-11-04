@@ -43,5 +43,8 @@ rtao-wallet = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65e
 
 [dev-dependencies]
 tempfile = "3"
+# The key-free upload Worker's front gate, run by the mock in `upload_gate`
+# mode (tests/e2e_upload_worker.rs).
+slop-ninja-admission-gate = { path = "../admission-gate" }
 slop-ninja-protocol = { path = "../protocol", features = ["fixtures"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }

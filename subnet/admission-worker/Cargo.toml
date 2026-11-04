@@ -1,0 +1,67 @@
+[package]
+name = "slop-ninja-admission-worker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Key-free Cloudflare Worker that takes the Slop Ninja testnet admission upload traffic"
+
+# Its own workspace, like the coordinator: the Wasm build never pulls the
+# native rtao runtime, and nothing here links the coordinator's signing code.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hex = "0.4"
+# The global allocator (wasm32): every invocation allocates in its own
+# bounded scope arena, under this crate's own memory model
+# (`memory-model.json`, SLOP_NINJA_MEMORY_MODEL set by .cargo/config.toml).
+# Unmeasured, so `observe` (migration step 1), as the coordinator's Workers.
+slop-ninja-arena = { path = "../crates/arena", features = ["glue-spill", "unmeasured-model", "observe"] }
+# rtao's portable core seam (bittensor-core without `host`): sr25519
+# verification, SS58, and storage keys composed by name from live V15
+# metadata (the registration read). No signing key is ever loaded.
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d", default-features = false }
+slop-ninja-protocol = { path = "../crates/protocol" }
+# The admission API's route parser, request message, codes and response
+# shapes, and the internal interface shared with the eval Worker.
+slop-ninja-admission-wire = { path = "../crates/miner/wire" }
+# The front gate (signature, access mode, body bounds), shared with the
+# miner client's mock.
+slop-ninja-admission-gate = { path = "../crates/admission-gate" }
+# The spec-derived object bound and the framing of uploaded objects.
+slop-ninja-artifact-check = { path = "../crates/artifact-check", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+zeroize = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+worker = "0.8.7"
+
+[build-dependencies]
+serde_json = "1"
+
+# Cargo does not inherit patches from a Git dependency's workspace. Mirror the
+# selected rtao revision's core fixes (as subnet/Cargo.toml and the
+# coordinator do) so the compiled crypto and codec match its pin.
+[patch.crates-io]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[patch."https://github.com/RaoFoundation/subtensor.git"]
+bittensor-core = { git = "https://github.com/sam0x17/subtensor.git", rev = "5f2477f5290f5f4cb467524754cc025626b52974" }
+
+[patch."https://github.com/sam0x17/subtensor.git"]
+w3f-bls = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+subtensor-macros = { git = "https://github.com/RaoFoundation/subtensor.git", tag = "v478" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

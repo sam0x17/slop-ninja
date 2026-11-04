@@ -430,8 +430,9 @@ tree whose `RECORD_LABEL_PREFIX` is not the live record's, an earlier
 record's above all (`index::record_check`); `--restart` passes only a new
 prefix, for a restart's commit. The vars set at deploy
 are `PRIVATE_DIGESTS`, `OPERATOR_HOTKEYS`,
-`ARTIFACT_SOURCE_KEY`, `ADMISSION_RECORD_KEY`, `ADMISSION_ORIGIN` and
-`NOTICE`. `ALERT_RELAY` is tracked (`"true"`, decision D18). The secrets are
+`ARTIFACT_SOURCE_KEY`, `ADMISSION_RECORD_KEY` and
+`NOTICE`. `ADMISSION_ORIGIN` is tracked (`https://testnet-admission.slop.ninja`,
+the origin `testnet-trust.json` pins). `ALERT_RELAY` is tracked (`"true"`, decision D18). The secrets are
 `COORDINATOR_STATUS_TOKEN` (the coordinator Worker's status token),
 `EVAL_STATUS_TOKEN` (the eval Worker's, which is a different value), and the
 optional `ALERT_SINK_URL` (ignored, with a warning, while the relay is on)

@@ -197,12 +197,14 @@ BILLING_CYCLE_DAY = "1"
 # under the rewrite-source reuse limits. Any other pool is fresh stock, which
 # is drawn only for a cohort with an admitted external entrant.
 EXPOSED_POOLS = "testnet-human-pool-v1,testnet-human-pool-pc1"
-# The public admission routes (/admission/v1/, contract slop_ninja.admission/v1).
-# "off" (also when absent): they do not exist. "hotkeys": served only to the
-# SS58 hotkeys ADMISSION_HOTKEYS lists (comma separated), for operator drills
-# before the public-access decision; set at deploy time for a drill. "open":
-# every hotkey, only after that decision.
-ADMISSION_ROUTES = "off"
+# Admission: this Worker serves no public admission route. The public
+# /admission/v1/ routes (contract slop_ninja.admission/v1) are the key-free
+# upload Worker's (subnet/admission-worker, slop-ninja-admission-testnet), which
+# forwards checked, bounded messages to this Worker's internal interface
+# through its service binding; ADMISSION_ROUTES and ADMISSION_HOTKEYS are its
+# vars. Both Workers hold the secret ADMISSION_INTERFACE_TOKEN (installed with
+# `wrangler secret put`, never tracked); without it this Worker serves no
+# interface request and frames nothing.
 # Scorer build identity (S-1): lanes refuse an instance whose /healthz reports
 # other digests. ORT is the served profile's pin; the binary is the image's.
 SCORER_ORT_SHA256 = "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
@@ -298,3 +300,18 @@ bucket_name = "receipts-bucket-testnet"
 [[env.eval-testnet.r2_buckets]]
 binding = "EVAL_TESTNET"
 bucket_name = "eval-bucket-testnet"
+
+# Uploaded artifact objects (private: no public access, no custom domain). The
+# upload Worker writes their parts and frames them; this Worker creates,
+# completes and aborts their multipart uploads, copies their slices into the
+# eval bucket's blob store and deletes them. Create it before the first
+# deploy of either Worker: wrangler r2 bucket create admission-bucket-testnet
+[[env.eval-testnet.r2_buckets]]
+binding = "ADMISSION_TESTNET"
+bucket_name = "admission-bucket-testnet"
+
+# The upload Worker's internal framing route (no public route). Deploy the
+# upload Worker first: its own binding names this Worker, which exists.
+[[env.eval-testnet.services]]
+binding = "ADMISSION_UPLOAD_TESTNET"
+service = "slop-ninja-admission-testnet"

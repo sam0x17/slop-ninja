@@ -405,7 +405,9 @@ fn every_v2_record_round_trips_canonically() -> Result<()> {
         &snapshot,
     )?)?;
     let opening = fx::opening(&chain(), 3, &c.specs[0]);
-    round_trip(&submission::SubmissionUpload::new(opening, b"artifact"))?;
+    let upload = submission::SubmissionUpload::new(opening, b"artifact");
+    assert_eq!(upload.to_bytes()?.len(), submission::SubmissionUpload::ENCODED_LEN);
+    round_trip(&upload)?;
     round_trip(&c.authorization.record)?;
     round_trip(&c.renewal.record)?;
     round_trip(&LaunchAuthorization::new(&chain(), 1, 20)?)?;

@@ -118,8 +118,16 @@ before the cohort closes. The client sends them only to:
 - the origin named with `--coordinator` (`SLOP_NINJA_COORDINATOR`), when no
   trust file pins one.
 
-The public snapshot (`--public`, `SLOP_NINJA_PUBLIC`) is unsigned: its
-`coordinator` field is used only when the trust file pins that origin. The
+The testnet release's trust file pins one origin,
+`https://testnet-admission.slop.ninja` (the coordinator's key-free upload
+Worker). With the trust file and neither `--coordinator` nor `--public`, the
+client uses that one pinned origin; this is the supported path until the
+public status host is live. `--coordinator https://testnet-admission.slop.ninja`
+names the same origin explicitly. Once the status host is live, `--public`
+alone also chooses it. The public snapshot (`--public`, `SLOP_NINJA_PUBLIC`)
+is unsigned: its `coordinator` field is used only when the trust file pins
+that origin. An edge error page without a contract body (502 to 504, or a
+Cloudflare 52x) is retried as `unavailable`. The
 client prints the origin before it opens a session, never follows redirects,
 and accepts plain HTTP only for loopback hosts. Response bodies are bounded by
 the contract's limit.

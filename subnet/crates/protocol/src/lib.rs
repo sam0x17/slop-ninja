@@ -52,7 +52,7 @@ pub use operation::{
 };
 pub use records::{
     AccountId, ArtifactRecord, Assignment, Attempt, AttemptReceipt, AttemptResult,
-    CalculationTarget, ChainBinding, CohortManifest, FINNEY_GENESIS, MinerScore, NeuronIdentity,
+    CalculationTarget, ChainBinding, CohortManifest, FINNEY_GENESIS, MAX_LABEL_LEN, MinerScore, NeuronIdentity,
     Outcome, OutcomeClass, PROBABILITY_SCALE, Probability, ReceiptIndex, ReceiptIndexEntry, Record,
     RegistrationSnapshot, RewardRule, RowEntry, SCORE_SCALE, Score, ScorePackage, TESTNET_GENESIS,
     WeightRow, admission_commitment, result_commitment,

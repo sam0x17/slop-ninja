@@ -13,7 +13,8 @@
 //!   any origin.
 //!
 //! When a trust file pins origins, every other origin is refused, including
-//! one named with `--coordinator`.
+//! one named with `--coordinator`. When it pins exactly one and the miner
+//! names none (no `--coordinator`, no `--public`), the client uses that one.
 
 use std::path::Path;
 
@@ -88,6 +89,15 @@ impl Trust {
 
     pub fn pins(&self, url: &Url) -> bool {
         self.origins.contains(&url.origin())
+    }
+
+    /// The one origin the trust file pins, when it pins exactly one: the
+    /// destination when neither `--coordinator` nor `--public` names one.
+    pub fn single(&self) -> Option<Url> {
+        match self.origins.as_slice() {
+            [only] => Url::parse(&only.ascii_serialization()).ok(),
+            _ => None,
+        }
     }
 
     /// The coordinator to upload to, from `--coordinator` (`named`) or the
@@ -187,6 +197,15 @@ mod tests {
                 "{named:?} {advertised:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_single_pinned_origin_is_the_default() {
+        let one = trust(&["https://testnet-admission.slop.ninja"]);
+        assert_eq!(one.single().unwrap().as_str(), "https://testnet-admission.slop.ninja/");
+        assert!(one.pins(&one.single().unwrap()));
+        assert_eq!(trust(&["https://a.example", "https://b.example"]).single(), None);
+        assert_eq!(Trust::default().single(), None);
     }
 
     #[test]

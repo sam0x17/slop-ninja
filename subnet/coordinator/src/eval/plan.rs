@@ -105,8 +105,12 @@ pub struct ArtifactJson {
     /// roster position.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extrinsic_index: Option<u32>,
-    /// Admitted entrants only: the eval-bucket key of the uploaded artifact
-    /// object, published after the cohort closes.
+    /// Admitted entrants only: the key of the uploaded artifact object in
+    /// the **upload bucket** (`admission-bucket-testnet`, where the
+    /// upload Worker stores parts since the two-Worker split; the eval
+    /// bucket holds only its content-addressed blobs), published after the
+    /// cohort closes. A publisher copy of the object reads it from the
+    /// upload bucket (`TESTNET.md`, upload Worker, open items).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub object_key: Option<String>,
 }

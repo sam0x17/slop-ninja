@@ -51,13 +51,14 @@ export function arena_pm_word(i) {
   return p ? p[i] : -1;
 }
 export function arena_route_class(req) {
-  let p = '';
-  try { p = new URL(req.url).pathname; } catch (e) { return 0; }
+  let u;
+  try { u = new URL(req.url); } catch (e) { return 0; }
+  const p = u.pathname;
   if (p === '/hook') return 1;
   if (p === '/status') return 3;
   if (p === '/fault/clear' || p.startsWith('/signing/')) return 4;
   if (p.startsWith('/eval/')) return 5;
-  if (p.startsWith('/admission/')) return 9;
+  if (p.startsWith('/internal/admission/') && u.host === 'eval-admission.internal') return 9;
   return 0;
 }
 export function arena_cohort_class(req) {

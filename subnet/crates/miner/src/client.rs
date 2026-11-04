@@ -291,10 +291,31 @@ async fn decode<T: serde::de::DeserializeOwned>(
             body: Box::new(body),
             retry_after: wait,
         }),
+        // An edge or platform error page (a gateway failure, an
+        // overloaded or restarted Worker) carries no contract body: the
+        // request may not have reached the coordinator, so it is retried as
+        // `unavailable`.
+        Err(_) if edge_unavailable(status.as_u16()) => Err(ApiError::Api {
+            status: status.as_u16(),
+            body: Box::new(ErrorBody::new(
+                ErrorCode::Unavailable,
+                format!("{status} from the edge without a contract error body"),
+                Default::default(),
+            )),
+            retry_after: wait,
+        }),
         Err(_) => Err(ApiError::Protocol(format!(
             "{status} without a contract error body"
         ))),
     }
+}
+
+/// Statuses an edge or platform error page uses for a request that did not
+/// complete there: 502, 503 and 504 (a Worker over its limits answers 503),
+/// and Cloudflare's 52x origin errors. A 5xx with a contract body is the
+/// coordinator's own answer and keeps its code.
+pub fn edge_unavailable(status: u16) -> bool {
+    matches!(status, 502..=504 | 520..=527 | 530)
 }
 
 /// A hotkey's signed session with the coordinator.

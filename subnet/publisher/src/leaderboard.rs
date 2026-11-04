@@ -114,6 +114,44 @@ pub struct ReferenceView {
     pub score: ScoreView,
 }
 
+/// How promotions of this record are decided (user decision D12b,
+/// 2026-11-03): testnet promotions run without the lookup canary; the canary
+/// is required before mainnet. A label only: nothing else changes with it,
+/// so an operator drill in the plan (`canary.drill`) can still flag and
+/// block a testnet candidate, as the note says.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromotionRule {
+    /// Whether promotions run the lookup canary.
+    pub lookup_canary: bool,
+    /// `testnet-only`: the rule holds for the testnet record only.
+    pub scope: String,
+    pub note: String,
+}
+
+/// The note the leaderboard JSON and page carry.
+pub const PROMOTION_NOTE: &str = "Testnet only: promotions in this record run without the lookup canary. \
+    An operator drill of the blocking path, named in the cohort's plan, can still flag a candidate and \
+    block its promotion. The canary is required before mainnet.";
+
+impl PromotionRule {
+    pub fn testnet() -> Self {
+        Self {
+            lookup_canary: false,
+            scope: "testnet-only".into(),
+            note: PROMOTION_NOTE.into(),
+        }
+    }
+
+    /// The rule of a record bound to `chain`: the testnet label for the
+    /// testnet genesis only. A record of any other chain carries no label
+    /// (the canary is required before mainnet, so no other chain's record
+    /// may claim promotions without it).
+    pub fn of(chain: &Chain) -> Option<Self> {
+        (chain.genesis.trim_start_matches("0x").eq_ignore_ascii_case(&slop_ninja_protocol::TESTNET_GENESIS.hex()))
+            .then(Self::testnet)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeaderboardDoc {
     pub schema: String,
@@ -129,6 +167,10 @@ pub struct LeaderboardDoc {
     pub reference: ReferenceView,
     pub predecessor: Option<ReferenceView>,
     pub promoted: Option<String>,
+    /// The promotion rule of this record (D12b): present for a testnet
+    /// record only ([`PromotionRule::of`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promotion_rule: Option<PromotionRule>,
     pub active_target: ActiveTarget,
     /// `R_k` and `R_k-1` after this cohort's close.
     pub current_reference: ReferencePointer,
@@ -240,6 +282,7 @@ pub fn build(i: Inputs<'_>) -> LeaderboardDoc {
     };
     let mut order: Vec<usize> = ranked.clone();
     order.extend((0..n).filter(|idx| !ranked.contains(idx)));
+    let promotion_rule = PromotionRule::of(&i.chain);
     LeaderboardDoc {
         schema: LEADERBOARD_SCHEMA.into(),
         network: "testnet".into(),
@@ -264,6 +307,7 @@ pub fn build(i: Inputs<'_>) -> LeaderboardDoc {
             score: score_view(r.score),
         }),
         promoted: p.promoted.map(|h| ss58::encode(&h)),
+        promotion_rule,
         active_target: i.active_target.clone(),
         current_reference: i.current_reference,
         previous_reference: i.previous_reference,
@@ -385,7 +429,33 @@ pub fn render(doc: Option<&LeaderboardDoc>) -> String {
             (summary, rows)
         }
     };
+    // The D12b label of a testnet record (before any closed cohort, the
+    // publisher's own configuration is testnet-only: `config::parse`).
+    let note = match doc {
+        None => Some(PROMOTION_NOTE),
+        Some(d) => d.promotion_rule.as_ref().map(|r| r.note.as_str()),
+    };
+    let summary = match note {
+        Some(n) => format!("{summary}<p class=\"note\" id=\"promotion-rule\">{}</p>", escape(n)),
+        None => summary,
+    };
     TEMPLATE
         .replace("<!--SUMMARY-->", &summary)
         .replace("<!--ROWS-->", &rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slop_ninja_protocol::{ChainBinding, FINNEY_GENESIS, TESTNET_GENESIS};
+
+    #[test]
+    fn only_a_testnet_record_carries_the_testnet_promotion_label() {
+        let chain = |genesis| Chain::from_binding(&ChainBinding { genesis, netuid: 601, mechanism: 0 });
+        assert_eq!(PromotionRule::of(&chain(TESTNET_GENESIS)), Some(PromotionRule::testnet()));
+        assert_eq!(PromotionRule::of(&chain(FINNEY_GENESIS)), None);
+        let mut upper = chain(TESTNET_GENESIS);
+        upper.genesis = format!("0x{}", upper.genesis.to_ascii_uppercase());
+        assert!(PromotionRule::of(&upper).is_some());
+    }
 }

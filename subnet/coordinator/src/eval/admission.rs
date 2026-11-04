@@ -76,12 +76,10 @@ use slop_ninja_admission_wire::json::{
     Session, SessionSummary,
 };
 use slop_ninja_admission_wire::{CONTRACT, ErrorCode, PartPlan, RequestScope, SessionState, request_message};
-use slop_ninja_artifact_check::mapping::{self, Part};
 use slop_ninja_artifact_check::spec::{self, Version};
 use slop_ninja_protocol::submission::{FinalizedCommitment, SubmissionUpload, parse_chain_payload};
 use slop_ninja_protocol::{
-    AccountId, ArtifactReader, ChainBinding, Digest, Error as ProtocolError, MAX_ARTIFACT_HEADER_LEN, NeuronIdentity,
-    Record, VerifiedArtifact,
+    AccountId, ChainBinding, Digest, Error as ProtocolError, NeuronIdentity, Record,
 };
 
 /// The single integer a `COUNT(*)`-style query returns.
@@ -91,70 +89,7 @@ fn count(sql: &impl Sql, query: &str, params: &[SqlValue]) -> R<i64> {
 
 // ------------------------------------------------------------ spec bounds
 
-/// The bounds admission derives from an artifact spec the scorer admits by
-/// (spec v2 or v3): the largest file total and the largest object any
-/// artifact of the spec can have. Nothing here is tuned: the graph term is
-/// the largest served class's fixed length, the tokenizer is pinned, the
-/// JSON role files share the spec's own budget, and the header is bounded by
-/// the protocol record's limit.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct SpecBounds {
-    pub spec_id: &'static str,
-    pub spec_sha256: String,
-    /// Largest graph class length the spec serves.
-    pub graph_bytes: u64,
-    /// The six files' largest total: graph, tokenizer and the JSON budget.
-    pub files_bytes: u64,
-    /// `4 + MAX_ARTIFACT_HEADER_LEN + files_bytes`.
-    pub object_bytes: u64,
-}
-
-impl SpecBounds {
-    pub fn of(v: Version) -> Option<Self> {
-        if !engine_admits(v) {
-            return None;
-        }
-        let graph = graph_bytes(v)?;
-        let files = files_bytes(v)?;
-        let object = files.checked_add(4 + u64::from(MAX_ARTIFACT_HEADER_LEN))?;
-        Some(Self {
-            spec_id: v.id(),
-            spec_sha256: v.spec_sha256(),
-            graph_bytes: graph,
-            files_bytes: files,
-            object_bytes: object,
-        })
-    }
-
-    pub fn of_id(id: &str) -> Option<Self> {
-        Version::from_id(id).and_then(Self::of)
-    }
-}
-
-/// Largest graph class length spec `v` serves.
-fn graph_bytes(v: Version) -> Option<u64> {
-    v.classes().iter().filter(|c| v.serves(c)).map(|c| c.bytes).max()
-}
-
-/// The six files' largest total under spec `v` (graph, tokenizer and the JSON
-/// budget), from its class and JSON bounds alone: unlike the spec digest it
-/// never rebuilds the spec record, so a lane's limits read it per report.
-pub fn files_bytes(v: Version) -> Option<u64> {
-    if !engine_admits(v) {
-        return None;
-    }
-    graph_bytes(v)?.checked_add(spec::TOKENIZER_BYTES)?.checked_add(v.max_json_bytes()?)
-}
-
-/// The specs an admission run can load by: every admission run names the
-/// cohort's spec digest on its load (`AScorer` `/admit`), so a scorer that
-/// lists the spec admits by it (spec v3 admits the span tower class).
-pub const ADMISSION_SPECS: &[&str] = &[spec::SPEC_ID_V2, spec::SPEC_ID_V3];
-
-/// Specs the scorer admits a load by: those that bound the JSON role files.
-fn engine_admits(v: Version) -> bool {
-    v.max_json_bytes().is_some() && v.max_json_value_bytes().is_some()
-}
+pub use slop_ninja_artifact_check::admission::{ADMISSION_SPECS, SpecBounds, files_bytes};
 
 /// The cohort's limits record (content-free), published by digest in the
 /// cohort response; it changes only with the plan or the spec.
@@ -297,30 +232,15 @@ impl From<crate::sql::StoreError> for ApiError {
 
 type A<T> = Result<T, ApiError>;
 
-/// A reply the Worker sends as is: HTTP status and JSON body.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Reply {
-    pub status: u16,
-    pub body: Value,
-    #[serde(default)]
-    pub retry_after: Option<u64>,
+pub use slop_ninja_admission_wire::internal::{Forward, PartTarget, Reply, Signed};
+
+fn reply_ok<T: Serialize>(status: u16, v: &T) -> Reply {
+    Reply::new(status, serde_json::to_value(v).unwrap_or(Value::Null), None)
 }
 
-impl Reply {
-    fn ok<T: Serialize>(status: u16, v: &T) -> Self {
-        Self {
-            status,
-            body: serde_json::to_value(v).unwrap_or(Value::Null),
-            retry_after: None,
-        }
-    }
-    pub fn error(e: &ApiError) -> Self {
-        Self {
-            status: e.status(),
-            body: serde_json::to_value(e.body()).unwrap_or(Value::Null),
-            retry_after: e.retry_after,
-        }
-    }
+/// The reply of a refused request.
+pub fn reply_error(e: &ApiError) -> Reply {
+    Reply::new(e.status(), serde_json::to_value(e.body()).unwrap_or(Value::Null), e.retry_after)
 }
 
 // ----------------------------------------------------------------- window
@@ -447,33 +367,6 @@ pub fn open(sql: &impl Sql, c: &Cohort, open_block: u64) -> R<()> {
 }
 
 // --------------------------------------------------------- authentication
-
-/// A signed request as the Worker forwards it: method and path exactly as
-/// sent, the four signature headers, and for a body read whole, its SHA-256
-/// (a part's digest is the claimed one; the part streams to R2).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Signed {
-    pub method: String,
-    pub path: String,
-    pub hotkey: Option<String>,
-    pub valid_until: Option<String>,
-    pub content_sha256: Option<String>,
-    pub signature: Option<String>,
-    /// SHA-256 of a body the Worker read whole (hex); `None` for a part.
-    #[serde(default)]
-    pub body_sha256: Option<String>,
-    /// A small body, hex (session creation only).
-    #[serde(default)]
-    pub body: Option<String>,
-    /// The block of the miner's own confirmed commitment, from
-    /// `x-sn-commitment-block` at session creation or reopening. Unsigned
-    /// and untrusted: it only makes a not-yet commitment answer for this
-    /// hotkey wait until the reader has polled at or after that block
-    /// ([`commitment_wait`]); a false one delays only this hotkey's own
-    /// answer, never past the window's close.
-    #[serde(default)]
-    pub commitment_block: Option<u64>,
-}
 
 /// The finalized cursor: the RPC-confirmed watermark.
 pub fn cursor(sql: &impl Sql) -> R<Option<u64>> {
@@ -1124,12 +1017,12 @@ pub fn object_key(label: &str, session: &str, attempt: u32) -> String {
 pub fn create(sql: &impl Sql, chain: &ChainBinding, req: &Signed, now_ms: u64) -> (Reply, Effects) {
     match create_inner(sql, chain, req, now_ms) {
         Ok(v) => v,
-        Err(e) => (Reply::error(&e), Effects::default()),
+        Err(e) => (reply_error(&e), Effects::default()),
     }
 }
 
 fn create_inner(sql: &impl Sql, chain: &ChainBinding, req: &Signed, now_ms: u64) -> A<(Reply, Effects)> {
-    let (signer, _) = signer(sql, chain, req)?;
+    let (signer, content) = signer(sql, chain, req)?;
     let cursor = cursor(sql)?.unwrap_or(0);
     let w = window(sql)?;
     let body = req
@@ -1137,6 +1030,16 @@ fn create_inner(sql: &impl Sql, chain: &ChainBinding, req: &Signed, now_ms: u64)
         .as_deref()
         .and_then(|b| hex::decode(b).ok())
         .unwrap_or_default();
+    // The key-holding side hashes the bytes it decodes itself: a forwarded
+    // creation must carry its body and the upload Worker's digest of it,
+    // and both must be the signed content digest.
+    let digest: [u8; 32] = sha2::Sha256::digest(&body).into();
+    if req.body.is_none() || req.body_sha256.is_none() || digest != content {
+        return Err(ApiError::new(
+            ErrorCode::ContentDigestMismatch,
+            "the body does not match x-sn-content-sha256",
+        ));
+    }
     let Ok(upload) = SubmissionUpload::from_bytes(&body) else {
         let e = ApiError::new(ErrorCode::BadRequest, "the body is not a submission-upload record");
         record_refusal(sql, cursor, &signer, w.as_ref(), None, &e)?;
@@ -1153,7 +1056,7 @@ fn create_inner(sql: &impl Sql, chain: &ChainBinding, req: &Signed, now_ms: u64)
         && existing.hotkey == signer
     {
         return Ok((
-            Reply::ok(200, &session_json(sql, &existing, cursor)?),
+            reply_ok(200, &session_json(sql, &existing, cursor)?),
             Effects::default(),
         ));
     }
@@ -1199,7 +1102,7 @@ fn create_inner(sql: &impl Sql, chain: &ChainBinding, req: &Signed, now_ms: u64)
     )?;
     let row = session_row(sql, &id)?.ok_or_else(|| ApiError::new(ErrorCode::Internal, "session"))?;
     Ok((
-        Reply::ok(201, &session_json(sql, &row, cursor)?),
+        reply_ok(201, &session_json(sql, &row, cursor)?),
         Effects {
             create: Some((key, id, 1)),
             abort,
@@ -1222,13 +1125,74 @@ pub fn upload_missing(sql: &impl Sql, id: &str) -> R<Option<(String, u32)>> {
     )))
 }
 
+/// The multipart upload a part request needs created first: `(key,
+/// attempt)` of the signer's own session attempt, still uploading in an
+/// admitting cohort, whose upload is not created yet. The request is
+/// authenticated and its ownership checked before anything (as
+/// [`part_begin`] does), so no other request makes the caller create an
+/// upload.
+pub fn upload_missing_for(sql: &impl Sql, chain: &ChainBinding, req: &Signed, id: &str) -> Option<(String, u32)> {
+    let go = || -> A<Option<(String, u32)>> {
+        let (signer, _) = signer(sql, chain, req)?;
+        let r = owned(sql, &signer, id)?;
+        if r.state != SessionState::Uploading || r.upload_id.is_some() || closed_for(sql, &r)? {
+            return Ok(None);
+        }
+        Ok(Some((r.object_key, r.attempt)))
+    };
+    go().ok().flatten()
+}
+
 /// Stores the multipart upload id of a session attempt, once created.
-pub fn set_upload_id(sql: &impl Sql, id: &str, attempt: u32, upload_id: &str) -> R<()> {
+/// Returns whether the attempt holds `upload_id` afterwards: `false` when
+/// another creation stored its own first (two concurrent requests), or when
+/// the attempt no longer uploads (an abort, a supersede or a close landed
+/// while R2 created the upload, so nothing would ever abort or delete it),
+/// so the caller aborts the upload it created and none is left orphaned.
+pub fn set_upload_id(sql: &impl Sql, id: &str, attempt: u32, upload_id: &str) -> R<bool> {
     sql.exec(
-        "UPDATE adm_sessions SET upload_id = ? WHERE session = ? AND attempt = ? AND upload_id IS NULL",
+        "UPDATE adm_sessions SET upload_id = ? WHERE session = ? AND attempt = ? AND upload_id IS NULL AND state = 'uploading'",
         &[s(upload_id), s(id), i(i64::from(attempt))],
     )?;
-    Ok(())
+    let rows = sql.exec(
+        "SELECT upload_id FROM adm_sessions WHERE session = ? AND attempt = ? AND upload_id IS NOT NULL AND state = 'uploading'",
+        &[s(id), i(i64::from(attempt))],
+    )?;
+    Ok(match rows.first() {
+        Some(r) => text(r, 0)? == upload_id,
+        None => false,
+    })
+}
+
+/// Whether a forwarded message's route fields are the ones its signed
+/// method and path name, for interface operation `op` (the key-holding
+/// side re-derives what the upload Worker parsed, so a defect there cannot
+/// apply one signed request to another session, part or attempt).
+pub fn forward_matches(op: &str, f: &Forward) -> bool {
+    use slop_ninja_admission_wire::Route;
+    use slop_ninja_admission_wire::internal::op as o;
+    let Some(route) = Route::parse(&f.signed.method, &f.signed.path) else {
+        return false;
+    };
+    match (op, route) {
+        (o::CREATE, Route::CreateSession) => true,
+        (o::READ, Route::ReadSession { session }) | (o::COMPLETE, Route::Complete { session }) => session == f.session,
+        (o::PART_BEGIN | o::PART_RECORD, Route::PutPart { session, part }) => session == f.session && part == f.part,
+        (o::ABORT, Route::Abort { session, attempt }) | (o::REOPEN, Route::Reopen { session, attempt }) => {
+            session == f.session && Some(attempt) == f.attempt
+        }
+        (o::HOTKEY, Route::ReadHotkey { cohort, hotkey }) => cohort == f.cohort && hotkey == f.hotkey,
+        _ => false,
+    }
+}
+
+/// The refusal of a forwarded message whose fields are not its signed
+/// request's ([`forward_matches`]).
+pub fn forward_mismatch() -> Reply {
+    reply_error(&ApiError::new(
+        ErrorCode::BadRequest,
+        "the forwarded fields do not match the signed request",
+    ))
 }
 
 fn owned(sql: &impl Sql, signer: &AccountId, id: &str) -> A<Row> {
@@ -1253,21 +1217,9 @@ pub fn read(sql: &impl Sql, chain: &ChainBinding, req: &Signed, id: &str) -> Rep
     let go = || -> A<Reply> {
         let (signer, _) = signer(sql, chain, req)?;
         let r = owned(sql, &signer, id)?;
-        Ok(Reply::ok(200, &session_json(sql, &r, cursor(sql)?.unwrap_or(0))?))
+        Ok(reply_ok(200, &session_json(sql, &r, cursor(sql)?.unwrap_or(0))?))
     };
-    go().unwrap_or_else(|e| Reply::error(&e))
-}
-
-/// What the Worker needs to stream one part: the object key, the multipart
-/// upload id and the part's exact length.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PartTarget {
-    pub key: String,
-    pub upload_id: String,
-    pub attempt: u32,
-    pub part: u32,
-    pub len: u64,
-    pub sha256: String,
+    go().unwrap_or_else(|e| reply_error(&e))
 }
 
 /// `PUT .../parts/{n}`, before the body streams: authenticates and checks the
@@ -1320,14 +1272,28 @@ pub fn part_begin(
             sha256: hex::encode(content),
         })
     };
-    go().map_err(|e| Reply::error(&e))
+    go().map_err(|e| reply_error(&e))
 }
 
 /// Records a streamed part (after R2 accepted it). The latest upload of a
 /// part counts. Refused with `after_cutoff` when the close came first.
-pub fn part_record(sql: &impl Sql, id: &str, t: &PartTarget, etag: &str) -> Reply {
+///
+/// The record carries the part's signed request again, and nothing in the
+/// target is taken as given: the signature must verify (statelessly: the
+/// part may have streamed past `valid_until`, which [`part_begin`] checked)
+/// for the session's owner over this part's path, and the target must be
+/// what [`part_begin`] issues for that part now (the attempt's object key
+/// and multipart upload, the plan's length of that part number, the signed
+/// content digest).
+pub fn part_record(sql: &impl Sql, chain: &ChainBinding, req: &Signed, id: &str, t: &PartTarget, etag: &str) -> Reply {
     let go = || -> A<Reply> {
-        let r = session_row(sql, id)?.ok_or_else(|| ApiError::new(ErrorCode::NotFound, "unknown session"))?;
+        let v = verify_request(chain, req)?;
+        let r = owned(sql, &v.signer, id)?;
+        let mismatch = || ApiError::new(ErrorCode::BadRequest, "the part record does not match its session");
+        match slop_ninja_admission_wire::Route::parse(&req.method, &req.path) {
+            Some(slop_ninja_admission_wire::Route::PutPart { session, part }) if session == id && part == t.part => {}
+            _ => return Err(mismatch()),
+        }
         if closed_for(sql, &r)? {
             return Err(ApiError::new(
                 ErrorCode::AfterCutoff,
@@ -1340,12 +1306,26 @@ pub fn part_record(sql: &impl Sql, id: &str, t: &PartTarget, etag: &str) -> Repl
                 "the session no longer accepts parts",
             ));
         }
+        let plan = PartPlan::new(r.upload.artifact_len, r.part_size, r.part_count.max(1))
+            .map_err(|_| ApiError::new(ErrorCode::Internal, "plan"))?;
+        let Some((_, len)) = plan.range(t.part) else {
+            return Err(ApiError::new(ErrorCode::PartOutOfRange, "no such part"));
+        };
+        if t.len != len {
+            return Err(ApiError::new(
+                ErrorCode::PartLengthMismatch,
+                "the part is not exactly its expected length",
+            ));
+        }
+        if t.key != r.object_key || r.upload_id.as_deref() != Some(t.upload_id.as_str()) || t.sha256 != hex::encode(v.content) {
+            return Err(mismatch());
+        }
         sql.exec(
             "INSERT INTO adm_parts (session, attempt, part, len, sha256, etag) VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT (session, attempt, part) DO UPDATE SET len = excluded.len, sha256 = excluded.sha256, etag = excluded.etag",
             &[s(id), i(i64::from(t.attempt)), i(i64::from(t.part)), bind_u64(t.len)?, s(&t.sha256), s(etag)],
         )?;
-        Ok(Reply::ok(
+        Ok(reply_ok(
             200,
             &PartAck {
                 part: t.part,
@@ -1354,7 +1334,7 @@ pub fn part_record(sql: &impl Sql, id: &str, t: &PartTarget, etag: &str) -> Repl
             },
         ))
     };
-    go().unwrap_or_else(|e| Reply::error(&e))
+    go().unwrap_or_else(|e| reply_error(&e))
 }
 
 /// `POST .../complete`: requires every part, then hands the multipart
@@ -1380,10 +1360,10 @@ pub fn complete(sql: &impl Sql, chain: &ChainBinding, req: &Signed, id: &str, no
                     complete: completion_target(sql, id)?.map(|(c, _)| c),
                     ..Default::default()
                 };
-                return Ok((Reply::ok(202, &session_json(sql, &r, cursor)?), fx));
+                return Ok((reply_ok(202, &session_json(sql, &r, cursor)?), fx));
             }
             SessionState::Verifying | SessionState::Verified => {
-                return Ok((Reply::ok(202, &session_json(sql, &r, cursor)?), Effects::default()));
+                return Ok((reply_ok(202, &session_json(sql, &r, cursor)?), Effects::default()));
             }
             _ => {
                 return Err(ApiError::new(
@@ -1423,14 +1403,14 @@ pub fn complete(sql: &impl Sql, chain: &ChainBinding, req: &Signed, id: &str, no
         )?;
         let r = session_row(sql, id)?.ok_or_else(|| ApiError::new(ErrorCode::Internal, "session"))?;
         Ok((
-            Reply::ok(202, &session_json(sql, &r, cursor)?),
+            reply_ok(202, &session_json(sql, &r, cursor)?),
             Effects {
                 complete: Some((r.object_key, upload_id, tags)),
                 ..Default::default()
             },
         ))
     };
-    go().unwrap_or_else(|e| (Reply::error(&e), Effects::default()))
+    go().unwrap_or_else(|e| (reply_error(&e), Effects::default()))
 }
 
 /// The multipart completion of a session whose stage is `complete` (the
@@ -1637,9 +1617,9 @@ pub fn abort(
             }
         }
         let r = session_row(sql, id)?.ok_or_else(|| ApiError::new(ErrorCode::Internal, "session"))?;
-        Ok((Reply::ok(200, &session_json(sql, &r, cursor)?), fx))
+        Ok((reply_ok(200, &session_json(sql, &r, cursor)?), fx))
     };
-    go().unwrap_or_else(|e| (Reply::error(&e), Effects::default()))
+    go().unwrap_or_else(|e| (reply_error(&e), Effects::default()))
 }
 
 fn stale(id: &str, current: u32) -> ApiError {
@@ -1668,7 +1648,7 @@ pub fn reopen(
         let r = owned(sql, &signer, id)?;
         let cursor = cursor(sql)?.unwrap_or(0);
         if attempt == r.attempt && r.state != SessionState::Aborted {
-            return Ok((Reply::ok(200, &session_json(sql, &r, cursor)?), Effects::default()));
+            return Ok((reply_ok(200, &session_json(sql, &r, cursor)?), Effects::default()));
         }
         if attempt != r.attempt.saturating_add(1) || r.state != SessionState::Aborted {
             return Err(stale(id, r.attempt));
@@ -1694,7 +1674,7 @@ pub fn reopen(
         )?;
         let r = session_row(sql, id)?.ok_or_else(|| ApiError::new(ErrorCode::Internal, "session"))?;
         Ok((
-            Reply::ok(200, &session_json(sql, &r, cursor)?),
+            reply_ok(200, &session_json(sql, &r, cursor)?),
             Effects {
                 create: Some((key, id.into(), attempt)),
                 abort,
@@ -1702,7 +1682,7 @@ pub fn reopen(
             },
         ))
     };
-    go().unwrap_or_else(|e| (Reply::error(&e), Effects::default()))
+    go().unwrap_or_else(|e| (reply_error(&e), Effects::default()))
 }
 
 /// `GET /admission/v1/cohorts/{cohort}/hotkeys/{hotkey}`.
@@ -1787,9 +1767,9 @@ pub fn hotkey_view(sql: &impl Sql, chain: &ChainBinding, req: &Signed, cohort: u
                 None => break,
             }
         }
-        Ok(Reply::ok(200, &view))
+        Ok(reply_ok(200, &view))
     };
-    go().unwrap_or_else(|e| Reply::error(&e))
+    go().unwrap_or_else(|e| reply_error(&e))
 }
 
 /// `GET /admission/v1/cohort` (unsigned, `no-store`).
@@ -1839,200 +1819,9 @@ pub fn cohort_info(sql: &impl Sql, chain: &ChainBinding, paused: bool) -> R<Coho
 
 // ----------------------------------------------------------------- framing
 
-/// The scorer parts and manifest of an uploaded object, derived while it
-/// streams. The protocol reader is the only parser: it decodes the header
-/// record once (the length prefix, then at most `MAX_ARTIFACT_HEADER_LEN`
-/// bytes) and checks the object and every file against it; the framer takes
-/// the header and the files' offset from the reader and cuts each file into
-/// the scorer's content-addressed slices. A header listing more files than
-/// the spec's file table is refused before any slice is cut.
-pub struct Framer {
-    /// The whole object's SHA-256 and length, kept to the end even after a
-    /// refusal, so a changed part reports `object_mismatch`.
-    object: Sha256,
-    len: u64,
-    failed: Option<FrameError>,
-    reader: ArtifactReader,
-    /// Per header file: its length; filled once the reader has the header.
-    files: Vec<u64>,
-    /// The object offset of the first file (`None` until the header is read).
-    files_at: Option<u64>,
-    slices: Vec<Vec<Part>>,
-    slice: Sha256,
-    slice_len: u64,
-    file: usize,
-    file_left: u64,
-}
-
-/// One content-addressed slice to copy from the object to the blob store.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Slice {
-    pub sha256: String,
-    pub offset: u64,
-    pub len: u64,
-}
-
-/// Why framing refused an object.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FrameError {
-    /// The protocol reader refused it (`artifact_invalid`, the reason).
-    Reader(String),
-    /// A header-only check of the spec refused it (`check_failed`, the code).
-    Check(String),
-}
-
-/// What framing derived.
-#[derive(Clone, Debug)]
-pub struct Framed {
-    pub artifact: VerifiedArtifact,
-    pub manifest: Vec<u8>,
-    pub package_sha256: String,
-    /// The graph file's SHA-256 (the record's model digest).
-    pub model_sha256: String,
-    pub slices: Vec<Slice>,
-}
-
-impl Default for Framer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Framer {
-    pub fn new() -> Self {
-        Self {
-            object: Sha256::new(),
-            len: 0,
-            failed: None,
-            reader: ArtifactReader::new(),
-            files: Vec::new(),
-            files_at: None,
-            slices: Vec::new(),
-            slice: Sha256::new(),
-            slice_len: 0,
-            file: 0,
-            file_left: 0,
-        }
-    }
-
-    /// Feeds the next chunk. A refusal is kept for [`Framer::finish`]; the
-    /// object's digest is computed to the end either way. Every call consumes
-    /// its whole chunk.
-    pub fn update(&mut self, chunk: &[u8]) {
-        let start = self.len;
-        self.object.update(chunk);
-        self.len = self.len.saturating_add(chunk.len() as u64);
-        if self.failed.is_some() {
-            return;
-        }
-        if let Err(e) = self.reader.update(chunk) {
-            self.failed = Some(FrameError::Reader(format!("{e:?}")));
-            return;
-        }
-        if self.files_at.is_none() {
-            let Some((h, at)) = self.reader.header() else { return };
-            // The spec's file table names every file an artifact may hold;
-            // a longer list has an undeclared one (the code the header check
-            // would give), refused before any slice is cut.
-            if h.files.len() > spec::ROLES.len() {
-                self.failed = Some(FrameError::Check("undeclared_file".into()));
-                return;
-            }
-            self.files = h.files.iter().map(|f| f.len).collect();
-            self.slices = vec![Vec::new(); self.files.len()];
-            self.file_left = self.files.first().copied().unwrap_or(0);
-            self.files_at = Some(at);
-        }
-        let at = self.files_at.unwrap_or(u64::MAX);
-        // The part of this chunk past the header (the reader refuses
-        // trailing bytes, so every byte here belongs to a file).
-        let skip = usize::try_from(at.saturating_sub(start))
-            .unwrap_or(usize::MAX)
-            .min(chunk.len());
-        let mut rest = chunk.get(skip..).unwrap_or_default();
-        while !rest.is_empty() && self.file < self.files.len() {
-            let room = (spec::PART_BYTES - self.slice_len).min(self.file_left);
-            let take = usize::try_from(room).unwrap_or(usize::MAX).min(rest.len());
-            let (head, tail) = rest.split_at(take);
-            self.slice.update(head);
-            self.slice_len += take as u64;
-            self.file_left -= take as u64;
-            rest = tail;
-            if self.slice_len == spec::PART_BYTES || self.file_left == 0 {
-                self.close_slice();
-            }
-            if self.file_left == 0 {
-                self.file += 1;
-                self.file_left = self.files.get(self.file).copied().unwrap_or(0);
-            }
-        }
-    }
-
-    fn close_slice(&mut self) {
-        let sha = hex::encode(std::mem::take(&mut self.slice).finalize());
-        if let Some(v) = self.slices.get_mut(self.file) {
-            v.push(Part {
-                sha256: sha,
-                bytes: self.slice_len,
-            });
-        }
-        self.slice_len = 0;
-    }
-
-    /// Finishes framing under `version`: the object must verify, its header
-    /// pass the spec's file-table checks, and its graph length name a class.
-    /// The object's SHA-256 and length, and what framing derived from it.
-    pub fn finish(self, version: Version) -> (Digest, u64, Result<Framed, FrameError>) {
-        let digest = Digest(self.object.clone().finalize().into());
-        let len = self.len;
-        (digest, len, self.derive(version))
-    }
-
-    fn derive(self, version: Version) -> Result<Framed, FrameError> {
-        if let Some(e) = self.failed {
-            return Err(e);
-        }
-        let files_at = self.files_at.ok_or_else(|| FrameError::Reader("no header".into()))?;
-        let artifact = self.reader.finish().map_err(|e| FrameError::Reader(format!("{e:?}")))?;
-        let header = &artifact.header;
-        // The header-only file-table checks first (contract, names, roles,
-        // tokenizer, lengths): their codes are the spec's.
-        mapping::check_header_for(header, version).map_err(|r| FrameError::Check(r.code().to_owned()))?;
-        let graph = header
-            .files
-            .iter()
-            .find(|f| f.name == spec::GRAPH_FILE)
-            .ok_or_else(|| FrameError::Check("missing_file".into()))?;
-        let class = version
-            .graph_class_by_len(graph.len)
-            .ok_or_else(|| FrameError::Check("graph_size".into()))?;
-        let profile = mapping::profile_id_for(class, version);
-        let m = mapping::parts_manifest_for(header, &self.slices, &profile, version)
-            .map_err(|r| FrameError::Check(r.code().to_owned()))?;
-        let manifest = m.to_bytes();
-        let package_sha256 = hex::encode(Sha256::digest(&manifest));
-        let model_sha256 = graph.sha256.hex();
-        let mut slices = Vec::new();
-        let mut at = files_at;
-        for parts in &self.slices {
-            for p in parts {
-                slices.push(Slice {
-                    sha256: p.sha256.clone(),
-                    offset: at,
-                    len: p.bytes,
-                });
-                at += p.bytes;
-            }
-        }
-        Ok(Framed {
-            model_sha256,
-            artifact,
-            manifest,
-            package_sha256,
-            slices,
-        })
-    }
-}
+// Framing runs in the key-free upload Worker (`slop_ninja_artifact_check::
+// admission::Framer`); the cohort authority receives its `FrameOutcome`.
+pub use slop_ninja_artifact_check::admission::{FrameError, FrameOutcome, FrameResult, Framed, Framer, Slice};
 
 /// The next durable verification step that is due: a multipart completion
 /// not yet confirmed (`complete`), framing (`frame`; not while the hotkey's
@@ -2121,6 +1910,40 @@ pub fn frame_begin(sql: &impl Sql, id: &str, now_ms: u64) -> R<Option<(String, u
     Ok(Some((r.object_key, r.upload.artifact_len, v)))
 }
 
+/// How one framing call through the upload Worker failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameFailure {
+    /// The upload Worker could not read the object from R2 (its explicit
+    /// object-read answer): the platform's, not counted against the
+    /// session's attempts.
+    ObjectRead,
+    /// Anything else that may pass (the call failed in transport, a busy or
+    /// failing upload Worker, an answer that is not a bounded outcome):
+    /// counted, so attempts that keep failing reach the plan's pause bound
+    /// and fault the cohort ([`FRAMING_UNAVAILABLE`]).
+    Counted,
+    /// The link between the two Workers is not configured (no interface
+    /// token or service binding here, the upload Worker answering 404 to
+    /// our host and token, or refusing the framing request we sent): no
+    /// retry can pass, so the cohort faults at once (resumable; the
+    /// operator fixes the configuration and clears it). Counted too.
+    Misconfigured,
+}
+
+/// Records a framing call that failed ([`FrameFailure`]): every kind backs
+/// off ([`step_retry`]); only an object read is uncounted; a misconfigured
+/// link faults the session's cohort now.
+pub fn frame_failed(sql: &impl Sql, id: &str, failure: FrameFailure, now_ms: u64) -> R<()> {
+    step_retry(sql, id, failure == FrameFailure::ObjectRead, now_ms)?;
+    if failure == FrameFailure::Misconfigured
+        && let Some(r) = session_row(sql, id)?
+        && let Some(w) = window_for(sql, r.cohort)?
+    {
+        engine::fault(sql, w.seq, FRAMING_UNAVAILABLE, now_ms)?;
+    }
+    Ok(())
+}
+
 /// The framing record kept with the session until its blobs are written.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FrameRecord {
@@ -2131,6 +1954,56 @@ pub struct FrameRecord {
     pub slices: Vec<Slice>,
 }
 
+/// The parsed digests of a well-formed [`FrameOutcome`].
+struct CheckedOutcome {
+    object_sha256: Digest,
+    /// The derived content digest, for a framed object.
+    content: Option<Digest>,
+}
+
+fn is_hex64(t: &str) -> bool {
+    t.len() == 64 && t.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Checks the upload Worker's framing message for shape: its schema, hex
+/// digests (they name blob-store keys), a manifest whose SHA-256 is the
+/// package digest and within the scorer's manifest bound, and slices that
+/// lie inside the object, each at most one scorer part. `None` when any of
+/// it does not hold.
+fn check_outcome(o: &FrameOutcome) -> Option<CheckedOutcome> {
+    if o.schema != slop_ninja_artifact_check::admission::FRAME_OUTCOME_SCHEMA || !is_hex64(&o.object_sha256) {
+        return None;
+    }
+    let object_sha256 = slop_ninja_artifact_check::admission::parse_digest(&o.object_sha256)?;
+    let content = match &o.result {
+        FrameResult::Framed(f) => {
+            if !is_hex64(&f.content) || !is_hex64(&f.package_sha256) || !is_hex64(&f.model_sha256) {
+                return None;
+            }
+            if f.manifest_hex.len() as u64 > 2 * slop_ninja_artifact_check::spec::MAX_MANIFEST_BYTES {
+                return None;
+            }
+            let manifest = hex::decode(&f.manifest_hex).ok()?;
+            if hex::encode(Sha256::digest(&manifest)) != f.package_sha256 {
+                return None;
+            }
+            let part = slop_ninja_artifact_check::spec::PART_BYTES;
+            let inside = f.slices.iter().all(|sl| {
+                is_hex64(&sl.sha256)
+                    && sl.len > 0
+                    && sl.len <= part
+                    && sl.offset.checked_add(sl.len).is_some_and(|end| end <= o.object_len)
+            });
+            if !inside {
+                return None;
+            }
+            Some(slop_ninja_artifact_check::admission::parse_digest(&f.content)?)
+        }
+        FrameResult::Reader { .. } | FrameResult::Check { .. } => None,
+    };
+    Some(CheckedOutcome { object_sha256, content })
+}
+
 /// Applies the framing outcome: the object's digest and length against the
 /// envelope, the cohort contract, and `SubmissionUpload::admit` against the
 /// logged commitment the session opened. Refusals end the session.
@@ -2138,7 +2011,7 @@ pub fn apply_frame(
     sql: &impl Sql,
     chain: &ChainBinding,
     id: &str,
-    framed: (Digest, u64, Result<Framed, FrameError>),
+    framed: FrameOutcome,
     now_ms: u64,
 ) -> R<()> {
     let Some(r) = session_row(sql, id)? else { return Ok(()) };
@@ -2153,16 +2026,22 @@ pub fn apply_frame(
         sql.exec("UPDATE adm_sessions SET stage = NULL WHERE session = ?", &[s(id)])?;
         Ok(())
     };
-    let (object_sha256, object_len, framed) = framed;
+    // The upload Worker's message, checked for shape before anything acts
+    // on it: a malformed one is the platform's (the attempt stays counted
+    // and backs off, as a cut-off one does), never the upload's.
+    let Some(checked) = check_outcome(&framed) else {
+        return Ok(());
+    };
+    let (object_sha256, object_len) = (checked.object_sha256, framed.object_len);
     if object_sha256 != r.upload.artifact_sha256 || object_len != r.upload.artifact_len {
         return refuse(ApiError::new(
             ErrorCode::ObjectMismatch,
             "the object's SHA-256 or length is not the envelope's",
         ));
     }
-    let f = match framed {
-        Ok(f) => f,
-        Err(FrameError::Reader(reason)) => {
+    let f = match framed.result {
+        FrameResult::Framed(f) => f,
+        FrameResult::Reader { reason } => {
             return refuse(
                 ApiError::new(ErrorCode::ArtifactInvalid, "the artifact reader refused the object").with(Detail {
                     reason: Some(reason),
@@ -2170,7 +2049,7 @@ pub fn apply_frame(
                 }),
             );
         }
-        Err(FrameError::Check(code)) => {
+        FrameResult::Check { code } => {
             return refuse(
                 ApiError::new(ErrorCode::CheckFailed, "an artifact check refused it").with(Detail {
                     check: Some(code),
@@ -2179,7 +2058,7 @@ pub fn apply_frame(
             );
         }
     };
-    if f.artifact.header.contract != w.output_contract {
+    if f.contract != w.output_contract {
         return refuse(ApiError::new(
             ErrorCode::ContractMismatch,
             "the header's contract is not the cohort's output contract",
@@ -2213,7 +2092,10 @@ pub fn apply_frame(
         extrinsic_index: entry.extrinsic,
         payload: &entry.payload,
     };
-    let entry_pos = match r.upload.admit(w.cohort, &fc, &f.artifact) {
+    let Some(content) = checked.content else {
+        return Ok(());
+    };
+    let entry_pos = match r.upload.admit_digests(w.cohort, &fc, &object_sha256, object_len, &content) {
         Ok(e) => e,
         Err(_) => {
             return refuse(ApiError::new(
@@ -2225,7 +2107,7 @@ pub fn apply_frame(
     let rec = FrameRecord {
         package_sha256: f.package_sha256.clone(),
         manifest_key: format!("artifacts/packages/{}.json", f.package_sha256),
-        manifest_hex: hex::encode(&f.manifest),
+        manifest_hex: f.manifest_hex.clone(),
         model_sha256: f.model_sha256.clone(),
         slices: f.slices,
     };
@@ -3601,9 +3483,20 @@ pub fn status(sql: &impl Sql) -> R<Value> {
             &[],
         )?,
     });
+    // The uploaded objects the store still tracks (the pre-deploy check of
+    // a bucket change: none may be left in progress or awaiting deletion).
+    let objects = json!({
+        "in_progress": count(
+            sql,
+            "SELECT COUNT(*) FROM adm_sessions WHERE state IN ('uploading','verifying','verified')",
+            &[],
+        )?,
+        "uncleaned": count(sql, "SELECT COUNT(*) FROM adm_sessions WHERE cleaned = 0 AND state <> 'admitted'", &[])?,
+        "pending_object_deletes": count(sql, "SELECT COUNT(*) FROM adm_object_deletes", &[])?,
+    });
     Ok(
         json!({"contract": CONTRACT, "cohorts": cohorts, "verdicts": verdicts, "platform_retries": stalled,
-        "commitments": commitments::status(sql)?}),
+        "objects": objects, "commitments": commitments::status(sql)?}),
     )
 }
 

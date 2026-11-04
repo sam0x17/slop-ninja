@@ -105,6 +105,10 @@ RUN_WALL_BUDGET_MS = "60000"
 # pointers, and starts a fresh record (publish.rs, `start_record`).
 PUBLISH_FROM_EPOCH = "76"
 RECORD_LABEL_PREFIX = "testnet-r0-"
+# The admission origin the snapshot advertises: the key-free upload Worker's
+# custom domain, the origin testnet-trust.json pins (admission_origins), so a
+# released miner client run with --public uploads there.
+ADMISSION_ORIGIN = "https://testnet-admission.slop.ninja"
 # Set at deploy, not here:
 #   PRIVATE_DIGESTS       comma-separated content digests and artifact SHA-256s
 #                         of the references (the initial reference and its
@@ -119,7 +123,6 @@ RECORD_LABEL_PREFIX = "testnet-r0-"
 #                         SubmissionUpload envelope, with {label} and {hotkey};
 #                         required with ARTIFACT_SOURCE_KEY, as are a non-empty
 #                         PRIVATE_DIGESTS and OPERATOR_HOTKEYS
-#   ADMISSION_ORIGIN      the admission origin the snapshot advertises
 #   NOTICE                extra operator text for the snapshot
 
 # Read: cohort objects (receipts) and artifact objects (eval). The publisher

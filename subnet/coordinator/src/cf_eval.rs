@@ -719,6 +719,14 @@ impl DurableObject for EvalCohort {
                     Ok(v) => v,
                     Err(_) => return error("store_unavailable", 503),
                 };
+                // The configured main authority writes the cohort snapshot
+                // the upload Worker serves the unsigned cohort read from
+                // (a predecessor's kick never does).
+                if instance == engine::INSTANCE_MAIN
+                    && configured_authority(&self.env, &instance).as_deref() == Some(cfg.authority.name())
+                {
+                    self.write_cohort_snapshot().await;
+                }
                 // While a step runs its alarm is consumed (get_alarm is empty); the
                 // step re-arms itself, so a kick never schedules an overlapping step.
                 let running: i64 = storage.get::<i64>("step_until_ms").await.ok().flatten().unwrap_or(0);

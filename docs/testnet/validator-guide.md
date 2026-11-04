@@ -561,8 +561,8 @@ Open an issue on the public repository's issue tracker (not yet live) with
 the output of `slop_ninja_validator --version` (the version and the commit the
 binary was built from; `slop-ninja-journal --version` prints the same), the
 command, the exit code and the logged event names. Never post the journal,
-keyfiles or mnemonics. Report a security problem privately; the contact will
-be on the [landing page](README.md).
+keyfiles or mnemonics. Report a security problem privately to
+[security@slop.ninja](mailto:security@slop.ninja) ([security policy](../../SECURITY.md)).
 
 ## Reference
 

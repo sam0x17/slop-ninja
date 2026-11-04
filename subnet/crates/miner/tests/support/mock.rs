@@ -11,6 +11,13 @@
 //! last entry before the cutoff block, so a later commitment (for the next
 //! cohort, say) never replaces the one that counted.
 //!
+//! With `upload_gate` set, every request first passes the key-free upload
+//! Worker's own front sequence (`slop_ninja_admission_gate::decide`, the
+//! function the Worker runs: the signature, the header-only checks,
+//! registration, then the body), before this mock decides as the cohort
+//! authority. Like the Worker, the gate never checks `valid_until`: that is
+//! the authority's, against its own cursor.
+//!
 //! Modes inject what a real coordinator or network can do: `paused`,
 //! `rate_limited` with `Retry-After`, a part corrupted in transit, the
 //! fallback that records claimed part digests without verifying them, an
@@ -94,6 +101,8 @@ pub struct Counters {
     pub requests: u32,
     /// Requests per route kind, for example `cohort` or `abort`.
     pub routes: BTreeMap<&'static str, u32>,
+    /// Requests the upload Worker's gate refused (`upload_gate`).
+    pub gate_refused: u32,
 }
 
 pub struct MockState {
@@ -130,6 +139,9 @@ pub struct MockState {
     pub redirect_parts_to: Option<String>,
     /// Pad the cohort response with this many bytes in an unknown field.
     pub pad_cohort_bytes: usize,
+    /// Answer this many signed requests with an edge error page (502, HTML,
+    /// no contract body), as a Cloudflare gateway failure would.
+    pub edge_errors: u32,
     /// Whether `request_expired` carries the cursor (`detail.finalized_block`).
     pub expired_with_cursor: bool,
     /// Lose these part records at the next completion request, as a lost
@@ -147,6 +159,8 @@ pub struct MockState {
     /// The `x-sn-commitment-block` of each session creation or reopening,
     /// in order (`None`: the request carried none).
     pub commitment_block_hints: Vec<Option<u64>>,
+    /// Front every request with the upload Worker's gate.
+    pub upload_gate: bool,
     pub counters: Counters,
 }
 
@@ -219,11 +233,13 @@ impl Mock {
             check_hook: None,
             redirect_parts_to: None,
             pad_cohort_bytes: 0,
+            edge_errors: 0,
             expired_with_cursor: true,
             drop_parts_before_complete: Vec::new(),
             reader_polled: None,
             commit_waits: HashMap::new(),
             commitment_block_hints: Vec::new(),
+            upload_gate: false,
             counters: Counters::default(),
         }));
         let shared = state.clone();
@@ -411,6 +427,20 @@ impl MockState {
             };
         }
         let is_part = matches!(route, Route::PutPart { .. });
+        if self.edge_errors > 0 {
+            self.edge_errors -= 1;
+            return Reply {
+                status: 502,
+                body: "<html><body>502 Bad Gateway</body></html>".into(),
+                headers: vec![],
+            };
+        }
+        if self.upload_gate
+            && let Err(reply) = self.gate(method, path, headers, body)
+        {
+            self.counters.gate_refused += 1;
+            return reply;
+        }
         let signer = match self.authenticate(method, path, headers, body, is_part) {
             Ok(signer) => signer,
             Err(reply) => return reply,
@@ -513,6 +543,63 @@ impl MockState {
             "reference": null,
             "a_later_field": [1, 2, 3],
         })
+    }
+
+    /// The upload Worker's front sequence, the very function the Worker
+    /// runs (`slop_ninja_admission_gate::decide`): the signature (CPU
+    /// only), the header-only checks, registration (here, the mock's
+    /// registry; on the Worker, its roster at the finalized head), then the
+    /// body. Its order is the Worker's, so a reorder there shows here.
+    fn gate(&self, method: &str, path: &str, headers: &HashMap<String, String>, body: &[u8]) -> Result<(), Reply> {
+        use slop_ninja_admission_gate as gate;
+        struct MockIo<'a> {
+            registrations: &'a HashMap<AccountId, NeuronIdentity>,
+            body: &'a [u8],
+        }
+        impl gate::Io for MockIo<'_> {
+            async fn registered(&mut self, who: &AccountId) -> Result<bool, ()> {
+                Ok(self.registrations.contains_key(who))
+            }
+            async fn read_body(&mut self, bound: usize) -> Result<Vec<u8>, gate::BodyFailure> {
+                if self.body.len() > bound {
+                    return Err(gate::BodyFailure::TooLarge);
+                }
+                Ok(self.body.to_vec())
+            }
+        }
+        let to_reply = |r: gate::Refusal| {
+            let w = r.reply();
+            Reply {
+                status: w.status,
+                body: w.body.to_string(),
+                headers: w
+                    .retry_after
+                    .map(|s| vec![("retry-after", s.to_string())])
+                    .unwrap_or_default(),
+            }
+        };
+        let get = |name: &str| headers.get(name).cloned();
+        let request = gate::Request {
+            method,
+            path,
+            headers: gate::Headers {
+                hotkey: get(header::HOTKEY),
+                valid_until: get(header::VALID_UNTIL),
+                content_sha256: get(header::CONTENT_SHA256),
+                signature: get(header::SIGNATURE),
+                commitment_block: get(header::COMMITMENT_BLOCK),
+            },
+            content_length: headers.get("content-length").map(String::as_str),
+            content_encoding: headers.get("content-encoding").map(String::as_str),
+            content_type: headers.get("content-type").map(String::as_str),
+        };
+        let mut io = MockIo { registrations: &self.registrations, body };
+        let decision = gate::ready(gate::decide(&mut io, &gate::Access::Open, &self.config.chain, &request))
+            .expect("the mock's I/O is ready");
+        match decision {
+            gate::Decision::Refuse(r) => Err(to_reply(r)),
+            gate::Decision::Cohort | gate::Decision::Part { .. } | gate::Decision::Forward { .. } => Ok(()),
+        }
     }
 
     fn authenticate(

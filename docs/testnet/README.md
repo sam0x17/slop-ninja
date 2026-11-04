@@ -54,7 +54,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Release public key | published below ([Release key](#release-key)) |
 | Signed release binaries (Linux x86_64) | not yet live: built from the public repository, signed and smoke-tested when it is published |
-| Coordinator admission routes (`commit`, `upload`, hotkey status) | not yet live |
+| Coordinator admission routes (`commit`, `upload`, hotkey status), at `https://testnet-admission.slop.ninja` (pinned in `testnet-trust.json`) | not yet live |
 | Public status host: status snapshot, cohort index, signed packages, leaderboard, published artifacts | not yet live |
 | Validator package fetcher | not yet live |
 | Validators committing the launch burn row | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo, under a launch authorization that does not expire |
@@ -65,7 +65,7 @@ The links below will appear here when each goes live:
 - public repository: <https://github.com/sam0x17/slop-ninja>; issue tracker: not yet live;
 - status host: not yet live;
 - release public key: [below](#release-key);
-- private security contact: not yet live.
+- private security contact: [security@slop.ninja](mailto:security@slop.ninja) ([security policy](../../SECURITY.md)).
 
 ## Release key
 
@@ -124,4 +124,5 @@ describe. Those platforms are untested.
 ## Getting help
 
 Report problems through the public repository's issue tracker once it is live.
-Report security problems privately, never in a public issue.
+Report security problems privately to [security@slop.ninja](mailto:security@slop.ninja), never in a
+public issue.

@@ -185,6 +185,26 @@ pub struct FinalizedCommitment<'a> {
 }
 
 impl SubmissionUpload {
+    /// The exact length of an encoded record (`Record::to_bytes`): every
+    /// field is fixed-size, so the record has one length. The kind string
+    /// (`u32` length and bytes), the `u16` version, the opening (chain:
+    /// genesis, `u16` netuid, `u8` mechanism; `u64` cohort; hotkey; `u64`
+    /// registration block; content digest; nonce), the commitment, the
+    /// artifact digest and its `u64` length. The admission Workers bound a
+    /// session-creation body by it.
+    pub const ENCODED_LEN: usize = 4
+        + <Self as Record>::KIND.len()
+        + 2
+        + (32 + 2 + 1)
+        + 8
+        + 32
+        + 8
+        + 32
+        + 32
+        + 32
+        + 32
+        + 8;
+
     pub fn new(opening: SubmissionOpening, artifact: &[u8]) -> Self {
         Self {
             commitment: opening.commitment(),
@@ -215,16 +235,31 @@ impl SubmissionUpload {
         commitment: &FinalizedCommitment<'_>,
         artifact: &VerifiedArtifact,
     ) -> Result<RosterEntry> {
+        self.admit_digests(cohort, commitment, &artifact.sha256, artifact.len, &artifact.content)
+    }
+
+    /// [`SubmissionUpload::admit`] from the object's digests alone: its
+    /// SHA-256 and length, and the inference-content digest a verifying
+    /// reader derived from it. For a decider that receives those from the
+    /// component that read the object, and never decodes the object itself.
+    pub fn admit_digests(
+        &self,
+        cohort: u64,
+        commitment: &FinalizedCommitment<'_>,
+        object_sha256: &Digest,
+        object_len: u64,
+        content: &Digest,
+    ) -> Result<RosterEntry> {
         self.validate()?;
         let opening = &self.opening;
         if opening.cohort != cohort {
             return Err(Error::Mismatch("commitment cohort"));
         }
         let entry = opening.check_finalized(commitment)?;
-        if artifact.len != self.artifact_len || artifact.sha256 != self.artifact_sha256 {
+        if object_len != self.artifact_len || *object_sha256 != self.artifact_sha256 {
             return Err(Error::Mismatch("upload artifact"));
         }
-        if artifact.content != opening.content {
+        if *content != opening.content {
             return Err(Error::Mismatch("upload content"));
         }
         Ok(entry)

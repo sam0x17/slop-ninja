@@ -12,7 +12,7 @@ use crate::testing::{Sqlite, tx};
 use crate::wire::{BlockRef, Id};
 use slop_ninja_admission_wire::{RequestScope, request_message};
 use slop_ninja_protocol::submission::{SubmissionOpening, SubmissionUpload};
-use slop_ninja_protocol::{FileRole, Nonce, TESTNET_GENESIS, artifact_object};
+use slop_ninja_protocol::{FileRole, MAX_ARTIFACT_HEADER_LEN, Nonce, TESTNET_GENESIS, VerifiedArtifact, artifact_object};
 
 const NOW: u64 = 1_793_000_000_000;
 const OPEN_BLOCK: u64 = 9_000;
@@ -325,7 +325,7 @@ fn upload_all(db: &Sqlite, m: &Miner) -> Reply {
         .unwrap()
         .unwrap();
         let r = tx(db, |s| {
-            Ok::<_, EvalError>(part_record(s, &id, &t, &format!("etag-{n}")))
+            Ok::<_, EvalError>(part_record(s, &chain(), &req, &id, &t, &format!("etag-{n}")))
         })
         .unwrap();
         assert_eq!(r.status, 200, "{:?}", r.body);
@@ -368,7 +368,7 @@ fn frame_only(db: &Sqlite, m: &Miner) {
             s,
             &chain(),
             &id,
-            (m.upload.artifact_sha256, m.upload.artifact_len, Ok(framed)),
+            (m.upload.artifact_sha256, m.upload.artifact_len, Ok(framed)).into(),
             NOW,
         )
     })
@@ -716,6 +716,126 @@ fn one_artifact_per_hotkey_attempts_and_supersession() {
     assert_eq!(state_of(&db, &id).0, "superseded");
 }
 
+/// Review round 1 of the upload Worker split, findings 2 and 3: the
+/// key-holding side creates a multipart upload only for the authenticated
+/// owner, keeps one upload per attempt when two creations race, and
+/// re-derives every part record from the session instead of taking the
+/// upload Worker's target as given.
+#[test]
+fn part_uploads_are_created_for_the_owner_only_and_records_are_rederived() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    let id = m.session();
+    let path = format!("/admission/v1/sessions/{id}/parts/1");
+    let req = m.signed(&db, "PUT", &path, &m.obj);
+    // Another hotkey's signed request, an unsigned one, or a tampered
+    // signature creates nothing; the owner's does.
+    let other = miner(2, 4, 1, 0x12);
+    let oreq = other.signed(&db, "PUT", &path, &m.obj);
+    let missing = |r: &Signed| tx(&db, |s| Ok::<_, EvalError>(upload_missing_for(s, &chain(), r, &id))).unwrap();
+    assert_eq!(missing(&oreq), None);
+    assert_eq!(missing(&Signed::default()), None);
+    let mut bad = req.clone();
+    bad.path = format!("/admission/v1/sessions/{id}/parts/2");
+    assert_eq!(missing(&bad), None);
+    assert_eq!(missing(&req).map(|x| x.1), Some(1));
+    // Two creations race: the first stored keeps the attempt's upload.
+    assert!(tx(&db, |s| set_upload_id(s, &id, 1, "u-first")).unwrap());
+    assert!(!tx(&db, |s| set_upload_id(s, &id, 1, "u-second")).unwrap());
+    assert!(tx(&db, |s| set_upload_id(s, &id, 1, "u-first")).unwrap());
+    assert_eq!(missing(&req), None, "created");
+    let t = tx(&db, |s| Ok::<_, EvalError>(part_begin(s, &chain(), &req, &id, 1, Some(m.obj.len() as u64))))
+        .unwrap()
+        .unwrap();
+    assert_eq!(t.upload_id, "u-first");
+    // Every tampered target is refused; nothing is recorded.
+    let record = |r: &Signed, t: &PartTarget| tx(&db, |s| Ok::<_, EvalError>(part_record(s, &chain(), r, &id, t, "e"))).unwrap();
+    let tampered: [(&str, PartTarget); 6] = [
+        ("key", PartTarget { key: "admission/x/y/a1.object".into(), ..t.clone() }),
+        ("upload id", PartTarget { upload_id: "u-second".into(), ..t.clone() }),
+        ("part", PartTarget { part: 2, ..t.clone() }),
+        ("len", PartTarget { len: t.len - 1, ..t.clone() }),
+        ("digest", PartTarget { sha256: "00".repeat(32), ..t.clone() }),
+        ("attempt", PartTarget { attempt: 2, ..t.clone() }),
+    ];
+    for (what, bad_t) in &tampered {
+        let r = record(&req, bad_t);
+        assert!(r.status >= 400, "{what}: {:?}", r.body);
+    }
+    // Another hotkey's signature, or none, cannot record the owner's part.
+    assert_eq!(code(&record(&oreq, &t)), "forbidden");
+    assert_eq!(code(&record(&Signed::default(), &t)), "bad_signature");
+    let rows = tx(&db, |s| s.exec("SELECT COUNT(*) FROM adm_parts", &[])).unwrap();
+    assert_eq!(crate::sql::int(&rows[0], 0).unwrap(), 0);
+    // The target part_begin issued records.
+    assert_eq!(record(&req, &t).status, 200);
+    // The pre-deploy check of a bucket change sees the session in progress.
+    let st = tx(&db, status).unwrap();
+    assert_eq!(st["objects"]["in_progress"], 1);
+    assert_eq!(st["objects"]["uncleaned"], 1);
+    assert_eq!(st["objects"]["pending_object_deletes"], 0);
+}
+
+/// Findings 2, 3 and 5: the forwarded route fields must be the ones the
+/// signed method and path name.
+#[test]
+fn forwarded_fields_must_be_the_signed_requests_own() {
+    use slop_ninja_admission_wire::internal::op;
+    let sid = "ab".repeat(32);
+    let f = |method: &str, path: String| Forward {
+        signed: Signed { method: method.into(), path, ..Signed::default() },
+        session: sid.clone(),
+        part: 3,
+        attempt: Some(2),
+        cohort: 7,
+        hotkey: "5Fhot".into(),
+        ..Forward::default()
+    };
+    let ok = [
+        (op::CREATE, f("POST", "/admission/v1/sessions".into())),
+        (op::READ, f("GET", format!("/admission/v1/sessions/{sid}"))),
+        (op::PART_BEGIN, f("PUT", format!("/admission/v1/sessions/{sid}/parts/3"))),
+        (op::PART_RECORD, f("PUT", format!("/admission/v1/sessions/{sid}/parts/3"))),
+        (op::COMPLETE, f("POST", format!("/admission/v1/sessions/{sid}/complete"))),
+        (op::ABORT, f("DELETE", format!("/admission/v1/sessions/{sid}/attempts/2"))),
+        (op::REOPEN, f("POST", format!("/admission/v1/sessions/{sid}/attempts/2"))),
+        (op::HOTKEY, f("GET", "/admission/v1/cohorts/7/hotkeys/5Fhot".into())),
+    ];
+    for (o, fw) in &ok {
+        assert!(forward_matches(o, fw), "{o}");
+    }
+    let other = "cd".repeat(32);
+    let bad = [
+        (op::READ, f("GET", format!("/admission/v1/sessions/{other}"))),
+        (op::PART_BEGIN, f("PUT", format!("/admission/v1/sessions/{sid}/parts/4"))),
+        (op::ABORT, f("DELETE", format!("/admission/v1/sessions/{sid}/attempts/1"))),
+        (op::REOPEN, f("DELETE", format!("/admission/v1/sessions/{sid}/attempts/2"))),
+        (op::HOTKEY, f("GET", "/admission/v1/cohorts/8/hotkeys/5Fhot".into())),
+        (op::COMPLETE, f("POST", format!("/admission/v1/sessions/{sid}"))),
+        (op::CREATE, f("POST", "/admission/v1/sessions?x".into())),
+    ];
+    for (o, fw) in &bad {
+        assert!(!forward_matches(o, fw), "{o} {}", fw.signed.path);
+    }
+    assert_eq!(code(&forward_mismatch()), "bad_request");
+}
+
+/// Finding 23: the eval Worker's JS route class gives the interface route's
+/// footprint only to requests for its internal host (`cf_arena.rs`, read in
+/// JS before any Rust runs).
+#[test]
+fn the_eval_classifier_names_the_internal_host() {
+    let src = include_str!("../cf_arena.rs");
+    let rule = format!(
+        "if (p.startsWith('/internal/admission/') && u.host === '{}') return 9;",
+        slop_ninja_admission_wire::internal::EVAL_INTERFACE_HOST
+    );
+    assert!(src.contains(&rule), "{rule}");
+    assert!(slop_ninja_admission_wire::internal::EVAL_PATH_PREFIX.starts_with("/internal/admission/"));
+}
+
 #[test]
 fn parts_completion_and_the_hotkey_view() {
     let db = db_with_open_cohort(2);
@@ -792,7 +912,7 @@ fn parts_completion_and_the_hotkey_view() {
     })
     .unwrap()
     .unwrap();
-    tx(&db, |s| Ok::<_, EvalError>(part_record(s, &id2, &t, "e"))).unwrap();
+    tx(&db, |s| Ok::<_, EvalError>(part_record(s, &chain(), &preq, &id2, &t, "e"))).unwrap();
     let creq2 = m2.signed(&db, "POST", &format!("/admission/v1/sessions/{id2}/complete"), &[]);
     tx(&db, |s| Ok::<_, EvalError>(complete(s, &chain(), &creq2, &id2, NOW))).unwrap();
     tx(&db, |s| completion_failed(s, &id2, NOW)).unwrap();
@@ -817,7 +937,7 @@ fn framing_checks_the_envelope_the_contract_and_the_commitment() {
         "{:?}",
         framed.2.as_ref().err()
     );
-    tx(&db, |s| apply_frame(s, &chain(), &id, framed, NOW)).unwrap();
+    tx(&db, |s| apply_frame(s, &chain(), &id, framed.into(), NOW)).unwrap();
     assert_eq!(state_of(&db, &id), ("refused".into(), Some("check_failed".into())));
     // A changed byte: object_mismatch, decided before anything else.
     let m2 = miner(2, 4, 1, 0x12);
@@ -830,7 +950,7 @@ fn framing_checks_the_envelope_the_contract_and_the_commitment() {
     let mut f = Framer::new();
     f.update(&bytes);
     tx(&db, |s| {
-        apply_frame(s, &chain(), &m2.session(), f.finish(Version::V2), NOW)
+        apply_frame(s, &chain(), &m2.session(), f.finish(Version::V2).into(), NOW)
     })
     .unwrap();
     assert_eq!(
@@ -848,7 +968,7 @@ fn framing_checks_the_envelope_the_contract_and_the_commitment() {
     upload_all(&db, &m3);
     let other = VerifiedArtifact::from_bytes(&object(0x77)).unwrap();
     let framed = Framed {
-        package_sha256: hex::encode([1; 32]),
+        package_sha256: hex::encode(Sha256::digest([])),
         model_sha256: hex::encode([1; 32]),
         manifest: vec![],
         slices: vec![],
@@ -859,7 +979,7 @@ fn framing_checks_the_envelope_the_contract_and_the_commitment() {
             s,
             &chain(),
             &m3.session(),
-            (m3.upload.artifact_sha256, m3.upload.artifact_len, Ok(framed)),
+            (m3.upload.artifact_sha256, m3.upload.artifact_len, Ok(framed)).into(),
             NOW,
         )
     })
@@ -867,38 +987,6 @@ fn framing_checks_the_envelope_the_contract_and_the_commitment() {
     assert_eq!(
         state_of(&db, &m3.session()),
         ("refused".into(), Some("content_mismatch".into()))
-    );
-}
-
-#[test]
-fn framer_slices_each_file_at_the_scorer_part_size() {
-    // Slicing is per file, at PART_BYTES, the last slice of a file shorter:
-    // checked on a small object through the private slice table.
-    let obj = object(0x42);
-    let mut f = Framer::new();
-    for chunk in obj.chunks(7) {
-        f.update(chunk);
-    }
-    assert!(f.failed.is_none());
-    let header = f.reader.header().map(|(h, _)| h.clone()).unwrap();
-    assert_eq!(f.slices.len(), header.files.len());
-    for (file, parts) in header.files.iter().zip(&f.slices) {
-        assert_eq!(parts.len(), 1, "files under 64 MiB are one slice");
-        assert_eq!(parts[0].bytes, file.len);
-        assert_eq!(
-            parts[0].sha256,
-            file.sha256.hex(),
-            "a whole-file slice hashes as the file"
-        );
-    }
-    // Offsets follow the header order after the length prefix and header,
-    // as the reader reports them (the framer parses nothing itself).
-    let header_len = u32::from_le_bytes(obj[..4].try_into().unwrap()) as u64;
-    assert_eq!(f.files_at, Some(4 + header_len));
-    let (_, _, framed) = f.finish(Version::V2);
-    assert!(
-        matches!(framed, Err(FrameError::Check(_))),
-        "the test object is not spec-valid"
     );
 }
 
@@ -1062,7 +1150,7 @@ fn verdict_rules_one_run_bound_definitive_and_counted() {
     upload_all_attempt(&db, &again, 2);
     let artifact = VerifiedArtifact::from_bytes(&again.obj).unwrap();
     let framed = Framed {
-        package_sha256: hex::encode([0xee; 32]),
+        package_sha256: hex::encode(Sha256::digest([1])),
         model_sha256: hex::encode([1; 32]),
         manifest: vec![1],
         slices: vec![],
@@ -1073,7 +1161,7 @@ fn verdict_rules_one_run_bound_definitive_and_counted() {
             s,
             &chain(),
             &id,
-            (again.upload.artifact_sha256, again.upload.artifact_len, Ok(framed)),
+            (again.upload.artifact_sha256, again.upload.artifact_len, Ok(framed)).into(),
             NOW,
         )
     })
@@ -1150,7 +1238,7 @@ fn upload_all_attempt(db: &Sqlite, m: &Miner, attempt: u32) {
     })
     .unwrap()
     .unwrap();
-    tx(db, |s| Ok::<_, EvalError>(part_record(s, &id, &t, "e"))).unwrap();
+    tx(db, |s| Ok::<_, EvalError>(part_record(s, &chain(), &req, &id, &t, "e"))).unwrap();
     let creq = m.signed(db, "POST", &format!("/admission/v1/sessions/{id}/complete"), &[]);
     tx(db, |s| Ok::<_, EvalError>(complete(s, &chain(), &creq, &id, NOW))).unwrap();
     tx(db, |s| completed(s, &id, NOW)).unwrap();
@@ -2039,7 +2127,7 @@ fn a_lost_multipart_completion_is_resumed_and_an_operator_can_refuse_a_stalled_s
         .unwrap()
         .unwrap();
         tx(&db, |s| {
-            Ok::<_, EvalError>(part_record(s, &id, &t, &format!("etag-{n}")))
+            Ok::<_, EvalError>(part_record(s, &chain(), &req, &id, &t, &format!("etag-{n}")))
         })
         .unwrap();
     }
@@ -2165,6 +2253,49 @@ fn framing_attempts_that_never_finish_back_off_and_never_refuse_the_upload() {
     assert!(backoff_ms(40) <= LANE_LEASE_MS, "the backoff is bounded by the lane lease");
 }
 
+/// Review round 1 of the upload Worker split, finding 8: a framing call
+/// that fails through the link between the two Workers is counted (so the
+/// plan's pause bound faults the cohort), a link that is not configured
+/// faults it at once, and only the upload Worker's object-read answer is
+/// uncounted.
+#[test]
+fn framing_link_failures_are_counted_and_a_misconfigured_link_faults_at_once() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    let id = m.session();
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    let tries = |db: &Sqlite| {
+        let rows = tx(db, |q| q.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s(&id)])).unwrap();
+        u32::try_from(crate::sql::int(&rows[0], 0).unwrap()).unwrap()
+    };
+    let mut t = NOW;
+    // An object read: uncounted.
+    assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+    tx(&db, |s| frame_failed(s, &id, FrameFailure::ObjectRead, t)).unwrap();
+    assert_eq!(tries(&db), 0);
+    // Counted failures reach the pause bound and fault the cohort.
+    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    for n in 1..=bound {
+        t += backoff_ms(n);
+        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+        assert_eq!(fault(&db), None, "attempt {n}");
+        tx(&db, |s| frame_failed(s, &id, FrameFailure::Counted, t)).unwrap();
+        assert_eq!(tries(&db), n);
+    }
+    t += backoff_ms(bound + 1);
+    assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
+    // After a clear, a misconfigured link faults on its first failure.
+    let label = tx(&db, |s| engine::cohort(s, 1)).unwrap().label;
+    assert!(tx(&db, |s| engine::clear_fault(s, &label, t)).unwrap().cleared);
+    tx(&db, |s| frame_failed(s, &id, FrameFailure::Misconfigured, t)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
+    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().state, SessionState::Verifying);
+}
+
 /// Fix round 2, findings 5 and 7: a commitment resolution whose reads keep
 /// serving no state pauses the admitting cohort visibly (resumable
 /// `commitment_state_unavailable`) at the plan's pause bound, but only when
@@ -2227,45 +2358,6 @@ fn backed_off_housekeeping_is_work_but_not_due_work() {
     assert!(!tx(&db, |s| engine::has_due_work(s, &cfg(), NOW)).unwrap());
     assert!(tx(&db, |s| engine::has_work(s, &cfg())).unwrap());
     assert!(only(&db, Some(NOW + backoff_ms(1))), "due once the backoff passed");
-}
-
-#[test]
-fn a_zero_header_length_is_refused_by_the_one_reader_framing_uses() {
-    use std::sync::mpsc;
-    use std::time::Duration;
-    let (tx1, rx1) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut f = Framer::new();
-        f.update(&[0u8, 0, 0, 0, 1, 2, 3]);
-        f.update(&[4, 5]);
-        let _ = tx1.send(f.finish(Version::V2).2.err());
-    });
-    let got = rx1.recv_timeout(Duration::from_secs(10)).expect("framing returns");
-    assert!(
-        matches!(&got, Some(FrameError::Reader(r)) if r.contains("artifact header length")),
-        "{got:?}"
-    );
-}
-
-#[test]
-fn a_header_listing_more_files_than_the_spec_is_refused_before_slicing() {
-    // The test object's six files and one more than the spec's file table.
-    let files: Vec<(&str, FileRole, Vec<u8>)> = vec![
-        ("a-fp32band.onnx", FileRole::Graph, vec![1; 300]),
-        ("calibration.json", FileRole::Calibration, b"{1}".to_vec()),
-        ("contract.json", FileRole::OutputSchema, b"c1".to_vec()),
-        ("extra.json", FileRole::OwnerMetadata, b"e1".to_vec()),
-        ("heads.json", FileRole::Weights, b"h1".to_vec()),
-        ("manifest.json", FileRole::OwnerMetadata, b"m1".to_vec()),
-        ("tokenizer.json", FileRole::Tokenizer, b"t1".to_vec()),
-    ];
-    assert_eq!(files.len(), spec::ROLES.len() + 1);
-    let refs: Vec<(&str, FileRole, &[u8])> = files.iter().map(|(n, r, b)| (*n, *r, b.as_slice())).collect();
-    let obj = artifact_object(spec::CONTRACT_ID, &refs).unwrap();
-    let mut f = Framer::new();
-    f.update(&obj);
-    assert!(f.slices.is_empty(), "nothing sliced");
-    assert!(matches!(f.finish(Version::V2).2, Err(FrameError::Check(c)) if c == "undeclared_file"));
 }
 
 #[test]
@@ -2767,4 +2859,57 @@ fn the_template_runs_the_testnet_plan_defaults() {
         .unwrap()
         .provisional_gates = false;
     assert!(crate::eval::calendar::check(&cfg(), &serde_json::to_vec(&final_gates).unwrap()).is_err());
+}
+
+/// Review round 2 of the upload Worker split, finding 12: a multipart
+/// upload that R2 created while an abort landed is not stored on the
+/// aborted attempt (the caller aborts it), so none is orphaned.
+#[test]
+fn an_upload_created_across_an_abort_is_not_stored() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    let id = m.session();
+    let req = m.signed(&db, "DELETE", &format!("/admission/v1/sessions/{id}/attempts/1"), &[]);
+    let (r, _) = tx(&db, |s| Ok::<_, EvalError>(abort(s, &chain(), &req, &id, 1, NOW))).unwrap();
+    assert_eq!(r.body["state"].as_str(), Some("aborted"));
+    assert!(!tx(&db, |s| set_upload_id(s, &id, 1, "late")).unwrap(), "the caller aborts it");
+    let row = tx(&db, |s| session_row(s, &id)).unwrap().unwrap();
+    assert_eq!(row.upload_id, None);
+}
+
+/// Review round 2, finding 11: the key-holding side hashes a forwarded
+/// creation body itself; a body without the upload Worker's digest, or a
+/// body that is not the signed one, is refused.
+#[test]
+fn a_creation_body_is_hashed_by_the_authority() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    let body = m.upload.to_bytes().unwrap();
+    let mut r = m.signed(&db, "POST", "/admission/v1/sessions", &body);
+    r.body = Some(hex::encode(&body));
+    let mut no_digest = r.clone();
+    no_digest.body_sha256 = None;
+    let (reply, fx) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &no_digest, NOW))).unwrap();
+    assert_eq!((code(&reply).as_str(), fx.create), ("content_digest_mismatch", None));
+    let mut other = r.clone();
+    let mut changed = body.clone();
+    if let Some(b) = changed.last_mut() {
+        *b ^= 1;
+    }
+    other.body = Some(hex::encode(&changed));
+    let (reply, _) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &other, NOW))).unwrap();
+    assert_eq!(code(&reply), "content_digest_mismatch");
+    let (reply, fx) = tx(&db, |s| Ok::<_, EvalError>(create(s, &chain(), &r, NOW))).unwrap();
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert!(fx.create.is_some());
+}
+
+/// The cohort snapshot answers `paused` once it is as old as the
+/// heartbeat freshness the authority answers `paused` after.
+#[test]
+fn the_snapshot_freshness_is_the_heartbeat_freshness() {
+    assert_eq!(slop_ninja_admission_wire::internal::COHORT_SNAPSHOT_FRESH_MS, crate::eval::engine::HEARTBEAT_FRESH_MS);
 }

@@ -9,6 +9,7 @@ description = "Durable native weight adapter for Slop Ninja"
 [workspace]
 members = [
     ".",
+    "crates/admission-gate",
     "crates/artifact-check",
     "crates/protocol",
     "crates/protocol-check",

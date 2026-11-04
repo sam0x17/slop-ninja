@@ -1698,7 +1698,10 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
     let path = req.path();
     let audit = config::authority_route(&path);
     let read_only = req.method() == Method::Get
-        && (path == "/eval/status" || path == "/eval/load/status" || matches!(audit, Some((_, "status"))));
+        && (path == "/eval/status"
+            || path == "/eval/load/status"
+            || path == "/eval/admission/link"
+            || matches!(audit, Some((_, "status"))));
     let secret = if read_only { "COORDINATOR_STATUS_TOKEN" } else { "COORDINATOR_OPERATOR_TOKEN" };
     match bearer_ok(&req, &env, secret) {
         Err(()) => return error("token_not_configured", 503),
@@ -1737,6 +1740,9 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
             v["ledger"] = eval_do::ledger_call(&env, "/status", &serde_json::json!({})).await.unwrap_or_default();
             json(&v)
         }
+        // The eval-to-upload link probe: the framing service binding, the
+        // internal host and the shared interface token (the deploy probe).
+        (Method::Get, "/admission/link") if instance == "main" => json(&admission_do::link_probe(&env).await),
         // Main authority `<name>`, only when the deployment knows it, so no
         // request creates an object for any other name. A named authority's
         // own succession check runs in its object (`EvalCohort::succeed`), so
@@ -1873,7 +1879,9 @@ async fn fetch(req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Result
         (Method::Post, "/signing/restart") => signing_admin(req, env, "restart").await,
         (Method::Post, "/signing/revoke") => signing_admin(req, env, "revoke").await,
         (_, p) if p.starts_with("/eval/") => eval_route(req, env).await,
-        (_, p) if p.starts_with("/admission/") => admission_do::route(req, env).await,
+        // The public admission routes are the upload Worker's; this Worker
+        // serves only the internal interface its service binding reaches.
+        (_, p) if p.starts_with("/internal/admission/") => admission_do::interface_route(req, env).await,
         (
             _,
             "/hook" | "/status" | "/fault/clear" | "/signing/target" | "/signing/control"

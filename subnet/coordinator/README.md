@@ -55,11 +55,13 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `POST /signing/control` | Operator action, body `{"action": "resume" \| "pause" \| "clear_fault" \| "arm_drill", "drill": ..., "count": n}`. |
 | `POST /signing/kick` | Operator action: run one signing round now (the duplicate-wakeup drill). |
 | `GET /eval/status` | `EVAL_ROLE = "eval"` only. Content-free cohort status, with every scorer slot's running state. Needs the status token. |
+| `GET /eval/admission/link` | `EVAL_ROLE = "eval"` only. Probes the framing link to the upload Worker (service binding, internal host, shared interface token) without an upload: `{"frame": "ok"}` or the failure. Needs the status token. |
 | `POST /eval/plan`, `/eval/clear` | Queue a cohort plan; clear a resumable cohort fault (`{"label": ...}`). Operator token. |
 | `POST /eval/abandon` | End a terminally faulted cohort without a target (`{"label": ..., "reason": "<code>"}`). Operator token. |
 | `POST /eval/probe`, `/eval/scorer-probe` | Pre-flight one generator, or the scorer path, on fixed synthetic text; the measured cost is settled in the spend ledger. Operator token. |
 | `POST /eval/template`, `/eval/template/pause`, `GET /eval/calendar` | Install the standing cohort template; pause or resume opening cohorts from it (`{"paused": bool}`); the cohort calendar. Operator token. |
-| `/admission/v1/...` | `EVAL_ROLE = "eval"` only, and only when `ADMISSION_ROUTES` opens them (`off`, the default: 404; `hotkeys`: the listed `ADMISSION_HOTKEYS` only; `open`): the admission API, contract `slop_ninja.admission/v1` (`docs/testnet/admission-api.md`). Hotkey-signed; the Worker checks the signature and body digest before forwarding. No token. |
+| `/admission/...` | Always 404. The public admission routes (contract `slop_ninja.admission/v1`, `docs/testnet/admission-api.md`) are the key-free upload Worker's (`subnet/admission-worker`, `slop-ninja-admission-testnet`), not this Worker's. |
+| `POST /internal/admission/v1/<op>` | `EVAL_ROLE = "eval"` only. The internal admission interface, reachable only through the upload Worker's service binding: a request must name the internal host `eval-admission.internal`, which no public route carries, and present the shared `ADMISSION_INTERFACE_TOKEN` (compared in constant time). Anything else answers 404. The body is one forwarded, already checked request (`slop_ninja_admission_wire::internal::Forward`), relayed to the cohort authority. |
 | cron `* * * * *` | The watchdog. On the coordinator it is the only timer, and no Durable Object alarms are set; on the eval Worker it also kicks the cohort authority and, outside scoring, stops idle scorer slots, while the cohort and scorer Durable Objects keep bounded alarms. The finalized commitment reader is per-block work: each new block's delivery drives it, and the cron only while the watchdog is in fallback (when no delivery arrives), never as its own schedule. |
 
 Without its token secret, a route returns 503. A wrong token gets 401. Both
@@ -1458,7 +1460,12 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
   faults with the resumable `framing_unavailable`: the roster freeze waits on
   the same cohort, the publisher's `cohort_fault` alert fires, and the
   operator clears it after a framing that succeeded meanwhile or after
-  refusing the session. A verdict run's platform failures pause the cohort
+  refusing the session. Framing runs in the upload Worker: a framing call
+  that fails is counted the same way, except the upload Worker's explicit
+  object-read answer (uncounted), and a link that is not configured (no
+  token or service binding, or a 404 or 400 from the upload Worker) faults
+  the cohort on its first failure; `GET /eval/admission/link` probes the
+  link. A verdict run's platform failures pause the cohort
   the same way (`scorer_unavailable`), and so does a commitment resolution
   whose reads keep serving no state while the hotkey has a session verifying
   (`commitment_state_unavailable`). No parser of graph or
@@ -1932,14 +1939,17 @@ milestone M7.
 - **Score publication to validators (M5/M6).** Packages, targets and receipts
   are stored and signed, but no validator fetches them from R2 yet; the T12
   bundle is the bridge.
-- **Admission, open items.** The header record is decoded in the eval Worker, which holds the package
-  and receipt keys; moving that decode and the parts-manifest derivation
-  into the scorer Container (or the upload routes into a key-free Worker)
-  needs the lane-client change or a new resource, and the routes stay off
-  (`ADMISSION_ROUTES`) outside operator drills until then. Per-hotkey and
-  per-IP rate limits (`rate_limited`) are not enforced; the stateless
-  signature check and the `hotkeys` allow-list keep unsigned and unlisted
-  load away from the cohort object, the unsigned cohort read excepted.
+- **Admission, open items.** The eval Worker decodes no uploaded object:
+  framing (the header record, the slices and the parts manifest) runs in
+  the key-free upload Worker, which the cohort object's framing step calls
+  through its service binding (finding 24, decided 2026-11-03). Testnet
+  enforces protocol bounds only (decision D6): no per-IP or per-hotkey rate
+  limit, `rate_limited` is never sent; the upload Worker refuses unsigned
+  and unregistered requests before any body read or forward, and serves the
+  one unsigned route, the cohort read, from the cohort snapshot the cohort
+  object writes to the upload bucket, so no unsigned request reaches the
+  eval Worker ([admission API](../../docs/testnet/admission-api.md),
+  section 13).
   Framing is one non-resumable step that hashes the object four times; its
   CPU and peak memory at the spec's largest object are not measured on the
   load instance (`ADMISSION_STEP_BYTES` and `COMMITMENTS_CONTROL_BYTES` are
@@ -2007,7 +2017,11 @@ milestone M7.
   still hold, or a burn row the limits refuse (exit 75), and its previous
   weights stay on chain. The coordinator commits burn rows itself.
 - **Lookup canary.** No anchors exist on testnet; the canary statistic is not
-  computed and flags come only from the plan's drill list.
+  computed and flags come only from the plan's drill list. User decision
+  D12b (2026-11-03): testnet promotions run without the lookup canary,
+  labelled testnet-only in the guides, the terms and the leaderboard
+  (`promotion_rule` in `v1/leaderboard.json`, a note on the page). The canary
+  is required before mainnet.
 - **Fan-out stage 2.** Job ledgers (one Durable Object per scored job) and a
   two-level receipt index are not implemented; the flat v1 index and one
   cohort object hold every receipt row, which fits the testnet rosters

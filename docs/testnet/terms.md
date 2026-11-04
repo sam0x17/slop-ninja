@@ -60,7 +60,10 @@ be replaced at most once outside the
 promotion rule, by a better qualified reference that passes every required
 gate, with advance notice on the status page. Replacing it moves no reward
 already earned. All other reference changes follow the published promotion
-rule.
+rule. On testnet only, promotions run without the lookup canary, and the
+leaderboard labels this; an operator drill of the blocking path, named in the
+cohort's plan, can still block a candidate. The canary is required before
+mainnet.
 
 ## Rules and changes
 
@@ -85,6 +88,6 @@ found to be wrong may be held for a signed correction.
 
 Do not attack the coordinator, the status host, other participants or the
 chain, and do not try to obtain hidden evaluation data. Report a security
-problem privately, not in a public issue; the private security contact will be
-listed on the [landing page](README.md) before the testnet is announced. Report
-other problems through the public repository's issue tracker.
+problem privately to [security@slop.ninja](mailto:security@slop.ninja), not in a public issue
+([security policy](../../SECURITY.md)). Report other problems through the
+public repository's issue tracker.

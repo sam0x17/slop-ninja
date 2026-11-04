@@ -1,0 +1,5 @@
+# Local state, build output and secrets; the Wrangler config itself is tracked.
+/.dev.vars
+/.dev.vars.*
+/.wrangler/
+/build/

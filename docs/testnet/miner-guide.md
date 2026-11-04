@@ -22,9 +22,9 @@ closes.
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Signed release binaries (Linux x86_64) | not yet live: binaries built from the public repository, signed and smoke-tested when it is published |
-| Coordinator admission routes, used by `commit`, `upload`, `abort` and the hotkey view of `status` | not yet live |
+| Coordinator admission routes, used by `commit`, `upload`, `abort` and the hotkey view of `status`, served by the upload Worker at `https://testnet-admission.slop.ninja` | not yet live |
 | Public status host, used by `status` and `next-cohort`, with the published packages, leaderboard and artifacts | not yet live |
-| The coordinator's admission origin pinned in the release trust file | not yet live |
+| The coordinator's admission origin pinned in the release trust file | pinned: `https://testnet-admission.slop.ninja` |
 | Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo |
 | Reference packages (`R_0` and the S2c span package) | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
 
@@ -385,25 +385,42 @@ Set these once per shell:
 
 ```sh
 export SLOP_NINJA_TRUST=/path/to/testnet-trust.json   # from the release
-export SLOP_NINJA_PUBLIC=<public status host>         # not yet live
-export SLOP_NINJA_COORDINATOR=<coordinator URL>       # not yet live; only until a trust file pins it
+export SLOP_NINJA_PUBLIC=<public status host>         # not yet live; leave unset until it is
 export SLOP_NINJA_WALLET=my-wallet SLOP_NINJA_HOTKEY=my-miner
 ```
 
 An upload sends your opening, with its secret nonce, and your whole artifact
 before the cohort closes, so the client sends signed requests only to an
-authenticated coordinator origin. When the release trust file lists the
-coordinator's origin in `admission_origins`, the client uses only that origin:
-it takes it from the public snapshot's `coordinator` field, which it accepts
-only because the trust file pins it, or from `--coordinator` naming a pinned
-origin. The current trust file pins no origin yet. Until a release does,
-`--public` alone cannot choose the coordinator, and every command that needs
-one (`commit`, `upload`, `abort`, the hotkey view of `status`) needs
-`--coordinator URL` (`SLOP_NINJA_COORDINATOR`); without it they stop with
-exit 2 and say so. Take that URL only from the signed release or this guide,
-which will list it when it goes live; never take it from a chat message or the
-unsigned snapshot. The client prints the origin before it opens a session,
-never follows redirects, and accepts plain HTTP only for loopback hosts.
+authenticated coordinator origin. The release trust file lists one origin in
+`admission_origins`: `https://testnet-admission.slop.ninja`, the coordinator's
+upload Worker. The client uses only that origin:
+
+- With `SLOP_NINJA_TRUST` set and neither `--coordinator` nor `--public`,
+  `commit`, `upload`, `abort` and `status` use the one origin the trust file
+  pins. This works now, before the public status host is live.
+- `--coordinator https://testnet-admission.slop.ninja` (or
+  `SLOP_NINJA_COORDINATOR` set to it) names the same origin explicitly. Any
+  other origin is refused while the trust file pins one.
+- Once the public status host is live, `--public` alone also works: the
+  client takes the origin from the snapshot's `coordinator` field, which it
+  accepts only because the trust file pins it.
+
+Never take an upload origin from a chat message or from the unsigned
+snapshot alone.
+The client prints the origin before it opens a session, never follows
+redirects, and accepts plain HTTP only for loopback hosts.
+
+The upload Worker holds no signing key. It checks every signed request before
+it reads the body or forwards anything: the signature must verify, and the
+hotkey must hold a UID on subnet 601 at the finalized head (the Worker
+reads the subnet's hotkeys once a block, so a hotkey registered in the
+last few blocks may answer `not_registered` until finality and that read
+catch up; send again a block later). A request from an
+unregistered hotkey is refused with `not_registered`, so register before you
+commit. Testnet enforces protocol bounds only. There is one session per
+commitment and one artifact per hotkey per cohort, and sizes are bounded by
+the artifact spec. Cloudflare's DDoS protection sits in front of the upload
+host. There is no per-IP or per-hotkey request rate limit.
 
 ## 8. Wait for an admitting cohort
 
@@ -514,7 +531,17 @@ are skipped.
 - The client holds one part in memory at a time. A part's timeout grows with
   its size at `--min-upload-kib-per-sec` (default 32); raise it on a fast
   link, lower it on a slow one.
-- Retryable errors are retried with backoff (`--attempts`, default 6).
+- The upload Worker holds a part's request open for as long as the part
+  streams, in a small memory scope of its own. Its memory bookkeeping
+  expects that scope to end within the Worker's arena deadline (15 minutes,
+  borrowed from the longest documented Workers wall limit; a fetch itself
+  has none): a 64 MiB part (the testnet `part_size`) slower than about 0.6
+  Mbit/s (75 KiB/s) still completes, but is counted as overdue while it
+  streams. A busy Worker answers `unavailable`, which the client retries.
+- Retryable errors are retried with backoff (`--attempts`, default 6). A busy
+  upload Worker answers the contract's `unavailable` with `Retry-After`. An
+  edge error page without a contract body (502, 503, 504, or a Cloudflare
+  52x) is retried the same way.
 - `--restart` aborts a refused attempt, for example after `object_mismatch`,
   and sends every part again.
 - To upload a different object for the same commitment, abort the live session
@@ -626,9 +653,14 @@ nothing for any miner UID. Expect no payout while the burn regime lasts.
 When a gated entrant beats `R_k` by `δ`:
 
 - every gated entrant at or above the cutoff `S_R + δ(1 - S_R)` earns;
-- the top-ranked eligible entrant that also passes the promotion checks (the
-  strict pure-human false-positive tier and the lookup canary) becomes the next
-  reference, `R_{k+1}`. Its artifact is published with its cohort.
+- the top-ranked eligible entrant that also passes the promotion checks
+  becomes the next reference, `R_{k+1}`. Its artifact is published with its
+  cohort. The whitepaper's promotion checks are the strict pure-human
+  false-positive tier and the lookup canary. **Testnet only:** promotions on
+  testnet run without the lookup canary, and the leaderboard says so. An
+  operator drill of the blocking path, named in the cohort's plan, can still
+  flag a candidate and block its promotion. The canary is required before
+  mainnet.
 
 Once a predecessor reference `R_{k-1}` exists, a cohort in which nobody clears
 the margin, but some gated entrant beats `R_{k-1}`, is scored against a fallback
@@ -743,9 +775,8 @@ yet live). Include:
 
 Never post your mnemonic, keyfiles or password. Before the cohort closes, never
 post your artifact or opening: they let others enter your model. Report a
-security problem privately, not in a public issue; the private security
-contact will be listed on the [landing page](README.md) before the testnet is
-announced.
+security problem privately to [security@slop.ninja](mailto:security@slop.ninja), not in a public issue
+([security policy](../../SECURITY.md)).
 
 ## Reference
 

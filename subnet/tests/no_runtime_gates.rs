@@ -6,8 +6,8 @@
 //! allow-list one or bake one into an identity. Signing reads the live versions
 //! inside rtao at signing time; that is outside this tree.
 //!
-//! The scan covers the subnet crates, the coordinator, the publisher and the
-//! alerts relay. Test files and everything after a file's first
+//! The scan covers the subnet crates, the coordinator, the upload Worker, the
+//! publisher and the alerts relay. Test files and everything after a file's first
 //! `#[cfg(test)]` are skipped. Comments are ignored. Run with
 //! `cargo test --test no_runtime_gates`.
 
@@ -113,14 +113,28 @@ fn production_code_never_compares_runtime_versions() {
         "crates/validator/src",
         "crates/miner/src",
         "crates/miner/wire/src",
+        "crates/admission-gate/src",
         "crates/artifact-check/src",
         "crates/arena/src",
         "coordinator/src",
+        "admission-worker/src",
         "publisher/src",
         "alerts-relay/src",
         "alerts-relay/wire/src",
     ] {
         rust_files(&root.join(dir), &mut files);
+    }
+    // The build scripts: they configure what the Workers link.
+    for script in ["admission-worker/build.rs", "coordinator/build.rs", "crates/arena/build.rs"] {
+        let path = root.join(script);
+        assert!(path.is_file(), "missing build script {script}");
+        files.push(path);
+    }
+    for dir in ["crates/admission-gate/src", "admission-worker/src"] {
+        assert!(
+            files.iter().any(|f| f.starts_with(root.join(dir))),
+            "the scan reads nothing under {dir}"
+        );
     }
     assert!(files.len() > 10, "scan found too few files: {files:?}");
     let mut report = Vec::new();

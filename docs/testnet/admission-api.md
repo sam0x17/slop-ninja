@@ -3,7 +3,7 @@
 This is the contract between the coordinator's admission routes and the miner
 client `slop_ninja_miner` (`subnet/crates/miner`). It covers the on-chain
 commitment and how the coordinator reads it, the hotkey-signed upload into the
-coordinator's private evaluation bucket, the admission cutoff, the
+coordinator's private upload bucket, the admission cutoff, the
 one-artifact-per-hotkey rule, the status endpoints and the error codes. It
 applies to testnet subnet 601.
 
@@ -26,10 +26,20 @@ arena. Its owned JSON shapes (feature `json`) allocate; they serve the native
 client and the test mock.
 
 Status: the miner client implements this contract and is tested against a local
-mock of it. The coordinator implements it on the eval Worker
-(`subnet/coordinator/src/eval/admission.rs`, `commitments.rs`, `calendar.rs`
-and `src/cf_admission.rs`), tested natively and for wasm32; it is not yet
-deployed or drilled live. Every value under "Parameters" is announced by the
+mock of it. The coordinator implements it on two Workers, tested natively and
+for wasm32:
+
+- the **upload Worker** `slop-ninja-admission-testnet`
+  (`subnet/admission-worker`), served at `https://testnet-admission.slop.ninja`,
+  takes every public request. It holds no signing key. It checks each request
+  (signature, registration on the subnet, body bounds) before anything else,
+  streams parts into a private upload bucket, and frames uploaded objects;
+- the **eval Worker** (`subnet/coordinator/src/eval/admission.rs`,
+  `commitments.rs`, `calendar.rs` and `src/cf_admission.rs`) holds the package
+  and receipt keys and the cohort state. It serves no public admission route.
+  The upload Worker reaches it only through a service binding (section 13).
+
+Every value under "Parameters" is announced by the
 coordinator rather than assumed by the client: each is a parameter of the
 cohort's frozen plan (its `admission` block) or derived from the plan's
 artifact spec. Section 13 lists where the implementation refines this text.
@@ -47,7 +57,7 @@ artifact spec. Section 13 lists where the implementation refines this text.
    signs `Commitments.set_commitment` with the hotkey (section 2).
 4. After the commitment finalizes and the coordinator has logged it,
    `upload` opens a session at an authenticated coordinator origin (section
-   4), uploads the object in parts through the coordinator's Worker, and
+   4), uploads the object in parts through the coordinator's upload Worker, and
    completes the session (sections 4 to 6). An interrupted upload resumes from
    the parts the coordinator has recorded.
 5. The coordinator verifies the object and the envelope at completion and
@@ -279,9 +289,44 @@ with no `<Bytes>` wrapper (rtao `Signer::sign_raw`). The coordinator verifies it
 strictly (`rtao_core::keys::verify_strict`, as `verify_sr25519` in
 `subnet/coordinator/src/chain.rs` does).
 
-The coordinator refuses a request when:
+The upload Worker checks every signed request in this order, before it reads
+a body or forwards anything:
 
-- the signature does not verify (`bad_signature`);
+1. the route parses (`bad_request` otherwise). Every path segment is bounded
+   by its format; a hotkey segment by the SS58 shape (at most 50 base58
+   characters);
+2. the four signature headers are present and the signature verifies
+   (`bad_signature`). This is CPU only, with no I/O;
+3. in `hotkeys` mode (operator drills), the signer is listed (`not_found`
+   otherwise);
+4. the header-only checks, still without I/O: a hotkey segment decodes as an
+   SS58 account and names the signer (`bad_request`, `forbidden`); a
+   creation carries the upload media type (`unsupported_media_type`); a
+   bodiless route's signed `x-sn-content-sha256` is the empty string's
+   (`content_digest_mismatch`); a declared `Content-Length` is within the
+   route's bound (one `SubmissionUpload` record for a creation, none for a
+   bodiless route; `bad_request`); a part's `Content-Length` is present and
+   no larger than the largest object any admission spec allows
+   (`part_length_mismatch`);
+5. the signer holds a UID on the subnet at the finalized head
+   (`not_registered`). This is a lookup in the Worker's roster of the
+   subnet's hotkeys, which each isolate reads once a block (12 s) with
+   read-only RPC calls (`SubnetworkN` and `Keys` at the head, keys composed
+   by name from live metadata, a runtime upgrade followed), so the request
+   itself costs no I/O. While the roster cannot be read the Worker answers
+   `unavailable` (retry 12 s);
+6. only then is the body read, within its route's bound, and compared with
+   `x-sn-content-sha256`. A part's body is not read: it streams to R2. A
+   body the platform could not read answers `unavailable` (retryable).
+
+The upload Worker does not check `valid_until`: its chain head can run ahead
+of the cohort authority's cursor, and a check against the head could refuse
+a request the authority accepts. The steps above are one function,
+`slop_ninja_admission_gate::decide`, which the miner client's mock also runs.
+
+The cohort authority then refuses a request when:
+
+- the signature does not verify (`bad_signature`; it checks again);
 - `valid_until` is below its finalized cursor (`request_expired`, with the
   cursor in `detail.finalized_block` so the client re-signs from it);
 - `valid_until` exceeds its cursor by more than `request_validity_blocks`
@@ -321,10 +366,11 @@ destination only when the trust file pins that origin. When a trust file pins
 origins, every other origin is refused, including one named with
 `--coordinator`. The client prints the origin before it opens a session. It
 never follows a redirect: a 3xx answer is an error, so signed headers and parts
-reach only that origin. `subnet/coordinator/testnet-trust.json` pins no
-admission origin yet: the origin and the Worker that serves it wait for the
-public-access decision, and until a release pins one, clients name the
-coordinator with `--coordinator`.
+reach only that origin. `subnet/coordinator/testnet-trust.json` pins
+`https://testnet-admission.slop.ninja`, the upload Worker's custom domain,
+and the public snapshot advertises the same origin. A released client run
+with `--public` therefore uploads there. Because the file pins an origin,
+`--coordinator` with any other origin is refused.
 
 ## 5. Endpoints
 
@@ -474,7 +520,10 @@ Uploads part `n` (1-based) as the raw request body.
 - `Content-Length` is required and must be the part's exact length
   (section 6); `x-sn-content-sha256` is the part's SHA-256.
 - The Worker streams the body into the R2 multipart upload through its bucket
-  binding (`uploadPart`); it never buffers the part. Where the digest-stream
+  binding (`uploadPart`), through a `FixedLengthStream` of the part's exact
+  length; it never buffers the part. A body that is not that length answers
+  `part_length_mismatch`; a part R2 could not store answers `unavailable`
+  (send it again). Where the digest-stream
   path is qualified it also hashes the stream and refuses a mismatch with
   `part_digest_mismatch`, after which the part may be sent again. Where it is
   not, it records the claimed digest, and a part that changed in transit
@@ -545,9 +594,14 @@ ends the session with `object_mismatch`. It then, as its own durable work:
    differs from the deployment's, it runs again before the roster freezes,
    refusals included, and the session shows `verifying` meanwhile.
 
-No parser of the graph or the role files runs in the eval Worker, which holds
-the package and receipt signing keys; steps 1 to 4 read only the header
-record, lengths and digests. An operator can refuse a stalled session with a
+No byte of an uploaded object is decoded in the eval Worker, which holds the
+package and receipt signing keys. Framing (step 1: the header record, lengths
+and digests, the slices and the parts manifest) runs in the key-free upload
+Worker. The eval Worker's framing step calls it through a service binding and
+receives a bounded JSON outcome. That outcome carries the header's contract,
+the derived content digest, the manifest and the slices, never the header
+record. Steps 2 to 4 compare those digests, and no parser of the graph or the
+role files runs in either Worker. An operator can refuse a stalled session with a
 recorded reason (`check_failed`, `detail.check` `operator:<reason>`).
 
 The session ends in `verified` or `refused`. The client polls the session.
@@ -710,7 +764,7 @@ and never retry the others unchanged.
 | `wrong_chain` | 422 | no | the opening names another chain or subnet |
 | `wrong_cohort` | 422 | no | the opening names another cohort (`detail.admitting`) |
 | `hotkey_mismatch` | 422 | no | the opening names another hotkey than the signer |
-| `not_registered` | 422 | no | the hotkey has no UID on the subnet |
+| `not_registered` | 422 | no | the hotkey has no UID on the subnet (the upload Worker refuses every signed request from such a hotkey before reading its body) |
 | `registration_mismatch` | 422 | no | the opening names another registration generation |
 | `commitment_not_found` | 409 | yes | no logged commitment yet (none, or not yet final) |
 | `commitment_unresolvable` | 422 | no | the hotkey's latest commitment can never be logged (`detail.reason`: `shared_extrinsic`, `undecodable`, `state_discarded`, `block_unknown`, `no_commitment_event`, `state_unavailable`); commit again with a new nonce |
@@ -724,7 +778,7 @@ and never retry the others unchanged.
 | `session_not_uploading` | 409 | no | the session no longer accepts parts, completion or an abort |
 | `stale_attempt` | 409 | no | the abort or reopen names another attempt than the current one (`detail.attempt`) |
 | `parts_missing` | 409 | yes, upload them | completion before every part (`detail.missing`) |
-| `rate_limited` | 429 | yes | per-hotkey request rate exceeded (not yet enforced) |
+| `rate_limited` | 429 | yes | reserved; testnet enforces no request rate (section 13, "Limits") |
 | `paused` | 503 | yes | the coordinator is paused or catching up; the cutoff extends |
 | `unavailable` | 503 | yes | temporary failure |
 | `internal` | 500 | yes | unexpected failure |
@@ -844,19 +898,82 @@ authoritative for uploads; the snapshot is a published mirror and can lag it.
 - Record one `last_refusal` per hotkey and cohort, overwritten by the next
   refusal, after the signature verifies.
 - Answer `GET /admission/v1/cohort` with `cache-control: no-store`, and put the
-  cursor in `request_expired`'s `detail.finalized_block`.
+  cursor in `request_expired`'s `detail.finalized_block`. (On testnet the
+  cohort authority writes the response, with the time, to a snapshot in the
+  upload bucket at every heartbeat, and the upload Worker serves the read
+  from it through one edge-cache copy per location kept for one block, 12 s,
+  under one key for every URL variant: the query is dropped. A snapshot
+  older than the heartbeat freshness, 10 minutes, answers `paused: true`.
+  So this unsigned read never reaches the eval Worker, and reaches the
+  bucket about once a block per edge location; concurrent misses are not
+  coalesced. Clients still receive `no-store`.)
 
 ## 13. Implementation notes (coordinator, testnet)
 
-- **Where.** The routes are the eval Worker's, served only when the
-  deployment opens them (`ADMISSION_ROUTES`: `off` by default, which answers
-  404; `hotkeys`, only to the listed hotkeys, for operator drills; `open`).
-  The Worker verifies each request's signature and body digest before
-  forwarding, so a request that fails them never reaches the cohort
-  authority (`EvalCohort`), which authenticates against the cursor, decides
-  and records in one transaction, then creates, aborts or completes the R2
-  multipart upload and records the result. Session operations, the close
-  and the freeze are serialized by that one object.
+- **Where.** The public routes exist only on the upload Worker
+  (`slop-ninja-admission-testnet`, `subnet/admission-worker`), whose only
+  public ingress is the custom domain `testnet-admission.slop.ninja`. It has
+  no `workers.dev` name and no preview URLs. `ADMISSION_ROUTES` there is
+  `open` (every registered hotkey), `hotkeys` (only those `ADMISSION_HOTKEYS`
+  lists, for operator drills) or `off` (404). The eval Worker answers 404 to
+  every `/admission/` request. Its internal interface
+  (`/internal/admission/v1/<op>`, `slop_ninja_admission_wire::internal`)
+  serves only requests addressed to its internal host, which no public route
+  carries, that also present the interface token the two Workers share as a
+  Worker secret. Another Worker bound to the eval Worker (the publisher)
+  cannot reach it. The upload Worker forwards one bounded message per checked
+  request. The cohort authority (`EvalCohort`) authenticates it again against
+  the cursor and re-derives the route fields from the signed method and path
+  (a forwarded session, part, attempt or hotkey other than the signed one is
+  refused), decides and records in one transaction, then creates, aborts or
+  completes the R2 multipart upload in the upload bucket and records the
+  result. It hashes a creation body itself. A part's upload is created only
+  for its authenticated owner, and a creation that loses a race, or that
+  lands after an abort or supersede of its attempt, is aborted. A part record carries the part's
+  signed request again: the cohort authority verifies it for the session's
+  owner and checks the target (object key, upload id, the plan's length of
+  that part, the signed digest) against the session before it records the
+  part. Session operations, the close and the freeze are serialized by that
+  one object.
+- **Framing failures.** A framing call through the upload Worker that fails
+  counts against the session's attempts, so attempts that keep failing reach
+  the plan's pause bound and fault the cohort (`framing_unavailable`,
+  resumable). Only the upload Worker's platform answers (503 with
+  `x-sn-frame-failure`: `object-read`, or `platform` for a framing request
+  it could not take) are not counted. A link that is not
+  configured (no token or service binding, or the upload Worker answering
+  404 or 400) faults the cohort on its first failure. `GET
+  /eval/admission/link` (the status token, on the eval Worker's existing
+  operator surface) probes the link without an upload.
+- **Keys and bindings.** The upload Worker holds no chain hotkey and no
+  package, receipt or authorization key. Its one secret is the interface
+  token. Its bindings are the private upload bucket
+  (`admission-bucket-testnet`, uploaded objects only) and the service
+  binding to the eval Worker. The eval Worker binds the same upload bucket
+  for the multipart control operations, slice copies and deletes and the
+  cohort snapshot, and has a
+  service binding back to the upload Worker for framing (`POST
+  /internal/upload/v1/frame`, which needs the same internal host and token).
+  Parts stream from the request to R2 in the upload Worker and never reach
+  the eval Worker.
+- **Limits.** Testnet enforces protocol bounds only (decision D6). A request
+  must be signed by a hotkey registered on subnet 601. There is one session
+  per hotkey and commitment and one artifact per hotkey per cohort. Objects
+  and parts are bounded by the artifact spec (the declared length at the
+  upload Worker, the exact part length and the cohort's `max_object_len` at
+  the cohort authority). Cloudflare's built-in DDoS protection sits in front
+  of the custom domain. Unsigned requests, other than the cohort read, and
+  requests from unregistered hotkeys are refused before any body is read or
+  anything is forwarded; the cohort read is served from the snapshot
+  (section 12), never by the eval Worker. There is no per-IP or per-hotkey
+  rate cap, and `rate_limited` is never sent. A signed request costs no RPC
+  call of its own: each isolate of the upload Worker reads the finalized
+  head and the subnet's roster once a block, by one request at a time
+  (later ones wait for it), and after a failed read answers `unavailable`
+  for one block without reading again. So the RPC load grows with the
+  number of busy isolates, never with the request rate; it is not yet
+  measured on the deployed Worker. The RPC is the public OpenTensor testnet
+  endpoint, as for the coordinator's other testnet reads.
 - **Parameters.** `part_size`, `max_parts`, `request_validity_blocks`,
   `roster_cap`, `selection`, the artifact spec (id and digest), the
   operator's own hotkeys and the fresh pool are the plan's `admission` block.
@@ -904,10 +1021,14 @@ authoritative for uploads; the snapshot is a published mirror and can lag it.
   publication. A cohort abandoned after its freeze has no closure: its
   admitted objects, and the slices and manifests only their copies created,
   are deleted like a refused session's.
-- **Not yet.** `rate_limited` is not enforced (the signature check in the
-  Worker and the `hotkeys` allow-list keep unsigned and unlisted load off
-  the cohort authority, the unsigned cohort read excepted). The digest-stream
-  part check is not qualified, so parts record their claimed digest.
+- **Not yet.** The digest-stream
+  part check is not qualified, so parts record their claimed digest (the
+  same signed part headers sent again within `valid_until` with another
+  body, or after a reopen, record that digest for the other bytes; that
+  shows at framing as `object_mismatch` and costs the owner the attempt).
+  Copies of slices into the eval bucket are not hashed in transit either:
+  a blob is written under the digest of the upload Worker's framing
+  outcome, and the scorer refuses a blob that does not match it.
   Admission runs use the scorer lane's admission route: a freshly started
   instance under the cohort's label, spec digest and lane limits (its size
   bound, load allowance and document time limit), whose reply says whether a

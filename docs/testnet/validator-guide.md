@@ -532,7 +532,10 @@ A build older than the one that queued burn-row work cannot open that
 journal, and in steady state the next tempo's burn row is almost always
 queued, so the work never simply finishes. To roll back, stop the unit, run
 `slop_ninja_validator --config <config> rollback-check --retire`, and install
-the older build only when it exits 0 (see the validator README,
+the older build only when it exits 0. Once the journal retains a finalized
+failed weight call, even a reviewed or settled one, it never exits 0: every
+release before `review-failure` existed halts on such a journal and cannot
+clear it, so roll forward only (see the validator README,
 [Rolling back past this rtao pin](../../subnet/crates/validator/README.md#rolling-back-past-this-rtao-pin)).
 A valid release signature does not make a build newer: the signature binds
 the binaries' digests, not a version, so the same steps apply to an older
@@ -563,12 +566,96 @@ slop-ninja-journal --journal <journal_path> inspect
 Never delete the journal or its lock to clear a refusal. A refusal leaves the
 journal paused, and the next run recovers first.
 
+### A rejected commit (`recovery_requires_review`)
+
+If the chain includes a weight commit but refuses it, nothing is committed and
+the validator records a finalized failure. Recovery reads the failure's
+receipt to learn the error. The validator does not sign while a receipt is
+unread. If the read fails for a reason that can pass (a timeout or a lost
+connection), the validator logs `failure_receipt_unreadable` as an alert once,
+keeps running and reads the receipt again at the next block. Startup instead
+exits 75 (`recovery_incomplete`), and the unit restarts. If the read cannot
+succeed on that endpoint (`state_discarded`: the node pruned the block's
+state; `block_not_found`; or `decode` and `metadata`, when the block does not
+decode), the validator records `receipt_unavailable` and halts for review as
+described below. Each later start reads the receipt again, so pointing the
+validator at an endpoint that holds the state (an archive node) and starting
+it again clears the halt without a review.
+
+Some refusals settle by themselves: a rate limit, a commit too soon after the
+last one, or stake below the weights minimum. The validator records the
+decoded error, logs `weight_commit_refused` as an alert, and commits again at
+a later tempo. A new validator with too little stake therefore keeps running
+and starts committing once it has the stake. A `weight_commit_refused` alert
+that recurs every tempo means the validator is not committing.
+
+Any other refusal halts the validator with `recovery_requires_review` (exit 3,
+the unit stays stopped), after it logs `finalized_failure_requires_review`.
+Such a refusal can be a wrong weights version, a deregistered hotkey, a
+disabled commit-reveal flag, a commit queue that never drains
+(`TooManyUnrevealedCommits`) or no validator permit
+(`NeuronNoValidatorPermit`). Several of these would fail every later tempo
+too. A receipt that contradicts the journal, or one that cannot be read
+(`receipt_unavailable`), also halts. Stop the unit and list the failures:
+
+```sh
+systemctl --user stop slop_ninja_validator-dispatch@my-instance
+slop-ninja-journal --journal <journal_path> inspect
+```
+
+`review_required` names each failure's operation ID, attempt number, block and
+decoded error (or `receipt_contradiction`, or `receipt_unavailable` with the
+read's class). Fix the cause first, then record the review and start the unit
+again:
+
+```sh
+slop-ninja-journal --journal <journal_path> review-failure --operation <operation_id> --attempt <n>
+systemctl --user start slop_ninja_validator-dispatch@my-instance
+```
+
+The review is a permanent marker for that attempt. Nothing is deleted, and the
+attempt stays in the journal as evidence. The tool refuses an attempt that is
+still unresolved: run the validator first so recovery can classify it. You
+can also review a failure listed under `awaiting_decode` (its receipt has not
+been read) the same way.
+
+A `receipt_contradiction` means the receipt reports success, or another
+block, while the journal recorded a failure, so the commit may have landed.
+`review-failure` refuses it (`receipt_contradiction`) unless you add
+`--accept-contradiction`. Check the chain first (`slop_ninja_validator
+observe`). The review is then recorded as a reviewed contradiction, counted
+under `reviewed_contradictions` rather than `reviewed_failures`, and the
+operation is retired as `receipt_contradiction_reviewed`. A landed timelocked
+commit is revealed by the chain itself; the validator's reveal ledger does
+not track it.
+
+Reviewing a failure is roll-forward only. Every validator release before
+`review-failure` existed, including earlier releases at the same rtao pin,
+halts with `recovery_requires_review` on any finalized failure the journal
+retains, reviewed or settled included, and cannot review it. Once your
+journal holds one, do not install an older release; `rollback-check` reports
+it and exits 3 (see [The launch burn row](#the-launch-burn-row)).
+
 ## Logs
 
 Logs are structured JSON on stderr (or text). Events have fixed names and
 counts and omit addresses, paths, ciphertext, signed bytes and endpoint paths.
+`failure_receipt_unreadable` names only a fixed `class` of the failed read
+(`timeout`, `transport`, `state_discarded`, ...); the read's error text, which
+can carry endpoint detail, is logged only at debug level
+(`failure_receipt_read_error`).
 The dry-run and dispatch reports on stdout contain the row's entries, which are
 public anyway.
+
+Events with `"alert": true` need attention. Those about refused commits are
+`weight_commit_refused` (the chain refused a commit, and the validator will
+commit again; it names the decoded `error` and the `tempo`),
+`failure_receipt_unreadable` (a refused commit's receipt could not be read;
+signing is paused until it is, and `lasting` says whether it halts for
+review. It is alerted once per run, and again only when its `class` changes) and `finalized_failure_requires_review` (the validator
+halts; see [A rejected commit](#a-rejected-commit-recovery_requires_review)).
+Each `recovery_round` event also counts `failures_awaiting_decode`,
+`failures_awaiting_review`, `refusals_settled` and `reviewed_failures`.
 
 ## Reporting problems
 

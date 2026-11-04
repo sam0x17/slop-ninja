@@ -943,6 +943,11 @@ fn a_scheduler_error_keeps_recovery_only_when_nothing_was_signed() {
         attempts,
         unresolved_attempts,
         finalized_failures,
+        failures_awaiting_decode: 0,
+        reviewed_failures: 0,
+        reviewed_contradictions: 0,
+        review_required: Vec::new(),
+        awaiting_decode: Vec::new(),
         semantic_refusals: 0,
         readiness: ReadinessSummary::default(),
     };

@@ -43,7 +43,24 @@ procedure for subnet 601 is [TESTNET-M2.md](TESTNET-M2.md).
    readiness just recorded names `upstream_storage_refused` (a storage item
    that rtao reads only through a compiled descriptor no longer matches live
    metadata), startup logs it as an alert and exits 75 to retry. Any other
-   recovery error exits 1.
+   recovery error exits 1. A finalized failed attempt (a weight call the
+   chain included but refused) first waits for its receipt to be read: a
+   failed read logs the alert `failure_receipt_unreadable` (once per run and
+   class, naming only the read's fixed class) and leaves recovery incomplete
+   (exit 75, `recovery_incomplete`). A read that cannot clear by itself
+   (`state_discarded`, `block_not_found`, `decode`, `metadata`) is recorded
+   as `receipt_unavailable` and halts for review instead; each later start
+   reads it again. Once
+   decoded, an ordinary refusal settles by its error name (rate limit, commit
+   too soon, not enough stake) and is logged as the alert
+   `weight_commit_refused`; any other failure, or a receipt that contradicts
+   the journal, halts recovery with `recovery_requires_review` (exit 3, after
+   the alert `finalized_failure_requires_review`) until it is reviewed
+   offline with `slop-ninja-journal review-failure`
+   ([subnet README](../../README.md#journal-controls)). A running dispatch
+   process does the same at each finalized head: it retries an unread
+   receipt at the next head, and after a settled refusal commits again at a
+   later tempo.
 5. Read `NetworksAdded(netuid)`, `Uids(netuid, hotkey)` and
    `CommitRevealWeightsEnabled(netuid)` together at the finalized block.
    Startup halts if the subnet is absent (`subnet_not_registered`), the hotkey
@@ -713,8 +730,19 @@ this pin added:
   and `revealed_code`, which rtao keeps as evidence once a reveal completes,
   or is missed, under a non-native commit-reveal tag.
 
-Handed-back and retired operations are never decoded there, so finished work
-blocks nothing; the slot's `unsigned_retry` is accepted there. To roll back:
+Handed-back and retired operations are never decoded there; the slot's
+`unsigned_retry` is accepted there. One kind of finished work does block: a
+finalized failed weight call. Every build before `review-failure` (at that
+pin, and earlier releases at this pin) counts each finalized failure the
+journal retains, reviewed, settled or not, halts on it with
+`recovery_requires_review` (exit 3), and has no way to review it. rtao keeps
+the attempt as evidence, so it never clears: `rollback-check` lists it
+(`attempt.outcome.finalized_failure`, or
+`extensions.slopninja.failure-review.v1` once reviewed or settled), retires
+nothing, and exits 3. A journal that has held one settled
+`CommittingWeightsTooFast` or `NotEnoughStakeToSetWeights` refusal is
+roll-forward only, at or after the release that added `review-failure`. To
+roll back:
 
 ```sh
 systemctl --user stop slop_ninja_validator-dispatch@<name>

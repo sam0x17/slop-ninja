@@ -539,6 +539,9 @@ fn row_hash_is_public_and_canonical() -> Result<()> {
 #[path = "surface_tests.rs"]
 mod surface_tests;
 
+#[path = "review_tests.rs"]
+mod review_tests;
+
 /// A journal written by this adapter at rtao `aa8627ba` (journal schema 2), with
 /// one handed-off operation, one operation holding an unresolved attempt, and a
 /// retired testnet runtime-qualification record. See the fixture README.

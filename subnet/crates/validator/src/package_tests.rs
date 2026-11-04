@@ -1631,6 +1631,85 @@ fn the_per_tempo_gate_waits_for_a_queued_tracked_operation() -> Result<()> {
     Ok(())
 }
 
+/// Lane journal-review: the tracked commit was signed, included and refused
+/// by the chain with a refusal that settles (the weights rate limit). The
+/// first receipt read fails: the failure waits for decoding and nothing
+/// halts or retires. The next read settles it and retires the operation, so
+/// the per-tempo loop's `tracked_settled` follows it without a read-back,
+/// and the next application pass skips its label and queues another.
+#[test]
+fn a_settled_refusal_of_the_tracked_commit_lets_the_next_tempo_follow() -> Result<()> {
+    use slop_ninja_subnet::{DecodedError, ReceiptRead, review::FailureRef};
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let open = || -> Result<TestApp> {
+        let mut app = TestApp::open(&config, &bundle())?;
+        app.bundle = launch_bundle(10);
+        app.epoch = 12;
+        Ok(app)
+    };
+    let mut app = open()?;
+    let (first, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created);
+    drop(app);
+    OperationJournal::open(&config.journal_path)?.update(|image| {
+        let record = image.operations.get_mut(&first).expect("operation retained");
+        push_lost_response(record);
+        record.attempts[0].outcome = rtao_client::journal::AttemptOutcome::Finalized {
+            block: H256([0x61; 32]),
+            number: 8_340_480,
+            success: false,
+            extensions: BTreeMap::new(),
+        };
+        record.extensions.insert("scheduler_handed_off".into(), serde_json::Value::Bool(true));
+        Ok(())
+    })?;
+    let mut app = open()?;
+    assert!(!app.live.tracked_settled(&first, false)?);
+    let controls = app.live.controls_for_tests().context("journal")?;
+
+    let fail = |_: FailureRef| async {
+        Err::<ReceiptRead, _>(slop_ninja_subnet::ReadFailure {
+            class: "timeout".into(),
+            lasting: false,
+            detail: "rpc request failed".into(),
+        })
+    };
+    let report = block_on(controls.decode_failures_with(fail))?;
+    assert_eq!((report.unreadable.len(), report.settled), (1, 0));
+    let summary = controls.inspect()?;
+    assert_eq!((summary.failures_awaiting_decode, summary.finalized_failures), (1, 0));
+    assert_eq!(retired_reason(&app, &first), None);
+    assert!(!app.live.tracked_settled(&first, false)?);
+
+    let refuse = |at: FailureRef| async move {
+        Ok(ReceiptRead {
+            hash: at.hash,
+            block_hash: Some(at.block_hash),
+            block_number: Some(at.block_number),
+            success: false,
+            error: Some(DecodedError {
+                kind: "Module".into(),
+                pallet: Some("SubtensorModule".into()),
+                name: "CommittingWeightsTooFast".into(),
+            }),
+        })
+    };
+    let report = block_on(controls.decode_failures_with(refuse))?;
+    assert_eq!((report.settled, report.retired), (1, 1));
+    assert_eq!(report.refusals[0].operation, first);
+    assert!(report.refusals[0].tempo.is_some());
+    assert_eq!(retired_reason(&app, &first).as_deref(), Some(slop_ninja_subnet::review::RETIRED_SETTLED));
+    let summary = controls.inspect()?;
+    assert_eq!((summary.failures_awaiting_decode, summary.finalized_failures, summary.reviewed_failures), (0, 0, 1));
+    assert!(app.live.tracked_settled(&first, false)?, "settled: nothing to read back");
+    let (next, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created && next != first, "the retired label is skipped and the next queued");
+    assert_eq!(app.summary()?.operations, 2);
+    Ok(())
+}
+
 // reward-v1 cohort bundles against the real journal: the held target, a
 // target switch, a missed tempo, a re-derived row and rollbacks.
 

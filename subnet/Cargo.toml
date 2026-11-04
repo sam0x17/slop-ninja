@@ -34,6 +34,7 @@ rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009ba
 rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
 rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
 rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
+rtao-rpc = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
 scale-info = { version = "2.11", default-features = false }
 
 [features]

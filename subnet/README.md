@@ -229,6 +229,9 @@ cargo run --manifest-path subnet/Cargo.toml --bin slop-ninja-journal -- \
   --journal /persistent/validator/weights-journal.json inspect
 cargo run --manifest-path subnet/Cargo.toml --bin slop-ninja-journal -- \
   --journal /persistent/validator/weights-journal.json pause
+cargo run --manifest-path subnet/Cargo.toml --bin slop-ninja-journal -- \
+  --journal /persistent/validator/weights-journal.json \
+  review-failure --operation <operation_id> --attempt <n>
 ```
 
 Inspection prints counts and pause state, excluding payloads and signed bytes.
@@ -241,6 +244,61 @@ Never remove the lock file to force takeover. Live admin transport is not
 implemented. Resume requires recovery through the library; there is no offline
 command that clears uncertainty.
 
+A finalized failure is a signed weight call the chain included but whose
+dispatch failed. Nothing was committed and its bytes cannot land again; rtao
+hands the operation back. Finalized recovery reads each new failure's receipt
+and decodes its dispatch error by pallet and variant name through the
+inclusion block's metadata, with no runtime version check, and records it on
+the attempt (`src/review.rs`). A failure whose receipt cannot be read yet
+awaits decoding (`failures_awaiting_decode`): recovery and resume stay
+incomplete without halting, and the next round reads it again. Recovery
+reports each failed read (`SettleReport::unreadable`) by a fixed class from
+the typed rtao error, never its text. A read that cannot clear by itself
+(`state_discarded`, `block_not_found`, `decode`, `metadata`) is recorded as
+a `receipt_unavailable` diagnostic, which awaits review like a decoded
+failure; it is read again at each later round, and the first successful read
+replaces it. No retry is counted and nothing expires. A decoded failure
+awaits review (`finalized_failures`), and recovery and resume refuse while any
+does; the validator then halts with `recovery_requires_review`. A receipt that
+contradicts the recorded inclusion or outcome is recorded as a
+`receipt_contradiction` and awaits review the same way. Two paths write a
+permanent review marker for the attempt, kept in its operation record:
+
+- Recovery settles a decoded error that is an ordinary weight-call refusal
+  expected to clear without action (`SubtensorModule`
+  `CommittingWeightsTooFast`, `SettingWeightsTooFast`,
+  `NotEnoughStakeToSetWeights`; rule `slopninja.settled-weight-refusals.v1`)
+  and keeps it as a diagnostic. It never halts, and recovery reports each one
+  (`SettleReport::refusals`, which the validator logs as the alert
+  `weight_commit_refused`), so a refusal that recurs every tempo stays
+  visible. `TooManyUnrevealedCommits` and `NeuronNoValidatorPermit` are not
+  settled, because a queue that never drains or a permit the stake rank never
+  earns can be a lasting misconfiguration.
+- `review-failure` records an operator's review of any other failure. `inspect`
+  lists the failures awaiting review under `review_required`, and those
+  awaiting decoding under `awaiting_decode`, each with its operation ID,
+  attempt number, block and decoded error name. The command refuses unknown
+  IDs, unresolved attempts (recovery must classify them first), attempts that
+  expired or landed, and operations with contradictory evidence. A failure
+  whose receipt contradicts the journal (`receipt_reports_success`,
+  `receipt_block_differs`: the call may have landed) is refused
+  (`receipt_contradiction`) unless the operator adds
+  `--accept-contradiction`; the marker is then a reviewed contradiction
+  (`contradiction_reviewed`), counted under `reviewed_contradictions`, never
+  as a reviewed failure, and its operation retires as
+  `receipt_contradiction_reviewed`. Find out what
+  the error means before you review it: a wrong weights version, a disabled
+  commit-reveal flag or a deregistered hotkey fails every later tempo too.
+
+Counts include only failures without a marker (`finalized_failures`,
+`failures_awaiting_decode`); `reviewed_failures` and
+`reviewed_contradictions` count the rest. Markers
+delete nothing and survive reopening. Once every failure of a handed-back
+operation is reviewed, the operation is also marked retired
+(`finalized_failure_reviewed`, `finalized_failure_settled` or
+`receipt_contradiction_reviewed`), so the next
+tempo's commit follows.
+
 ## Gaps against the merged revision
 
 | Area | Integration boundary |
@@ -249,7 +307,7 @@ command that clears uncertainty.
 | Runtime upgrades | No spec gate. Every signed operation is resolved by name against live metadata and deferred alone when it has no type-correct encoding (above). rtao composes weight calls and reads its storage by name when its compiled descriptors no longer match, and follows a changed commit-reveal tag under reviewed or proven runtime code. What it still refuses defers as `upstream_compose_refused`, `upstream_storage_refused` (which also stops rtao's finalized observation and recovery) and `commit_reveal_version_unencodable`. rtao reads `Timestamp.Now` for its timelock clock without a by-name fallback; the validator's own by-name read of the same item keeps the clock anchored. The live spec 486 surface is in [the runtime 486 reference](../docs/subnet-runtime-486-diff.md). |
 | Application authority | The native validator verifies a T12 bundle (signed manifest, package, target and receipt index, every receipt object), reads its registration snapshot, derives the row with `testnet-reward-v0`, and its guard signs only that verified row as a timelocked commit while commit/reveal is enabled. The Workers coordinator verifies the same T12 bundle with the protocol crate and derives its own row from its own registration snapshot (M3). Per-tempo re-commit of the verified target is implemented natively (plan decision 12; each re-commit has its own protocol tempo identity) and ran live on 601. Both also verify `reward-v1` bundles (the launch burn row or a cohort target, with the recomputed outcome, closure and authorization) and commit per-tempo `WeightOperationV2` identities. The native validator also fetches the published records from the public status host, verifies them against its held target and supersedes its target natively: a newer authorization of the same target refreshes it in place, a signed revocation (fetched or installed with `revoke`) withdraws it, and a successor is installed at its eligible boundary once no commitment of the old target is in flight, with the run continuing on it in the same process ([`crates/validator/README.md`](crates/validator/README.md#fetcher)). The coordinator writes the private authorization pointer from its installed bundle and journaled revocations, and the publisher copies it; that path awaits the public host's deployment, and until then the operator installs bundles (T12). No authorization expires. Coordinator row consistency checks, authorization issue by the coordinator itself, and production empty-pool policy still need the production application. rtao holds (does not commit) a row whose positive entries are only the validator itself or the owner hotkey's UID unless the work is queued under its owner-row policy `Submit` (D-093), and then still holds self-only and self-plus-owner rows. A native validator queues a `reward-v1` owner burn row (the launch burn row under the launch authorization, or a verified target whose row pays only the owner UID) under `Submit`, journaled with the work, after checking `MinAllowedWeights` and `MaxWeightsLimit` by name; it queues every other row under `Hold` and defers a tempo whose row rtao would hold (`row_would_be_held`, exit 75), committing nothing while its previous weights stay on chain. Both sides check bundles against the target they hold active (recorded from checked closures), commit a `reward-v1` row in its max-upscaled form, and the native validator re-derives each tempo's row from a fresh finalized snapshot and retires superseded work that never landed. Elapsed time must not expire the cohort; no validator's delivery gates application progress. |
 | Automatic updates | Signed Rust supervisor, ordered resumable schema migrations, and post-migration recovery remain to be built. Updates must preserve journals and frozen work without waiting for other validators. |
-| Finalized failures and historical missed reveals | Require application adjudication; they are not successful work and cannot authorize blind replacement. There is no safe operator shortcut that deletes history or clears uncertainty. |
+| Finalized failures and historical missed reveals | A finalized failure is never successful work and never authorizes replacing its signed bytes. Recovery waits (without halting) until its receipt is read, then halts on it until it is reviewed: known weight-call refusals settle automatically by decoded error name and are logged as alerts, and any other needs `review-failure` ([Journal controls](#journal-controls)). Nothing deletes history or clears uncertainty. |
 | Durable evidence size | Native journal images are limited to 64 MiB and retain operation identities. A storage migration is needed before exhaustion. Completed reveal diagnostics retain a 256-outcome ring; cohort evidence requires separate durable retention. |
 | Workers coordinator | The service is also the lead validator. Workers-compatible RPC transport, canonical call encoding, hotkey signing, nonce/attempt journaling, finalized reconciliation, weight/reveal recovery, and a Durable Object journal backend remain to be integrated and qualified. The native synchronous file backend supplies none of that storage integration. |
 | Block webhooks | The rtao-rpc pilot is live for Finney and testnet. The testnet `coordinator/` implements its v1 contract and treats each finalized-block delivery as its heartbeat: it authenticates and persists the delivery before acknowledging, deduplicates by delivery ID and block hash, and advances a parent-linked finalized cursor anchored and audited through read-only RPC. Webhook-advanced blocks stay provisional until RPC confirms them, and scheduling judges due work at that RPC-confirmed watermark. It backfills gaps through bounded RPC and records conflicts as durable faults. A one-minute cron watchdog falls back to RPC after 300 s of webhook silence or when the cursor falls behind. It is deployed on testnet ([TESTNET.md](coordinator/TESTNET.md) records the measured delivery latency and fallback drill); launch lag remains unqualified. |
@@ -357,7 +415,13 @@ What this pin adds over `b5553a76`, and how the adapter uses it:
   attempted), `followed_cr` in a commit or pending reveal that followed a
   non-native commit-reveal tag, or the watcher's `revealed_code`, retained
   evidence once a reveal completed or missed under such a tag. Handed-back
-  and retired work blocks nothing. `JournalControls::rollback_blockers`
+  and retired work blocks nothing, except a finalized failed attempt: every
+  build before failure review counts each one the journal retains,
+  reviewed or settled included, and halts on it with no way to review it,
+  so `rollback_blockers` also lists each (`attempt.outcome.finalized_failure`
+  or `extensions.slopninja.failure-review.v1`, never retirable) and
+  `retire_for_rollback` then retires nothing: such a journal is
+  roll-forward only. `JournalControls::rollback_blockers`
   lists these fields and `retire_for_rollback` retires the blocking work
   that never signed; the validator's `rollback-check --retire`, run with the
   unit stopped, does both and exits 0 only when an older build can open the

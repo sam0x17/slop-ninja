@@ -35,7 +35,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub mod build_info;
+pub mod review;
 pub mod surface;
+
+pub use review::{
+    DecodedError, FailedAttempt, FailureDiagnostic, FailureReview, ReadFailure, ReceiptRead,
+    ReviewKind, ReviewRefusal, SettleReport, SettledRefusal, UnreadableReceipt,
+};
 
 const APPLICATION_KEY: &str = "slopninja.native-weights.v1";
 const ROW_DOMAIN: &[u8] = b"slopninja.weight-input.v1\0";
@@ -582,8 +588,18 @@ const PREVIOUS_PENDING_FIELDS: &[&str] = &[
 const PREVIOUS_UNLOCATED_FIELDS: &[&str] =
     &["netuid", "mechanism", "hotkey", "row", "version_key", "state", "commit", "report"];
 
-/// A field a build at [`PREVIOUS_RTAO_PIN`] refuses to decode. Redacted: a
-/// field path and an operation ID only, no values.
+/// Rollback blocker field of an unreviewed finalized failed attempt.
+pub const FAILURE_BLOCKER_FIELD: &str = "attempt.outcome.finalized_failure";
+/// Rollback blocker field of a reviewed or settled finalized failed attempt
+/// (its marker, under [`review::FAILURE_REVIEW_KEY`]).
+pub const REVIEWED_FAILURE_BLOCKER_FIELD: &str = "extensions.slopninja.failure-review.v1";
+
+/// What keeps an earlier build from running this journal: a field a build
+/// at [`PREVIOUS_RTAO_PIN`] refuses to decode, or a retained finalized
+/// failed attempt ([`FAILURE_BLOCKER_FIELD`],
+/// [`REVIEWED_FAILURE_BLOCKER_FIELD`]), on which every build before
+/// `review-failure` existed halts (`recovery_requires_review`) with no way
+/// to review it. Redacted: a field path and an operation ID only, no values.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RollbackBlocker {
     /// The pending operation holding the field; `None` for the weight checkpoint.
@@ -594,6 +610,14 @@ pub struct RollbackBlocker {
     /// The operation never landed and no attempt awaits classification, so
     /// [`JournalControls::retire_for_rollback`] can retire it.
     pub retirable: bool,
+}
+
+impl RollbackBlocker {
+    /// A retained finalized failure: the journal never clears it (the
+    /// attempt is kept as evidence), so the journal is roll-forward only.
+    pub fn finalized_failure(&self) -> bool {
+        self.field == FAILURE_BLOCKER_FIELD || self.field == REVIEWED_FAILURE_BLOCKER_FIELD
+    }
 }
 
 /// This adapter has no durable shield carrier/inner recovery path.
@@ -656,10 +680,37 @@ pub struct JournalSummary {
     pub operations: usize,
     pub attempts: usize,
     pub unresolved_attempts: usize,
+    /// Finalized failed attempts whose receipt was decoded (or contradicted
+    /// the recorded outcome) and that await review ([`review`]). Recovery
+    /// halts on any; recovery and resume require zero.
     pub finalized_failures: usize,
+    /// Finalized failed attempts whose receipt recovery has not read yet.
+    /// Recovery stays incomplete and reads them again; it does not halt.
+    /// Recovery and resume require zero.
+    pub failures_awaiting_decode: usize,
+    /// Finalized failed attempts reviewed by an operator or settled as a
+    /// known refusal; retained as evidence, they never halt.
+    pub reviewed_failures: usize,
+    /// Finalized failed attempts whose receipt contradicted the recorded
+    /// outcome and that an operator reviewed as such
+    /// (`--accept-contradiction`); not reviewed failures, and they never halt.
+    pub reviewed_contradictions: usize,
+    /// The failures counted in `finalized_failures`, for `review-failure`.
+    pub review_required: Vec<FailedAttempt>,
+    /// The failures counted in `failures_awaiting_decode`. An operator may
+    /// also review one (for a receipt that can never be read).
+    pub awaiting_decode: Vec<FailedAttempt>,
     pub semantic_refusals: usize,
     /// Live-surface readiness of signed operations; deferral raises the alert.
     pub readiness: ReadinessSummary,
+}
+
+impl JournalSummary {
+    /// Unreviewed finalized failures, decoded or not: recovery and resume
+    /// require zero.
+    pub fn unsettled_failures(&self) -> usize {
+        self.finalized_failures + self.failures_awaiting_decode
+    }
 }
 
 /// Redacted per-operation state. Neither field proves business settlement.
@@ -669,7 +720,14 @@ pub struct OperationStatus {
     /// Persisted before dispatch; a crash or lost response may be on either side.
     pub unresolved: usize,
     pub expired: usize,
+    /// Finalized failed attempts awaiting review (decoded).
     pub finalized_failures: usize,
+    /// Finalized failed attempts whose receipt is not read yet.
+    pub failures_awaiting_decode: usize,
+    /// Finalized failed attempts reviewed or settled.
+    pub reviewed_failures: usize,
+    /// Finalized failed attempts reviewed as a receipt contradiction.
+    pub reviewed_contradictions: usize,
     /// Finalized inclusion height of a successful attempt.
     pub finalized_success_block: Option<u64>,
     /// Last semantic refusal code recorded by the signing guard.
@@ -715,17 +773,38 @@ impl JournalControls {
             attempts: 0,
             unresolved_attempts: 0,
             finalized_failures: 0,
+            failures_awaiting_decode: 0,
+            reviewed_failures: 0,
+            reviewed_contradictions: 0,
+            review_required: Vec::new(),
+            awaiting_decode: Vec::new(),
             semantic_refusals: 0,
             readiness: summarize_read(&read_readiness(&image)),
         };
-        for operation in image.operations.values() {
+        for (id, operation) in &image.operations {
             result.attempts += operation.attempts.len();
             result.semantic_refusals += usize::from(operation.incompatibility.is_some());
             for attempt in &operation.attempts {
                 match &attempt.outcome {
                     AttemptOutcome::Unresolved => result.unresolved_attempts += 1,
                     AttemptOutcome::Finalized { success: false, .. } => {
-                        result.finalized_failures += 1
+                        if review::awaits_decode(operation, attempt) {
+                            result.failures_awaiting_decode += 1;
+                            result
+                                .awaiting_decode
+                                .extend(review::failed_attempt(id, operation, attempt));
+                        } else if review::unreviewed(operation, attempt) {
+                            result.finalized_failures += 1;
+                            result
+                                .review_required
+                                .extend(review::failed_attempt(id, operation, attempt));
+                        } else if review::review_kind(operation, attempt)
+                            == Some(ReviewKind::ContradictionReviewed)
+                        {
+                            result.reviewed_contradictions += 1;
+                        } else {
+                            result.reviewed_failures += 1;
+                        }
                     }
                     _ => {}
                 }
@@ -748,6 +827,198 @@ impl JournalControls {
         &self.identity
     }
 
+    /// Record an operator's review of one finalized failed attempt, so
+    /// recovery and resume stop counting it ([`review`]). The marker is
+    /// permanent and names the attempt's finalized block and, when recovery
+    /// decoded it, the dispatch error; the attempt itself is untouched. Once
+    /// every failure of a handed-back operation is reviewed, the operation is
+    /// retired as well. Refuses ([`ReviewRefusal`], writing nothing) an
+    /// unknown operation or attempt, an unresolved attempt, one that is not a
+    /// finalized failure, and an operation with contradictory evidence. A
+    /// failure whose receipt contradicts rtao's recorded outcome (the call
+    /// may have landed) is refused unless `accept_contradiction`, and is
+    /// then marked [`ReviewKind::ContradictionReviewed`], never counted as a
+    /// reviewed failure. A repeated review returns the existing marker and
+    /// writes nothing.
+    pub fn review_failure(&self, operation: &str, attempt: u64, accept_contradiction: bool) -> Result<FailureReview> {
+        // Judge on a snapshot first: a refusal or a repeat writes nothing.
+        let image = self.journal.snapshot()?;
+        let record = image
+            .operations
+            .get(operation)
+            .ok_or(ReviewRefusal::UnknownOperation)?;
+        let (marker, fresh) = review::operator_review(record, attempt, image.revision, accept_contradiction)?;
+        if !fresh && review::reviewed_retirement(record).is_none() {
+            return Ok(marker);
+        }
+        let mut written: Option<std::result::Result<FailureReview, ReviewRefusal>> = None;
+        self.journal.update(|image| {
+            let revision = image.revision;
+            let record = image.operations.get_mut(operation).ok_or(JournalError::Conflict)?;
+            match review::operator_review(record, attempt, revision, accept_contradiction) {
+                Err(refusal) => written = Some(Err(refusal)),
+                Ok((marker, fresh)) => {
+                    if fresh && !review::write_review(record, attempt, &marker) {
+                        return Err(JournalError::Storage("review record is unreadable to this build".into()));
+                    }
+                    review::retire_reviewed(record);
+                    written = Some(Ok(marker));
+                }
+            }
+            Ok(())
+        })?;
+        Ok(written.context("review update did not run")??)
+    }
+
+    /// Unreviewed finalized failed attempts whose dispatch error has not
+    /// been read yet, or whose only recorded read failed lastingly
+    /// (`receipt_unavailable`), for [`Self::decode_failures`].
+    pub fn undecoded_failures(&self) -> Result<Vec<review::FailureRef>> {
+        let image = self.journal.snapshot()?;
+        let mut found = Vec::new();
+        for (id, record) in &image.operations {
+            for attempt in &record.attempts {
+                if let Some((block_hash, block_number)) = review::failed_at(attempt)
+                    && review::needs_read(record, attempt)
+                {
+                    found.push(review::FailureRef {
+                        operation: id.clone(),
+                        attempt: attempt.id,
+                        hash: attempt.hash,
+                        block_hash,
+                        block_number,
+                    });
+                }
+            }
+        }
+        Ok(found)
+    }
+
+    /// Record decoded dispatch errors (from [`Self::decode_failures`]) on
+    /// their attempts, settle every unreviewed failure whose recorded error
+    /// [`review::SETTLED_REFUSALS`] names, and retire handed-back operations
+    /// whose failures are all reviewed. Writes only when something changes.
+    pub fn record_failure_decodings(
+        &self,
+        decoded: &[(review::FailureRef, review::FailureDiagnostic)],
+    ) -> Result<SettleReport> {
+        let image = self.journal.snapshot()?;
+        let supplied = |operation: &str, attempt: u64, hash: H256| {
+            decoded
+                .iter()
+                .find(|(at, _)| at.operation == operation && at.attempt == attempt && at.hash == hash)
+                .map(|(_, diagnostic)| diagnostic)
+        };
+        if !image.operations.iter().any(|(id, record)| {
+            review::decoding_changes(record, |attempt, hash| supplied(id, attempt, hash))
+        }) {
+            return Ok(SettleReport::default());
+        }
+        let mut report = SettleReport::default();
+        self.journal.update(|image| {
+            report = SettleReport::default();
+            let revision = image.revision;
+            for (id, record) in image.operations.iter_mut() {
+                for index in 0..record.attempts.len() {
+                    let attempt = &record.attempts[index];
+                    let found = decoded
+                        .iter()
+                        .find(|(at, _)| &at.operation == id && at.attempt == attempt.id && at.hash == attempt.hash)
+                        .map(|(_, diagnostic)| diagnostic);
+                    let (wrote, settled) = review::record_decoding(record, index, found, revision);
+                    report.decoded += usize::from(wrote);
+                    if let Some(error) = settled {
+                        let attempt = &record.attempts[index];
+                        report.settled += 1;
+                        report.refusals.push(review::SettledRefusal {
+                            operation: id.clone(),
+                            attempt: attempt.id,
+                            tempo: record
+                                .intent
+                                .correlation_id
+                                .as_deref()
+                                .and_then(|raw| serde_json::from_str::<WeightCorrelation>(raw).ok())
+                                .and_then(|correlation| correlation.work.tempo),
+                            block_number: review::failed_at(attempt).map_or(0, |(_, number)| number),
+                            error: error.label(),
+                        });
+                    }
+                }
+                report.retired += usize::from(review::retire_reviewed(record));
+            }
+            Ok(())
+        })?;
+        Ok(report)
+    }
+
+    /// Read the dispatch error of every unreviewed, undecoded finalized
+    /// failure from its finalized receipt, decoded by name through the
+    /// inclusion block's metadata, then [`Self::record_failure_decodings`].
+    /// See [`Self::decode_failures_with`].
+    pub async fn decode_failures(&self, client: &Client) -> Result<SettleReport> {
+        self.decode_failures_with(|failure| async move {
+            let report = client
+                .resolve_extrinsic(failure.hash, failure.block_hash, true)
+                .await
+                .map_err(|error| read_failure(&error))?;
+            Ok(ReceiptRead {
+                hash: report.hash,
+                block_hash: report.block_hash,
+                block_number: report.block_number,
+                success: report.success,
+                error: report.error.as_ref().map(|error| DecodedError {
+                    kind: error.kind.as_str().to_owned(),
+                    pallet: error.pallet.clone(),
+                    name: error.name.clone(),
+                }),
+            })
+        })
+        .await
+    }
+
+    /// [`Self::decode_failures`] with the receipt read supplied. Each failure
+    /// is read until one read succeeds. Every failed read is listed in
+    /// [`SettleReport::unreadable`]. A passing one ([`ReadFailure::lasting`]
+    /// false) leaves its failure awaiting decoding: recovery stays incomplete
+    /// without halting and the next round reads it again. A lasting one is
+    /// recorded as a `receipt_unavailable` diagnostic, which halts for
+    /// review, and is read again at later rounds: the first read that
+    /// succeeds replaces it. No retry is counted and nothing expires. A
+    /// receipt that contradicts rtao's recorded inclusion or outcome is
+    /// recorded as a contradiction, which needs review.
+    pub async fn decode_failures_with<F, Fut>(&self, mut read: F) -> Result<SettleReport>
+    where
+        F: FnMut(review::FailureRef) -> Fut,
+        Fut: std::future::Future<Output = std::result::Result<ReceiptRead, ReadFailure>>,
+    {
+        let mut decoded = Vec::new();
+        let mut unreadable = Vec::new();
+        for failure in self.undecoded_failures()? {
+            match read(failure.clone()).await {
+                Ok(receipt) => {
+                    let diagnostic = review::diagnose(&failure, &receipt);
+                    decoded.push((failure, diagnostic));
+                }
+                Err(error) => {
+                    if error.lasting {
+                        decoded.push((failure.clone(), review::unavailable(&failure, &error.class)));
+                    }
+                    unreadable.push(review::UnreadableReceipt {
+                        operation: failure.operation,
+                        attempt: failure.attempt,
+                        block_number: failure.block_number,
+                        class: error.class,
+                        lasting: error.lasting,
+                        detail: error.detail,
+                    });
+                }
+            }
+        }
+        let mut report = self.record_failure_decodings(&decoded)?;
+        report.unreadable = unreadable;
+        Ok(report)
+    }
+
     /// Redacted state of one operation: attempt counts and finalized
     /// inclusion, without signed bytes, nonces or commit material.
     pub fn operation(&self, id: &str) -> Result<Option<OperationStatus>> {
@@ -767,7 +1038,17 @@ impl JournalControls {
                         ..
                     } => status.finalized_success_block = Some(*number),
                     AttemptOutcome::Finalized { success: false, .. } => {
-                        status.finalized_failures += 1
+                        if review::awaits_decode(record, attempt) {
+                            status.failures_awaiting_decode += 1
+                        } else if review::unreviewed(record, attempt) {
+                            status.finalized_failures += 1
+                        } else if review::review_kind(record, attempt)
+                            == Some(ReviewKind::ContradictionReviewed)
+                        {
+                            status.reviewed_contradictions += 1
+                        } else {
+                            status.reviewed_failures += 1
+                        }
                     }
                 }
             }
@@ -971,6 +1252,25 @@ impl JournalControls {
                 }
             }
         }
+        // Every build before failure review counts each finalized failure,
+        // reviewed or not and handed back or not, and halts on it. rtao
+        // keeps attempts as evidence, so this never clears.
+        for (id, record) in &image.operations {
+            for attempt in &record.attempts {
+                if review::failed_at(attempt).is_some() {
+                    found.push(RollbackBlocker {
+                        operation_id: Some(id.clone()),
+                        field: if review::reviewed(record, attempt) {
+                            REVIEWED_FAILURE_BLOCKER_FIELD
+                        } else {
+                            FAILURE_BLOCKER_FIELD
+                        }
+                        .into(),
+                        retirable: false,
+                    });
+                }
+            }
+        }
         found.sort_by(|a, b| (&a.operation_id, &a.field).cmp(&(&b.operation_id, &b.field)));
         found.dedup();
         Ok(found)
@@ -989,10 +1289,15 @@ impl JournalControls {
     /// early. Nothing is lost or committed twice. Returns the retired IDs.
     /// Checkpoint fields, and work with an attempt awaiting recovery or a
     /// landed commit not yet handed back, are left: they settle only by
-    /// running this build.
+    /// running this build. Nothing is retired while the journal retains a
+    /// finalized failure ([`RollbackBlocker::finalized_failure`]): no
+    /// earlier build can run it, so retiring would only shift labels.
     pub fn retire_for_rollback(&self) -> Result<Vec<String>> {
-        let mut ids: Vec<String> = self
-            .rollback_blockers()?
+        let blockers = self.rollback_blockers()?;
+        if blockers.iter().any(RollbackBlocker::finalized_failure) {
+            return Ok(Vec::new());
+        }
+        let mut ids: Vec<String> = blockers
             .into_iter()
             .filter(|blocker| blocker.retirable)
             .filter_map(|blocker| blocker.operation_id)
@@ -1107,7 +1412,19 @@ pub struct RecoveryProgress {
     pub reveal_history_caught_up: bool,
     pub outstanding_reveals: Vec<OutstandingReveal>,
     pub unresolved_attempts: usize,
+    /// Finalized failed attempts decoded and awaiting review; recovery
+    /// halts on any.
     pub finalized_failures: usize,
+    /// Finalized failed attempts whose receipt is not read yet; recovery
+    /// stays incomplete and reads them again, without halting.
+    pub failures_awaiting_decode: usize,
+    /// Finalized failed attempts reviewed or settled; they never halt.
+    pub reviewed_failures: usize,
+    /// The failures counted in `finalized_failures`.
+    pub review_required: Vec<FailedAttempt>,
+    /// What this round's decoding of failed receipts recorded, settled and
+    /// could not read.
+    pub failures_settled: SettleReport,
     pub semantic_contract_mismatches: usize,
     pub paused_during_recovery: bool,
     pub ready_to_resume: bool,
@@ -1344,6 +1661,10 @@ impl NativeWeightAdapter {
         self.scheduler
             .recover_finalized(client, finalized, metrics)
             .await?;
+        // A finalized failure whose decoded error is a known refusal settles
+        // here, recorded as a diagnostic; any other waits for review. One
+        // whose receipt cannot be read now waits for the next round.
+        let failures_settled = self.controls.decode_failures(client).await?;
         let summary = self.controls.inspect()?;
         let caught_up = self.scheduler.reveals().caught_up(finalized.number);
         let outstanding_reveals: Vec<_> = self
@@ -1370,14 +1691,15 @@ impl NativeWeightAdapter {
                         != Some(self.config.semantic_contract.as_str())
             })
             .count();
-        self.recovered = !paused_during_recovery
-            && caught_up
-            && summary.unresolved_attempts == 0
-            && summary.finalized_failures == 0
-            && semantic_contract_mismatches == 0
-            && outstanding_reveals
+        self.recovered = recovery_complete(
+            &summary,
+            paused_during_recovery,
+            caught_up,
+            semantic_contract_mismatches,
+            outstanding_reveals
                 .iter()
-                .all(|reveal| reveal.reveal_epoch.is_some() && !reveal.attribution_unresolved);
+                .all(|reveal| reveal.reveal_epoch.is_some() && !reveal.attribution_unresolved),
+        );
         if self.recovered {
             self.recovered_generation = Some(summary.generation);
         }
@@ -1387,6 +1709,10 @@ impl NativeWeightAdapter {
             outstanding_reveals,
             unresolved_attempts: summary.unresolved_attempts,
             finalized_failures: summary.finalized_failures,
+            failures_awaiting_decode: summary.failures_awaiting_decode,
+            reviewed_failures: summary.reviewed_failures,
+            review_required: summary.review_required.clone(),
+            failures_settled,
             semantic_contract_mismatches,
             paused_during_recovery,
             ready_to_resume: self.recovered,
@@ -1413,8 +1739,8 @@ impl NativeWeightAdapter {
             "journal changed since recovery; reconcile again before resume"
         );
         ensure!(
-            summary.unresolved_attempts == 0 && summary.finalized_failures == 0,
-            "retained attempts require reconciliation or application review"
+            summary.unresolved_attempts == 0 && summary.unsettled_failures() == 0,
+            "retained attempts require reconciliation, or a finalized failure requires decoding or review (review-failure)"
         );
         self.controls.journal.update(|image| {
             if Some(image.revision) != self.recovered_generation {
@@ -1524,12 +1850,65 @@ impl NativeWeightAdapter {
             ));
         }
         let summary = self.controls.inspect()?;
-        if summary.unresolved_attempts != 0 || summary.finalized_failures != 0 {
+        if summary.unresolved_attempts != 0 || summary.unsettled_failures() != 0 {
             self.recovered = false;
             self.recovered_generation = None;
         }
         Ok(summary)
     }
+}
+
+/// The fixed class of a failed receipt read, and whether it can clear by
+/// itself. Lasting: the endpoint discarded the inclusion block's state (an
+/// archive endpoint is needed), does not return the block, or the block,
+/// its events or its metadata do not decode under this build. Every other
+/// failure (timeouts, lost connections, gateway refusals, JSON-RPC errors)
+/// passes and is read again at the next round.
+pub fn read_failure(error: &rtao_client::SubmitFailure) -> ReadFailure {
+    use rtao_client::{ClientError, SubmitFailure};
+    use rtao_rpc::RpcError;
+    let mut cause = error;
+    while let SubmitFailure::Unresolved { cause: inner, .. } = cause {
+        cause = inner.as_ref();
+    }
+    let (class, lasting) = match cause {
+        SubmitFailure::Client(client) => match client {
+            ClientError::Rpc(RpcError::StateDiscarded { .. }) => ("state_discarded", true),
+            ClientError::Rpc(RpcError::Timeout { .. }) => ("timeout", false),
+            ClientError::Rpc(RpcError::Policy(_)) => ("gateway_policy", false),
+            ClientError::Rpc(RpcError::JsonRpc { .. }) => ("json_rpc", false),
+            ClientError::Rpc(RpcError::Protocol(_)) => ("rpc_protocol", false),
+            ClientError::Rpc(_) => ("transport", false),
+            ClientError::BlockNotFound(_) => ("block_not_found", true),
+            ClientError::Decode { .. } | ClientError::Core(_) => ("decode", true),
+            ClientError::SurfaceChanged { .. } | ClientError::ReadResolveIncompatible(_) => ("metadata", true),
+            ClientError::Protocol(_) => ("protocol", false),
+            _ => ("client", false),
+        },
+        SubmitFailure::Submit(_) => ("transport", false),
+        _ => ("other", false),
+    };
+    ReadFailure { class: class.to_owned(), lasting, detail: error.to_string() }
+}
+
+/// Whether one finalized recovery round leaves the journal ready to resume:
+/// no pause arrived during it, reveal history is caught up and attributed,
+/// every work item runs under this build's semantic contract, no attempt
+/// awaits classification and no finalized failure awaits decoding or review
+/// (reviewed and settled failures are evidence only).
+pub fn recovery_complete(
+    summary: &JournalSummary,
+    paused_during_recovery: bool,
+    reveal_history_caught_up: bool,
+    semantic_contract_mismatches: usize,
+    reveals_attributed: bool,
+) -> bool {
+    !paused_during_recovery
+        && reveal_history_caught_up
+        && summary.unresolved_attempts == 0
+        && summary.unsettled_failures() == 0
+        && semantic_contract_mismatches == 0
+        && reveals_attributed
 }
 
 /// After rtao's scheduler returned `Err`, in-process recovery still holds only
@@ -1538,7 +1917,7 @@ impl NativeWeightAdapter {
 pub fn keeps_recovery_after_error(attempts_before: usize, after: &JournalSummary) -> bool {
     after.attempts == attempts_before
         && after.unresolved_attempts == 0
-        && after.finalized_failures == 0
+        && after.unsettled_failures() == 0
 }
 
 fn pause_epoch(

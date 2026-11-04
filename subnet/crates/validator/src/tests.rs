@@ -427,6 +427,132 @@ fn recovery_is_bounded_continues_and_halts_for_review() -> Result<()> {
     Ok(())
 }
 
+/// Log lines written while `run` executes, in the validator's JSON format.
+fn capture_logs<T>(run: impl FnOnce() -> T) -> (T, Vec<serde_json::Value>) {
+    use std::sync::{Arc, Mutex};
+    #[derive(Clone, Default)]
+    struct Buffer(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Buffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let buffer = Buffer::default();
+    let writer = buffer.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .flatten_event(true)
+        .with_writer(move || writer.clone())
+        .finish();
+    let output = tracing::subscriber::with_default(subscriber, run);
+    let bytes = buffer.0.lock().unwrap().clone();
+    let lines = String::from_utf8(bytes)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    (output, lines)
+}
+
+fn events<'a>(lines: &'a [serde_json::Value], name: &str) -> Vec<&'a serde_json::Value> {
+    lines.iter().filter(|line| line["event"] == name).collect()
+}
+
+/// A finalized failure whose receipt is not read yet keeps recovery
+/// incomplete (retry, exit 75) and never halts; an unreadable read is an
+/// alert once per run (and again when its class changes), naming only its
+/// fixed class, never the error text. Once it settles as a known refusal,
+/// startup resumes and the refusal is an alert too, so a validator refused
+/// every tempo stays visible.
+#[test]
+fn a_failure_awaiting_decode_retries_and_a_settled_refusal_is_alerted() -> Result<()> {
+    let unreadable = RecoveryCounts {
+        failures_awaiting_decode: 1,
+        receipts_unreadable: vec![slop_ninja_subnet::UnreadableReceipt {
+            operation: "op-12".into(),
+            attempt: 0,
+            block_number: 1200,
+            class: "timeout".into(),
+            lasting: false,
+            detail: "gateway detail that must stay out of alerts".into(),
+        }],
+        ..RecoveryCounts::default()
+    };
+    let mut other_class = unreadable.clone();
+    other_class.receipts_unreadable[0].class = "transport".into();
+    let mut fake = Fake::new();
+    fake.recoveries = VecDeque::from([unreadable.clone(), unreadable.clone(), unreadable.clone(), other_class]);
+    let (outcome, logs) = capture_logs(|| block_on(start(&mut fake, 4, &Faults::none())));
+    assert_eq!(
+        outcome?,
+        StartupOutcome::Retry {
+            stage: Stage::Recovery,
+            code: "recovery_incomplete"
+        }
+    );
+    assert!(!fake.events.contains(&"resume"));
+    let read = events(&logs, "failure_receipt_unreadable");
+    assert_eq!(read.len(), 2, "first seen, then a changed class; repeats are debug only");
+    assert_eq!((read[0]["alert"].clone(), read[0]["block"].clone()), (true.into(), 1200.into()));
+    assert_eq!((read[0]["class"].clone(), read[1]["class"].clone()), ("timeout".into(), "transport".into()));
+    assert_eq!(read[0]["signing"], "paused");
+    assert!(read[0]["next"].as_str().unwrap().contains("review-failure"));
+    let all = serde_json::to_string(&logs)?;
+    assert!(!all.contains("gateway detail"), "error text stays out of info-level logs");
+
+    let settled = RecoveryCounts {
+        reviewed_failures: 1,
+        refusals_settled: vec![slop_ninja_subnet::SettledRefusal {
+            operation: "op-12".into(),
+            attempt: 0,
+            tempo: Some(12),
+            block_number: 1200,
+            error: "SubtensorModule.CommittingWeightsTooFast".into(),
+        }],
+        ..ready()
+    };
+    let mut fake = Fake::new();
+    fake.recoveries = VecDeque::from([unreadable, settled]);
+    let (outcome, logs) = capture_logs(|| block_on(start(&mut fake, 4, &Faults::none())));
+    assert!(matches!(outcome?, StartupOutcome::Resumed { .. }));
+    let refused = events(&logs, "weight_commit_refused");
+    assert_eq!(refused.len(), 1);
+    assert_eq!(refused[0]["alert"], true);
+    assert_eq!(refused[0]["error"], "SubtensorModule.CommittingWeightsTooFast");
+    assert_eq!(refused[0]["operation_id"], "op-12");
+
+    // A decoded failure that does not settle halts, named in an alert.
+    let review = RecoveryCounts {
+        finalized_failures: 1,
+        review_required: vec![slop_ninja_subnet::FailedAttempt {
+            operation: "op-13".into(),
+            attempt: 0,
+            block_number: 1300,
+            error: Some("SubtensorModule.IncorrectWeightVersionKey".into()),
+            receipt_contradiction: None,
+            receipt_unavailable: None,
+        }],
+        ..RecoveryCounts::default()
+    };
+    let mut fake = Fake::new();
+    fake.recoveries = VecDeque::from([review]);
+    let (outcome, logs) = capture_logs(|| block_on(start(&mut fake, 4, &Faults::none())));
+    assert_eq!(
+        outcome?,
+        StartupOutcome::Halted {
+            stage: Stage::Recovery,
+            code: "recovery_requires_review"
+        }
+    );
+    let listed = events(&logs, "finalized_failure_requires_review");
+    assert_eq!((listed.len(), listed[0]["alert"].clone()), (1, true.into()));
+    Ok(())
+}
+
 #[test]
 fn injected_crash_at_each_boundary_restarts_from_open_and_recovers_first() -> Result<()> {
     let cases = [

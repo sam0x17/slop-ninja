@@ -670,15 +670,7 @@ impl StartupPorts for LivePorts {
             .adapter_mut()?
             .recover_finalized(&client, &header, &metrics)
             .await?;
-        Ok(RecoveryCounts {
-            ready_to_resume: progress.ready_to_resume,
-            reveal_history_caught_up: progress.reveal_history_caught_up,
-            unresolved_attempts: progress.unresolved_attempts,
-            finalized_failures: progress.finalized_failures,
-            semantic_contract_mismatches: progress.semantic_contract_mismatches,
-            outstanding_reveals: progress.outstanding_reveals.len(),
-            paused_during_recovery: progress.paused_during_recovery,
-        })
+        Ok(RecoveryCounts::of(&progress))
     }
 
     async fn subnet_state(&mut self, head: &FinalizedHead) -> Result<SubnetState> {
@@ -1612,6 +1604,7 @@ impl AppPorts for LivePorts {
         let mut tracked_since: Option<u64> = None;
         let mut tracked_attempts: Option<usize> = None;
         let mut window_alerted = false;
+        let mut failure_log = crate::startup::FailureReadLog::default();
         let cx = self.signing_context().await?;
         let client = cx.client.clone();
         let mut heads = finalized_heads(&client)?;
@@ -1650,8 +1643,17 @@ impl AppPorts for LivePorts {
                         height = header.number,
                         ready = progress.ready_to_resume,
                         unresolved = progress.unresolved_attempts,
-                        outstanding_reveals = progress.outstanding_reveals.len()
+                        outstanding_reveals = progress.outstanding_reveals.len(),
+                        failures_awaiting_decode = progress.failures_awaiting_decode,
+                        failures_awaiting_review = progress.finalized_failures,
+                        refusals_settled = progress.failures_settled.settled,
+                        reviewed_failures = progress.reviewed_failures
                     );
+                    // A failure whose receipt is not read yet keeps recovery
+                    // incomplete (the next head retries, alerting once); a
+                    // decoded one that does not settle, or a lasting read
+                    // failure, stops for review.
+                    failure_log.log(&RecoveryCounts::of(&progress), header.number);
                     if progress.finalized_failures != 0
                         || progress.semantic_contract_mismatches != 0
                     {
@@ -3201,6 +3203,8 @@ pub fn rollback_check(config: &ValidatorConfig, retire: bool) -> Result<(serde_j
         "a build at the previous pin can open this journal; install it before starting the unit again"
     } else if blockers.iter().any(|b| b.operation_id.is_none()) {
         "the weight checkpoint holds state from a followed non-native commit-reveal tag: roll forward only"
+    } else if blockers.iter().any(slop_ninja_subnet::RollbackBlocker::finalized_failure) {
+        "the journal retains a finalized failed weight call; every build before review-failure halts on it and cannot clear it: roll forward only"
     } else if blockers.iter().any(|b| b.retirable) {
         "run again with --retire"
     } else {

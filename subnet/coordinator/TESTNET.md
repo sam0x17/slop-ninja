@@ -2608,6 +2608,19 @@ a target: validator2's next install, and every release binary offered to
 outside validators, must come from a build with schema v3 and this round's
 fetch fixes.
 
+Live record (2026-11-03, from main `a8a4a1e7`): validator2's install is
+done. It was reinstalled in a settled window (its epoch-96 reveal compared,
+its epoch-97 operation queued with no attempt; journal backed up first)
+from main `a8a4a1e7`, with bundle schema v3, both review rounds' fetch
+fixes and that commit's unit templates (`MemoryMax=2G`). It adopted the
+same epoch-97 operation without a duplicate, committed it at block 8366767
+and its reveal compared with `weights_match` true at block 8366805. The
+eval Worker was redeployed from the same commit mid-cohort (cohort 18 in
+transition, 19 queued; no migration), and that commit's
+`standing-template` output is byte-identical to the installed r0 template,
+which was re-installed unchanged. Release binaries for outside validators
+must still come from a build at or after `a8a4a1e7`.
+
 ### Authorization without expiry and signed revocation (2026-11-03)
 
 Design rule from 2026-11-03: nothing stops validators or progress by
@@ -2753,8 +2766,10 @@ are evidence of the earlier design.
 
 ### Coordinator follow-ups: receipts, watchdog, commitment reader (2026-11-03)
 
-Built on `subnet-testnet/receipts-watchdog`; not deployed by the build
-stage. Two eval-store migrations (v12 to v14) and no journal migration.
+Built on `subnet-testnet/receipts-watchdog` and landed on main as
+`1335172d`. Two eval-store migrations (v12 to v14) and no journal
+migration. Deployed on 2026-11-03; see the live record at the end of this
+section.
 
 - **Receipt retention (the N+2 rule).** The eval cohort object deletes
   cohort N's detailed receipts once two later cohorts have completed there
@@ -2836,6 +2851,29 @@ stage. Two eval-store migrations (v12 to v14) and no journal migration.
   rejected 62, 6 and 13 answers for length (all in the earlier single
   code), concentrated in two of the five generators; the window is
   unchanged until the direction is measured.
+- **Live record (2026-11-03).** From main `1335172d`, one change per deploy,
+  each with the deploy lock held through its probe: (1) the eval Worker
+  mid-cohort (cohort 18 only admitting, with no session or job), eval store
+  12 -> 14 in place; the N+2 rule ran at once and deleted the detailed
+  receipts of r0 cohorts 14 (the probe build) and 15 and of the superseded
+  `main` authority's cohorts 1-13, writing each cohort's
+  `receipts-retired.json` first; a private listing read back the markers,
+  manifests and packages present and the receipt indexes and chunks
+  absent, with cohort 16 untouched. (2) The coordinator, signing paused for
+  under two minutes (journal schema 9 unchanged): `chain_journal.watchdog`
+  showed source `webhook`, cursor lag 0 and the subscription `delivering`;
+  epoch 93 was revealed and epoch 94 committed on the new build. (3) The
+  publisher (rules v5: `retention_stalled`, `webhook_paused`). The eval
+  deploy passed the spend alert variable instead of the monthly cap
+  variable that build's spend ledger reads, so `/eval/status` reported
+  `ledger: null` for about an hour, until the admission-items eval deploy
+  (main `4717b5c8`, above) replaced it. Later eval builds keep the rule as
+  `receipts_after_two_later_completions_v2` (a completion is a closure
+  recorded; probe builds are not completions and nothing reads time). The
+  retention notice re-arm gap found here (a due predecessor notice did not
+  arm the alarm on an idle store) was fixed on 2026-11-04: a kick that
+  carries the epoch arms one step for a due notice (`engine::kick_due`;
+  README, "Hidden evaluation (M4)").
 
 ### Upload Worker: key-free admission front (2026-11-03)
 

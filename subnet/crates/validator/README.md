@@ -856,7 +856,70 @@ slop-ninja-journal --journal <journal_path> inspect
 
 Never delete the journal or its lock to clear a refusal.
 
-### Version and build commit
+### Isolation
+
+A validator process should read only its binary, its configuration, the
+hotkey files that configuration names and its own state directories. A user
+unit otherwise runs with everything its account can read and reach: the
+rest of the home directory (other wallets and coldkeys, logins, tokens,
+unrelated data), the user manager's environment, and local sockets such as
+the session bus (which can start a unit outside these limits), agents and a
+container daemon. Three layers address this:
+
+- **The unit templates** start the validator through `env -i`, with only
+  `HOME` and `RUST_BACKTRACE`, and set only hardening that needs no
+  namespace: `NoNewPrivileges`, `RestrictAddressFamilies=AF_INET AF_INET6
+  AF_NETLINK` (no Unix sockets, so no bus, agent or daemon socket),
+  `RestrictNamespaces`, `SystemCallFilter=@system-service`,
+  `MemoryDenyWriteExecute`, `LockPersonality`, `RestrictRealtime`,
+  `RestrictSUIDSGID`, `KeyringMode=private` and `UMask=0077`. systemd's
+  mount settings (`ProtectHome=`, `ProtectSystem=`, `PrivateTmp=`,
+  `BindPaths=`, `InaccessiblePaths=`, `PrivatePIDs=`) need a user namespace
+  in a user unit. Where unprivileged user namespaces are restricted, as by
+  Ubuntu's AppArmor default (`kernel.apparmor_restrict_unprivileged_userns
+  = 1`), any of them fails the unit with exit 226, so the templates carry
+  none. Measured 2026-11-04 on the Ubuntu build host (systemd 259, kernel
+  7.0, x86_64). `IPAddressDeny=` has no effect in user units there, so
+  loopback and LAN services stay reachable.
+- **The bubblewrap drop-in** (`install.sh --sandbox`, default `auto`):
+  `slop_ninja_validator sandbox-unit` renders
+  `<unit>.d/50-sandbox.conf` for both units from the configuration. It
+  starts the same command inside `bwrap` (bubblewrap 0.11.1 tested). The
+  sandbox's root holds `/usr`, `/etc`, the `/bin`-style links into `/usr`
+  and the resolver's runtime directory, all read-only. It has a private
+  `/tmp`, `/dev` and `/proc` (its own PID namespace: no other process, and
+  no `/proc/<pid>/root` of one, is reachable) and shares the host network.
+  On top it binds the configured paths: the binary, the configuration file
+  and the hotkey's `pub.txt` companion read-only; the dispatch keyfile
+  read-only (dispatch unit only); the journal's directory read-write; the
+  package's directory, read-write with `[fetch]` and read-only without; the
+  fetch cache and `rpc.runtime_cache_dir` read-write; and a `file://` mirror
+  read-only. `sandbox-unit` refuses a directory bind that is the home
+  directory or contains it, a `..` path and a required path that does not
+  exist, so keep each path in a directory of its own (the example's
+  `~/.local/state/slop_ninja_validator`). Before writing a drop-in the
+  installer runs `sandbox-unit --check`. That runs `check-config` inside the
+  sandbox, then tests that every bound path is readable (and writable where
+  bound so) and that every other entry of each directory above a bound
+  path, of the home directory and of the host's `/tmp` is absent. With
+  `auto`, a host without a working `bwrap` gets a warning and no drop-in.
+  `--sandbox bwrap` fails instead, and `--sandbox none` removes the
+  drop-ins. Re-run the installer after changing any configured path, and
+  restart the unit after installing a bundle by hand only when the package
+  directory changed.
+- **A Unix user of its own** is still the recommendation for every
+  validator, and is required wherever the validator shares a host with
+  other services or operator credentials. The sandbox shares the operator's
+  UID and network. A dedicated account adds the kernel's ordinary
+  permission checks underneath. Root can also give it per-UID firewall
+  rules for loopback and LAN services, and keep its journal away from the
+  operator's. Create it with a home directory, enable lingering for it, copy
+  only that validator's hotkey keyfile and `pub.txt` companion into its
+  wallet directory (never the coldkey or other hotkeys), and run this
+  installer as that user; the units and drop-in work unchanged under its
+  user manager.
+
+
 
 `slop_ninja_validator --version` and `slop-ninja-journal --version` (or
 `-V`) print the crate version and the commit the build came from; include
@@ -950,8 +1013,14 @@ directory. They cover:
   aside, an unbound record bound) and a dry run that stages a fetched bundle
   in memory and writes nothing;
 - the `[fetch]` and continuous-dispatch configuration checks, the
-  installer's dry run and checksum rules, and the dispatch unit's restart
-  policy;
+  installer's dry run and checksum rules, its sandbox modes, and the
+  dispatch unit's restart policy and hardening;
+- the sandbox drop-in (`sandbox_tests`): exactly the configured paths are
+  bound, with their access, refusals for a home-exposing directory, a `..`
+  path or a missing path, and unit-file quoting; and end to end
+  (`tests/sandbox.rs`, skipped where bubblewrap cannot build a sandbox):
+  `sandbox-unit --check` against a synthetic operator home whose coldkey,
+  other hotkeys, logins and secrets stay invisible;
 - step 0 and payload golden vectors against the recorded testnet spec 486
   metadata ([`fixtures/payload-486.txt`](fixtures/payload-486.txt)); see the
   [runbook](TESTNET-M2.md#0-subnet-601-at-preparation-time);

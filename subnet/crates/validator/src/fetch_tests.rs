@@ -1262,16 +1262,20 @@ fn the_installer_plans_persistent_units_with_linger() -> Result<()> {
     let config = root.path().join("v.toml");
     std::fs::write(&config, "netuid = 601\n")?;
     let script = deploy.join("install.sh");
-    let installer = |args: &[&str]| {
+    let installer_with = |args: &[&str], bwrap: &str| {
         std::process::Command::new("bash")
             .arg(&script)
             .args(args)
             .env("HOME", &home)
             .env("USER", "operator")
+            .env("BWRAP", bwrap)
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("XDG_STATE_HOME")
             .output()
     };
+    // No bubblewrap here: `auto` falls back to no sandbox and plans removing
+    // any earlier drop-in.
+    let installer = |args: &[&str]| installer_with(args, "/nonexistent/bwrap");
     let out = installer(&[
         "--instance",
         "v2",
@@ -1309,10 +1313,46 @@ fn the_installer_plans_persistent_units_with_linger() -> Result<()> {
         "systemctl --user daemon-reload".to_owned(),
         "systemctl --user enable --now slop_ninja_validator-dispatch@v2.service".to_owned(),
         "init".to_owned(),
+        format!("rm -f {}/slop_ninja_validator-dispatch@v2.service.d/50-sandbox.conf", units.display()),
+        format!("rm -f {}/slop_ninja_validator@v2.service.d/50-sandbox.conf", units.display()),
     ] {
         assert!(text.contains(&expected), "missing {expected:?} in:\n{text}");
     }
+    assert!(!text.contains("sandbox-unit"));
     assert!(!home.join(".config").exists(), "a dry run touches nothing");
+
+    // With bubblewrap (any executable stands in for it in a dry run), both
+    // units get a tested drop-in rendered from this configuration.
+    let validator = home.join(".local/bin/slop_ninja_validator");
+    let config_path = home.join(".config/slop_ninja_validator/v2.toml");
+    for mode in ["auto", "bwrap"] {
+        let out = installer_with(
+            &["--instance", "v2", "--config", &config.display().to_string(), "--sandbox", mode, "--dry-run"],
+            "/bin/true",
+        )?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{text}\n{}", String::from_utf8_lossy(&out.stderr));
+        for (unit, kind) in [("slop_ninja_validator-dispatch@v2.service", "dispatch"), ("slop_ninja_validator@v2.service", "dry-run")] {
+            let call = format!(
+                "{} --config {} sandbox-unit --unit {kind} --binary {} --bwrap /bin/true",
+                validator.display(),
+                config_path.display(),
+                validator.display()
+            );
+            for expected in [
+                format!("{call} --check"),
+                format!("{call} > {}/{unit}.d/50-sandbox.conf", units.display()),
+            ] {
+                assert!(text.contains(&expected), "missing {expected:?} in:\n{text}");
+            }
+        }
+        assert!(!text.contains("rm -f"), "{text}");
+    }
+    assert!(!home.join(".config").exists(), "a dry run touches nothing");
+    for (mode, bwrap) in [("bwrap", "/nonexistent/bwrap"), ("sometimes", "/bin/true")] {
+        let out = installer_with(&["--instance", "v2", "--sandbox", mode, "--dry-run"], bwrap)?;
+        assert_eq!(out.status.code(), Some(2), "--sandbox {mode} with {bwrap}");
+    }
     for bad in [
         vec!["--instance", "../x", "--dry-run"],
         vec!["--instance", "v2", "--start", "--dry-run"],
@@ -1335,6 +1375,45 @@ fn the_installer_plans_persistent_units_with_linger() -> Result<()> {
         );
     }
     assert!(!unit.contains("Restart=on-failure"));
+    // Both units start the validator with a cleared environment and carry
+    // only hardening that needs no namespace (a user unit cannot set up a
+    // mount namespace where unprivileged user namespaces are restricted:
+    // exit 226), with no Unix sockets.
+    let dry_unit = std::fs::read_to_string(deploy.join("slop_ninja_validator@.service"))?;
+    for (text, command) in [(&unit, "run --dispatch"), (&dry_unit, "run")] {
+        let settings: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with('#') && l.contains('='))
+            .collect();
+        assert!(settings.contains(&format!(
+            "ExecStart=/usr/bin/env -i HOME=%h RUST_BACKTRACE=0 %h/.local/bin/slop_ninja_validator \
+             --config %h/.config/slop_ninja_validator/%i.toml {command}"
+        ).as_str()), "{settings:?}");
+        for line in [
+            "SyslogIdentifier=slop_ninja_validator",
+            "NoNewPrivileges=yes",
+            "UMask=0077",
+            "LockPersonality=yes",
+            "MemoryDenyWriteExecute=yes",
+            "RestrictRealtime=yes",
+            "RestrictSUIDSGID=yes",
+            "RestrictNamespaces=yes",
+            "KeyringMode=private",
+            "RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK",
+            "SystemCallArchitectures=native",
+            "SystemCallFilter=@system-service",
+        ] {
+            assert!(settings.contains(&line), "unit lacks {line}");
+        }
+        for namespaced in [
+            "ProtectHome=", "ProtectSystem=", "PrivateTmp=", "PrivateDevices=", "PrivatePIDs=", "PrivateUsers=",
+            "BindPaths=", "BindReadOnlyPaths=", "InaccessiblePaths=", "ReadOnlyPaths=", "TemporaryFileSystem=",
+            "ProtectKernelTunables=", "ProtectControlGroups=", "ProtectProc=", "Environment=",
+        ] {
+            assert!(!settings.iter().any(|l| l.starts_with(namespaced)), "unit sets {namespaced}");
+        }
+    }
     // A fixed delay: systemd's step backoff never resets while the unit
     // keeps being restarted, so it would stay at its maximum.
     assert!(unit.lines().any(|l| l.trim() == "RestartSec=60"));
@@ -1384,6 +1463,7 @@ fn the_installer_refuses_unsigned_releases_and_checks_unsigned_digests() -> Resu
             .args(&args)
             .env("HOME", &home)
             .env("USER", "operator")
+            .env("BWRAP", "/nonexistent/bwrap")
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("XDG_STATE_HOME")
             .output()?;

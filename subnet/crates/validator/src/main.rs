@@ -6,7 +6,7 @@
 use std::{path::PathBuf, process::ExitCode, sync::OnceLock};
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use slop_ninja_validator::app::{AppOutcome, Mode, apply};
 use slop_ninja_validator::config::{LogConfig, ValidatorConfig};
 use slop_ninja_validator::faults::Faults;
@@ -96,6 +96,26 @@ enum Command {
         /// The signed revocation file.
         file: PathBuf,
     },
+    /// Print the systemd drop-in that runs a persistent unit inside a
+    /// bubblewrap sandbox showing the validator only its binary, this
+    /// configuration, the hotkey files it names and its state directories
+    /// (`deploy/install.sh` writes it). With `--check`, instead run
+    /// `check-config` and a visibility test inside that sandbox and print a
+    /// content-free report. Reads no chain and no private key.
+    SandboxUnit {
+        /// The unit the drop-in is for.
+        #[arg(long, value_enum)]
+        unit: SandboxUnit,
+        /// The installed validator binary the unit starts.
+        #[arg(long)]
+        binary: PathBuf,
+        /// The bubblewrap executable.
+        #[arg(long, default_value = "/usr/bin/bwrap")]
+        bwrap: PathBuf,
+        /// Test the sandbox instead of printing the drop-in.
+        #[arg(long)]
+        check: bool,
+    },
     /// Read-only finalized observation: epoch state, this hotkey's
     /// `TimelockedWeightCommits` entries for recent epochs, its `Weights` row,
     /// and `Incentive` at the row's UIDs. Opens no journal or key.
@@ -107,6 +127,14 @@ enum Command {
         #[arg(long)]
         at: Option<u64>,
     },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum SandboxUnit {
+    /// `slop_ninja_validator-dispatch@`: `run --dispatch`.
+    Dispatch,
+    /// `slop_ninja_validator@`: the dry run.
+    DryRun,
 }
 
 fn main() -> ExitCode {
@@ -145,6 +173,12 @@ fn main() -> ExitCode {
             }
             Err(error) => report(Err(error)),
         },
+        Command::SandboxUnit {
+            unit,
+            binary,
+            bwrap,
+            check,
+        } => report(sandbox_unit(&config, &args.config, unit, &binary, &bwrap, check)),
         Command::Observe { epochs, at } => {
             if !(1..=32).contains(&epochs) {
                 tracing::error!(event = "config_refused", error = "--epochs must be 1..=32");
@@ -246,6 +280,49 @@ fn fetch_command(config: ValidatorConfig) -> Option<u8> {
         }
         Err(error) => report(Err(error)),
     }
+}
+
+fn sandbox_unit(
+    config: &ValidatorConfig,
+    config_path: &std::path::Path,
+    unit: SandboxUnit,
+    binary: &std::path::Path,
+    bwrap: &std::path::Path,
+    check: bool,
+) -> Result<()> {
+    use slop_ninja_validator::sandbox::{self, Layout, UnitKind};
+    let kind = match unit {
+        SandboxUnit::Dispatch => UnitKind::Dispatch,
+        SandboxUnit::DryRun => UnitKind::DryRun,
+    };
+    let home = PathBuf::from(
+        std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME is not set"))?,
+    );
+    anyhow::ensure!(home.is_absolute(), "HOME must be absolute");
+    let layout = Layout::host()?;
+    let binds = sandbox::binds(config, config_path, binary, kind, &home)?;
+    if check {
+        anyhow::ensure!(
+            sandbox::available(bwrap),
+            "bubblewrap cannot create a sandbox on this host (user namespaces refused to it)"
+        );
+        let report = sandbox::check(
+            bwrap,
+            &layout,
+            &binds,
+            binary,
+            config_path,
+            &home,
+            config.journal_path.is_file(),
+        )?;
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!(
+            "{}",
+            sandbox::render_drop_in(bwrap, &layout, &binds, binary, config_path, kind)?
+        );
+    }
+    Ok(())
 }
 
 fn check_config(config: &ValidatorConfig) -> Result<()> {

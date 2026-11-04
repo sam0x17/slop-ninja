@@ -24,6 +24,7 @@ pub mod logging;
 pub mod package;
 pub mod package_v2;
 pub mod reveals;
+pub mod sandbox;
 pub mod revocations;
 pub mod payload;
 pub mod startup;
@@ -35,6 +36,8 @@ mod fetch_tests;
 mod package_tests;
 #[cfg(test)]
 mod paced_tests;
+#[cfg(test)]
+mod sandbox_tests;
 #[cfg(test)]
 mod payload_tests;
 #[cfg(test)]

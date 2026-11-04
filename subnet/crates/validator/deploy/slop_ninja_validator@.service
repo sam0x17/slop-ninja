@@ -10,7 +10,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=exec
-ExecStart=%h/.local/bin/slop_ninja_validator --config %h/.config/slop_ninja_validator/%i.toml run
+ExecStart=/usr/bin/env -i HOME=%h RUST_BACKTRACE=0 %h/.local/bin/slop_ninja_validator --config %h/.config/slop_ninja_validator/%i.toml run
 Restart=on-failure
 RestartSec=120
 RestartSteps=4
@@ -24,9 +24,31 @@ TimeoutStopSec=60
 # whole GiB (README, fetch_tests::peak_memory_at_the_receipt_index_bound).
 MemoryMax=2G
 MemorySwapMax=0
-UMask=0077
+# Isolation. The user manager passes its own environment to every unit (on an
+# operator host that can include API keys and agent sockets), so ExecStart
+# starts the validator through `env -i` with only HOME and RUST_BACKTRACE.
+# The settings below need no namespace, so they work in user units even
+# where unprivileged user namespaces are restricted (Ubuntu's AppArmor
+# default; there ProtectHome=, PrivateTmp=, BindPaths= and the other mount
+# settings fail the unit with exit 226). Without AF_UNIX the validator can
+# reach no local socket: not the session bus (so no transient unit outside
+# these limits), an agent, or a container daemon. File isolation comes from
+# the bubblewrap drop-in deploy/install.sh writes (sandbox-unit), or from a
+# Unix user of its own (README, "Isolation").
+# The log identifier stays the validator's, not env's or bwrap's.
+SyslogIdentifier=slop_ninja_validator
 NoNewPrivileges=yes
-Environment=RUST_BACKTRACE=0
+UMask=0077
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+KeyringMode=private
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=default.target

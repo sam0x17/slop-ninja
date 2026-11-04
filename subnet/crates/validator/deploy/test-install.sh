@@ -95,14 +95,16 @@ sign() {
 
 case_no=0
 # run_install NAME ARGS...: runs the installer in a fresh home; sets status,
-# out (stdout and stderr) and home.
+# out (stdout and stderr) and home. No bubblewrap: the stub validator cannot
+# render a sandbox, so --sandbox auto installs without one (fetch_tests and
+# tests/sandbox.rs cover the sandbox).
 run_install() {
   case_no=$((case_no + 1))
   home="$scratch/home-$case_no"
   mkdir -p "$home"
   status=0
   out=$(env -i PATH="$PATH" HOME="$home" USER=tester TMPDIR="$scratch/tmp" \
-    SYSTEMCTL="$stubs/systemctl" LOGINCTL="$stubs/loginctl" \
+    SYSTEMCTL="$stubs/systemctl" LOGINCTL="$stubs/loginctl" BWRAP="$scratch/no-bwrap" \
     bash "$deploy/install.sh" --instance test "$@" 2>&1) || status=$?
 }
 mkdir -p "$scratch/tmp"

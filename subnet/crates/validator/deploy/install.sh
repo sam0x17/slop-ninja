@@ -2,7 +2,7 @@
 # Installs the Slop Ninja native validator as persistent systemd user units.
 #
 #   deploy/install.sh --instance NAME [--from DIR [--unverified]] [--config FILE]
-#                     [--init] [--enable [--start]] [--dry-run]
+#                     [--init] [--enable [--start]] [--sandbox MODE] [--dry-run]
 #
 # --instance NAME  the instance: ~/.config/slop_ninja_validator/NAME.toml
 # --from DIR       install slop_ninja_validator and slop-ninja-journal from DIR
@@ -24,6 +24,17 @@
 # --init           create the journal if the configuration names none yet
 # --enable         enable slop_ninja_validator-dispatch@NAME (starts at boot)
 # --start          with --enable, start it now
+# --sandbox MODE   auto (default), bwrap or none. bwrap writes a drop-in for
+#                  both units that runs the validator in a bubblewrap sandbox
+#                  showing it only its binary, this configuration, the hotkey
+#                  files it names and its state directories, after testing
+#                  that sandbox (sandbox-unit --check); it fails if bubblewrap
+#                  is missing or refused. auto does the same when bubblewrap
+#                  works and otherwise warns and removes any drop-in; none
+#                  removes it. Re-run after changing a path in the
+#                  configuration. Without the sandbox the validator can read
+#                  everything this account can: run it as a Unix user of its
+#                  own (README, "Isolation").
 # --dry-run        print every action instead of performing it
 #
 # The units are user units: lingering (loginctl enable-linger) keeps them
@@ -34,7 +45,7 @@
 # which reads only the hotkey's public companion. Re-running is safe.
 set -euo pipefail
 
-instance="" from="" config_src="" init=0 enable=0 start=0 dry=0 unverified=0
+instance="" from="" config_src="" init=0 enable=0 start=0 dry=0 unverified=0 sandbox=auto
 while (($#)); do
   case "$1" in
     --instance) instance="${2:?--instance needs a name}"; shift 2 ;;
@@ -44,6 +55,7 @@ while (($#)); do
     --init) init=1; shift ;;
     --enable) enable=1; shift ;;
     --start) start=1; shift ;;
+    --sandbox) sandbox="${2:?--sandbox needs auto, bwrap or none}"; shift 2 ;;
     --dry-run) dry=1; shift ;;
     -h|--help) sed -n '2,/^set -/{/^#/p}' "$0"; exit 0 ;;
     *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
@@ -63,9 +75,11 @@ run() {
 [[ "$instance" =~ ^[A-Za-z0-9_.-]{1,64}$ && "$instance" != "." && "$instance" != ".." ]] \
   || die "--instance must be a plain name of at most 64 letters, digits, '-', '_' or '.'"
 ((start == 0 || enable == 1)) || die "--start requires --enable"
+[[ "$sandbox" =~ ^(auto|bwrap|none)$ ]] || die "--sandbox must be auto, bwrap or none"
 [[ "$(uname -s)" == Linux ]] || die "only Linux is a declared platform; no launchd job is provided"
 
 systemctl_cmd=${SYSTEMCTL:-systemctl}
+bwrap_cmd=${BWRAP:-$(command -v bwrap || true)}
 loginctl_cmd=${LOGINCTL:-loginctl}
 user=${USER:-$(id -un)}
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -194,6 +208,56 @@ if ((dry == 0)); then
 else
   run "$validator" --config "$config" check-config
   ((init == 0)) || run "$validator" --config "$config" init
+fi
+
+# The sandbox drop-ins, one per unit of this instance. In a dry run the
+# sandbox is planned, not tested.
+dropin_name=50-sandbox.conf
+sandbox_units=("slop_ninja_validator-dispatch@$instance.service:dispatch" "slop_ninja_validator@$instance.service:dry-run")
+if [[ "$sandbox" != none ]]; then
+  if [[ -z "$bwrap_cmd" || ! -x "$bwrap_cmd" ]]; then
+    [[ "$sandbox" == auto ]] || die "--sandbox bwrap: bubblewrap (bwrap) is not installed"
+    echo "install.sh: WARNING: bubblewrap (bwrap) is not installed, so the validator runs without file isolation" >&2
+    sandbox=none
+  elif ((dry == 0)) && ! "$bwrap_cmd" --unshare-all --unshare-user --share-net --disable-userns \
+      --ro-bind / / -- /bin/true >/dev/null 2>&1; then
+    [[ "$sandbox" == auto ]] || die "--sandbox bwrap: $bwrap_cmd cannot create a sandbox on this host"
+    echo "install.sh: WARNING: $bwrap_cmd cannot create a sandbox here, so the validator runs without file isolation" >&2
+    sandbox=none
+  else
+    sandbox=bwrap
+  fi
+fi
+if [[ "$sandbox" == bwrap ]]; then
+  for entry in "${sandbox_units[@]}"; do
+    unit_name=${entry%%:*} kind=${entry##*:}
+    dropin_dir="$unit_dir/$unit_name.d"
+    run install -d -m 0755 "$dropin_dir"
+    if ((dry)); then
+      run "$validator" --config "$config" sandbox-unit --unit "$kind" --binary "$validator" --bwrap "$bwrap_cmd" --check
+      printf '+ %q --config %q sandbox-unit --unit %q --binary %q --bwrap %q > %q\n' \
+        "$validator" "$config" "$kind" "$validator" "$bwrap_cmd" "$dropin_dir/$dropin_name"
+    else
+      "$validator" --config "$config" sandbox-unit --unit "$kind" --binary "$validator" --bwrap "$bwrap_cmd" --check >/dev/null \
+        || die "the sandbox test failed for $unit_name (sandbox-unit --check above); fix the paths it names, or pass --sandbox none"
+      tmp=$(mktemp "$dropin_dir/.$dropin_name.XXXXXX")
+      if ! "$validator" --config "$config" sandbox-unit --unit "$kind" --binary "$validator" --bwrap "$bwrap_cmd" >"$tmp"; then
+        rm -f -- "$tmp"
+        die "sandbox-unit could not render the drop-in for $unit_name"
+      fi
+      chmod 0644 "$tmp"
+      mv -f -- "$tmp" "$dropin_dir/$dropin_name"
+    fi
+  done
+  echo "install.sh: the validator runs in a bubblewrap sandbox (drop-in $dropin_name; re-run after changing a configured path)"
+else
+  for entry in "${sandbox_units[@]}"; do
+    unit_name=${entry%%:*}
+    if ((dry)) || [[ -e "$unit_dir/$unit_name.d/$dropin_name" ]]; then
+      run rm -f "$unit_dir/$unit_name.d/$dropin_name"
+    fi
+  done
+  echo "install.sh: no file isolation: the validator can read everything $user can; run it as a Unix user of its own (README, \"Isolation\")" >&2
 fi
 
 linger=no

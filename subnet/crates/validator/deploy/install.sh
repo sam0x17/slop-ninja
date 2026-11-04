@@ -23,8 +23,14 @@
 #                  none exists; an existing configuration is never replaced
 # --init           create the journal if the configuration names none yet
 # --enable         enable slop_ninja_validator-dispatch@NAME (starts at boot)
-# --start          with --enable, start it now, and fail unless it is
-#                  still running, with no restart, 5 s later
+# --start          with --enable, start it now (restart it when it is
+#                  already running, so the new build and drop-in run now:
+#                  use a settled window), then wait, for at most the unit's
+#                  own start timeout, until this start logs package_verified.
+#                  Fails if the unit stops or restarts first; warns, and
+#                  leaves it running, if the timeout passes without it.
+#                  Without --start a running unit keeps its old process
+#                  until its next restart (the installer says so).
 # --sandbox MODE   auto (default), bwrap or none. bwrap writes a drop-in for
 #                  both units that runs the validator in a bubblewrap sandbox
 #                  showing it only its binary, this configuration, the hotkey
@@ -42,7 +48,15 @@
 #                  Without the sandbox the validator can read everything
 #                  this account can: run it as a Unix user of its own
 #                  (README, "Isolation").
-# --dry-run        print every action instead of performing it
+# --dry-run        print every action instead of performing it. The
+#                  read-only checks still run with the new build
+#                  (check-config, and on an upgrade the sandbox render), so
+#                  a dry run refuses whatever the install would refuse.
+#
+# Every check that can refuse runs before anything is replaced. The files
+# replaced after that (binaries, unit templates, drop-ins) are copied first
+# and put back if a later step fails, so a refusal never leaves a new build
+# under an old drop-in for the next automatic restart to start.
 #
 # The units are user units: lingering (loginctl enable-linger) keeps them
 # running without a login session and starts them at boot. Linux only: macOS
@@ -75,6 +89,32 @@ while (($#)); do
 done
 
 die() { echo "install.sh: $*" >&2; exit 2; }
+# Files replaced so far, as "TARGET|COPY" (COPY empty: TARGET did not
+# exist), and the directory holding the copies; see keep below. Any exit
+# other than success before the installation is complete puts each back.
+stage="" backup="" replaced=()
+restore() {
+  local entry target saved
+  for entry in "${replaced[@]}"; do
+    target=${entry%%|*} saved=${entry#*|}
+    if [[ -n "$saved" ]]; then
+      cp -p -- "$saved" "$target.restore.$$" && mv -f -- "$target.restore.$$" "$target"
+    else
+      rm -f -- "$target"
+    fi
+  done
+  replaced=()
+}
+cleanup() {
+  local status=$?
+  if ((status != 0 && ${#replaced[@]})); then
+    restore
+    echo "install.sh: restored the previous binaries, unit templates and drop-ins" >&2
+  fi
+  [[ -z "$stage" ]] || rm -rf -- "$stage"
+  [[ -z "$backup" ]] || rm -rf -- "$backup"
+}
+trap cleanup EXIT
 run() {
   if ((dry)); then
     printf '+'; printf ' %q' "$@"; printf '\n'
@@ -122,7 +162,6 @@ if [[ -n "$from" ]]; then
   # even if DIR changes meanwhile. A dry run installs nothing: it writes only
   # these copies, to a temporary directory removed on exit.
   stage=$(mktemp -d "${TMPDIR:-/tmp}/slop_ninja_install.XXXXXXXX")
-  trap 'rm -rf -- "$stage"' EXIT
   for binary in "${binaries[@]}"; do
     [[ -f "$from/$binary" ]] || die "$from/$binary is missing"
     cp -- "$from/$binary" "$stage/$binary"
@@ -181,48 +220,133 @@ if [[ -n "$from" ]]; then
   ((dry == 0)) || installed_from=$from
 fi
 
+# The build every check below runs: the verified copy about to be
+# installed, or the installed binary when there is no --from.
+candidate=$validator
+[[ -z "$from" ]] || candidate="$stage/slop_ninja_validator"
+
+# The sandbox mode, decided (and any refusal made) before anything changes.
+dropin_name=50-sandbox.conf
+sandbox_units=("slop_ninja_validator-dispatch@$instance.service:dispatch:slop_ninja_validator-dispatch@.service" "slop_ninja_validator@$instance.service:dry-run:slop_ninja_validator@.service")
+installed_dropins=()
+for entry in "${sandbox_units[@]}"; do
+  unit_name=${entry%%:*}
+  [[ ! -e "$unit_dir/$unit_name.d/$dropin_name" ]] || installed_dropins+=("$unit_dir/$unit_name.d/$dropin_name")
+done
+# auto never removes isolation it finds installed: a bubblewrap that stopped
+# working (an update, a changed AppArmor policy, another PATH) fails the
+# install and keeps the drop-in, so the next restart is not silently
+# unsandboxed. Only --sandbox none removes it.
+no_bwrap() {
+  [[ "$sandbox" == auto ]] || die "--sandbox bwrap: $1"
+  ((${#installed_dropins[@]} == 0)) \
+    || die "$1, but ${installed_dropins[*]} is installed; the drop-in is kept. Fix bubblewrap and re-run, or pass --sandbox none to remove the isolation"
+  echo "install.sh: WARNING: $1, so the validator runs without file isolation" >&2
+  sandbox=none
+}
+if [[ "$sandbox" != none ]]; then
+  if [[ -z "$bwrap_cmd" || ! -x "$bwrap_cmd" ]]; then
+    no_bwrap "bubblewrap (bwrap) is not installed"
+  elif ((dry == 0)) && ! "$bwrap_cmd" --unshare-all --unshare-user --share-net --disable-userns \
+      --ro-bind / / -- /bin/true >/dev/null 2>&1; then
+    no_bwrap "$bwrap_cmd cannot create a sandbox on this host"
+  else
+    sandbox=bwrap
+  fi
+fi
+
 run install -d -m 0755 "$bin_dir"
 run install -d -m 0700 "$config_dir" "$state_dir" "$instance_state"
 run install -d -m 0755 "$unit_dir"
 
-if [[ -n "$from" ]]; then
-  for binary in "${binaries[@]}"; do
-    run install -m 0755 "$installed_from/$binary" "$bin_dir/$binary"
-  done
-fi
-
-run install -m 0644 "$here/slop_ninja_validator@.service" "$here/slop_ninja_validator-dispatch@.service" "$unit_dir/"
-
+# The configuration is installed only when none exists, so this replaces
+# nothing a running unit reads.
 if [[ -e "$config" ]]; then
   echo "install.sh: keeping the existing $config"
   mode=$(stat -c %a "$config")
   [[ "$mode" =~ ^[0-7]00$ ]] || echo "install.sh: $config is mode $mode; chmod 600 it" >&2
+  check_config=$config
 elif [[ -n "$config_src" ]]; then
   [[ -f "$config_src" ]] || die "--config $config_src is not a file"
   run install -m 0600 "$config_src" "$config"
+  check_config=$config
+  ((dry == 0)) || check_config=$config_src
 else
   run install -m 0600 "$here/../validator.example.toml" "$config"
   echo "install.sh: installed the example as $config; edit every value (netuid 0 is refused) and re-run"
   ((enable == 0)) || die "not enabling an unedited example configuration"
+  check_config=$config
+  ((dry == 0)) || check_config="$here/../validator.example.toml"
 fi
 
-if ((dry == 0)); then
-  [[ -x "$validator" ]] || die "$validator is not installed; pass --from"
-  if ! summary=$("$validator" --config "$config" check-config); then
-    die "check-config refused $config; fix it and re-run"
+# Every check that can refuse runs here, with the new build, before any
+# binary, template or drop-in is replaced, so a refusal leaves the working
+# installation (and what its next automatic restart runs) as it was. A dry
+# run makes the same checks: they only read.
+journal_exists=unknown
+if [[ -x "$candidate" ]]; then
+  if ! summary=$("$candidate" --config "$check_config" check-config); then
+    die "check-config refused $check_config; fix it and re-run (nothing replaced)"
   fi
   if grep -q '"journal_exists": false' <<<"$summary"; then
-    if ((init)); then
-      run "$validator" --config "$config" init
-    else
-      echo "install.sh: no journal yet; create it once with: $validator --config $config init (or --init)"
-      ((enable == 0)) || die "not enabling a validator without a journal"
-    fi
+    journal_exists=no
+  elif grep -q '"journal_exists": true' <<<"$summary"; then
+    journal_exists=yes
   fi
-else
-  run "$validator" --config "$config" check-config
-  ((init == 0)) || run "$validator" --config "$config" init
+elif ((dry == 0)); then
+  die "$validator is not installed; pass --from"
 fi
+if [[ "$journal_exists" == no ]] && ((init == 0)); then
+  ((enable == 0)) || die "not enabling a validator without a journal; create it with --init (nothing replaced)"
+fi
+# The drop-in render's refusals (the bind list, strays beside the journal,
+# shared or key-holding directories) depend only on the configuration and
+# the paths it names, so the new build renders here too and its output is
+# discarded: against the installed binary path when there is one, and
+# against the configuration being installed (in a dry run, the --config
+# file, as nothing is installed yet). The drop-in actually installed is
+# rendered again below, once the binary and configuration are in place.
+if [[ "$sandbox" == bwrap && -x "$candidate" && -f "$check_config" ]]; then
+  render_binary=$validator
+  [[ -f "$render_binary" ]] || render_binary=$candidate
+  for entry in "${sandbox_units[@]}"; do
+    unit_name=${entry%%:*} rest=${entry#*:}
+    kind=${rest%%:*}
+    if ! "$candidate" --config "$check_config" sandbox-unit --unit "$kind" --binary "$render_binary" \
+        --bwrap "$bwrap_cmd" >/dev/null; then
+      die "sandbox-unit refused the drop-in for $unit_name (see the error above); nothing replaced. Fix the paths it names, or pass --sandbox none"
+    fi
+  done
+fi
+
+# From here files are replaced. Each is kept first (keep), and any failure
+# before the installation is complete puts every one back (cleanup), so the
+# next restart of the unit runs the old build with its old drop-in, never
+# the new build under the old drop-in.
+# keep FILE: remember FILE's current content (or its absence) once.
+keep() {
+  ((dry == 0)) || return 0
+  local entry saved=""
+  for entry in "${replaced[@]}"; do [[ "${entry%%|*}" != "$1" ]] || return 0; done
+  if [[ -e "$1" ]]; then
+    [[ -n "$backup" ]] || backup=$(mktemp -d "${TMPDIR:-/tmp}/slop_ninja_install_backup.XXXXXXXX")
+    saved="$backup/${#replaced[@]}"
+    cp -p -- "$1" "$saved" || die "cannot keep a copy of $1"
+  fi
+  replaced+=("$1|$saved")
+}
+
+if [[ -n "$from" ]]; then
+  for binary in "${binaries[@]}"; do
+    keep "$bin_dir/$binary"
+    run install -m 0755 "$installed_from/$binary" "$bin_dir/$binary" || die "cannot install $bin_dir/$binary"
+  done
+fi
+for template in slop_ninja_validator@.service slop_ninja_validator-dispatch@.service; do
+  keep "$unit_dir/$template"
+done
+run install -m 0644 "$here/slop_ninja_validator@.service" "$here/slop_ninja_validator-dispatch@.service" "$unit_dir/" \
+  || die "cannot install the unit templates"
 
 # The unit's own restrictions, for the checks below: a check passes only
 # where the unit's process can do the same. hardening_keys are carried into
@@ -270,41 +394,13 @@ check_out=/dev/null
 
 # The sandbox drop-ins, one per unit of this instance. In a dry run the
 # sandbox is planned, not tested.
-dropin_name=50-sandbox.conf
-sandbox_units=("slop_ninja_validator-dispatch@$instance.service:dispatch:slop_ninja_validator-dispatch@.service" "slop_ninja_validator@$instance.service:dry-run:slop_ninja_validator@.service")
-installed_dropins=()
-for entry in "${sandbox_units[@]}"; do
-  unit_name=${entry%%:*}
-  [[ ! -e "$unit_dir/$unit_name.d/$dropin_name" ]] || installed_dropins+=("$unit_dir/$unit_name.d/$dropin_name")
-done
-# auto never removes isolation it finds installed: a bubblewrap that stopped
-# working (an update, a changed AppArmor policy, another PATH) fails the
-# install and keeps the drop-in, so the next restart is not silently
-# unsandboxed. Only --sandbox none removes it.
-no_bwrap() {
-  [[ "$sandbox" == auto ]] || die "--sandbox bwrap: $1"
-  ((${#installed_dropins[@]} == 0)) \
-    || die "$1, but ${installed_dropins[*]} is installed; the drop-in is kept. Fix bubblewrap and re-run, or pass --sandbox none to remove the isolation"
-  echo "install.sh: WARNING: $1, so the validator runs without file isolation" >&2
-  sandbox=none
-}
-if [[ "$sandbox" != none ]]; then
-  if [[ -z "$bwrap_cmd" || ! -x "$bwrap_cmd" ]]; then
-    no_bwrap "bubblewrap (bwrap) is not installed"
-  elif ((dry == 0)) && ! "$bwrap_cmd" --unshare-all --unshare-user --share-net --disable-userns \
-      --ro-bind / / -- /bin/true >/dev/null 2>&1; then
-    no_bwrap "$bwrap_cmd cannot create a sandbox on this host"
-  else
-    sandbox=bwrap
-  fi
-fi
 if [[ "$sandbox" == bwrap ]]; then
   for entry in "${sandbox_units[@]}"; do
     unit_name=${entry%%:*} rest=${entry#*:}
     kind=${rest%%:*} template=${rest#*:}
     dropin_dir="$unit_dir/$unit_name.d"
     render=("$validator" --config "$config" sandbox-unit --unit "$kind" --binary "$validator" --bwrap "$bwrap_cmd")
-    run install -d -m 0755 "$dropin_dir"
+    run install -d -m 0755 "$dropin_dir" || die "cannot create $dropin_dir"
     if ((dry)); then
       printf '+'; printf ' %q' "${render[@]}"; printf ' > %q\n' "$dropin_dir/.$dropin_name.new"
       under_unit "$here/$template" "$dropin_dir/.$dropin_name.new" -- "${render[@]}" --check
@@ -322,7 +418,8 @@ if [[ "$sandbox" == bwrap ]]; then
         die "the sandbox test failed for $unit_name under the unit's restrictions (see above); fix the paths it names, or pass --sandbox none"
       fi
       chmod 0644 "$tmp"
-      mv -f -- "$tmp" "$dropin_dir/$dropin_name"
+      keep "$dropin_dir/$dropin_name"
+      mv -f -- "$tmp" "$dropin_dir/$dropin_name" || die "cannot install $dropin_dir/$dropin_name"
     fi
   done
   echo "install.sh: the validator runs in a bubblewrap sandbox (drop-in $dropin_name; re-run after changing a configured path)"
@@ -330,6 +427,7 @@ else
   for entry in "${sandbox_units[@]}"; do
     unit_name=${entry%%:*} template=${entry##*:}
     if [[ -e "$unit_dir/$unit_name.d/$dropin_name" ]]; then
+      keep "$unit_dir/$unit_name.d/$dropin_name"
       run rm -f "$unit_dir/$unit_name.d/$dropin_name"
     fi
     # Without the drop-in the template's own restrictions apply; check that
@@ -339,6 +437,19 @@ else
   done
   echo "install.sh: no file isolation: the validator can read everything $user can; run it as a Unix user of its own (README, \"Isolation\")" >&2
 fi
+# Installed and tested: nothing is put back from here on.
+replaced_any=${#replaced[@]}
+replaced=()
+
+if [[ "$journal_exists" != yes ]]; then
+  if ((init)); then
+    if ((dry)) || [[ "$journal_exists" == no ]]; then
+      run "$validator" --config "$config" init
+    fi
+  elif [[ "$journal_exists" == no ]]; then
+    echo "install.sh: no journal yet; create it once with: $validator --config $config init (or --init)"
+  fi
+fi
 
 linger=no
 if ((dry == 0)); then
@@ -347,21 +458,80 @@ fi
 [[ "$linger" == yes ]] || run "$loginctl_cmd" enable-linger "$user"
 run "$systemctl_cmd" --user daemon-reload
 
+# span_seconds SPAN: a systemd time span as printed by systemctl show
+# ("1min 30s", "90s", "500ms"), in whole seconds rounded up; fails on
+# "infinity" or anything else.
+span_seconds() {
+  local word total_ms=0 number unit
+  [[ -n "$1" ]] || return 1
+  for word in $1; do
+    [[ "$word" =~ ^([0-9]+)(us|ms|s|min|h|d)$ ]] || return 1
+    number=${BASH_REMATCH[1]} unit=${BASH_REMATCH[2]}
+    case "$unit" in
+      us) total_ms=$((total_ms + (number + 999) / 1000)) ;;
+      ms) total_ms=$((total_ms + number)) ;;
+      s) total_ms=$((total_ms + number * 1000)) ;;
+      min) total_ms=$((total_ms + number * 60000)) ;;
+      h) total_ms=$((total_ms + number * 3600000)) ;;
+      d) total_ms=$((total_ms + number * 86400000)) ;;
+    esac
+  done
+  echo $(((total_ms + 999) / 1000))
+}
+# unit_prop NAME: one property of the dispatch unit, empty when unknown.
+unit_prop() { "$systemctl_cmd" --user show "$unit" --property="$1" --value 2>/dev/null || true; }
+was_active=no
+((dry)) || [[ "$(unit_prop ActiveState)" != active ]] || was_active=yes
 if ((enable)); then
   if ((start)); then
-    run "$systemctl_cmd" --user enable --now "$unit"
-    # A unit that cannot start (refused by the sandbox, a check, the host)
-    # exits at once; one that restarts would hide it behind Restart=always.
+    # An active unit keeps running its old process until it restarts, so
+    # --start restarts it: the new build and drop-in run now, not first at
+    # some later unattended restart. Run it in a settled window (no commit
+    # or reveal in flight); the journal recovers an interrupted one anyway.
+    if [[ "$was_active" == yes ]]; then
+      echo "install.sh: $unit is running; restarting it on the new build"
+      run "$systemctl_cmd" --user enable "$unit"
+      run "$systemctl_cmd" --user restart "$unit"
+    else
+      ((dry == 0)) || echo "install.sh: (restarts $unit instead when it is already active)"
+      run "$systemctl_cmd" --user enable --now "$unit"
+    fi
     if ((dry == 0)); then
-      sleep 5
-      state=$("$systemctl_cmd" --user show "$unit" --property=ActiveState --value 2>/dev/null || true)
-      restarts=$("$systemctl_cmd" --user show "$unit" --property=NRestarts --value 2>/dev/null || true)
-      [[ "$state" == active && "${restarts:-0}" == 0 ]] \
-        || die "$unit is not running 5 s after start (ActiveState=${state:-unknown}, NRestarts=${restarts:-unknown}); see journalctl --user -u $unit"
+      # Started: wait until this invocation verified its package
+      # (package_verified, logged once startup recovery, the commit/reveal
+      # check, the fetch and the bundle checks passed), or until it exits
+      # or restarts, for at most the unit's own start timeout.
+      invocation=$(unit_prop InvocationID)
+      wait_s=$(span_seconds "$(unit_prop TimeoutStartUSec)") || wait_s=$(span_seconds "$(unit_prop TimeoutStopUSec)") \
+        || die "$unit reports no finite start or stop timeout to wait by; follow journalctl --user -u $unit -f until package_verified"
+      deadline=$((SECONDS + wait_s))
+      verdict=waiting
+      while ((SECONDS < deadline)); do
+        state=$(unit_prop ActiveState)
+        now=$(unit_prop InvocationID)
+        if [[ "$state" != active && "$state" != activating ]] || [[ -n "$invocation" && "$now" != "$invocation" ]]; then
+          verdict=failed
+          break
+        fi
+        if [[ -n "$invocation" ]] && journalctl --user _SYSTEMD_INVOCATION_ID="$invocation" -o cat --no-pager 2>/dev/null \
+            | grep -q 'package_verified'; then
+          verdict=verified
+          break
+        fi
+        sleep 1
+      done
+      case "$verdict" in
+        verified) echo "install.sh: $unit verified its package and runs" ;;
+        failed) die "$unit stopped or restarted during startup (ActiveState=${state:-unknown}); see journalctl --user -u $unit" ;;
+        *) echo "install.sh: WARNING: $unit is running but has not verified its package within its start timeout (startup recovery or the fetch is still waiting); it keeps running. Follow journalctl --user -u $unit -f until package_verified" >&2 ;;
+      esac
     fi
   else
     run "$systemctl_cmd" --user enable "$unit"
   fi
+fi
+if [[ "$was_active" == yes ]] && ((start == 0)) && ((replaced_any)); then
+  echo "install.sh: $unit is still running the previous build; the new build and drop-in take effect at its next restart. Restart it now, in a settled window: systemctl --user restart $unit" >&2
 fi
 
 cat <<EOF

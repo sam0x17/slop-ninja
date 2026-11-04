@@ -144,7 +144,28 @@ enum SandboxUnit {
 }
 
 fn main() -> ExitCode {
+    // As PID 1 of a sandbox a signal with no handler is discarded, not
+    // deferred, so a SIGTERM that arrived before the handlers exist (while
+    // the arguments and configuration load, the sandbox check runs or the
+    // journal opens) would be lost and the stop would end in SIGKILL. A
+    // blocked signal stays pending instead: block both stop signals before
+    // anything else, register the run's handlers, then unblock, which
+    // delivers a pending one to them.
+    let blocked = StopSignals::block();
     let args = Args::parse();
+    let mut early = match args.command {
+        Command::Run { .. } => match Stopping::register() {
+            Ok(stopping) => Some(stopping),
+            Err(error) => {
+                drop(blocked);
+                slop_ninja_validator::logging::init(&LogConfig::default());
+                tracing::error!(event = "command_failed", error = %error);
+                return ExitCode::from(EXIT_ERROR);
+            }
+        },
+        _ => None,
+    };
+    drop(blocked);
     let config = match ValidatorConfig::load(&args.config) {
         Ok(config) => config,
         Err(error) => {
@@ -227,7 +248,10 @@ fn main() -> ExitCode {
                 tracing::error!(event = "sandbox_refused", error = %error);
                 return ExitCode::from(EXIT_CONFIG);
             }
-            run(config, mode)
+            match early.take() {
+                Some(stopping) => run(config, mode, stopping),
+                None => Some(EXIT_ERROR),
+            }
         }
     };
     ExitCode::from(code.unwrap_or(EXIT_ERROR))
@@ -342,6 +366,20 @@ fn sandbox_guard(
         ),
         Guarded::Matches | Guarded::NotSandboxed => {}
     }
+    if pid_one {
+        // Another journal whose lock no process holds (a retired one): no
+        // collision is possible now, but the directory should be this
+        // instance's alone.
+        match sandbox::foreign_journal_locks(&config.journal_path) {
+            Ok((_, unheld)) if !unheld.is_empty() => tracing::warn!(
+                event = "journal_dir_shared",
+                locks = %unheld.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", "),
+                hint = "another journal shares this journal's directory; move it out and re-run deploy/install.sh"
+            ),
+            Ok(_) => {}
+            Err(error) => tracing::warn!(event = "journal_dir_unlisted", error = %error),
+        }
+    }
     Ok(())
 }
 
@@ -365,13 +403,14 @@ fn sandbox_unit(
     anyhow::ensure!(home.is_absolute(), "HOME must be absolute");
     let layout = Layout::host()?;
     let binds = sandbox::binds(config, config_path, binary, kind, &home)?;
-    let strays = sandbox::journal_dir_strays(config)?;
+    let strays = sandbox::bind_strays(config)?;
     anyhow::ensure!(
         strays.is_empty(),
-        "the journal directory, which the sandbox binds read-write as a whole, also holds \
-         entries that are not this instance's journal, package or caches: {}. Give each \
-         instance a state directory of its own (~/.local/state/slop_ninja_validator/<instance>/) \
-         and move other journals, packages and key files out",
+        "a directory the sandbox binds read-write as a whole (the journal's, the package's or \
+         a cache) also holds entries that are not this instance's journal, package or caches: \
+         {}. Give each instance a state directory of its own \
+         (~/.local/state/slop_ninja_validator/<instance>/) and move other journals, packages, \
+         key files and other tools' files out",
         strays
             .iter()
             .map(|path| path.display().to_string())
@@ -421,15 +460,100 @@ fn check_config(config: &ValidatorConfig) -> Result<()> {
     Ok(())
 }
 
-fn run(config: ValidatorConfig, mode: Mode) -> Option<u8> {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
-        Err(error) => return report(Err(error.into())),
-    };
-    runtime.block_on(run_async(config, mode))
+/// SIGTERM and SIGINT blocked for this (still single-threaded) process
+/// until dropped, which restores the previous mask.
+struct StopSignals {
+    #[cfg(unix)]
+    previous: Option<libc::sigset_t>,
+}
+
+impl StopSignals {
+    fn block() -> Self {
+        #[cfg(unix)]
+        {
+            // SAFETY: sigemptyset/sigaddset initialise a local set, and
+            // pthread_sigmask only changes this thread's mask (no other
+            // thread exists yet); every pointer is to a live local.
+            let previous = unsafe {
+                let mut set: libc::sigset_t = std::mem::zeroed();
+                let mut previous: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut set);
+                libc::sigaddset(&mut set, libc::SIGTERM);
+                libc::sigaddset(&mut set, libc::SIGINT);
+                (libc::pthread_sigmask(libc::SIG_BLOCK, &set, &mut previous) == 0).then_some(previous)
+            };
+            Self { previous }
+        }
+        #[cfg(not(unix))]
+        Self {}
+    }
+}
+
+impl Drop for StopSignals {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(previous) = self.previous.take() {
+            // SAFETY: restores the mask saved by `block` on this thread.
+            unsafe {
+                libc::pthread_sigmask(libc::SIG_SETMASK, &previous, std::ptr::null_mut());
+            }
+        }
+    }
+}
+
+/// The run's runtime with its stop signals registered on it.
+struct Stopping {
+    runtime: tokio::runtime::Runtime,
+    #[cfg(unix)]
+    terminate: tokio::signal::unix::Signal,
+    #[cfg(unix)]
+    interrupt: tokio::signal::unix::Signal,
+}
+
+impl Stopping {
+    fn register() -> Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        #[cfg(unix)]
+        let (terminate, interrupt) = {
+            use tokio::signal::unix::{SignalKind, signal};
+            let _entered = runtime.enter();
+            (signal(SignalKind::terminate())?, signal(SignalKind::interrupt())?)
+        };
+        Ok(Self {
+            runtime,
+            #[cfg(unix)]
+            terminate,
+            #[cfg(unix)]
+            interrupt,
+        })
+    }
+}
+
+fn run(config: ValidatorConfig, mode: Mode, stopping: Stopping) -> Option<u8> {
+    let Stopping {
+        runtime,
+        #[cfg(unix)]
+        mut terminate,
+        #[cfg(unix)]
+        mut interrupt,
+    } = stopping;
+    runtime.block_on(async move {
+        #[cfg(unix)]
+        let stop = async move {
+            tokio::select! {
+                biased;
+                _ = terminate.recv() => {}
+                _ = interrupt.recv() => {}
+            }
+        };
+        #[cfg(not(unix))]
+        let stop = async {
+            let _ = tokio::signal::ctrl_c().await;
+        };
+        run_async(config, mode, stop).await
+    })
 }
 
 /// The startup result, or the application result after a resumed startup.
@@ -440,7 +564,14 @@ enum Finished {
     NoBundle,
 }
 
-async fn run_async(config: ValidatorConfig, mode: Mode) -> Option<u8> {
+async fn run_async(
+    config: ValidatorConfig,
+    mode: Mode,
+    stop: impl std::future::Future<Output = ()>,
+) -> Option<u8> {
+    // Polled first at every wakeup, so a stop that arrived during a
+    // synchronous step (the journal's open) wins at the next await.
+    let mut stop = std::pin::pin!(stop);
     let summary = serde_json::to_string(&config.summary()).unwrap_or_default();
     tracing::info!(event = "startup", config = %summary);
     if !config.journal_path.is_file() {
@@ -480,6 +611,8 @@ async fn run_async(config: ValidatorConfig, mode: Mode) -> Option<u8> {
     let continuous = mode == Mode::Dispatch && ports.continuous();
 
     let result = tokio::select! {
+        biased;
+        () = &mut stop => None,
         result = async {
             let outcome = start(&mut ports, rounds, &faults).await?;
             if !matches!(outcome, StartupOutcome::Resumed { .. }) || !has_package {
@@ -552,7 +685,6 @@ async fn run_async(config: ValidatorConfig, mode: Mode) -> Option<u8> {
                 return Ok::<_, anyhow::Error>(Finished::App(Box::new(outcome)));
             }
         } => Some(result),
-        () = shutdown_signal() => None,
     };
     // A resumed journal is paused again before exit, so the next start
     // reconciles finalized history first. Retained work survives the pause.
@@ -603,27 +735,5 @@ async fn run_async(config: ValidatorConfig, mode: Mode) -> Option<u8> {
             })
         }
         Some(Err(error)) => report(Err(error)),
-    }
-}
-
-async fn shutdown_signal() {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal};
-        match signal(SignalKind::terminate()) {
-            Ok(mut terminate) => {
-                tokio::select! {
-                    _ = terminate.recv() => {}
-                    _ = tokio::signal::ctrl_c() => {}
-                }
-            }
-            Err(_) => {
-                let _ = tokio::signal::ctrl_c().await;
-            }
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = tokio::signal::ctrl_c().await;
     }
 }

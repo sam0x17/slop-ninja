@@ -8,7 +8,7 @@ use anyhow::Result;
 use crate::config::ValidatorConfig;
 use crate::sandbox::{
     Access, Bind, Guarded, Layout, RootEntry, SANDBOX_ENV, UnitKind, binds, binds_digest, guard,
-    journal_dir_strays, render_drop_in, sweep_journal_temps,
+    bind_strays, render_drop_in, sweep_journal_temps,
 };
 
 fn scratch() -> Result<tempfile::TempDir> {
@@ -485,14 +485,14 @@ fn the_journal_directory_holds_only_this_instance() -> Result<()> {
     std::fs::create_dir(h.state.join("public-cache"))?;
     // The installer's empty per-instance directory beside it shows nothing.
     std::fs::create_dir(h.state.join("v2"))?;
-    assert_eq!(journal_dir_strays(&config)?, Vec::<PathBuf>::new());
+    assert_eq!(bind_strays(&config)?, Vec::<PathBuf>::new());
     // A name that only starts like the journal's is not in its family.
     for name in ["journal.json-old", "other-journal.json.lock", "package-t1.json"] {
         std::fs::write(h.state.join(name), b"")?;
     }
     std::fs::create_dir(h.state.join("keys"))?;
     std::fs::write(h.state.join("keys/trusted_keys.toml"), b"")?;
-    let strays = journal_dir_strays(&config)?;
+    let strays = bind_strays(&config)?;
     let names: Vec<_> = strays
         .iter()
         .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
@@ -516,7 +516,7 @@ fn the_journal_directory_holds_only_this_instance() -> Result<()> {
             ),
         ),
     )?;
-    assert_eq!(journal_dir_strays(&config)?, Vec::<PathBuf>::new());
+    assert_eq!(bind_strays(&config)?, Vec::<PathBuf>::new());
     Ok(())
 }
 
@@ -532,10 +532,29 @@ fn stale_journal_temporaries_are_swept_only_when_safe() -> Result<()> {
     for name in temps {
         std::fs::write(h.state.join(name), b"")?;
     }
-    // Another journal's lock beside it: its writer could own a temporary.
-    std::fs::write(h.state.join("other.json.lock"), b"")?;
-    assert_eq!(sweep_journal_temps(&journal)?, 0);
+    // Another journal open beside it (its lock held): its writer could own
+    // a temporary, so nothing is removed and the error says why.
+    let other = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(h.state.join("other.json.lock"))?;
+    other.lock()?;
+    let error = format!("{:#}", sweep_journal_temps(&journal).unwrap_err());
+    assert!(error.contains("temporaries kept"), "{error}");
     assert!(h.state.join(temps[0]).exists());
+    // The journal's own lock was released again.
+    assert!(std::fs::File::open(h.state.join("journal.json.lock"))?.try_lock().is_ok());
+    // A retired journal's lock, which no process holds, does not stop it
+    // (it is taken while sweeping, then released).
+    drop(other);
+    std::fs::write(h.state.join(temps[0]), b"")?;
+    assert_eq!(sweep_journal_temps(&journal)?, 2);
+    assert!(std::fs::File::open(h.state.join("other.json.lock"))?.try_lock().is_ok());
+    for name in temps {
+        std::fs::write(h.state.join(name), b"")?;
+    }
     std::fs::remove_file(h.state.join("other.json.lock"))?;
     // This journal's lock held (a running validator): nothing removed.
     let held = std::fs::OpenOptions::new()
@@ -596,10 +615,113 @@ fn the_startup_guard_compares_the_drop_in_with_the_configuration() -> Result<()>
     let unbound = h.config(&package(&h.home.join("absent/package.json")))?;
     let error = format!("{:#}", check(&unbound, None, Some(&marker), true).unwrap_err());
     assert!(error.contains("no longer matches"), "{error}");
-    // Another journal's lock in the directory: refused as PID 1 only.
+    // A retired journal's lock beside it (no process holds it) is no
+    // collision: accepted, and reported by the caller.
     std::fs::write(h.state.join("other.json.lock"), b"")?;
+    assert_eq!(check(&config, None, Some(&marker), true)?, Guarded::Matches);
+    assert_eq!(
+        crate::sandbox::foreign_journal_locks(&config.journal_path)?,
+        (vec![], vec![h.state.join("other.json.lock")])
+    );
+    // Another journal open in a running process: refused as PID 1 only.
+    let other = std::fs::File::open(h.state.join("other.json.lock"))?;
+    other.lock()?;
     let error = check(&config, None, Some(&marker), true).unwrap_err();
     assert!(error.to_string().contains("another journal"), "{error}");
     assert_eq!(check(&config, None, None, false)?, Guarded::NotSandboxed);
+    drop(other);
+    assert_eq!(check(&config, None, Some(&marker), true)?, Guarded::Matches);
+    Ok(())
+}
+
+/// A directory is bound whole, so one that other tools of the account
+/// share, or that holds the wallets, a hotkey file or the configuration, is
+/// refused.
+#[test]
+fn binds_refuse_shared_directories_and_ones_holding_keys() -> Result<()> {
+    let h = Home::new()?;
+    let runtime_cache = |dir: &Path| -> Result<ValidatorConfig> {
+        std::fs::create_dir_all(dir)?;
+        h.config(&package(&h.state.join("package.json")).replace(
+            "[package]\n",
+            &format!("runtime_cache_dir = \"{}\"\n[package]\n", dir.display()),
+        ))
+    };
+    for shared in [".config", ".cache", ".local/state", ".local/share", ".bittensor"] {
+        let error = h
+            .binds(&runtime_cache(&h.home.join(shared))?, UnitKind::DryRun)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("other tools of this account share") || error.contains("contains"),
+            "{shared}: {error}"
+        );
+    }
+    for (dir, what) in [
+        (h.home.join(".bittensor/wallets"), "the wallet directory"),
+        (h.hotkeys.clone(), "the wallet hotkey file"),
+        (h.home.join(".config/slop_ninja_validator"), "the configuration"),
+    ] {
+        let error = h.binds(&runtime_cache(&dir)?, UnitKind::DryRun).unwrap_err().to_string();
+        assert!(error.contains(what), "{}: {error}", dir.display());
+    }
+    // A directory of its own under a shared one is fine.
+    let own = h.home.join(".cache/slop_ninja_validator/runtime");
+    assert!(h.binds(&runtime_cache(&own)?, UnitKind::DryRun).is_ok());
+    // A journal kept beside the configuration is refused too.
+    let text = std::fs::read_to_string(&h.config_path)?;
+    let beside = ValidatorConfig::parse(&text.replace(
+        &h.state.join("journal.json").display().to_string(),
+        &h.config_path.with_file_name("journal.json").display().to_string(),
+    ))?;
+    let error = h.binds(&beside, UnitKind::DryRun).unwrap_err().to_string();
+    assert!(error.contains("the configuration"), "{error}");
+    Ok(())
+}
+
+/// Every directory bound read-write is checked for strays, not only the
+/// journal's: a package directory of its own, the fetch cache and the
+/// runtime cache may hold only their own layouts.
+#[test]
+fn every_read_write_directory_holds_only_this_instance() -> Result<()> {
+    let h = Home::new()?;
+    let bundles = h.home.join("bundles");
+    let cache = h.home.join("cache");
+    let runtime = h.home.join("runtime");
+    for dir in [&bundles, &cache, &runtime] {
+        std::fs::create_dir_all(dir)?;
+    }
+    let config = h.config(&format!(
+        "{}[fetch]\nbase_url = \"https://status.example/\"\ncache_dir = \"{}\"\n",
+        package(&bundles.join("active.json")).replace(
+            "[package]\n",
+            &format!("runtime_cache_dir = \"{}\"\n[package]\n", runtime.display()),
+        ),
+        cache.display()
+    ))?;
+    for path in [
+        bundles.join("active.json"),
+        bundles.join("active.json.staged"),
+        cache.join(".lock"),
+        runtime.join("md16-0123456789abcdef-486.bin"),
+        runtime.join(".rtao-md-1-0.tmp"),
+    ] {
+        std::fs::write(path, b"")?;
+    }
+    std::fs::create_dir_all(cache.join("cohorts/c1"))?;
+    std::fs::create_dir_all(cache.join("authorizations"))?;
+    std::fs::create_dir_all(runtime.join("empty"))?;
+    assert_eq!(bind_strays(&config)?, Vec::<PathBuf>::new());
+    let planted = [
+        bundles.join("other-active.json"),
+        cache.join("hosts.yml"),
+        runtime.join("token"),
+    ];
+    for path in &planted {
+        std::fs::write(path, b"synthetic")?;
+    }
+    let mut want = planted.to_vec();
+    want.sort();
+    assert_eq!(bind_strays(&config)?, want);
     Ok(())
 }

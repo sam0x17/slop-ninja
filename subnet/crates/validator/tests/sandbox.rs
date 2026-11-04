@@ -1,8 +1,9 @@
 //! `sandbox-unit --check` end to end: the validator, started inside the
 //! bubblewrap sandbox its drop-in describes, reads its configuration and
 //! hotkey companion and writes its state directory, while the coldkey, other
-//! hotkeys, other home entries and the host's /tmp are absent. Skipped (with
-//! a note) where bubblewrap is missing or refused user namespaces.
+//! hotkeys, other home entries and the host's /tmp and /run are absent.
+//! Skipped (with a note) where bubblewrap is missing or refused user
+//! namespaces.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -27,10 +28,14 @@ fn bwrap_works() -> bool {
             .is_ok_and(|out| out.status.success())
 }
 
+/// Outside `/tmp`: the sandbox's own `/tmp` is a writable tmpfs, so a home
+/// under it would get writable private parents there and the tests below
+/// would test that instead of the read-only root.
 fn scratch() -> tempfile::TempDir {
     let root = std::env::var_os("SLOP_NINJA_TEST_TMPDIR")
         .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")));
+    assert!(!root.starts_with(std::env::temp_dir()), "scratch under the temporary directory");
     tempfile::Builder::new()
         .prefix("sandbox-it-")
         .tempdir_in(root)
@@ -127,6 +132,11 @@ fn the_sandbox_shows_only_the_configured_paths() {
         return;
     }
     let op = operator();
+    // A host /tmp entry, which the check must confirm absent.
+    let planted = tempfile::Builder::new()
+        .prefix("sandbox-it-host-")
+        .tempfile_in(std::env::temp_dir())
+        .unwrap();
     let out = sandbox_unit(&op, &["--check"]);
     assert!(
         out.status.success(),
@@ -136,6 +146,21 @@ fn the_sandbox_shows_only_the_configured_paths() {
     );
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(report["journal_exists"], false);
+    let dirs: Vec<&str> = report["hidden_dirs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|dir| dir.as_str().unwrap())
+        .collect();
+    assert!(dirs.contains(&"/tmp"), "{report}");
+    if Path::new("/run").is_dir() {
+        assert!(dirs.contains(&"/run"), "{report}");
+    }
+    assert!(dirs.contains(&op.home.to_str().unwrap()), "{report}");
+    let state = &report["dir_binds"][0];
+    assert_eq!(state["path"], op.state.display().to_string(), "{report}");
+    assert_eq!(state["access"], "write", "{report}");
+    drop(planted);
     // At least the other hotkey and its companion, the coldkey, the hotkey
     // keyfile itself (the dry run never reads it), .config/.wrangler and
     // secrets/ were confirmed absent.
@@ -248,8 +273,9 @@ fn a_left_journal_temporary_does_not_block_the_next_sandboxed_start() {
 
 /// A drop-in rendered before a configured path changed refuses to start
 /// (exit 2) instead of writing that path onto the sandbox's temporary root;
-/// so does a journal directory shared with another journal. The root itself
-/// is read-only.
+/// so does a journal directory shared with another journal that a running
+/// process has open (a retired journal's free lock only logs
+/// `journal_dir_shared`). The root itself is read-only.
 #[test]
 fn a_stale_drop_in_or_a_shared_journal_directory_refuses_to_start() {
     if !bwrap_works() {
@@ -286,8 +312,14 @@ fn a_stale_drop_in_or_a_shared_journal_directory_refuses_to_start() {
 
     std::fs::write(op.state.join("other-journal.json.lock"), b"").unwrap();
     let out = run_argv(&argv, &op.home);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("journal_dir_shared"));
+    let other = std::fs::File::open(op.state.join("other-journal.json.lock")).unwrap();
+    other.lock().unwrap();
+    let out = run_argv(&argv, &op.home);
     assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(String::from_utf8_lossy(&out.stderr).contains("another journal"));
+    drop(other);
     // The installer's render refuses the shared directory too.
     let out = sandbox_unit(&op, &[]);
     assert!(!out.status.success());

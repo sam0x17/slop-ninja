@@ -4382,6 +4382,7 @@ dependencies = [
  "futures",
  "hex",
  "http",
+ "libc",
  "reqwest",
  "rtao-btauth",
  "rtao-client",

@@ -16,8 +16,13 @@
 # SHA256SUMS and a digest list without a signature, but still refuses a bad
 # signature or digest it is given; a binary missing from the release; a
 # signed binary that does not run on this host (also in a dry run); an
-# ssh-keygen without -Y is reported as the tool's fault. Linux only, like
-# the installer; needs OpenSSH 8.1 or later.
+# ssh-keygen without -Y is reported as the tool's fault. On an upgrade with
+# a (stub) working bubblewrap: a new build whose sandbox render refuses
+# (strays beside the journal) replaces nothing, also in a dry run, which
+# runs that render; one whose sandbox test fails after the files were
+# replaced puts the old binaries, templates and drop-in back; one that
+# passes installs its drop-in. Linux only, like the installer; needs
+# OpenSSH 8.1 or later.
 set -euo pipefail
 
 scratch="${1:?usage: test-install.sh <empty scratch directory>}"
@@ -111,9 +116,16 @@ run_install() {
   case_no=$((case_no + 1))
   home="$scratch/home-$case_no"
   mkdir -p "$home"
+  run_install_in "$home" "$@"
+}
+# run_install_in HOME ARGS...: the same in an existing home; BWRAP is
+# $bwrap (default: none installed).
+bwrap="$scratch/no-bwrap"
+run_install_in() {
+  home=$1; shift
   status=0
   out=$(env -i PATH="$PATH" HOME="$home" USER=tester TMPDIR="$scratch/tmp" \
-    SYSTEMCTL="$stubs/systemctl" LOGINCTL="$stubs/loginctl" SYSTEMD_RUN="$stubs/systemd-run" BWRAP="$scratch/no-bwrap" \
+    SYSTEMCTL="$stubs/systemctl" LOGINCTL="$stubs/loginctl" SYSTEMD_RUN="$stubs/systemd-run" BWRAP="$bwrap" \
     bash "$deploy/install.sh" --instance test "$@" 2>&1) || status=$?
 }
 mkdir -p "$scratch/tmp"
@@ -276,6 +288,77 @@ path_saved=$PATH
 PATH="$old_tools:$PATH"
 expect_refused "ssh-keygen without -Y" "this ssh-keygen cannot verify signatures" --from "$good"
 PATH=$path_saved
+
+# Upgrades with a working (stub) bubblewrap. The old installation: stub
+# binaries, templates and a drop-in, all marked "old".
+bwrap="$scratch/stub-bwrap"
+printf '#!/bin/sh\nexit 0\n' >"$bwrap"
+chmod 0755 "$bwrap"
+old_install() {
+  case_no=$((case_no + 1))
+  home="$scratch/home-$case_no"
+  local units="$home/.config/systemd/user"
+  mkdir -p "$home/.local/bin" "$units/slop_ninja_validator-dispatch@test.service.d" \
+    "$units/slop_ninja_validator@test.service.d" "$home/.config/slop_ninja_validator" \
+    "$home/.local/state/slop_ninja_validator/test"
+  for binary in slop_ninja_validator slop-ninja-journal; do
+    printf '#!/usr/bin/env bash\n# old %s\necho "{\\"journal_exists\\": true}"\n' "$binary" >"$home/.local/bin/$binary"
+    chmod 0755 "$home/.local/bin/$binary"
+  done
+  for template in slop_ninja_validator@.service slop_ninja_validator-dispatch@.service; do
+    printf '# old template\n' >"$units/$template"
+  done
+  for unit in slop_ninja_validator-dispatch@test.service slop_ninja_validator@test.service; do
+    printf '# old drop-in\n[Service]\n' >"$units/$unit.d/50-sandbox.conf"
+  done
+  cp "$scratch/config.toml" "$home/.config/slop_ninja_validator/test.toml"
+  chmod 0600 "$home/.config/slop_ninja_validator/test.toml"
+  rm -rf "$home.before"
+  cp -a "$home" "$home.before"
+}
+# unchanged: the old installation is byte for byte as it was.
+unchanged() { diff -r "$home.before" "$home" >/dev/null; }
+# make_sandbox_release DIR MODE: a local build whose sandbox-unit refuses
+# to render (refuse), renders but fails its test (check-fails), or passes (ok).
+make_sandbox_release() {
+  mkdir -p "$1"
+  cat >"$1/slop_ninja_validator" <<EOF
+#!/usr/bin/env bash
+# stub validator, sandbox $2
+case " \$* " in
+  *" check-config "*) echo '{"journal_exists": true}' ;;
+  *" sandbox-unit "*" --check "*) [[ $2 != check-fails ]] || { echo "visible: /stray" >&2; exit 1; }; echo '{}' ;;
+  *" sandbox-unit "*) [[ $2 != refuse ]] || { echo "the journal directory also holds other-journal.json.lock" >&2; exit 1; }; printf '# new drop-in\\n[Service]\\n' ;;
+  *) exit 0 ;;
+esac
+EOF
+  printf '#!/usr/bin/env bash\n# stub journal, sandbox %s\nexit 0\n' "$2" >"$1/slop-ninja-journal"
+}
+for mode in refuse check-fails ok; do make_sandbox_release "$scratch/sandbox-$mode" "$mode"; done
+
+old_install
+run_install_in "$home" --from "$scratch/sandbox-refuse" --unverified
+if [[ $status -eq 2 ]] && grep -qF "sandbox-unit refused the drop-in" <<<"$out" && grep -qF "nothing replaced" <<<"$out" \
+    && unchanged; then pass; else fail "render refused: exit $status, or something replaced: $out"; fi
+old_install
+run_install_in "$home" --from "$scratch/sandbox-refuse" --unverified --dry-run
+if [[ $status -eq 2 ]] && grep -qF "sandbox-unit refused the drop-in" <<<"$out" && unchanged; then pass; else fail "render refused, dry run: exit $status: $out"; fi
+old_install
+run_install_in "$home" --from "$scratch/sandbox-check-fails" --unverified
+if [[ $status -eq 2 ]] && grep -qF "the sandbox test failed" <<<"$out" && grep -qF "restored the previous" <<<"$out" \
+    && unchanged; then pass; else fail "sandbox test failed: exit $status, or not restored: $out"; fi
+old_install
+run_install_in "$home" --from "$scratch/sandbox-ok" --unverified
+if [[ $status -eq 0 ]] && cmp -s "$scratch/sandbox-ok/slop_ninja_validator" "$home/.local/bin/slop_ninja_validator" \
+    && grep -qF "# new drop-in" "$home/.config/systemd/user/slop_ninja_validator-dispatch@test.service.d/50-sandbox.conf" \
+    && grep -qF "# new drop-in" "$home/.config/systemd/user/slop_ninja_validator@test.service.d/50-sandbox.conf" \
+    && cmp -s "$deploy/slop_ninja_validator@.service" "$home/.config/systemd/user/slop_ninja_validator@.service"; then
+  pass
+else
+  fail "sandbox ok: exit $status, or not installed: $out"
+fi
+[[ -z "$(ls -A "$scratch/tmp")" ]] && pass || fail "sandbox upgrades: staging or backup copies left behind"
+bwrap="$scratch/no-bwrap"
 
 echo "test-install.sh: $passed passed, $failures failed"
 ((failures == 0))

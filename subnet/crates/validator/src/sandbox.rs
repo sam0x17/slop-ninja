@@ -24,7 +24,10 @@
 //! visibility test inside the same sandbox before the drop-in is used. The
 //! sandbox's root is remounted read-only after the binds, so a write to a
 //! path the drop-in does not bind fails instead of landing on a temporary
-//! root that vanishes at the next start, and the drop-in sets [`SANDBOX_ENV`]
+//! root that vanishes at the next start (except under the sandbox's own
+//! private `/tmp` and `/dev`, which are writable and start empty each time:
+//! a configured path under `/tmp` gets writable private parent
+//! directories there), and the drop-in sets [`SANDBOX_ENV`]
 //! to a digest of its bind list, which [`guard`] compares with the bind list
 //! the configuration names now: a drop-in older than a configuration change
 //! refuses to start (exit 2) instead of running with unbound state.
@@ -34,10 +37,11 @@
 //! temporary `.journal-write-<pid>-<n>` in the journal's directory, with `n`
 //! counting from 0 in each process, and creates it exclusively; nothing
 //! removes one a killed process left behind. [`sweep_journal_temps`]
-//! removes them while holding the journal's lock, and only where no other
-//! journal shares the directory, before the journal opens, and [`guard`]
+//! removes them before the journal opens, while holding the journal's lock
+//! and the lock of every other journal in the directory, and [`guard`]
 //! refuses a sandboxed start whose journal directory holds another journal
-//! (both would be PID 1 and collide on the same names).
+//! a running process has open (both would be PID 1 and collide on the same
+//! names). A retired journal's lock, which no process holds, blocks neither.
 
 use std::{
     ffi::{OsStr, OsString},
@@ -130,13 +134,32 @@ fn parent(path: &Path, role: &str) -> Result<PathBuf> {
         .with_context(|| format!("{role} has no parent directory"))
 }
 
+/// Home-relative directories that many tools of one account share. A
+/// directory bind is refused when it is one of these (it is also refused
+/// when it holds the home directory, the wallets, a hotkey file or the
+/// configuration).
+pub const SHARED_HOME_DIRS: &[&str] = &[
+    ".config",
+    ".cache",
+    ".local",
+    ".local/state",
+    ".local/share",
+    ".local/bin",
+    ".local/lib",
+    ".bittensor",
+    ".ssh",
+    ".gnupg",
+];
+
 /// Every host path the unit's validator reads or writes, from the
 /// configuration: deduplicated, with paths inside a bound directory of at
 /// least the same access dropped, ordered so that a directory precedes the
 /// paths beneath it. Refuses a path with `..`, a directory bind that would
-/// expose the home directory (or one of its ancestors) and a required path
-/// that does not exist (a missing directory inside the sandbox would be
-/// created on its temporary root and lost at every restart).
+/// expose the home directory (or one of its ancestors), a directory in
+/// [`SHARED_HOME_DIRS`], one that holds the wallets, a hotkey file or the
+/// configuration, and a required path that does not exist (a missing
+/// directory inside the sandbox would be created on its temporary root and
+/// lost at every restart).
 pub fn binds(
     config: &ValidatorConfig,
     config_path: &Path,
@@ -242,15 +265,46 @@ pub fn binds(
         ));
     }
 
+    // A directory is bound whole, so it must not be one every tool of this
+    // account shares (other tools' logins, tokens and state would show, the
+    // caches' read-write), nor hold the wallets, a hotkey file or the
+    // configuration (other keys, other instances' configurations).
+    let shared: Vec<PathBuf> = SHARED_HOME_DIRS.iter().map(|dir| home.join(dir)).collect();
+    let mut secrets = vec![
+        (config.wallet.path.clone(), "the wallet directory"),
+        (config.wallet.hotkey_file(), "the wallet hotkey file"),
+        (config_path.to_path_buf(), "the configuration"),
+    ];
+    if let Some(dispatch) = &config.dispatch {
+        secrets.push((dispatch.hotkey_file.clone(), "the dispatch hotkey file"));
+    }
     for item in &wanted {
         check_path(&item.path, item.role)?;
-        if item.dir {
+        if !item.dir {
+            continue;
+        }
+        ensure!(
+            !home.starts_with(&item.path),
+            "{} {} is the home directory or contains it; give it a directory of its own \
+             (for example ~/.local/state/slop_ninja_validator/<instance>)",
+            item.role,
+            item.path.display()
+        );
+        ensure!(
+            !shared.contains(&item.path),
+            "{} {} is a directory other tools of this account share; give it a directory of its \
+             own (for example ~/.local/state/slop_ninja_validator/<instance>)",
+            item.role,
+            item.path.display()
+        );
+        for (secret, what) in &secrets {
             ensure!(
-                !home.starts_with(&item.path),
-                "{} {} is the home directory or contains it; give it a directory of its own \
-                 (for example ~/.local/state/slop_ninja_validator/<instance>)",
+                !secret.starts_with(&item.path),
+                "{} {} contains {what} {}, which the sandbox would show whole; give it a \
+                 directory of its own (for example ~/.local/state/slop_ninja_validator/<instance>)",
                 item.role,
-                item.path.display()
+                item.path.display(),
+                secret.display()
             );
         }
     }
@@ -364,7 +418,8 @@ fn journal_parts(journal: &Path) -> Result<(&Path, &OsStr)> {
 
 /// Another journal's lock in the journal's directory: a `*.lock` entry that
 /// is not one of this journal's (`<journal>.lock`, `<journal>.*.lock`). rtao
-/// never unlinks a lock file, so every journal ever opened there has one.
+/// never unlinks a lock file, so every journal ever opened there has one,
+/// held (an exclusive `flock`) only while a process has that journal open.
 fn foreign_locks(journal: &Path) -> Result<Vec<PathBuf>> {
     let (dir, name) = journal_parts(journal)?;
     let mut found = Vec::new();
@@ -379,54 +434,138 @@ fn foreign_locks(journal: &Path) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-/// Entries of the journal's directory, which the sandbox binds read-write
-/// as a whole, that belong neither to this journal (`<journal>` and
-/// `<journal>.*`, rtao's write temporaries), nor to the package
-/// (`<package>` and `<package>.*` beside it, or the directory holding it),
-/// nor are (or hold) the fetch cache, a `file://` mirror or the runtime
-/// cache, nor are an empty directory. Another instance's journal, an old
-/// journal, key files or a configuration kept there would all be readable
-/// and writable inside the sandbox; the drop-in is refused while any is
-/// present.
-pub fn journal_dir_strays(config: &ValidatorConfig) -> Result<Vec<PathBuf>> {
-    let (dir, name) = journal_parts(&config.journal_path)?;
-    let mut owned: Vec<PathBuf> = Vec::new();
-    let mut package_stem = None;
-    if let Some(package) = &config.package {
-        if package.path.parent() == Some(dir) {
-            package_stem = package.path.file_name();
-        } else {
-            owned.push(package.path.clone());
+/// Takes `path`'s lock as rtao does (`flock`, exclusive, without waiting),
+/// opening it read-only and never creating it. `Ok(None)`: it is gone.
+/// An error: held by a live process, or not a regular file this account
+/// can open (counted as held: nothing shows that no writer owns it).
+fn take_lock(path: &Path) -> Result<Option<std::fs::File>> {
+    match std::fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
+        Ok(meta) => ensure!(meta.file_type().is_file(), "{} is not a regular file", path.display()),
+    }
+    let file = match std::fs::File::open(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        other => other.with_context(|| format!("cannot open {}", path.display()))?,
+    };
+    file.try_lock()
+        .map_err(|_| anyhow::anyhow!("{} is held by a running process", path.display()))?;
+    Ok(Some(file))
+}
+
+/// The other journals' locks in the journal's directory, split into those
+/// held now by a running process (or that cannot be tested) and those no
+/// process holds (a retired journal's).
+pub fn foreign_journal_locks(journal: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
+    let (mut held, mut unheld) = (Vec::new(), Vec::new());
+    for lock in foreign_locks(journal)? {
+        match take_lock(&lock) {
+            Ok(Some(_)) => unheld.push(lock),
+            Ok(None) => {}
+            Err(_) => held.push(lock),
         }
     }
-    if let Some(fetch) = &config.fetch {
-        owned.push(fetch.cache_dir(&config.journal_path)?);
-        if let Ok(base) = fetch.base()
-            && base.scheme() == "file"
-            && let Ok(mirror) = base.to_file_path()
-        {
-            owned.push(mirror);
-        }
+    Ok((held, unheld))
+}
+
+/// Entries of the directories the sandbox binds read-write as a whole that
+/// belong to none of this instance's files, or that are not an empty
+/// directory. In the journal's directory this instance owns its journal
+/// (`<journal>` and `<journal>.*`, rtao's write temporaries), the package
+/// (`<package>` and `<package>.*` beside it, or the directory holding it)
+/// and the fetch cache, a `file://` mirror and the runtime cache (or the
+/// directories holding them); in a package directory of its own (written
+/// by the fetcher), the package family and those caches; in the fetch cache,
+/// its lock, `cohorts` and `authorizations`; in the runtime cache, rtao's
+/// metadata files (`md*.bin`) and their temporaries (`.rtao-md-*`). Another
+/// instance's journal, an old journal, key files, a configuration or another
+/// tool's files kept there would all be readable and writable inside the
+/// sandbox; the drop-in is refused while any is present.
+pub fn bind_strays(config: &ValidatorConfig) -> Result<Vec<PathBuf>> {
+    let (dir, name) = journal_parts(&config.journal_path)?;
+    let package = config.package.as_ref().map(|package| package.path.clone());
+    let package_dir = package.as_deref().and_then(Path::parent).map(Path::to_path_buf);
+    let fetch_cache = match &config.fetch {
+        Some(fetch) => Some(fetch.cache_dir(&config.journal_path)?),
+        None => None,
+    };
+    let mut owned: Vec<PathBuf> = Vec::new();
+    owned.extend(fetch_cache.clone());
+    if let Some(fetch) = &config.fetch
+        && let Ok(base) = fetch.base()
+        && base.scheme() == "file"
+        && let Ok(mirror) = base.to_file_path()
+    {
+        owned.push(mirror);
     }
     owned.extend(config.rpc.runtime_cache_dir.clone());
+    let stem = |path: &Option<PathBuf>| path.as_deref().and_then(Path::file_name).map(OsStr::to_os_string);
+    let package_stem = stem(&package);
+
     let mut strays = Vec::new();
-    for entry in std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))? {
+    // The journal's directory.
+    let journal_owned: Vec<PathBuf> = owned.iter().cloned().chain(package.clone()).collect();
+    strays.extend(dir_strays(dir, &journal_owned, |entry| {
+        in_family(entry, name)
+            || entry.as_encoded_bytes().starts_with(JOURNAL_TEMP_PREFIX.as_bytes())
+            || (package_dir.as_deref() == Some(dir)
+                && package_stem.as_deref().is_some_and(|stem| in_family(entry, stem)))
+    })?);
+    // A package directory of its own: read-write when the fetcher installs,
+    // or inside the read-write journal directory.
+    if let Some(package_dir) = package_dir.as_deref()
+        && package_dir != dir
+        && (config.fetch.is_some() || package_dir.starts_with(dir))
+    {
+        strays.extend(dir_strays(package_dir, &owned, |entry| {
+            package_stem.as_deref().is_some_and(|stem| in_family(entry, stem))
+        })?);
+    }
+    // The fetch cache and the runtime cache, read-write wherever they are.
+    if let Some(cache) = &fetch_cache {
+        strays.extend(dir_strays(cache, &owned, |entry| {
+            [FETCH_CACHE_LOCK, "cohorts", "authorizations"]
+                .iter()
+                .any(|known| entry == OsStr::new(known))
+        })?);
+    }
+    if let Some(cache) = &config.rpc.runtime_cache_dir {
+        strays.extend(dir_strays(cache, &owned, |entry| {
+            let bytes = entry.as_encoded_bytes();
+            (bytes.starts_with(b"md") && bytes.ends_with(b".bin")) || bytes.starts_with(b".rtao-md-")
+        })?);
+    }
+    strays.sort();
+    strays.dedup();
+    Ok(strays)
+}
+
+/// The fetch cache's lock file (`fetch::LOCK_FILE`).
+const FETCH_CACHE_LOCK: &str = ".lock";
+
+/// Entries of `dir` that `ours` does not name, that are not (and do not
+/// hold) an `owned` path, and that are not an empty directory. A missing
+/// directory has none ([`binds`] refuses it).
+fn dir_strays(dir: &Path, owned: &[PathBuf], ours: impl Fn(&OsStr) -> bool) -> Result<Vec<PathBuf>> {
+    let entries = match std::fs::read_dir(dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        other => other.with_context(|| format!("cannot list {}", dir.display()))?,
+    };
+    let mut strays = Vec::new();
+    for entry in entries {
         let entry = entry?;
-        let entry_name = entry.file_name();
         let path = entry.path();
-        let ours = in_family(&entry_name, name)
-            || entry_name.as_encoded_bytes().starts_with(JOURNAL_TEMP_PREFIX.as_bytes())
-            || package_stem.is_some_and(|stem| in_family(&entry_name, stem))
-            || owned.iter().any(|owned| owned.starts_with(&path));
+        if ours(&entry.file_name()) || owned.iter().any(|owned| owned.starts_with(&path)) {
+            continue;
+        }
         // An empty directory shows nothing (the installer creates
         // `<state>/<instance>` beside a journal kept directly in `<state>`).
         let empty_dir = entry.file_type().is_ok_and(|kind| kind.is_dir())
             && std::fs::read_dir(&path).is_ok_and(|mut entries| entries.next().is_none());
-        if !ours && !empty_dir {
+        if !empty_dir {
             strays.push(path);
         }
     }
-    strays.sort();
     Ok(strays)
 }
 
@@ -435,10 +574,11 @@ pub fn journal_dir_strays(config: &ValidatorConfig) -> Result<Vec<PathBuf>> {
 /// Without this, every later process that is PID 1 of its namespace (every
 /// sandboxed start) fails its journal write with the same number with
 /// "File exists". Runs only while holding the journal's lifetime lock (so no
-/// live writer of this journal exists) and only when no other journal's lock
-/// is in the directory (another journal's writer could own a temporary);
-/// otherwise removes nothing. Returns how many it removed. The lock is
-/// released before returning, for rtao's own open.
+/// live writer of this journal exists) and the lock of every other journal
+/// in the directory (a retired journal's lock is free; a live writer of
+/// another journal could own a temporary, so then nothing is removed and an
+/// error names it). Returns how many it removed. The locks are released
+/// before returning, for rtao's own open.
 pub fn sweep_journal_temps(journal: &Path) -> Result<usize> {
     use std::os::unix::fs::OpenOptionsExt as _;
     let (dir, name) = journal_parts(journal)?;
@@ -454,7 +594,7 @@ pub fn sweep_journal_temps(journal: &Path) -> Result<usize> {
             temps.push(entry.path());
         }
     }
-    if temps.is_empty() || !foreign_locks(journal)?.is_empty() {
+    if temps.is_empty() {
         return Ok(0);
     }
     let mut lock_name = name.to_os_string();
@@ -480,11 +620,23 @@ pub fn sweep_journal_temps(journal: &Path) -> Result<usize> {
         // Held by a running validator: its own open reports that.
         return Ok(0);
     }
+    let mut others = Vec::new();
+    for other in foreign_locks(journal)? {
+        let taken = take_lock(&other).with_context(|| {
+            format!(
+                "{} journal temporaries kept: another journal in {} may be open",
+                temps.len(),
+                dir.display()
+            )
+        })?;
+        others.extend(taken);
+    }
     for temp in &temps {
         std::fs::remove_file(temp)
             .with_context(|| format!("cannot remove {}", temp.display()))?;
     }
     std::fs::File::open(dir)?.sync_all()?;
+    drop(others);
     drop(lock);
     Ok(temps.len())
 }
@@ -505,8 +657,10 @@ pub enum Guarded {
 /// `pid_one` whether this process is PID 1 of its namespace, `unit` the
 /// unit the command runs as (`None` for `check-config`, which takes it from
 /// the marker) and `binary` the path the validator was started as.
-/// Refuses when the journal's directory holds another journal while this
-/// process is PID 1 (both would name their write temporaries alike), and
+/// Refuses when the journal's directory holds another journal that a running
+/// process has open while this process is PID 1 (both would name their write
+/// temporaries alike; a retired journal's free lock is only reported, by
+/// the caller, as `journal_dir_shared`), and
 /// when the marker names another unit or a bind list other than the one
 /// [`binds`] derives from this configuration now (a configured path changed
 /// without re-running the installer).
@@ -520,15 +674,14 @@ pub fn guard(
     pid_one: bool,
 ) -> Result<Guarded> {
     if pid_one {
-        let others = foreign_locks(&config.journal_path)?;
+        let (held, _) = foreign_journal_locks(&config.journal_path)?;
         ensure!(
-            others.is_empty(),
-            "the journal directory also holds another journal ({}); inside a sandbox every \
-             validator is PID 1, so journals sharing a directory collide on rtao's write \
-             temporaries. Give each instance a directory of its own \
+            held.is_empty(),
+            "the journal directory also holds another journal that a running process has open \
+             ({}); inside a sandbox every validator is PID 1, so journals sharing a directory \
+             collide on rtao's write temporaries. Give each instance a directory of its own \
              (~/.local/state/slop_ninja_validator/<instance>/) and re-run deploy/install.sh",
-            others
-                .iter()
+            held.iter()
                 .map(|path| path.display().to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -883,17 +1036,30 @@ pub struct CheckReport {
     pub binds: usize,
     /// Host entries the test confirmed absent inside the sandbox.
     pub hidden_checked: usize,
+    /// The host directories whose entries were tested.
+    pub hidden_dirs: Vec<PathBuf>,
+    /// Each directory bound whole, with its access and how many entries
+    /// it shows (all of them visible inside the sandbox).
+    pub dir_binds: Vec<DirBindReport>,
     pub journal_exists: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DirBindReport {
+    pub path: PathBuf,
+    pub access: Access,
+    pub entries: usize,
 }
 
 /// Runs `check-config` and a visibility test inside the sandbox the drop-in
 /// describes (the same bubblewrap options, [`SANDBOX_ENV`] included, so
 /// `check-config` also runs [`guard`] there): every bound path must be
 /// readable (directories bound read-write also writable), and every other
-/// host entry of each directory above a bound path (from `/` down, other
-/// wallets and keys beside a bound hotkey included) and of the home
-/// directory must be absent, as must the host's entries of `/tmp`. Reads no
-/// key and no chain.
+/// host entry must be absent of each directory above a bound path (from `/`
+/// down, other wallets and keys beside a bound hotkey included), of the
+/// home directory, of `/tmp` and of `/run` (and of each directory above the
+/// resolver's directory there, so `/run/user` too). `/proc` and `/dev` are
+/// the sandbox's own and are not compared. Reads no key and no chain.
 #[allow(clippy::too_many_arguments)]
 pub fn check(
     bwrap: &Path,
@@ -957,15 +1123,19 @@ pub fn check(
             .chain(wholesale.iter())
             .any(|shown| shown.starts_with(path) || path.starts_with(shown))
     };
-    // Every directory above a bound path, and the home directory.
+    // Every directory above a bound path or the resolver's directory, the
+    // home directory, the host's /tmp and /run.
     let mut scanned: Vec<&Path> = bound
         .iter()
+        .copied()
+        .chain(layout.resolver_dir.as_deref())
         .flat_map(|path| path.ancestors().skip(1))
         .collect();
-    scanned.push(home);
+    scanned.extend([home, Path::new("/tmp"), Path::new("/run")]);
     scanned.sort();
     scanned.dedup();
     let mut hidden = Vec::new();
+    let mut hidden_dirs = Vec::new();
     for dir in scanned {
         let shown_whole = bound
             .iter()
@@ -978,6 +1148,7 @@ pub fn check(
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
         };
+        hidden_dirs.push(dir.to_path_buf());
         for entry in entries.flatten() {
             let path = entry.path();
             if on_a_bound_path(&path)
@@ -1009,9 +1180,20 @@ pub fn check(
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr).trim()
     );
+    let dir_binds = binds
+        .iter()
+        .filter(|bind| bind.dir)
+        .map(|bind| DirBindReport {
+            path: bind.path.clone(),
+            access: bind.access,
+            entries: std::fs::read_dir(&bind.path).map_or(0, |entries| entries.count()),
+        })
+        .collect();
     Ok(CheckReport {
         binds: binds.len(),
         hidden_checked: hidden.len(),
+        hidden_dirs,
+        dir_binds,
         journal_exists,
     })
 }

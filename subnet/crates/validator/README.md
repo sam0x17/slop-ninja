@@ -771,15 +771,26 @@ the script on a timer (every few minutes is enough: a row changes at most
 once a tempo). Every object is verified by the validator as from the
 public host.
 
-To upgrade an instance, stop its dispatch unit (the installer replaces the
-binaries but neither stops nor restarts it), run the installer with
-`--from`, and start the unit. A directory of binaries you built yourself
+To upgrade an instance, run the installer with `--from`. Every check that
+can refuse runs with the new build before anything is replaced:
+`check-config`, and with the sandbox the drop-in render (its bind list and
+the stray and breadth refusals below; also on a first install). The binaries,
+unit templates and drop-ins it then replaces are copied first and put back
+if a later step fails (the sandbox test under the unit's restrictions, for
+example), so a refusal never leaves the new build under the old drop-in for
+the next automatic restart. A running unit keeps its old process until it
+restarts: either stop the unit first and start it afterwards, or pass
+`--enable --start`, which restarts a running unit (in a settled window, with
+no commit or reveal in flight; the journal recovers an interrupted one
+anyway). Without either the installer says that the new build takes effect
+at the next restart. A directory of binaries you built yourself
 needs `--unverified` even when it holds a `SHA256SUMS` (without the flag the
 installer refuses before installing anything); that unsigned digest list is
 still checked. The upgrades recorded in `TESTNET-M2.md` predate the
 signature check and ran without the flag. Run the same command with
-`--dry-run` before stopping the unit: the dry run makes every check, so a
-refusal comes while the old build still runs. The signature binds the digests,
+`--dry-run` first: the dry run runs the same read-only checks with the new
+build (`check-config` and the drop-in render), so a refusal comes while the
+old build still runs. The signature binds the digests,
 not a version, so a validly signed older release is still a rollback: before
 installing one, stop the unit and run `rollback-check` ([Rolling back past
 this rtao pin](#rolling-back-past-this-rtao-pin)).
@@ -872,28 +883,48 @@ container daemon. Three layers address this:
   directory's access: a package directory inside the journal's directory
   is read-write even without `[fetch]`. The drop-in's comment lists each
   such path under the bind that covers it. After the binds the sandbox's
-  root is remounted read-only, so a write to any path the drop-in does not
+  root is remounted read-only, so a write to a path the drop-in does not
   bind fails instead of landing on a temporary root that vanishes at the
-  next start.
+  next start. The exceptions are the sandbox's own `/tmp` and `/dev`, which
+  are writable and empty at every start: a write there succeeds and is
+  lost, and a configured path under `/tmp` gets writable private parent
+  directories, so keep configured paths out of `/tmp`.
   `sandbox-unit` refuses a directory bind that is the home directory or
-  contains it, a `..` path and a required path that does not exist. It also
-  refuses a journal directory holding anything but this instance's journal
-  files (`<journal>` and `<journal>.*`), its package (`<package>` and
-  `<package>.*`, or the directory holding it), its caches and a mirror:
-  the whole directory is bound read-write, so another instance's journal,
-  an old package or a key file there would be readable and writable inside
-  the sandbox. Give each instance a state directory of its own,
+  contains it, one that other tools of the account share (`~/.config`,
+  `~/.cache`, `~/.local` and its `state`, `share`, `bin` and `lib`,
+  `~/.bittensor`, `~/.ssh`, `~/.gnupg`), one that contains the wallet
+  directory, a hotkey file or the configuration, a `..` path and a required
+  path that does not exist. It also refuses a directory bound read-write
+  that holds anything but this instance's files: in the journal's
+  directory its journal files (`<journal>` and `<journal>.*`), its package
+  (`<package>` and `<package>.*`, or the directory holding it), its caches
+  and a mirror; in a package directory of its own, the package files; in
+  the fetch cache its `.lock`, `cohorts` and `authorizations`; in the
+  runtime cache rtao's metadata files (`md*.bin`, `.rtao-md-*`). Empty
+  directories are ignored. Each such directory is bound whole, so another
+  instance's journal, an old package, a key file or another tool's files
+  there would be readable and writable inside the sandbox. Give each
+  instance a state directory of its own,
   `~/.local/state/slop_ninja_validator/<instance>/`, which the installer
   creates. Inside the sandbox the validator is PID 1, as every sandboxed
   validator is, and rtao's journal names its write temporaries
   `.journal-write-<pid>-<n>`. Journals sharing a directory would collide
   on those names, so a validator that is PID 1 refuses to start (exit 2)
-  when another journal's lock is beside its own. Before the journal opens,
-  the validator removes temporaries a killed process left (holding the
-  journal's lock, and only when no other journal shares the directory).
+  when another journal beside its own is open in a running process (its
+  lock is held). A retired journal's lock, which no process holds, only
+  logs `journal_dir_shared`. Before the journal opens, the validator
+  removes temporaries a killed process left, holding the journal's lock
+  and every other journal's lock in the directory; if another journal
+  there is open, it keeps them and logs `journal_temps_unswept`.
   Otherwise a temporary left by an OOM kill, a SIGKILL after
   `TimeoutStopSec` or a power loss would fail every later start at the
-  same write with "File exists".
+  same write with "File exists". As PID 1 a signal with no handler is
+  discarded, not deferred, so `run` blocks SIGTERM and SIGINT as its first
+  step, registers their handlers and only then unblocks them; a stop that
+  arrives while the configuration loads or the journal opens takes effect
+  at the run's first wait. Only a signal in the moment between the exec
+  and that first step (the dynamic loader) is still lost; the stop then
+  ends with `TimeoutStopSec`'s SIGKILL, which the journal recovers from.
   The drop-in sets `SLOP_NINJA_SANDBOX_BINDS` to the unit and a digest of
   its bind list. At startup (`run` and `check-config`) the validator
   derives the bind list from its configuration again and refuses to start
@@ -908,11 +939,18 @@ container daemon. Three layers address this:
   same sandbox. `--check` runs `check-config` inside the sandbox, which
   includes the startup comparison above, then tests that every bound path is
   readable (and writable where bound so) and that every other entry of
-  each directory above a bound path, of the home directory and of the
-  host's `/tmp` is absent. Without a drop-in the installer instead runs
-  `check-config` under each template's own hardening. With `--start` it
-  then requires the dispatch unit to be running, with no restart, 5 s after
-  the start. With `auto`, a host without a working `bwrap` gets a warning
+  each directory above a bound path, of the home directory, of the host's
+  `/tmp` and of `/run` (with each directory above the resolver's, so
+  `/run/user` too) is absent. `/proc` and `/dev` are the sandbox's own and
+  are not compared. Its report lists the directories tested and, for each
+  directory bound whole, how many entries it shows. Without a drop-in the
+  installer instead runs `check-config` under each template's own
+  hardening. With `--start` it restarts the dispatch unit if it is running
+  (otherwise starts it) and waits, for at most the unit's own start timeout,
+  until that start logs `package_verified`: it fails if the unit stops or
+  restarts first, and warns (leaving the unit running) when the timeout
+  passes first, for example while startup recovery waits on the RPC. A
+  failure after `package_verified` is not seen; follow the log. With `auto`, a host without a working `bwrap` gets a warning
   and no drop-in only when none is installed yet. If a drop-in is already
   installed, `auto` fails and keeps it, so isolation is removed only by
   `--sandbox none`. `--sandbox bwrap` always fails without a working
@@ -1049,11 +1087,17 @@ directory. They cover:
   installer's dry run and checksum rules, its sandbox modes, and the
   dispatch unit's restart policy and hardening;
 - the sandbox drop-in (`sandbox_tests`): exactly the configured paths are
-  bound, with their access, refusals for a home-exposing directory, a `..`
-  path or a missing path, and unit-file quoting; and end to end
-  (`tests/sandbox.rs`, skipped where bubblewrap cannot build a sandbox):
-  `sandbox-unit --check` against a synthetic operator home whose coldkey,
-  other hotkeys, logins and secrets stay invisible;
+  bound, with their access, refusals for a home-exposing, shared or
+  key-holding directory, a `..` path or a missing path, strays in every
+  read-write directory, the journal-temporary sweep and the startup guard
+  with held and free foreign locks, and unit-file quoting; and end to end
+  (`tests/sandbox.rs`, skipped where bubblewrap cannot build a sandbox; its
+  scratch homes sit outside `/tmp`): `sandbox-unit --check` against a
+  synthetic operator home whose coldkey, other hotkeys, logins, secrets and
+  the host's `/tmp` and `/run` entries stay invisible. `deploy/test-install.sh`
+  also covers upgrades with a stub bubblewrap: a refused render replaces
+  nothing (also in a dry run), and a failed sandbox test puts the old
+  binaries, templates and drop-ins back;
 - step 0 and payload golden vectors against the recorded testnet spec 486
   metadata ([`fixtures/payload-486.txt`](fixtures/payload-486.txt)); see the
   [runbook](TESTNET-M2.md#0-subnet-601-at-preparation-time);

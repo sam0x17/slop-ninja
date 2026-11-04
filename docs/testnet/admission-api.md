@@ -46,8 +46,10 @@ artifact spec. Section 13 lists where the implementation refines this text.
 
 ## 1. Flow
 
-1. `next-cohort` reads the public status snapshot (section 10) and reports the
-   admitting cohort, or the next one and its earliest opening epoch.
+1. `next-cohort` reads the public status snapshot with `--public` (section
+   10); otherwise the coordinator's unsigned cohort read (`GET
+   /admission/v1/cohort`). It reports the admitting cohort, or the next one
+   and its earliest opening epoch.
 2. `pack --dir MODEL_DIR` builds the artifact object `u32_le(len(H)) || H ||
    files` (`artifact.rs`) from the artifact spec's six files, with their fixed
    roles and the spec's output contract. `check` verifies the object and runs
@@ -406,6 +408,7 @@ cursor in it dates request signatures.
   "finalized_block": 8340012,
   "request_validity_blocks": 360,
   "paused": false,
+  "confirmed_epoch": 23169,
   "admitting": {
     "cohort": 7,
     "label": "testnet-c7",
@@ -438,6 +441,18 @@ that one opened and two tempos after its publication; slow work or a
 coordinator outage moves it later. `admission_tempos`, when present, is how many
 tempos its admission window lasts once it opens (its plan's value, frozen with
 the cohort); it is absent when the coordinator does not know the next plan.
+With the plan known, `next` also carries its `output_contract`,
+`max_object_len` and `artifact_spec` (the same meanings as in `admitting`), so
+`check` can compare an object with them between windows; the plan is the
+queued cohort's, else the standing template's, which can still change before
+the cohort is queued.
+`confirmed_epoch`, when present, is the subnet epoch index
+(`SubnetEpochIndex`) the coordinator last observed at a finalized block: the
+epoch the window's epochs are measured from. It is absent before the
+coordinator has observed one. `slop_ninja_miner next-cohort` and `status`
+show this read when no public status host is given. The example's epochs are
+illustrative: `SubnetEpochIndex` is a per-subnet counter (about 113 for
+subnet 601 in early November 2026), not the block number divided by 360.
 
 `output_contract` is the artifact spec's contract. `artifact_spec` names the
 spec whose checks admission runs, by id and by the digest
@@ -855,7 +870,9 @@ subnet).
 
 ## 10. Public reads the client depends on (planned public layout)
 
-`status` and `next-cohort` read the public status snapshot, unauthenticated.
+With `--public`, `status` and `next-cohort` read the public status snapshot,
+unauthenticated; otherwise they read the coordinator's unsigned cohort read
+(`GET /admission/v1/cohort`).
 The public publisher owns the layout, which is planned and not yet published;
 the client reads only these fields and ignores the rest:
 

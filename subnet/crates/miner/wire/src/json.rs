@@ -60,6 +60,11 @@ pub struct CohortInfo {
     pub paused: bool,
     pub admitting: Option<Admitting>,
     pub next: Option<NextCohort>,
+    /// The subnet epoch index (`SubnetEpochIndex`) the coordinator last
+    /// observed at a finalized block, when it has observed one: the epoch
+    /// that `admitting` and `next` epochs are measured from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed_epoch: Option<u64>,
 }
 
 /// The admitting cohort and its parameters.
@@ -91,7 +96,7 @@ pub struct ArtifactSpecRef {
     pub sha256: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NextCohort {
     pub cohort: u64,
     /// A lower bound: the cohort opens at the boundary that closes the one
@@ -102,6 +107,16 @@ pub struct NextCohort {
     /// `admission_tempos`), when the coordinator knows the plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admission_tempos: Option<u64>,
+    /// The output contract its plan names, when the coordinator knows the
+    /// plan: what `check` compares the header with between windows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_contract: Option<String>,
+    /// Its admitted object's byte bound, when the plan is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_object_len: Option<u64>,
+    /// The artifact spec its admission runs, when the plan is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_spec: Option<ArtifactSpecRef>,
 }
 
 /// One recorded part.

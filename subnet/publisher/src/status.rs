@@ -542,6 +542,7 @@ fn eval_view(j: EvalJson) -> EvalView {
                     cohort: n.cohort?,
                     earliest_open_epoch: n.earliest_open_epoch,
                     admission_tempos: n.admission_tempos,
+                    ..Default::default()
                 })
             }),
         }),
@@ -709,6 +710,7 @@ pub fn snapshot(i: &SnapshotInputs<'_>) -> PublicStatus {
                 cohort: queued.cohort,
                 earliest_open_epoch: earliest,
                 admission_tempos: None,
+                ..Default::default()
             })
         })
     });
@@ -946,6 +948,7 @@ pub(crate) mod tests {
                 cohort: 8,
                 earliest_open_epoch: Some(23_189),
                 admission_tempos: None,
+                ..Default::default()
             })
         );
         assert_eq!(
@@ -1022,7 +1025,8 @@ pub(crate) mod tests {
             Some(NextCohort {
                 cohort: 8,
                 earliest_open_epoch: Some(23_187),
-                admission_tempos: None
+                admission_tempos: None,
+                ..Default::default()
             })
         );
         assert_eq!(snap.admitting.as_ref().map(|a| a.cohort), Some(7));

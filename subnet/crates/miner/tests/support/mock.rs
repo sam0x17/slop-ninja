@@ -512,11 +512,16 @@ impl MockState {
                 limits: object_sha256(b"mock limits").hex(),
                 artifact_spec: self.artifact_spec.clone(),
             }),
+            // The next cohort's plan values are the mock cohort's own.
             next: Some(NextCohort {
                 cohort: c.cohort + 1,
                 earliest_open_epoch: Some(c.opened_epoch + 20),
                 admission_tempos: None,
+                output_contract: Some(c.output_contract.clone()),
+                max_object_len: Some(c.max_object_len),
+                artifact_spec: self.artifact_spec.clone(),
             }),
+            confirmed_epoch: Some(c.opened_epoch),
         }
     }
 

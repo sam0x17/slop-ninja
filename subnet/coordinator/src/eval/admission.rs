@@ -1796,11 +1796,15 @@ pub fn cohort_info(sql: &impl Sql, chain: &ChainBinding, paused: bool) -> R<Coho
     // else, for an operator plan's window, the cohort after it at the
     // earliest boundary it can open.
     let next = match crate::eval::calendar::next(sql)? {
-        Some(n) => Some(n),
+        Some(mut n) => {
+            next_limits(sql, &mut n)?;
+            Some(n)
+        }
         None => w.as_ref().map(|w| NextCohort {
             cohort: w.cohort + 1,
             earliest_open_epoch: Some(w.opened_epoch.saturating_add(w.k_tempos)),
             admission_tempos: None,
+            ..Default::default()
         }),
     };
     Ok(CohortInfo {
@@ -1812,7 +1816,34 @@ pub fn cohort_info(sql: &impl Sql, chain: &ChainBinding, paused: bool) -> R<Coho
         paused,
         admitting,
         next,
+        confirmed_epoch: observed(sql)?.epoch.map(|e| e.index),
     })
+}
+
+/// The next cohort's output contract, object bound and artifact spec, from
+/// the plan it opens with: its queued plan, else the unpaused standing
+/// template's (the calendar's next cohort is the template's then). Lets
+/// `check` compare an object with them between windows.
+fn next_limits(sql: &impl Sql, n: &mut NextCohort) -> R<()> {
+    let queued = sql.exec(
+        "SELECT seq FROM cohorts WHERE cohort = ? AND phase = 'queued' ORDER BY seq DESC LIMIT 1",
+        &[bind_u64(n.cohort)?],
+    )?;
+    let plan = match queued.first() {
+        Some(r) => Some(engine::cohort(sql, int(r, 0)?)?.plan),
+        None => crate::eval::calendar::active_template(sql)?,
+    };
+    let Some(plan) = plan else { return Ok(()) };
+    let Some(bounds) = plan.admission.as_ref().and_then(|a| SpecBounds::of_id(&a.artifact_spec)) else {
+        return Ok(());
+    };
+    n.output_contract = plan.reward_v1.as_ref().map(|v| v.output_contract.clone());
+    n.max_object_len = Some(bounds.object_bytes);
+    n.artifact_spec = Some(ArtifactSpecRef {
+        id: bounds.spec_id.into(),
+        sha256: bounds.spec_sha256.clone(),
+    });
+    Ok(())
 }
 
 // ----------------------------------------------------------------- framing

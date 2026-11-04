@@ -523,19 +523,29 @@ impl EvalCohort {
                     /// The planning invocation's remaining time: how long a
                     /// planned round's claim lasts unless its ingest ends it.
                     lease_ms: u64,
+                    /// Its time left once this call returns (at the call's
+                    /// allowance): the round keeps the reads that fit.
+                    #[serde(default)]
+                    fit_ms: Option<u64>,
+                    /// The Worker's observations of its previous calls.
+                    #[serde(default)]
+                    prior: commitments::Prior,
                 }
                 let b: B = match super::cf_io::request_json(req, 1024).await {
                     Ok(b) => b,
                     Err(e) => return error(e.code(), e.status()),
                 };
                 let r = transaction(&storage, move |sql| {
+                    commitments::note_prior(sql, &b.prior)?;
                     let o = engine::observed(sql)?;
                     let needs = commitments::Needs {
                         poll: admission::window(sql)?.is_some_and(|w| w.admitting()),
                         snapshot: admission::snapshot_needs(sql)?,
                     };
-                    let rt = runtime(sql)?;
-                    commitments::plan_claimed(sql, rt.as_ref(), netuid, o.confirmed, &needs, b.per_minute, now, b.lease_ms)
+                    // The stored metadata is parsed only when a round could
+                    // be planned (nothing is due between windows).
+                    let rt = if commitments::wants_round(sql, &needs, now)? { runtime(sql)? } else { None };
+                    commitments::plan_claimed(sql, rt.as_ref(), netuid, o.confirmed, &needs, b.per_minute, now, b.lease_ms, b.fit_ms)
                 });
                 match r {
                     Ok(round) => json(&round),
@@ -556,7 +566,8 @@ impl EvalCohort {
                     Err(e) => return error(e.code(), e.status()),
                 };
                 let r = transaction(&storage, move |sql| {
-                    let rt = runtime(sql)?;
+                    // Not parsed for a claim release or the runtime round.
+                    let rt = if commitments::ingest_needs_runtime(&b.results) { runtime(sql)? } else { None };
                     let out = commitments::ingest(sql, rt.as_ref(), netuid, &b.results, now)?;
                     if let Some((spec, tx, meta, at, marker)) = &out.runtime {
                         // Stored only when it parses as V15 metadata.

@@ -46,6 +46,9 @@ pub struct CheckContext<'a> {
     /// Why the cohort is unknown when a coordinator was named but could not
     /// be read (None: no coordinator was given).
     pub cohort_unknown: Option<&'a str>,
+    /// The next cohort whose plan gave the values above, when no cohort is
+    /// admitting (None: the admitting cohort's, or none).
+    pub next_cohort: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -159,9 +162,20 @@ impl ArtifactCheck for StructuralCheck {
                 ),
             ));
         }
+        if let Some(next) = cx.next_cohort {
+            findings.push(note(
+                "next_cohort",
+                format!(
+                    "no cohort is admitting: the contract and object bound checked are cohort {next}'s, \
+                     the next to open; check again once it admits"
+                ),
+            ));
+        }
         let complete = cx.expected_contract.is_some() && cx.max_object_len.is_some();
         if !complete {
-            let why = cx.cohort_unknown.unwrap_or("no coordinator given");
+            let why = cx.cohort_unknown.unwrap_or(
+                "no coordinator given (--coordinator, --public, or a trust file that pins one origin)",
+            );
             findings.push(note(
                 "cohort_unknown",
                 format!("{why}: the cohort's contract and object bound were not checked"),
@@ -351,6 +365,7 @@ mod tests {
             max_object_len: max,
             artifact_spec: None,
             cohort_unknown: None,
+            next_cohort: None,
         };
         StructuralCheck.check(&cx).unwrap()
     }
@@ -392,6 +407,7 @@ mod tests {
             max_object_len: None,
             artifact_spec: None,
             cohort_unknown: None,
+            next_cohort: None,
         };
         let report = SpecCheck.check(&cx).unwrap();
         assert_eq!(report.outcome, Outcome::Refused);
@@ -451,6 +467,7 @@ mod tests {
             max_object_len: None,
             artifact_spec: None,
             cohort_unknown: None,
+            next_cohort: None,
         };
         let report = ProvenanceCheck.check(&cx).unwrap();
         assert_eq!(report.outcome, Outcome::Pass);
@@ -520,6 +537,7 @@ mod tests {
             max_object_len: None,
             artifact_spec: None,
             cohort_unknown: None,
+            next_cohort: None,
         };
         let (pass, refused, incomplete) = (
             Fixed(Outcome::Pass),

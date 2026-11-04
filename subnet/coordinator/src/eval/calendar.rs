@@ -284,6 +284,12 @@ pub fn template(sql: &impl Sql) -> R<Option<CohortPlan>> {
     Ok(stored(sql)?.map(|(t, _)| t.plan))
 }
 
+/// The standing template's plan while it is unpaused (the plan the
+/// calendar's next cohort opens with when none is queued).
+pub fn active_template(sql: &impl Sql) -> R<Option<CohortPlan>> {
+    Ok(stored(sql)?.filter(|(_, paused)| !paused).map(|(t, _)| t.plan))
+}
+
 fn stored(sql: &impl Sql) -> R<Option<(Template, bool)>> {
     let rows = sql.exec("SELECT template, paused FROM standing_template WHERE id = 1", &[])?;
     let Some(r) = rows.first() else { return Ok(None) };
@@ -514,6 +520,7 @@ pub fn next(sql: &impl Sql) -> R<Option<NextCohort>> {
             cohort: u64::try_from(int(r, 0)?).unwrap_or(0),
             earliest_open_epoch: earliest(last.get(1)),
             admission_tempos: tempos(r),
+            ..Default::default()
         }));
     }
     if let Some((t, false)) = stored(sql)? {
@@ -523,6 +530,7 @@ pub fn next(sql: &impl Sql) -> R<Option<NextCohort>> {
             cohort: next_number(sql, first)?,
             earliest_open_epoch: earliest(last.first()),
             admission_tempos: Some(t.plan.admission_tempos),
+            ..Default::default()
         }));
     }
     Ok(None)

@@ -877,18 +877,110 @@ fn an_overlapping_round_plans_nothing_while_reads_are_in_flight() {
         poll: true,
         snapshot: None,
     };
-    let first = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 1_000, 30_000)).unwrap();
+    let first = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 1_000, 30_000, None)).unwrap();
     assert_eq!(first.reads.len(), 3, "the runtime reads");
-    let overlap = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 12_000, 30_000)).unwrap();
+    let overlap = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 12_000, 30_000, None)).unwrap();
     assert!(overlap.reads.is_empty(), "the same reads are already in flight");
     // The ingest ends the claim (here with no replies: nothing was sent).
     tx(&db, |s| ingest(s, None, NETUID, &[], 13_000)).unwrap();
-    let again = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 14_000, 30_000)).unwrap();
+    let again = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 14_000, 30_000, None)).unwrap();
     assert_eq!(again.reads, first.reads);
     // A claim whose invocation ended without an ingest expires with it.
-    let expired = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 44_000, 30_000)).unwrap();
+    let expired = tx(&db, |s| plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 44_000, 30_000, None)).unwrap();
     assert_eq!(expired.reads.len(), 3);
     tx(&db, note_starved).unwrap();
     let st = tx(&db, status).unwrap();
     assert_eq!((st["rounds_overlapped"].as_i64(), st["rounds_starved"].as_i64()), (Some(1), Some(1)));
+}
+
+/// Each block's delivery drives the reader inside its 30 s `waitUntil`
+/// continuation, after the heartbeat kicks and a signing round: a round with
+/// a large read (every poll is one) starts there, and the runtime round,
+/// ingested only whole, is sent whole or not at all. With the heartbeat's
+/// allowances (10 s a call, 20 s a large read) no round ever started.
+#[test]
+fn a_reader_round_fits_the_delivery_continuation() {
+    use slop_ninja_arena::limits::WAIT_UNTIL_MS;
+    const { assert!(ROUND_START_MS < WAIT_UNTIL_MS && RUNTIME_ROUND_MS < WAIT_UNTIL_MS) };
+    let read = |tag: &str, large: bool| Read { tag: tag.into(), id: 1, body: String::new(), large, archive: false };
+    // A fresh continuation, less the plan call.
+    let poll = Round { reads: vec![read("keys@1", true)] };
+    assert_eq!(fitting(&poll, WAIT_UNTIL_MS - READER_OBJECT_CALL_MS), 1);
+    assert_eq!(fitting(&poll, ROUND_START_MS - READER_OBJECT_CALL_MS), 1);
+    assert_eq!(fitting(&poll, ROUND_START_MS - READER_OBJECT_CALL_MS - 1), 0);
+    let runtime = Round {
+        reads: vec![read("version@1", false), read("metadata@1", true), read("marker@1", false)],
+    };
+    assert_eq!(fitting(&runtime, WAIT_UNTIL_MS - READER_OBJECT_CALL_MS), 3);
+    assert_eq!(fitting(&runtime, RUNTIME_ROUND_MS - READER_OBJECT_CALL_MS), 3);
+    assert_eq!(fitting(&runtime, RUNTIME_ROUND_MS - READER_OBJECT_CALL_MS - 1), 0, "whole or not at all");
+    // Resolutions go out while they fit; the rest stay due for the next block.
+    let many = Round { reads: (0..6).map(|i| read(&format!("hash@{i}"), false)).collect() };
+    assert_eq!(fitting(&many, READER_OBJECT_CALL_MS + 2 * read_step_ms(false)), 2);
+}
+
+/// The plan keeps only the reads that fit the invocation's time left after
+/// it (`fit_ms`) and charges the reader's share for those alone; a runtime
+/// round that does not fit whole is neither sent nor charged nor claimed.
+#[test]
+fn a_plan_charges_only_the_reads_that_fit() {
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let at = BlockRef {
+        number: 8_340_100,
+        hash: Id([0xab; 32]),
+    };
+    let needs = Needs {
+        poll: true,
+        snapshot: None,
+    };
+    let used = |db: &Sqlite| {
+        tx(db, |s| {
+            let r = s.exec("SELECT budget_used, round_until_ms FROM commit_reader WHERE id = 1", &[])?;
+            Ok::<_, EvalError>((int(&r[0], 0)?, int(&r[0], 1)?))
+        })
+        .unwrap()
+    };
+    // No runtime stored: the runtime round, 3 reads, does not fit 27 s.
+    let short = tx(&db, |s| {
+        plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 1_000, 30_000, Some(RUNTIME_ROUND_MS - READER_OBJECT_CALL_MS - 1))
+    })
+    .unwrap();
+    assert!(short.reads.is_empty());
+    assert_eq!(used(&db), (0, 0), "nothing charged, no claim");
+    let whole = tx(&db, |s| {
+        plan_claimed(s, None, NETUID, Some(at), &needs, BUDGET, 2_000, 30_000, Some(RUNTIME_ROUND_MS - READER_OBJECT_CALL_MS))
+    })
+    .unwrap();
+    assert_eq!(whole.reads.len(), 3);
+    assert_eq!(used(&db), (3, 32_000));
+}
+
+/// The plan parses the stored runtime only when it could plan a round, and
+/// an ingest only when it decodes with it; the Worker's observations of its
+/// previous calls show in the status.
+#[test]
+fn reader_calls_parse_only_when_needed_and_are_observed() {
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let idle = Needs::default();
+    assert!(!tx(&db, |s| wants_round(s, &idle, 1_000)).unwrap());
+    let poll = Needs {
+        poll: true,
+        snapshot: None,
+    };
+    assert!(tx(&db, |s| wants_round(s, &poll, 1_000)).unwrap());
+    let r = |tag: &str| ReadResult { tag: tag.into(), id: 1, reply: None };
+    assert!(!ingest_needs_runtime(&[]));
+    assert!(!ingest_needs_runtime(&[r("version@5"), r("metadata@5"), r("marker@5")]));
+    assert!(ingest_needs_runtime(&[r("keys@5")]));
+    tx(&db, |s| note_prior(s, &Prior { plan_ms: Some(40), ingest_ms: Some(900), failed: None })).unwrap();
+    tx(&db, |s| note_prior(s, &Prior { plan_ms: Some(3_000), ingest_ms: None, failed: Some("plan".into()) })).unwrap();
+    tx(&db, |s| note_prior(s, &Prior { plan_ms: Some(60), ingest_ms: None, failed: None })).unwrap();
+    let calls = tx(&db, status).unwrap()["calls"].clone();
+    assert_eq!(
+        calls,
+        serde_json::json!({"failed": 1, "failed_last": "plan", "plan_ms_last": 60, "plan_ms_max": 3_000,
+            "ingest_ms_last": 900, "ingest_ms_max": 900})
+    );
 }

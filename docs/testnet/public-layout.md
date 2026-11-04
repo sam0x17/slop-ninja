@@ -5,7 +5,9 @@ publisher writes, what each one holds, and how a validator or miner client
 verifies them. The publisher is the cron Worker in
 [`subnet/publisher`](../../subnet/publisher/README.md); this page is the
 contract it implements. W7's validator fetcher and the miner client's
-`status` and `next-cohort` read these paths.
+`status` and `next-cohort` (with `--public`; without it they read the
+coordinator's unsigned cohort read, `GET /admission/v1/cohort`) read these
+paths.
 
 **State: not yet live.** The publisher is built and tested, but not
 deployed. The public host, its domain (decision D5) and public access are set

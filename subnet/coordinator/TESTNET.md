@@ -2678,6 +2678,33 @@ stage. Two eval-store migrations (v12 to v14) and no journal migration.
   invocation's end), so overlapping deliveries never send the same reads;
   skipped rounds are counted in the reader's status (`rounds_overlapped`,
   and `rounds_starved` when signing left no time in the invocation).
+  Fix of 2026-11-04 (launch-fix2): the reader's first-round gate used the
+  heartbeat's allowances (two 10 s calls and a 20 s metadata read, 40 s),
+  which never fit the delivery continuation's 30 s window, so from the
+  receipts-watchdog deploy on every delivery only counted `rounds_starved`
+  and no commitment was read while deliveries were healthy. A round's calls
+  now use the reader's own allowances: 3 s for each cohort-object call (plan
+  and ingest, which parse the stored runtime when they decode or encode
+  keys; not yet measured on the live object), 2 s for a budget reservation
+  or the starved note (journal calls measured at about 50 ms), 4 s for a
+  small read and 8 s for a large one (measured about 0.35 s and 1 s). A
+  round starts with 16 s left. The plan is told the time left after it and
+  plans and charges only the reads that fit, so a read that is not sent
+  costs none of the reader's share and stays due for the next block; the
+  runtime round (28 s) goes whole or not at all. The plan parses the stored
+  metadata only when a round could be planned (never between windows), and
+  an ingest only when it decodes with it. `rounds_starved` counts the first
+  rounds skipped with between 2 s and 16 s left (a delivery with less
+  counts nothing). The reader's status adds `calls` (store v17): the
+  Worker's measured plan and ingest round trips (`plan_ms_last`,
+  `plan_ms_max`, `ingest_ms_last`, `ingest_ms_max`) and the calls that
+  failed or ran out of their allowance (`failed`, `failed_last`), reported
+  with the next plan. A plan that times out still reaches the object, so a
+  run of failing plans shows as `failed` rising. Check after the deploy:
+  between windows `plan_ms_last` is set and `failed` stays flat; early in
+  the next window, with a test-miner commitment, `polls` and `polled_block`
+  move, `plan_ms_max` and `ingest_ms_max` stay under 3000 and `failed`
+  stays flat.
 - **Generation rejections.** Length rejections record their direction
   (`length_short`, `length_long`) and `/eval/status` counts rejections per
   document kind (`rejects_by_kind`). The restarted record's first cohorts

@@ -402,6 +402,28 @@ async fn binary_pack_check_upload_and_status() {
     );
     assert!(out.contains("no cohort is admitting"), "{out}");
     assert!(out.contains("admission closed at cutoff block"), "{out}");
+
+    // A coordinator that cannot be reached (a coordinator outage): status
+    // still shows the local openings, then fails on the read (exit 2).
+    let outage = run(args(&[
+        "status",
+        "--coordinator",
+        "https://127.0.0.1:9",
+        "--http-timeout-secs",
+        "3",
+        "--state-dir",
+        p(&state),
+    ]))
+    .await;
+    let out = text(&outage);
+    assert_eq!(outage.status.code(), Some(2), "{out}");
+    assert!(out.contains("opening cohort 7"), "{out}");
+    assert!(out.contains("the cohort could not be read"), "{out}");
+    let opening = out.find("opening cohort 7").unwrap();
+    assert!(
+        opening < out.find("error:").unwrap(),
+        "openings first: {out}"
+    );
 }
 
 /// Exit statuses: an unreadable file is an error (2); an object that does
@@ -474,4 +496,154 @@ async fn binary_refuses_plain_http_to_other_hosts() {
         "{}",
         text(&checked)
     );
+}
+
+/// The release trust file alone (no `--coordinator`, no `--public`) is
+/// enough, as the miner guide says: `check` reads the cohort from its one
+/// pinned origin, and `status` and `next-cohort` show the calendar from the
+/// coordinator's unsigned cohort read while the status host is not live. A
+/// coordinator refusal of a signed read exits 1, as a refusal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn binary_uses_the_trust_files_pinned_origin() {
+    let dir = tempfile::tempdir().unwrap();
+    let mock = Mock::start(config(), 1_950).await;
+    let origin = mock.url().trim_end_matches('/').to_owned();
+    let trust = dir.path().join("testnet-trust.json");
+    std::fs::write(
+        &trust,
+        serde_json::json!({
+            "schema": "slop_ninja_testnet_trust_roots_v1",
+            "network": "testnet",
+            "netuid": 601,
+            "admission_origins": [origin],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let state = dir.path().join("state");
+
+    // check: the cohort is read from the pinned origin, so the check is
+    // complete and only the synthetic tokenizer is refused.
+    let model = dir.path().join("model");
+    std::fs::create_dir_all(&model).unwrap();
+    for role in &spec::ROLES {
+        std::fs::write(model.join(role.name), role.name).unwrap();
+    }
+    let six = dir.path().join("six.sna");
+    let packed = run(args(&["pack", "--dir", p(&model), "--out", p(&six)])).await;
+    assert!(packed.status.success(), "{}", text(&packed));
+    let checked = run(args(&["check", p(&six), "--trust", p(&trust)])).await;
+    let out = text(&checked);
+    assert_eq!(checked.status.code(), Some(1), "{out}");
+    assert!(out.contains("tokenizer_mismatch"), "{out}");
+    assert!(!out.contains("cohort_unknown"), "{out}");
+    assert!(mock.with(|s| s.counters.routes.get("cohort").copied()) >= Some(1));
+
+    // next-cohort and status: the cohort read of the pinned origin.
+    let report = format!(
+        "coordinator cohort read (unsigned) from {origin} (pinned by the trust file): subnet 601; \
+         finalized block 1950, confirmed epoch 23169"
+    );
+    let next = run(args(&["next-cohort", "--trust", p(&trust)])).await;
+    let out = text(&next);
+    assert!(next.status.success(), "{out}");
+    assert!(out.contains(&report), "{out}");
+    assert!(
+        out.contains("admitting cohort 7 (mock-c7): opened at epoch 23169 (the confirmed epoch)"),
+        "{out}"
+    );
+    let shown = run(args(&[
+        "status",
+        "--trust",
+        p(&trust),
+        "--state-dir",
+        p(&state),
+    ]))
+    .await;
+    let out = text(&shown);
+    assert!(shown.status.success(), "{out}");
+    assert!(
+        out.contains(&report) && out.contains("admitting cohort 7"),
+        "{out}"
+    );
+    assert!(out.contains("no hotkey named"), "{out}");
+    mock.close();
+    let next = run(args(&["next-cohort", "--trust", p(&trust)])).await;
+    let out = text(&next);
+    assert!(next.status.success(), "{out}");
+    assert!(out.contains("no cohort is admitting now"), "{out}");
+    assert!(
+        out.contains("next cohort 8 opens at epoch 23189 (20 epochs after the confirmed epoch)"),
+        "{out}"
+    );
+    // Between windows check compares with the next cohort's plan values
+    // and says whose they are.
+    let between = run(args(&["check", p(&six), "--trust", p(&trust)])).await;
+    let out = text(&between);
+    assert_eq!(between.status.code(), Some(1), "{out}");
+    assert!(out.contains("tokenizer_mismatch"), "{out}");
+    assert!(!out.contains("cohort_unknown"), "{out}");
+    assert!(
+        out.contains("next_cohort") && out.contains("cohort 8's, the next to open"),
+        "{out}"
+    );
+
+    // Nothing to choose from: next-cohort says what to pass and exits 2;
+    // status reads the local openings only and says why.
+    let none = run(args(&["next-cohort"])).await;
+    assert_eq!(none.status.code(), Some(2), "{}", text(&none));
+    assert!(text(&none).contains("--trust"), "{}", text(&none));
+    let two = dir.path().join("two-trust.json");
+    std::fs::write(
+        &two,
+        serde_json::json!({
+            "schema": "slop_ninja_testnet_trust_roots_v1",
+            "admission_origins": ["https://a.example", "https://b.example"],
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let local = run(args(&[
+        "status",
+        "--trust",
+        p(&two),
+        "--state-dir",
+        p(&state),
+    ]))
+    .await;
+    let out = text(&local);
+    assert!(local.status.success(), "{out}");
+    assert!(out.contains("no trust file pinning one origin"), "{out}");
+
+    // An unregistered hotkey's signed read, refused by the upload Worker's
+    // gate with not_registered (422): a refusal, exit 1, not an error.
+    let wallets = dir.path().join("wallets");
+    let wallet = Wallet::new("stranger", "h1", &wallets).unwrap();
+    wallet
+        .regenerate_hotkey(
+            RegenerateFrom::Uri(SecretString::new("//Dave".to_owned())),
+            CryptoType::Sr25519,
+            WriteOptions::hotkey(),
+        )
+        .await
+        .unwrap();
+    mock.open_next(2_100);
+    mock.with(|s| s.upload_gate = true);
+    let refused = run(args(&[
+        "status",
+        "--trust",
+        p(&trust),
+        "--state-dir",
+        p(&state),
+        "--wallet-path",
+        p(&wallets),
+        "--wallet",
+        "stranger",
+        "--hotkey",
+        "h1",
+    ]))
+    .await;
+    let out = text(&refused);
+    assert_eq!(refused.status.code(), Some(1), "{out}");
+    assert!(out.contains("not_registered (422)"), "{out}");
 }

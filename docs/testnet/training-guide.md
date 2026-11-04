@@ -18,13 +18,21 @@ cohort. Improving the data and the training is the miner's job.
 ## Where this guide stops today
 
 Steps 1 to 13 run now, offline after the downloads, and end with `check`
-exiting 3 (every local check passed; no cohort to compare with). Nothing
-after that can run yet: `commit`, `upload` and `next-cohort` need the
-coordinator's admission routes, the public status host and the
-coordinator's origin pinned in the release trust file, and none of these is
-live ([What is live](README.md#what-is-live)). Until then those commands
-stop with exit 2 and say what is missing. The miner guide will list the
-endpoints when they go live.
+exiting 3 (every local check passed; no cohort to compare with). With the
+release trust file set (`SLOP_NINJA_TRUST`; [miner guide step
+7](miner-guide.md#7-choose-the-endpoints)), `check` and `next-cohort` read the
+admitting cohort, or the next one, from the coordinator's unsigned cohort
+read at the origin the trust file pins. `check` compares the object with the
+admitting cohort's contract and size bound, or between windows with the next
+cohort's when the read names them (note `next_cohort`), and exits 0 on a
+pass; otherwise it exits 3. `commit` needs only that unsigned read and the
+chain, so while a cohort admits it signs and submits an on-chain commitment
+for any registered hotkey. `upload`, `abort` and the hotkey view of `status`
+need the coordinator's signed admission routes, which are not yet open to
+outside hotkeys: their signed requests are answered `not_found` (exit 1)
+([What is live](miner-guide.md#what-is-live)). Do not commit until those
+routes are open to you: a commitment you cannot upload costs the chain fee
+and admits nothing.
 
 ## Getting the code
 
@@ -183,6 +191,24 @@ The checker admits only artifacts that keep these fixed:
 You may change the data, the weighting, the hyperparameters, the seed, the
 number of epochs and the arm, provided the arm has no span or token head and
 the protocol keeps its `ai_roster` entry.
+
+To train with another seed, list it in `seeds` in `config/protocol.json`
+(both `protocol.json` and `protocol-smoke.json` ship with `"seeds": [17]`),
+for example `"seeds": [23]`, and pass the same value to step 9's
+`train --seed 23`. The trainer refuses a seed the protocol does not list
+(`seed/arm outside protocol`). Edit the protocol before step 9 and leave it
+unchanged afterwards: the fit records the seed and the protocol file's
+SHA-256, and step 10's CAL heads and step 11's release refuse a fit whose
+recorded digest differs from `config/protocol.json` ("completed fit on this
+bundle and config required"). The training seed sets torch's random state
+before the model is built and trained, and the order of the Train rows in
+each epoch, so it changes the trained weights and with them the graph, the
+role files, the object and its digests. It does not change the parent, the
+bundle, the normalization or the contract, so steps 5 to 8 can be shared
+between seeds; the role files record the edited protocol's digest. Step 5's
+`parent --seed` (default 17) is a different seed: it initializes the parent
+classifier's new head, so changing it gives a new parent `artifact_id`, and
+the contract (step 8) and every later step must be redone.
 
 The recipe is deterministic on one platform: two runs of the smoke on the
 tested host produced byte-identical encoder weights and graph (digests in the
@@ -468,17 +494,19 @@ directory passes. A refusal prints `refused <code>: <detail>` and exits 2; a
 path it cannot read is reported as `refused object`. It exits 64 on a usage
 error and 0 for `--help`.
 
-`slop_ninja_miner check` without `--coordinator` exits 3 ("incomplete") when
-every local check passes, because it cannot compare the artifact with an open
-cohort's contract and object bound. Exit 1 means refused, with the spec's
+`slop_ninja_miner check` without an endpoint (no `SLOP_NINJA_TRUST`,
+`--coordinator` or `--public`), or while no cohort is admitting and the
+cohort read names no next plan, exits 3 ("incomplete") when every local
+check passes, because it cannot compare the artifact with a cohort's contract
+and object bound. Exit 1 means refused, with the spec's
 refusal code; exit 2 means an error such as a missing file, with nothing
 decided about the artifact. The [miner guide](miner-guide.md#6-pack-and-check)
 lists the codes.
 
 `pack` writes `artifact.obj` with mode 0600. Keep it, and the working
 directory's other copies of the weights, private until the cohort closes.
-This is where the guide stops today. Once the admission routes are live,
-continue with the miner guide from
+This is where the guide stops today. Once the signed admission routes are open
+to outside hotkeys, continue with the miner guide from
 [step 7](miner-guide.md#7-choose-the-endpoints) (endpoints, commitment and
 upload), with a registered hotkey ([steps 3 and 4](miner-guide.md#3-wallet-and-hotkey)).
 
@@ -631,3 +659,13 @@ build output in the checkout adds about 1.2 GB and the restored datasets
 - **No small sample.** No small artifact passes `check`: the graph class fixes
   the graph at 601,028,257 bytes of a real export. The smoke run is the
   shortest path to a passing artifact.
+
+## Reporting problems
+
+Report a problem with the recipe or its tools as the miner guide's
+[step 15](miner-guide.md#15-reporting-problems) says, with the step, the
+command and its output. Report a security problem privately by email to
+[security@slop.ninja](mailto:security@slop.ninja), not in a public issue
+([security policy](../../SECURITY.md)). Never post your mnemonic, keyfiles or
+password, and never post your artifact, its model files or your opening
+before the cohort closes.

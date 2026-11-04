@@ -4,11 +4,13 @@
 //!
 //! The snapshot is unsigned, so it is shown as information only. Its
 //! `coordinator` field chooses an upload destination only when the trust file
-//! pins that origin (see [`crate::trust`]).
+//! pins that origin (see [`crate::trust`]). Before the status host is live,
+//! [`cohort_report`] shows the same calendar from the coordinator's unsigned
+//! cohort read.
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use slop_ninja_admission_wire::json::{Chain, NextCohort};
+use slop_ninja_admission_wire::json::{Chain, CohortInfo, NextCohort};
 use slop_ninja_admission_wire::response_limit;
 use url::Url;
 
@@ -105,38 +107,29 @@ fn relative(epoch: u64, confirmed: Option<u64>) -> String {
     }
 }
 
-/// The `next-cohort` report.
-pub fn next_cohort_report(status: &PublicStatus) -> String {
-    let now = status.confirmed.as_ref().and_then(|c| c.epoch);
-    let mut lines = Vec::new();
-    lines.push(format!(
-        "public snapshot (unsigned): network {} (subnet {}){}",
-        status.network,
-        status.chain.netuid,
-        status
-            .confirmed
-            .as_ref()
-            .map(|c| {
-                let epoch = c.epoch.map(|e| format!(", epoch {e}")).unwrap_or_default();
-                let age = c
-                    .age_secs
-                    .map(|a| format!(", {a} s old"))
-                    .unwrap_or_default();
-                format!("; confirmed block {}{epoch}{age}", c.block)
-            })
-            .unwrap_or_default()
-    ));
-    if status.fault {
-        lines.push("the coordinator reports a fault; admission may be paused".into());
-    }
-    match &status.admitting {
+/// The admitting cohort as a report shows it.
+struct ShownAdmitting<'a> {
+    cohort: u64,
+    label: Option<&'a str>,
+    opened_epoch: u64,
+    planned_cutoff_epoch: u64,
+}
+
+/// The calendar lines shared by both reports: the admitting cohort, or none,
+/// and the next cohort, with epochs relative to `now` when it is known.
+fn calendar_lines(
+    lines: &mut Vec<String>,
+    now: Option<u64>,
+    admitting: Option<ShownAdmitting<'_>>,
+    next: Option<&NextCohort>,
+) {
+    match admitting {
         Some(admitting) => lines.push(format!(
             "admitting cohort {}{}: opened at epoch {}{}, planned cutoff at epoch {}{}. Commit for \
              cohort {} and upload before the cutoff.",
             admitting.cohort,
             admitting
                 .label
-                .as_ref()
                 .map(|l| format!(" ({l})"))
                 .unwrap_or_default(),
             admitting.opened_epoch,
@@ -147,7 +140,7 @@ pub fn next_cohort_report(status: &PublicStatus) -> String {
         )),
         None => lines.push("no cohort is admitting now".into()),
     }
-    if let Some(next) = &status.next {
+    if let Some(next) = next {
         let window = next.admission_tempos.map(|a| {
             let tempos = if a == 1 {
                 "1 epoch".to_owned()
@@ -173,9 +166,76 @@ pub fn next_cohort_report(status: &PublicStatus) -> String {
             window.unwrap_or_default()
         ));
     }
+}
+
+/// The `next-cohort` report from the public snapshot.
+pub fn next_cohort_report(status: &PublicStatus) -> String {
+    let now = status.confirmed.as_ref().and_then(|c| c.epoch);
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "public snapshot (unsigned): network {} (subnet {}){}",
+        status.network,
+        status.chain.netuid,
+        status
+            .confirmed
+            .as_ref()
+            .map(|c| {
+                let epoch = c.epoch.map(|e| format!(", epoch {e}")).unwrap_or_default();
+                let age = c
+                    .age_secs
+                    .map(|a| format!(", {a} s old"))
+                    .unwrap_or_default();
+                format!("; confirmed block {}{epoch}{age}", c.block)
+            })
+            .unwrap_or_default()
+    ));
+    if status.fault {
+        lines.push("the coordinator reports a fault; admission may be paused".into());
+    }
+    calendar_lines(
+        &mut lines,
+        now,
+        status.admitting.as_ref().map(|a| ShownAdmitting {
+            cohort: a.cohort,
+            label: a.label.as_deref(),
+            opened_epoch: a.opened_epoch,
+            planned_cutoff_epoch: a.planned_cutoff_epoch,
+        }),
+        status.next.as_ref(),
+    );
     if let Some(notice) = &status.notice {
         lines.push(format!("notice: {notice}"));
     }
+    lines.join("\n")
+}
+
+/// The `next-cohort` report from the coordinator's unsigned cohort read
+/// (`GET /admission/v1/cohort`), for use before the public status host is
+/// live. `origin` is the coordinator it was read from. Epoch distances are
+/// measured from the cohort read's `confirmed_epoch`; a coordinator that does
+/// not report one gets absolute epochs only.
+pub fn cohort_report(info: &CohortInfo, origin: &str) -> String {
+    let now = info.confirmed_epoch;
+    let mut lines = vec![format!(
+        "coordinator cohort read (unsigned) from {origin}: subnet {}; finalized block {}{}",
+        info.chain.netuid,
+        info.finalized_block,
+        now.map(|e| format!(", confirmed epoch {e}")).unwrap_or_default()
+    )];
+    if info.paused {
+        lines.push("the coordinator reports admission paused (catching up or unavailable)".into());
+    }
+    calendar_lines(
+        &mut lines,
+        now,
+        info.admitting.as_ref().map(|a| ShownAdmitting {
+            cohort: a.cohort,
+            label: Some(a.label.as_str()),
+            opened_epoch: a.opened_epoch,
+            planned_cutoff_epoch: a.planned_cutoff_epoch,
+        }),
+        info.next.as_ref(),
+    );
     lines.join("\n")
 }
 
@@ -203,6 +263,7 @@ mod tests {
             cohort: 20,
             earliest_open_epoch: Some(113),
             admission_tempos: Some(17),
+            ..Default::default()
         })));
         assert!(with.contains("no cohort is admitting now"), "{with}");
         assert!(
@@ -221,17 +282,70 @@ mod tests {
             cohort: 20,
             earliest_open_epoch: Some(113),
             admission_tempos: None,
+            ..Default::default()
         })));
         assert!(!without.contains("admission window lasts"), "{without}");
         let v = serde_json::to_value(NextCohort {
             cohort: 1,
             earliest_open_epoch: None,
             admission_tempos: None,
+            ..Default::default()
         })
         .unwrap();
         assert!(
             v.get("admission_tempos").is_none(),
             "absent, not null, when unknown"
         );
+    }
+    /// Before the status host is live, the coordinator's unsigned cohort read
+    /// gives the same calendar, measured from its confirmed epoch.
+    #[test]
+    fn the_cohort_read_report_gives_the_same_calendar() {
+        let mut info: CohortInfo = serde_json::from_value(serde_json::json!({
+            "schema": slop_ninja_admission_wire::json::SCHEMA_COHORT,
+            "contract": slop_ninja_admission_wire::CONTRACT,
+            "chain": {"genesis": "00".repeat(32), "netuid": 601, "mechanism": 0},
+            "finalized_block": 8_367_213,
+            "request_validity_blocks": 100,
+            "admitting": null,
+            "next": {"cohort": 19, "earliest_open_epoch": 113, "admission_tempos": 1},
+            "confirmed_epoch": 99,
+        }))
+        .unwrap();
+        let out = cohort_report(&info, "https://testnet-admission.slop.ninja");
+        assert!(
+            out.starts_with(
+                "coordinator cohort read (unsigned) from https://testnet-admission.slop.ninja: \
+                 subnet 601; finalized block 8367213, confirmed epoch 99"
+            ),
+            "{out}"
+        );
+        assert!(out.contains("no cohort is admitting now"), "{out}");
+        assert!(
+            out.contains(
+                "next cohort 19 opens at epoch 113 (14 epochs after the confirmed epoch) at the earliest; \
+                 its admission window lasts 1 epoch once it opens (until epoch 114 at the earliest)"
+            ),
+            "{out}"
+        );
+        // A coordinator without the field (an older build): absolute epochs only.
+        info.confirmed_epoch = None;
+        info.paused = true;
+        let out = cohort_report(&info, "https://testnet-admission.slop.ninja");
+        assert!(out.contains("finalized block 8367213\n"), "{out}");
+        assert!(out.contains("admission paused"), "{out}");
+        assert!(
+            out.contains("next cohort 19 opens at epoch 113 at the earliest"),
+            "{out}"
+        );
+        assert!(!out.contains("confirmed epoch"), "{out}");
+        // An older coordinator's response without the field still parses.
+        let mut v = serde_json::to_value(&info).unwrap();
+        assert!(
+            v.get("confirmed_epoch").is_none(),
+            "absent, not null, when unknown"
+        );
+        v.as_object_mut().unwrap().remove("confirmed_epoch");
+        assert_eq!(serde_json::from_value::<CohortInfo>(v).unwrap(), info);
     }
 }

@@ -165,6 +165,7 @@ async fn pack_check_commit_upload_resume_and_admit() {
         max_object_len: Some(1 << 20),
         artifact_spec: None,
         cohort_unknown: None,
+        next_cohort: None,
     };
     let (outcome, reports) = run_all(&[&StructuralCheck], &cx).unwrap();
     assert_eq!(outcome, Outcome::Pass);

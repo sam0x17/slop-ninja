@@ -756,5 +756,11 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 16,
             statements: crate::eval::engine::SCHEMA_V16,
         },
+        // v17: the commitment reader's call observations (the Worker's
+        // measured plan and ingest round trips and failed calls).
+        Migration {
+            version: 17,
+            statements: crate::eval::commitments::SCHEMA_V17,
+        },
     ],
 };

@@ -22,17 +22,21 @@ closes.
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Signed release binaries (Linux x86_64) | not yet live: binaries built from the public repository, signed and smoke-tested when it is published |
-| Coordinator admission routes, used by `commit`, `upload`, `abort` and the hotkey view of `status`, served by the upload Worker at `https://testnet-admission.slop.ninja` | not yet live |
-| Public status host, used by `status` and `next-cohort`, with the published packages, leaderboard and artifacts | not yet live |
+| Coordinator unsigned cohort read (`GET /admission/v1/cohort`), used by `check`, `commit`, `status` and `next-cohort`, served by the upload Worker at `https://testnet-admission.slop.ninja` | live |
+| Coordinator signed admission routes, used by `upload`, `abort` and the hotkey view of `status` | not yet open to outside hotkeys: until they are, an outside hotkey's signed request is answered `not_found` (exit 1) |
+| Public status host (`--public`), with the published packages, leaderboard and artifacts | not yet live; until it is, `status` and `next-cohort` show the calendar from the coordinator's unsigned cohort read |
 | The coordinator's admission origin pinned in the release trust file | pinned: `https://testnet-admission.slop.ninja` |
 | Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo |
 | Reference packages (`R_0` and the S2c span package) | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
 
 The [training guide](training-guide.md) produces an admissible artifact from
-public material and ends with `pack` and `check`. Until the admission routes
-are live you cannot commit or upload: `commit` takes the admitting cohort from
-the coordinator, so it does not run without one. The steps below say where they depend on a piece that is not yet
-live. The public repository is
+public material and ends with `pack` and `check`. `commit` needs only the
+unsigned cohort read and the chain, so it signs and submits an on-chain
+commitment for any registered hotkey whenever a cohort admits. `upload` needs
+the signed routes, which are not yet open to outside hotkeys. **Do not commit
+until they are open to you**: a commitment you cannot upload costs the chain
+fee and admits nothing. The steps below say where they depend on a piece that
+is not yet live. The public repository is
 <https://github.com/sam0x17/slop-ninja>; this page will name the status host
 when it goes live. The release key is on the [landing page](README.md#release-key).
 
@@ -314,8 +318,8 @@ exit statuses:
 | Exit | Meaning |
 | --- | --- |
 | 0 | success; for `check`, every check ran and passed |
-| 1 | refused: an admission check refused the artifact (`check` prints the code the coordinator would report), or the coordinator refused the upload session |
-| 2 | error: usage, configuration, network or file; nothing was decided about the artifact |
+| 1 | refused: an admission check refused the artifact (`check` prints the code the coordinator would report), the upload session ended `refused`, or the coordinator refused a request with a code that retrying cannot change (for example `not_registered` for a signed `status` read); the code is printed ([Refusals](#14-refusals-and-what-they-mean)) |
+| 2 | error: usage, configuration, network or file; a check the client makes itself before it signs anything (for example `commit` while no cohort is admitting); or a retryable answer, such as `unavailable` or `commitment_not_found`, still there after the attempts. Nothing was decided about the artifact |
 | 3 | `check` only: nothing refused the artifact, but some checks did not run |
 
 Without a coordinator `check` cannot read the cohort's output contract and
@@ -323,10 +327,14 @@ size bound, so an offline check that refuses nothing exits 3 with the note
 `cohort_unknown`. The same happens when endpoints are set but the cohort
 cannot be read, for example because the coordinator is unreachable or no trust
 file pins its origin: `check` prints a warning, still runs every local check,
-and names the reason in the `cohort_unknown` note. Once the admission routes
-are live and the endpoints of the next section are set, `check` also reads the
-admitting cohort, checks its output contract and size bound, and exits 0 on a
-pass.
+and names the reason in the `cohort_unknown` note. With the endpoints of the
+next section set (`SLOP_NINJA_TRUST` alone is enough), `check` also reads the
+admitting cohort from the coordinator's unsigned cohort read, checks its
+output contract and size bound, and exits 0 on a pass. Between windows it
+uses the next cohort's contract, size bound and spec when the cohort read
+names them, with the note `next_cohort` naming that cohort (check again once
+it admits); otherwise it exits 3 with the note `cohort_unknown: no cohort is
+admitting`.
 
 `check` uses the artifact spec the cohort names; without a cohort, the newest
 spec the build defines (spec v3). A note `artifact_spec_mismatch` means the
@@ -398,8 +406,9 @@ authenticated coordinator origin. The release trust file lists one origin in
 upload Worker. The client uses only that origin:
 
 - With `SLOP_NINJA_TRUST` set and neither `--coordinator` nor `--public`,
-  `commit`, `upload`, `abort` and `status` use the one origin the trust file
-  pins. This works now, before the public status host is live.
+  `check`, `commit`, `upload`, `abort`, `status` and `next-cohort` use the one
+  origin the trust file pins. This works now, before the public status host is
+  live.
 - `--coordinator https://testnet-admission.slop.ninja` (or
   `SLOP_NINJA_COORDINATOR` set to it) names the same origin explicitly. Any
   other origin is refused while the trust file pins one.
@@ -430,20 +439,41 @@ host. There is no per-IP or per-hotkey request rate limit.
 slop_ninja_miner next-cohort
 ```
 
-`next-cohort` reads the public status snapshot (not yet live) and prints the
-admitting cohort and its planned cutoff epoch, and the next cohort with its
-earliest opening epoch and how long its admission window lasts, each with its
-distance from the snapshot's confirmed epoch, for example `planned cutoff at
-epoch 23170 (1 epoch after the confirmed epoch)`. The earliest opening is a
+`next-cohort` prints the admitting cohort and its planned cutoff epoch, and the
+next cohort with its earliest opening epoch and how long its admission window
+lasts, each with its distance from the confirmed epoch, for example `planned
+cutoff at epoch 23170 (1 epoch after the confirmed epoch)`. With `--public` it
+reads the public status snapshot (not yet live). Without it, it reads the
+coordinator's unsigned cohort read (`GET /admission/v1/cohort`,
+[admission API](admission-api.md#get-admissionv1cohort-unsigned)) from the
+origin the trust file pins, or from `--coordinator`; its first line names
+that origin, the finalized block and the coordinator's confirmed epoch. A
+coordinator that reports no confirmed epoch gets absolute epochs only. The
+same read works without the client:
+
+```sh
+curl -s https://testnet-admission.slop.ninja/admission/v1/cohort
+```
+
+Its `admitting` is `null` outside a window, and `next` names the next cohort
+and its `earliest_open_epoch`. When the coordinator knows the next cohort's
+plan, `next` also carries its `admission_tempos` (then `next-cohort` prints the
+window) and its `output_contract`, `max_object_len` and `artifact_spec` (then
+`check` compares with them between windows). The earliest opening is a
 lower bound: the next cohort opens at the boundary that closes the one before
 it, which slow work or a coordinator outage moves later.
 
 Cohort times are subnet epoch indices: the chain's `SubnetEpochIndex` for
 subnet 601, which advances by one at each tempo boundary, about every 360
-blocks or 72 minutes. The snapshot's first line gives the confirmed block and
-its epoch. An epoch that lies *N* epochs after the confirmed one therefore
-starts roughly *N* × 72 minutes after the confirmed epoch started, at roughly
-the confirmed epoch's first block plus *N* × 360.
+blocks or 72 minutes. It is a per-subnet counter (about 113 for subnet 601 in
+early November 2026), not the block number divided by 360; the epochs in this
+guide's examples are illustrative. The report's first line gives the
+finalized block and the confirmed epoch. An epoch that lies *N* epochs after
+the confirmed one therefore starts roughly *N* × 72 minutes after the
+confirmed epoch started, at roughly the confirmed epoch's first block plus
+*N* × 360. A coordinator that reports no confirmed epoch gets absolute epochs
+only; then read the current epoch from the chain (`SubnetEpochIndex` for
+subnet 601 in the Subtensor storage, in a chain explorer) and count from it.
 Boundaries can slip, so treat these as estimates and read `next-cohort` again
 as the time approaches.
 
@@ -459,8 +489,8 @@ each cohort when it is queued, so a cohort queued before the template took its
 current value keeps the window it was queued with (the first testnet cohorts
 admit for one tempo, and the first long-window cohorts for 17 tempos, with
 about 3 tempos between windows). `next-cohort` prints each cohort's own
-window; trust it over this page, and treat the cutoff it prints as planned,
-not promised.
+window when the cohort read carries it; trust it over this page, and treat
+the cutoff it prints as planned, not promised.
 
 The window's length comes from measurements, not a chosen figure: it is the
 cohort period less the two-tempo transition and the tempos the work after the
@@ -512,8 +542,10 @@ slop_ninja_miner commit --artifact ./my-artifact.bin --dry-run
 slop_ninja_miner commit --artifact ./my-artifact.bin
 ```
 
-Both forms need the coordinator (not yet live). `commit` reads the admitting
-cohort from it and your registration from finalized chain state, makes a fresh
+Both forms need only the coordinator's unsigned cohort read (live) and the
+chain; nothing here uses a signed admission route. Do not commit yet: the
+signed routes `upload` needs are not yet open to outside hotkeys ([What is
+live](#what-is-live)). `commit` reads the admitting cohort from the cohort read and your registration from finalized chain state, makes a fresh
 secret 256-bit nonce and the opening, and stores the opening in the state
 directory with mode 0600 before it signs anything. It then signs
 `Commitments.set_commitment(601, [Raw44(payload)])` with the hotkey, where the
@@ -548,7 +580,7 @@ opening.
 slop_ninja_miner upload --artifact ./my-artifact.bin
 ```
 
-`upload` (not yet live) opens a session for your opening, sends the object in
+`upload` (signed routes not yet open to outside hotkeys) opens a session for your opening, sends the object in
 parts, completes the session and waits while the coordinator verifies it. It
 picks the local opening whose payload matches the commitment the coordinator
 observed; `--opening FILE` names one. Rerun the same command to resume an
@@ -585,15 +617,23 @@ One hotkey enters at most one artifact per cohort. The session ends as
 slop_ninja_miner status
 ```
 
-`status` prints the public snapshot (unsigned, and labelled so), your local
-openings, and the coordinator's view of your hotkey for the admitting cohort or
-`--cohort N`: registration, the commitment that counts and whether it is in the
-window, each session with its state and refusal, and the last refused request.
-With no openings it says so and names the state directory it read. Without
-the endpoints it prints only the local openings and a line saying the snapshot
-and the coordinator's view were not read; without a named hotkey it skips the
-coordinator's view and says so. The public snapshot and the hotkey view are
-not yet live.
+`status` prints the public snapshot (unsigned, and labelled so) or, without
+`--public`, the same calendar from the coordinator's unsigned cohort read
+(as `next-cohort` does), your local openings, and the coordinator's view of
+your hotkey for the admitting cohort or `--cohort N`: registration, the
+commitment that counts and whether it is in the window, each session with its
+state and refusal, and the last refused request. With no openings it says so
+and names the state directory it read. The local openings are always printed:
+when the cohort read or the public snapshot cannot be read (a coordinator
+outage, an unreadable trust file), `status` prints them first, then reports
+the failure and exits 2. Without any endpoint (no
+`--coordinator`, no `--public` and no trust file that pins one origin) it
+prints only the local openings and a line saying the cohort and the
+coordinator's view were not read; without a named hotkey it skips the
+coordinator's view and says so. A signed read the coordinator refuses (for
+example `not_registered` for a hotkey without a UID) exits 1 with the code.
+The public snapshot is not yet live, and the hotkey view is not yet open to
+outside hotkeys (`not_found`).
 
 Session states: `uploading`, `verifying`, `verified`, `refused`, `admitted`,
 `overflow`, `superseded` (a newer commitment replaced it) and `aborted`.
@@ -753,6 +793,12 @@ locally; the coordinator reports them inside `check_failed` (in
 
 ### Requests (`commit`, `upload`, `abort`, `status`)
 
+A command that gets one of these codes prints it. The coordinator marks
+`not_admitting`, `commitment_not_found`, `part_digest_mismatch`,
+`parts_missing` and the transient codes retryable: the client retries them
+where the command allows (`--attempts`), and a command they outlast exits 2.
+Every other code here exits 1.
+
 | Code | Meaning | What to do |
 | --- | --- | --- |
 | `not_admitting` | no cohort is admitting | wait for the next one (`next-cohort`) |
@@ -768,7 +814,7 @@ locally; the coordinator reports them inside `check_failed` (in
 | `parts_missing` | completion before every part arrived | rerun `upload` |
 | `stale_attempt`, `session_not_uploading` | the request names an old attempt, or a session that no longer accepts it | read `status` and act on the current session |
 | `request_expired`, `rate_limited`, `paused`, `unavailable`, `internal` | transient | retried automatically; a long `paused` means the coordinator is catching up, and the cutoff moves later |
-| `bad_signature`, `forbidden`, `request_validity_too_long`, `content_digest_mismatch`, `bad_request`, `unsupported_media_type`, `not_found` | a malformed or wrongly signed request | update the client; report it if it persists |
+| `bad_signature`, `forbidden`, `request_validity_too_long`, `content_digest_mismatch`, `bad_request`, `unsupported_media_type`, `not_found` | a malformed or wrongly signed request; until the signed routes open to outside hotkeys ([What is live](#what-is-live)), also every signed request from an outside hotkey (`not_found`) | update the client; report it if it persists; for `not_found` from an outside hotkey, wait for the routes to open |
 
 ### Session refusals
 

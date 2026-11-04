@@ -5,8 +5,11 @@
 //! The chain keeps only each hotkey's latest commitment, and ordinary RPC
 //! nodes keep state for recent blocks only, so admission never reads a past
 //! commitment from current state. The reader runs on the RPC-confirmed
-//! watermark (the eval Worker's finalized cursor), from the cron tick, inside
-//! the shared per-minute RPC budget (each call is reserved first):
+//! watermark (the eval Worker's finalized cursor), driven by each block's
+//! delivery (the cron drives it only in watchdog fallback), inside the shared
+//! per-minute RPC budget (each call is reserved first). Its calls use the
+//! reader's own allowances ([`READER_OBJECT_CALL_MS`], [`read_ms`]), so a round fits
+//! the delivery continuation's 30 s window:
 //!
 //! - **Poll.** While a cohort admits, at most once a minute, it lists the
 //!   subnet's `CommitmentOf` keys at the confirmed block
@@ -103,6 +106,146 @@ pub fn reader_share(per_minute: u64, configured: Option<u64>) -> u64 {
 }
 /// The poll's spacing while a cohort admits: the cron tick's.
 pub const POLL_EVERY_MS: u64 = 60_000;
+
+/// The reader's call allowances. Each block's delivery drives the reader in
+/// its `waitUntil` continuation ([`slop_ninja_arena::limits::WAIT_UNTIL_MS`],
+/// 30 s), after the heartbeat kicks and a signing round in the same budget,
+/// so its largest round (the runtime read, [`RUNTIME_ROUND_MS`]) must end
+/// inside that window. The heartbeat's own allowances (10 s a call, 20 s for
+/// the metadata read) sum past it: no round ever started on that path.
+/// Each allowance is the platform-enforced timeout of its call
+/// (`AbortSignal.timeout`); a call that runs out fails the round, which the
+/// next block's delivery plans again. Measured (2026-11-03, from the
+/// operator's host to the public testnet RPC): a small read about 0.35 s, the
+/// 0.8 MB metadata read about 1 s; journal calls about 50 ms. The
+/// cohort-object calls (plan, ingest) are not measured yet: they parse the
+/// stored runtime when they decode or encode keys, and they queue behind the
+/// object's other requests. The Worker reports each one's round trip and
+/// failures in the next plan ([`Prior`]); the reader's status shows them
+/// (`calls`).
+///
+/// One cohort-object call that may parse the stored runtime (plan, ingest).
+pub const READER_OBJECT_CALL_MS: u64 = 3_000;
+/// One small call on the reader's path (budget reservation, the starved
+/// note).
+pub const READER_CALL_MS: u64 = 2_000;
+/// One small RPC read (block hash, registration, values of a few keys).
+pub const READER_READ_MS: u64 = 4_000;
+/// One large RPC read (metadata, events, a key page, the snapshot values).
+pub const READER_LARGE_READ_MS: u64 = 8_000;
+
+/// One read's allowance.
+pub const fn read_ms(large: bool) -> u64 {
+    if large { READER_LARGE_READ_MS } else { READER_READ_MS }
+}
+
+/// One read inside a round: its budget reservation and the read (an archive
+/// retry is a second step).
+pub const fn read_step_ms(large: bool) -> u64 {
+    READER_CALL_MS + read_ms(large)
+}
+
+/// The time a round needs before it is planned: the plan call, one read of
+/// the largest kind and the ingest. With less, the round is not started and
+/// the skip is counted (`rounds_starved`).
+pub const ROUND_START_MS: u64 = 2 * READER_OBJECT_CALL_MS + read_step_ms(true);
+
+/// The runtime round (version, metadata and marker, all ingested together):
+/// the plan call, its three reads and the ingest.
+pub const RUNTIME_ROUND_MS: u64 = 2 * READER_OBJECT_CALL_MS + 2 * read_step_ms(false) + read_step_ms(true);
+
+const _: () = assert!(RUNTIME_ROUND_MS < slop_ninja_arena::limits::WAIT_UNTIL_MS);
+
+/// How many of a planned round's reads to send with `left_ms` of the
+/// invocation left after the plan call: the leading reads whose steps and
+/// the ingest fit. The runtime round is ingested only whole, so it is sent
+/// whole or not at all. Reads not sent stay due and are planned again.
+/// [`plan_claimed`] applies it before charging, so only reads that go out
+/// use the reader's share.
+pub fn fitting(round: &Round, left_ms: u64) -> usize {
+    let mut used = READER_OBJECT_CALL_MS;
+    let mut n = 0;
+    for r in &round.reads {
+        used = used.saturating_add(read_step_ms(r.large));
+        if used > left_ms {
+            break;
+        }
+        n += 1;
+    }
+    let runtime = round.reads.iter().any(|r| r.tag.starts_with("version@"));
+    if runtime && n < round.reads.len() { 0 } else { n }
+}
+
+/// What the Worker saw of its previous reader calls in this isolate, sent
+/// with the next plan (no call of its own): each call's measured round trip
+/// and the call that failed or ran out of its allowance, if one did. A plan
+/// that times out still reaches the object, so a run of failed plans is
+/// counted by the plans that follow it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Prior {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingest_ms: Option<u64>,
+    /// `plan` or `ingest`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed: Option<String>,
+}
+
+/// v17: the reader's call observations ([`Prior`]).
+pub const SCHEMA_V17: &[&str] = &[
+    "ALTER TABLE commit_reader ADD COLUMN calls_failed INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE commit_reader ADD COLUMN call_failed_last TEXT",
+    "ALTER TABLE commit_reader ADD COLUMN plan_ms_last INTEGER",
+    "ALTER TABLE commit_reader ADD COLUMN plan_ms_max INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE commit_reader ADD COLUMN ingest_ms_last INTEGER",
+    "ALTER TABLE commit_reader ADD COLUMN ingest_ms_max INTEGER NOT NULL DEFAULT 0",
+];
+
+/// Records what the Worker reports of its previous calls ([`Prior`]).
+pub fn note_prior(sql: &impl Sql, prior: &Prior) -> R<()> {
+    if let Some(ms) = prior.plan_ms {
+        sql.exec(
+            "UPDATE commit_reader SET plan_ms_last = ?, plan_ms_max = MAX(plan_ms_max, ?) WHERE id = 1",
+            &[bind_u64(ms)?, bind_u64(ms)?],
+        )?;
+    }
+    if let Some(ms) = prior.ingest_ms {
+        sql.exec(
+            "UPDATE commit_reader SET ingest_ms_last = ?, ingest_ms_max = MAX(ingest_ms_max, ?) WHERE id = 1",
+            &[bind_u64(ms)?, bind_u64(ms)?],
+        )?;
+    }
+    if let Some(call) = prior.failed.as_deref() {
+        let call = if call == "ingest" { "ingest" } else { "plan" };
+        sql.exec(
+            "UPDATE commit_reader SET calls_failed = calls_failed + 1, call_failed_last = ? WHERE id = 1",
+            &[SqlValue::Text(call.into())],
+        )?;
+    }
+    Ok(())
+}
+
+/// Whether a plan could need a round now (anything the reader is for, or a
+/// resolution due): only then does the plan parse the stored runtime.
+pub fn wants_round(sql: &impl Sql, needs: &Needs, now_ms: u64) -> R<bool> {
+    if needs.poll || needs.snapshot.is_some() {
+        return Ok(true);
+    }
+    let due = sql.exec(
+        "SELECT 1 FROM commit_seen WHERE stage IN ('hash','events','reg') AND retry_ms <= ? LIMIT 1",
+        &[bind_u64(now_ms)?],
+    )?;
+    Ok(!due.is_empty())
+}
+
+/// Whether an ingest decodes with the stored runtime: not for a claim
+/// release (no results) or the runtime round itself.
+pub fn ingest_needs_runtime(results: &[ReadResult]) -> bool {
+    results.iter().any(|r| {
+        !(r.tag.starts_with("version@") || r.tag.starts_with("metadata@") || r.tag.starts_with("marker@"))
+    })
+}
 
 /// The log's tables (part of the eval cohort store's v10 migration).
 pub const SCHEMA: &[&str] = &[
@@ -535,7 +678,10 @@ pub const SCHEMA_V14: &[&str] = &[
 /// invocation: each block's delivery drives the reader), nothing is planned
 /// and the skip is counted, so two invocations never send the same reads.
 /// A planned round holds the claim for `lease_ms`, the planning invocation's
-/// remaining time; its ingest releases it ([`ingest`]).
+/// remaining time; its ingest releases it ([`ingest`]). With `fit_ms` (the
+/// invocation's time left once the plan call returns) the round keeps only
+/// the reads that fit it ([`fitting`]) and the share is charged for those
+/// alone: a read that is not sent stays due and costs nothing.
 #[allow(clippy::too_many_arguments)]
 pub fn plan_claimed(
     sql: &impl Sql,
@@ -546,13 +692,26 @@ pub fn plan_claimed(
     per_minute: u64,
     now_ms: u64,
     lease_ms: u64,
+    fit_ms: Option<u64>,
 ) -> R<Round> {
     let held = sql.exec("SELECT round_until_ms FROM commit_reader WHERE id = 1", &[])?;
     if held.first().map(|r| uint(r, 0)).transpose()?.unwrap_or(0) > now_ms {
         sql.exec("UPDATE commit_reader SET rounds_overlapped = rounds_overlapped + 1 WHERE id = 1", &[])?;
         return Ok(Round::default());
     }
-    let round = plan(sql, rt, netuid, confirmed, needs, per_minute, now_ms)?;
+    let mut round = plan(sql, rt, netuid, confirmed, needs, per_minute, now_ms)?;
+    if let Some(left) = fit_ms {
+        let fit = fitting(&round, left);
+        let dropped = round.reads.len() - fit;
+        if dropped > 0 {
+            // `plan` charged the whole round in this window just now.
+            round.reads.truncate(fit);
+            sql.exec(
+                "UPDATE commit_reader SET budget_used = MAX(budget_used - ?, 0) WHERE id = 1",
+                &[bind_u64(dropped as u64)?],
+            )?;
+        }
+    }
     if !round.reads.is_empty() {
         sql.exec(
             "UPDATE commit_reader SET round_until_ms = ? WHERE id = 1",
@@ -1689,7 +1848,8 @@ fn ingest_snap_regs(
 pub fn status(sql: &impl Sql) -> R<Json> {
     let r = reader_row(sql)?;
     let x = sql.exec(
-        "SELECT polls, reads, last_error, discarded, undecodable, round_until_ms, rounds_overlapped, rounds_starved
+        "SELECT polls, reads, last_error, discarded, undecodable, round_until_ms, rounds_overlapped, rounds_starved,
+            calls_failed, call_failed_last, plan_ms_last, plan_ms_max, ingest_ms_last, ingest_ms_max
          FROM commit_reader WHERE id = 1",
         &[],
     )?;
@@ -1720,6 +1880,13 @@ pub fn status(sql: &impl Sql) -> R<Json> {
         "runtime_spec": spec.first().and_then(|r| opt_int(r, 0)),
         "logged": logged, "seen": stages, "state_discarded": int(x, 3)?, "undecodable": int(x, 4)?,
         "round_until_ms": int(x, 5)?, "rounds_overlapped": int(x, 6)?, "rounds_starved": int(x, 7)?,
+        // The Worker's observations of its plan and ingest calls ([`Prior`]):
+        // round trips in ms, and the calls that failed or ran out of time.
+        "calls": {
+            "failed": int(x, 8)?, "failed_last": opt_text(x, 9),
+            "plan_ms_last": opt_int(x, 10), "plan_ms_max": int(x, 11)?,
+            "ingest_ms_last": opt_int(x, 12), "ingest_ms_max": int(x, 13)?,
+        },
         // Pending resolutions whose reads have served no state yet (read
         // again after a backoff, never ended for it).
         "state_absent_pending": int(

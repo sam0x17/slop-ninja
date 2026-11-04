@@ -14,7 +14,7 @@ use slop_ninja_miner::check::{
     run_all,
 };
 use slop_ninja_miner::client::{
-    AdmissionClient, RtaoSigner, Transfer, cohort_info, http_client, ss58,
+    AdmissionClient, ApiError, RtaoSigner, Transfer, cohort_info, http_client, ss58,
 };
 use slop_ninja_miner::opening::{OpeningFile, OsNonce, Store, default_state_dir, load_opening};
 use slop_ninja_miner::trust::{Source, Trust};
@@ -24,11 +24,13 @@ use slop_ninja_miner::wire::{SessionState, is_session_id};
 use slop_ninja_miner::{chain, commit, object, provenance, public};
 use slop_ninja_protocol::{AccountId, NeuronIdentity};
 
-/// Exit status when an admission check refused the artifact, or the
-/// coordinator refused the upload session.
+/// Exit status when an admission check refused the artifact, the upload
+/// session ended refused, or the coordinator refused a request with a code
+/// that retrying cannot change (for example `not_registered`).
 const EXIT_REFUSED: u8 = 1;
-/// Exit status for an error: usage, configuration, network or file. Nothing
-/// was decided about the artifact. (clap also exits 2 on a usage error.)
+/// Exit status for an error: usage, configuration, network or file, a check
+/// the client makes itself before it signs anything, or a retryable answer
+/// that outlasted the attempts. (clap also exits 2 on a usage error.)
 const EXIT_ERROR: u8 = 2;
 /// Exit status when `check` refused nothing but could not run every check.
 const EXIT_INCOMPLETE: u8 = 3;
@@ -38,9 +40,10 @@ const EXIT_INCOMPLETE: u8 = 3;
     name = "slop_ninja_miner",
     version,
     about = "Slop Ninja miner client",
-    after_help = "Exit status: 0 success or pass; 1 refused (an admission check, or the \
-                  upload session); 2 error (usage, configuration, network or file); \
-                  3 check incomplete."
+    after_help = "Exit status: 0 success or pass; 1 refused (an admission check, the \
+                  upload session, or a coordinator refusal that retrying cannot change); \
+                  2 error (usage, configuration, network or file, a client-side check, or \
+                  retries exhausted); 3 check incomplete."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -59,9 +62,11 @@ enum Command {
     Upload(UploadArgs),
     /// Abort this hotkey's upload session (to upload a different object).
     Abort(AbortArgs),
-    /// Show the public status, local openings and the coordinator's view of this hotkey.
+    /// Show the public status (or the coordinator's cohort read), local openings and the
+    /// coordinator's view of this hotkey.
     Status(StatusArgs),
-    /// Show the admitting cohort, or the next one.
+    /// Show the admitting cohort, or the next one: from the public snapshot
+    /// with --public, else from the coordinator's unsigned cohort read.
     NextCohort(PublicArgs),
 }
 
@@ -319,8 +324,18 @@ impl Endpoints {
         http_client(self.timeout())
     }
 
-    fn any(&self) -> bool {
-        self.coordinator.is_some() || self.public.is_some()
+    /// Whether a coordinator or public host can be chosen: one is named, or
+    /// a trust file is given that pins exactly one origin (as the release's
+    /// does). A trust file that cannot be read counts, so its error is shown
+    /// where the endpoints are used.
+    fn configured(&self) -> bool {
+        self.coordinator.is_some()
+            || self.public.is_some()
+            || (self.trust.is_some()
+                && match self.trust() {
+                    Ok(trust) => trust.single().is_some(),
+                    Err(_) => true,
+                })
     }
 
     fn trust(&self) -> Result<Trust> {
@@ -383,9 +398,21 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(error) => {
             eprintln!("error: {error:#}");
-            ExitCode::from(EXIT_ERROR)
+            ExitCode::from(exit_status(&error))
         }
     }
+}
+
+/// The exit status of a failed command: refused when the coordinator
+/// answered a request with a contract error that retrying cannot change,
+/// else an error.
+fn exit_status(error: &anyhow::Error) -> u8 {
+    let refused = error.chain().any(|cause| {
+        cause
+            .downcast_ref::<ApiError>()
+            .is_some_and(|api| api.body().is_some() && !api.retryable())
+    });
+    if refused { EXIT_REFUSED } else { EXIT_ERROR }
 }
 
 async fn run(command: Command) -> Result<ExitCode> {
@@ -443,13 +470,11 @@ fn pack(args: PackArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// The admitting cohort, read from the coordinator the endpoints choose.
-async fn admitting_cohort(
-    endpoints: &Endpoints,
-) -> Result<Option<slop_ninja_miner::wire::json::Admitting>> {
+/// The cohort read of the coordinator the endpoints choose.
+async fn cohort_read(endpoints: &Endpoints) -> Result<slop_ninja_miner::wire::json::CohortInfo> {
     let http = endpoints.http()?;
     let (base, _) = endpoints.coordinator(&http).await?;
-    Ok(cohort_info(&http, &base).await?.admitting)
+    Ok(cohort_info(&http, &base).await?)
 }
 
 async fn check(args: CheckArgs) -> Result<ExitCode> {
@@ -475,16 +500,30 @@ async fn check(args: CheckArgs) -> Result<ExitCode> {
     let (mut contract, mut max) = (args.contract.clone(), args.max_object_len);
     let mut cohort_spec = None;
     let mut cohort_unknown = None;
-    if args.endpoints.any() {
+    let mut next_cohort = None;
+    if args.endpoints.configured() {
         // A coordinator that cannot be chosen or read leaves the check
-        // incomplete; the local checks still run.
-        match admitting_cohort(&args.endpoints).await {
-            Ok(Some(admitting)) => {
-                contract.get_or_insert(admitting.output_contract);
-                max.get_or_insert(admitting.max_object_len);
-                cohort_spec = admitting.artifact_spec;
-            }
-            Ok(None) => cohort_unknown = Some("no cohort is admitting".to_owned()),
+        // incomplete; the local checks still run. Between windows the next
+        // cohort's plan values are used when the coordinator names them.
+        match cohort_read(&args.endpoints).await {
+            Ok(info) => match (info.admitting, info.next) {
+                (Some(admitting), _) => {
+                    contract.get_or_insert(admitting.output_contract);
+                    max.get_or_insert(admitting.max_object_len);
+                    cohort_spec = admitting.artifact_spec;
+                }
+                (None, Some(next))
+                    if next.output_contract.is_some() && next.max_object_len.is_some() =>
+                {
+                    if contract.is_none() || max.is_none() {
+                        next_cohort = Some(next.cohort);
+                    }
+                    contract = contract.or(next.output_contract);
+                    max = max.or(next.max_object_len);
+                    cohort_spec = next.artifact_spec;
+                }
+                _ => cohort_unknown = Some("no cohort is admitting".to_owned()),
+            },
             Err(error) => {
                 eprintln!("warning: the cohort could not be read: {error:#}");
                 cohort_unknown = Some(format!("the cohort could not be read: {error:#}"));
@@ -498,6 +537,7 @@ async fn check(args: CheckArgs) -> Result<ExitCode> {
         max_object_len: max,
         artifact_spec: cohort_spec.as_ref(),
         cohort_unknown: cohort_unknown.as_deref(),
+        next_cohort,
     };
     let checks: [&dyn ArtifactCheck; 3] = [&StructuralCheck, &SpecCheck, &ProvenanceCheck];
     let (outcome, reports) = run_all(&checks, &cx)?;
@@ -896,7 +936,33 @@ async fn abort(args: AbortArgs) -> Result<ExitCode> {
 
 async fn status(args: StatusArgs) -> Result<ExitCode> {
     let http = args.endpoints.http()?;
-    if let Some(status) = args.endpoints.public_status(&http).await? {
+    // A calendar that cannot be read fails the command only after the local
+    // openings are shown: they are shown whatever the coordinator or status
+    // host answers (an outage is when they matter most).
+    let mut unread = None;
+    let public = match args.endpoints.public_status(&http).await {
+        Ok(public) => public,
+        Err(error) => {
+            unread = Some(error.context("the public status could not be read"));
+            None
+        }
+    };
+    if unread.is_none() && public.is_none() && args.endpoints.configured() {
+        // No status host: the same calendar from the coordinator's unsigned
+        // cohort read (the trust file's pinned origin, or --coordinator).
+        let read = async {
+            let (base, source) = args.endpoints.coordinator(&http).await?;
+            let info = cohort_info(&http, &base).await?;
+            anyhow::Ok(cohort_report(&info, &base, source))
+        };
+        match read.await {
+            Ok(report) => println!("{report}"),
+            Err(error) => {
+                unread = Some(error.context("the cohort could not be read"));
+            }
+        }
+    }
+    if let Some(status) = public {
         println!("{}", public::next_cohort_report(&status));
         if let Some(phase) = &status.phase {
             println!(
@@ -948,10 +1014,14 @@ async fn status(args: StatusArgs) -> Result<ExitCode> {
             store.root().display()
         );
     }
-    if !args.endpoints.any() {
+    if let Some(error) = unread {
+        // The openings are shown; the failed read is still an error.
+        return Err(error);
+    }
+    if !args.endpoints.configured() {
         println!(
-            "no --public or --coordinator given: the public snapshot and the coordinator's view \
-             of the hotkey were not read"
+            "no --public or --coordinator given and no trust file pinning one origin \
+             (SLOP_NINJA_TRUST): the cohort and the coordinator's view of the hotkey were not read"
         );
         return Ok(ExitCode::SUCCESS);
     }
@@ -1047,14 +1117,26 @@ async fn status(args: StatusArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// The cohort-read report, naming the coordinator and why it was chosen.
+fn cohort_report(info: &CohortInfo, base: &url::Url, source: Source) -> String {
+    public::cohort_report(
+        info,
+        &format!("{} ({})", base.origin().ascii_serialization(), source.describe()),
+    )
+}
+
+/// The public snapshot's calendar when `--public` is given; otherwise the
+/// coordinator's unsigned cohort read, from the trust file's pinned origin or
+/// `--coordinator` (the path while the status host is not live).
 async fn next_cohort(args: PublicArgs) -> Result<ExitCode> {
     let http = args.endpoints.http()?;
-    let status = args
-        .endpoints
-        .public_status(&http)
-        .await?
-        .context("pass --public (or set SLOP_NINJA_PUBLIC)")?;
-    println!("{}", public::next_cohort_report(&status));
+    if let Some(status) = args.endpoints.public_status(&http).await? {
+        println!("{}", public::next_cohort_report(&status));
+        return Ok(ExitCode::SUCCESS);
+    }
+    let (base, source) = args.endpoints.coordinator(&http).await?;
+    let info = cohort_info(&http, &base).await?;
+    println!("{}", cohort_report(&info, &base, source));
     Ok(ExitCode::SUCCESS)
 }
 

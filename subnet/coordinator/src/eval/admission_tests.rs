@@ -1760,7 +1760,15 @@ fn the_cohort_response_names_the_window_and_its_limits() {
     assert_eq!(a.artifact_spec.unwrap().sha256, Version::V2.spec_sha256());
     assert_eq!(info.next.unwrap().earliest_open_epoch, Some(15));
     assert_eq!(info.request_validity_blocks, 360);
+    // The epoch the window's epochs are measured from: the last observed one.
+    assert_eq!(info.confirmed_epoch, Some(11));
     assert!(serde_json::to_vec(&admission_plan(1, 2)).unwrap().len() < crate::arena_routes::MAX_PLAN_BODY_BYTES);
+    // Before any epoch observation the field is absent, not null.
+    let fresh = Sqlite::open();
+    tx(&fresh, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let info = tx(&fresh, |s| cohort_info(s, &chain(), false)).unwrap();
+    assert_eq!(info.confirmed_epoch, None);
+    assert!(serde_json::to_value(&info).unwrap().get("confirmed_epoch").is_none());
 }
 
 #[test]
@@ -1774,6 +1782,18 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
     };
     let bytes = serde_json::to_vec(&t).unwrap();
     tx(&db, |s| crate::eval::calendar::install(s, &cfg(), &bytes, NOW)).unwrap();
+    // Between windows the cohort read names the next cohort's contract,
+    // object bound and spec from the plan it opens with (here the template's;
+    // below, once queued, its own), so `check` can compare an object.
+    let bounds = SpecBounds::of_id(&t.plan.admission.as_ref().unwrap().artifact_spec).unwrap();
+    let limits = |db: &Sqlite| {
+        let n = tx(db, |s| cohort_info(s, &chain(), false)).unwrap().next.unwrap();
+        (n.cohort, n.output_contract, n.max_object_len, n.artifact_spec.map(|a| a.sha256))
+    };
+    let expect = |c: u64| {
+        (c, t.plan.reward_v1.as_ref().map(|v| v.output_contract.clone()), Some(bounds.object_bytes), Some(bounds.spec_sha256.clone()))
+    };
+    assert_eq!(limits(&db), expect(1));
     let (label, plan) = tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().unwrap();
     assert_eq!(label, "testnet-cohort-1");
     // The step's reason to run counts the calendar only for an authority that
@@ -1788,6 +1808,7 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
         "one queued at a time"
     );
     assert_eq!(tx(&db, crate::eval::calendar::next).unwrap().map(|x| x.cohort), Some(1));
+    assert_eq!(limits(&db), expect(1), "the queued plan's");
     // A cohort in its transition lets the calendar queue the next one.
     tx(&db, |s| {
         s.exec("UPDATE cohorts SET phase = 'transition'", &[]).map(|_| ())
@@ -1865,7 +1886,7 @@ fn the_calendar_names_the_next_opening_at_the_earliest_close_before_it() {
     let active = |db: &Sqlite| tx(db, engine::observed).unwrap().active_tempos;
     epoch(&db, 10, OPEN_BLOCK - 100, NOW);
     // Nothing yet: the template's first cohort, at the next boundary.
-    assert_eq!(next(&db), NextCohort { cohort: 1, earliest_open_epoch: Some(11), admission_tempos: Some(a) });
+    assert_eq!(next(&db), NextCohort { cohort: 1, earliest_open_epoch: Some(11), admission_tempos: Some(a), ..Default::default() });
     let (_, plan) = tx(&db, |s| calendar::due_any(s, 0)).unwrap().unwrap();
     tx(&db, |s| engine::queue(s, &cfg(), &plan, NOW)).unwrap();
     assert_eq!(next(&db).earliest_open_epoch, Some(11), "queued, nothing before it");
@@ -1894,7 +1915,7 @@ fn the_calendar_names_the_next_opening_at_the_earliest_close_before_it() {
     // The next cohort queued: the same opening, from the cohort before it.
     let (_, plan) = tx(&db, |s| calendar::due_any(s, 0)).unwrap().unwrap();
     tx(&db, |s| engine::queue(s, &cfg(), &plan, NOW)).unwrap();
-    assert_eq!(next(&db), NextCohort { cohort: 2, earliest_open_epoch: Some(16), admission_tempos: Some(a) });
+    assert_eq!(next(&db), NextCohort { cohort: 2, earliest_open_epoch: Some(16), admission_tempos: Some(a), ..Default::default() });
     // An outage the coordinator did not credit (14 to 19): the transition
     // still owes both its tempos, so the close is two boundaries after the
     // observed one, never the observed one itself.

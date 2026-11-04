@@ -54,7 +54,8 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
 | Release public key | published below ([Release key](#release-key)) |
 | Signed release binaries (Linux x86_64) | not yet live: built from the public repository, signed and smoke-tested when it is published |
-| Coordinator admission routes (`commit`, `upload`, hotkey status), at `https://testnet-admission.slop.ninja` (pinned in `testnet-trust.json`) | not yet live |
+| Coordinator unsigned cohort read (`check`, `commit`, `status`, `next-cohort`), at `https://testnet-admission.slop.ninja` (pinned in `testnet-trust.json`) | live |
+| Coordinator signed admission routes (`upload`, `abort`, hotkey status) | not yet open to outside hotkeys (their signed requests are answered `not_found`); do not commit until they are |
 | Public status host: status snapshot, cohort index, signed packages, leaderboard, published artifacts | not yet live |
 | Validator package fetcher | not yet live |
 | Validators committing the launch burn row | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo, under a launch authorization that does not expire |

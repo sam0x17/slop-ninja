@@ -277,6 +277,7 @@ async fn completion_refusals_reach_the_session() {
             max_object_len: None,
             artifact_spec: None,
             cohort_unknown: None,
+            next_cohort: None,
         })
         .unwrap();
     let local_code = local

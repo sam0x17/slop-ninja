@@ -2105,6 +2105,7 @@ async fn pointer_object_bytes(
 /// Stops when a round needs nothing, a reservation is refused or the
 /// invocation's budget ends.
 async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
+    use crate::eval::commitments::{READER_CALL_MS, READER_OBJECT_CALL_MS, ROUND_START_MS, fitting, read_ms, read_step_ms};
     let configured = env.var("READER_RPC_CALLS_PER_MINUTE").ok().and_then(|v| v.to_string().trim().parse::<u64>().ok());
     let share = crate::eval::commitments::reader_share(d.settings.rpc_calls_per_minute, configured);
     // Past-block state a pruning endpoint no longer keeps is read again from
@@ -2112,16 +2113,20 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
     // it as gone (a coordinator outage longer than the node's state window
     // must not cost the cohort).
     let archive = var(env, "ARCHIVE_RPC_URL").and_then(|v| config::rpc_url(Some(&v)).ok()).filter(|u| *u != d.rpc_url);
-    // A round is two journal-sized calls plus its RPC calls.
+    // Every call below carries the reader's own allowance
+    // (`commitments::READER_OBJECT_CALL_MS`, `READER_CALL_MS`, `read_ms`),
+    // sized so a round fits the delivery continuation's 30 s window after
+    // the heartbeat and signing. The plan and ingest round trips, and a
+    // failure of either, go to the object with the next plan (`Prior`).
     for n in 0..d.settings.tick_rounds {
-        if !budget.allows(2 * eval_do::KICK_TIMEOUT_MS + rpc::METADATA_TIMEOUT_MS) {
+        if !budget.allows(ROUND_START_MS) {
             // No room for even the first round (signing ran first in the
             // same budget): counted, so per-block starvation shows in the
             // reader's status (`rounds_starved`).
             if n == 0
-                && budget.allows(eval_do::KICK_TIMEOUT_MS)
+                && budget.allows(READER_CALL_MS)
                 && let Ok(mut r) =
-                    eval_do::cohort_fetch_within(env, "main", Method::Post, "/commitments/starved", None, Some(eval_do::KICK_TIMEOUT_MS)).await
+                    eval_do::cohort_fetch_within(env, "main", Method::Post, "/commitments/starved", None, Some(READER_CALL_MS)).await
             {
                 cf_io::discard(&mut r);
             }
@@ -2130,29 +2135,46 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
         // The round's claim lasts the rest of this invocation unless the
         // ingest below ends it, so an overlapping invocation (the next
         // block's delivery) plans nothing while these reads are in flight.
-        let plan_body = serde_json::json!({"per_minute": share, "lease_ms": budget.left_ms()}).to_string();
-        let Ok(mut r) =
-            eval_do::cohort_fetch_within(env, "main", Method::Post, "/commitments/plan", Some(plan_body), Some(eval_do::KICK_TIMEOUT_MS)).await
-        else {
+        // `fit_ms`: what is left once the plan returns within its
+        // allowance, so the object plans and charges only reads that fit.
+        let left = budget.left_ms();
+        let plan_body = serde_json::json!({
+            "per_minute": share, "lease_ms": left, "fit_ms": left.saturating_sub(READER_OBJECT_CALL_MS),
+            "prior": reader_calls::take(),
+        })
+        .to_string();
+        let sent = now_ms();
+        let planned =
+            eval_do::cohort_fetch_within(env, "main", Method::Post, "/commitments/plan", Some(plan_body), Some(READER_OBJECT_CALL_MS)).await;
+        let Ok(mut r) = planned else {
+            reader_calls::plan(now_ms().saturating_sub(sent), true);
             return;
         };
         if r.status_code() != 200 {
             cf_io::discard(&mut r);
+            reader_calls::plan(now_ms().saturating_sub(sent), true);
             return;
         }
-        let Ok(round) = cf_io::response_json::<crate::eval::commitments::Round>(&mut r, ROUTE_REPLY_BYTES).await else { return };
+        let round = cf_io::response_json::<crate::eval::commitments::Round>(&mut r, ROUTE_REPLY_BYTES).await;
+        reader_calls::plan(now_ms().saturating_sub(sent), round.is_err());
+        let Ok(mut round) = round else { return };
         if round.reads.is_empty() {
             return;
         }
+        // Only the leading reads whose steps and the ingest still fit go
+        // out (the runtime round whole or not at all); the rest stay due.
+        let fit = fitting(&round, budget.left_ms());
+        let runtime = round.reads.iter().any(|r| r.tag.starts_with("version@"));
+        let mut refused = fit < round.reads.len();
+        round.reads.truncate(fit);
         let mut results = Vec::new();
-        let mut refused = false;
         for read in round.reads {
-            let call_ms = if read.large { rpc::METADATA_TIMEOUT_MS } else { rpc::CALL_TIMEOUT_MS };
-            if !budget.allows(JOURNAL_CALL_MS + call_ms + eval_do::KICK_TIMEOUT_MS) {
+            let call_ms = read_ms(read.large);
+            if !budget.allows(read_step_ms(read.large) + READER_OBJECT_CALL_MS) {
                 refused = true;
                 break;
             }
-            let reserved = match journal_call(env, d, Method::Post, "/rpc-reserve", None).await {
+            let reserved = match journal_call_within(env, d, Method::Post, "/rpc-reserve", None, Some(READER_CALL_MS)).await {
                 Ok(mut r) => cf_io::response_json::<bool>(&mut r, ROUND_REPLY_BYTES).await.unwrap_or(false),
                 Err(_) => false,
             };
@@ -2163,11 +2185,8 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
             let post = |url: &str| {
                 let (url, body) = (url.to_owned(), read.body.clone());
                 async move {
-                    let reply = if read.large {
-                        rpc_post_capped(&url, body, rpc::MAX_LARGE_RESPONSE_BYTES, rpc::METADATA_TIMEOUT_MS).await
-                    } else {
-                        rpc_post(&url, body).await
-                    };
+                    let cap = if read.large { rpc::MAX_LARGE_RESPONSE_BYTES } else { rpc::MAX_RESPONSE_BYTES };
+                    let reply = rpc_post_capped(&url, body, cap, call_ms).await;
                     reply.ok().and_then(|b| String::from_utf8(b).ok())
                 }
             };
@@ -2181,8 +2200,8 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
             if let Some(url) = &archive
                 && first != url.as_str()
                 && crate::eval::commitments::discarded(&result)
-                && budget.allows(JOURNAL_CALL_MS + call_ms + eval_do::KICK_TIMEOUT_MS)
-                && match journal_call(env, d, Method::Post, "/rpc-reserve", None).await {
+                && budget.allows(read_step_ms(read.large) + READER_OBJECT_CALL_MS)
+                && match journal_call_within(env, d, Method::Post, "/rpc-reserve", None, Some(READER_CALL_MS)).await {
                     Ok(mut r) => cf_io::response_json::<bool>(&mut r, ROUND_REPLY_BYTES).await.unwrap_or(false),
                     Err(_) => false,
                 }
@@ -2192,6 +2211,10 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
                 result.reply = post(url).await;
             }
             results.push(result);
+        }
+        if refused && runtime {
+            // The runtime round is ingested only whole: a part is no answer.
+            results.clear();
         }
         {
             // Sent even when no read went out (a refused reservation), so the
@@ -2204,14 +2227,64 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
             }
             let Ok(body) = serde_json::to_string(&Body { results: &results }) else { return };
             drop(results);
-            if let Ok(mut r) =
-                eval_do::cohort_fetch_within(env, "main", Method::Post, "/commitments/ingest", Some(body), Some(eval_do::KICK_TIMEOUT_MS)).await
-            {
-                cf_io::discard(&mut r);
-            }
+            let sent = now_ms();
+            let ingested =
+                eval_do::cohort_fetch_within(env, "main", Method::Post, "/commitments/ingest", Some(body), Some(READER_OBJECT_CALL_MS))
+                    .await;
+            let failed = match ingested {
+                Ok(mut r) => {
+                    let failed = r.status_code() != 200;
+                    cf_io::discard(&mut r);
+                    failed
+                }
+                Err(_) => true,
+            };
+            reader_calls::ingest(now_ms().saturating_sub(sent), failed);
         }
         if refused {
             return;
+        }
+    }
+}
+
+/// The commitment reader's last plan and ingest observations in this
+/// isolate (round trip in ms, and the call that failed), sent with the next
+/// plan ([`crate::eval::commitments::Prior`]): a plan that times out still
+/// reaches the cohort object, so the plans after it count it. Fixed-size
+/// atomics, no allocation between requests.
+mod reader_calls {
+    use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+
+    const NONE: u64 = u64::MAX;
+    static PLAN_MS: AtomicU64 = AtomicU64::new(NONE);
+    static INGEST_MS: AtomicU64 = AtomicU64::new(NONE);
+    /// 0 none, 1 plan, 2 ingest.
+    static FAILED: AtomicU8 = AtomicU8::new(0);
+
+    pub fn plan(ms: u64, failed: bool) {
+        PLAN_MS.store(ms.min(NONE - 1), Ordering::Relaxed);
+        if failed {
+            FAILED.store(1, Ordering::Relaxed);
+        }
+    }
+
+    pub fn ingest(ms: u64, failed: bool) {
+        INGEST_MS.store(ms.min(NONE - 1), Ordering::Relaxed);
+        if failed {
+            FAILED.store(2, Ordering::Relaxed);
+        }
+    }
+
+    pub fn take() -> crate::eval::commitments::Prior {
+        let ms = |a: &AtomicU64| Some(a.swap(NONE, Ordering::Relaxed)).filter(|v| *v != NONE);
+        crate::eval::commitments::Prior {
+            plan_ms: ms(&PLAN_MS),
+            ingest_ms: ms(&INGEST_MS),
+            failed: match FAILED.swap(0, Ordering::Relaxed) {
+                1 => Some("plan".into()),
+                2 => Some("ingest".into()),
+                _ => None,
+            },
         }
     }
 }

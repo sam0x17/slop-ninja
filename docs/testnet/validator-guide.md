@@ -258,28 +258,34 @@ deploy/install.sh --instance my-instance --from <directory with the release bina
   --config <your edited configuration> --init --enable --start
 ```
 
+Run it from your repository checkout, never from a copy that came with a
+release: the release key it trusts is the file beside it, so a script and key
+shipped inside a release could vouch for that release themselves. The
+checkout is also how a replaced or withdrawn release key reaches you: the
+installer has no other revocation path, so update your checkout before
+installing a new release.
+
 It installs the two binaries, the unit templates, the configuration with
 mode 0600 (it never replaces
 an existing one), and the state directory; runs `check-config`; creates the
 journal with `--init`; enables lingering (`loginctl enable-linger`); and
 enables and starts the dispatch unit. `--dry-run` prints each step instead.
-It runs on Linux only. The release directory must hold `SHA256SUMS` listing
-each of the two binaries exactly once, and both must match it;
-`--unverified` skips this for binaries you built yourself. `SHA256SUMS` sits
-beside the binaries, so it proves only that the download is intact: verify
-the release's detached signature over it before you run the installer
-above, with the key and allowed-signers line on the [landing
-page](README.md#release-key):
-
-```sh
-cd <directory with the release binaries>
-ssh-keygen -Y verify -f allowed_signers -I slop-ninja-testnet-release -n file \
-  -s SHA256SUMS.sig < SHA256SUMS
-```
-
-Write `allowed_signers` from the landing page, not from the release's copy,
-and stop unless `ssh-keygen` prints `Good "file" signature`. The release
-binaries are Linux x86_64 (glibc 2.34 or later); elsewhere, build from
+It runs on Linux only. Before it installs anything, it checks the release:
+the directory must hold `SHA256SUMS` and the release's detached signature
+over it, `SHA256SUMS.sig`. The installer verifies the signature with
+`ssh-keygen -Y verify` (OpenSSH 8.1 or later, `ssh -V`) against the release
+key pinned beside it in the checkout, `deploy/release-allowed_signers`, which
+is the allowed-signers line on the [landing page](README.md#release-key); it
+never reads the copies of the key a release carries. It then requires
+`SHA256SUMS` to list each of the two binaries exactly once and both to match
+it, and installs the copies it checked. It prints the `Good "file"
+signature` line on success and refuses, installing nothing, on any failure.
+`--unverified` is for binaries you built yourself: it allows a directory
+without `SHA256SUMS.sig` (or without `SHA256SUMS` too), but a signature or
+digest list that is present must still pass. Before it replaces anything it
+also runs each checked binary once (`--help`), so a release this host
+cannot execute leaves the installed binaries in place. The release binaries are
+Linux x86_64 (glibc 2.34 or later), the only tested platform; elsewhere, build from
 source and pass `--unverified`. Once the unit runs:
 
 ```sh
@@ -525,6 +531,9 @@ queued, so the work never simply finishes. To roll back, stop the unit, run
 `slop_ninja_validator --config <config> rollback-check --retire`, and install
 the older build only when it exits 0 (see the validator README,
 [Rolling back past this rtao pin](../../subnet/crates/validator/README.md#rolling-back-past-this-rtao-pin)).
+A valid release signature does not make a build newer: the signature binds
+the binaries' digests, not a version, so the same steps apply to an older
+signed release.
 **Live on subnet 601.** On November 3, 2026 a Slop Ninja validator that is
 not the owner, running at the current rtao pin, committed the launch burn row
 timelocked in block 8,362,443 and revealed it at 8,362,485 with the reveal

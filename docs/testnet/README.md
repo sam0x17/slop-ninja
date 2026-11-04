@@ -103,7 +103,10 @@ chmod 0755 slop_ninja_miner slop_ninja_artifact_check slop_ninja_validator slop-
 
 The first command must print
 `Good "file" signature for slop-ninja-testnet-release with ED25519 key SHA256:4YzEnNK8C7zjNWvasiQhv0XDJKdrnKB6L33stMQra1Q`,
-and the second `OK` for every file. Stop if either does not. A release holds:
+and the second `OK` for every file. Stop if either does not. The validator
+installer (`subnet/crates/validator/deploy/install.sh`) makes the same
+signature and digest checks itself against a pinned copy of this key before it
+installs the validator's two binaries. A release holds:
 
 | File | What it is |
 | --- | --- |

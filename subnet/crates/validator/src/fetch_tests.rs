@@ -1345,10 +1345,12 @@ fn the_installer_plans_persistent_units_with_linger() -> Result<()> {
     Ok(())
 }
 
-/// `--from` installs only binaries that SHA256SUMS lists exactly once each
-/// and that match it; without SHA256SUMS only `--unverified` installs.
+/// `--from` without a release signature refuses unless `--unverified`, and
+/// `--unverified` still installs only binaries that SHA256SUMS, when
+/// present, lists exactly once each and that match it. The signature checks
+/// themselves are in `deploy/test-install.sh`.
 #[test]
-fn the_installer_requires_both_binaries_in_sha256sums() -> Result<()> {
+fn the_installer_refuses_unsigned_releases_and_checks_unsigned_digests() -> Result<()> {
     let root = scratch()?;
     let home = root.path().join("home");
     let release = root.path().join("release");
@@ -1357,13 +1359,16 @@ fn the_installer_requires_both_binaries_in_sha256sums() -> Result<()> {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("deploy/install.sh");
     let config = root.path().join("v.toml");
     std::fs::write(&config, "netuid = 601\n")?;
-    std::fs::write(release.join("slop_ninja_validator"), b"validator")?;
-    std::fs::write(release.join("slop-ninja-journal"), b"journal")?;
+    // Stubs: the installer runs each checked copy (--help) before
+    // installing it.
+    std::fs::write(release.join("slop_ninja_validator"), b"#!/bin/sh\n# validator\nexit 0\n")?;
+    std::fs::write(release.join("slop-ninja-journal"), b"#!/bin/sh\n# journal\nexit 0\n")?;
     std::fs::write(release.join("other"), b"other")?;
     let line = |name: &str| -> Result<String> {
         Ok(format!("{}  {name}\n", sha(&std::fs::read(release.join(name))?)))
     };
-    let installer = |extra: &[&str]| -> Result<i32> {
+    // The exit code and stderr of one dry run.
+    let installer = |extra: &[&str]| -> Result<(i32, String)> {
         let mut args = vec![
             "--instance".to_owned(),
             "v2".to_owned(),
@@ -1382,27 +1387,45 @@ fn the_installer_requires_both_binaries_in_sha256sums() -> Result<()> {
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("XDG_STATE_HOME")
             .output()?;
-        Ok(out.status.code().unwrap_or(-1))
+        Ok((out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stderr).into_owned()))
     };
     let sums = release.join("SHA256SUMS");
-    // Missing: refused unless explicitly unverified.
-    assert_eq!(installer(&[])?, 2);
-    assert_eq!(installer(&["--unverified"])?, 0);
+    let unverified = ["--unverified"];
+    // A refusal: exit 2 for the expected reason, not merely any refusal.
+    let refused = |extra: &[&str], reason: &str| -> Result<()> {
+        let (code, stderr) = installer(extra)?;
+        assert_eq!(code, 2, "{stderr}");
+        assert!(stderr.contains(reason), "expected {reason:?}: {stderr}");
+        Ok(())
+    };
+    let accepted = |extra: &[&str]| -> Result<()> {
+        let (code, stderr) = installer(extra)?;
+        assert_eq!(code, 0, "{stderr}");
+        Ok(())
+    };
+    // No SHA256SUMS and no signature: refused unless explicitly unverified.
+    refused(&[], "no SHA256SUMS.sig")?;
+    accepted(&unverified)?;
     // Lists only another file: the binaries are unchecked, so refused.
     std::fs::write(&sums, line("other")?)?;
-    assert_eq!(installer(&[])?, 2);
-    // Both listed and matching.
+    refused(&unverified, "must list slop_ninja_validator exactly once")?;
+    // Both listed and matching, but unsigned: refused without the flag.
     std::fs::write(&sums, line("slop_ninja_validator")? + &line("slop-ninja-journal")?)?;
-    assert_eq!(installer(&[])?, 0);
-    // Listed twice, or tampered after listing: refused.
+    refused(&[], "no SHA256SUMS.sig")?;
+    accepted(&unverified)?;
+    // Listed twice, or tampered after listing: refused even when unverified.
     std::fs::write(
         &sums,
         line("slop_ninja_validator")? + &line("slop_ninja_validator")? + &line("slop-ninja-journal")?,
     )?;
-    assert_eq!(installer(&[])?, 2);
+    refused(&unverified, "must list slop_ninja_validator exactly once")?;
     std::fs::write(&sums, line("slop_ninja_validator")? + &line("slop-ninja-journal")?)?;
-    std::fs::write(release.join("slop_ninja_validator"), b"tampered")?;
-    assert_eq!(installer(&[])?, 2);
+    std::fs::write(release.join("slop_ninja_validator"), b"#!/bin/sh\n# tampered\nexit 0\n")?;
+    refused(&unverified, "does not match SHA256SUMS")?;
+    // Matching, but not runnable here: refused before anything is replaced.
+    std::fs::write(release.join("slop_ninja_validator"), b"#!/bin/sh\nexit 126\n")?;
+    std::fs::write(&sums, line("slop_ninja_validator")? + &line("slop-ninja-journal")?)?;
+    refused(&unverified, "does not run on this host")?;
     Ok(())
 }
 

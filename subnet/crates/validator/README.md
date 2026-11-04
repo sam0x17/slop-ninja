@@ -765,17 +765,32 @@ the continuous dispatch unit (`--dry-run` prints each step instead; Linux
 only):
 
 ```sh
-subnet/crates/validator/deploy/install.sh --instance <name> --from <target>/release \
+subnet/crates/validator/deploy/install.sh --instance <name> --from <target>/release --unverified \
   --config config.toml --init --enable --start
 ```
 
-The installer requires `SHA256SUMS` in the source directory to list each of
-the two binaries exactly once and both to match it (`--unverified` installs
-without `SHA256SUMS`, for binaries you built yourself). `SHA256SUMS` only
-shows the download is intact: before running the installer, verify the
-release's detached signature `SHA256SUMS.sig` with `ssh-keygen -Y verify` and
-the release key on the testnet landing page (`docs/testnet/README.md`,
-section "Release key"). It installs the configuration with mode 0600 only
+`--unverified` is for binaries you built yourself. For a signed release, pass
+its directory without it: the installer then needs `SHA256SUMS` and the
+release's detached signature over it, `SHA256SUMS.sig`. Before installing
+anything it copies both and the two binaries to a private temporary
+directory, verifies the signature there with `ssh-keygen -Y verify -n file`
+(OpenSSH 8.1 or later) against the release key pinned beside it,
+`deploy/release-allowed_signers` (the key on the testnet landing page,
+`docs/testnet/README.md`, section "Release key"; an `allowed_signers` or
+`.pub` file in the release is never read), then requires `SHA256SUMS` to list
+each binary exactly once and both copies to match it, runs each copy once
+(`--help`) so that a build this host cannot execute (another
+architecture, an older C library) replaces nothing, and installs those
+copies. Any failure refuses with nothing installed. `--unverified` permits a
+directory without `SHA256SUMS.sig`, or without `SHA256SUMS` too, but still
+checks any signature or digest list the directory holds. The release
+binaries are Linux x86_64 only, the one tested platform. Run the installer
+from a repository checkout, never from a copy that came with a release: the
+pinned key it trusts is the file beside it, so `install.sh` and
+`release-allowed_signers` are not release files.
+`deploy/test-install.sh <empty scratch directory>` tests these checks with a
+throwaway key and stub units (no chain call, nothing installed outside the
+scratch directory). The installer installs the configuration with mode 0600 only
 when none exists, runs
 `check-config`, creates the journal with `--init` (`init` refuses an existing
 path, so a typo never replaces history), enables lingering
@@ -786,6 +801,19 @@ cache, the installed bundle and the held-target record with it: a v3
 bundle's receipts live only in the cache once the host deleted them (see
 "The fetch cache is validator state" above). A restart, reinstall or update
 must keep all four in place (or move the cache only with its configuration).
+
+To upgrade an instance, stop its dispatch unit (the installer replaces the
+binaries but neither stops nor restarts it), run the installer with
+`--from`, and start the unit. A directory of binaries you built yourself
+needs `--unverified` even when it holds a `SHA256SUMS` (without the flag the
+installer refuses before installing anything); that unsigned digest list is
+still checked. The upgrades recorded in `TESTNET-M2.md` predate the
+signature check and ran without the flag. Run the same command with
+`--dry-run` before stopping the unit: the dry run makes every check, so a
+refusal comes while the old build still runs. The signature binds the digests,
+not a version, so a validly signed older release is still a rollback: before
+installing one, stop the unit and run `rollback-check` ([Rolling back past
+this rtao pin](#rolling-back-past-this-rtao-pin)).
 
 `slop_ninja_validator-dispatch@<name>` runs `run --dispatch` with
 `Restart=always` and `WantedBy=default.target`, so with lingering it starts

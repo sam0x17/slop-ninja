@@ -240,6 +240,20 @@ read as a cleared condition, in the publisher's rules or in the operator's
 and bounds: `subnet/alerts-relay/README.md` and the publisher's README
 ("Alerts").
 
+### Upgrading validator2
+
+validator2 is reinstalled only in a settled window (no unsettled commit or
+reveal), with its journal backed up first. An older build, signed or not,
+is a rollback: install one only after `rollback-check` exits 0 with the unit
+stopped (validator README, "Rolling back past this rtao pin"). The installer refuses a
+directory without a release signature: a directory you built yourself needs
+`--unverified`, even when it holds a `SHA256SUMS`; a signed release directory
+does not. Run the exact install command with `--dry-run` while the unit is
+still running. The dry run makes every check (signature, digests, and that the
+binaries run on this host), so a refusal leaves the old build running. Then
+stop the unit, run the command without `--dry-run`, start the unit, and
+record the window and the build in the private inventory.
+
 ## Teardown
 
 ```sh

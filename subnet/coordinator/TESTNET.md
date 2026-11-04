@@ -729,7 +729,7 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
   curl -sS --header @- -H 'Content-Type: application/json' --data-binary @plan.json \
     $EVAL_URL/eval/plan
 # pre-flight a generator or the scorer path on fixed synthetic text: /eval/probe, /eval/scorer-probe
-# resume after an outage, platform, budget or step_refused fault: /eval/clear {"label": "..."}
+# resume after an outage, platform, unresolved-infrastructure or step_refused fault: /eval/clear {"label": "..."}
 #   (a terminal fault answers {"cleared": false, "refused": "abandon_required"};
 #   /eval/status lists resumable_faults, and a cohort's step_error names a failing root step)
 # end a faulted cohort without a target: /eval/abandon {"label": "...", "reason": "<code>"}
@@ -3158,6 +3158,41 @@ validators still need a manual step (below).
   (`SIGNING_BUNDLE_BYTES`, measured and witnessed; README, "Automatic target
   handoff"; testnet bundles are tens of KB). Storing the verified target at
   install, which would lift that bound to one stored value, is not done.
+
+### Stuck-state recovery (2026-11-04)
+
+Audit rows A1, B1-B5, C2, D2 and E3 (stuck states), in three rounds; the
+code paths are in the README (Faults, Active tempos, Signing).
+
+- **Rule.** A platform- or time-caused fault pauses and resumes the same
+  cohort and never forces abandonment; spend is tracked and never pauses
+  anything. Round 2 closed the last two exceptions: a chunk whose attempts
+  were all lost to infrastructure gets further rounds of `max_attempts` by
+  itself (bounded only by the attempt-number range and one signed receipt
+  index; `unresolved_infrastructure`, past those bounds, is resumable), and
+  the scoring and generation budget guards only alert (`budget_alert`).
+- **Visibility.** Publisher rules v11 alert, without pausing anything, on a
+  cohort past a budget guard (`scorer_budget_fault`), on attempt extensions
+  (`attempts_extended`), on a stored epoch held behind the confirmed
+  watermark for a whole tempo (`epoch_deferred`, from `/eval/status`
+  `watermark_epoch`), on a commit whose inclusion could not be read
+  (`inclusion_unknown`; the op status reads `inclusion: "unknown"`), and on a
+  root step failing on alternating transient codes (`cohort_fault`; the
+  first-failure epoch is kept until a step succeeds).
+- **Live record (2026-11-04).** From main `5314aa32`, each its own deploy
+  with the deploy lock held through its probe: eval-testnet (eval store
+  17 -> 19 and its chain journal 11 -> 12 in place; probe: store 19 on both
+  instances, rule `live_epoch_single_increment_v3`, `watermark_epoch` equal
+  to the stored epoch), the publisher (rules v11; cron run and relay
+  heartbeat ok, nothing firing), and the coordinator (signing paused for
+  93 s; journal schema 12 unchanged; probe: signing active, pointer current
+  and read back, automatic handoff key ok). No validator reinstall: the
+  validator's round-1 change was a refactor with the same behavior.
+- **Open.** User confirmation of the automatic attempt extension and of the
+  alert-only budget guards (both recorded in the announcement readiness
+  notes). The sealed manifest's `max_attempts` now reads as the allowance
+  per round; the signed records do not name extensions. Admission-step
+  errors are still not classified per cohort.
 
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 

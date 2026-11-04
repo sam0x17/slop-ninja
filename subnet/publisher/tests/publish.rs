@@ -77,8 +77,26 @@ fn publishes_a_closed_cohort_as_its_allow_listed_summary() {
         let s = p.entrants.iter().find(|s| s.identity.uid == e.uid).unwrap();
         assert_eq!(e.gate, slop_ninja_publisher::summary::gate_bit(s));
         assert_eq!(e.copy_gate == "fail", s.public_copy().is_some());
-        assert_eq!(e.rank.is_some(), s.gated());
     }
+    // No rank and no order by rank: the summary carries no `rank` field
+    // and lists the entrants in roster order.
+    let raw: serde_json::Value = serde_json::from_slice(&summary_bytes).unwrap();
+    assert!(
+        raw["entrants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e.get("rank").is_none()),
+        "no rank"
+    );
+    assert_eq!(
+        summary.entrants.iter().map(|e| e.uid).collect::<Vec<_>>(),
+        p.entrants
+            .iter()
+            .map(|e| e.identity.uid)
+            .collect::<Vec<_>>(),
+        "roster order"
+    );
 
     // No private object, no score value, nothing outside the allow-list.
     for key in x.public.keys() {
@@ -166,16 +184,52 @@ fn leaderboard_and_references_come_from_the_verified_outcome() {
     assert_eq!(rule.scope, "testnet-only");
     assert!(rule.note.contains("required before mainnet"));
     assert_eq!(doc.entrants.len(), p.entrants.len());
-    // Ranks are 1..=gated in order, gate failures unranked and last.
-    let ranked: Vec<u32> = doc.entrants.iter().filter_map(|e| e.entrant.rank).collect();
-    assert_eq!(ranked, (1..=ranked.len() as u32).collect::<Vec<_>>());
-    assert!(
+    // Rows in roster order, never rank order, and no rank anywhere.
+    assert_eq!(
         doc.entrants
             .iter()
-            .skip(ranked.len())
-            .all(|e| e.entrant.rank.is_none())
+            .map(|e| e.entrant.uid)
+            .collect::<Vec<_>>(),
+        p.entrants
+            .iter()
+            .map(|e| e.identity.uid)
+            .collect::<Vec<_>>()
     );
+    let ranked = slop_ninja_protocol::reward_v1::rank_order(p);
+    assert!(
+        ranked.windows(2).any(|w| w[0] > w[1]),
+        "the fixture's rank order differs from its roster order, so the row order tests something"
+    );
+    let raw: serde_json::Value =
+        serde_json::from_slice(&x.public.bytes(layout::LEADERBOARD).unwrap()).unwrap();
+    assert!(
+        raw["entrants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e.get("rank").is_none())
+    );
+    let page = String::from_utf8(x.public.bytes(layout::SITE_INDEX).unwrap()).unwrap();
+    assert!(!page.contains(">Rank<"), "no rank column on the page");
     let ev = slop_ninja_protocol::reward_v1::check_outcome(p, &b.c.index).unwrap();
+    // A cluster is named by its first member in roster order, never by its
+    // head (its best-scoring member), and every member carries that name.
+    for c in &ev.clusters {
+        let first = *c.cluster.members.iter().min().unwrap();
+        for &m in &c.cluster.members {
+            let row = doc
+                .entrants
+                .iter()
+                .find(|r| r.entrant.uid == p.entrants[m].identity.uid)
+                .unwrap();
+            let label = row
+                .entrant
+                .cluster
+                .as_ref()
+                .expect("a member has a cluster");
+            assert_eq!(label.uid, p.entrants[first].identity.uid);
+        }
+    }
     for row in &doc.entrants {
         let (i, e) = p
             .entrants
@@ -790,6 +844,254 @@ fn retries_repeat_the_static_checks() {
         assert_eq!(a.state, ArtifactState::Withheld, "{listed_in}");
         assert!(x.public.bytes(&layout::artifact(&e.artifact)).is_none());
     }
+}
+
+/// A retry applies the cluster rule too: when a pending member of cluster
+/// `{18, 23, 28}` is listed private after publication started, its pending
+/// siblings are withheld with it, whichever member is listed; and while the
+/// cohort summary that states the membership is unreadable nothing in the
+/// cohort is copied.
+#[test]
+fn a_retry_withholds_a_cluster_whole() {
+    let cluster = [18, 23, 28];
+    for summary in ["kept", "missing", "altered"] {
+        for listed in cluster {
+            let b = build(0);
+            let x = buckets(&b);
+            let mut cfg = config(Some(0), true);
+            let keys: Vec<String> = cluster
+                .iter()
+                .map(|&u| ARTIFACT_TEMPLATE.replace("{sha256}", &uid_of(&b, u).artifact.hex()))
+                .collect();
+            let saved: Vec<Vec<u8>> = keys
+                .iter()
+                .map(|k| {
+                    let v = x.eval.bytes(k).unwrap();
+                    x.eval.remove(k);
+                    v
+                })
+                .collect();
+            run(&cfg, &x, &mut Memo::default()).1.unwrap();
+            let p: Publication = public_json(&x, &layout::publication(&b.label));
+            for uid in cluster {
+                assert_eq!(
+                    artifact_of(&p, uid).state,
+                    ArtifactState::Pending,
+                    "uid {uid}"
+                );
+            }
+            let summary_key = layout::join(
+                &layout::cohort_dir(&b.label),
+                slop_ninja_publisher::summary::SUMMARY,
+            );
+            match summary {
+                "missing" => x.public.remove(&summary_key),
+                "altered" => {
+                    let mut s = x.public.bytes(&summary_key).unwrap();
+                    s.push(b'\n');
+                    x.public.insert(&summary_key, s);
+                }
+                _ => {}
+            }
+            cfg.private_digests.insert(uid_of(&b, listed).artifact);
+            for (k, v) in keys.iter().zip(saved) {
+                x.eval.insert(k, v);
+            }
+            let (report, _) = run(&cfg, &x, &mut Memo::default());
+            let case = format!("{summary}, uid {listed} listed");
+            assert_eq!(report.artifacts_copied, 0, "{case}");
+            let p: Publication = public_json(&x, &layout::publication(&b.label));
+            for uid in cluster {
+                let a = artifact_of(&p, uid);
+                let expected = match (uid == listed, summary) {
+                    (true, _) => (ArtifactState::Withheld, publish::WITHHELD_LISTED),
+                    (false, "kept") => (ArtifactState::Withheld, publish::WITHHELD_CLUSTER),
+                    (false, _) => (ArtifactState::Pending, publish::WAIT_SUMMARY),
+                };
+                assert_eq!(
+                    (a.state, a.reason.as_deref().unwrap_or_default()),
+                    expected,
+                    "{case}: uid {uid}"
+                );
+                assert!(
+                    x.public
+                        .bytes(&layout::artifact(&uid_of(&b, uid).artifact))
+                        .is_none(),
+                    "{case}: uid {uid} published"
+                );
+            }
+            if summary != "kept" {
+                assert!(
+                    report
+                        .pending
+                        .iter()
+                        .any(|(_, r)| r.starts_with(publish::WAIT_SUMMARY)),
+                    "{case}: {report:?}"
+                );
+            }
+        }
+    }
+}
+
+/// The summary carries no order computed from scores: neither a cluster's
+/// head nor the order of its members (both follow the hidden scores) changes
+/// any public field. Here every multi-member cluster's head is moved to its
+/// last roster member and its members reversed, as if the scores within it
+/// were reversed; then the package scores are reversed, and the
+/// evaluation's positions within each band, its rank-ordered lists, credits
+/// and units are permuted to match. The entrants come out identical each
+/// time.
+#[test]
+fn the_summary_does_not_follow_the_rank_order_within_a_cluster() {
+    let b = build(0);
+    let x = buckets(&b);
+    let cfg = config(Some(0), false);
+    let opts = Options {
+        keys: &cfg.keys,
+        chain: &cfg.chain,
+        receipts: false,
+    };
+    let v = block_on(verify::verify_cohort(
+        &x.receipts,
+        &dir(&b.label),
+        &b.label,
+        &opts,
+        &Budget::worker(),
+    ))
+    .unwrap();
+    let before = slop_ninja_publisher::summary::entrants(&v);
+    let mut moved = v.clone();
+    let mut changed = 0;
+    for c in &mut moved.evaluation.clusters {
+        if c.cluster.members.len() > 1 {
+            let last = *c.cluster.members.iter().max().unwrap();
+            assert_ne!(c.cluster.head, last);
+            c.cluster.head = last;
+            c.cluster.members.reverse();
+            changed += 1;
+        }
+    }
+    assert!(changed > 0, "the fixture has a multi-member cluster");
+    assert_eq!(slop_ninja_publisher::summary::entrants(&moved), before);
+    // And the listing is the roster, whatever the scores: reversing the
+    // scored entrants' scores reverses the rank order the removed `rank`
+    // came from (`reward_v1::rank_order`), and changes no public field.
+    let mut rev = moved
+        .package
+        .entrants
+        .iter()
+        .filter_map(|e| e.score)
+        .rev()
+        .collect::<Vec<_>>()
+        .into_iter();
+    for e in moved
+        .package
+        .entrants
+        .iter_mut()
+        .filter(|e| e.score.is_some())
+    {
+        e.score = rev.next();
+    }
+    let ranked = slop_ninja_protocol::reward_v1::rank_order(&v.package);
+    assert_ne!(
+        slop_ninja_protocol::reward_v1::rank_order(&moved.package),
+        ranked,
+        "the scores moved the rank order"
+    );
+    assert_eq!(slop_ninja_publisher::summary::entrants(&moved), before);
+    // The evaluation's own orders, as reversed scores would move them: each
+    // placed cluster's position within its band (`rank_in_band`, reversed
+    // across all placed clusters, since the fixture's bands each hold one),
+    // the credit that decays with it, the cluster and eligible lists (rank
+    // order) and the units. Only the band itself is public.
+    let ev = &mut moved.evaluation;
+    let placed = ev.clusters.iter().filter(|c| c.placement.is_some()).count();
+    assert!(placed > 1, "the fixture places several clusters");
+    let credits: Vec<_> = ev
+        .clusters
+        .iter()
+        .filter_map(|c| c.placement.as_ref().map(|pl| pl.credit.clone()))
+        .collect();
+    for (pos, (pl, credit)) in ev
+        .clusters
+        .iter_mut()
+        .filter_map(|c| c.placement.as_mut())
+        .zip(credits.into_iter().rev())
+        .enumerate()
+    {
+        pl.rank_in_band = placed - 1 - pos;
+        pl.credit = credit;
+    }
+    ev.clusters.reverse();
+    ev.eligible.reverse();
+    ev.units.reverse();
+    assert_eq!(slop_ninja_publisher::summary::entrants(&moved), before);
+    assert_eq!(
+        before.iter().map(|e| e.uid).collect::<Vec<_>>(),
+        v.package
+            .entrants
+            .iter()
+            .map(|e| e.identity.uid)
+            .collect::<Vec<_>>()
+    );
+}
+
+/// The artifact withholding names no cluster head: a cluster with a
+/// statically withheld member is withheld whole, so the published states and
+/// reasons are the same whether the withheld member is the head (its
+/// best-scoring member) or not. In the fixture, cluster `{18, 23, 28}` has
+/// head 18; each run makes one member an operator hotkey.
+#[test]
+fn a_cluster_is_withheld_whole_whichever_member_is_withheld() {
+    let b = build(0);
+    let head = uid_of(&b, 18).identity.hotkey;
+    let cluster = [18, 23, 28];
+    for &uid in &cluster {
+        assert_eq!(uid_of(&b, uid).cluster_head, Some(head), "uid {uid}");
+    }
+    let mut seen = Vec::new();
+    for operator in cluster {
+        let x = buckets(&b);
+        let mut cfg = config(Some(0), true);
+        cfg.operator_hotkeys
+            .insert(uid_of(&b, operator).identity.hotkey);
+        let (report, _) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.published, vec![b.label.clone()], "{operator}");
+        let p: Publication = public_json(&x, &layout::publication(&b.label));
+        let mut others = Vec::new();
+        for uid in cluster {
+            let a = artifact_of(&p, uid);
+            assert_eq!(a.state, ArtifactState::Withheld, "{operator}: uid {uid}");
+            let why = if uid == operator {
+                publish::WITHHELD_OPERATOR
+            } else {
+                publish::WITHHELD_CLUSTER
+            };
+            assert_eq!(a.reason.as_deref(), Some(why), "{operator}: uid {uid}");
+            assert!(
+                x.public
+                    .bytes(&layout::artifact(&uid_of(&b, uid).artifact))
+                    .is_none(),
+                "{operator}: uid {uid} published"
+            );
+            if uid != operator {
+                others.push((a.state, a.reason.clone()));
+            }
+        }
+        // Outside the cluster nothing moved: another cluster's members and
+        // the singletons are decided as without the operator hotkey.
+        let rest: Vec<_> = p
+            .artifacts
+            .iter()
+            .filter(|a| !cluster.contains(&a.uid))
+            .map(|a| (a.uid, a.state, a.reason.clone()))
+            .collect();
+        seen.push((others, rest));
+    }
+    assert!(
+        seen.windows(2).all(|w| w[0] == w[1]),
+        "the public artifact column differs by which member is withheld"
+    );
 }
 
 /// The record's own initial reference is withheld under any entrant's name,

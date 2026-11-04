@@ -1,14 +1,15 @@
 //! The leaderboard: `v1/leaderboard.json` and the static `index.html` page
 //! rendered from it at publication time (template and stylesheet in `site/`).
 //!
-//! Schema v2 carries the newest cohort's allow-listed summary
+//! Schema v3 carries the newest cohort's allow-listed summary
 //! ([`crate::summary`]) and nothing else computed from the hidden
-//! evaluation: per entrant its UID and hotkey, rank, band, gate and
-//! public-copy gate bits, cluster membership and artifact state, plus the
-//! active target and the reference pointers. No score, threshold, band width,
-//! credit, count or distance appears; every place that will carry the
-//! quantized score once its specification is approved is marked
-//! `QUANTIZED-SCORE`.
+//! evaluation: per entrant, in roster order, its UID and hotkey, band, gate
+//! and public-copy gate bits, cluster membership and artifact state, plus
+//! the active target and the reference pointers. No score, rank, threshold,
+//! band width, credit, count or distance appears, and the rows are not in
+//! rank order (schema v2 carried a rank and listed rows by it); every place
+//! that will carry the quantized score once its specification is approved
+//! is marked `QUANTIZED-SCORE`.
 
 use serde::{Deserialize, Serialize};
 use slop_ninja_admission_wire::json::Chain;
@@ -16,7 +17,7 @@ use slop_ninja_admission_wire::json::Chain;
 use crate::index::{ActiveTarget, ArtifactEntry, ReferencePointer};
 use crate::summary::{self, CohortSummary};
 
-pub const LEADERBOARD_SCHEMA: &str = "slop_ninja.public.leaderboard/v2";
+pub const LEADERBOARD_SCHEMA: &str = "slop_ninja.public.leaderboard/v3";
 pub const TEMPLATE: &str = include_str!("../../../site/index.html");
 pub const STYLE: &str = include_str!("../../../site/style.css");
 
@@ -88,7 +89,7 @@ pub struct LeaderboardDoc {
     /// `R_k` and `R_k-1` after this cohort's close.
     pub current_reference: ReferencePointer,
     pub previous_reference: Option<ReferencePointer>,
-    /// Rank order first, then the other entrants in roster order.
+    /// Every entrant, in roster order (the summary's order).
     pub entrants: Vec<EntrantRow>,
 }
 
@@ -211,18 +212,18 @@ pub fn render(doc: Option<&LeaderboardDoc>) -> String {
                         },
                         None => String::new(),
                     };
-                    // QUANTIZED-SCORE: a score column joins once the
-                    // specification is approved.
+                    // QUANTIZED-SCORE: a score column (and a rank derived
+                    // from it alone) joins once the specification is
+                    // approved.
                     format!(
-                        "<tr><td class=\"num\">{}</td><td class=\"num\">{}</td><td><code title=\"{}\">{}</code></td>\
+                        "<tr><td class=\"num\">{}</td><td><code title=\"{}\">{}</code></td>\
                          <td>{}</td><td>{}</td><td>{}</td><td class=\"num\">{}</td><td>{}</td></tr>",
-                        e.rank.map(|r| r.to_string()).unwrap_or_else(|| "–".into()),
                         e.uid,
                         escape(&e.hotkey),
                         escape(&short(&e.hotkey)),
                         escape(&e.gate),
                         escape(&e.copy_gate),
-                        e.cluster.as_ref().map(|c| format!("UID {}", c.head_uid)).unwrap_or_else(|| "–".into()),
+                        e.cluster.as_ref().map(|c| format!("UID {}", c.uid)).unwrap_or_else(|| "–".into()),
                         e.band.map(|b| b.to_string()).unwrap_or_else(|| "–".into()),
                         artifact,
                     )

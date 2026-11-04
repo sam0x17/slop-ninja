@@ -1,6 +1,6 @@
 //! The public summary of one closed cohort
 //! (`v1/cohorts/<label>/summary.json`, schema
-//! `slop_ninja.public.cohort_summary/v1`): the only cohort object the public
+//! `slop_ninja.public.cohort_summary/v2`): the only cohort object the public
 //! host carries.
 //!
 //! The coordinator keeps every record computed from the hidden evaluation
@@ -11,29 +11,47 @@
 //! the components and every receipt. The publisher verifies them in the
 //! private bucket and publishes only this allow-listed summary:
 //!
-//! - per entrant: its UID and hotkey, its rank among gated entrants, its
+//! - per entrant, in roster (admission) order: its UID and hotkey, its
 //!   reward band (`1` is the top occupied band), one gate bit
 //!   (`pass`, `fail`, or `not_executed` for an entrant never scored), one
-//!   public-copy gate bit and its near-copy cluster membership (the head's
-//!   hotkey and UID);
+//!   public-copy gate bit and its near-copy cluster membership (named by the
+//!   cluster's first member in roster order);
 //! - `R_k` and `R_k-1` as the cohort's manifest named them, by content and
 //!   artifact digest, and the entrant promoted to `R_k+1`, if any;
 //! - the cohort's number, label and opening and closing epochs.
 //!
-//! No score value is published, not even rounded (the user's quantization
-//! specification is pending). Every place that will carry the quantized
-//! value once it is approved is marked `QUANTIZED-SCORE`; until then a rank
-//! and a band are all a reader learns about a model's measured quality.
+//! No score value and no rank is published, not even rounded (the user's
+//! quantization specification is pending). Every place that will carry the
+//! quantized value once it is approved is marked `QUANTIZED-SCORE`; until
+//! then a band is all a reader learns about a model's measured quality.
+//!
+//! No order among entrants is published either. A rank, a list in rank
+//! order or a cluster named by its head (the cluster's best-scoring member)
+//! would each be an ordering an entrant with several hotkeys can choose: up
+//! to `log2(k!)` bits a cohort for `k` hotkeys, read back from labels it
+//! cannot see. So entrants are listed in roster order, which admission
+//! fixes before any document is scored, and a cluster is named by its first
+//! member in that order. A rank may return only once the quantized score
+//! exists, derived from that score alone and counted in the specification's
+//! per-cohort bit budget (`QUANTIZED-SCORE`). Removing the rank closes only
+//! this summary's channel. The ranking of retained entrants is still public
+//! outside it, until the quantization specification or a reward-rule change
+//! addresses it: the coordinator's signed row (published beside its
+//! authorization) and the weights revealed on chain carry credits that decay
+//! by position within a band (`reward_v1::band_credits`), so they order every
+//! retained cluster within its band, and the row's largest-remainder pass
+//! gives a cluster's leftover units to its members in rank order; the
+//! promoted entrant is the first retained head that passes promotion.
 //! [`crate::allowlist`] names every field this schema may carry.
 
 use serde::{Deserialize, Serialize};
 use slop_ninja_admission_wire::json::Chain;
-use slop_ninja_protocol::{EntrantScore, ScorePackageV2, reward_v1};
+use slop_ninja_protocol::EntrantScore;
 
 use crate::ss58;
 use crate::verify::VerifiedCohort;
 
-pub const SUMMARY_SCHEMA: &str = "slop_ninja.public.cohort_summary/v1";
+pub const SUMMARY_SCHEMA: &str = "slop_ninja.public.cohort_summary/v2";
 /// The summary's name in a public cohort directory.
 pub const SUMMARY: &str = "summary.json";
 
@@ -57,24 +75,29 @@ pub struct References {
     // specification is approved; until then no reference score is published.
 }
 
-/// The head of an entrant's near-copy cluster.
+/// An entrant's near-copy cluster, named by its first member in roster
+/// order: a label every member shares, chosen before any document is scored.
+/// It is not the cluster's head (its best-scoring member). Neither this
+/// summary nor the artifact withholding (a cluster is withheld whole) names
+/// the head, but the signed row can: a cluster's leftover units go to its
+/// members in rank order (see the module documentation).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClusterRef {
-    pub head: String,
-    pub head_uid: u16,
+    pub uid: u16,
+    pub hotkey: String,
 }
 
-/// One entrant: identity, rank, band and three bits.
+/// One entrant: identity, band and three bits. No rank (see the module
+/// documentation).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Entrant {
     pub uid: u16,
     pub hotkey: String,
     pub hotkey_hex: String,
-    /// Position among gated entrants, from 1; `None` for an entrant that
-    /// failed a gate or was never scored.
-    pub rank: Option<u32>,
+    // QUANTIZED-SCORE: no rank until the quantized score exists; a rank may
+    // then be derived from that score alone, counted in the bit budget.
     /// Its cluster's reward band, `1` the top occupied band; `None` below
     /// the cutoff or without a target.
     pub band: Option<u32>,
@@ -86,7 +109,7 @@ pub struct Entrant {
     pub gate: String,
     /// `pass`, or `fail` when the public-copy gate refused it.
     pub copy_gate: String,
-    /// Its near-copy cluster's head, for an entrant at or above the cutoff.
+    /// Its near-copy cluster, for an entrant at or above the cutoff.
     pub cluster: Option<ClusterRef>,
 }
 
@@ -103,7 +126,7 @@ pub struct CohortSummary {
     pub references: References,
     /// The entrant promoted to `R_k+1` (SS58), if any.
     pub promoted: Option<String>,
-    /// Rank order first, then the other entrants in roster order.
+    /// Every entrant, in roster order.
     pub entrants: Vec<Entrant>,
 }
 
@@ -123,57 +146,49 @@ pub fn copy_bit(e: &EntrantScore) -> &'static str {
     }
 }
 
-/// Every entrant in summary order: rank order, then the rest in roster
-/// order. Returns `(package index, rank)`.
-pub fn order(p: &ScorePackageV2) -> Vec<(usize, Option<u32>)> {
-    let ranked = reward_v1::rank_order(p);
-    let mut out: Vec<(usize, Option<u32>)> = ranked
-        .iter()
-        .enumerate()
-        .map(|(pos, &i)| (i, Some(pos as u32 + 1)))
-        .collect();
-    out.extend(
-        (0..p.entrants.len())
-            .filter(|i| !ranked.contains(i))
-            .map(|i| (i, None)),
-    );
-    out
-}
-
-/// The entrants of a verified cohort, in summary order.
+/// The entrants of a verified cohort, in roster order (the package's
+/// order, fixed at admission). Nothing here depends on an entrant's
+/// position in rank order: the band is shared by a band's clusters and the
+/// cluster label by its members.
 pub fn entrants(v: &VerifiedCohort) -> Vec<Entrant> {
     let p = &v.package;
     let ev = &v.evaluation;
     let mut band = vec![None; p.entrants.len()];
-    let mut head = vec![None; p.entrants.len()];
+    let mut label = vec![None; p.entrants.len()];
     for c in &ev.clusters {
+        let Some(&first) = c
+            .cluster
+            .members
+            .iter()
+            .filter(|&&m| m < p.entrants.len())
+            .min()
+        else {
+            continue;
+        };
         for &m in &c.cluster.members {
             if m < p.entrants.len() {
                 band[m] = c.placement.as_ref().map(|pl| pl.band_rank as u32 + 1);
-                head[m] = Some(c.cluster.head);
+                label[m] = Some(first);
             }
         }
     }
-    order(p)
-        .into_iter()
-        .map(|(i, rank)| {
-            let e = &p.entrants[i];
-            Entrant {
-                uid: e.identity.uid,
-                hotkey: ss58::encode(&e.identity.hotkey),
-                hotkey_hex: hex::encode(e.identity.hotkey.0),
-                rank,
-                band: band[i],
-                gate: gate_bit(e).into(),
-                copy_gate: copy_bit(e).into(),
-                cluster: head[i].map(|h| {
-                    let h = &p.entrants[h];
-                    ClusterRef {
-                        head: ss58::encode(&h.identity.hotkey),
-                        head_uid: h.identity.uid,
-                    }
-                }),
-            }
+    p.entrants
+        .iter()
+        .enumerate()
+        .map(|(i, e)| Entrant {
+            uid: e.identity.uid,
+            hotkey: ss58::encode(&e.identity.hotkey),
+            hotkey_hex: hex::encode(e.identity.hotkey.0),
+            band: band[i],
+            gate: gate_bit(e).into(),
+            copy_gate: copy_bit(e).into(),
+            cluster: label[i].map(|f| {
+                let f = &p.entrants[f];
+                ClusterRef {
+                    uid: f.identity.uid,
+                    hotkey: ss58::encode(&f.identity.hotkey),
+                }
+            }),
         })
         .collect()
 }

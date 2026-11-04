@@ -1,5 +1,5 @@
 //! The versioned allow-list of everything the public host may carry
-//! (`slop_ninja.public.allowlist/v1`).
+//! (`slop_ninja.public.allowlist/v2`).
 //!
 //! Validators and the public never learn held-out data (user rule,
 //! 2026-11-04): every object in the public bucket must be one this module
@@ -19,6 +19,18 @@
 //! snapshot with every optional field set, are checked here) until it is
 //! added here, with a version bump, so a new public field is always a
 //! reviewed decision.
+//!
+//! Version 2 removed the entrant's `rank` (and the summary and leaderboard
+//! schemas that listed entrants in rank order, or named a cluster by its
+//! best-scoring head): an ordering of entrants is a channel an entrant with
+//! several hotkeys chooses, so no document carries a rank field until the
+//! quantized score exists ([`crate::summary`]). [`REFUSED_ENTRANT_FIELDS`]
+//! names what this version must never list again without that review. The
+//! ranking of retained entrants is still public through the coordinator's
+//! signed row allowed below (and the weights revealed on chain): its weights
+//! order the retained clusters within a band (`reward_v1::band_credits`) and
+//! give a cluster's leftover units to its members in rank order, until the
+//! quantization specification or a reward-rule change addresses it.
 //!
 //! Binary objects are named by kind:
 //!
@@ -52,7 +64,7 @@ use slop_ninja_protocol::{
 
 use crate::layout;
 
-pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v1";
+pub const ALLOWLIST_VERSION: &str = "slop_ninja.public.allowlist/v2";
 
 /// What a public key holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -250,18 +262,38 @@ const REFERENCES: &[&str] = &[
 
 // QUANTIZED-SCORE: once the quantization specification is approved, the
 // quantized score of each entrant (and of R_k and R_k-1) is the one new
-// field of the summary and the leaderboard, with an allow-list version bump.
+// field of the summary and the leaderboard, with an allow-list version bump;
+// a rank may join with it only if derived from the quantized score alone and
+// counted in the per-cohort bit budget.
 const ENTRANT: &[&str] = &[
     "uid",
     "hotkey",
     "hotkey_hex",
-    "rank",
     "band",
     "gate",
     "copy_gate",
     "cluster",
+    "cluster.uid",
+    "cluster.hotkey",
+];
+
+/// Entrant fields that carry an order or a value computed from hidden
+/// predictions, which no version of this allow-list may list before the
+/// quantized score exists: a rank (an ordering of entrants is chosen bits),
+/// a cluster's head (its best-scoring member), a score, and the reward
+/// outcome's exact positions, credits and units. The tests check that
+/// [`ENTRANT`] lists none of them and that a summary or leaderboard
+/// carrying one is refused.
+pub const REFUSED_ENTRANT_FIELDS: &[&str] = &[
+    "rank",
+    "rank_in_band",
+    "band_rank",
     "cluster.head",
     "cluster.head_uid",
+    "score",
+    "credit",
+    "units",
+    "row_share",
 ];
 
 const SUMMARY: &[&str] = &[
@@ -790,8 +822,8 @@ mod tests {
             "cohort": 1, "label": "testnet-c1", "opened_epoch": 1, "closed_epoch": 21,
             "references": {"index": 0, "current": {"content": "a", "artifact": "b"}, "predecessor": null},
             "promoted": null,
-            "entrants": [{"uid": 3, "hotkey": "5F", "hotkey_hex": "00", "rank": 1, "band": 1, "gate": "pass",
-                          "copy_gate": "pass", "cluster": {"head": "5F", "head_uid": 3}}]
+            "entrants": [{"uid": 3, "hotkey": "5F", "hotkey_hex": "00", "band": 1, "gate": "pass",
+                          "copy_gate": "pass", "cluster": {"uid": 3, "hotkey": "5F"}}]
         });
         check_object(key, &serde_json::to_vec(&v).unwrap()).unwrap();
         v["entrants"][0]["score"] =
@@ -811,6 +843,100 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// No rank (nor any other ordering or value from hidden predictions) is
+    /// allow-listed, and a summary or leaderboard carrying one, at any
+    /// nesting the earlier schemas used, is refused before it is written
+    /// and deleted by the key audit after.
+    #[test]
+    fn the_allow_list_refuses_rank() {
+        for kind in [Kind::Summary, Kind::Leaderboard] {
+            let (_, allowed) = fields(kind).unwrap();
+            for f in REFUSED_ENTRANT_FIELDS {
+                let path = format!("entrants[].{f}");
+                assert!(!allowed.contains(&path), "{kind:?} lists {path}");
+            }
+            assert!(
+                !allowed.iter().any(|p| p.contains("rank")),
+                "{kind:?} lists a rank field"
+            );
+        }
+        let entrant = serde_json::json!({"uid": 3, "hotkey": "5F", "hotkey_hex": "00", "band": 1,
+            "gate": "pass", "copy_gate": "pass", "cluster": {"uid": 3, "hotkey": "5F"}});
+        let summary = serde_json::json!({
+            "schema": crate::summary::SUMMARY_SCHEMA, "network": "testnet",
+            "chain": {"genesis": "00", "netuid": 601, "mechanism": 0},
+            "cohort": 1, "label": "testnet-c1", "opened_epoch": 1, "closed_epoch": 21,
+            "references": {"index": 0, "current": {"content": "a", "artifact": "b"}, "predecessor": null},
+            "promoted": null, "entrants": [entrant.clone()]
+        });
+        let board = serde_json::json!({
+            "schema": crate::leaderboard::LEADERBOARD_SCHEMA, "network": "testnet",
+            "chain": {"genesis": "00", "netuid": 601, "mechanism": 0},
+            "cohort": 1, "label": "testnet-c1", "closed_epoch": 21,
+            "references": {"index": 0, "current": {"content": "a", "artifact": "b"}, "predecessor": null},
+            "promoted": null,
+            "active_target": {"digest": "ab", "source": "launch_burn", "cohort": null},
+            "current_reference": {"schema": "s", "role": "current", "index": 0, "content": "a", "artifact": "b"},
+            "previous_reference": null, "entrants": [entrant]
+        });
+        for (key, doc) in [
+            ("v1/cohorts/testnet-c1/summary.json", summary),
+            (layout::LEADERBOARD, board),
+        ] {
+            check_object(key, &serde_json::to_vec(&doc).unwrap()).unwrap_or_else(|e| panic!("{e}"));
+            let with = |set: &dyn Fn(&mut serde_json::Value)| {
+                let mut d = doc.clone();
+                set(&mut d["entrants"][0]);
+                check_object(key, &serde_json::to_vec(&d).unwrap())
+            };
+            for (field, set) in [
+                (
+                    "rank",
+                    &(|e: &mut serde_json::Value| e["rank"] = 1.into())
+                        as &dyn Fn(&mut serde_json::Value),
+                ),
+                ("rank", &|e: &mut serde_json::Value| {
+                    e["rank"] = serde_json::Value::Null
+                }),
+                ("rank_in_band", &|e: &mut serde_json::Value| {
+                    e["rank_in_band"] = 0.into()
+                }),
+                ("band.rank_in_band", &|e: &mut serde_json::Value| {
+                    e["band"] = serde_json::json!({"b": 3, "rank_in_band": 0})
+                }),
+                ("cluster.head_uid", &|e: &mut serde_json::Value| {
+                    e["cluster"]["head_uid"] = 3.into()
+                }),
+                ("cluster.head", &|e: &mut serde_json::Value| {
+                    e["cluster"]["head"] = "5F".into()
+                }),
+            ] {
+                let err = with(set).expect_err(field);
+                assert!(err.contains(&format!("entrants[].{field}")), "{key}: {err}");
+            }
+            // The audit deletes such a document an earlier build left.
+            let mut d = doc.clone();
+            d["entrants"][0]["rank"] = 1.into();
+            let plan = audit(&[key.to_owned()], |_| Some(serde_json::to_vec(&d).unwrap()));
+            assert_eq!(plan.delete.len(), 1, "{key}");
+        }
+        // The earlier schemas, which listed entrants by rank, are refused by
+        // name too.
+        for (key, old) in [
+            (
+                "v1/cohorts/testnet-c1/summary.json",
+                "slop_ninja.public.cohort_summary/v1",
+            ),
+            (layout::LEADERBOARD, "slop_ninja.public.leaderboard/v2"),
+        ] {
+            let doc = serde_json::json!({"schema": old, "entrants": []});
+            assert!(
+                check_object(key, &serde_json::to_vec(&doc).unwrap()).is_err(),
+                "{old}"
+            );
+        }
     }
 
     #[test]

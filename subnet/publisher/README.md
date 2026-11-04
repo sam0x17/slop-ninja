@@ -17,10 +17,12 @@ into static public objects. Once a minute it:
    private receipts bucket (signed records, the published index, the
    recomputed outcome and the closure; at most one to completion per run).
    It then writes only the cohort's allow-listed summary
-   (`v1/cohorts/<label>/summary.json`: per entrant its rank, band, gate and
-   public-copy gate bits and cluster membership, and `R_k` and `R_k-1` by
-   identity; no score value) into the separate public-candidate bucket and
-   lists the cohort in the public index. The coordinator's signed manifest,
+   (`v1/cohorts/<label>/summary.json`: per entrant, in roster order, its
+   band, gate and public-copy gate bits and cluster membership, the cluster
+   named by its first member in roster order, and `R_k` and `R_k-1` by
+   identity; no score value, no rank and no order of entrants by score)
+   into the separate public-candidate bucket and lists the cohort in the
+   public index. The coordinator's signed manifest,
    package, target and closure, its receipts, receipt index, chunk maps and
    bundles, its published-content and fingerprint indexes and its components
    stay private (the copy model, 2026-11-04; `allowlist.rs` names every
@@ -147,6 +149,23 @@ store.
   anywhere in the public bucket. A quantized score joins only after its
   specification is approved (the places that will carry it are marked
   `QUANTIZED-SCORE`).
+- **No public order of entrants.** An ordering is a channel an entrant with
+  several hotkeys chooses (up to `log2(k!)` bits a cohort for `k` hotkeys),
+  so the summary and the leaderboard carry no rank, list entrants in roster
+  order and name a cluster by its first member in that order, never by its
+  best-scoring head; allow-list v2 refuses a `rank`, `rank_in_band` or
+  cluster head field. A rank may return only with the quantized score,
+  derived from it alone and counted in the specification's bit budget.
+  This closes only the summary's channel: the ranking of retained entrants
+  is still public until the quantization specification or a reward-rule
+  change addresses it. The coordinator's signed row (published beside its
+  authorization) and the weights revealed on chain carry credits that decay
+  by position within a band, which orders every retained cluster within its
+  band, and the row's largest-remainder pass gives a cluster's leftover
+  units to its members in rank order, which can name the head. The promoted
+  entrant is the first retained head that passes promotion. Artifact
+  withholding never names a head: a cluster with a statically withheld
+  member is withheld whole.
 - **Only named objects.** The publisher reads only the cohort objects it
   verifies (never the receipts), and the artifact objects the package
   binds. The batch shards, batch index, results, summaries, probe vectors,
@@ -192,9 +211,18 @@ store.
     instead, never as entrant artifacts;
   - it failed the public-copy gate (`public.content`, `public.near.current`,
     `public.near.predecessor`, `public.near.probe`);
-  - it joined the near-copy cluster of a withheld artifact.
+  - it is in a near-copy cluster with an artifact withheld by one of the
+    checks above, whichever member is the cluster's head (a cluster is
+    withheld whole, so the reasons never single out its best-scoring
+    member).
 
-  Pending artifacts are checked again on every retry. A configuration that
+  Pending artifacts are checked again on every retry, the cluster rule
+  included: a pending member of a cluster whose member is now withheld by a
+  static check (a digest listed after publication, say) is withheld too, by
+  the membership the cohort's summary states, and nothing is copied while
+  that summary is unreadable. A member withheld only after its siblings were
+  published does not withdraw them: a published object is never recalled.
+  A configuration that
   sets `ARTIFACT_SOURCE_KEY` without `ADMISSION_RECORD_KEY`, a non-empty
   `PRIVATE_DIGESTS` and a non-empty `OPERATOR_HOTKEYS` is refused. `R_k` is
   downloadable only when it is a promoted miner artifact published here.

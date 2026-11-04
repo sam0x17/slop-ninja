@@ -3458,7 +3458,24 @@ host carries only allow-listed objects (`publisher/src/allowlist.rs`).
      migrates the v1 index: it deletes the v1 leaderboard, reference
      pointers and archived record indexes, rewrites `index.html` without a
      leaderboard, writes the v2 index and re-lists cohorts one a run. Probe:
-     `v1/cohorts/index.json` schema v2, `index.html` without score columns.
+     `v1/cohorts/index.json` schema v2, `index.html` without score or rank
+     columns, `v1/leaderboard.json` schema `leaderboard/v3` and each
+     re-listed cohort's `summary.json` schema `cohort_summary/v2` (no
+     `rank`, entrants in roster order, clusters named by their first
+     member). Deploy only a publisher built with allow-list v2: no deployed
+     publisher has written the copy layout yet, and one built between the
+     copy layout's landing and allow-list v2 would write summaries and a
+     leaderboard with ranks that a later build neither rewrites nor keeps
+     (the key audit deletes them, leaving index entries that name deleted
+     summaries). The same holds in reverse once this step has run: an
+     allow-list v1 build refuses `cohort_summary/v2` and `leaderboard/v3` by
+     schema, so a rollback to one, or its key audit, would delete every new
+     summary and the leaderboard; no later run rewrites an already-listed
+     cohort's summary, and a missing leaderboard is not recreated until the
+     next cohort is listed. Roll the publisher back only to a build with
+     allow-list v2 or later. A later summary or leaderboard schema bump has
+     the same hazard: its build must keep accepting the prior schema or
+     re-render the listed cohorts.
   2. The coordinator (journal schema 13: `sign_row_record`,
      `sign_row_snapshot`): pause signing, deploy, wait for schema 13 on
      `/status`, resume. Probe: within a tempo `signing.row_record` names a
@@ -3468,7 +3485,10 @@ host carries only allow-listed objects (`publisher/src/allowlist.rs`).
   3. Only then the key audit with deletion: the private wrapper
      `data/task-roots/testnet/deploy/public-key-audit/audit.sh <ops binary>
      <out dir> --delete`, with the ops binary built from the deployed tree
-     (`slop_ninja_publisher_ops`). It lists the public bucket, fetches every
+     (`slop_ninja_publisher_ops`), never from another tree: the plan's
+     `allowlist` field must equal the deployed publisher's allow-list
+     version (`ALLOWLIST_VERSION`), or the audit deletes what that publisher
+     writes. It lists the public bucket, fetches every
      object of a content-checked kind (the page included), and refuses to
      delete anything when a fetch failed or the tool (`audit-keys
      --for-delete`) left a key unchecked. Run earlier, the old publisher

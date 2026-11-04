@@ -29,7 +29,7 @@
       <table>
         <thead>
           <tr>
-            <th scope="col">Rank</th><th scope="col">UID</th><th scope="col">Hotkey</th>
+            <th scope="col">UID</th><th scope="col">Hotkey</th>
             <th scope="col">Gate</th><th scope="col">Copy gate</th>
             <th scope="col">Cluster</th><th scope="col">Band</th><th scope="col">Artifact</th>
           </tr>
@@ -37,8 +37,12 @@
         <tbody><!--ROWS--></tbody>
       </table>
     </div>
-    <p class="muted small">Ranks, bands and gate results come from the coordinator's score package, which the publisher
-    verified under the trust roots and recomputed with the reward-v1 rule. No score value is published. Testnet results
+    <p class="muted small">Bands, gate results and clusters come from the coordinator's score package, which the publisher
+    verified under the trust roots and recomputed with the reward-v1 rule. No score value and no rank field is published:
+    rows are listed in roster order, and a cluster is named by its first member in that order. The ranking is not
+    hidden, though: the coordinator's signed row on this host (and the weights validators reveal on chain) still orders
+    the retained clusters within a band through their credits, and gives a cluster's leftover row units to its members
+    in rank order, until the quantization specification or a reward-rule change addresses it. Testnet results
     test the evaluation plumbing; they say nothing about quality on unseen text.</p>
   </section>
 </main>

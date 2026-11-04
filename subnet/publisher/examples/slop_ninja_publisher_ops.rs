@@ -20,7 +20,7 @@
 //! read for its record prefix and labels only.
 //!
 //! `audit-keys` is the public bucket's key audit against the allow-list
-//! (`allowlist`, `slop_ninja.public.allowlist/v1`): LISTING.jsonl holds one
+//! (`allowlist`, `slop_ninja.public.allowlist/v2`): LISTING.jsonl holds one
 //! `{"key": ..., "size": ...}` object per stored key (the operator's private
 //! listing of the public-candidate bucket), and DIR, when given, local copies
 //! of objects under their keys. Every key outside the allow-list, and every

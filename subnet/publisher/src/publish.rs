@@ -242,13 +242,44 @@ pub const WITHHELD_LISTED: &str = "a listed reference digest: references are pub
 pub const WITHHELD_INITIAL: &str = "an initial reference R_0 (or its replacement): published as a reference package, not as an entrant artifact";
 pub const WITHHELD_COPY: &str =
     "failed the public-copy gate: a copy of a reference or of a published artifact";
-pub const WITHHELD_CLUSTER: &str = "joined the near-copy cluster of a withheld artifact";
+pub const WITHHELD_CLUSTER: &str = "in a near-copy cluster with a withheld artifact";
 pub const WITHHELD_NOT_ADMITTED: &str = "no outside admission record: not uploaded through the admission route under the submission terms";
 pub const WITHHELD_ADMISSION: &str = "the admission record does not match the entrant";
 pub const WAIT_LAYOUT: &str = "the admission object layout is not configured";
 pub const WAIT_SOURCE: &str = "the artifact object is not in the eval bucket";
 pub const WAIT_BUDGET: &str = "the run reached its wall budget";
 pub const WAIT_STORE: &str = "the eval bucket did not answer";
+pub const WAIT_SUMMARY: &str =
+    "the cohort summary that names its near-copy clusters is not readable";
+
+/// The withheld reasons that withhold an artifact's near-copy cluster: the
+/// static checks, and the cluster reason itself (its cluster already holds
+/// a statically withheld member).
+const CLUSTER_WITHHOLDING: [&str; 5] = [
+    WITHHELD_OPERATOR,
+    WITHHELD_LISTED,
+    WITHHELD_INITIAL,
+    WITHHELD_COPY,
+    WITHHELD_CLUSTER,
+];
+
+/// For each entrant, whether its near-copy cluster (`cluster[i]`, any label
+/// every member shares; `None` outside every cluster) has a member marked in
+/// `withheld`. The rule reads only membership, never which member is the
+/// cluster's head, so a cluster is withheld whole.
+fn in_withheld_cluster<K: PartialEq>(cluster: &[Option<K>], withheld: &[bool]) -> Vec<bool> {
+    cluster
+        .iter()
+        .map(|c| {
+            c.as_ref().is_some_and(|c| {
+                cluster
+                    .iter()
+                    .zip(withheld)
+                    .any(|(x, &w)| w && x.as_ref() == Some(c))
+            })
+        })
+        .collect()
+}
 
 /// What an artifact decision needs to know about one entrant, from the
 /// verified package and closure or from a publication record.
@@ -1373,8 +1404,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             }
             Err(e) => return Err(store_err(e)),
         }
-        // Artifacts, default-deny: the static checks, then the cluster of a
-        // withheld artifact, then the admission record and the copy.
+        // Artifacts, default-deny: the static checks, then the near-copy
+        // cluster of a withheld artifact, then the admission record and the
+        // copy.
         let references = self.withheld_references(memo, idx, Some(v));
         let entrants = &v.package.entrants;
         let facts: Vec<EntrantFacts> = entrants.iter().map(|e| EntrantFacts::of(e, v)).collect();
@@ -1383,16 +1415,20 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             .zip(&facts)
             .map(|(e, f)| static_withhold(f, Some(e), self.cfg, &references))
             .collect();
-        for (i, e) in entrants.iter().enumerate() {
-            if withheld[i].is_some() {
-                continue;
-            }
-            let head = e
-                .cluster_head
-                .filter(|h| *h != e.identity.hotkey)
-                .and_then(|h| entrants.iter().position(|x| x.identity.hotkey == h));
-            if head.is_some_and(|j| withheld[j].is_some()) {
-                withheld[i] = Some(WITHHELD_CLUSTER);
+        // A cluster is withheld whole when any member is withheld by a
+        // static check, whichever member is its head: the rule reads only the
+        // cluster's membership (public in the summary) and the static checks,
+        // never which member scored best, so the withheld reasons cannot
+        // single out the head.
+        // Retries apply the same rule (`retry_artifacts`).
+        let statically: Vec<bool> = withheld.iter().map(Option::is_some).collect();
+        let clusters: Vec<Option<AccountId>> = entrants.iter().map(|e| e.cluster_head).collect();
+        for (why, hit) in withheld
+            .iter_mut()
+            .zip(in_withheld_cluster(&clusters, &statically))
+        {
+            if why.is_none() && hit {
+                *why = Some(WITHHELD_CLUSTER);
             }
         }
         let mut artifacts = Vec::new();
@@ -1597,8 +1633,12 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     }
 
     /// Retries pending artifacts of published cohorts, newest first, with
-    /// the static checks repeated (the configuration may list more since),
-    /// and refreshes the records that name them.
+    /// the static checks repeated (the configuration may list more since)
+    /// and the cluster rule applied again, and refreshes the records that
+    /// name them. A pending member of a cluster with a statically withheld
+    /// member is withheld whole, by the membership the cohort's summary
+    /// states; a member already published stays published (nothing recalls
+    /// a public object).
     async fn retry_artifacts(
         &self,
         idx: &mut CohortIndex,
@@ -1632,29 +1672,77 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 continue;
             };
             let cohort = publication.cohort;
-            let mut changed = false;
-            for a in publication
-                .artifacts
-                .iter_mut()
-                .filter(|a| a.state == ArtifactState::Pending)
-            {
-                let before = a.clone();
-                match EntrantFacts::from_entry(a, cohort) {
-                    None => {
-                        a.state = ArtifactState::Withheld;
-                        a.reason = Some(WITHHELD_ADMISSION.into());
-                    }
-                    Some(f) => match static_withhold(&f, None, self.cfg, &references) {
-                        Some(why) => {
+            let before = publication.artifacts.clone();
+            // As at the first decision: the static checks over every pending
+            // artifact first, then the near-copy cluster of any artifact
+            // withheld by them (now or on an earlier run), and only then the
+            // admission record and the copy.
+            let mut undecided: Vec<Option<EntrantFacts>> = Vec::new();
+            for a in &mut publication.artifacts {
+                let mut facts = None;
+                if a.state == ArtifactState::Pending {
+                    match EntrantFacts::from_entry(a, cohort) {
+                        None => {
                             a.state = ArtifactState::Withheld;
-                            a.reason = Some(why.into());
+                            a.reason = Some(WITHHELD_ADMISSION.into());
                         }
-                        None => self.admit_and_copy(&f, &label, a, report).await,
-                    },
+                        Some(f) => match static_withhold(&f, None, self.cfg, &references) {
+                            Some(why) => {
+                                a.state = ArtifactState::Withheld;
+                                a.reason = Some(why.into());
+                            }
+                            None => facts = Some(f),
+                        },
+                    }
                 }
-                changed |= *a != before;
+                undecided.push(facts);
             }
-            if !changed {
+            let withholding: Vec<bool> = publication
+                .artifacts
+                .iter()
+                .map(|a| {
+                    a.state == ArtifactState::Withheld
+                        && a.reason
+                            .as_deref()
+                            .is_some_and(|r| CLUSTER_WITHHOLDING.contains(&r))
+                })
+                .collect();
+            if withholding.iter().any(|&w| w) && undecided.iter().any(Option::is_some) {
+                match self.summary_clusters(&label, &publication).await {
+                    Ok(clusters) => {
+                        let hits = in_withheld_cluster(&clusters, &withholding);
+                        for ((a, f), hit) in publication
+                            .artifacts
+                            .iter_mut()
+                            .zip(&mut undecided)
+                            .zip(hits)
+                        {
+                            if hit && f.take().is_some() {
+                                a.state = ArtifactState::Withheld;
+                                a.reason = Some(WITHHELD_CLUSTER.into());
+                            }
+                        }
+                    }
+                    // Default-deny: without the membership nothing is copied.
+                    Err(why) => {
+                        for (a, f) in publication.artifacts.iter_mut().zip(&mut undecided) {
+                            if f.take().is_some() {
+                                a.reason = Some(WAIT_SUMMARY.into());
+                                report.pending.push((
+                                    format!("{label}/artifact-{}", &a.sha256[..16]),
+                                    why.clone(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            for (a, f) in publication.artifacts.iter_mut().zip(&undecided) {
+                if let Some(f) = f {
+                    self.admit_and_copy(f, &label, a, report).await;
+                }
+            }
+            if publication.artifacts == before {
                 continue;
             }
             put_json(
@@ -1690,6 +1778,48 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             }
         }
         Ok(())
+    }
+
+    /// The near-copy cluster of each of `publication`'s artifacts, by the
+    /// label the cohort's public summary gives it (its first member in roster
+    /// order; `None` outside every cluster). The summary must be the one the
+    /// publication record names by digest; the membership it states is the
+    /// package's, which the summary was rendered from.
+    async fn summary_clusters(
+        &self,
+        label: &str,
+        publication: &Publication,
+    ) -> Result<Vec<Option<String>>, String> {
+        let key = layout::join(&layout::cohort_dir(label), summary::SUMMARY);
+        let bytes = self
+            .buckets
+            .public
+            .get(&key, self.budget.remaining())
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("{WAIT_SUMMARY}: missing"))?;
+        let _hold = self
+            .budget
+            .reserve(bytes.len() as u64)
+            .map_err(|_| "budget".to_owned())?;
+        if slop_ninja_protocol::object_sha256(&bytes).hex() != publication.summary {
+            return Err(format!(
+                "{WAIT_SUMMARY}: differs from the publication record's digest"
+            ));
+        }
+        let doc: summary::CohortSummary = serde_json::from_slice(&bytes)
+            .map_err(|_| format!("{WAIT_SUMMARY}: not a {}", summary::SUMMARY_SCHEMA))?;
+        publication
+            .artifacts
+            .iter()
+            .map(|a| {
+                doc.entrants
+                    .iter()
+                    .find(|e| e.hotkey_hex == a.hotkey_hex)
+                    .map(|e| e.cluster.as_ref().map(|c| c.hotkey.clone()))
+                    .ok_or_else(|| format!("{WAIT_SUMMARY}: uid {} is not listed", a.uid))
+            })
+            .collect()
     }
 
     async fn refresh_newest(&self, publication: &Publication) -> Result<(), StoreError> {

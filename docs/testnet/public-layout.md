@@ -59,11 +59,16 @@ the host's base URL.
   manifest. A publisher built from this tree publishes only what the
   versioned allow-list names
   ([`allowlist.rs`](../../subnet/publisher/src/allowlist.rs)): per cohort an
-  allow-listed summary of ranks, bands, gate bits and cluster membership, and
-  the coordinator's signed row beside its authorization; no receipt and no
-  score value. An entrant's artifact can steer the values layout v1
-  publishes, so they can reveal information about the hidden documents and
-  their labels.
+  allow-listed summary of bands, gate bits and cluster membership, with the
+  entrants in roster order, and the coordinator's signed row beside its
+  authorization; no receipt, no score value and no rank field. The row still
+  carries the ranking of retained entrants: until the quantization
+  specification or a reward-rule change addresses it, its weights (and the
+  weights validators reveal on chain) order the retained clusters within a
+  band, whose credits decay by position, and give a cluster's leftover row
+  units to its members in rank order. An entrant's artifact can steer the
+  values layout v1 publishes, so they can reveal information about the
+  hidden documents and their labels.
 - Signed records are the coordinator's exact bytes. Verify them against the
   trust roots in the release's `testnet-trust.json`. The copy at
   `v1/trust/testnet-trust.json` is the same file byte for byte; never trust
@@ -177,7 +182,12 @@ withholds for good an artifact that:
   lists them in `initial_references`). References are published as reference
   packages instead, never as entrant artifacts;
 - failed the public-copy gate;
-- joined the near-copy cluster of a withheld artifact.
+- is in a near-copy cluster with an artifact withheld for one of the
+  reasons above. The whole cluster is withheld, whichever member is its
+  head, so the reasons never single out the best-scoring member. Retries
+  apply this to pending members too. A member withheld only after its
+  siblings were published does not withdraw them: a published object is
+  never recalled.
 
 Each entrant's artifact has one of three states in `publication.json`, in
 `leaderboard.json` and as counts in the index entry:
@@ -185,7 +195,7 @@ Each entrant's artifact has one of three states in `publication.json`, in
 | State | Meaning |
 | --- | --- |
 | `published` | The object is at its path and matches the package's SHA-256. |
-| `pending` | Not copied yet, with a reason. The object is not in the eval bucket yet, the admission object layout is not configured yet, the store did not answer, or the run reached its wall budget. Later runs retry and repeat the checks above. |
+| `pending` | Not copied yet, with a reason. The object is not in the eval bucket yet, the admission object layout is not configured yet, the store did not answer, the run reached its wall budget, or (on a retry) the cohort summary that names its near-copy clusters is not readable. Later runs retry and repeat the checks above. |
 | `withheld` | Never published, with the reason from the list above, or: no outside admission record, or a record that does not match the entrant. |
 
 An artifact entry also carries the entrant's 64-hex hotkey, registration

@@ -152,6 +152,39 @@ pub struct CohortIndex {
     /// stay in the private bucket.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub retired_unpublished: Vec<RetiredCohort>,
+    /// Closed cohorts of this record the publisher build `build` refused
+    /// (a signed object that does not verify, a numbering conflict, the
+    /// memory budget): content free, so the gap in the record is visible and
+    /// later cohorts are listed after it. A later build reconsiders each; one
+    /// that accepts it lists it in its place by number and removes the entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<RefusedCohort>,
+}
+
+/// A closed cohort the publisher refused: never copied, explained here.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusedCohort {
+    pub label: String,
+    /// From its signed manifest, when that opened.
+    pub cohort: Option<u64>,
+    pub opened_epoch: Option<u64>,
+    /// Its manifest starts the record (reference index 0, no predecessor):
+    /// later cohorts are listed after it although it is not, until a later
+    /// build lists it in its place (`publish::record_start`). `false` when
+    /// its manifest did not open.
+    #[serde(default)]
+    pub starts_record: bool,
+    /// The refusal's content-free public reason: the object and the kind of
+    /// failure only (`publish::public_reason`); the full reason stays in the
+    /// alert.
+    pub reason: String,
+    /// The publisher build that refused it (`publish::build_id`).
+    pub build: String,
+    /// Set once detailed receipts an interrupted or refused copy left on
+    /// the public host were deleted under the coordinator's retirement
+    /// marker: its `due_after_cohort`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipts_deleted_after: Option<u64>,
 }
 
 /// A closed cohort whose detailed receipts were deleted before publication.
@@ -326,6 +359,7 @@ impl CohortIndex {
             record_prefix: None,
             previous_records: Vec::new(),
             retired_unpublished: Vec::new(),
+            refused: Vec::new(),
         };
         index.refresh(chain);
         index
@@ -366,6 +400,39 @@ impl CohortIndex {
 
     pub fn contains(&self, label: &str) -> bool {
         self.cohorts.iter().any(|c| c.label == label)
+    }
+
+    /// Records (or replaces) cohort `r.label`'s refusal.
+    pub fn note_refused(&mut self, r: RefusedCohort) {
+        self.refused.retain(|x| x.label != r.label);
+        self.refused.push(r);
+        self.refused.sort_by(|a, b| {
+            (a.cohort, a.opened_epoch, &a.label).cmp(&(b.cohort, b.opened_epoch, &b.label))
+        });
+    }
+
+    /// Drops cohort `label`'s refusal (it was listed, retired or placed
+    /// outside the record since). `true` when there was one.
+    pub fn clear_refused(&mut self, label: &str) -> bool {
+        let before = self.refused.len();
+        self.refused.retain(|x| x.label != label);
+        self.refused.len() != before
+    }
+
+    /// Every cohort number this record knows completed at the coordinator:
+    /// listed, retired before publication, or refused here (a refused
+    /// cohort's closure exists all the same). Ascending, without repeats.
+    pub fn completions(&self) -> Vec<u64> {
+        let mut out: Vec<u64> = self
+            .cohorts
+            .iter()
+            .map(|c| c.cohort)
+            .chain(self.retired_unpublished.iter().map(|r| r.cohort))
+            .chain(self.refused.iter().filter_map(|r| r.cohort))
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 
     pub fn last_cohort(&self) -> Option<u64> {

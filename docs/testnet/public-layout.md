@@ -312,7 +312,29 @@ public host.
 }
 ```
 
-Cohorts are listed in ascending order. `manifest`, `package` and `closure`
+Cohorts are listed in ascending order, and strictly in order: a cohort the
+publisher cannot read yet, or a packaged cohort whose closure is not written
+yet, holds every later one, so a later cohort (and its target and
+authorization) is never listed before an earlier one. A packaged cohort that
+was abandoned holds later ones until the coordinator's retirement marker for
+it (due after two later completions) shows that no closure follows; a signed
+abandonment record that releases it at once is planned but not written yet.
+A closed
+cohort the publisher refused is not listed but appears in `refused`, a
+content-free list of `label`, `cohort` and `opened_epoch` (when its manifest
+opened), `starts_record` (its reference is `R_0` with no predecessor),
+`reason` (the object and the kind of failure, for example
+`package.signed: does not verify`) and the publisher `build` that refused it,
+with `receipts_deleted_after` once detailed receipts its copy left on the
+host were deleted under the coordinator's marker; later cohorts are
+listed after it, and a later publisher build that accepts it lists it in its
+place by number and drops the entry. One exception: before the record has
+started, a refused cohort that cannot start it (or whose manifest did not
+open) starts nothing, so later cohorts wait until a cohort that starts the
+record is listed, retired or refused, or a new publisher build accepts the
+refused one. `retired_unpublished` lists closed
+cohorts whose detailed receipts the coordinator deleted before the publisher
+copied them. `manifest`, `package` and `closure`
 are record digests, so a fetcher can check that it holds the records the index
 names. `active_target` is the target of the last listed cohort that produced
 one, or the launch burn row (`source: "launch_burn"`) if no listed cohort has
@@ -333,7 +355,8 @@ restart), the earlier record's index is archived at
 leaderboard and reference pointers are removed, not archived), and a fresh
 index starts that records the earlier record, its initial references (still
 withheld as entrant artifacts) and its cohorts whose detailed receipts are
-still published (deleted once two cohorts of the new record are listed).
+still published (deleted once the coordinator's retirement marker for each
+exists; see [Retention](#retention)).
 Components of
 a cohort whose plan names an artifact spec carry `limits`, the limits record
 (`slop_ninja_eval_limits_v2`) the signed manifest binds by digest under
@@ -341,15 +364,21 @@ a cohort whose plan names an artifact spec carry `limits`, the limits record
 
 ### Retention
 
-Detailed receipts follow the N+2 rule on the public host. (The deletion of
-the coordinator's private copies is the coordinator's and is not yet
-implemented.) Once two later cohorts are listed (N+1 and N+2 complete) and
-N's target, if it produced one, is superseded by a later cohort's target, the
-publisher deletes cohort N's `receipt-index.signed`, `chunk-map.json` and
-`receipts/` bundles. While N's target is the active target, its receipts
-stay. It then sets `receipts_retained: false` in the index
-entry and `receipts_deleted_after` (the N+2 cohort) in the publication
-record. The manifest, package (with the receipt root and count), target,
+Detailed receipts follow the coordinator's N+2 rule on the public host. The
+coordinator deletes cohort N's private detailed receipts once N+1 and N+2
+complete and N's target is superseded, holding the active target's cohort
+and the cohort whose target the current authorization commits, and first
+writes a content-free marker for N. The publisher deletes the public copies
+of N's `receipt-index.signed`, `chunk-map.json` and `receipts/` bundles only
+once that marker exists, never on its own count, so the public and private
+copies follow one decision. The public side can only delay that decision:
+while the public index's `active_target`, or the target the public current
+authorization commits, is still N's (the publisher has not yet listed the
+superseding cohort or copied the newer authorization), N's public receipts
+stay, and they go on the marker once it caught up. When it deletes them, it
+sets `receipts_retained: false` in the
+index entry and `receipts_deleted_after` (the marker's due-after cohort) in
+the publication record. The manifest, package (with the receipt root and count), target,
 closure, published indexes and artifacts stay (the artifacts of `R_k` and
 `R_k-1` included). New commitments need retained
 receipts, so fetch them while the cohort is current. Caches keep a deleted

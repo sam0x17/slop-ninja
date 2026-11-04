@@ -40,7 +40,23 @@ pub struct Built {
 /// the package's assignments; 0 keeps the fixture's count) bound into its
 /// package, and its target and closure rebuilt over that package.
 pub fn build(receipts: u64) -> Built {
-    let mut c = fx::computed().expect("computed fixture");
+    build_cohort(fx::computed().expect("computed fixture"), receipts)
+}
+
+/// [`build`] for cohort number `cohort` (the fixture's is 3): its label and
+/// opening epoch follow the number, so several closed cohorts can be stored
+/// side by side in order.
+pub fn build_at(cohort: u64) -> Built {
+    build_cohort(fx::computed_at(cohort).expect("computed fixture"), 0)
+}
+
+/// [`build_at`] with reference `R_0` and no predecessor: a cohort that can
+/// start the record.
+pub fn build_r0_at(cohort: u64) -> Built {
+    build_cohort(fx::computed_r0_at(cohort).expect("computed fixture"), 0)
+}
+
+fn build_cohort(mut c: fx::Computed, receipts: u64) -> Built {
     let n = if receipts == 0 {
         c.package.receipt_count
     } else {
@@ -399,4 +415,21 @@ pub fn encoded_len<T: Canonical>(value: &T) -> usize {
     let mut e = slop_ninja_protocol::Encoder::new();
     value.encode_to(&mut e);
     e.into_bytes().len()
+}
+
+/// Writes the coordinator's `receipts-retired.json` marker for `label`
+/// (cohort `cohort`), due after cohort `after`.
+pub fn write_marker(x: &Buckets3, label: &str, cohort: u64, after: u64) {
+    let marker = json!({
+        "schema": slop_ninja_publisher::publish::RETIRED_MARKER_SCHEMA, "label": label,
+        "cohort": cohort, "rule": "receipts_after_two_later_completions_v2",
+        "due_after_cohort": after,
+    });
+    x.receipts.insert(
+        &format!(
+            "cohorts/{label}/{}",
+            slop_ninja_publisher::publish::RETIRED_MARKER
+        ),
+        serde_json::to_vec(&marker).unwrap(),
+    );
 }

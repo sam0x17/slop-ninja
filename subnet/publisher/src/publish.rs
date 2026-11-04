@@ -15,7 +15,18 @@
 //! 3. the in-record cohorts are verified in chain order, at most one to
 //!    completion per run ([`verify::verify_cohort`]); the record starts at a
 //!    cohort whose reference is `R_0` with no predecessor, and cohort numbers
-//!    must order like their opening epochs;
+//!    must order like their opening epochs. Cohorts are listed strictly in
+//!    order: a cohort that is incomplete or unreadable for now (a store
+//!    error, an object not stored yet, a closure or manifest that does not
+//!    answer during the scan) holds every later one, so a later cohort, and
+//!    its target and authorization, never appear before an earlier one. A
+//!    packaged in-record cohort with no closure yet holds every cohort opened
+//!    after it the same way, until a closure follows or something says none
+//!    will: the coordinator's planned abandonment record ([`ABANDONMENT`],
+//!    not written by any coordinator release yet), or its retirement marker
+//!    for that cohort (written only after a closure or an abandonment, so
+//!    with no closure it means the cohort was abandoned; due after two later
+//!    completions, which bounds the hold);
 //! 4. every public object is copied byte for byte, the destination checking
 //!    each against the digest verified in step 3, and the copies are verified
 //!    again from the public bucket;
@@ -26,17 +37,31 @@
 //!
 //! A refused cohort is remembered with the publisher build that refused it
 //! and is not read again until a new build (a new version or new trust
-//! roots); its alert stays raised. Artifacts not copied in one run stay
-//! pending and are retried by later runs. The current validator
+//! roots); its alert stays raised with the full reason. The public index
+//! records it as a content-free entry (`CohortIndex::refused`: label,
+//! number, the object and kind of failure ([`public_reason`]), build), so
+//! the gap is visible and later cohorts are listed after it; a later build
+//! that accepts it lists it in its place, also when it starts the record.
+//! A refused cohort that starts the record starts it for later cohorts;
+//! before the record started, one that cannot start it (or whose manifest
+//! did not open) starts nothing ([`record_start`]).
+//! Artifacts not copied in one run stay pending and are retried by later
+//! runs. The current validator
 //! authorization and its renewal are copied once their cohort is listed
 //! ([`Run::authorizations`]).
 //!
-//! Detailed receipts follow the N+2 rule on the public host: once two later
-//! cohorts are published and N's target is superseded, cohort N's receipt
-//! index, chunk map and bundles are deleted ([`Run::retention`]). The signed
-//! manifest, package (with the receipt root and count), target and closure
-//! stay. Nothing else is ever deleted, and nothing is written to the private
-//! buckets.
+//! Detailed receipts leave the public host when the coordinator retired
+//! them: cohort N's receipt index, chunk map and bundles are deleted once
+//! the coordinator's `cohorts/<label>/receipts-retired.json` marker exists
+//! (its N+2 rule, with the current authorization's hold), never on this
+//! publisher's own count ([`Run::retention`]). While the public index's
+//! active target or the public current authorization still names N's
+//! target (this publisher has not caught up yet), they stay: a hold that
+//! only delays the marker's decision. The publisher's own N+2 reading
+//! is only a cross-check, raised as `retention_stalled` when the two
+//! disagree. The signed manifest, package (with the receipt root and count),
+//! target and closure stay. Nothing else is ever deleted, and nothing is
+//! written to the private buckets.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -46,7 +71,8 @@ use slop_ninja_admission_wire::json::Chain;
 use slop_ninja_protocol::submission::SubmissionUpload;
 use slop_ninja_protocol::{
     AccountId, CalculationTargetV2, Digest, EntrantScore, LaunchAuthorization, Nonce, Record,
-    ReferenceModel, RewardIntentAuthorization, RewardIntentRenewal, RewardIntentRevocation, Signed,
+    ReferenceModel, ReferenceSet, RewardIntentAuthorization, RewardIntentRenewal,
+    RewardIntentRevocation, Signed,
 };
 
 use crate::arena::{self, Budget};
@@ -104,6 +130,80 @@ pub struct Outside {
 pub struct Remembered {
     pub build: String,
     pub reason: String,
+    /// Its manifest's cohort number and opening epoch, when that opened (a
+    /// refusal's public index entry carries them).
+    #[serde(default)]
+    pub cohort: Option<u64>,
+    #[serde(default)]
+    pub opened_epoch: Option<u64>,
+    /// Its manifest starts the record (reference index 0, no predecessor);
+    /// `false` when the manifest did not open.
+    #[serde(default)]
+    pub starts_record: bool,
+    /// The reason the public index records: the object and the kind of
+    /// failure only ([`public_reason`]); `reason`, in full, stays in the
+    /// alert detail.
+    #[serde(default)]
+    pub public: Option<String>,
+}
+
+/// A refusal's public, content-free reason: the object it names and the
+/// kind of failure, without the free-form detail (protocol error text,
+/// memory budget figures), which stays in the alert.
+pub fn public_reason(r: &Refusal) -> String {
+    match r {
+        Refusal::Missing(rel) => format!("{rel}: not stored"),
+        Refusal::Store(rel, _) => format!("{rel}: the store did not answer"),
+        Refusal::Budget(rel, _) => format!("{rel}: exceeds the run's memory budget"),
+        Refusal::Invalid(rel, _) => format!("{rel}: does not verify"),
+    }
+}
+
+/// The public reason of a numbering conflict ([`numbering`]).
+pub const NUMBERING_CONFLICT: &str =
+    "cohort number and opening epoch conflict with a listed cohort";
+
+/// The coordinator's planned signed record that it abandoned a cohort, in
+/// the cohort's private directory: no closure follows. The name comes from
+/// the shared contract (`slop_ninja_admission_wire::receipts`); no
+/// coordinator release writes it yet, and only its presence is read (to
+/// stop a packaged cohort holding later ones). Until it exists, the
+/// coordinator's retirement marker for the cohort ([`RETIRED_MARKER`]) with
+/// no closure beside it releases the hold the same way
+/// ([`Run::pending_closure`]).
+pub use slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD as ABANDONMENT;
+
+/// This publisher's own N+2 reading for one cohort's public receipts
+/// ([`own_due`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnDue {
+    /// Due after this completion.
+    After(u64),
+    /// Held: its target is still the newest this record lists, or the
+    /// current authorization commits it, or fewer than two later cohorts
+    /// completed.
+    Held,
+    /// A later cohort whose target this publisher cannot read (retired
+    /// before publication, or refused) may have superseded it: no claim
+    /// either way.
+    Unknown,
+}
+
+/// What the current authorization holds on the public host, as this run read
+/// the private pointer ([`Run::authorizations`]); the retention cross-check
+/// reads it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum AuthorizationHold {
+    /// The pointer was not read this run, or did not open: the cross-check
+    /// claims no missing marker.
+    #[default]
+    Unknown,
+    /// No pointer, or a launch authorization: no cohort's receipts held.
+    Nothing,
+    /// A cohort authorization committing this target (hex digest): the
+    /// cohort that produced it stays held while it is named. Its carrying
+    /// cohort is not held (as on the coordinator's side).
+    Target(String),
 }
 
 /// Small durable memory kept by the Worker between runs.
@@ -151,6 +251,17 @@ pub struct Report {
     /// A new public record started this run; the previous one was moved
     /// under `v1/records/<its first label>/`.
     pub record_restarted: Option<String>,
+    /// The current authorization's hold, as read this run.
+    pub authorization_hold: AuthorizationHold,
+    /// Disagreements between the coordinator's retirement markers and this
+    /// publisher's own N+2 reading, one content-free line each: raises
+    /// `retention_stalled` for `public_receipts`.
+    pub retention_mismatch: Vec<String>,
+    /// The retention pass ran to its end, so `retention_mismatch` is this
+    /// run's whole reading; a run that stopped before (an error earlier in
+    /// the pass, or in retention itself) keeps the previous reading
+    /// ([`crate::alerts::retention_after_pass`]).
+    pub retention_checked: bool,
 }
 
 /// Why an artifact is or is not published.
@@ -290,23 +401,45 @@ pub fn static_withhold(
 }
 
 /// The record starts at `R_0`: its first cohort's reference has index 0 and
-/// no predecessor. A later cohort waits until such a cohort is listed, or
+/// no predecessor. A later cohort waits until such a cohort is listed,
 /// recorded as retired before publication (its detailed receipts deleted
 /// under the coordinator's N+2 rule before they were copied: it will never
-/// be listed, and the index explains the gap).
+/// be listed, and the index explains the gap), or recorded as refused (the
+/// index shows the gap; a later build that accepts it lists it in its
+/// place). A refused cohort whose manifest did not open is not known to
+/// start the record, so later cohorts still wait for one that does.
 pub fn record_start(idx: &CohortIndex, v: &VerifiedCohort) -> Result<(), String> {
     let refs = &v.manifest.references;
-    let retired_start = idx
+    let n = v.manifest.cohort;
+    let earlier_start = idx
         .retired_unpublished
         .iter()
-        .any(|r| r.starts_record && r.cohort < v.manifest.cohort);
-    if idx.cohorts.is_empty() && !retired_start && (refs.index != 0 || refs.predecessor.is_some()) {
+        .any(|r| r.starts_record && r.cohort < n)
+        || idx
+            .refused
+            .iter()
+            .any(|r| r.starts_record && r.cohort.is_some_and(|c| c < n));
+    if idx.cohorts.is_empty() && !earlier_start && !starts_record(refs) {
         return Err(format!(
             "waiting for the record's first cohort: this one's reference has index {}",
             refs.index
         ));
     }
     Ok(())
+}
+
+/// Whether a cohort with these references can start the record: `R_0`, no
+/// predecessor.
+pub fn starts_record(refs: &ReferenceSet) -> bool {
+    refs.index == 0 && refs.predecessor.is_none()
+}
+
+/// Whether cohort `cohort` (opened at `opened_epoch`) comes before the
+/// record's first listed cohort.
+fn precedes_first(idx: &CohortIndex, cohort: u64, opened_epoch: u64) -> bool {
+    idx.cohorts
+        .first()
+        .is_some_and(|f| cohort < f.cohort && opened_epoch < f.opened_epoch)
 }
 
 /// Cohort numbers must order like opening epochs across the record (one
@@ -322,6 +455,67 @@ pub fn numbering(idx: &CohortIndex, v: &VerifiedCohort) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// This publisher's own reading of the N+2 rule for cohort `cohort` (target
+/// `target`), a cross-check of the coordinator's markers only. It is due
+/// after the later of the second later completion this record knows (`done`,
+/// [`CohortIndex::completions`]) and the first later listed cohort with a
+/// target (when it produced one), unless the current authorization commits
+/// its target. When a later cohort retired before publication or refused
+/// precedes that first listed successor (or there is none), its target is
+/// unknown here, so the reading is [`OwnDue::Unknown`].
+///
+/// `unnumbered` says the record holds a closed cohort whose number this
+/// publisher does not know (its manifest does not open under the trust
+/// roots, or it was refused before its manifest opened): it may be a later
+/// completion, or a later target, that `done` and the index lack, so a
+/// reading that would hold the cohort is [`OwnDue::Unknown`] instead. Such a
+/// cohort can only bring the due point earlier, so a due reading stands.
+pub fn own_due(
+    idx: &CohortIndex,
+    done: &[u64],
+    cohort: u64,
+    target: Option<&str>,
+    hold: &AuthorizationHold,
+    unnumbered: bool,
+) -> OwnDue {
+    if let (Some(t), AuthorizationHold::Target(held)) = (target, hold)
+        && t == held
+    {
+        return OwnDue::Held;
+    }
+    let held = if unnumbered {
+        OwnDue::Unknown
+    } else {
+        OwnDue::Held
+    };
+    let Some(second) = done.iter().copied().filter(|n| *n > cohort).nth(1) else {
+        return held;
+    };
+    let superseded_by = match target {
+        None => Some(cohort),
+        Some(_) => idx
+            .cohorts
+            .iter()
+            .filter(|o| o.cohort > cohort && o.target.is_some())
+            .map(|o| o.cohort)
+            .min(),
+    };
+    let unknown_before = |limit: Option<u64>| {
+        idx.retired_unpublished
+            .iter()
+            .map(|r| Some(r.cohort))
+            .chain(idx.refused.iter().map(|r| r.cohort))
+            .flatten()
+            .any(|n| n > cohort && limit.is_none_or(|l| n < l))
+    };
+    match superseded_by {
+        Some(s) if target.is_none() || !unknown_before(Some(s)) => OwnDue::After(second.max(s)),
+        Some(_) => OwnDue::Unknown,
+        None if unknown_before(None) => OwnDue::Unknown,
+        None => held,
+    }
 }
 
 /// The detailed receipts of a cohort: its receipt index, chunk map and
@@ -623,7 +817,10 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         let build = build_id();
         memo.refused.retain(|_, r| r.build == build);
         memo.unverifiable.retain(|_, r| r.build == build);
+        // Only this record's cohorts: an earlier record's refusals never
+        // reach this record's public `refused` list or its completions.
         if let Some(prefix) = &self.cfg.record_label_prefix {
+            memo.refused.retain(|label, _| label.starts_with(prefix));
             memo.unverifiable
                 .retain(|label, _| label.starts_with(prefix));
             memo.outside_record
@@ -632,6 +829,8 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         if let Some(from) = self.cfg.publish_from_epoch {
             memo.outside_record
                 .retain(|_, o| o.opened_epoch.is_none_or(|e| e < from));
+            memo.refused
+                .retain(|_, r| r.opened_epoch.is_none_or(|e| e >= from));
         }
         for (label, r) in &memo.refused {
             report.refused.push((label.clone(), r.reason.clone()));
@@ -757,26 +956,108 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         Ok(idx)
     }
 
-    fn refuse(&self, memo: &mut Memo, report: &mut Report, label: String, reason: String) {
+    /// Remembers cohort `label` as refused by this build; `at` is its
+    /// manifest's cohort number, opening epoch and whether it starts the
+    /// record, when that opened, and
+    /// `public` the content-free reason the public index records (`reason`,
+    /// in full, raises the alert). The public index entry follows at the end
+    /// of the pass ([`Self::sync_refused`]).
+    fn refuse(
+        &self,
+        memo: &mut Memo,
+        report: &mut Report,
+        label: String,
+        at: Option<(u64, u64, bool)>,
+        reason: String,
+        public: String,
+    ) {
         memo.refused.insert(
             label.clone(),
             Remembered {
                 build: build_id(),
                 reason: reason.clone(),
+                cohort: at.map(|a| a.0),
+                opened_epoch: at.map(|a| a.1),
+                starts_record: at.is_some_and(|a| a.2),
+                public: Some(public),
             },
         );
         report.refused.push((label, reason));
     }
 
+    /// Brings the public index's refused entries in line with what this
+    /// build remembers, and drops the entries of cohorts this pass placed
+    /// otherwise (`resolved`: listed elsewhere, retired, outside the record
+    /// or unverifiable). Entries an earlier build wrote stay until this build
+    /// reconsiders their cohort. Writes the index when anything changed. Run
+    /// at the end of every pass, so a refusal remembered by a run that
+    /// stopped early is still recorded by the next.
+    async fn sync_refused(
+        &self,
+        idx: &mut CohortIndex,
+        memo: &Memo,
+        resolved: &[String],
+        report: &mut Report,
+    ) -> Result<(), String> {
+        let before = idx.refused.clone();
+        for label in resolved {
+            idx.clear_refused(label);
+        }
+        for (label, r) in &memo.refused {
+            if idx.contains(label) || idx.retired_unpublished.iter().any(|x| &x.label == label) {
+                continue;
+            }
+            let entry = index::RefusedCohort {
+                label: label.clone(),
+                cohort: r.cohort,
+                opened_epoch: r.opened_epoch,
+                starts_record: r.starts_record,
+                reason: r.public.clone().unwrap_or_else(|| "refused".into()),
+                build: r.build.clone(),
+                // Partial public receipts already deleted stay deleted.
+                receipts_deleted_after: idx
+                    .refused
+                    .iter()
+                    .find(|x| &x.label == label)
+                    .and_then(|x| x.receipts_deleted_after),
+            };
+            if !idx.refused.contains(&entry) {
+                idx.note_refused(entry);
+            }
+        }
+        if idx.refused != before {
+            put_json(self.buckets.public, layout::COHORT_INDEX, idx, Cache::Index)
+                .await
+                .map_err(|e| e.to_string())?;
+            report.index_written = true;
+        }
+        Ok(())
+    }
+
     /// Places every closed cohort not yet listed inside or outside the
     /// record, then verifies and publishes the in-record ones in chain order,
-    /// at most one to completion per run.
+    /// at most one to completion per run, strictly in order (module docs):
+    /// the first in-record cohort that is not final yet holds the rest.
     async fn new_cohorts(
         &self,
         from: u64,
         idx: &mut CohortIndex,
         memo: &mut Memo,
         report: &mut Report,
+    ) -> Result<(), String> {
+        let mut resolved = Vec::new();
+        self.place_cohorts(from, idx, memo, report, &mut resolved)
+            .await?;
+        self.sync_refused(idx, memo, &resolved, report).await
+    }
+
+    async fn place_cohorts(
+        &self,
+        from: u64,
+        idx: &mut CohortIndex,
+        memo: &mut Memo,
+        report: &mut Report,
+        resolved: &mut Vec<String>,
     ) -> Result<(), String> {
         let b = &self.buckets;
         let dirs = b
@@ -787,6 +1068,14 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         // (opened epoch, label, cohort number, whether it starts the
         // record), from each opened manifest.
         let mut candidates: Vec<(u64, String, u64, bool)> = Vec::new();
+        // A closed cohort whose closure or manifest did not answer: its place
+        // in the order is unknown, so no cohort is listed this run.
+        let mut held = false;
+        // In-record cohorts packaged but not closed yet (opened epoch,
+        // number, whether it starts the record): a closure the coordinator
+        // has not written yet (paused, or waiting out its retry time while
+        // later cohorts go on) holds every cohort opened after it.
+        let mut unclosed: Vec<(u64, u64, bool)> = Vec::new();
         for dir in dirs {
             let label = dir
                 .trim_start_matches(layout::PRIVATE_COHORTS)
@@ -818,9 +1107,20 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 .await
             {
                 Ok(Some(_)) => {}
-                Ok(None) => continue,
+                Ok(None) => {
+                    match self.pending_closure(&private, &label, from).await {
+                        Ok(Some(at)) => unclosed.push(at),
+                        Ok(None) => {}
+                        Err(e) => {
+                            report.pending.push((label, e));
+                            held = true;
+                        }
+                    }
+                    continue;
+                }
                 Err(e) => {
                     report.pending.push((label, e.to_string()));
+                    held = true;
                     continue;
                 }
             }
@@ -834,15 +1134,16 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     }
                     if m.opened_epoch < from {
                         memo.outside_record.insert(
-                            label,
+                            label.clone(),
                             Outside {
                                 opened_epoch: Some(m.opened_epoch),
                                 reason: "opened before PUBLISH_FROM_EPOCH".into(),
                             },
                         );
+                        resolved.push(label);
                         report.outside += 1;
                     } else {
-                        let starts = m.references.index == 0 && m.references.predecessor.is_none();
+                        let starts = starts_record(&m.references);
                         candidates.push((m.opened_epoch, label, m.cohort, starts));
                     }
                 }
@@ -852,8 +1153,13 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                         Remembered {
                             build: build_id(),
                             reason: format!("manifest.signed: {why}"),
+                            cohort: None,
+                            opened_epoch: None,
+                            starts_record: false,
+                            public: None,
                         },
                     );
+                    resolved.push(label.clone());
                     report.unverifiable.push(label);
                 }
                 Ok(check @ (ManifestCheck::OtherChain | ManifestCheck::OtherKind)) => {
@@ -862,28 +1168,70 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                         _ => "not a reward-v1 cohort manifest",
                     };
                     memo.outside_record.insert(
-                        label,
+                        label.clone(),
                         Outside {
                             opened_epoch: None,
                             reason: reason.into(),
                         },
                     );
+                    resolved.push(label);
                     report.outside += 1;
                 }
-                Ok(ManifestCheck::OtherLabel) => self.refuse(
-                    memo,
-                    report,
-                    label,
-                    "manifest.signed: label differs from its directory".into(),
-                ),
-                Err(r) if r.retryable() => report.pending.push((label, r.to_string())),
-                Err(r) => self.refuse(memo, report, label, r.to_string()),
+                Ok(ManifestCheck::OtherLabel) => {
+                    let why = "manifest.signed: label differs from its directory";
+                    self.refuse(memo, report, label, None, why.into(), why.into())
+                }
+                Err(r) if r.retryable() => {
+                    report.pending.push((label, r.to_string()));
+                    held = true;
+                }
+                Err(r) => {
+                    let public = public_reason(&r);
+                    self.refuse(memo, report, label, None, r.to_string(), public)
+                }
             }
         }
+        if held {
+            return Ok(());
+        }
         candidates.sort();
-        for (opened_epoch, label, cohort, starts_record) in candidates {
+        // The earliest unclosed cohort that can still be listed (one before
+        // the record's first listed cohort that cannot start the record is
+        // placed outside once closed, so it holds nothing).
+        let first_unclosed = unclosed
+            .iter()
+            .filter(|(e, n, starts)| *starts || !precedes_first(idx, *n, *e))
+            .min()
+            .copied();
+        for (opened_epoch, label, cohort, starts) in candidates {
             if !self.may_continue().await {
                 break;
+            }
+            if let Some((_, n, _)) = first_unclosed.filter(|(e, _, _)| *e < opened_epoch) {
+                report.pending.push((
+                    label,
+                    format!("waiting for the closure of earlier cohort {n}"),
+                ));
+                break;
+            }
+            let at = Some((cohort, opened_epoch, starts));
+            if !starts && precedes_first(idx, cohort, opened_epoch) {
+                // Before the record's first listed cohort (one that waited for
+                // the record to start, which a later cohort started): never
+                // listed after it. A cohort that starts the record itself
+                // (one refused, then accepted by a later build) is listed in
+                // its place instead. A number and epoch that disagree are a
+                // numbering conflict ([`numbering`]).
+                memo.outside_record.insert(
+                    label.clone(),
+                    Outside {
+                        opened_epoch: None,
+                        reason: "precedes the record's first listed cohort".into(),
+                    },
+                );
+                resolved.push(label);
+                report.outside += 1;
+                continue;
             }
             let v = match verify::verify_cohort(
                 b.receipts,
@@ -900,7 +1248,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     // return: its marker makes the cohort final here, once
                     // any detailed receipts an interrupted earlier copy left
                     // in the public bucket are gone too (no publication
-                    // record would ever delete them).
+                    // record would ever delete them). Without the marker the
+                    // object is only not stored yet, and the later cohorts
+                    // wait.
                     match self.retired_marker(&label).await {
                         Ok(Some(after)) => {
                             match self.delete_partial_receipts(&label).await {
@@ -910,11 +1260,11 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                                         label,
                                         "retired before publication: deleting partial public copies".into(),
                                     ));
-                                    continue;
+                                    break;
                                 }
                                 Err(e) => {
                                     report.pending.push((label, e.to_string()));
-                                    continue;
+                                    break;
                                 }
                             }
                             idx.retired_unpublished.push(index::RetiredCohort {
@@ -922,34 +1272,39 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                                 cohort,
                                 opened_epoch,
                                 due_after_cohort: after,
-                                starts_record,
+                                starts_record: starts,
                             });
+                            idx.clear_refused(&label);
                             put_json(b.public, layout::COHORT_INDEX, idx, Cache::Index)
                                 .await
                                 .map_err(|e| e.to_string())?;
                             report.index_written = true;
                             report.retired_unpublished.push(label);
+                            continue;
                         }
                         Ok(None) => report.pending.push((label, r.to_string())),
                         Err(e) => report.pending.push((label, e.to_string())),
                     }
-                    continue;
+                    break;
                 }
                 Err(r) if r.retryable() => {
                     report.pending.push((label, r.to_string()));
-                    continue;
+                    break;
                 }
                 Err(r) => {
-                    self.refuse(memo, report, label, r.to_string());
+                    let public = public_reason(&r);
+                    self.refuse(memo, report, label, at, r.to_string(), public);
                     break;
                 }
             };
             if let Err(why) = record_start(idx, &v) {
+                // Waiting for the record's first cohort: a later cohort that
+                // starts the record is listed, and this one then precedes it.
                 report.pending.push((label, why));
                 continue;
             }
             if let Err(why) = numbering(idx, &v) {
-                self.refuse(memo, report, label, why);
+                self.refuse(memo, report, label, at, why, NUMBERING_CONFLICT.into());
                 break;
             }
             match self.publish_one(&v, idx, memo, report).await {
@@ -957,14 +1312,67 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     report.published.push(label);
                     break;
                 }
-                Err(r) if r.retryable() => report.pending.push((label, r.to_string())),
+                Err(r) if r.retryable() => {
+                    report.pending.push((label, r.to_string()));
+                    break;
+                }
                 Err(r) => {
-                    self.refuse(memo, report, label, r.to_string());
+                    let public = public_reason(&r);
+                    self.refuse(memo, report, label, at, r.to_string(), public);
                     break;
                 }
             }
         }
         Ok(())
+    }
+
+    /// Whether cohort `label`, which has no closure yet, is packaged and in
+    /// the record, so its closure is only pending: its package is stored
+    /// (a packaged cohort closes unless it is abandoned), nothing says it
+    /// was abandoned, and its manifest opens with an opening epoch at or
+    /// after `from`. Abandonment shows as the planned abandonment record
+    /// ([`ABANDONMENT`]) or as the coordinator's retirement marker
+    /// ([`RETIRED_MARKER`]): the coordinator writes that marker only for a
+    /// closed cohort, after its closure, or for an abandoned one, so a
+    /// marker with no closure means no closure follows. Returns its opening
+    /// epoch, number and whether it starts the record. `Err` when a read did
+    /// not answer, or the marker does not parse (its place is unknown); an
+    /// absent or unverifiable manifest, or one outside the record, holds
+    /// nothing.
+    async fn pending_closure(
+        &self,
+        private: &str,
+        label: &str,
+        from: u64,
+    ) -> Result<Option<(u64, u64, bool)>, String> {
+        let r = self.buckets.receipts;
+        for (rel, want) in [(verify::PACKAGE, true), (ABANDONMENT, false)] {
+            let stored = r
+                .head(&layout::join(private, rel))
+                .await
+                .map_err(|e| format!("{rel}: {e}"))?
+                .is_some();
+            if stored != want {
+                return Ok(None);
+            }
+        }
+        if self
+            .retired_marker(label)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_some()
+        {
+            return Ok(None);
+        }
+        match verify::open_manifest(r, private, label, &self.opts(), self.budget).await {
+            Ok(ManifestCheck::Opened(m)) if m.opened_epoch >= from => Ok(Some((
+                m.opened_epoch,
+                m.cohort,
+                starts_record(&m.references),
+            ))),
+            Err(e @ Refusal::Store(..)) => Err(e.to_string()),
+            _ => Ok(None),
+        }
     }
 
     /// Deletes every detailed receipt of cohort `label` in the public bucket
@@ -1027,63 +1435,215 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         Ok(Some(m.due_after_cohort))
     }
 
-    /// Deletes the detailed receipts of every published cohort N once two
-    /// later cohorts are published (N+1 and N+2 completed) and N's target,
-    /// if it produced one, is superseded by a later cohort's; records it.
-    /// While N's target is the active target its receipts stay, since new
-    /// commitments to it need them. An earlier record's cohorts that still
-    /// had their receipts when it was moved aside (`previous_records`) are
-    /// held to the two-later-cohorts part of the rule against the live
-    /// record's cohorts: the restart superseded their targets (the
-    /// coordinator's `restart_target` and the validators' `reset-target` set
-    /// the held target aside, so no new commitment to an earlier record's
-    /// target is made), so a record restart leaves no detailed receipt
-    /// published indefinitely, even while the new record produces no target.
+    /// Deletes the public detailed receipts of every listed cohort, and of
+    /// every earlier record's cohort still waiting (`previous_records`; the
+    /// marker is read under the same label, which the predecessor authority
+    /// wrote), once the coordinator's `receipts-retired.json` marker for it
+    /// exists, recording the marker's `due_after_cohort`. The coordinator's
+    /// decision is the only deletion rule: it holds the active target's
+    /// cohort and the one whose target the current authorization commits,
+    /// judged by durable completion. No marker, nothing deleted. A marker
+    /// that is unreadable, oversized or names another label is refused and
+    /// deletes nothing; one that does not answer waits. A public-side hold
+    /// can only delay a marker's deletion: while the public index's active
+    /// target, or the target the public current authorization commits
+    /// ([`Self::public_authorization_target`]; a read that does not answer
+    /// waits), is the cohort's, its public receipts stay.
+    ///
+    /// This publisher's own N+2 reading ([`own_due`]) is kept only as a
+    /// cross-check (`Report::retention_mismatch`, raised as
+    /// `retention_stalled`): a marker whose due point this record has reached
+    /// while the own reading still finds the cohort held, or a cohort the own
+    /// reading found due with no marker after more than one further
+    /// completion (only while the authorization's hold was read this run).
     pub async fn retention(
         &self,
         idx: &mut CohortIndex,
         report: &mut Report,
     ) -> Result<(), String> {
-        // Cohort N's detailed receipts once N+1 and N+2 are published and a
-        // later target supersedes N's (none: nothing to supersede): the live
-        // record's own cohorts, and an earlier record's that were still
-        // published when it was moved aside (cohort numbers continue across
-        // authorities, so the live record's cohorts are their N+1 and N+2).
-        let due_after = |cohort: u64, target: &Option<String>| {
-            let later: Vec<&index::CohortEntry> =
-                idx.cohorts.iter().filter(|o| o.cohort > cohort).collect();
-            let superseded = target.is_none() || later.iter().any(|o| o.target.is_some());
-            let mut numbers: Vec<u64> = later.iter().map(|o| o.cohort).collect();
-            numbers.sort_unstable();
-            numbers.get(1).filter(|_| superseded).copied()
-        };
-        let live: Vec<(String, u64)> = idx
-            .cohorts
-            .iter()
-            .filter(|c| c.receipts_retained)
-            .filter_map(|c| due_after(c.cohort, &c.target).map(|n| (c.label.clone(), n)))
-            .collect();
-        let earlier: Vec<(String, u64)> = idx
+        let done = idx.completions();
+        let hold = report.authorization_hold.clone();
+        // A closed in-record cohort whose number is unknown here (its
+        // manifest does not open, or it was refused before it opened).
+        let unnumbered =
+            !report.unverifiable.is_empty() || idx.refused.iter().any(|r| r.cohort.is_none());
+        // (label, number, target for the own reading, target the public host
+        // may still name, whether from an earlier record).
+        let listed = idx.cohorts.iter().filter(|c| c.receipts_retained).map(|c| {
+            (c.label.clone(), c.cohort, c.target.clone(), c.target.clone(), false)
+        });
+        let earlier = idx
             .previous_records
             .iter()
             .flat_map(|r| r.receipts_pending.iter())
-            .filter_map(|c| due_after(c.cohort, &None).map(|n| (c.label.clone(), n)))
-            .collect();
-        for (label, after) in live {
+            // The restart superseded an earlier record's targets for the own
+            // reading, but the public authorization can still name one until
+            // a cohort of the new record is listed.
+            .map(|c| (c.label.clone(), c.cohort, None, c.target.clone(), true));
+        let entries: Vec<_> = listed.chain(earlier).collect();
+        // What the public host names now, read once when a marker is found.
+        let mut public_names: Option<Result<Option<String>, Refusal>> = None;
+        for (label, cohort, target, named, from_earlier) in entries {
+            let own = own_due(idx, &done, cohort, target.as_deref(), &hold, unnumbered);
+            let after = match self.retired_marker(&label).await {
+                Ok(Some(after)) => after,
+                Ok(None) => {
+                    if let OwnDue::After(n) = own
+                        && hold != AuthorizationHold::Unknown
+                        && done.iter().filter(|c| **c > n).count() > 1
+                    {
+                        report.retention_mismatch.push(format!(
+                            "cohort {cohort}: due after cohort {n} by the public record, \
+                             and no coordinator retirement marker after two further completions"
+                        ));
+                    }
+                    continue;
+                }
+                Err(r) if r.retryable() => {
+                    report
+                        .pending
+                        .push((format!("{label}/receipts-retired"), r.to_string()));
+                    continue;
+                }
+                Err(r) => {
+                    report
+                        .refused
+                        .push((format!("{label}/receipts-retired"), r.to_string()));
+                    continue;
+                }
+            };
+            if own == OwnDue::Held && done.last().is_some_and(|n| *n >= after) {
+                report.retention_mismatch.push(format!(
+                    "cohort {cohort}: the coordinator retired its receipts after cohort {after}, \
+                     which the public record has reached, while the public reading still holds them"
+                ));
+            }
+            // A hold that only delays: while the public host still names
+            // this cohort's target (the public index's active target, or the
+            // target the public current authorization commits, before this
+            // publisher listed the superseding cohort or copied the newer
+            // authorization), a validator reading the public host still
+            // needs its receipts. Deleted on the marker once it caught up.
+            if let Some(t) = &named {
+                if !from_earlier && idx.active_target.digest == *t {
+                    continue;
+                }
+                if public_names.is_none() {
+                    let read = self.public_authorization_target().await;
+                    if let Err(r) = &read {
+                        report
+                            .pending
+                            .push((layout::AUTHORIZATION_CURRENT.into(), r.to_string()));
+                    }
+                    public_names = Some(read);
+                }
+                match public_names.as_ref() {
+                    Some(Ok(Some(p))) if p == t => continue,
+                    Some(Err(_)) => continue,
+                    _ => {}
+                }
+            }
             if !self.delete_receipts(&label, after, report).await? {
                 continue;
             }
-            if let Some(entry) = idx.cohorts.iter_mut().find(|c| c.label == label) {
+            if from_earlier {
+                for r in &mut idx.previous_records {
+                    r.receipts_pending.retain(|c| c.label != label);
+                }
+            } else if let Some(entry) = idx.cohorts.iter_mut().find(|c| c.label == label) {
                 entry.receipts_retained = false;
             }
             self.receipts_deleted(idx, report).await?;
         }
-        for (label, after) in earlier {
-            if !self.delete_receipts(&label, after, report).await? {
-                continue;
+        self.refused_receipts(idx, report).await?;
+        report.retention_checked = true;
+        Ok(())
+    }
+
+    /// The target the public current authorization
+    /// (`v1/authorizations/current.json`) commits, as hex: `None` when there
+    /// is none or it is a launch authorization. Only decoded, not opened: it
+    /// can only delay a deletion ([`Self::retention`]), and this publisher
+    /// copied it after opening it.
+    async fn public_authorization_target(&self) -> Result<Option<String>, Refusal> {
+        let p = self.buckets.public;
+        let key = layout::AUTHORIZATION_CURRENT;
+        let invalid = |why: &str| Refusal::Invalid(key.into(), why.into());
+        let pointer: AuthorizationPointer =
+            match p.get(key, arena::AUTHORIZATION_POINTER_BOUND).await {
+                Ok(None) => return Ok(None),
+                Ok(Some(bytes)) => {
+                    serde_json::from_slice(&bytes).map_err(|_| invalid("unreadable"))?
+                }
+                Err(StoreError::TooLarge { .. }) => return Err(invalid("larger than its bound")),
+                Err(e) => return Err(Refusal::Store(key.into(), e)),
+            };
+        if pointer.kind != slop_ninja_admission_wire::receipts::KIND_COHORT {
+            return Ok(None);
+        }
+        let r = &pointer.authorization;
+        let bytes = match p.get(&r.path, arena::AUTHORIZATION_OBJECT_BOUND).await {
+            Ok(Some(b)) => b,
+            Ok(None) => return Err(Refusal::Missing(r.path.clone())),
+            Err(StoreError::TooLarge { .. }) => return Err(invalid("larger than its bound")),
+            Err(e) => return Err(Refusal::Store(r.path.clone(), e)),
+        };
+        let a = Signed::<RewardIntentAuthorization>::from_bytes(&bytes)
+            .map_err(|e| invalid(&format!("authorization: {e}")))?;
+        Ok(Some(a.record.target.hex()))
+    }
+
+    /// Deletes the detailed receipts a refused cohort's interrupted or
+    /// refused copy left in the public bucket, once the coordinator's
+    /// marker for it exists (as for a listed cohort; no publication record
+    /// lists them), and records the marker's `due_after_cohort` in its
+    /// refused entry, so it is done once. The entry stays: a later build
+    /// still reconsiders the cohort (its private receipts are then gone, so
+    /// it is recorded as retired before publication).
+    async fn refused_receipts(
+        &self,
+        idx: &mut CohortIndex,
+        report: &mut Report,
+    ) -> Result<(), String> {
+        let due: Vec<String> = idx
+            .refused
+            .iter()
+            .filter(|r| r.receipts_deleted_after.is_none())
+            .map(|r| r.label.clone())
+            .collect();
+        for label in due {
+            let after = match self.retired_marker(&label).await {
+                Ok(Some(after)) => after,
+                Ok(None) => continue,
+                Err(r) if r.retryable() => {
+                    report
+                        .pending
+                        .push((format!("{label}/receipts-retired"), r.to_string()));
+                    continue;
+                }
+                Err(r) => {
+                    report
+                        .refused
+                        .push((format!("{label}/receipts-retired"), r.to_string()));
+                    continue;
+                }
+            };
+            match self.delete_partial_receipts(&label).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    report.pending.push((
+                        label,
+                        "refused: deleting partial public receipt copies".into(),
+                    ));
+                    break;
+                }
+                Err(e) => {
+                    report.pending.push((label, e.to_string()));
+                    continue;
+                }
             }
-            for r in &mut idx.previous_records {
-                r.receipts_pending.retain(|c| c.label != label);
+            if let Some(r) = idx.refused.iter_mut().find(|r| r.label == label) {
+                r.receipts_deleted_after = Some(after);
             }
             self.receipts_deleted(idx, report).await?;
         }
@@ -1253,6 +1813,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         let newest = idx.last_cohort().is_none_or(|c| v.manifest.cohort >= c);
         idx.note_initial_reference(v);
         idx.upsert(index::entry(v, &artifacts), &self.cfg.chain);
+        idx.clear_refused(label);
         put_json(b.public, layout::COHORT_INDEX, idx, Cache::Index)
             .await
             .map_err(store_err)?;
@@ -1574,7 +2135,10 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     /// Copies the current validator authorization and its renewal, then
     /// points `v1/authorizations/current.json` at them; reports problems.
     pub async fn authorizations(&self, idx: &CohortIndex, report: &mut Report) {
-        match self.copy_authorizations(idx).await {
+        match self
+            .copy_authorizations(idx, &mut report.authorization_hold)
+            .await
+        {
             Ok((written, unopened)) => {
                 report.authorization_written = written;
                 report.revocations_unopened = unopened;
@@ -1654,7 +2218,13 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         }
     }
 
-    async fn copy_authorizations(&self, idx: &CohortIndex) -> Result<(bool, u32), Refusal> {
+    /// Copies what the private pointer names; `hold` is set as soon as the
+    /// authorization it names has opened.
+    async fn copy_authorizations(
+        &self,
+        idx: &CohortIndex,
+        hold: &mut AuthorizationHold,
+    ) -> Result<(bool, u32), Refusal> {
         let b = &self.buckets;
         let mut unopened = 0u32;
         let pointer: AuthorizationPointer = match b
@@ -1665,7 +2235,10 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             )
             .await
         {
-            Ok(None) => return Ok((false, 0)),
+            Ok(None) => {
+                *hold = AuthorizationHold::Nothing;
+                return Ok((false, 0));
+            }
             Ok(Some(bytes)) => serde_json::from_slice(&bytes).map_err(|e| {
                 Refusal::Invalid(layout::PRIVATE_AUTHORIZATION_POINTER.into(), e.to_string())
             })?,
@@ -1700,6 +2273,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 if a.chain != self.cfg.chain || a.target != burn {
                     return Err(invalid("the launch authorization names another target"));
                 }
+                *hold = AuthorizationHold::Nothing;
                 a.digest().map_err(|e| invalid(&e.to_string()))?
             }
             "cohort" => {
@@ -1708,6 +2282,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 if a.chain != self.cfg.chain {
                     return Err(invalid("the authorization names another chain or subnet"));
                 }
+                *hold = AuthorizationHold::Target(a.target.hex());
                 let listed = idx.cohorts.iter().any(|c| {
                     c.cohort == a.cohort
                         && c.manifest == a.cohort_manifest.hex()

@@ -946,6 +946,12 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
         config: None,
         interrupted: false,
         warnings: Vec::new(),
+        retention_mismatch: crate::alerts::retention_after_pass(
+            &durable.publisher.retention_mismatch,
+            report
+                .retention_checked
+                .then_some(report.retention_mismatch.as_slice()),
+        ),
     };
     if let Some(i) = &index {
         durable.last_published = i.last_cohort();

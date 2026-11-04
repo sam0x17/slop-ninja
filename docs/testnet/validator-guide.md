@@ -387,11 +387,12 @@ What the validator does with a verified bundle:
   without receipts because it commits nothing for them, and moves its held
   target forward through them to the current one.
 
-Receipts follow the N+2 rule: a cohort's receipt index, chunk map and
-bundles are deleted from the host once two later cohorts are published and
-its target is superseded. The current target's cohort stays published. A
-carrying cohort produces no target, so its receipts are deleted two cohorts
-later even while the current authorization still names it. New commitments
+Receipts follow the N+2 rule: the host deletes a cohort's receipt index,
+chunk map and bundles once the coordinator retires them, after the next two
+cohorts complete and the cohort's target is superseded. The cohort whose
+target the current authorization commits stays published. A carrying
+cohort produces no target, so its receipts are deleted two cohorts later
+even while the current authorization still names it. New commitments
 need retained receipts, so a validator that never fetched a cohort's
 receipts before they were deleted reports `receipts_expired` and keeps its
 installed bundle; one that fetched them earlier assembles from its own

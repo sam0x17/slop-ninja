@@ -1170,15 +1170,31 @@ pub fn closure(
 }
 
 pub fn computed() -> Result<Computed> {
+    computed_at(3)
+}
+
+/// [`computed`] for cohort number `cohort` (its label and opening epoch
+/// follow the number), so a test can store several closed cohorts in order.
+pub fn computed_at(cohort: u64) -> Result<Computed> {
+    computed_with(cohort, 1)
+}
+
+/// [`computed_at`] whose reference is `R_0` with no predecessor: a cohort
+/// that can start a chain record.
+pub fn computed_r0_at(cohort: u64) -> Result<Computed> {
+    computed_with(cohort, 0)
+}
+
+fn computed_with(cohort: u64, reference_index: u64) -> Result<Computed> {
     let models = models();
     let specs: Vec<Spec> = models.iter().map(|m| m.spec.clone()).collect();
     let index = computed_index()?;
     let mut manifest = manifest_with(
         chain(),
-        3,
+        cohort,
         CASES,
         sigma_permille(40),
-        references(1),
+        references(reference_index),
         &index,
         probe(CASES),
         &specs,

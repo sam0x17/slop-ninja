@@ -1,8 +1,10 @@
 //! The private receipts-bucket contract the coordinator and the publisher
 //! share: the authorization pointer's key, kinds and read bounds, its
-//! checks, and the marker the coordinator writes before it deletes a
-//! cohort's detailed receipts under the N+2 rule. Both crates import these
-//! items, so the reader and the writer of each object cannot drift apart.
+//! checks, the marker the coordinator writes before it deletes a cohort's
+//! detailed receipts under the N+2 rule, and the name of its planned
+//! abandonment record ([`ABANDONMENT_RECORD`]). Both crates import these
+//! items (the abandonment name once its writer exists), so the reader and
+//! the writer of each object cannot drift apart.
 //!
 //! The pointer type itself is [`crate::json::AuthorizationPointer`]
 //! (schema [`crate::json::AUTHORIZATION_POINTER_SCHEMA`]). A pointer kind
@@ -120,6 +122,19 @@ pub const RETIRED_MARKER: &str = "receipts-retired.json";
 pub const RETIRED_MARKER_SCHEMA: &str = "slop_ninja.receipts_retired/v1";
 /// Read bound of the marker (fixed fields only).
 pub const RETIRED_MARKER_BOUND: u64 = 1024;
+
+/// The file name, in a private cohort directory
+/// (`cohorts/<label>/abandoned.signed`), of the coordinator's signed record
+/// that it ended the cohort without a target, so no closure follows.
+///
+/// Planned: no coordinator release writes it yet. The writer will bring its
+/// signed record type and read bound, and it must import this name, so the
+/// publisher (which reads it) and the coordinator (which will write it)
+/// share one definition. Until then the publisher reads only whether the
+/// object exists. A cohort with a [`RETIRED_MARKER`] and no closure is
+/// read the same way: the coordinator writes that marker only for a closed
+/// cohort (after its closure) or an abandoned one.
+pub const ABANDONMENT_RECORD: &str = "abandoned.signed";
 
 /// Written by the coordinator before the first of a cohort's detailed
 /// receipts is deleted: content free, so the publisher can tell receipts

@@ -53,7 +53,7 @@
 //! | `inclusion_unknown` | a recent coordinator commit operation settled `inclusion_unverifiable`: its nonce was consumed but the inclusion could not be read, so whether that epoch's commit landed is unknown (the signer keeps running; one alert per operation) |
 //! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step, or `step_refused` when a root step fails in a way no wait changes), or a closed cohort's closure step is paused; or such a cohort's root step has kept failing on a retried (transient) code through a whole tempo of chain progress (its stored epoch two past the one it first failed in), which pauses nothing |
 //! | `ledger_threshold` | the spend ledger's billing month (settled spend plus open reservations) is past the deployment's private alert threshold; tracking only, nothing is refused |
-//! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error) |
+//! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error); or (subject `public_receipts`) the publisher's own N+2 reading of the public record disagrees with the coordinator's retirement markers, which alone delete public receipts: a marker whose due point the record reached while the public reading still holds the cohort, or a cohort the public reading found due with no marker after two further completions |
 //! | `ledger_threshold_unset` | the eval status's ledger standing names no alert threshold (the deploy did not pass `SPEND_ALERT_MICROUSD`), so `ledger_threshold` cannot fire |
 //! | `commit_gap` | the coordinator has not committed weights for two or more tempos |
 //! | `pointer_stale` | the coordinator's authorization-pointer writer has not confirmed the private pointer (its last pass failed, or its last confirmation is older than two cron periods) for a whole tempo: re-authorizations and revocations are not reaching validators |
@@ -83,10 +83,15 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v12: `status_access_warning` (v11: `scorer_budget_fault` also fires for a cohort past a budget guard
-/// that pauses nothing (`budget_alert`), and `attempts_extended`,
-/// `epoch_deferred` and `inclusion_unknown` (v10: `cohort_fault` also fires for a root step that keeps failing on a
-/// retried code through a whole tempo of chain progress (v9:
+/// v13: `retention_stalled` for `public_receipts`, the publisher's own
+/// cross-check of the coordinator's retirement markers, which now alone
+/// delete public detailed receipts; a pass that did not finish its
+/// retention step keeps the previous reading ([`retention_after_pass`])
+/// (v12: `status_access_warning`; v11: `scorer_budget_fault` also fires
+/// for a cohort past a budget guard that pauses nothing (`budget_alert`),
+/// and `attempts_extended`, `epoch_deferred` and `inclusion_unknown`; v10:
+/// `cohort_fault` also fires for a root step that keeps failing on a
+/// retried code through a whole tempo of chain progress; v9:
 /// `auto_target_stalled`; v8: `phase_overrun` also covers a cohort still in `admission` at its
 /// package deadline with its window closed (its roster freeze waiting), and
 /// counts a cohort's age in the coordinator's credited tempos
@@ -99,8 +104,8 @@ pub use slop_ninja_alerts_wire::{
 /// without a field an open entry needs, carries the open entries it would
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
-/// firings))).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v12";
+/// firings).
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v13";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -208,6 +213,25 @@ pub struct PublisherObs {
     /// Settings this run's accepted configuration ignored.
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// Disagreements between the coordinator's receipt retirement markers
+    /// and the publisher's own N+2 reading (`publish::Report`), one
+    /// content-free line each.
+    #[serde(default)]
+    pub retention_mismatch: Vec<String>,
+}
+
+/// The `retention_stalled` subject of the publisher's own cross-check
+/// (decided by its own pass, never by a status read).
+pub const PUBLIC_RECEIPTS: &str = "public_receipts";
+
+/// The cross-check lines the next alert phase reads: this pass's when its
+/// retention step ran to its end (`this_pass`, from
+/// `publish::Report::retention_checked`), otherwise the previous pass's, so
+/// a pass that stopped earlier (a store error before or during retention)
+/// neither resolves an open disagreement nor raises it again on the next
+/// full pass.
+pub fn retention_after_pass(previous: &[String], this_pass: Option<&[String]>) -> Vec<String> {
+    this_pass.unwrap_or(previous).to_vec()
 }
 
 fn cond(rule: &'static str, subject: &str, detail: String, hold_ms: u64) -> Condition {
@@ -577,6 +601,14 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
     for (label, reason) in &p.refused {
         out.push(cond("publication_refused", label, reason.clone(), 0));
     }
+    if !p.retention_mismatch.is_empty() {
+        out.push(cond(
+            "retention_stalled",
+            PUBLIC_RECEIPTS,
+            p.retention_mismatch.join("; "),
+            0,
+        ));
+    }
     if let Some(newest) = p.unverifiable.iter().max() {
         out.push(cond(
             "publication_unverifiable",
@@ -768,6 +800,7 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
             Some(("ledger flag", |e| e.ledger_over_threshold.is_some())),
             &mut n,
         ),
+        "retention_stalled" if subject == PUBLIC_RECEIPTS => {}
         "retention_stalled" => need_eval(
             o,
             Some(("receipt_retention.stalled", |e| {
@@ -1441,6 +1474,7 @@ mod tests {
             config: Some("NETWORK must be testnet".into()),
             interrupted: true,
             warnings: vec![],
+            retention_mismatch: vec![],
         };
         let c = evaluate(&o, &p, &r);
         assert_eq!(
@@ -1460,6 +1494,80 @@ mod tests {
         // Every unverifiable cohort is one condition, naming the newest.
         assert_eq!(c[4].subject, "manifests");
         assert!(c[4].detail.starts_with("2 closed cohorts") && c[4].detail.contains("old-b"));
+    }
+
+    /// The publisher's own retention cross-check raises `retention_stalled`
+    /// for `public_receipts` with its lines, at once; it is decided by the
+    /// publisher's pass, not by any status read, so an unanswered eval
+    /// status neither carries nor blocks it, and it resolves when the pass
+    /// reports no disagreement.
+    #[test]
+    fn the_public_retention_cross_check_raises_retention_stalled() {
+        let r = rules();
+        let p = PublisherObs {
+            retention_mismatch: vec!["cohort 3: a".into(), "cohort 4: b".into()],
+            ..PublisherObs::default()
+        };
+        let c = evaluate(&healthy(), &p, &r);
+        assert_eq!(rules_of(&c), vec!["retention_stalled"]);
+        assert_eq!(c[0].subject, PUBLIC_RECEIPTS);
+        assert_eq!((c[0].detail.as_str(), c[0].hold_ms), ("cohort 3: a; cohort 4: b", 0));
+        let mut o = healthy();
+        o.eval = None;
+        assert!(decided("retention_stalled", PUBLIC_RECEIPTS, &o));
+        assert!(!decided("retention_stalled", "receipts", &o));
+        let mut st = AlertState::default();
+        let c = conditions(&healthy(), &p, &r, &st, 1_000);
+        observe(&mut st, &c, 1_000);
+        let ev = due(&st, 1_000, r.renotify_ms);
+        assert_eq!(ev.len(), 1);
+        mark(&mut st, &ev, 1_000, true);
+        acknowledge(&mut st, &ev, 1_000);
+        // The eval status unanswered and the disagreement gone: resolved, not
+        // carried.
+        let c = conditions(&o, &PublisherObs::default(), &r, &st, 2_000);
+        assert!(
+            !c.iter().any(|c| c.rule == "retention_stalled"),
+            "{c:?}"
+        );
+    }
+
+    /// A pass that stopped before its retention step finished keeps the
+    /// previous pass's disagreement: the open alert stays raised (no
+    /// resolution, so no second firing on the next full pass); a full pass
+    /// with no disagreement resolves it.
+    #[test]
+    fn an_errored_pass_keeps_the_open_retention_disagreement() {
+        let r = rules();
+        let open = vec!["cohort 3: a".to_owned()];
+        let mut st = AlertState::default();
+        let p = PublisherObs {
+            retention_mismatch: open.clone(),
+            ..PublisherObs::default()
+        };
+        let c = conditions(&healthy(), &p, &r, &st, 1_000);
+        observe(&mut st, &c, 1_000);
+        let ev = due(&st, 1_000, r.renotify_ms);
+        assert_eq!(ev.len(), 1);
+        mark(&mut st, &ev, 1_000, true);
+        acknowledge(&mut st, &ev, 1_000);
+        // The errored pass: not evaluated, the open line carried.
+        let carried = PublisherObs {
+            retention_mismatch: retention_after_pass(&p.retention_mismatch, None),
+            ..PublisherObs::default()
+        };
+        assert_eq!(carried.retention_mismatch, open);
+        let c = conditions(&healthy(), &carried, &r, &st, 2_000);
+        assert!(c.iter().any(|c| c.rule == "retention_stalled"), "{c:?}");
+        observe(&mut st, &c, 2_000);
+        assert!(due(&st, 2_000, r.renotify_ms).is_empty(), "no new firing");
+        // A full pass with no disagreement: resolved.
+        let resolved = PublisherObs {
+            retention_mismatch: retention_after_pass(&carried.retention_mismatch, Some(&[])),
+            ..PublisherObs::default()
+        };
+        let c = conditions(&healthy(), &resolved, &r, &st, 3_000);
+        assert!(!c.iter().any(|c| c.rule == "retention_stalled"), "{c:?}");
     }
 
     /// One run of the alert phase over `o`, as `cf.rs` runs it with the

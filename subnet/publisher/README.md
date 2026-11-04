@@ -13,7 +13,31 @@ into static public objects. Once a minute it:
    private receipts bucket, as a validator would (at most one to completion
    per run). It then copies the cohort's public objects into the separate
    public-candidate bucket byte for byte, verifies the copies again, and lists
-   the cohort in the public index;
+   the cohort in the public index. Cohorts are listed strictly in order: one
+   that is incomplete or unreadable for now (a store error, an object not
+   stored yet, or a closure or manifest that does not answer during the
+   scan) holds every later cohort, so a later target or authorization never
+   appears first. So does a packaged cohort whose closure the coordinator
+   has not written yet (its closure paused or retrying while later cohorts
+   close), until something says it never closes: the coordinator's
+   retirement marker for it (written only after a closure or an
+   abandonment, so with no closure it means the cohort was abandoned; due
+   after two later completions, which bounds the hold), or the planned
+   signed abandonment record (`abandoned.signed`, named in the shared
+   contract `slop_ninja_admission_wire::receipts`; no coordinator release
+   writes it yet, and only its presence is read). A cohort this build
+   refuses is recorded in the index's `refused` list (label, cohort,
+   opening epoch, whether it starts the record, a content-free reason
+   naming the object and the kind of failure, and the publisher build; the
+   full reason goes to the alert), so the gap is visible, and later cohorts
+   are listed after it; a later build reconsiders it and, if it verifies,
+   lists it in its place by number (also when it is the cohort that starts
+   the record and a later one was listed first). A refused cohort that
+   starts the record (reference `R_0`, no predecessor) starts it for later
+   cohorts. Before the record has started, a refused cohort that cannot
+   start it, or whose manifest did not open, starts nothing: later cohorts
+   wait until one that starts it is listed, retired or refused, or a new
+   build accepts the refused one;
 3. publishes artifact objects from the private eval bucket after their cohort
    closed, default-deny: only an outside entrant's upload with a matching
    admission record, never a reference, an operator's or a copy;
@@ -29,8 +53,24 @@ into static public objects. Once a minute it:
    trust roots is counted and alerted, `revocation_unverifiable`, and
    validators skip it; its read bound is its declared length, reserved from
    the run's budget) once the authorization's cohort is listed;
-6. deletes cohort N's detailed receipts from the public host once N+1 and N+2
-   are published and N's target is superseded. A cohort whose private
+6. deletes cohort N's detailed receipts from the public host once the
+   coordinator's `cohorts/<label>/receipts-retired.json` marker for N exists,
+   recording the marker's `due_after_cohort` as `receipts_deleted_after`
+   (for an earlier record's waiting cohorts, the predecessor authority's
+   marker under the same label). The coordinator's decision is the only
+   deletion rule: it applies the N+2 rule by durable completion and holds the
+   active target's cohort and the one whose target the current authorization
+   commits. No marker, nothing deleted; an unreadable or oversized marker is
+   refused and deletes nothing. A hold on the public side can only delay
+   that: while the public index's `active_target` or the target the public
+   current authorization commits is still N's (this publisher has not yet
+   listed the superseding cohort or copied the newer authorization), N's
+   public receipts stay, so a validator reading the public host never finds
+   the receipts of what it names deleted; they go on the marker once the
+   publisher catches up. The publisher's own N+2 reading of the public
+   record is only a cross-check (`retention_stalled` for `public_receipts`,
+   below). The authorization's carrying cohort is not held, on either side,
+   until the user decides whether it should be. A cohort whose private
    detailed receipts the coordinator already deleted under its own N+2 rule
    before this publisher copied it (its `receipts-retired.json` marker; for
    example after a publisher outage of two completions) is recorded once in
@@ -39,7 +79,9 @@ into static public objects. Once a minute it:
    never listed or retried, so the gap in the record is explained instead of
    pending forever. Before recording it, any detailed receipts an
    interrupted earlier copy left in the public bucket are deleted (no
-   publication record would delete them). A retired cohort that starts the
+   publication record would delete them). The same marker deletes the
+   detailed receipts a refused cohort's copy left in the public bucket, once
+   (its `refused` entry records `receipts_deleted_after`). A retired cohort that starts the
    record (reference index 0) lets later cohorts be listed after it. The
    marker's schema and the private authorization pointer's key, checks and
    bounds come from the contract the coordinator also imports
@@ -196,11 +238,14 @@ store.
   it) is refused: the run moves, adopts and publishes nothing and reports
   why. The earlier record's cohorts whose detailed
   receipts were still published when it was moved aside are listed there too
-  (`receipts_pending`) and deleted once two cohorts of the live record are
-  published (cohort numbers continue across authorities), whether or not
-  those produce a target: the restart superseded the earlier record's target
-  (the coordinator's and validators' held targets are restarted, so no new
-  commitment to it is made). The archived index is the record as it stood,
+  (`receipts_pending`) and deleted once the predecessor authority's
+  retirement marker for each exists (read under the same label). The
+  restart superseded the earlier record's target (the coordinator's and
+  validators' held targets are restarted, so no new commitment to it is
+  made), so the cross-check counts two completions of the live record
+  (cohort numbers continue across authorities), whether or not those
+  produce a target. Refusals of the earlier record's cohorts stay out of
+  the live record's `refused` list. The archived index is the record as it stood,
   and each cohort's publication record says when its receipts were
   deleted. A refused cohort is not read again by the same
   build (version and trust roots); a new build retries it.
@@ -269,7 +314,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v12`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v13`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -314,7 +359,12 @@ The rule set is `slop_ninja.publisher.alerts/v12`. The table is in
   detailed receipts remain after a further completion, or a predecessor
   authority not finished after one; judged by completions, never a clock;
   the detail names the last failed step's code, such as an unreadable
-  authorization pointer);
+  authorization pointer); and (v13, subject `public_receipts`) the
+  publisher's own N+2 reading disagreeing with the coordinator's markers: a
+  marker whose due point the public record has reached while the public
+  reading still holds the cohort, or a cohort the public reading found due
+  with no marker after two further completions (claimed only in a run that
+  read the authorization pointer);
 - two tempos without a coordinator commit;
 - the coordinator's authorization-pointer writer not confirming the private
   pointer for a tempo (`pointer_stale`: `signing.authorization` reports the

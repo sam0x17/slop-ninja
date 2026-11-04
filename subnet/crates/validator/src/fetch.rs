@@ -74,9 +74,10 @@
 //! a bundle reports [`Outcome::Unchanged`] without reading, hashing or
 //! verifying any object again.
 //!
-//! Receipt retention (the N+2 rule): a cohort's receipt index, chunk map and
-//! bundles are deleted from the host once two later cohorts are published and
-//! its target is superseded. A carrying cohort produces no target, so its
+//! Receipt retention (the N+2 rule): the host deletes a cohort's receipt
+//! index, chunk map and bundles once the coordinator retires them, after the
+//! next two cohorts complete and its target is superseded; the cohort whose
+//! target the current authorization commits is held. A carrying cohort produces no target, so its
 //! receipts are deleted two cohorts later even while the current
 //! authorization still names it. A validator that fetched them keeps them in
 //! its cache while a bundle it holds needs them; one that was offline

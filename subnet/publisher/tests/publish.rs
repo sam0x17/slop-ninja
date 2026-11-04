@@ -1077,97 +1077,276 @@ fn detailed_receipts_are_not_cached_as_immutable() {
     }
 }
 
-/// Detailed receipts leave the public host once N+1 and N+2 are published
-/// and N's target is superseded; the signed records with the receipt root and
-/// count stay.
-#[test]
-fn detailed_receipts_are_deleted_after_n_plus_2() {
-    let b = build(0);
-    let x = buckets(&b);
-    let cfg = config(Some(0), false);
-    run(&cfg, &x, &mut Memo::default()).1.unwrap();
-    let dir = format!("v1/cohorts/{}", b.label);
-    assert!(
-        x.public
-            .bytes(&format!("{dir}/receipt-index.signed"))
-            .is_some()
-    );
-    // Two later cohorts appear in the index (their own records elsewhere).
-    let mut idx: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
-    for k in 1..=2u64 {
+/// The fixture cohort's target digest.
+fn target_digest(b: &Built) -> slop_ninja_protocol::Digest {
+    use slop_ninja_protocol::Record;
+    b.c.target.digest().unwrap()
+}
+
+/// The index with `n` later cohorts after the fixture's, each with a target
+/// (their own records elsewhere).
+fn with_later(x: &Buckets3, b: &Built, n: u64) -> slop_ninja_publisher::index::CohortIndex {
+    let mut idx: slop_ninja_publisher::index::CohortIndex = public_json(x, layout::COHORT_INDEX);
+    idx.cohorts.retain(|c| !c.label.starts_with("later-"));
+    for k in 1..=n {
         let mut later = entry_of(&idx, &b.label).clone();
         later.cohort += k;
         later.opened_epoch += 20 * k;
         later.label = format!("later-{k}");
         later.receipts_retained = false;
+        later.target = Some(format!("{:02x}", k).repeat(32));
         idx.cohorts.push(later);
     }
-    // Two later cohorts without a target do not supersede N's target.
-    let no_target = {
-        let mut i = idx.clone();
-        for c in i
-            .cohorts
-            .iter_mut()
-            .filter(|c| c.label.starts_with("later-"))
-        {
-            c.target = None;
-        }
-        i
-    };
-    x.public.insert(
-        layout::COHORT_INDEX,
-        serde_json::to_vec(&no_target).unwrap(),
-    );
-    let (report, _) = run(&cfg, &x, &mut Memo::default());
-    assert_eq!(
-        report.receipts_deleted, 0,
-        "the active target keeps its receipts"
-    );
-    // One later cohort is not enough.
-    let only_one = {
-        let mut i = idx.clone();
-        i.cohorts.pop();
-        i
-    };
-    x.public
-        .insert(layout::COHORT_INDEX, serde_json::to_vec(&only_one).unwrap());
-    let (report, _) = run(&cfg, &x, &mut Memo::default());
-    assert_eq!(report.receipts_deleted, 0);
+    refresh_active(&mut idx);
     x.public
         .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+    idx
+}
+
+/// Sets the index's active target as the publisher derives it: the last
+/// listed cohort with a target (the fixture never reaches the launch burn).
+fn refresh_active(idx: &mut slop_ninja_publisher::index::CohortIndex) {
+    if let Some(c) = idx.cohorts.iter().rev().find(|c| c.target.is_some()) {
+        idx.active_target.digest = c.target.clone().unwrap();
+        idx.active_target.cohort = Some(c.cohort);
+    }
+}
+
+/// A cohort authorization for the fixture cohort committing `target`, in the
+/// private pointer.
+fn point_at_target(x: &Buckets3, b: &Built, target: slop_ninja_protocol::Digest) {
+    point_at(x, b, b.c.manifest.cohort, target);
+}
+
+/// [`point_at_target`] for cohort number `cohort` with the fixture's
+/// manifest and package digests (as [`with_later`]'s entries carry).
+fn point_at(x: &Buckets3, b: &Built, cohort: u64, target: slop_ninja_protocol::Digest) {
+    use slop_ninja_protocol::{Record, RewardIntentAuthorization};
+    let m = &b.c.manifest;
+    let auth = RewardIntentAuthorization {
+        chain: m.chain.clone(),
+        cohort,
+        cohort_manifest: m.digest().unwrap(),
+        score_package: b.c.package.digest().unwrap(),
+        target,
+        checkpoint_generation: 1,
+        issued_epoch: m.opened_epoch + 16,
+        renew_by_epoch: m.opened_epoch + 56,
+    };
+    let bytes = slop_ninja_protocol::fixtures_reward_v1::signed(auth)
+        .unwrap()
+        .to_bytes()
+        .unwrap();
+    let a = store_authorization(x, bytes);
+    write_pointer(x, "cohort", a, None);
+}
+
+/// Public detailed receipts follow the coordinator's decision only: with
+/// two later cohorts listed, each with a target, and N's target named by
+/// the current authorization, nothing is deleted and no disagreement is
+/// claimed; with no marker and no pointer either, nothing is deleted, and
+/// the cross-check speaks only after more than one further completion past
+/// its own due point. The marker then deletes them and its due-after cohort
+/// is recorded (not this publisher's count). A cohort the own reading still
+/// holds while the record reached the marker's due point is deleted all the
+/// same and the disagreement raised.
+#[test]
+fn public_receipts_go_only_after_the_coordinators_marker() {
+    let b = build(0);
+    let n = b.c.manifest.cohort;
+    let x = buckets(&b);
+    let cfg = config(Some(0), false);
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    let dir = format!("v1/cohorts/{}", b.label);
+    let receipt_index = format!("{dir}/receipt-index.signed");
+    assert!(x.public.bytes(&receipt_index).is_some());
+    // (a) Two later cohorts with targets; the pointer names N's target; no
+    // marker: kept, and the own reading agrees (held by the authorization).
+    with_later(&x, &b, 2);
+    point_at_target(&x, &b, target_digest(&b));
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.receipts_deleted, 0, "{report:?}");
+    assert!(entry_of(&idx.unwrap(), &b.label).receipts_retained);
+    assert_eq!(
+        report.authorization_hold,
+        publish::AuthorizationHold::Target(target_digest(&b).hex())
+    );
+    assert!(report.retention_mismatch.is_empty(), "{report:?}");
+    // Four later cohorts, no pointer: the own reading found N due after N+2
+    // and two further completions passed with no marker: raised, nothing
+    // deleted.
+    x.receipts.remove(layout::PRIVATE_AUTHORIZATION_POINTER);
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.authorization_hold, publish::AuthorizationHold::Nothing);
+    assert!(report.retention_mismatch.is_empty(), "N+2 itself: {report:?}");
+    with_later(&x, &b, 3);
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert!(report.retention_mismatch.is_empty(), "one further: {report:?}");
+    with_later(&x, &b, 4);
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.receipts_deleted, 0);
+    assert!(entry_of(&idx.unwrap(), &b.label).receipts_retained);
+    assert_eq!(report.retention_mismatch.len(), 1, "{report:?}");
+    assert!(
+        report.retention_mismatch[0].contains(&format!("due after cohort {}", n + 2)),
+        "{report:?}"
+    );
+    // An unreadable pointer leaves the hold unknown: no missing-marker claim.
+    x.receipts
+        .insert(layout::PRIVATE_AUTHORIZATION_POINTER, b"{".to_vec());
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.authorization_hold, publish::AuthorizationHold::Unknown);
+    assert!(report.retention_mismatch.is_empty(), "{report:?}");
+    x.receipts.remove(layout::PRIVATE_AUTHORIZATION_POINTER);
+    // (b) The marker: deleted, with the marker's due-after cohort recorded.
+    // The public current authorization copied in (a) commits N's target: it
+    // stays until the publisher copies a newer one (here: none any more).
+    write_marker(&x, &b.label, n, n + 3);
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.receipts_deleted, 0, "the public host names it: {report:?}");
+    x.public.remove(layout::AUTHORIZATION_CURRENT);
     let (report, after) = run(&cfg, &x, &mut Memo::default());
     assert_eq!(report.receipts_deleted, 1, "{report:?}");
-    let after = after.unwrap();
-    assert!(
-        !after
-            .cohorts
-            .iter()
-            .find(|c| c.label == b.label)
-            .unwrap()
-            .receipts_retained
-    );
+    assert!(report.retention_mismatch.is_empty(), "{report:?}");
+    assert!(!entry_of(&after.unwrap(), &b.label).receipts_retained);
     let publication: Publication = public_json(&x, &layout::publication(&b.label));
-    assert_eq!(
-        publication.receipts_deleted_after,
-        Some(b.c.manifest.cohort + 2)
-    );
+    assert_eq!(publication.receipts_deleted_after, Some(n + 3));
     for o in &publication.objects {
         let present = x.public.bytes(&format!("{dir}/{}", o.rel)).is_some();
         assert_eq!(present, !publish::is_detailed_receipt(&o.rel), "{}", o.rel);
     }
     assert!(x.public.bytes(&format!("{dir}/package.signed")).is_some());
-    // The private buckets are never written or deleted from.
-    assert_eq!((x.receipts.puts.get(), x.receipts.deletes.get()), (0, 0));
+    // The private buckets are never written or deleted from (the pointer
+    // and marker above are the test's own writes).
+    assert_eq!(x.receipts.deletes.get(), 0);
     assert_eq!((x.eval.puts.get(), x.eval.deletes.get()), (0, 0));
     // Idempotent.
     let (report, _) = run(&cfg, &x, &mut Memo::default());
     assert_eq!(report.receipts_deleted, 0);
 }
 
+/// A marker the coordinator wrote while the own reading still holds the
+/// cohort (here: no later cohort produced a target, so N's target is still
+/// the newest) raises the disagreement once the record reached its due
+/// point; before the record reached it, the lag is only this publisher's
+/// and nothing is claimed. Either way the public receipts stay while the
+/// public index still names N's target as active (a hold that only delays),
+/// and go on the marker once a later listed cohort's target supersedes it.
+#[test]
+fn a_marker_the_public_reading_disagrees_with_alerts_and_waits_for_the_public_record() {
+    let b = build(0);
+    let n = b.c.manifest.cohort;
+    for later in [1u64, 2] {
+        let x = buckets(&b);
+        let cfg = config(Some(0), false);
+        run(&cfg, &x, &mut Memo::default()).1.unwrap();
+        let mut idx = with_later(&x, &b, later);
+        for c in idx.cohorts.iter_mut().filter(|c| c.label.starts_with("later-")) {
+            c.target = None;
+        }
+        refresh_active(&mut idx);
+        assert_eq!(idx.active_target.cohort, Some(n));
+        x.public
+            .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+        write_marker(&x, &b.label, n, n + 2);
+        let (report, i) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.receipts_deleted, 0, "later {later}: {report:?}");
+        assert!(entry_of(&i.unwrap(), &b.label).receipts_retained);
+        if later == 1 {
+            // N+2 not listed yet: no claim.
+            assert!(report.retention_mismatch.is_empty(), "{report:?}");
+        } else {
+            // N+2 listed (and still no later target): raised.
+            assert_eq!(report.retention_mismatch.len(), 1, "{report:?}");
+            assert!(report.retention_mismatch[0].contains("still holds"), "{report:?}");
+        }
+        // A later cohort with a target listed: deleted on the marker.
+        let mut idx: slop_ninja_publisher::index::CohortIndex =
+            public_json(&x, layout::COHORT_INDEX);
+        let mut next = entry_of(&idx, &b.label).clone();
+        next.cohort = n + later + 1;
+        next.opened_epoch += 20 * (later + 1);
+        next.label = format!("later-{}", later + 1);
+        next.receipts_retained = false;
+        next.target = Some("0f".repeat(32));
+        idx.cohorts.push(next);
+        refresh_active(&mut idx);
+        x.public
+            .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+        let (report, _) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.receipts_deleted, 1, "later {later}: {report:?}");
+    }
+}
+
+/// (c) A cohort without a target (a carrier of an earlier target) and no
+/// marker keeps its public receipts whatever completed after it; (d) an
+/// unreadable, oversized or other-label marker is refused and deletes
+/// nothing.
+#[test]
+fn no_marker_or_a_bad_marker_deletes_nothing() {
+    let b = build(0);
+    let n = b.c.manifest.cohort;
+    let x = buckets(&b);
+    let cfg = config(Some(0), false);
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    let mut idx = with_later(&x, &b, 4);
+    for c in idx.cohorts.iter_mut().filter(|c| c.label == b.label) {
+        c.target = None;
+    }
+    x.public
+        .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.receipts_deleted, 0);
+    assert!(entry_of(&idx.unwrap(), &b.label).receipts_retained);
+    let key = format!("cohorts/{}/{}", b.label, publish::RETIRED_MARKER);
+    let other_label = {
+        write_marker(&x, "another-label", n, n + 2);
+        let k = format!("cohorts/another-label/{}", publish::RETIRED_MARKER);
+        let bytes = x.receipts.bytes(&k).unwrap();
+        x.receipts.remove(&k);
+        bytes
+    };
+    let oversized = vec![b' '; slop_ninja_admission_wire::receipts::RETIRED_MARKER_BOUND as usize + 1];
+    for bad in [b"not json".to_vec(), oversized, other_label] {
+        x.receipts.insert(&key, bad);
+        let (report, idx) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.receipts_deleted, 0);
+        assert!(entry_of(&idx.unwrap(), &b.label).receipts_retained);
+        assert!(
+            report
+                .refused
+                .iter()
+                .any(|(s, _)| s == &format!("{}/receipts-retired", b.label)),
+            "{report:?}"
+        );
+        assert!(
+            x.public
+                .bytes(&format!("v1/cohorts/{}/receipt-index.signed", b.label))
+                .is_some()
+        );
+    }
+    // A marker that does not answer waits.
+    write_marker(&x, &b.label, n, n + 2);
+    x.receipts.unavailable.borrow_mut().insert(key.clone());
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.receipts_deleted, 0);
+    assert!(
+        report
+            .pending
+            .iter()
+            .any(|(s, _)| s == &format!("{}/receipts-retired", b.label)),
+        "{report:?}"
+    );
+    x.receipts.unavailable.borrow_mut().clear();
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.receipts_deleted, 1, "{report:?}");
+}
+
 /// A record restart leaves no detailed receipt published indefinitely: the
 /// earlier record's cohorts that still had them wait in the new index and
-/// are deleted once two cohorts of the new record are published and a later
-/// target supersedes theirs (cohort numbers continue across authorities).
+/// are deleted once the predecessor authority's marker for each exists (read
+/// under the same label), with no disagreement claimed once two cohorts of
+/// the new record are listed (cohort numbers continue across authorities).
 #[test]
 fn an_earlier_records_receipts_are_deleted_after_two_cohorts_of_the_new_record() {
     let b = build(0);
@@ -1213,10 +1392,13 @@ fn an_earlier_records_receipts_are_deleted_after_two_cohorts_of_the_new_record()
         x.public
             .insert(layout::COHORT_INDEX, serde_json::to_vec(&live).unwrap());
         let (report, _) = run(&cfg, &x, &mut Memo::default());
-        if k == 1 {
-            assert_eq!(report.receipts_deleted, 0, "one later cohort is not enough");
-        } else {
+        assert_eq!(report.receipts_deleted, 0, "no marker yet: {report:?}");
+        if k == 2 {
+            // (e) The predecessor authority's marker, under the same label.
+            write_marker(&x, &b.label, n.cohort, n.cohort + 2);
+            let (report, _) = run(&cfg, &x, &mut Memo::default());
             assert_eq!(report.receipts_deleted, 1, "{report:?}");
+            assert!(report.retention_mismatch.is_empty(), "{report:?}");
         }
     }
     let after: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
@@ -1297,7 +1479,7 @@ fn authorizations_are_published_once_their_cohort_is_listed() {
         cohort: m.cohort,
         cohort_manifest: m.digest().unwrap(),
         score_package: b.c.package.digest().unwrap(),
-        target: b.c.target.digest().unwrap(),
+        target: target_digest(&b),
         checkpoint_generation: 1,
         issued_epoch: m.opened_epoch + 16,
         renew_by_epoch: m.opened_epoch + 56,
@@ -1700,7 +1882,12 @@ fn an_earlier_target_cohorts_receipts_are_deleted_after_two_no_target_cohorts() 
         x.public
             .insert(layout::COHORT_INDEX, serde_json::to_vec(&live).unwrap());
         let (report, _) = run(&cfg, &x, &mut Memo::default());
-        assert_eq!(report.receipts_deleted, u32::from(k == 2), "after {k}");
+        assert_eq!(report.receipts_deleted, 0, "no marker yet, after {k}");
+        if k == 2 {
+            write_marker(&x, &b.label, n.cohort, n.cohort + 2);
+            let (report, _) = run(&cfg, &x, &mut Memo::default());
+            assert_eq!(report.receipts_deleted, 1, "{report:?}");
+        }
         live = public_json(&x, layout::COHORT_INDEX);
     }
     assert!(live.previous_records[0].receipts_pending.is_empty());
@@ -1852,4 +2039,633 @@ fn the_record_starts_after_a_retired_first_cohort() {
             assert!(report.pending[0].1.contains("first cohort"), "{report:?}");
         }
     }
+}
+
+/// The fixture cohort N and N+1, both closed, in the private bucket, with a
+/// public index whose record already started.
+fn two_cohorts() -> (Built, Built, Buckets3) {
+    let b = build(0);
+    let next = build_at(b.c.manifest.cohort + 1);
+    let x = buckets(&b);
+    store(&next, &x.receipts, &x.eval);
+    (b, next, x)
+}
+
+fn listed(idx: &slop_ninja_publisher::index::CohortIndex) -> Vec<String> {
+    idx.cohorts.iter().map(|c| c.label.clone()).collect()
+}
+
+/// Cohorts are listed strictly in order: while N is incomplete or
+/// unreadable for now (a store error on a cohort object, an object not
+/// stored yet, a closure or manifest that does not answer during the scan),
+/// N+1 is never listed before it, however many runs pass; once N answers,
+/// N lists, then N+1.
+#[test]
+fn a_later_cohort_never_lists_before_an_earlier_one() {
+    let cfg = config(Some(0), false);
+    for (rel, how) in [
+        (verify::PACKAGE, "unavailable"),
+        (verify::PACKAGE, "missing"),
+        (verify::CLOSURE, "unavailable"),
+        (verify::MANIFEST, "unavailable"),
+    ] {
+        let (b, next, x) = two_cohorts();
+        let key = format!("{}/{rel}", dir(&b.label));
+        let saved = x.receipts.bytes(&key).unwrap();
+        match how {
+            "missing" => x.receipts.remove(&key),
+            _ => {
+                x.receipts.unavailable.borrow_mut().insert(key.clone());
+            }
+        }
+        let mut memo = Memo::default();
+        for _ in 0..3 {
+            let (report, idx) = run(&cfg, &x, &mut memo);
+            let idx = idx.unwrap();
+            assert!(report.published.is_empty(), "{rel} {how}: {report:?}");
+            assert!(report.refused.is_empty(), "{rel} {how}: {report:?}");
+            assert!(
+                report.pending.iter().any(|(s, _)| s == &b.label),
+                "{rel} {how}: {report:?}"
+            );
+            assert_eq!(listed(&idx), vec![SEED_LABEL.to_owned()], "{rel} {how}");
+            assert!(idx.refused.is_empty());
+            assert!(x.public.bytes(&layout::publication(&next.label)).is_none());
+        }
+        x.receipts.unavailable.borrow_mut().clear();
+        x.receipts.insert(&key, saved);
+        let (report, _) = run(&cfg, &x, &mut memo);
+        assert_eq!(report.published, vec![b.label.clone()], "{rel} {how}");
+        let (report, idx) = run(&cfg, &x, &mut memo);
+        assert_eq!(report.published, vec![next.label.clone()], "{rel} {how}");
+        assert_eq!(
+            listed(&idx.unwrap()),
+            vec![SEED_LABEL.to_owned(), b.label.clone(), next.label.clone()]
+        );
+    }
+}
+
+/// A cohort the publisher refuses appears in the public index's `refused`
+/// list (label, number, opening epoch, reason, build), and the next cohort
+/// is listed after it with its authorization copied; no receipt deletion
+/// point moves. A later build reconsiders it: once it verifies, it is
+/// listed in its place by number and its refused entry goes.
+#[test]
+fn a_refused_cohort_is_indexed_and_the_next_one_follows() {
+    let (b, next, x) = two_cohorts();
+    let cfg = config(Some(0), false);
+    let key = format!("{}/{}", dir(&b.label), verify::PACKAGE);
+    let good = x.receipts.bytes(&key).unwrap();
+    let mut bad = good.clone();
+    let mid = bad.len() / 2;
+    bad[mid] ^= 0x40;
+    x.receipts.insert(&key, bad);
+    point_at_target(&x, &next, target_digest(&next));
+    let mut memo = Memo::default();
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert!(report.refused.iter().any(|(s, _)| s == &b.label), "{report:?}");
+    let idx = idx.unwrap();
+    assert_eq!(listed(&idx), vec![SEED_LABEL.to_owned()]);
+    let want = slop_ninja_publisher::index::RefusedCohort {
+        label: b.label.clone(),
+        cohort: Some(b.c.manifest.cohort),
+        opened_epoch: Some(b.c.manifest.opened_epoch),
+        starts_record: publish::starts_record(&b.c.manifest.references),
+        reason: "package.signed: does not verify".into(),
+        build: publish::build_id(),
+        receipts_deleted_after: None,
+    };
+    // The public entry names the object and the kind of failure only; the
+    // alert keeps the full reason.
+    assert!(memo.refused[&b.label].reason.starts_with("package.signed: "));
+    assert_ne!(memo.refused[&b.label].reason, want.reason);
+    assert_eq!(idx.refused, vec![want.clone()]);
+    let public: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    assert_eq!(public.refused, vec![want.clone()]);
+    // The next run lists N+1 after the refused N, and its authorization.
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![next.label.clone()], "{report:?}");
+    assert!(report.authorization_written, "{report:?}");
+    assert_eq!(report.receipts_deleted, 0);
+    let idx = idx.unwrap();
+    assert_eq!(listed(&idx), vec![SEED_LABEL.to_owned(), next.label.clone()]);
+    assert_eq!(idx.refused, vec![want.clone()], "recorded once");
+    assert_eq!(idx.active_target.cohort, Some(next.c.manifest.cohort));
+    assert!(entry_of(&idx, &next.label).receipts_retained);
+    // Still refused by this build: not reconsidered, the entry unchanged.
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert!(report.published.is_empty(), "{report:?}");
+    assert_eq!(idx.unwrap().refused, vec![want]);
+    // A later build (simulated: the memory names another) after the source
+    // was corrected: listed in its place, the entry dropped.
+    x.receipts.insert(&key, good);
+    memo.refused.get_mut(&b.label).unwrap().build = "an-earlier-build".into();
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![b.label.clone()], "{report:?}");
+    let idx = idx.unwrap();
+    assert_eq!(
+        listed(&idx),
+        vec![SEED_LABEL.to_owned(), b.label.clone(), next.label.clone()]
+    );
+    assert!(idx.refused.is_empty());
+    assert_eq!(idx.active_target.cohort, Some(next.c.manifest.cohort));
+}
+
+/// A closed cohort numbered before the record's first listed cohort (it
+/// waited while a later one started the record) is outside the record:
+/// never listed after it.
+#[test]
+fn a_cohort_before_the_records_first_listed_one_stays_outside() {
+    let b = build(0);
+    let x = buckets(&b);
+    let mut idx: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    idx.cohorts[0].cohort = b.c.manifest.cohort + 1;
+    idx.cohorts[0].opened_epoch = b.c.manifest.opened_epoch + 20;
+    x.public
+        .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+    let mut memo = Memo::default();
+    let (report, idx) = run(&config(Some(0), false), &x, &mut memo);
+    assert!(report.published.is_empty() && report.refused.is_empty() && report.pending.is_empty(), "{report:?}");
+    assert!(!idx.unwrap().contains(&b.label));
+    assert!(memo.outside_record[&b.label].reason.contains("precedes"));
+}
+
+/// Corrupts cohort `b`'s signed package in the private bucket; returns the
+/// good bytes.
+fn tamper_package(x: &Buckets3, b: &Built) -> Vec<u8> {
+    let key = format!("{}/{}", dir(&b.label), verify::PACKAGE);
+    let good = x.receipts.bytes(&key).unwrap();
+    let mut bad = good.clone();
+    let mid = bad.len() / 2;
+    bad[mid] ^= 0x40;
+    x.receipts.insert(&key, bad);
+    good
+}
+
+/// A packaged cohort whose closure the coordinator has not written yet (its
+/// closure paused or retrying while a later cohort closes) holds the later
+/// cohort, however many runs pass: N+1 is listed only after N's closure is
+/// written and N is listed. The coordinator's abandonment record beside a
+/// packaged cohort without a closure releases the hold; a cohort without a
+/// package holds nothing.
+#[test]
+fn a_packaged_cohort_without_its_closure_holds_later_ones() {
+    let cfg = config(Some(0), false);
+    let (b, next, x) = two_cohorts();
+    let key = format!("{}/{}", dir(&b.label), verify::CLOSURE);
+    let closure = x.receipts.bytes(&key).unwrap();
+    x.receipts.remove(&key);
+    let mut memo = Memo::default();
+    for _ in 0..3 {
+        let (report, idx) = run(&cfg, &x, &mut memo);
+        let idx = idx.unwrap();
+        assert!(report.published.is_empty(), "{report:?}");
+        assert!(report.refused.is_empty(), "{report:?}");
+        assert!(
+            report.pending.iter().any(|(s, why)| s == &next.label
+                && why.contains(&format!("cohort {}", b.c.manifest.cohort))),
+            "{report:?}"
+        );
+        assert_eq!(listed(&idx), vec![SEED_LABEL.to_owned()]);
+        assert!(x.public.bytes(&layout::publication(&next.label)).is_none());
+    }
+    x.receipts.insert(&key, closure);
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![b.label.clone()], "{report:?}");
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![next.label.clone()], "{report:?}");
+    assert_eq!(
+        listed(&idx.unwrap()),
+        vec![SEED_LABEL.to_owned(), b.label.clone(), next.label.clone()]
+    );
+    // Abandoned (its record beside it): no closure follows, N+1 is listed.
+    let (b, next, x) = two_cohorts();
+    x.receipts.remove(&format!("{}/{}", dir(&b.label), verify::CLOSURE));
+    x.receipts.insert(
+        &format!("{}/{}", dir(&b.label), publish::ABANDONMENT),
+        vec![1],
+    );
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.published, vec![next.label.clone()], "{report:?}");
+    assert!(!idx.unwrap().contains(&b.label));
+    // Abandoned with no abandonment record (none is written yet), but the
+    // coordinator's retirement marker beside it (written only after a
+    // closure or an abandonment): no closure follows, N+1 is listed. Before
+    // the marker it holds; a marker that does not answer or parse holds.
+    let (b, next, x) = two_cohorts();
+    x.receipts.remove(&format!("{}/{}", dir(&b.label), verify::CLOSURE));
+    let mut memo = Memo::default();
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert!(report.published.is_empty(), "{report:?}");
+    let marker = format!("{}/{}", dir(&b.label), publish::RETIRED_MARKER);
+    x.receipts.insert(&marker, b"not json".to_vec());
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert!(report.published.is_empty(), "{report:?}");
+    assert!(report.pending.iter().any(|(s, _)| s == &b.label), "{report:?}");
+    write_marker(&x, &b.label, b.c.manifest.cohort, b.c.manifest.cohort + 2);
+    x.receipts.unavailable.borrow_mut().insert(marker.clone());
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert!(report.published.is_empty(), "{report:?}");
+    x.receipts.unavailable.borrow_mut().clear();
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![next.label.clone()], "{report:?}");
+    let idx = idx.unwrap();
+    assert!(!idx.contains(&b.label));
+    assert_eq!(listed(&idx), vec![SEED_LABEL.to_owned(), next.label.clone()]);
+    // Not packaged (never reaches a closure, as the fixture's never-closed
+    // cohort): holds nothing.
+    let (b, next, x) = two_cohorts();
+    for rel in [verify::CLOSURE, verify::PACKAGE] {
+        x.receipts.remove(&format!("{}/{rel}", dir(&b.label)));
+    }
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.published, vec![next.label.clone()], "{report:?}");
+}
+
+/// The record's first cohort (`R_0`, no predecessor) refused, the next `R_0`
+/// cohort starts the record; a later build that accepts the first lists it
+/// in its place, before the next, and its refused entry goes.
+#[test]
+fn a_refused_first_cohort_is_listed_in_its_place_by_a_later_build() {
+    let first = build_r0_at(3);
+    let second = build_r0_at(4);
+    assert_eq!(first.c.manifest.references.index, 0);
+    assert!(first.c.manifest.references.predecessor.is_none());
+    let x = buckets_unseeded(&first);
+    store(&second, &x.receipts, &x.eval);
+    let good = tamper_package(&x, &first);
+    let cfg = config(Some(0), false);
+    let mut memo = Memo::default();
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert!(report.refused.iter().any(|(s, _)| s == &first.label), "{report:?}");
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![second.label.clone()], "{report:?}");
+    let idx = idx.unwrap();
+    assert_eq!(listed(&idx), vec![second.label.clone()]);
+    assert_eq!(idx.refused.len(), 1);
+    x.receipts
+        .insert(&format!("{}/{}", dir(&first.label), verify::PACKAGE), good);
+    memo.refused.get_mut(&first.label).unwrap().build = "an-earlier-build".into();
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![first.label.clone()], "{report:?}");
+    let idx = idx.unwrap();
+    assert_eq!(listed(&idx), vec![first.label.clone(), second.label.clone()]);
+    assert!(idx.refused.is_empty(), "{idx:?}");
+    assert!(!memo.outside_record.contains_key(&first.label));
+    let public: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    assert!(public.refused.is_empty());
+}
+
+/// A record restart under the same build leaves the earlier record's
+/// refusals out of the new record: its public `refused` list and its
+/// completions stay empty.
+#[test]
+fn an_earlier_records_refusals_stay_out_of_a_restarted_record() {
+    let b = build(0);
+    let x = buckets(&b);
+    tamper_package(&x, &b);
+    let mut cfg = config(Some(0), false);
+    let mut memo = Memo::default();
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert!(report.refused.iter().any(|(s, _)| s == &b.label), "{report:?}");
+    assert_eq!(idx.unwrap().refused.len(), 1);
+    cfg.record_label_prefix = Some("testnet-r0b-".into());
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.record_restarted.as_deref(), Some(SEED_LABEL));
+    let idx = idx.unwrap();
+    assert!(idx.refused.is_empty(), "{idx:?}");
+    assert!(idx.completions().is_empty());
+    assert!(memo.refused.is_empty());
+    let public: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    assert!(public.refused.is_empty());
+    let (_, idx) = run(&cfg, &x, &mut memo);
+    assert!(idx.unwrap().refused.is_empty());
+}
+
+/// Detailed receipts a refused cohort's copy left on the public host go once
+/// the coordinator's marker for it exists, once; the refused entry stays and
+/// records the marker's due-after cohort, and other public objects stay.
+#[test]
+fn a_refused_cohorts_partial_public_receipts_go_on_the_marker() {
+    let b = build(0);
+    let n = b.c.manifest.cohort;
+    let x = buckets(&b);
+    tamper_package(&x, &b);
+    let cfg = config(Some(0), false);
+    let mut memo = Memo::default();
+    run(&cfg, &x, &mut memo).1.unwrap();
+    let d = format!("v1/cohorts/{}", b.label);
+    let partial = [
+        format!("{d}/receipts/bundle-job-000.bin"),
+        format!("{d}/{}", verify::RECEIPT_INDEX),
+        format!("{d}/{}", verify::CHUNK_MAP),
+    ];
+    for k in &partial {
+        x.public.insert(k, vec![1]);
+    }
+    x.public.insert(&format!("{d}/manifest.signed"), vec![2]);
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.receipts_deleted, 0, "no marker: {report:?}");
+    assert!(x.public.bytes(&partial[0]).is_some());
+    assert_eq!(idx.unwrap().refused[0].receipts_deleted_after, None);
+    write_marker(&x, &b.label, n, n + 2);
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.receipts_deleted, 1, "{report:?}");
+    for k in &partial {
+        assert!(x.public.bytes(k).is_none(), "{k} deleted");
+    }
+    assert!(x.public.bytes(&format!("{d}/manifest.signed")).is_some());
+    let idx = idx.unwrap();
+    assert_eq!(idx.refused.len(), 1);
+    assert_eq!(idx.refused[0].label, b.label);
+    assert_eq!(idx.refused[0].receipts_deleted_after, Some(n + 2));
+    let public: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    assert_eq!(public.refused, idx.refused);
+    // Done once.
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.receipts_deleted, 0, "{report:?}");
+    assert_eq!(idx.unwrap().refused[0].receipts_deleted_after, Some(n + 2));
+    assert_eq!((x.receipts.puts.get(), x.receipts.deletes.get()), (0, 0));
+}
+
+/// After a publisher outage of two completions, N+1 and N+2 are known only
+/// as retired before publication (or refused): their targets are unknown
+/// here, so the cross-check claims nothing when the coordinator's marker
+/// for N (due after N+2) deletes N's public receipts.
+#[test]
+fn later_cohorts_with_unknown_targets_raise_no_retention_disagreement() {
+    for refused in [false, true] {
+        let b = build(0);
+        let n = b.c.manifest.cohort;
+        let m = &b.c.manifest;
+        let x = buckets(&b);
+        let cfg = config(Some(0), false);
+        run(&cfg, &x, &mut Memo::default()).1.unwrap();
+        let mut idx: slop_ninja_publisher::index::CohortIndex =
+            public_json(&x, layout::COHORT_INDEX);
+        for k in 1..=2u64 {
+            let label = format!("later-{k}");
+            let (cohort, opened_epoch) = (n + k, m.opened_epoch + 20 * k);
+            if refused {
+                idx.refused.push(slop_ninja_publisher::index::RefusedCohort {
+                    label,
+                    cohort: Some(cohort),
+                    opened_epoch: Some(opened_epoch),
+                    starts_record: false,
+                    reason: "package.signed: does not verify".into(),
+                    build: "an-earlier-build".into(),
+                    receipts_deleted_after: None,
+                });
+            } else {
+                idx.retired_unpublished
+                    .push(slop_ninja_publisher::index::RetiredCohort {
+                        label,
+                        cohort,
+                        opened_epoch,
+                        due_after_cohort: n + 4,
+                        starts_record: false,
+                    });
+            }
+        }
+        x.public
+            .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+        assert_eq!(
+            publish::own_due(
+                &idx,
+                &idx.completions(),
+                n,
+                entry_of(&idx, &b.label).target.as_deref(),
+                &publish::AuthorizationHold::Nothing,
+                false
+            ),
+            publish::OwnDue::Unknown
+        );
+        // A later listed cohort with a target after them: which of the
+        // three superseded N is still unknown here.
+        let mut with_next = idx.clone();
+        let mut next = entry_of(&idx, &b.label).clone();
+        next.cohort = n + 3;
+        next.opened_epoch = m.opened_epoch + 60;
+        next.label = "later-3".into();
+        next.target = Some("03".repeat(32));
+        with_next.cohorts.push(next);
+        let target = entry_of(&idx, &b.label).target.clone();
+        assert_eq!(
+            publish::own_due(
+                &with_next,
+                &with_next.completions(),
+                n,
+                target.as_deref(),
+                &publish::AuthorizationHold::Nothing,
+                false
+            ),
+            publish::OwnDue::Unknown
+        );
+        // Without them, the listed successor decides.
+        let mut known = with_next.clone();
+        known.retired_unpublished.clear();
+        known.refused.clear();
+        assert_eq!(
+            publish::own_due(
+                &known,
+                &[n, n + 3, n + 4],
+                n,
+                target.as_deref(),
+                &publish::AuthorizationHold::Nothing,
+                false
+            ),
+            publish::OwnDue::After(n + 4)
+        );
+        // The marker for N, while the public index still names N's target
+        // (nothing later listed): kept, no claim.
+        write_marker(&x, &b.label, n, n + 2);
+        let (report, idx) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.receipts_deleted, 0, "refused {refused}: {report:?}");
+        assert!(report.retention_mismatch.is_empty(), "refused {refused}: {report:?}");
+        assert!(entry_of(&idx.unwrap(), &b.label).receipts_retained);
+        // Once the later cohort with a target is listed: deleted, no claim.
+        with_next.cohorts.sort_by_key(|c| c.cohort);
+        refresh_active(&mut with_next);
+        x.public
+            .insert(layout::COHORT_INDEX, serde_json::to_vec(&with_next).unwrap());
+        let (report, idx) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.receipts_deleted, 1, "refused {refused}: {report:?}");
+        assert!(
+            report.retention_mismatch.is_empty(),
+            "refused {refused}: {report:?}"
+        );
+        assert!(!entry_of(&idx.unwrap(), &b.label).receipts_retained);
+    }
+}
+
+/// The record's first cohort (`R_0`, no predecessor) refused while the next
+/// carries a promoted reference (index 1): the refusal starts the record, so
+/// the next is listed after it instead of waiting for a new build; a later
+/// build that accepts the refused cohort lists it in its place.
+#[test]
+fn a_refused_first_cohort_starts_the_record_for_a_promoted_successor() {
+    let first = build_r0_at(3);
+    let second = build_at(4);
+    assert!(publish::starts_record(&first.c.manifest.references));
+    assert!(!publish::starts_record(&second.c.manifest.references));
+    let x = buckets_unseeded(&first);
+    store(&second, &x.receipts, &x.eval);
+    let good = tamper_package(&x, &first);
+    let cfg = config(Some(0), false);
+    let mut memo = Memo::default();
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert!(report.refused.iter().any(|(s, _)| s == &first.label), "{report:?}");
+    let idx = idx.unwrap();
+    assert!(memo.refused[&first.label].starts_record);
+    assert_eq!(idx.refused.len(), 1);
+    assert!(idx.refused[0].starts_record);
+    let public: slop_ninja_publisher::index::CohortIndex = public_json(&x, layout::COHORT_INDEX);
+    assert!(public.refused[0].starts_record);
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![second.label.clone()], "{report:?}");
+    assert_eq!(listed(&idx.unwrap()), vec![second.label.clone()]);
+    x.receipts
+        .insert(&format!("{}/{}", dir(&first.label), verify::PACKAGE), good);
+    memo.refused.get_mut(&first.label).unwrap().build = "an-earlier-build".into();
+    let (report, idx) = run(&cfg, &x, &mut memo);
+    assert_eq!(report.published, vec![first.label.clone()], "{report:?}");
+    let idx = idx.unwrap();
+    assert_eq!(listed(&idx), vec![first.label.clone(), second.label.clone()]);
+    assert!(idx.refused.is_empty(), "{idx:?}");
+}
+
+/// A refused cohort that does not start the record (or whose manifest did
+/// not open) does not start it: a later cohort with a promoted reference
+/// still waits for the record's first cohort.
+#[test]
+fn a_refused_cohort_that_cannot_start_the_record_does_not_start_it() {
+    let first = build_at(3);
+    let second = build_at(4);
+    let x = buckets_unseeded(&first);
+    store(&second, &x.receipts, &x.eval);
+    tamper_package(&x, &first);
+    let cfg = config(Some(0), false);
+    let mut memo = Memo::default();
+    for _ in 0..3 {
+        let (report, idx) = run(&cfg, &x, &mut memo);
+        assert!(report.published.is_empty(), "{report:?}");
+        assert!(listed(&idx.unwrap()).is_empty());
+    }
+    let (report, _) = run(&cfg, &x, &mut memo);
+    assert!(
+        report
+            .pending
+            .iter()
+            .any(|(s, why)| s == &second.label && why.contains("record's first cohort")),
+        "{report:?}"
+    );
+}
+
+/// A closed cohort of the record whose number is unknown here (its manifest
+/// does not open under the trust roots) may be a later completion, so an own
+/// reading that would hold N claims nothing: N's marker raises no false
+/// disagreement while N+1 is unverifiable and N+2 is listed. Without it, the
+/// same state is a disagreement.
+#[test]
+fn an_unnumbered_cohort_raises_no_false_retention_disagreement() {
+    let b = build(0);
+    let n = b.c.manifest.cohort;
+    for unverifiable in [true, false] {
+        let x = buckets(&b);
+        let cfg = config(Some(0), false);
+        run(&cfg, &x, &mut Memo::default()).1.unwrap();
+        let mut idx = with_later(&x, &b, 2);
+        idx.cohorts.retain(|c| c.label != "later-1");
+        refresh_active(&mut idx);
+        x.public
+            .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+        let target = entry_of(&idx, &b.label).target.clone();
+        let done = idx.completions();
+        let own = |unnumbered| {
+            publish::own_due(
+                &idx,
+                &done,
+                n,
+                target.as_deref(),
+                &publish::AuthorizationHold::Nothing,
+                unnumbered,
+            )
+        };
+        assert_eq!(own(false), publish::OwnDue::Held);
+        assert_eq!(own(true), publish::OwnDue::Unknown);
+        write_marker(&x, &b.label, n, n + 2);
+        let mut memo = Memo::default();
+        if unverifiable {
+            memo.unverifiable.insert(
+                "later-1".into(),
+                publish::Remembered {
+                    build: publish::build_id(),
+                    reason: "manifest.signed: does not open".into(),
+                    cohort: None,
+                    opened_epoch: None,
+                    starts_record: false,
+                    public: None,
+                },
+            );
+        }
+        let (report, idx) = run(&cfg, &x, &mut memo);
+        assert_eq!(report.receipts_deleted, 1, "{report:?}");
+        assert!(!entry_of(&idx.unwrap(), &b.label).receipts_retained);
+        assert!(report.retention_checked);
+        if unverifiable {
+            assert_eq!(report.unverifiable, vec!["later-1".to_owned()]);
+            assert!(report.retention_mismatch.is_empty(), "{report:?}");
+        } else {
+            assert_eq!(report.retention_mismatch.len(), 1, "{report:?}");
+        }
+    }
+}
+
+/// Public detailed receipts stay while the public current authorization
+/// still commits their cohort's target, even with the coordinator's marker
+/// (the publisher has not copied the newer authorization yet): a hold that
+/// only delays. A public authorization that does not answer waits too. Once
+/// the newer authorization is copied, the marker deletes them.
+#[test]
+fn public_receipts_wait_while_the_public_authorization_names_their_target() {
+    let b = build(0);
+    let n = b.c.manifest.cohort;
+    let x = buckets(&b);
+    let cfg = config(Some(0), false);
+    run(&cfg, &x, &mut Memo::default()).1.unwrap();
+    with_later(&x, &b, 2);
+    point_at_target(&x, &b, target_digest(&b));
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert!(report.authorization_written, "{report:?}");
+    // The coordinator moved on to N+2's authorization and retired N; the
+    // pointer names a cohort this publisher has not listed.
+    point_at(&x, &b, n + 5, slop_ninja_protocol::Digest([5; 32]));
+    write_marker(&x, &b.label, n, n + 2);
+    for _ in 0..2 {
+        let (report, idx) = run(&cfg, &x, &mut Memo::default());
+        assert_eq!(report.receipts_deleted, 0, "{report:?}");
+        assert!(entry_of(&idx.unwrap(), &b.label).receipts_retained);
+        assert!(report.retention_mismatch.is_empty(), "{report:?}");
+    }
+    x.public
+        .unavailable
+        .borrow_mut()
+        .insert(layout::AUTHORIZATION_CURRENT.into());
+    let (report, _) = run(&cfg, &x, &mut Memo::default());
+    assert_eq!(report.receipts_deleted, 0, "{report:?}");
+    assert!(
+        report
+            .pending
+            .iter()
+            .any(|(s, _)| s == layout::AUTHORIZATION_CURRENT),
+        "{report:?}"
+    );
+    x.public.unavailable.borrow_mut().clear();
+    // The publisher catches up: N+2 (listed) carries the newer
+    // authorization, copied; the marker now deletes N's public receipts.
+    point_at(&x, &b, n + 2, slop_ninja_protocol::Digest([2; 32]));
+    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    assert!(report.authorization_written, "{report:?}");
+    assert_eq!(report.receipts_deleted, 1, "{report:?}");
+    assert!(!entry_of(&idx.unwrap(), &b.label).receipts_retained);
 }

@@ -104,13 +104,17 @@ binding, for `/status` and `/eval/status`. That deploy needs no simultaneous
 secret change. Per Worker (coordinator `--env testnet`, eval
 `--env eval-testnet`), in this order.
 
-Live state (2026-11-04): no step has run. The publisher runs rules v14
-from main `2bb1a42b` (an active cohort's public phase is `admission` or
-`evaluating`; `status_access_warning` is loaded) and still presents the
-shared token. The coordinator and the eval Worker still run the pre-gate
-build and accept the shared token on the workers.dev name. Every main
-commit that contains eval-no-skip also contains the gate, so their next
-deploy is step 3 below. Steps 1 and 2 must run first.
+Live state (2026-11-04): steps 1 and 2 ran on 2026-11-04 (14:09Z-14:12Z).
+Every private reader presents the monitor token first and falls back to the
+shared token on a 401; the coordinator and the eval Worker hold
+`STATUS_TOKEN_MONITOR`, `STATUS_TOKEN_PUBLISHER` and `STATUS_TOKEN_ALERTS`
+(one bulk upload each; signing was paused for the coordinator's). Both still
+run the pre-gate build `5314aa32`, which ignores the three names and refuses
+the monitor token with 401, so every read succeeds through the fallback for
+now. The publisher runs rules v14 from main `2bb1a42b` (an active cohort's
+public phase is `admission` or `evaluating`; `status_access_warning` is
+loaded) and still presents the shared token. Every main commit that contains eval-no-skip also contains the
+gate, so the next eval or coordinator deploy is step 3 below.
 
 Every secret put, bulk upload or delete deploys a new Worker version, like a
 code deploy. On 2026-10-30 the first signing step after a secret upload

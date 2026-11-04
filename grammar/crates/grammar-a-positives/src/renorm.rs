@@ -605,7 +605,11 @@ pub fn reverdict_local(post: &dyn PostProcess, r: &Request, parent: Option<&str>
         }
     }
     if let Some(p) = parent {
+        // as `generation::verdict` reads it: profile v2's laid-out text with
+        // the laid-out assembler (a trailing boundary break; amendment 42
+        // item 42.2), any other step's text with `generation::assemble`
         let doc = match r.source_span {
+            Some(span) if post.is_profile_v2() => generation::assemble_laid(p, &[span], &[t.as_str()]).map(|x| x.0),
             Some(span) => generation::assemble(p, &[span], &[t.as_str()]).map(|x| x.0),
             None => Ok(t.clone()),
         };
@@ -1202,6 +1206,39 @@ pub fn request_line_splits(rec: &Value) -> u64 {
     }
 }
 
+/// Amendment 42 item 42.1's boundary breaks in one request's profile
+/// record, counted once over an item as `request_line_splits` counts
+/// amendment 38's (item 39.4's rule).
+pub fn request_boundary_breaks(rec: &Value) -> u64 {
+    match (rec["item_check"]["last"].as_bool(), rec["item_check"]["index"].as_u64()) {
+        (Some(true), Some(i)) => grammar_a_form::profile::edit_tail_boundary_breaks(rec, i as usize),
+        _ => grammar_a_form::profile::tail_boundary_breaks(rec),
+    }
+}
+
+/// Amendment 42 item 42.1's lines with no boundary break
+/// (`tail_boundary_unavailable`) in one request's profile record, counted
+/// once over an item as `request_boundary_breaks` counts the breaks.
+pub fn request_boundary_unavailable(rec: &Value) -> u64 {
+    match (rec["item_check"]["last"].as_bool(), rec["item_check"]["index"].as_u64()) {
+        (Some(true), Some(i)) => grammar_a_form::profile::edit_tail_boundary_unavailable(rec, i as usize),
+        _ => grammar_a_form::profile::tail_boundary_unavailable(rec),
+    }
+}
+
+/// Writes a summary's amendment 42 item 42.1 members into `counts`, each
+/// only when not 0 (a batch with none keeps its summary's bytes): the
+/// boundary breaks (`tail_boundary_breaks`) and the over-W lines left with
+/// none (`tail_boundary_unavailable`).
+fn boundary_members(counts: &mut Value, breaks: u64, unavailable: u64) {
+    if breaks > 0 {
+        counts["tail_boundary_breaks"] = json!(breaks);
+    }
+    if unavailable > 0 {
+        counts["tail_boundary_unavailable"] = json!(unavailable);
+    }
+}
+
 pub fn run_batch(batch: &Batch, runs: &Path, out: &Path) -> Result<Value> {
     ensure!(is_r2_population(batch.form.population()), "population {} is not a round-2 population id", batch.form.population());
     ensure!(!refused_split(&batch.split), "split {} is refused (protocol A2 section 2.4; amendment 20)", batch.split);
@@ -1239,6 +1276,12 @@ pub fn run_batch(batch: &Batch, runs: &Path, out: &Path) -> Result<Value> {
     counts["raw_body_check"] = json!(j.raw_body_checks);
     // amendment 38 item 38.1's applications, each counted once: a request's own edit
     counts["document_line_splits"] = json!(judged.records.iter().flat_map(|r| r["requests"].as_array().into_iter().flatten()).map(|q| request_line_splits(&q["profile_record"])).sum::<u64>());
+    // amendment 42 item 42.1's boundary breaks and lines without one
+    // (`tail_boundary_unavailable`), each counted once, written only when
+    // not 0 (a batch with none keeps its summary's bytes)
+    let tb: u64 = judged.records.iter().flat_map(|r| r["requests"].as_array().into_iter().flatten()).map(|q| request_boundary_breaks(&q["profile_record"])).sum();
+    let tu: u64 = judged.records.iter().flat_map(|r| r["requests"].as_array().into_iter().flatten()).map(|q| request_boundary_unavailable(&q["profile_record"])).sum();
+    boundary_members(&mut counts, tb, tu);
     let summary = json!({"schema": RENORM_SCHEMA, "code": crate::CODE_ID, "plan_kind": batch.kind.id(), "batch": batch.name, "split": batch.split,
         "profile": batch.form.record(), "prior_sha256": batch.form.prior_sha256(), "model_calls": NO_MODEL_CALL,
         "inputs": batch.inputs, "runs": runs, "input_journals": input_journals,
@@ -1689,9 +1732,12 @@ pub fn renorm_rows(rows_path: &Path, donors_path: Option<&Path>, raid_docs: Opti
                     }
                 };
                 // the final span starts after a leading line break and lead
-                // (amendment 39 item 39.2, as an item's edit's does)
+                // (amendment 39 item 39.2, as an item's edit's does) and ends
+                // at the edit's last word, before a trailing boundary break
+                // (amendment 42 item 42.2)
                 let lead = fprofile::replacement_lead(&ch.text).unwrap_or(0);
-                let sp = vec![(parent_span.0 + lead, parent_span.0 + ch.text.len())];
+                let tail = fprofile::replacement_tail(&ch.text).map_or(0, |x| x.1);
+                let sp = vec![(parent_span.0 + lead, parent_span.0 + ch.text.len() - tail)];
                 (reasons, rec, doc, sp, json!({"kind": source, "id": parent, "domain": domain, "parent_span": [parent_span.0, parent_span.1]}))
             }
             RowPlan::Donor { donor } => {
@@ -1746,7 +1792,7 @@ pub fn renorm_rows(rows_path: &Path, donors_path: Option<&Path>, raid_docs: Opti
     write_new(&out.join(&prior_name), &prior_bytes)?;
     let rv_sha = write_new(&out.join("rows-reverdict.jsonl"), &jsonl_bytes(&reverdicts)?)?;
     let nm_sha = write_new(&out.join("rows-normalised.jsonl"), &jsonl_bytes(&normalised)?)?;
-    let summary = json!({"schema": ROWS_RENORM_SCHEMA, "code": crate::CODE_ID, "profile": fprofile::Profile::CohortV2.record(), "population": population,
+    let mut summary = json!({"schema": ROWS_RENORM_SCHEMA, "code": crate::CODE_ID, "profile": fprofile::Profile::CohortV2.record(), "population": population,
         "seed": seed, "prior_sha256": prior_sha, "model_calls": NO_MODEL_CALL,
         "inputs": {"rows": {"path": rows_path, "sha256": file_sha(rows_path)?, "rows": rows.len()},
             "donors": {"path": donors_path, "same_as_rows": donors_path == rows_path, "sha256": file_sha(donors_path)?, "donors": donors.len(), "weight_not_positive_excluded": not_positive},
@@ -1760,6 +1806,11 @@ pub fn renorm_rows(rows_path: &Path, donors_path: Option<&Path>, raid_docs: Opti
         "rules": {"raid_human": RAID_HUMAN_RULE, "stage3_parent": STAGE3_PARENT_RULE, "donor": DONOR_RULE, "splits": SPLIT_RULE,
             "prior": "the rows batch's parents only, each in its own domain, under the population's seed; draws are keyed by the row id",
             "window": "cc_final_length_window_v1 on every laid-out document: the laid-out row, or the parent with the laid-out span"}});
+    // amendment 42 item 42.1's boundary breaks and lines without one,
+    // written only when not 0
+    let tb: u64 = reverdicts.iter().map(|r| grammar_a_form::profile::tail_boundary_breaks(&r["record"])).sum();
+    let tu: u64 = reverdicts.iter().map(|r| grammar_a_form::profile::tail_boundary_unavailable(&r["record"])).sum();
+    boundary_members(&mut summary["counts"], tb, tu);
     write_new(&out.join("ROWS-RENORM.json"), &pretty(&summary)?)?;
     Ok(summary)
 }
@@ -3010,6 +3061,163 @@ mod tests {
         assert!(lead.starts_with('\n') && lead.trim().is_empty(), "{lead:?}");
         assert!(d[a..].starts_with(LONG));
         assert_eq!(&d[..sp.0], &q3[..sp.0]);
+    }
+
+    #[test]
+    fn rows_with_a_boundary_break_end_their_ai_span_at_the_last_word() {
+        // Amendment 42 on a stage-3 mixed row: a span ending mid-line, its
+        // replacement ending with a long word whose last line and the human's
+        // tail do not fit together. The laid-out row takes the boundary break:
+        // the human's run stays before one line break and the lead, the human
+        // resumes at its first non-whitespace byte, the normalised AI span
+        // ends at the last word (item 42.2), and the summary counts it.
+        let q3 = p3();
+        let cands: Vec<(usize, usize)> =
+            text::sentences(&q3).iter().map(|x| (x.start, x.end)).filter(|&(_, b)| q3[b..q3[b..].find('\n').map_or(q3.len(), |k| b + k)].len() > 24).collect();
+        let mut done = false;
+        for (k, &sp) in cands.iter().enumerate().take(6) {
+            let body = prose(&ALT, 221 + k as u64, 1, text::words(&q3[sp.0..sp.1]) - 1);
+            let with = format!("{} {}.", body.trim_end_matches('.'), LONG.to_lowercase());
+            let t = format!("{}{}{}", &q3[..sp.0], with, &q3[sp.1..]);
+            let rs = (sp.0, sp.0 + with.len());
+            let rows_v = vec![row("stage3:h3", "stage3_legacy", LEGACY, "human_only", "g-3", "fiction", &q3), mixed_row("stage3:m3", "stage3_legacy", "g-3", "fiction", &t, rs)];
+            let dir = tempfile::tempdir().unwrap();
+            let rp = dir.path().join("rows.jsonl");
+            fs::write(&rp, jsonl_bytes(&rows_v).unwrap()).unwrap();
+            let sum = renorm_rows(&rp, None, None, "train2", &dir.path().join("o"), false).unwrap();
+            let rv = lines(&dir.path().join("o/rows-reverdict.jsonl"));
+            let n = rv[0]["record"]["transfer"]["tail_boundary_breaks"].as_u64().unwrap_or(0);
+            if n == 0 {
+                assert!(sum["counts"].get("tail_boundary_breaks").is_none(), "written only when not 0");
+                continue;
+            }
+            assert_eq!(sum["counts"]["tail_boundary_breaks"].as_u64(), Some(n));
+            assert_eq!(rv[0]["action"], "keep", "{}", rv[0]);
+            let nm = lines(&dir.path().join("o/rows-normalised.jsonl"));
+            let d = nm[0]["text"].as_str().unwrap();
+            let (a, b) = (nm[0]["ai_byte_spans"][0][0].as_u64().unwrap() as usize, nm[0]["ai_byte_spans"][0][1].as_u64().unwrap() as usize);
+            assert_eq!(&d[..sp.0], &q3[..sp.0]);
+            assert!(d[a..b].ends_with(&format!("{}.", LONG.to_lowercase())), "the span ends at the last word");
+            assert!(!d[a..b].ends_with(char::is_whitespace) && !d[a..b].starts_with(char::is_whitespace));
+            let run = q3[sp.1..].len() - q3[sp.1..].trim_start_matches(' ').len();
+            assert_eq!(&d[b..b + run + 1], format!("{}\n", &q3[sp.1..sp.1 + run]));
+            assert!(d.ends_with(&q3[sp.1 + run..]), "the human resumes at its first non-whitespace byte");
+            done = true;
+            break;
+        }
+        assert!(done, "a boundary break among the candidates");
+    }
+
+    #[test]
+    fn boundary_breaks_are_counted_once_over_an_item() {
+        // Item 39.4's rule for amendment 42's counter: an item's last request
+        // counts its own edit only; every other record counts all it holds.
+        let tb = |n: u64| if n > 0 { json!({"tail_boundary_breaks": n}) } else { json!({}) };
+        let first = json!({"edits": [{"transfer": tb(1)}], "item_check": {"last": false, "index": 0}});
+        let last = json!({"edits": [{"transfer": tb(1)}, {"transfer": tb(2)}], "item_check": {"last": true, "index": 1}});
+        let alone = json!({"transfer": tb(1)});
+        assert_eq!((request_boundary_breaks(&first), request_boundary_breaks(&last), request_boundary_breaks(&alone)), (1, 2, 1));
+        assert_eq!(grammar_a_form::profile::tail_boundary_breaks(&last), 3);
+        assert_eq!(request_boundary_breaks(&json!({"transfer": tb(0)})), 0);
+    }
+
+    #[test]
+    fn local_reverdict_and_generate_accept_a_boundary_break_child_and_count_it() {
+        // Amendment 42 on a local batch: single spans of a hard-wrapped
+        // parent, replaced by text ending with a long word, so that the
+        // laid-out child takes the boundary break. The verdict's single-span
+        // assembly (the A-token check) reads the laid-out text with the
+        // laid-out assembler in both the re-verdict and generate's verdict
+        // (the raw assembler refuses its trailing break), so each child is
+        // accepted with its A-token figure; the run's records keep it and
+        // its summary counts every break once.
+        use crate::a42_fixture as fx;
+        let q = fx::parent(0);
+        let kids = fx::boundary_children(&q, 4);
+        assert!(kids.len() >= 2, "{}", kids.len());
+        let mut ps = parents();
+        ps.insert("p4".into(), q.clone());
+        let tok = tokenizer();
+        let form = FormPost::new("train2", [("p1", "fiction", ps["p1"].as_str()), ("p2", "news", ps["p2"].as_str()), ("p4", "news", q.as_str())]).unwrap();
+        let fp = form.clone().with_items(Vec::new(), &HashMap::new()).unwrap();
+        let mut on = ctx(Some(Arc::new(fp.clone())));
+        on.parents = ps.clone();
+        let mut off = ctx(None);
+        off.parents = ps.clone();
+        let vf = |r: &Request, parsed: &Value| generation::verdict(&off, r, 200, parsed);
+        let (mut reqs, mut items, mut g) = (Vec::new(), Vec::new(), Vec::new());
+        for (k, (sp, reply)) in kids.iter().enumerate() {
+            let r = request(&format!("r-b{k}"), &format!("i-b{k}"), "p4", Some(*sp), text::words(&q[sp.0..sp.1]));
+            let parsed = chat_body(reply);
+            let orig = generation::verdict(&off, &r, 200, &parsed);
+            assert_eq!(orig["accepted"], true, "{}", orig["reasons"]);
+            let want = generation::verdict(&on, &r, 200, &parsed);
+            let got = reverdict_local(&fp, &r, Some(&q), orig["text"].as_str().unwrap(), &orig, &tok);
+            assert_eq!(got, want, "{k}");
+            assert_eq!(got["accepted"], true, "{k}: {}", got["reasons"]);
+            assert!(got["diag"]["post"]["transfer"]["tail_boundary_breaks"].as_u64().unwrap_or(0) >= 1, "{k}");
+            assert!(got["diag"]["a_tokens_single_span_assembly"].as_u64().is_some_and(|n| n > 0), "{k}");
+            let t = got["text"].as_str().unwrap();
+            assert!(fprofile::replacement_tail(t).is_some_and(|x| x.1 > 0), "{t:?}");
+            assert!(generation::assemble(&q, &[*sp], &[t]).is_err(), "the raw assembler refuses the break");
+            let (d, fin, _) = generation::assemble_laid(&q, &[*sp], &[t]).unwrap();
+            fx::check_final(&q, *sp, &d, fin[0]);
+            g.extend(lines_of(&r, &[(0, reply)], &vf));
+            items.push(ritem(&r.item_id, "p4", "span", &[&r]));
+            reqs.push(r);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let runs = dir.path().join("runs");
+        write_journal(&runs, "g", "journal-1-w0.jsonl", &g);
+        let b = Batch {
+            kind: PlanKind::Local,
+            name: "split-train".into(),
+            form,
+            requests: reqs.iter().map(|r| (r.request_id.clone(), r.clone())).collect(),
+            items,
+            parents: ps,
+            tokenizer: Some(&tok),
+            inputs: json!({"fixture": true}),
+            split: "train".into(),
+            skipped: Skipped::new(),
+            records: None,
+        };
+        let out = dir.path().join("out");
+        let sum = run_batch(&b, &runs, &out).unwrap();
+        let recs = lines(&out.join("reverdict-split-train.jsonl"));
+        assert_eq!(recs.len(), kids.len());
+        let mut n = 0;
+        for rec in &recs {
+            assert_eq!(rec["pass"], true, "{rec}");
+            n += request_boundary_breaks(&rec["requests"][0]["profile_record"]);
+        }
+        assert!(n >= kids.len() as u64);
+        assert_eq!(sum["counts"]["tail_boundary_breaks"].as_u64(), Some(n));
+        assert!(sum["counts"].get("tail_boundary_unavailable").is_none(), "written only when not 0");
+    }
+
+    #[test]
+    fn lines_without_a_boundary_break_are_counted_once_over_an_item() {
+        // `tail_boundary_unavailable` (amendment 42 item 42.1) under item
+        // 39.4's rule, as the breaks are counted.
+        let tu = |n: u64| if n > 0 { json!({"tail_boundary_unavailable": n}) } else { json!({}) };
+        let first = json!({"edits": [{"transfer": tu(1)}], "item_check": {"last": false, "index": 0}});
+        let last = json!({"edits": [{"transfer": tu(1)}, {"transfer": tu(2)}], "item_check": {"last": true, "index": 1}});
+        let alone = json!({"transfer": tu(1)});
+        assert_eq!((request_boundary_unavailable(&first), request_boundary_unavailable(&last), request_boundary_unavailable(&alone)), (1, 2, 1));
+        assert_eq!(grammar_a_form::profile::tail_boundary_unavailable(&last), 3);
+        assert_eq!(grammar_a_form::profile::edit_tail_boundary_unavailable(&last, 0), 1);
+        assert_eq!(request_boundary_unavailable(&json!({"transfer": json!({"tail_boundary_breaks": 4})})), 0, "the breaks are not read");
+        // the summaries' members, each written only when not 0
+        let put = |b: u64, u: u64| {
+            let mut c = json!({"records": 1});
+            boundary_members(&mut c, b, u);
+            c
+        };
+        assert_eq!(put(0, 0), json!({"records": 1}));
+        assert_eq!(put(2, 0), json!({"records": 1, "tail_boundary_breaks": 2}));
+        assert_eq!(put(0, 3), json!({"records": 1, "tail_boundary_unavailable": 3}));
+        assert_eq!(put(1, 1), json!({"records": 1, "tail_boundary_breaks": 1, "tail_boundary_unavailable": 1}));
     }
 
     #[test]

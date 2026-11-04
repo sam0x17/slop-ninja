@@ -1,7 +1,8 @@
-//! The parent-conditioned layout transfer `layout_transfer_v5` of
+//! The parent-conditioned layout transfer `layout_transfer_v6` of
 //! `cc_cohort_profile_v2` (protocol A2 §6.2, as amended by amendments 7, 10,
-//! 13, 29, 30 and 38; `layout_transfer_v3` was amendment 29's alone and
-//! `layout_transfer_v4` added amendment 30's).
+//! 13, 29, 30, 38 and 42; `layout_transfer_v3` was amendment 29's alone,
+//! `layout_transfer_v4` added amendment 30's and `layout_transfer_v5`
+//! amendment 38's).
 //!
 //! A child takes every whitespace-layout property from its source, measured
 //! exactly (`measure`, `layout_measure_v2`). The source of a mirror is the
@@ -71,7 +72,12 @@
 //!    edit's first unit is wrapped and its first word does not fit in W
 //!    less its column, its text starts on a new line with a continuation
 //!    lead (`sibling_column_wraps`, counted): the replacement then begins
-//!    with that line break and lead.
+//!    with that line break and lead. When no suffix fits (not even the last
+//!    word) and the boundary break below exists on that document line, the
+//!    last line is not split (amendment 42 item 42.3): its words stay, and
+//!    the boundary break is taken on the assembled line. Without a boundary
+//!    break there (an insertion whose following parent text starts without
+//!    whitespace), one word moves as before.
 //!
 //!    **The split on the assembled document line** (amendment 38 item 38.1,
 //!    as amendment 39 item 39.1 reads it; `split_document_lines`). After the
@@ -91,7 +97,27 @@
 //!    from the layout's picks, an empty pool counted), and a break before
 //!    the first word takes none (the bytes before it are fixed). The break
 //!    is the earliest at which the moved part fits in the child's own W (the
-//!    only W on the new line; item 13.7's maximal suffix), else the last.
+//!    only W on the new line; item 13.7's maximal suffix); when none fits,
+//!    the **boundary break** (amendment 42 item 42.1); and only when there is
+//!    no boundary break, the last. The boundary break lies just after the
+//!    edit's last word on the line, and exists only when parent words follow
+//!    that word on the line (for an edit of an item, the text read after it,
+//!    up to the next edit) and the bytes right after it begin with a
+//!    whitespace run (the maximal run of non-line-break whitespace; Unicode
+//!    White_Space, followed by a byte that is not Python whitespace). The
+//!    construction is (a-ii) (item 42.2): the parent's whitespace run stays
+//!    on the line before the break as its trailing whitespace, then one line
+//!    break and the edit's next continuation lead, then the parent text from
+//!    its first non-whitespace byte, not re-wrapped. The replacement then
+//!    ends with that run, the line break and the lead: the edit's assembled
+//!    range ends after the parent's whitespace run, and its final span at
+//!    its last word (`profile::replacement_tail`). No wrap trail is added and
+//!    no fit is asked of the moved parent text. Each boundary break is
+//!    counted (`tail_boundary_breaks`), and each edit whose end line needed
+//!    one but whose following parent text starts without whitespace is
+//!    counted once (`tail_boundary_unavailable`), both recorded only when not
+//!    0. The transfer exposes the break read-only (`Transferred::tail_break`,
+//!    `last_line_shares_parent_line`) for the dry run's counting tool.
 //!    The rule is applied again to the shortened line, then to the new one,
 //!    until no line qualifies; one-word lines are exempt, and a line whose
 //!    overflow lies in parent text or that has no break point is left
@@ -124,9 +150,10 @@
 //!    `""` (counted). A mirror also takes the parent's head and tail. A mixed
 //!    child's first line takes no leading and its last line no trailing
 //!    whitespace: the parent's own bytes around the span supply them, and the
-//!    splice needs a trimmed replacement (amendment 7 item 7.6). The one
-//!    exception is step 3's line break with no room on a shared line
-//!    (amendment 29 item 29.1), which the item's assembly accepts.
+//!    splice needs a trimmed replacement (amendment 7 item 7.6). The
+//!    exceptions are step 3's line break with no room on a shared line
+//!    (amendment 29 item 29.1) and step 3's boundary break (amendment 42
+//!    item 42.2), which the assemblers accept.
 //!
 //! **Line-form sources** (more than half of the source's lines in failing
 //! paragraphs that hold no wrap: IRC, verse, transcripts, lists): the child
@@ -159,7 +186,7 @@ use crate::text;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
-pub const LAYOUT_TRANSFER_ID: &str = "layout_transfer_v5";
+pub const LAYOUT_TRANSFER_ID: &str = "layout_transfer_v6";
 /// The separator between a line-form child's blocks when its source has no
 /// paragraph boundary (and so no blank line): one newline.
 pub const LINE_FORM_FALLBACK: &str = "\n";
@@ -615,6 +642,16 @@ pub struct TransferRecord {
     /// the rule does not change keeps its bytes.
     #[serde(skip_serializing_if = "is_zero")]
     pub document_line_splits: usize,
+    /// Boundary breaks taken (amendment 42 item 42.1): the parent text after
+    /// the edit's last word moved to a new line. Recorded only when not 0.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub tail_boundary_breaks: usize,
+    /// The edit's last line was read with no inside break that fits and no
+    /// boundary break, because the parent text after the edit starts without
+    /// whitespace (an insertion; amendment 42 item 42.1), counted once per
+    /// edit. Recorded only when not 0.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub tail_boundary_unavailable: usize,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -732,6 +769,63 @@ pub struct Transferred {
     /// The wrap trails the layout has taken from the source's pool (amendment
     /// 39 item 39.3: a split between two words cycles on from here).
     pub trail_picks: usize,
+    /// The boundary break the split took (amendment 42 item 42.2), if any.
+    /// Read through `tail_break` and `last_line_shares_parent_line`.
+    tail_break: Option<TailBreak>,
+}
+
+/// A boundary break at the end of a replacement (amendment 42 item 42.2):
+/// `text` ends with the parent's whitespace run after the edit (`run`
+/// bytes, the parent's own), one line break and the continuation lead
+/// (`lead` bytes, no line break).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TailBreak {
+    pub run: usize,
+    pub lead: usize,
+}
+
+impl Transferred {
+    /// The boundary break at the end of the replacement, if the split took
+    /// one (amendment 42 item 42.2). Read-only: the dry run's counting tool
+    /// reads the transfer's result here and copies no rule (item 42.5).
+    pub fn tail_break(&self) -> Option<TailBreak> {
+        self.tail_break
+    }
+
+    /// Whether a mixed child's last line still shares its document line with
+    /// the parent text after the span (item 13.7's `tail_column`): false
+    /// after a boundary break (amendment 42 item 42.5) and for a whole text.
+    pub fn last_line_shares_parent_line(&self) -> bool {
+        self.record.mixed && self.tail_break.is_none()
+    }
+}
+
+/// What follows an edit's last word on its document line (amendment 42 item
+/// 42.1), read on `after`, the text after the edit up to the line's end (or
+/// for an edit of an item, up to the next edit).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Boundary {
+    /// No parent word follows on the line: no boundary break.
+    None,
+    /// A whitespace run of this many bytes, then a parent byte that is not
+    /// whitespace: the boundary break exists.
+    Run(usize),
+    /// Parent text follows without a whitespace run (an insertion), or
+    /// after a run holding a character that is Python whitespace but not
+    /// Unicode White_Space (U+001C..U+001F): no boundary break.
+    Unavailable,
+}
+
+pub(crate) fn boundary_of(after: &str) -> Boundary {
+    let rest = after.trim_start_matches(|c: char| crate::profile::py_space(c) && c != '\n');
+    let run = after.len() - rest.len();
+    match rest.chars().next() {
+        None => Boundary::None,
+        Some('\n') => Boundary::None,
+        Some(_) if run == 0 => Boundary::Unavailable,
+        Some(_) if !after[..run].chars().all(char::is_whitespace) => Boundary::Unavailable,
+        Some(_) => Boundary::Run(run),
+    }
 }
 
 /// Greedy wrap of one squashed paragraph at `w` characters, the first line
@@ -1219,7 +1313,18 @@ fn lay_out_prose(units: &[(String, Role)], src: &SourceLayout, rec: &mut Transfe
                     let k = wl.len() - 1;
                     let start = if k == 0 && at_column { src.column } else { chars(&leads[k]) };
                     let words: Vec<&str> = wl[k].split(' ').collect();
-                    if words.len() > 1 && start + chars(&wl[k]) + src.tail_column > w {
+                    // Amendment 42 item 42.3: when no suffix fits (not even
+                    // the last word, with the lead the split would take) and
+                    // the boundary break exists on this document line, the
+                    // line is not split and takes no lead; the split on the
+                    // assembled line then takes the boundary break.
+                    let none_fits = || {
+                        let pool = &src.pools.cont_leads;
+                        let lead = if pool.is_empty() { "" } else { pool[ci % pool.len()].as_str() };
+                        words.last().is_some_and(|x| chars(x) > w.saturating_sub(chars(lead) + src.tail_column))
+                    };
+                    let boundary = src.line.as_ref().is_some_and(|l| matches!(boundary_of(&l.after), Boundary::Run(_)));
+                    if words.len() > 1 && start + chars(&wl[k]) + src.tail_column > w && !(boundary && none_fits()) {
                         let lead = pick(&src.pools.cont_leads, &mut ci, &mut fb).to_string();
                         let budget = w.saturating_sub(chars(&lead) + src.tail_column);
                         let mut cut = words.len() - 1;
@@ -1351,6 +1456,8 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
         tail_budget_splits: 0,
         sibling_column_wraps: 0,
         document_line_splits: 0,
+        tail_boundary_breaks: 0,
+        tail_boundary_unavailable: 0,
     };
     if !src.line_form {
         let framed = !src.mixed && (src.frames.head || src.frames.tail);
@@ -1443,6 +1550,7 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
             unit_wrapped,
             cont_picks,
             trail_picks,
+            tail_break: None,
         };
         split_alone(&mut t, src);
         return t;
@@ -1491,6 +1599,7 @@ pub fn transfer(t: &str, conv: &Conventions, src: &SourceLayout) -> Transferred 
         unit_wrapped: vec![false; blocks.len()],
         cont_picks: 0,
         trail_picks: 0,
+        tail_break: None,
     }
 }
 
@@ -1538,6 +1647,10 @@ struct LineSplit {
     trail: String,
     /// A break between two words found the wrap-trail pool empty (counted).
     trail_fallback: bool,
+    /// A boundary break (amendment 42 item 42.1): the parent's whitespace
+    /// run after the edit, which the line before the break keeps; `at` is
+    /// the empty range just after it, past the replacement's own bytes.
+    boundary: Option<String>,
 }
 
 /// Byte ranges of the maximal runs of non-whitespace characters of `s`,
@@ -1566,19 +1679,30 @@ fn word_ranges(s: &str, off: usize) -> Vec<(usize, usize)> {
 /// over when it is wider than the smallest W of the edits whose wrapped
 /// words it holds; the moved part must fit in the edit's own W, the only W
 /// on the new line (it holds the edit's words and parent text alone).
-/// Returns the edit's applications, in order. Each moves at least one word
-/// to a new line and leaves at least one before it, so the loop ends.
-fn split_document_lines(doc: &str, e: &mut LineEdit) -> Vec<LineSplit> {
+/// When no inside break fits, the boundary break after the edit's last word
+/// on the line is taken if it exists (amendment 42 item 42.1), before the
+/// last inside break. Returns the edit's applications, in order, and whether
+/// the edit's end line needed a boundary break that its following text
+/// does not allow (`tail_boundary_unavailable`). Each inside application
+/// moves at least one word to a new line and leaves at least one before it;
+/// a boundary break moves parent text only and leaves no parent word after
+/// the edit on its line, so it is taken at most once; the loop ends.
+fn split_document_lines(doc: &str, e: &mut LineEdit) -> (Vec<LineSplit>, bool) {
     let mut doc = doc.to_string();
     let mut out = Vec::new();
+    let mut unavailable = false;
     let mut ls = 0usize;
     loop {
         let le = line_end(&doc, ls);
         let words = word_ranges(&doc[ls..le], ls);
         let own = |&(a, b): &(usize, usize)| e.wrapped.iter().any(|&(x, y)| x <= a && b <= y);
-        // (word index, the break lies between two of the edit's words)
-        let mut chosen: Option<(usize, bool)> = None;
-        if words.len() > 1 && words.iter().any(own) {
+        // the line holds the edit's end, in a word of a wrapped unit (a word
+        // the parent's text is glued to included)
+        let at_end = |&(a, b): &(usize, usize)| a < e.range.1 && e.range.1 <= b && e.wrapped.iter().any(|&(x, y)| x < e.range.1 && e.range.1 <= y);
+        let read = words.iter().any(own);
+        let holds_end = words.iter().any(at_end);
+        let mut chosen: Option<Brk> = None;
+        if words.len() > 1 && (read || holds_end) {
             let line_cols = chars(&doc[ls..words[words.len() - 1].1]);
             // the earlier edits' words keep their bytes (their ranges lie
             // before the edit's), so their W is read where they stand
@@ -1596,21 +1720,50 @@ fn split_document_lines(doc: &str, e: &mut LineEdit) -> Vec<LineSplit> {
                     if !(inside || words[j].0 == e.range.0) {
                         continue;
                     }
-                    last = Some((j, inside));
+                    last = Some(Brk::Inside(j, inside));
                     if chars(e.next_lead()) + line_cols - chars(&doc[ls..words[j].0]) <= e.width {
                         chosen = last;
                         break;
                     }
                 }
+                if chosen.is_none() && holds_end {
+                    match boundary_of(&doc[e.range.1..le]) {
+                        Boundary::Run(run) if read => chosen = Some(Brk::Boundary(run)),
+                        Boundary::Unavailable => unavailable = true,
+                        _ => {}
+                    }
+                }
                 chosen = chosen.or(last);
             }
         }
-        let Some((j, inside)) = chosen else {
+        let Some(brk) = chosen else {
             if le >= doc.len() {
                 break;
             }
             ls = le + 1;
             continue;
+        };
+        let (j, inside) = match brk {
+            Brk::Inside(j, inside) => (j, inside),
+            Brk::Boundary(run) => {
+                // amendment 42 item 42.2 (a-ii): the run stays before the
+                // break; the line break and the lead follow it
+                let x = e.range.1 + run;
+                let lead = e.next_lead().to_string();
+                let fallback = e.cont_leads.is_empty();
+                e.cursor += 1;
+                let ins = format!("\n{lead}");
+                out.push(LineSplit {
+                    at: (x - e.range.0, x - e.range.0),
+                    lead,
+                    fallback,
+                    trail: String::new(),
+                    trail_fallback: false,
+                    boundary: Some(doc[e.range.1..x].to_string()),
+                });
+                doc.insert_str(x, &ins);
+                continue;
+            }
         };
         let (x, y) = (if inside { words[j - 1].1 } else { words[j].0 }, words[j].0);
         let lead = e.next_lead().to_string();
@@ -1625,7 +1778,7 @@ fn split_document_lines(doc: &str, e: &mut LineEdit) -> Vec<LineSplit> {
             (String::new(), false)
         };
         let ins = format!("{trail}\n{lead}");
-        out.push(LineSplit { at: (x - e.range.0, y - e.range.0), lead, fallback, trail, trail_fallback });
+        out.push(LineSplit { at: (x - e.range.0, y - e.range.0), lead, fallback, trail, trail_fallback, boundary: None });
         doc.replace_range(x..y, &ins);
         let map = |p: usize| if p >= y { p + ins.len() - (y - x) } else { p };
         // the line break before the edit's first word is the edit's own
@@ -1634,13 +1787,38 @@ fn split_document_lines(doc: &str, e: &mut LineEdit) -> Vec<LineSplit> {
             *r = (map(r.0), map(r.1));
         }
     }
-    out
+    (out, unavailable)
+}
+
+/// A break point `split_document_lines` takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Brk {
+    /// (word index, the break lies between two of the edit's words).
+    Inside(usize, bool),
+    /// The boundary break after a whitespace run of this many bytes.
+    Boundary(usize),
 }
 
 /// Applies an edit's splits (`split_document_lines`) to its transfer: the
 /// text, the unit, body and frame-line ranges, and the record's counts.
 fn apply_line_splits(t: &mut Transferred, splits: &[LineSplit]) {
     for s in splits {
+        if let Some(run) = &s.boundary {
+            // amendment 42 item 42.2: the replacement ends with the parent's
+            // run, one line break and the lead; the units, the body and the
+            // frame lines end before it. The new line holds parent text only:
+            // it is no child line, and no wrap trail is added. The lead is a
+            // pick of the continuation pool, an empty pool counted.
+            debug_assert_eq!(s.at.0, t.text.len() + run.len());
+            t.text.push_str(run);
+            t.text.push('\n');
+            t.text.push_str(&s.lead);
+            t.tail_break = Some(TailBreak { run: run.len(), lead: s.lead.len() });
+            t.record.tail_boundary_breaks += 1;
+            t.record.ws_pool_fallbacks += usize::from(s.fallback);
+            t.cont_picks += 1;
+            continue;
+        }
         let (x, y) = s.at;
         let ins = format!("{}\n{}", s.trail, s.lead);
         t.text.replace_range(x..y, &ins);
@@ -1682,8 +1860,9 @@ fn split_alone(t: &mut Transferred, src: &SourceLayout) {
         wrap_trails: &src.pools.wrap_trails,
         trail_cursor: t.trail_picks,
     };
-    let splits = split_document_lines(&doc, &mut e);
+    let (splits, unavailable) = split_document_lines(&doc, &mut e);
     apply_line_splits(t, &splits);
+    t.record.tail_boundary_unavailable += usize::from(unavailable);
 }
 #[cfg(test)]
 mod tests {
@@ -1735,12 +1914,19 @@ mod tests {
         let at = before.len();
         let mut e = edit((at, at + rep.len()), w, leads, cursor, trails);
         e.others = others;
-        let sp = split_document_lines(&doc, &mut e);
+        let (sp, _) = split_document_lines(&doc, &mut e);
         assert_eq!(e.cursor, cursor + sp.len());
         assert_eq!(e.trail_cursor, sp.iter().filter(|x| x.at.0 < x.at.1).count());
         let mut r = rep.to_string();
         for x in &sp {
-            r.replace_range(x.at.0..x.at.1, &format!("{}\n{}", x.trail, x.lead));
+            match &x.boundary {
+                // the boundary break: past the replacement's bytes, after the run
+                Some(run) => {
+                    assert_eq!(x.at, (r.len() + run.len(), r.len() + run.len()));
+                    r.push_str(&format!("{run}\n{}", x.lead));
+                }
+                None => r.replace_range(x.at.0..x.at.1, &format!("{}\n{}", x.trail, x.lead)),
+            }
         }
         (r, sp)
     }
@@ -1755,7 +1941,7 @@ mod tests {
 
     /// An application with no wrap trail.
     fn at(at: (usize, usize), lead: &str, fallback: bool) -> LineSplit {
-        LineSplit { at, lead: lead.into(), fallback, trail: String::new(), trail_fallback: false }
+        LineSplit { at, lead: lead.into(), fallback, trail: String::new(), trail_fallback: false, boundary: None }
     }
 
     #[test]
@@ -1773,11 +1959,106 @@ mod tests {
         // parent text after it (item 13.7's case on the document line).
         let (r, _) = split_one("aaaa bbbb cccc dddd ", "eeee", " ff", 20, &flush(), 0);
         assert_eq!(r, "\neeee");
-        // With no room for the word and that text, the last break is taken
-        // all the same; the new line, over W, has no break point and stays.
+        // With no room for the word and that text (layout_transfer_v5 took
+        // the last break here and left the new line over W), amendment 42
+        // takes the boundary break first: the parent text moves alone, the
+        // shortened line is read again and its word then fits after the
+        // break before it.
         let tail = format!(" {}", "x".repeat(18));
         let (r, sp) = split_one("aaaa bbbb cccc dddd ", "eeee", &tail, 20, &flush(), 0);
-        assert_eq!((r.as_str(), sp.len()), ("\neeee", 1));
+        assert_eq!(r, "\neeee \n");
+        assert_eq!(sp, vec![bnd(5, " ", "", false), at((0, 0), "", false)]);
+    }
+
+    /// A boundary break after a run `run`, at `at` past the replacement's
+    /// bytes.
+    fn bnd(at: usize, run: &str, lead: &str, fallback: bool) -> LineSplit {
+        LineSplit { at: (at, at), lead: lead.into(), fallback, trail: String::new(), trail_fallback: false, boundary: Some(run.into()) }
+    }
+
+    #[test]
+    fn a42_the_boundary_break_moves_the_parent_text_after_the_edits_last_word() {
+        // One child word at the line's start, then the parent's tail over W
+        // (count 4's 74 lines): no inside break point, so layout_transfer_v5
+        // left the line. The boundary break keeps the parent's run as the
+        // line's trailing whitespace and starts the tail on a new line with
+        // the next continuation lead; the new line holds parent text only.
+        let tail = format!(" {}", "x".repeat(24));
+        assert_eq!(split_one("", "eeee", &tail, 20, &flush(), 0), ("eeee \n".to_string(), vec![bnd(5, " ", "", false)]));
+        assert_eq!(split_one("ab\n", "eeee", &tail, 20, &flush(), 0).0, "eeee \n");
+        // a 2-space run stays whole before the break, byte for byte
+        let tail2 = format!("  {}", "x".repeat(24));
+        assert_eq!(split_one("", "eeee", &tail2, 20, &flush(), 0), ("eeee  \n".to_string(), vec![bnd(6, "  ", "", false)]));
+        // a tab and a no-break space are whitespace runs too
+        assert_eq!(split_one("", "eeee", "\t\u{a0}zzzz zzzz zzzz zzzz", 20, &flush(), 0).0, "eeee\t\u{a0}\n");
+        // the lead is the next continuation lead, cycled on from the layout's
+        // picks; an empty pool gives "" and is counted
+        let leads = vec!["".to_string(), "  ".to_string()];
+        assert_eq!(split_one("", "eeee", &tail, 20, &leads, 1), ("eeee \n  ".to_string(), vec![bnd(5, " ", "  ", false)]));
+        assert_eq!(split_one("", "eeee", &tail, 20, &[], 0).1, vec![bnd(5, " ", "", true)]);
+        // a tail wider than W on its own still moves, and its line stays
+        // over W (parent text only: item 7.3's stated limit)
+        let wide = format!(" {}", "y".repeat(30));
+        assert_eq!(split_one("", "eeee", &wide, 20, &flush(), 0).0, "eeee \n");
+        // a line within W is not read
+        assert_eq!(split_one("", "eeee", " ff", 20, &flush(), 0).1, vec![]);
+        // a blank line above: the edit's last unit is one word that starts a
+        // paragraph; its line is exempt once the tail has moved
+        let (r, sp) = split_one("", "aaaa bbbb\n\neeee", &tail, 20, &flush(), 0);
+        assert_eq!((r.as_str(), sp), ("aaaa bbbb\n\neeee \n", vec![bnd(16, " ", "", false)]));
+    }
+
+    #[test]
+    fn a42_an_inside_break_that_fits_comes_first_and_the_boundary_before_the_last() {
+        // An inside break that fits is taken as before (item 38.1, step 1).
+        let (r, sp) = split_one("pp ", "aaaaa bbbbb", " mm cccccccc ttttt", 30, &flush(), 0);
+        assert_eq!((r.as_str(), sp.len()), ("\naaaaa bbbbb", 1));
+        // When none fits, the boundary break (step 2), not the last inside
+        // break (v5's fallback): with W 20 neither moved part fits (29, 23).
+        let (r, sp) = split_one("pp ", "aaaaa bbbbb", " mm cccccccc ttttt", 20, &flush(), 0);
+        assert_eq!((r.as_str(), sp), ("aaaaa bbbbb \n", vec![bnd(12, " ", "", false)]));
+        // Start-side and end-side breaks on one edit: after the boundary
+        // break the line left (14 columns) is still over W 12 and is read
+        // again; its earliest fitting break is before the edit's first word.
+        let (r, sp) = split_one("pp ", "aaaaa bbbbb", " mm cccccccc ttttt", 12, &flush(), 0);
+        assert_eq!(r, "\naaaaa bbbbb \n");
+        assert_eq!(sp, vec![bnd(12, " ", "", false), at((0, 0), "", false)]);
+        // With no boundary break (the edit ends its line), the last inside
+        // break is still the fallback.
+        let (r, _) = split_one(&format!("{} ", "p".repeat(18)), &format!("{} {}", "a".repeat(18), "b".repeat(18)), "", 20, &flush(), 0);
+        assert_eq!(r, format!("\n{}\n{}", "a".repeat(18), "b".repeat(18)));
+    }
+
+    #[test]
+    fn a42_no_boundary_break_without_a_parent_word_or_a_whitespace_run() {
+        let tail = format!(" {}", "x".repeat(24));
+        // an insertion at the end of a line: no parent word follows
+        assert_eq!(split_one(&format!("{} ", "p".repeat(24)), "eeee", "", 20, &flush(), 0).1, vec![at((0, 0), "", false)]);
+        assert_eq!(split_one("", &format!("eeee {}", "q".repeat(24)), "  ", 20, &flush(), 0).1.iter().filter(|x| x.boundary.is_some()).count(), 0);
+        // parent text glued to the edit's last word (an insertion whose
+        // following parent text starts without whitespace): no boundary
+        // break; the line is left and the edit is counted once
+        let glued = "x".repeat(24);
+        let doc = format!("eeee{glued} zz");
+        let mut e = edit((0, 4), 20, &[], 0, &[]);
+        assert_eq!(split_document_lines(&doc, &mut e), (vec![], true));
+        // with an inside break that does not fit, the last one is taken and
+        // the edit is still counted once
+        let doc = format!("cccc dddd eeee{glued}");
+        let mut e = edit((0, 14), 20, &[], 0, &[]);
+        let (sp, un) = split_document_lines(&doc, &mut e);
+        assert_eq!((sp.len(), un), (1, true));
+        assert!(sp[0].boundary.is_none());
+        // a run holding U+001C (Python whitespace, not Unicode White_Space):
+        // no boundary break, counted
+        let doc = format!("eeee \u{1c}{glued}");
+        let mut e = edit((0, 4), 20, &[], 0, &[]);
+        assert_eq!(split_document_lines(&doc, &mut e), (vec![], true));
+        drop(tail);
+        assert_eq!(boundary_of(""), Boundary::None);
+        assert_eq!(boundary_of("   "), Boundary::None);
+        assert_eq!(boundary_of(" x"), Boundary::Run(1));
+        assert_eq!(boundary_of("x"), Boundary::Unavailable);
     }
 
     #[test]
@@ -1844,7 +2125,7 @@ mod tests {
         assert_eq!(
             sp,
             vec![
-                LineSplit { at: (10, 11), lead: "    ".into(), fallback: false, trail: " ".into(), trail_fallback: false },
+                LineSplit { at: (10, 11), lead: "    ".into(), fallback: false, trail: " ".into(), trail_fallback: false, boundary: None },
                 at((0, 0), "", false),
             ]
         );
@@ -1855,10 +2136,8 @@ mod tests {
 
     #[test]
     fn a38_overflow_in_parent_text_and_one_word_lines_are_left() {
-        // The edit's word starts the line: no break point, so the line stays.
-        let tail = format!(" {}", "x".repeat(24));
-        assert_eq!(split_one("", "eeee", &tail, 20, &flush(), 0).1, vec![]);
-        assert_eq!(split_one("ab\n", "eeee", &tail, 20, &flush(), 0).1, vec![]);
+        // (The edit's word starting the line, followed by parent text over W,
+        // now takes the boundary break: `a42_...`.)
         // A one-word line wider than W is exempt.
         assert_eq!(split_one("", &"z".repeat(25), "", 20, &flush(), 0).1, vec![]);
         assert_eq!(split_one("p\n", &"z".repeat(25), "\nq", 20, &flush(), 0).1, vec![]);
@@ -1869,12 +2148,12 @@ mod tests {
         // parent words alone is never read.
         let doc = "aaaa bbbb cccc dddd eeee ffff\nzz";
         let mut e = edit((30, 32), 10, &[], 0, &[]);
-        assert_eq!(split_document_lines(doc, &mut e), vec![]);
+        assert_eq!(split_document_lines(doc, &mut e), (vec![], false));
         // nor are an edit's unwrapped units (no budget)
         let doc = "aaaa bbbb cccc dddd eeee ffff";
         let mut e = edit((20, 29), 10, &[], 0, &[]);
         e.wrapped.clear();
-        assert_eq!(split_document_lines(doc, &mut e), vec![]);
+        assert_eq!(split_document_lines(doc, &mut e), (vec![], false));
     }
 
     #[test]

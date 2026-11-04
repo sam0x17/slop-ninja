@@ -1015,7 +1015,9 @@ pub fn assemble(batch: &Path, runs: &Path, topup_set: Option<(&Path, &Path)>, ou
             d.y = 1;
             if p.role == MIXED {
                 let span = p.source_span.context("mixed span")?;
-                let (t, fin, share) = generation::assemble(&p.text, &[span], &[clean])?;
+                // a profile v2 child is laid out, and may end with a boundary
+                // break (protocol A2 amendment 42 item 42.2)
+                let (t, fin, share) = if profile.transfers() { generation::assemble_laid(&p.text, &[span], &[clean])? } else { generation::assemble(&p.text, &[span], &[clean])? };
                 d.origin = MIXED.into();
                 d.text = t;
                 d.ai_spans = fin;
@@ -1537,6 +1539,51 @@ mod tests {
         assert_eq!(r["fs_pairs"], 5);
         assert_eq!(r["cohort_sha256"].as_str(), Some(file_sha256(&out.join("rform-cohort.jsonl")).unwrap().as_str()));
         assert_eq!(rec["profile"]["profile"], era_norm::PROFILE_V2);
+    }
+
+    #[test]
+    fn era_batch_assembles_a_boundary_break_child_before_the_every_class_step() {
+        // Protocol A2 amendment 42 in the CC cohort under profile v2: a mixed
+        // child of a hard-wrapped parent whose span ends mid-line, its reply
+        // ending with a long word, takes the boundary break. It is accepted
+        // (generate's verdict reads the laid-out text with the laid-out
+        // assembler), and the cohort assembles it with
+        // `generation::assemble_laid`, which the raw assembler would refuse
+        // ("replacement layout"). The cohort's every-class step then refuses
+        // the document, as it refuses any hard-wrapped child: the CC cohort
+        // is in the excerpt layout, where no line has a W (so no boundary
+        // break arises from its own parents).
+        use grammar_a_form::conventions::{Choice, Conventions};
+        fn none() -> Conventions {
+            fn c<K>() -> Choice<K> {
+                Choice { value: None, source: "none" }
+            }
+            Conventions { double: c(), single: c(), dash: c(), range: c(), ellipsis: c() }
+        }
+        const LONG: &str = "counterrevolutionaries";
+        let wrap = |p: &str| grammar_a_form::transfer::wrap(p, 48, 0).join("\n");
+        let q = format!("{}\n\n{}", wrap(&prose(&SYN, 141, 8, 12)), wrap(&prose(&SYN, 142, 8, 12)));
+        let tail = |e: usize| q[e..q[e..].find('\n').map_or(q.len(), |k| e + k)].len();
+        let found = ptext::sentences(&q).iter().enumerate().filter(|(_, x)| tail(x.end) > 24).find_map(|(k, x)| {
+            let body = prose(&ALT, 151 + k as u64, 1, ptext::words(&q[x.start..x.end]) - 1);
+            let reply = format!("{} {LONG}.", body.trim_end_matches('.'));
+            let ch = grammar_a_form::profile::child_v2(&q, Some((x.start, x.end)), &none(), &reply);
+            (ch.record["transfer"]["tail_boundary_breaks"].as_u64().unwrap_or(0) >= 1).then_some(((x.start, x.end), reply))
+        });
+        let ((s, e), reply) = found.expect("a boundary break among the candidates");
+        let f = fixture_with(vec![(cc_parent("b1", MIXED, &q, Some((s, e))), vec![reply.clone()])]);
+        // accepted in the journal, with the break
+        let j = fs::read_to_string(f.runs().join("g").join("journal-1-w0.jsonl")).unwrap();
+        let v: Value = j.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).find(|v| v["kind"] == "response" && v["request_id"] == "req-b1").unwrap();
+        assert_eq!(v["verdict"]["accepted"], true, "{}", v["verdict"]["reasons"]);
+        assert_eq!(v["verdict"]["diag"]["post"]["transfer"]["tail_boundary_breaks"], 1);
+        let laid = v["verdict"]["text"].as_str().unwrap();
+        assert!(generation::assemble(&q, &[(s, e)], &[laid]).is_err(), "the raw assembler refuses the break");
+        let (d, fin, _) = generation::assemble_laid(&q, &[(s, e)], &[laid]).unwrap();
+        assert!(d[fin[0].0..fin[0].1].ends_with(&format!("{LONG}.")), "the span ends at the last word");
+        // the cohort's assembly reads it; the every-class step refuses the hard-wrapped child
+        let err = run_v2(&f, &f.dir.path().join("out")).unwrap_err().to_string();
+        assert!(err.contains("normalised child is not in the excerpt layout") && !err.contains("replacement layout"), "{err}");
     }
 
     #[test]

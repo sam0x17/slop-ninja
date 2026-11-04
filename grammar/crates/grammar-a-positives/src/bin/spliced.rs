@@ -1068,6 +1068,8 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
             }
         }
         let mut reps: Vec<String> = Vec::new();
+        // every accepted text is a laid-out profile v2 child (`finalize::laid_out`)
+        let mut laid = true;
         let mut status = "accepted";
         let mut edit_hist = Vec::new();
         let mut attempt_rows = Vec::new();
@@ -1102,6 +1104,7 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
             match st.accepted() {
                 Some(v) => {
                     reps.push(v["verdict"]["text"].as_str().context("accepted text")?.to_owned());
+                    laid &= finalize::laid_out(v);
                     edit_hist.push((v["attempt"].as_u64().unwrap_or(0), v["seed"].clone(), v["verdict"]["diag"].clone(), "accepted"));
                 }
                 None => {
@@ -1141,7 +1144,10 @@ fn run_finalize(pdir: &Path, runs: &Path, configs: &Path, tok_path: &Path, train
         }
         let eds: Vec<&Edit> = it.edits.iter().collect();
         let rr: Vec<&str> = reps.iter().map(String::as_str).collect();
-        let asm = match splice::assemble(&parent.text, &eds, &rr) {
+        // laid-out profile v2 texts may end with a boundary break (protocol
+        // A2 amendment 42 item 42.2)
+        let assembled = if laid { splice::assemble_laid(&parent.text, &eds, &rr) } else { splice::assemble(&parent.text, &eds, &rr) };
+        let asm = match assembled {
             Ok(a) => a,
             Err(err) => {
                 q.inc(pop, "documents", "excluded_in_finalize");
@@ -1765,6 +1771,10 @@ fn run_project_dev(data: &Path, half: &str, out: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../a42_fixture.rs"]
+mod a42_fixture;
+
+#[cfg(test)]
 mod tests {
     //! `finalize`'s R-form outputs (protocol A2 §7.2 and §7.5, amendment 19)
     //! on a synthetic plan: synthetic text only, no model, detector or
@@ -2168,7 +2178,9 @@ mod tests {
                 b.push('\n');
             }
         }
-        sha(&b)
+        // B30 (amendment 42): the layout id read as layout_transfer_v5
+        assert!(b.contains("layout_transfer_v6"));
+        sha(&b.replace("layout_transfer_v6", "layout_transfer_v5"))
     }
 
     /// The digest of `SHA256SUMS` (every output but the manifest, which names
@@ -2180,7 +2192,9 @@ mod tests {
     // id set back to layout_transfer_v2 the earlier digest d95a7e6d... is
     // reproduced. Re-pinned for amendment 38's build for the id alone
     // (layout_transfer_v5): with it set back to layout_transfer_v4 the
-    // digest fbf9d7fb... is reproduced.
+    // digest fbf9d7fb... is reproduced. Kept for B30 (amendment 42): with
+    // layout_transfer_v6 read as layout_transfer_v5 (`n_form_digest`) it is
+    // reproduced byte for byte.
     const V2_N_FORM_GOLDEN: &str = "6a60625a09daa4bb566a082a2041ebb35b293199d675814c8a11f4429ea1db89";
 
     #[test]
@@ -2313,6 +2327,39 @@ mod tests {
         let pairs = finalize::fs_pairs(all.iter(), docs.iter().copied());
         let want: Vec<(String, String)> = ids.iter().map(|i| (i.to_string(), format!("rform:{i}"))).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
         assert_eq!(pairs, want);
+    }
+
+    #[test]
+    fn spliced_finalize_v2_assembles_a_boundary_break_child_with_its_span_at_the_last_word() {
+        // Amendment 42: run edits of a hard-wrapped parent whose replies end
+        // with a long word take the boundary break under profile v2; each is
+        // accepted, and finalize assembles every laid-out text with
+        // `splice::assemble_laid` (`finalize::laid_out`): the record's AI
+        // span ends at the last word, the parent's run then the break follow,
+        // and the parent resumes at its first non-whitespace byte.
+        let q = a42_fixture::parent(3);
+        let kids = a42_fixture::boundary_children(&q, 3);
+        assert!(kids.len() >= 2, "{}", kids.len());
+        let mut ps = parents();
+        ps.push(parent("p4", "train", q.clone()));
+        let mut cases: Vec<Case> = kids.iter().enumerate().map(|(k, (sp, reply))| case(&format!("tb{k}"), splice::TRAIN, k, &ps[3], &[*sp], vec![s(reply)])).collect();
+        // the battery's Dev-iter item (setup judges both populations)
+        cases.push(case("dv", splice::DEV_SET, 0, &ps[2], &[sentence(&ps[2].text, 3)], vec![s(&prose(&ALT, 92, 1, 11))]));
+        let r = setup(ps, cases, true);
+        for c in r.cases.iter().filter(|c| c.item.population == splice::TRAIN) {
+            let rid = &c.item.edits[0].request_id;
+            let l = r.lines.iter().find(|l| l["kind"] == "response" && l["request_id"] == rid.as_str() && l["verdict"]["accepted"] == true).unwrap_or_else(|| panic!("{rid}: not accepted"));
+            assert!(finalize::laid_out(l));
+            assert!(l["verdict"]["diag"]["post"]["edits"][0]["transfer"]["tail_boundary_breaks"].as_u64().or(l["verdict"]["diag"]["post"]["transfer"]["tail_boundary_breaks"].as_u64()).unwrap_or(0) >= 1, "{rid}: {}", l["verdict"]["diag"]["post"]);
+        }
+        finalize_run(&r).unwrap();
+        let all = rows(&r.out(), "records", splice::TRAIN);
+        for (k, c) in r.cases.iter().filter(|c| c.item.population == splice::TRAIN).enumerate() {
+            let n = entry(&all, &c.item.item_id);
+            let t = n["text"].as_str().unwrap();
+            let fin = (n["ai_byte_spans"][0][0].as_u64().unwrap() as usize, n["ai_byte_spans"][0][1].as_u64().unwrap() as usize);
+            a42_fixture::check_final(&q, kids[k].0, t, fin);
+        }
     }
 
     #[test]

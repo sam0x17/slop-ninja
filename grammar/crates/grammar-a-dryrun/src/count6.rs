@@ -143,8 +143,9 @@ fn alone_doc(o: Own, rep: &str) -> Option<(String, (usize, usize))> {
         return Some((d, (o.span.0, o.span.0 + rep.len())));
     }
     let a = profile::assemble_item(o.parent, &[Part { span: o.span, insert_sep: o.sep }], &[rep]).ok()?;
-    let lead = profile::replacement_lead(rep).unwrap_or(0);
-    Some((a.text, (a.edit_spans[0].0 - lead, a.edit_spans[0].1)))
+    // a leading break and lead, and a trailing boundary break (amendment 42
+    // item 42.2), are the replacement's
+    Some((a.text, profile::replacement_range(a.edit_spans[0], rep)))
 }
 
 /// Count 6's readings on `t`, laid out from `src`: `own` is the child's
@@ -185,6 +186,12 @@ pub fn count6(src: &SourceLayout, t: &Transferred, own: Option<Own>, item: Optio
     if let Some(o) = own
         && let Some((d, fin)) = alone_doc(o, &t.text)
     {
+        // the replacement's whole range, a trailing boundary break included
+        // (amendment 42 item 42.2): the document holds the child there
+        if d.get(fin.0..fin.1) != Some(t.text.as_str()) {
+            out.inconsistent = Some("the edit alone's document does not hold the child at its range");
+            return out;
+        }
         let placed = [Placed { span: o.span, sep: o.sep, fin, units: &t.paragraphs }];
         alone_words = reading(o.parent, &d, &placed, fin, &t.paragraphs, &body, &mut out.not_one_paragraph);
         docs.push((d, fin));

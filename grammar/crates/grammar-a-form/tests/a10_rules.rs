@@ -632,7 +632,7 @@ fn whitespace_by_role() {
 
 #[test]
 fn ids_and_the_closed_population_list() {
-    assert_eq!((MEASURE_ID, LAYOUT_TRANSFER_ID, FORM_LICENCE_SCREEN_ID), ("layout_measure_v2", "layout_transfer_v5", "cc_form_licence_screen_v1"));
+    assert_eq!((MEASURE_ID, LAYOUT_TRANSFER_ID, FORM_LICENCE_SCREEN_ID), ("layout_measure_v2", "layout_transfer_v6", "cc_form_licence_screen_v1"));
     let rec = Profile::CohortV2.record();
     assert_eq!((rec["profile"].as_str(), rec["layout_measure"].as_str(), rec["layout_transfer"].as_str()), (Some(PROFILE_V2), Some(MEASURE_ID), Some(LAYOUT_TRANSFER_ID)));
     assert_eq!(rec["form_screen"]["id"], FORM_LICENCE_SCREEN_ID);

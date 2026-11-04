@@ -50,7 +50,7 @@ use anyhow::{Context, Result, bail, ensure};
 use grammar_a_dryrun::count6::{self, ItemDoc, ItemEdit};
 use grammar_a_dryrun::engine::{self, Code, Edit, Failure, Slot, Source};
 use grammar_a_dryrun::tally::{Case, Fin, Recorded, Tally};
-use grammar_a_form::profile::replacement_lead;
+use grammar_a_form::profile::replacement_range;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -272,15 +272,16 @@ pub struct Part {
 }
 
 /// The final document of an item, as `FormPost::assemble` (and finalize)
-/// assembles it: `splice::assemble_parts` for a spliced plan, else
-/// `generation::assemble`. Returns the text and each part's final span.
+/// assembles it: `splice::assemble_laid_parts` for a spliced plan, else
+/// `generation::assemble_laid` (laid-out replacements; protocol A2
+/// amendment 42 item 42.2). Returns the text and each part's final span.
 fn assemble(spliced: bool, parent: &str, parts: &[&Part], reps: &[&str]) -> Result<(String, Vec<(usize, usize)>), String> {
     if spliced {
         let ps: Vec<splice::Part> = parts.iter().map(|p| splice::Part { parent_span: p.span, insert_sep: p.insert_sep.as_deref() }).collect();
-        splice::assemble_parts(parent, &ps, reps).map(|a| (a.text, a.edit_spans)).map_err(|e| e.to_string())
+        splice::assemble_laid_parts(parent, &ps, reps).map(|a| (a.text, a.edit_spans)).map_err(|e| e.to_string())
     } else {
         let spans: Vec<(usize, usize)> = parts.iter().map(|p| p.span).collect();
-        generation::assemble(parent, &spans, reps).map(|x| (x.0, x.1)).map_err(|e| e.to_string())
+        generation::assemble_laid(parent, &spans, reps).map(|x| (x.0, x.1)).map_err(|e| e.to_string())
     }
 }
 
@@ -298,7 +299,7 @@ fn single_step(code: Code, spliced: Option<&Part>, r: &Request, p: &str, conv: &
             let ch = engine::child_v2(code, p, r.source_span, conv, clean)?;
             let doc = (!ch.text.is_empty()).then(|| match r.source_span {
                 None => Ok(ch.text.clone()),
-                Some(sp) => generation::assemble(p, &[sp], &[ch.text.as_str()]).map(|x| x.0).map_err(|e| e.to_string()),
+                Some(sp) => generation::assemble_laid(p, &[sp], &[ch.text.as_str()]).map(|x| x.0).map_err(|e| e.to_string()),
             });
             (ch.text, ch.reasons, doc)
         }
@@ -609,14 +610,14 @@ fn count_journal_batch(label: &str, out: &Path, summary: &Value, b: &Wired, r0: 
         };
         // the final document: the parent with every request's recorded text
         // of the item; the child's range there is its replacement's, a
-        // leading line break and lead included (amendment 29 item 29.1)
+        // leading line break and lead (amendment 29 item 29.1) and a trailing
+        // boundary break (amendment 42 item 42.2) included
         let mut doc: Option<(String, (usize, usize))> = None;
         if !src.whole() && item_parts.iter().all(|p| children.contains_key(&p.request_id)) {
             let reps: Vec<&str> = item_parts.iter().map(|p| children[&p.request_id].text.as_str()).collect();
             let ps: Vec<&Part> = item_parts.iter().collect();
             if let Ok((d, spans)) = assemble(b.spliced(), parent, &ps, &reps) {
-                let lead = replacement_lead(reps[k]).unwrap_or(0);
-                doc = Some((d, (spans[k].0 - lead, spans[k].1)));
+                doc = Some((d, replacement_range(spans[k], reps[k])));
             }
         }
         let lv = landed.get(rid).cloned().unwrap_or(Err(Failure::Unsupported)).map(|x| (x.0, x.1));
@@ -694,7 +695,7 @@ fn item_doc(spliced: bool, parent: &str, item_parts: &[Part], children: &HashMap
         .iter()
         .zip(&laid)
         .zip(&spans)
-        .map(|((p, (rep, units)), sp)| ItemEdit { span: p.span, sep: p.insert_sep.clone(), fin: (sp.0 - replacement_lead(rep).unwrap_or(0), sp.1), units: units.clone() })
+        .map(|((p, (rep, units)), sp)| ItemEdit { span: p.span, sep: p.insert_sep.clone(), fin: replacement_range(*sp, rep), units: units.clone() })
         .collect();
     Some((doc, edits, parts.iter().map(|p| p.request_id.clone()).collect()))
 }
@@ -1578,6 +1579,85 @@ mod tests {
     }
 
     #[test]
+    fn a_spliced_boundary_break_is_recorded_counted_and_rederived() {
+        // Amendment 42 through renorm and the count on a spliced batch:
+        // single run edits of a hard-wrapped parent whose replies end with a
+        // long word take the boundary break. Renorm's spliced re-verdict
+        // assembles the laid-out edit with the laid-out assembler (its window
+        // reads the final document), so each item passes and the summary
+        // counts each break; the count re-derives each child identically,
+        // its final range in the document holds the whole replacement (the
+        // parent's run, the break and the lead included), and count 4 reads
+        // no line over W.
+        use crate::a42_fixture as fx;
+        engine::quiet_panics();
+        let q = fx::parent(1);
+        let kids = fx::boundary_children(&q, 3);
+        assert!(kids.len() >= 2, "{}", kids.len());
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        let p = sparent("p1", "fiction", &q);
+        let items: Vec<splice::Item> =
+            kids.iter().enumerate().map(|(k, (sp, _))| sitem(&format!("s-b{k}"), &p, vec![sedit(&format!("b{k}"), "run", *sp, None, text::words(&q[sp.0..sp.1]))])).collect();
+        let pdir = d.join("plan");
+        fs::create_dir_all(pdir.join("requests")).unwrap();
+        let ib = jsonl(&items.iter().map(|i| serde_json::to_value(i).unwrap()).collect::<Vec<_>>()).unwrap();
+        let pbytes = jsonl(&[serde_json::to_value(&p).unwrap()]).unwrap();
+        fs::write(pdir.join("items.jsonl"), &ib).unwrap();
+        fs::write(pdir.join("parents.jsonl"), &pbytes).unwrap();
+        let reqs: Vec<Request> = items.iter().map(|it| request(&it.edits[0].request_id, &it.item_id, "p1", Some(it.edits[0].parent_span), it.edits[0].target_words)).collect();
+        let rb = jsonl(&reqs.iter().map(|r| serde_json::to_value(r).unwrap()).collect::<Vec<_>>()).unwrap();
+        fs::write(pdir.join("requests/g.jsonl"), &rb).unwrap();
+        fs::write(pdir.join("plan.json"), serde_json::to_vec(&json!({"schema": splice::PLAN_SCHEMA, "items": {"sha256": sha(&ib)}, "parents": {"sha256": sha(&pbytes)},
+            "request_files": {"g": {"sha256": sha(&rb)}}})).unwrap()).unwrap();
+        let ov = Overlap::new(PriorIndex::empty());
+        let mut lines = Vec::new();
+        for (r, (it, (_, reply))) in reqs.iter().zip(items.iter().zip(&kids)) {
+            let parsed = chat_body(reply);
+            let v = splice::verdict(&it.edits[0], &q, &ov, 200, &parsed);
+            assert_eq!(v["accepted"], true, "{}: {v}", r.request_id);
+            lines.push(json!({"kind":"intent","request_id":r.request_id,"item_id":r.item_id,"split":r.split,"generator":r.generator,"attempt":0,"seed":r.seed,"t":1,"body":{"prompt":r.prompt}}));
+            lines.push(json!({"kind":"response","request_id":r.request_id,"item_id":r.item_id,"split":r.split,"generator":r.generator,"attempt":0,"seed":r.seed,
+                "t_start":1,"t_end":2,"elapsed_ms":1,"status":200,"raw_body":serde_json::to_string(&parsed).unwrap(),"timings":{},"usage":{},"verdict":v}));
+        }
+        let runs = d.join("runs");
+        fs::create_dir_all(runs.join("g")).unwrap();
+        fs::write(runs.join("g/journal-1-w0.jsonl"), jsonl(&lines).unwrap()).unwrap();
+        let b = renorm::spliced_batch(&pdir, "train", POPULATION).unwrap();
+        let out = d.join("spliced-train");
+        let sum = renorm::run_batch(&b, &runs, &out).unwrap();
+        let mut n = 0;
+        for l in fs::read_to_string(out.join("reverdict-population-train.jsonl")).unwrap().lines() {
+            let rv: Value = serde_json::from_str(l).unwrap();
+            assert_eq!(rv["pass"], true, "{rv}");
+            let k = renorm::request_boundary_breaks(&rv["requests"][0]["profile_record"]);
+            assert!(k >= 1, "{rv}");
+            n += k;
+        }
+        assert_eq!(sum["counts"]["tail_boundary_breaks"].as_u64(), Some(n));
+        // the recorded laid-out texts assemble as the edits' final documents
+        for l in fs::read_to_string(out.join("g/journal-renorm.jsonl")).unwrap().lines() {
+            let v: Value = serde_json::from_str(l).unwrap();
+            let Some(t) = v["verdict"]["text"].as_str().filter(|_| v["renorm"].is_object()) else { continue };
+            let k: usize = v["request_id"].as_str().unwrap()[1..].parse().unwrap();
+            let sp = kids[k].0;
+            let a = splice::assemble_laid_parts(&q, &[splice::Part { parent_span: sp, insert_sep: None }], &[t]).unwrap();
+            fx::check_final(&q, sp, &a.text, a.edit_spans[0]);
+            assert!(splice::assemble_parts(&q, &[splice::Part { parent_span: sp, insert_sep: None }], &[t]).is_err(), "the raw assembler refuses the break");
+        }
+        let snap = d.join("snapshot.jsonl");
+        fs::write(&snap, jsonl(&items.iter().map(|i| json!({"id": i.item_id, "split": "train"})).collect::<Vec<_>>()).unwrap()).unwrap();
+        let h = file_sha(&out.join("RENORM-population-train.json")).unwrap();
+        let c = count_spliced("spliced-train", &out, &h, &snap, &file_sha(&snap).unwrap()).unwrap();
+        assert_eq!(c.tally.mismatched(), 0, "{:?}", c.tally.mismatches);
+        assert_eq!(c.children["children"], kids.len());
+        let j = c.tally.to_json();
+        assert_eq!(j["gate"]["count4_accepted_wrapped_lines_over_budget"]["gate"], 0, "{}", j["gate"]);
+        let all = &grammar_a_dryrun::tally::totals(&c.tally.cells)["all"];
+        assert_eq!(all.get("children_accepted").copied(), Some(kids.len() as u64), "{all:?}");
+    }
+
+    #[test]
     fn a_recorded_child_whose_laid_out_text_was_altered_stops_the_run() {
         let dir = tempfile::tempdir().unwrap();
         let (out, snap, _) = spliced_fixture(dir.path());
@@ -2001,12 +2081,36 @@ mod tests {
     // ------------------------------------------------------------------ B27: byte identity of renorm's records (BUILD-PLAN 14.3)
 
     /// The SHA-256 of a renorm output file, its temporary directory's path
-    /// read as `<tmp>`.
+    /// read as `<tmp>` and, since B30 (amendment 42), its layout id
+    /// `layout_transfer_v6` read as `layout_transfer_v5`.
     fn norm_sha(p: &Path, tmp: &Path) -> String {
         let b = fs::read_to_string(p).unwrap();
         let t = tmp.display().to_string();
         let esc = serde_json::to_string(&t).unwrap();
+        let mut b = b.replace("layout_transfer_v6", "layout_transfer_v5");
+        // a summary names its outputs' digests: read each as the digest of
+        // that output with the id read the same way
+        if p.extension().is_some_and(|x| x == "json") {
+            for f in files_under(tmp) {
+                let raw = fs::read(&f).unwrap();
+                let read = String::from_utf8_lossy(&raw).replace("layout_transfer_v6", "layout_transfer_v5");
+                b = b.replace(&sha(&raw), &sha(read.as_bytes()));
+            }
+        }
         sha(b.replace(&esc[1..esc.len() - 1], "<tmp>").replace(&t, "<tmp>").as_bytes())
+    }
+
+    fn files_under(d: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for e in fs::read_dir(d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                out.extend(files_under(&p));
+            } else {
+                out.push(p);
+            }
+        }
+        out
     }
 
     #[test]
@@ -2018,6 +2122,7 @@ mod tests {
         engine::quiet_panics();
         let dir = tempfile::tempdir().unwrap();
         let (out, _, _) = spliced_fixture(dir.path());
+        assert!(fs::read_to_string(out.join("reverdict-population-train.jsonl")).unwrap().contains("layout_transfer_v6"));
         let got_spliced: Vec<String> = ["reverdict-population-train.jsonl", "g/journal-renorm.jsonl", "RENORM-population-train.json"].iter().map(|f| norm_sha(&out.join(f), dir.path())).collect();
         let dir2 = tempfile::tempdir().unwrap();
         let rows_out = rows_fixture(dir2.path());
@@ -2034,6 +2139,9 @@ mod tests {
     /// (`layout_transfer_v5`) and the summaries' `document_line_splits`
     /// totals alone: with the id set back to `layout_transfer_v4` and the
     /// totals left out, those digests are reproduced (the rule splits no
-    /// line of these fixtures).
+    /// line of these fixtures). Kept for B30 (amendment 42): with
+    /// `layout_transfer_v6` read as `layout_transfer_v5` (`norm_sha`) they
+    /// are reproduced byte for byte (no boundary break in these fixtures,
+    /// and no summary member added).
     const PINNED_90561E09: &str = r#"{"rows":["69b55283346bdc6a334180350f2e7b74000261948da1d27df8905f45147fba9d","a551f2e23acab1fa7769b58cb4209ac5be071d1211bccb8d33cfe4e49424ed3f"],"spliced":["b71d46a798087834bea0fb05f70782b9d98e3b0712dd4560f182c20e86eb46cc","736ced358ec58e556800d42b26fa271f27a13e9783cf7c3c401d17dabc9d1fb9","3df3f441f04cc4597aff7c1114f5eec93149ed73cdbffe01553a5f8c75d92cd8"]}"#;
 }

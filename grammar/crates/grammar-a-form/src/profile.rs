@@ -337,11 +337,60 @@ pub fn replacement_lead(r: &str) -> Option<usize> {
     (lead == 0 || (r.starts_with('\n') && !r[1..lead].contains('\n'))).then_some(lead)
 }
 
+/// The trailing whitespace a laid-out replacement may hold (amendment 42
+/// item 42.2): none, or, after a boundary break, the parent's whitespace run
+/// after the edit (non-empty, no line break), one line break and a lead
+/// with no line break. Returns (the run's, the whole trailing whitespace's)
+/// byte lengths, (0, 0) for none, or None when the trailing whitespace is of
+/// any other form. The form only: the assemblers check the run against the
+/// parent (`extended_run`).
+pub fn replacement_tail(r: &str) -> Option<(usize, usize)> {
+    let t = &r[r.trim_end_matches(py_space).len()..];
+    if t.is_empty() {
+        return Some((0, 0));
+    }
+    let k = t.find('\n')?;
+    (k > 0 && !t[k + 1..].contains('\n')).then_some((k, t.len()))
+}
+
+/// A laid-out replacement's byte range in an assembled document from its
+/// final span: its leading line break and lead (amendment 29 item 29.1) and
+/// its trailing run, line break and lead (amendment 42 item 42.2) included.
+pub fn replacement_range((a, b): (usize, usize), r: &str) -> (usize, usize) {
+    (a - replacement_lead(r).unwrap_or(0), b + replacement_tail(r).map_or(0, |x| x.1))
+}
+
+/// Amendment 42 item 42.2's restated human-characters check inside an
+/// edit's extended range. A replacement ending in a boundary break
+/// (`replacement_tail`) extends the edit's parent range `..e` over the
+/// parent's whitespace run at `e`: the run it keeps must be those parent
+/// bytes exactly and the whole run (`transfer`'s boundary: Unicode
+/// whitespace, then a parent byte that is not whitespace on the same line),
+/// and parent text must start there, before the next edit (`next`, its
+/// parent start). Returns the run's byte length (0 without trailing
+/// whitespace); "replacement layout" for trailing whitespace of another
+/// form, "human characters changed" when the run is not the parent's.
+fn extended_run(parent: &str, e: usize, r: &str, next: usize) -> Result<usize, &'static str> {
+    let (run, len) = replacement_tail(r).ok_or("replacement layout")?;
+    if len == 0 {
+        return Ok(0);
+    }
+    let kept = &r[r.len() - len..r.len() - len + run];
+    let ok = parent[e..].starts_with(kept) && crate::transfer::boundary_of(&parent[e..]) == crate::transfer::Boundary::Run(run) && e + run < next;
+    if ok { Ok(run) } else { Err("human characters changed") }
+}
+
 /// `parent[..s] + rep + parent[e..]` under `generation::assemble`'s splice
 /// rules (a non-empty span on character and token boundaries, a non-empty
 /// trimmed replacement, except that it may begin with one line break and a
 /// lead: `replacement_lead`, amendment 29 item 29.1, which amendment 38 item
-/// 38.1 also gives a single edit), with its error messages.
+/// 38.1 also gives a single edit), with its error messages. A laid-out
+/// replacement may also end with a boundary break (amendment 42 item 42.2:
+/// `replacement_tail`): the parent's whitespace run after the span, kept
+/// byte for byte, then one line break and a lead. Its range is then read as
+/// ending after that run, so the parent resumes at its first non-whitespace
+/// byte (`extended_run`'s check, "human characters changed"). Any other
+/// trailing whitespace is refused as before.
 pub fn splice(parent: &str, (s, e): (usize, usize), rep: &str) -> Result<String, &'static str> {
     if s >= e || e > parent.len() {
         return Err("span order");
@@ -355,15 +404,22 @@ pub fn splice(parent: &str, (s, e): (usize, usize), rep: &str) -> Result<String,
     if !(e == parent.len() || parent[e..].starts_with(char::is_whitespace)) {
         return Err("right token boundary");
     }
-    if rep.trim().is_empty() || rep.trim_end() != rep || replacement_lead(rep).is_none() {
+    if rep.trim().is_empty() || replacement_lead(rep).is_none() {
         return Err("replacement layout");
     }
-    Ok(format!("{}{rep}{}", &parent[..s], &parent[e..]))
+    // a trailing boundary break only: the Unicode and the Python trailing
+    // whitespace agree on it
+    let tail = rep.len() - rep.trim_end().len();
+    if tail > 0 && replacement_tail(rep).is_none_or(|x| x.1 != tail) {
+        return Err("replacement layout");
+    }
+    let run = if tail == 0 { 0 } else { extended_run(parent, e, rep, usize::MAX)? };
+    Ok(format!("{}{rep}{}", &parent[..s], &parent[e + run..]))
 }
 
 /// Python `str.isspace`: Unicode White_Space plus U+001C..U+001F, as the
 /// spliced generator's assembly reads whitespace.
-fn py_space(c: char) -> bool {
+pub(crate) fn py_space(c: char) -> bool {
     c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
 }
 
@@ -409,9 +465,16 @@ pub struct Assembled {
 /// disjoint in parent order; an insertion adds its separator before the new
 /// text; a replacement sits on whitespace boundaries; every replacement is
 /// non-empty and trimmed, except that it may begin with one line break and
-/// a lead (`replacement_lead`; amendment 29 item 29.1), which belong to no
-/// edit's final span; the human characters, the final boundaries and the
-/// word accounting are verified.
+/// a lead (`replacement_lead`; amendment 29 item 29.1) and end with a
+/// boundary break (`replacement_tail`; amendment 42 item 42.2), which belong
+/// to no edit's final span; the human characters, the final boundaries and
+/// the word accounting are verified. An edit whose replacement ends with a
+/// boundary break has its range read as ending after the parent's
+/// whitespace run it keeps (its extended range): the human characters are
+/// the parent's bytes outside the extended ranges, unchanged and in order,
+/// and inside one the bytes after the edit's laid-out text are exactly that
+/// run, one line break and a lead with no line break (`extended_run`). No
+/// final span starts or ends in whitespace.
 pub fn assemble_item(parent: &str, parts: &[Part], reps: &[&str]) -> Result<Assembled, &'static str> {
     if parts.len() != reps.len() || parts.is_empty() {
         return Err("edit/replacement count");
@@ -422,7 +485,9 @@ pub fn assemble_item(parent: &str, parts: &[Part], reps: &[&str]) -> Result<Asse
     let mut human = String::new();
     let mut cur = 0usize;
     let mut spans = vec![(0usize, 0usize); parts.len()];
-    for &i in &order {
+    // each edit's extended parent range end (amendment 42 item 42.2)
+    let mut ends = vec![0usize; parts.len()];
+    for (k, &i) in order.iter().enumerate() {
         let (s, e) = parts[i].span;
         let r = reps[i];
         if !(s >= cur && s <= e && e <= parent.len()) {
@@ -431,7 +496,10 @@ pub fn assemble_item(parent: &str, parts: &[Part], reps: &[&str]) -> Result<Asse
         if !parent.is_char_boundary(s) || !parent.is_char_boundary(e) {
             return Err("char boundary");
         }
-        let Some(lead) = replacement_lead(r).filter(|_| !r.trim_matches(py_space).is_empty() && r.trim_end_matches(py_space) == r) else {
+        let Some(lead) = replacement_lead(r).filter(|_| !r.trim_matches(py_space).is_empty()) else {
+            return Err("replacement layout");
+        };
+        let Some((_, tail)) = replacement_tail(r) else {
             return Err("replacement layout");
         };
         let seg = &parent[cur..s];
@@ -447,19 +515,21 @@ pub fn assemble_item(parent: &str, parts: &[Part], reps: &[&str]) -> Result<Asse
                 return Err("right boundary");
             }
         }
+        let next = order.get(k + 1).map_or(usize::MAX, |&j| parts[j].span.0);
+        let run = extended_run(parent, e, r, next)?;
         let fs = out.len() + lead;
         out.push_str(r);
-        spans[i] = (fs, out.len());
-        cur = e;
+        spans[i] = (fs, out.len() - tail);
+        cur = e + run;
+        ends[i] = cur;
     }
     out.push_str(&parent[cur..]);
     human.push_str(&parent[cur..]);
     let mut expect = String::new();
     let mut c = 0;
     for &i in &order {
-        let (s, e) = parts[i].span;
-        expect.push_str(&parent[c..s]);
-        c = e;
+        expect.push_str(&parent[c..parts[i].span.0]);
+        c = ends[i];
     }
     expect.push_str(&parent[c..]);
     if human != expect {
@@ -512,7 +582,10 @@ pub struct Placed<'a> {
     /// The separator assembly put before an insertion's text.
     pub sep: Option<&'a str>,
     /// The replacement's byte range in the document (a leading line break
-    /// and lead included; amendment 29 item 29.1).
+    /// and lead included, amendment 29 item 29.1, and a trailing boundary
+    /// break, amendment 42 item 42.2: `replacement_range`). A replacement
+    /// ending in a boundary break re-emits the parent's whitespace run after
+    /// `span`, so its parent range is read as ending after that run.
     pub fin: (usize, usize),
     /// The replacement's units (frame line, body paragraph or kept line; each
     /// line of a line-form child) as byte ranges in the replacement.
@@ -535,13 +608,19 @@ fn trim_range(doc: &str, (a, b): (usize, usize)) -> Option<(usize, usize)> {
 /// is never measured again. Returns trimmed byte ranges of `doc`, in order.
 pub fn constructed_paragraphs(parent: &str, doc: &str, placed: &[Placed]) -> Vec<(usize, usize)> {
     let pm = Measure::of(parent);
+    // the parent's whitespace run a replacement re-emits after a boundary
+    // break (amendment 42 item 42.2): its extended range ends after it
+    let runs: Vec<usize> = placed.iter().map(|p| doc.get(p.fin.0..p.fin.1).and_then(replacement_tail).map_or(0, |x| x.0)).collect();
     // The document offset of parent offset x: edits ending at or before x
-    // (strict: before x) come before it.
+    // (strict: before x) come before it; an extended range comes before the
+    // parent byte that ends it.
     let at = |x: usize, strict: bool| -> usize {
         let mut y = x as isize;
-        for p in placed {
-            if p.span.1 < x || (!strict && p.span.1 == x) {
-                y += (p.sep.map_or(0, str::len) + (p.fin.1 - p.fin.0)) as isize - (p.span.1 - p.span.0) as isize;
+        for (p, &run) in placed.iter().zip(&runs) {
+            let end = p.span.1 + run;
+            let before = if run > 0 { end <= x } else { end < x || (!strict && end == x) };
+            if before {
+                y += (p.sep.map_or(0, str::len) + (p.fin.1 - p.fin.0)) as isize - (end - p.span.0) as isize;
             }
         }
         y as usize
@@ -914,7 +993,9 @@ pub fn lay_out_item(parent: &str, conv: &Conventions, slots: &[Slot]) -> Vec<Opt
             }
             doc.push_str(&t.text);
             last_end = Some(doc.len());
-            cur = e;
+            // after a boundary break the replacement holds the parent's
+            // whitespace run (amendment 42 item 42.2)
+            cur = e + t.tail_break().map_or(0, |b| b.run);
         }
         out[i] = Some(LaidEdit { src, transferred: t });
     }
@@ -943,6 +1024,49 @@ pub fn edit_line_splits(record: &Value, index: usize) -> u64 {
     match record["edits"].as_array() {
         Some(es) => es.get(index).map_or(0, one_line_splits),
         None => one_line_splits(record),
+    }
+}
+
+/// The boundary breaks recorded in a profile v2 record (amendment 42 item
+/// 42.1), read as `document_line_splits` reads amendment 38's: its
+/// `transfer.tail_boundary_breaks` and each of its `edits`'. A summary over
+/// requests counts an item's last request's own edit only
+/// (`edit_tail_boundary_breaks`; item 39.4's rule).
+pub fn tail_boundary_breaks(record: &Value) -> u64 {
+    one_boundary_breaks(record) + record["edits"].as_array().map_or(0, |es| es.iter().map(one_boundary_breaks).sum())
+}
+
+fn one_boundary_breaks(r: &Value) -> u64 {
+    r["transfer"]["tail_boundary_breaks"].as_u64().unwrap_or(0)
+}
+
+/// The boundary breaks in one edit of a profile v2 record: `edits[index]`'s,
+/// or, for a record with no `edits`, its own.
+pub fn edit_tail_boundary_breaks(record: &Value, index: usize) -> u64 {
+    match record["edits"].as_array() {
+        Some(es) => es.get(index).map_or(0, one_boundary_breaks),
+        None => one_boundary_breaks(record),
+    }
+}
+
+/// The over-W lines with no boundary break because the parent text after an
+/// insertion starts without whitespace (amendment 42 item 42.1,
+/// `tail_boundary_unavailable`) in a profile v2 record: its own and every
+/// edit's, as `tail_boundary_breaks` adds them.
+pub fn tail_boundary_unavailable(record: &Value) -> u64 {
+    one_boundary_unavailable(record) + record["edits"].as_array().map_or(0, |es| es.iter().map(one_boundary_unavailable).sum())
+}
+
+fn one_boundary_unavailable(r: &Value) -> u64 {
+    r["transfer"]["tail_boundary_unavailable"].as_u64().unwrap_or(0)
+}
+
+/// `tail_boundary_unavailable` in one edit of a profile v2 record:
+/// `edits[index]`'s, or, for a record with no `edits`, its own.
+pub fn edit_tail_boundary_unavailable(record: &Value, index: usize) -> u64 {
+    match record["edits"].as_array() {
+        Some(es) => es.get(index).map_or(0, one_boundary_unavailable),
+        None => one_boundary_unavailable(record),
     }
 }
 
@@ -1035,9 +1159,10 @@ fn item_v2_laid(parent: &str, conv: &Conventions, edits: &[EditV2], laid: Vec<Op
         let rs: Vec<&str> = reps.iter().map(String::as_str).collect();
         match assemble_item(parent, &parts, &rs) {
             Ok(a) => {
-                // each replacement's range in the document: its final span
-                // and a leading line break and lead (amendment 29 item 29.1)
-                let fins: Vec<(usize, usize)> = (0..edits.len()).map(|i| (a.edit_spans[i].0 - replacement_lead(&reps[i]).unwrap_or(0), a.edit_spans[i].1)).collect();
+                // each replacement's range in the document: its final span,
+                // a leading line break and lead (amendment 29 item 29.1) and
+                // a trailing boundary break (amendment 42 item 42.2)
+                let fins: Vec<(usize, usize)> = (0..edits.len()).map(|i| replacement_range(a.edit_spans[i], &reps[i])).collect();
                 let placed: Vec<Placed> = (0..edits.len()).map(|i| Placed { span: edits[i].span, sep: edits[i].insert_sep, fin: fins[i], units: &units[i] }).collect();
                 let paras = constructed_paragraphs(parent, &a.text, &placed);
                 for (i, lic) in licences.iter().enumerate() {

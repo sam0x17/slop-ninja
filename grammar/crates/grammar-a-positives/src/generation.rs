@@ -291,18 +291,41 @@ pub fn body(ctx: &Ctx, r: &Request, seed: u32) -> Value {
     }
 }
 
+/// An assembled document: its text, the replacements' final byte spans and
+/// the realised final-word share.
+pub type Assembly = (String, Vec<(usize, usize)>, f64);
+
 /// Splice replacement(s) into the source; returns final text, final byte
 /// spans of the replacements and the realised final-word share. A
 /// replacement is non-empty with no trailing whitespace, and leading
 /// whitespace only as one line break and a lead (protocol A2 amendment 29
-/// item 29.1), which its final span excludes.
-pub fn assemble(source: &str, spans: &[(usize, usize)], reps: &[&str]) -> Result<(String, Vec<(usize, usize)>, f64)> {
+/// item 29.1), which its final span excludes. For raw responses and any
+/// text that is not a laid-out profile v2 child (the collection's and the
+/// raw twin's assembly): unchanged by amendment 42 (item 42.2).
+pub fn assemble(source: &str, spans: &[(usize, usize)], reps: &[&str]) -> Result<Assembly> {
+    assemble_as(source, spans, reps, false)
+}
+
+/// `assemble` for laid-out profile v2 replacements (`grammar_a_form::
+/// profile::splice`'s rules for each span): a replacement may also end with
+/// a boundary break (protocol A2 amendment 42 item 42.2;
+/// `splice::replacement_tail`): the parent's whitespace run after its span,
+/// kept byte for byte, one line break and a lead. Its span is then read as
+/// ending after that run (its extended range), the parent resuming at its
+/// first non-whitespace byte; the run, the line break and the lead lie
+/// outside its final span. Any other trailing whitespace is refused as
+/// `assemble` refuses it.
+pub fn assemble_laid(source: &str, spans: &[(usize, usize)], reps: &[&str]) -> Result<Assembly> {
+    assemble_as(source, spans, reps, true)
+}
+
+fn assemble_as(source: &str, spans: &[(usize, usize)], reps: &[&str], laid: bool) -> Result<Assembly> {
     ensure!(spans.len() == reps.len() && !spans.is_empty(), "span/replacement count");
     let mut out = String::new();
     let mut fin = Vec::new();
     let mut cur = 0;
     let mut rw = 0;
-    for (&(s, e), r) in spans.iter().zip(reps) {
+    for (k, (&(s, e), r)) in spans.iter().zip(reps).enumerate() {
         ensure!(s >= cur && s < e && e <= source.len(), "span order");
         ensure!(source.is_char_boundary(s) && source.is_char_boundary(e), "char boundary");
         ensure!(s == 0 || source[..s].ends_with(char::is_whitespace), "left token boundary");
@@ -310,13 +333,19 @@ pub fn assemble(source: &str, spans: &[(usize, usize)], reps: &[&str]) -> Result
         // a replacement may begin with one line break and a lead (protocol A2
         // amendment 29 item 29.1), outside its final span
         let lead = r.len() - r.trim_start().len();
-        ensure!(!r.trim().is_empty() && r.trim_end() == *r && (lead == 0 || (r.starts_with('\n') && !r[1..lead].contains('\n'))), "replacement layout");
+        ensure!(!r.trim().is_empty() && (lead == 0 || (r.starts_with('\n') && !r[1..lead].contains('\n'))), "replacement layout");
+        // a laid-out replacement's trailing boundary break only (amendment
+        // 42 item 42.2): the Unicode and the Python trailing whitespace agree
+        let tail = r.len() - r.trim_end().len();
+        ensure!(tail == 0 || (laid && crate::splice::replacement_tail(r).is_some_and(|x| x.1 == tail)), "replacement layout");
+        let next = spans.get(k + 1).map_or(usize::MAX, |x| x.0);
+        let run = if tail == 0 { 0 } else { crate::splice::extended_run(source, e, r, next)? };
         out.push_str(&source[cur..s]);
         let fs = out.len() + lead;
         out.push_str(r);
-        fin.push((fs, out.len()));
+        fin.push((fs, out.len() - tail));
         rw += text::words(r);
-        cur = e;
+        cur = e + run;
     }
     out.push_str(&source[cur..]);
     let total = text::words(&out);
@@ -438,7 +467,12 @@ pub fn verdict(ctx: &Ctx, r: &Request, status: u16, parsed: &Value) -> Value {
             diag["overlap"] = json!(conflicts);
         }
         if let Some(p) = parent {
+            // a profile v2 step's laid-out text (`raw_text` kept) may end with
+            // a boundary break (protocol A2 amendment 42 item 42.2): the
+            // laid-out assembler, as the step's own window reads it; any
+            // other text: `assemble`, unchanged
             let doc = match r.source_span {
+                Some(span) if raw_text.is_some() => assemble_laid(p, &[span], &[clean.as_str()]).map(|x| x.0),
                 Some(span) => assemble(p, &[span], &[clean.as_str()]).map(|x| x.0),
                 None => Ok(clean.clone()),
             };

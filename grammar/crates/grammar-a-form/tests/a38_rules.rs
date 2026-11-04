@@ -152,7 +152,10 @@ struct Placed {
 fn placed(t: &Transferred, at: usize) -> Placed {
     let first = at + replacement_lead(&t.text).unwrap();
     let wrapped = t.paragraphs.iter().zip(&t.unit_wrapped).filter(|x| *x.1).map(|(&(a, b), _)| (at + a, at + b)).collect();
-    Placed { rep: (at, at + t.text.len()), first, wrapped }
+    // the replacement's own bytes end at its last word: a trailing boundary
+    // break (amendment 42 item 42.2) belongs to no word of it
+    let tail = grammar_a_form::profile::replacement_tail(&t.text).unwrap().1;
+    Placed { rep: (at, at + t.text.len() - tail), first, wrapped }
 }
 
 /// Count 4's document reading (amendment 29 item 29.2) on `doc`: each line
@@ -183,7 +186,9 @@ fn document_reading(doc: &str, w: usize, edits: &[Placed]) -> Vec<(usize, bool)>
 
 /// Count 4's replacement reading (item 28.7) on a laid-out edit: each wrapped
 /// unit's lines of more than one word, the first from the source's column
-/// unless the replacement starts it on a new line, the last with its tail.
+/// unless the replacement starts it on a new line, the last with its tail
+/// while it still shares the parent's line (amendment 42 item 42.5: read
+/// from the transfer).
 fn replacement_reading(src: &SourceLayout, t: &Transferred) -> usize {
     let Some(w) = src.width else { return 0 };
     let n = t.paragraphs.len();
@@ -199,7 +204,7 @@ fn replacement_reading(src: &SourceLayout, t: &Transferred) -> usize {
             if src.mixed && u == 0 && i == 0 && ls == 0 {
                 c += src.column;
             }
-            if src.mixed && u + 1 == n && i + 1 == pieces.len() {
+            if src.mixed && u + 1 == n && i + 1 == pieces.len() && t.last_line_shares_parent_line() {
                 c += src.tail_column;
             }
             over += usize::from(piece.split_whitespace().count() > 1 && c > w);
@@ -230,6 +235,11 @@ struct Tally {
     /// fallback), and splits with a non-empty lead.
     empty_pool_splits: usize,
     lead_splits: usize,
+    /// Amendment 42: boundary breaks taken, item 13.7 one-word splits no
+    /// longer made, and boundaries after a 2-space run.
+    boundary_breaks: usize,
+    kept_13_7: usize,
+    two_space_runs: usize,
 }
 
 /// One single edit (a span, or an insertion with its separator) laid out
@@ -259,12 +269,36 @@ fn single(p: &Parent, span: (usize, usize), sep: Option<&str>, raw: &str, t: &mu
     }
     assert_eq!(document_line_splits(&it.record), new.record.document_line_splits as u64);
     // the words, their order and every other count are unchanged; each
-    // application adds one line break
+    // application adds one line break. Amendment 42: a boundary break (b)
+    // adds one too, and where it exists item 13.7's one-word case no longer
+    // splits (s137: the split `old`, laid out without the document line, made
+    // and `new` did not).
     let k = new.record.document_line_splits;
+    let b = new.record.tail_boundary_breaks;
+    let s137 = old.record.tail_budget_splits - new.record.tail_budget_splits;
+    assert!(b <= 1 && s137 <= b, "13.7 keeps its line only where the boundary break is then taken: {b} {s137}");
+    t.boundary_breaks += b;
+    t.kept_13_7 += s137;
+    assert_eq!(new.record.tail_boundary_unavailable, 0, "these parents leave a whitespace run after every edit");
     assert_eq!(new.text.split_whitespace().collect::<Vec<_>>(), old.text.split_whitespace().collect::<Vec<_>>());
-    assert_eq!(new.text.matches('\n').count(), old.text.matches('\n').count() + k);
+    assert_eq!(new.text.matches('\n').count() + s137, old.text.matches('\n').count() + k + b);
     let lead_break = usize::from(new.text.starts_with('\n') && !old.text.starts_with('\n'));
-    assert_eq!(new.record.child_lines, old.record.child_lines + k - lead_break);
+    assert_eq!(new.record.child_lines + s137, old.record.child_lines + k - lead_break);
+    // a boundary break ends the replacement with the parent's run after the
+    // edit, one line break and the next continuation lead
+    if b == 1 {
+        let tb = new.tail_break().unwrap();
+        let tail = &new.text[new.text.len() - tb.run - 1 - tb.lead..];
+        let after = &p.text[e..];
+        let run = &after[..after.len() - after.trim_start_matches([' ', '\t']).len()];
+        assert_eq!(&tail[..tb.run], run, "the parent's run, byte for byte");
+        assert_eq!(&tail[tb.run..tb.run + 1], "\n");
+        assert!(src.pools.cont_leads.is_empty() || src.pools.cont_leads.contains(&tail[tb.run + 1..].to_string()));
+        assert!(!new.last_line_shares_parent_line());
+        t.two_space_runs += usize::from(tb.run == 2);
+    } else {
+        assert!(new.tail_break().is_none() && new.last_line_shares_parent_line());
+    }
     // the unit and body ranges follow the text: the same words, unit by unit,
     // each range starting and ending on a word
     assert_eq!(new.paragraphs.len(), old.paragraphs.len());
@@ -277,38 +311,50 @@ fn single(p: &Parent, span: (usize, usize), sep: Option<&str>, raw: &str, t: &mu
     // each new line takes the source's next continuation lead, and the line
     // left before a break between two words the next wrap trail (amendment
     // 39 item 39.3); an empty pool gives "" and is counted
+    // (the split 13.7 no longer makes took a lead and left a wrap-trailed
+    // line before it; a boundary break takes a lead, counted only as a pick,
+    // and no trail: the new line holds parent text only)
     let pool = &src.pools.cont_leads;
     let inner = k - lead_break;
     let trails = &src.pools.wrap_trails;
-    assert_eq!(new.record.ws_pool_fallbacks - old.record.ws_pool_fallbacks, if pool.is_empty() { k } else { 0 } + if trails.is_empty() { inner } else { 0 });
-    let trailing = new.record.trailing_ws_lines - old.record.trailing_ws_lines;
+    let n = |x: usize| x as isize;
+    assert_eq!(
+        n(new.record.ws_pool_fallbacks) - n(old.record.ws_pool_fallbacks),
+        if pool.is_empty() { n(k + b) - n(s137) } else { 0 } + if trails.is_empty() { n(inner) - n(s137) } else { 0 }
+    );
+    let trailing = n(new.record.trailing_ws_lines) - n(old.record.trailing_ws_lines);
     if trails.iter().all(String::is_empty) {
         assert_eq!(trailing, 0);
     } else if trails.iter().all(|l| !l.is_empty()) {
-        assert_eq!(trailing, inner);
+        assert_eq!(trailing, n(inner) - n(s137));
     }
-    let leads = new.record.leading_ws_lines - old.record.leading_ws_lines;
+    let leads = n(new.record.leading_ws_lines) - n(old.record.leading_ws_lines);
     if pool.iter().all(String::is_empty) {
         assert_eq!(leads, 0);
     } else if pool.iter().all(|l| !l.is_empty()) {
-        assert_eq!(leads, k);
-        t.lead_splits += k;
+        assert_eq!(leads, n(k) - n(s137));
+        t.lead_splits += k + b;
     }
-    t.empty_pool_splits += if pool.is_empty() { k } else { 0 };
+    t.empty_pool_splits += if pool.is_empty() { k + b } else { 0 };
     let mut rec = serde_json::to_value(&new.record).unwrap();
     let rec_old = serde_json::to_value(&old.record).unwrap();
-    if k == 0 {
+    let counters = ["document_line_splits", "tail_boundary_breaks"];
+    if k == 0 && b == 0 {
         assert_eq!(new.text, old.text);
         assert_eq!(rec, rec_old, "a record the rule does not change keeps its bytes");
-        assert!(rec.get("document_line_splits").is_none());
+        for m in counters {
+            assert!(rec.get(m).is_none(), "{m}");
+        }
     } else {
-        assert_eq!(rec["document_line_splits"], k);
-        for m in ["document_line_splits", "child_lines", "leading_ws_lines", "trailing_ws_lines", "ws_pool_fallbacks"] {
+        assert_eq!((rec.get("document_line_splits").and_then(|x| x.as_u64()).unwrap_or(0), rec.get("tail_boundary_breaks").and_then(|x| x.as_u64()).unwrap_or(0)), (k as u64, b as u64));
+        for m in ["child_lines", "leading_ws_lines", "trailing_ws_lines", "ws_pool_fallbacks", "tail_budget_splits"] {
             rec[m] = rec_old[m].clone();
         }
         let mut ro = rec_old.clone();
-        ro.as_object_mut().unwrap().remove("document_line_splits");
-        rec.as_object_mut().unwrap().remove("document_line_splits");
+        for m in counters {
+            ro.as_object_mut().unwrap().remove(m);
+            rec.as_object_mut().unwrap().remove(m);
+        }
         assert_eq!(rec, ro);
     }
     // the documents
@@ -323,6 +369,12 @@ fn single(p: &Parent, span: (usize, usize), sep: Option<&str>, raw: &str, t: &mu
     t.children += 1;
     t.before += r_old.len();
     t.after += r_new.len();
+    // amendment 42 item 42.5: the replacement reading's last line takes the
+    // parent's tail only while it still shares the parent's line
+    if b == 1 {
+        let last = new.text[..new.paragraphs.last().unwrap().1].rsplit('\n').next().unwrap();
+        assert!(cols(last) <= p.w || last.split_whitespace().count() == 1, "{last:?}");
+    }
     t.after_with_break += r_new.iter().filter(|x| x.1).count();
     t.splits += k;
     t.replacement_before += replacement_reading(&src, &old);
@@ -367,8 +419,11 @@ fn single_edits_in_the_three_parent_shapes_leave_no_splittable_line_over_w() {
         assert_eq!((t.replacement_before, t.replacement_after), (0, 0), "{style:?}: {t:?}");
         assert!(t.before >= 10, "{style:?}: the shape reproduces count 4's lines: {t:?}");
         assert_eq!(t.after_with_break, 0, "{style:?}: {t:?}");
-        assert!(t.after < t.before, "{style:?}: {t:?}");
-        assert!(t.splits >= t.before - t.after, "{style:?}: {t:?}");
+        // amendment 42: no line over W is left (layout_transfer_v5 left the
+        // one-word lines with the parent's tail); both of its cases occur
+        assert_eq!(t.after, 0, "{style:?}: {t:?}");
+        assert!(t.boundary_breaks >= 5 && t.kept_13_7 >= 1 && t.boundary_breaks > t.kept_13_7, "{style:?}: {t:?}");
+        assert!(t.splits + t.boundary_breaks >= t.before, "{style:?}: {t:?}");
     }
     assert!(empty_pool >= 1 && leads >= 1, "splits from an empty pool ({empty_pool}) and with an indent lead ({leads})");
 }
@@ -421,11 +476,13 @@ fn a_first_word_with_no_room_after_the_parents_column_starts_a_new_line() {
 }
 
 #[test]
-fn a_line_whose_overflow_lies_in_parent_text_is_left_and_counted() {
+fn a_line_whose_overflow_lies_in_parent_text_takes_the_boundary_break() {
     // An edit whose one word starts its document line, followed by the rest
-    // of the parent's line: the line may be over W, but no break point lies
-    // inside the edit's text, so it is left (count 4 reads it; item 38.1,
-    // "What stays").
+    // of the parent's line: the line may be over W, and no break point lies
+    // inside the edit's text. layout_transfer_v5 left it (count 4 read it);
+    // amendment 42 item 42.1 breaks after the edit's word, so the word's
+    // line holds one word (exempt) and the parent text, unchanged and not
+    // re-wrapped, starts the next line.
     let mut r = Lcg(3821);
     let mut seen = 0;
     for _ in 0..400 {
@@ -444,12 +501,14 @@ fn a_line_whose_overflow_lies_in_parent_text_is_left_and_counted() {
         if t.unit_wrapped.first() != Some(&true) {
             continue;
         }
-        assert_eq!(t.text, LONG[4]);
-        assert_eq!(t.record.document_line_splits, 0);
+        let lead = &t.text[LONG[4].len() + 1 + 1..];
+        assert_eq!(t.text, format!("{} \n{lead}", LONG[4]), "the parent's one space, a line break and the lead");
+        assert_eq!((t.record.document_line_splits, t.record.tail_boundary_breaks), (0, 1));
         let doc = splice(&p.text, span, &t.text).unwrap();
+        assert_eq!(&doc[..span.0], &p.text[..span.0]);
+        assert_eq!(&doc[span.0 + t.text.len()..], &p.text[span.1 + 1..], "the parent resumes at its first non-whitespace byte");
         let reading = document_reading(&doc, p.w, &[placed(&t, span.0)]);
-        assert_eq!(reading.len(), 1, "over W, counted");
-        assert!(!reading[0].1, "no break point");
+        assert!(reading.is_empty(), "no line over W is read: {reading:?}");
         seen += 1;
         if seen >= 10 {
             break;
@@ -529,11 +588,19 @@ fn shared_items(style: Style, seed: u64, n: usize) -> Tally {
             // (amendment 39 item 39.1: the smallest W of the line's edits)
             let w0 = laid[e0].as_ref().unwrap().src.width.unwrap();
             let want: Vec<((usize, usize), usize)> = pl[e0].wrapped.iter().filter(|r| r.1 > ls).map(|&(a, b)| ((a.max(ls) - ls, b - ls), w0)).collect();
-            assert!(!want.is_empty());
+            // after the earlier edit's boundary break (amendment 42) the
+            // later edit's line starts with the lead and the parent text:
+            // it holds none of the earlier edit's words
+            let b0 = laid[e0].as_ref().unwrap().transferred.tail_break();
+            assert_eq!(want.is_empty(), b0.is_some(), "{want:?} {b0:?}");
+            t.boundary_breaks += usize::from(b0.is_some());
             assert_eq!(line.widths, want);
             for ((a, b), _) in &line.widths {
                 assert!(!before[*a..*b].trim().is_empty());
             }
+        }
+        for l in laid.iter().flatten() {
+            t.boundary_breaks += l.transferred.record.tail_boundary_breaks;
         }
         let reading = document_reading(&asm.text, p.w, &pl);
         t.children += 1;
@@ -576,9 +643,9 @@ fn whole_text_children_are_unchanged() {
 }
 
 #[test]
-fn the_layout_id_is_v5_and_splice_accepts_the_leading_break() {
-    assert_eq!(LAYOUT_TRANSFER_ID, "layout_transfer_v5");
-    assert_eq!(LAYOUT_TRANSFER_ID.len(), "layout_transfer_v4".len());
+fn the_layout_id_is_v6_and_splice_accepts_the_leading_break() {
+    assert_eq!(LAYOUT_TRANSFER_ID, "layout_transfer_v6");
+    assert_eq!(LAYOUT_TRANSFER_ID.len(), "layout_transfer_v5".len());
     let p = "Alpha one. Beta two.";
     assert_eq!(splice(p, (11, 20), "\n  Gamma three.").unwrap(), "Alpha one. \n  Gamma three.");
     assert_eq!(splice(p, (11, 20), "\n\nGamma."), Err("replacement layout"));
@@ -633,10 +700,13 @@ fn an_earlier_edits_line_before_an_insertion_whose_separator_breaks_it_ends_at_t
 fn a_break_between_two_words_takes_the_flowed_parents_next_wrap_trail() {
     // Amendment 39 item 39.3 on a parent whose wrapped lines keep one
     // trailing space (as format=flowed mail does). The text after the edit
-    // on its last line is set to one word wider than W, so no moved part
-    // fits and the last break point, between the last line's last two
-    // words, is taken: the line left before it takes the next wrap trail,
-    // counted, and the new line (that word and the long one) is left.
+    // on its last line is set to one word wider than W, glued to the edit's
+    // last word (as after an insertion with no whitespace there), so no
+    // moved part fits and there is no boundary break (amendment 42 item
+    // 42.1, counted): the last break point, between the last line's third-
+    // and second-last words, is taken. The line left before it takes the
+    // next wrap trail, counted, and the new line (those two words and the
+    // long one) is left.
     let mut r = Lcg(3871);
     let mut seen = 0;
     for _ in 0..800 {
@@ -657,19 +727,20 @@ fn a_break_between_two_words_takes_the_flowed_parents_next_wrap_trail() {
         if src.pools.wrap_trails.is_empty() || src.pools.wrap_trails.iter().any(String::is_empty) {
             continue;
         }
-        src.line.as_mut().unwrap().after = format!(" {}", "y".repeat(w));
+        src.line.as_mut().unwrap().after = "y".repeat(w);
         let rw = format!("{} {}", raw(&mut r), raw(&mut r));
         let new = transfer(&rw, &none(), &src);
         let old = unsplit(&rw, &src);
         let last = old.text.rsplit('\n').next().unwrap();
         // (a first word with no room after the parent's column is moved
         // first, as in the other tests: such cases are skipped here)
-        if new.unit_wrapped.last() != Some(&true) || last.split_whitespace().count() < 2 || new.text.starts_with('\n') != old.text.starts_with('\n') {
+        if new.unit_wrapped.last() != Some(&true) || last.split_whitespace().count() < 3 || new.text.starts_with('\n') != old.text.starts_with('\n') {
             continue;
         }
         assert_eq!(new.record.document_line_splits, 1, "{:?}", new.text);
+        assert_eq!((new.record.tail_boundary_breaks, new.record.tail_boundary_unavailable), (0, 1));
         let trail = &src.pools.wrap_trails[old.trail_picks % src.pools.wrap_trails.len()];
-        let k = old.text.rfind(' ').unwrap();
+        let k = old.text[..old.text.rfind(' ').unwrap()].rfind(' ').unwrap();
         let pool = &src.pools.cont_leads;
         let lead = if pool.is_empty() { "" } else { pool[old.cont_picks % pool.len()].as_str() };
         assert_eq!(new.text, format!("{}{trail}\n{lead}{}", &old.text[..k], &old.text[k + 1..]));
@@ -682,7 +753,7 @@ fn a_break_between_two_words_takes_the_flowed_parents_next_wrap_trail() {
         let mut bare = src.clone();
         bare.pools.wrap_trails.clear();
         let (nb, ob) = (transfer(&rw, &none(), &bare), unsplit(&rw, &bare));
-        let kb = ob.text.rfind(' ').unwrap();
+        let kb = ob.text[..ob.text.rfind(' ').unwrap()].rfind(' ').unwrap();
         assert_eq!(nb.text, format!("{}\n{lead}{}", &ob.text[..kb], &ob.text[kb + 1..]));
         assert_eq!(nb.record.trailing_ws_lines, ob.record.trailing_ws_lines);
         assert_eq!(nb.record.ws_pool_fallbacks, ob.record.ws_pool_fallbacks + 1 + usize::from(pool.is_empty()));

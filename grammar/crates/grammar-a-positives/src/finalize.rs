@@ -139,6 +139,16 @@ pub struct Out {
 
 // ------------------------------------------------------------------ R-form
 
+/// Whether a journal response's accepted text is a laid-out profile v2 child
+/// (its verdict's post record is profile v2's), so that finalize assembles it
+/// with the laid-out assemblers (`generation::assemble_laid`,
+/// `splice::assemble_laid_parts`), which accept a trailing boundary break
+/// (protocol A2 amendment 42 item 42.2). Text without such a record (the
+/// profile off, v1) is assembled as before.
+pub fn laid_out(response: &Value) -> bool {
+    response["verdict"]["diag"]["post"]["profile"] == grammar_a_form::profile::PROFILE_V2
+}
+
 /// The profile v2 raw-response digest of a verdict's own raw child, from its
 /// `diag.post` record: `raw_response_sha256` (a mirror or one span), or under
 /// an item check the request's own edit (`edits[item_check.index]` when the
@@ -606,6 +616,8 @@ pub fn finalize(
             }
         }
         let mut reps: Vec<String> = Vec::new();
+        // every accepted text is a laid-out profile v2 child (`laid_out`)
+        let mut laid = true;
         let mut attempts = Vec::new();
         let mut status = "accepted";
         for rid in &it.requests {
@@ -621,7 +633,10 @@ pub fn finalize(
             attempts.push(json!({"request_id":rid,"span_index":r.span_index,"seed0":r.seed,"request_sha256":r.request_sha256,
                 "attempts":tried,"uncertain_attempts":uncertain}));
             match st.accepted() {
-                Some(v) => reps.push(v["verdict"]["text"].as_str().context("accepted text")?.to_owned()),
+                Some(v) => {
+                    reps.push(v["verdict"]["text"].as_str().context("accepted text")?.to_owned());
+                    laid &= laid_out(v);
+                }
                 None => {
                     if st.done_within(r.attempts()) {
                         status = "terminal_failure";
@@ -668,6 +683,8 @@ pub fn finalize(
         let rep_refs: Vec<&str> = reps.iter().map(String::as_str).collect();
         let (final_text, ai_spans, share) = if it.kind == "mirror" {
             (reps[0].clone(), vec![(0, reps[0].len())], 1.0)
+        } else if laid {
+            generation::assemble_laid(ptext, &it.source_spans, &rep_refs)?
         } else {
             generation::assemble(ptext, &it.source_spans, &rep_refs)?
         };
@@ -1118,6 +1135,42 @@ mod tests {
             m.as_object_mut().unwrap().remove(SCREEN_FAIL_ID);
             assert!(m.get("form").is_none() && m.get("twin_of").is_none() && m.get("rform").is_none());
         }
+    }
+
+    #[test]
+    fn finalize_v2_assembles_a_boundary_break_child_with_its_span_at_the_last_word() {
+        // Amendment 42: single spans of a hard-wrapped parent whose replies
+        // end with a long word take the boundary break under profile v2.
+        // Each is accepted (generate's verdict reads the laid-out text with
+        // the laid-out assembler), and finalize assembles it with the
+        // laid-out assembler (`laid_out`): the record's AI span ends at the
+        // last word, the parent's run then the break follow, and the parent
+        // resumes at its first non-whitespace byte.
+        use crate::a42_fixture as fx;
+        let q = fx::parent(2);
+        let kids = fx::boundary_children(&q, 3);
+        assert!(kids.len() >= 2, "{}", kids.len());
+        let mut ps = parents();
+        ps.insert("p3".into(), q.clone());
+        let cases: Vec<Case> = kids.iter().enumerate().map(|(k, (sp, reply))| case(&format!("tail-{k}"), "p3", &q, vec![*sp], vec![vec![reply.clone()]])).collect();
+        let fp = FormPost::new("deviter2_t", [("p3", "synthetic_domain", q.as_str())]).unwrap().with_items(Vec::new(), &HashMap::new()).unwrap();
+        let st = states(&ps, &cases, Some(fp));
+        for c in &cases {
+            let v = st[&c.requests[0].request_id].accepted().unwrap_or_else(|| panic!("{}: not accepted", c.item.item_id));
+            assert!(laid_out(v));
+            assert!(v["verdict"]["diag"]["post"]["transfer"]["tail_boundary_breaks"].as_u64().unwrap_or(0) >= 1, "{}", c.item.item_id);
+        }
+        let o = run(&ps, &cases, &st).unwrap();
+        for (k, c) in cases.iter().enumerate() {
+            let n = rec(&o, &c.item.item_id);
+            let t = n["text"].as_str().unwrap();
+            let fin = (n["ai_byte_spans"][0][0].as_u64().unwrap() as usize, n["ai_byte_spans"][0][1].as_u64().unwrap() as usize);
+            fx::check_final(&q, kids[k].0, t, fin);
+            let laid = st[&c.requests[0].request_id].accepted().unwrap()["verdict"]["text"].as_str().unwrap();
+            assert_eq!(t, grammar_a_form::profile::splice(&q, kids[k].0, laid).unwrap());
+        }
+        // a response with no profile v2 record is not laid out
+        assert!(!laid_out(&json!({"verdict": {"diag": {}}})));
     }
 
     #[test]

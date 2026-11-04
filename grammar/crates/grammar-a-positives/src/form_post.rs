@@ -367,14 +367,16 @@ impl FormPost {
     }
 
     /// The final document of an item from the parent and every request's
-    /// laid-out text, as finalize assembles it.
+    /// laid-out text, as finalize assembles it: the laid-out assemblers
+    /// (`splice::assemble_laid_parts`, `generation::assemble_laid`), which
+    /// accept a trailing boundary break (protocol A2 amendment 42 item 42.2).
     fn assemble(&self, parent: &str, parts: &[&Part], reps: &[&str]) -> Result<String, String> {
         if self.spliced {
             let ps: Vec<splice::Part> = parts.iter().map(|p| splice::Part { parent_span: p.span, insert_sep: p.insert_sep.as_deref() }).collect();
-            splice::assemble_parts(parent, &ps, reps).map(|a| a.text).map_err(|e| e.to_string())
+            splice::assemble_laid_parts(parent, &ps, reps).map(|a| a.text).map_err(|e| e.to_string())
         } else {
             let spans: Vec<(usize, usize)> = parts.iter().map(|p| p.span).collect();
-            generation::assemble(parent, &spans, reps).map(|x| x.0).map_err(|e| e.to_string())
+            generation::assemble_laid(parent, &spans, reps).map(|x| x.0).map_err(|e| e.to_string())
         }
     }
 
@@ -391,7 +393,7 @@ impl FormPost {
                 let ch = profile::child_v2(p, r.source_span, conv, clean);
                 let doc = (!ch.text.is_empty()).then(|| match r.source_span {
                     None => Ok(ch.text.clone()),
-                    Some(sp) => generation::assemble(p, &[sp], &[ch.text.as_str()]).map(|x| x.0).map_err(|e| e.to_string()),
+                    Some(sp) => generation::assemble_laid(p, &[sp], &[ch.text.as_str()]).map(|x| x.0).map_err(|e| e.to_string()),
                 });
                 let kind = if r.source_span.is_some() { "the parent with the item's one span" } else { "the laid-out mirror" };
                 (ch.text, ch.reasons, ch.record, doc, kind)

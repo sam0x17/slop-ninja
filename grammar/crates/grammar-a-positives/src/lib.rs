@@ -5,6 +5,8 @@
 //! resumable against one local llama-server at a time; assembly keeps exact
 //! replacement spans and realised final-word shares, and retains failures.
 //! Outputs contain prose and belong in ignored private storage.
+#[cfg(test)]
+mod a42_fixture;
 pub mod breadth;
 pub mod briefs;
 pub mod diverse;

@@ -260,7 +260,7 @@ fn count4_an_items_edits_are_re_derived_in_their_item_and_measured_there() {
     // on its shared line starts on a new line, which is not measured from
     // the column (count 4 reads no line over W).
     use grammar_a_dryrun::engine::Slot;
-    use grammar_a_form::profile::{EditV2, item_v2, replacement_lead};
+    use grammar_a_form::profile::{EditV2, item_v2};
     let conv = none_json();
     let (mut seen, mut zero_room, mut by_29_2) = (0, 0, 0);
     for seed in 0..300u64 {
@@ -280,7 +280,7 @@ fn count4_an_items_edits_are_re_derived_in_their_item_and_measured_there() {
             assert_eq!(src.kind(), "mixed");
             let (sl, t) = engine::landed_transfer(src, &conv, ek.raw).unwrap();
             assert_eq!(t.text, it.reps[k], "seed {seed} edit {k}");
-            let fin = (asm.edit_spans[k].0 - replacement_lead(&it.reps[k]).unwrap(), asm.edit_spans[k].1);
+            let fin = grammar_a_form::profile::replacement_range(asm.edit_spans[k], &it.reps[k]);
             let inv = invariants(&sl, &t, Some(Final { doc: &asm.text, fin }));
             assert!(inv.inconsistent.is_none());
             // amendment 29 item 29.2 (as item 34.2 (d) foresees): a document
@@ -295,7 +295,7 @@ fn count4_an_items_edits_are_re_derived_in_their_item_and_measured_there() {
                 let l0 = l.doc_line.expect("a final document");
                 let l1 = asm.text[l0..].find('\n').map_or(asm.text.len(), |x| l0 + x);
                 for j in 0..k {
-                    let fj = (asm.edit_spans[j].0 - replacement_lead(&it.reps[j]).unwrap(), asm.edit_spans[j].1);
+                    let fj = grammar_a_form::profile::replacement_range(asm.edit_spans[j], &it.reps[j]);
                     assert!(!(l0 < fj.1 && fj.0 < l1), "seed {seed} edit {k}: the counted document line holds edit {j}'s text");
                 }
             }
@@ -1137,4 +1137,114 @@ fn count6_through_the_tally_reports_a_short_body_unit_at_a_fixed_boundary_and_do
     let c6 = &j["gate"]["count6_placed_break_paragraph_under_8_words"];
     assert_eq!((c6["fixed_boundary_short"].as_u64(), c6["gate"].as_u64()), (Some(1), Some(0)), "{c6}");
     assert_eq!(t.cells["local|model_only|web"].get("c6_fixed_boundary_units").copied(), Some(1));
+}
+
+// ------------------------------------------------------------------ B30: amendment 42 item 42.5
+
+#[test]
+fn count4_reads_the_boundary_break_from_the_transfer() {
+    // A span child ending with a long word, whose last line and the parent's
+    // tail do not fit together (count 4's 74 lines before amendment 42). The
+    // transfer takes the boundary break and says so
+    // (`last_line_shares_parent_line`): count 4 measures the last line
+    // without the tail and reads the tail's line, parent text only, nowhere.
+    // The final document's range is the replacement's whole range
+    // (`replacement_range`). The counting tool copies no rule: with the
+    // transfer's member it agrees with the document reading.
+    let conv = none_json();
+    let mut seen = 0;
+    for seed in 0..400u64 {
+        let paras: Vec<String> = (0..2).map(|k| grammar_a_form::transfer::wrap(&prose(&SYN, seed * 5 + k, 10, 5, true), 60, 0).join("\n")).collect();
+        let q = paras.join("\n\n");
+        let sents: Vec<(usize, usize)> = grammar_a_form::text::sentences(&q).iter().map(|s| (s.start, s.end)).collect();
+        let Some(&span) = sents.iter().find(|&&(_, e)| q[e..q[e..].find('\n').map_or(q.len(), |k| e + k)].len() > 20) else { continue };
+        let raw = format!("{} counterrevolutionaries.", prose(&ALT, seed + 77, 1, 9, false));
+        let src = Source::Span { parent: &q, span };
+        let (sl, t) = engine::landed_transfer(src, &conv, &raw).unwrap();
+        let Some(tb) = t.tail_break() else { continue };
+        assert!(!t.last_line_shares_parent_line());
+        let doc = engine::splice(Code::Landed, &q, span, &t.text).unwrap();
+        let fin = (span.0, span.0 + t.text.len());
+        let inv = invariants(&sl, &t, Some(Final { doc: &doc, fin }));
+        assert!(inv.inconsistent.is_none(), "{inv:?}");
+        assert_eq!(inv.tail_lines, 0, "the last line no longer takes the tail");
+        assert!(inv.over_budget.iter().chain(&inv.over_budget_document).all(|l| !l.with_tail));
+        assert!(inv.over_budget.is_empty() && inv.over_budget_document.is_empty(), "seed {seed}: {inv:?}");
+        // the item reading's range: the same through assemble_item
+        let a = grammar_a_form::profile::assemble_item(&q, &[grammar_a_form::profile::Part { span, insert_sep: None }], &[&t.text]).unwrap();
+        assert_eq!(a.text, doc);
+        assert_eq!(grammar_a_form::profile::replacement_range(a.edit_spans[0], &t.text), fin);
+        // count 6 reads the edit alone in its parent over the same range
+        let own = Own { parent: &q, span, sep: None };
+        let c = count6::count6(&sl, &t, Some(own), None);
+        assert!(c.inconsistent.is_none(), "{c:?}");
+        // the parent's tail line starts with the lead and holds parent text only
+        let tl = &doc[fin.1 - tb.lead..];
+        assert!(tl.trim_start().starts_with(q[span.1 + tb.run..].split_whitespace().next().unwrap()));
+        seen += 1;
+        if seen >= 10 {
+            break;
+        }
+    }
+    assert!(seen >= 10, "{seen}");
+}
+
+#[test]
+fn count6_reads_an_insertion_alone_with_a_boundary_break_over_its_whole_range() {
+    // An insertion mid-paragraph whose text ends with a long word, so that
+    // it takes the boundary break: count 6 assembles it alone
+    // (`profile::assemble_item`) and reads it over its replacement's whole
+    // range, the trailing run, line break and lead included.
+    let conv = none_json();
+    let mut seen = 0;
+    for seed in 0..400u64 {
+        let paras: Vec<String> = (0..2).map(|k| grammar_a_form::transfer::wrap(&prose(&SYN, seed * 11 + k, 10, 5, true), 60, 0).join("\n")).collect();
+        let q = paras.join("\n\n");
+        let sents: Vec<(usize, usize)> = grammar_a_form::text::sentences(&q).iter().map(|s| (s.start, s.end)).collect();
+        let Some(&(_, at)) = sents.iter().find(|&&(_, e)| q[e..q[e..].find('\n').map_or(q.len(), |k| e + k)].len() > 24) else { continue };
+        let raw = format!("{} counterrevolutionaries.", prose(&ALT, seed + 31, 1, 9, false));
+        let src = Source::Insertion { parent: &q, at, sep: " " };
+        let (sl, t) = engine::landed_transfer(src, &conv, &raw).unwrap();
+        if t.tail_break().is_none() {
+            continue;
+        }
+        let c = count6::count6(&sl, &t, Some(Own { parent: &q, span: (at, at), sep: Some(" ") }), None);
+        assert!(c.inconsistent.is_none(), "{c:?}");
+        assert!(c.units.iter().all(|u| u.alone.is_some()), "{c:?}");
+        seen += 1;
+        if seen >= 5 {
+            break;
+        }
+    }
+    assert!(seen >= 5, "{seen}");
+}
+
+#[test]
+fn count4_still_measures_a_glued_insertions_last_line_with_the_tail() {
+    // An insertion whose following parent text starts without whitespace
+    // has no boundary break (amendment 42 item 42.1): the transfer says the
+    // last line still shares the parent's line, and count 4 measures it with
+    // the tail as before.
+    let conv = none_json();
+    let mut seen = 0;
+    for seed in 0..400u64 {
+        let q = grammar_a_form::transfer::wrap(&prose(&SYN, seed * 7 + 3, 10, 5, true), 60, 0).join("\n");
+        // the start of a word in the middle of a line
+        let Some(at) = q.char_indices().filter(|&(i, c)| c == ' ' && i > 20 && q[i + 1..].starts_with(char::is_alphabetic) && !q[..i].ends_with('\n')).map(|(i, _)| i + 1).nth(3) else { continue };
+        let raw = format!("{} counterrevolutionaries", prose(&ALT, seed + 5, 1, 7, false));
+        let src = Source::Insertion { parent: &q, at, sep: " " };
+        let (sl, t) = engine::landed_transfer(src, &conv, &raw).unwrap();
+        assert!(t.tail_break().is_none() && t.last_line_shares_parent_line());
+        if sl.tail_column == 0 || !t.unit_wrapped.last().copied().unwrap_or(false) {
+            continue;
+        }
+        let inv = invariants(&sl, &t, None);
+        assert!(inv.inconsistent.is_none());
+        assert_eq!(inv.tail_lines, 1, "measured with the tail");
+        seen += 1;
+        if seen >= 10 {
+            break;
+        }
+    }
+    assert!(seen >= 10, "{seen}");
 }

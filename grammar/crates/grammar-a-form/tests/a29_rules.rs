@@ -344,7 +344,9 @@ fn with_no_room_the_later_edit_starts_a_new_line_with_a_continuation_lead() {
                 assert!(!rep[1..lead].contains('\n'));
                 let a = it.assembled.as_ref().expect("assembles");
                 let (s, e2) = a.edit_spans[k];
-                assert_eq!(&a.text[s..e2], rep.trim_start());
+                // (a trailing boundary break, amendment 42 item 42.2, lies
+                // outside the final span too)
+                assert_eq!(&a.text[s..e2], rep.trim());
                 // the line before the break holds the earlier edit's last
                 // line and the parent text: within W, and the first word
                 // would not have fitted
@@ -356,7 +358,7 @@ fn with_no_room_the_later_edit_starts_a_new_line_with_a_continuation_lead() {
                 // the new line's budget is W less its lead: greedy, so the
                 // next line's first word would not have fitted on it (unless
                 // that line is item 13.7's moved last line)
-                let lines: Vec<&str> = rep[1..].split('\n').collect();
+                let lines: Vec<&str> = rep.trim_end()[1..].split('\n').collect();
                 if lines.len() > 2 || (lines.len() == 2 && e["transfer"]["tail_budget_splits"] == 0) {
                     let next = lines[1].split_whitespace().next().unwrap();
                     assert!(cols(lines[0]) <= c.w && cols(lines[0]) + 1 + next.chars().count() > c.w, "{lines:?}");

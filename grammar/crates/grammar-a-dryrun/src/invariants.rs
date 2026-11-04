@@ -14,7 +14,12 @@
 //!   29.1), unless the replacement starts it on a new line (no room on a
 //!   shared line), and its last line, when its last unit is wrapped, is
 //!   measured with the parent text after the span, the source's
-//!   `tail_column` (item 13.7). Two readings (BUILD-PLAN 12.3 open item (c)):
+//!   `tail_column` (item 13.7), unless the transfer records that the last
+//!   line no longer shares the parent's line: after a boundary break the
+//!   parent's tail starts its own line (protocol A2 amendment 42 item 42.5,
+//!   read from `Transferred::last_line_shares_parent_line`; the rule is not
+//!   copied here). The parent's tail line then holds parent text only and is
+//!   not read (item 38.1). Two readings (BUILD-PLAN 12.3 open item (c)):
 //!   - `over_budget`: on the replacement, with `column` and `tail_column`
 //!     (item 13.7's text); a line whose own text holds one word is exempt;
 //!   - `over_budget_document`: in the final document, the whole document
@@ -135,7 +140,9 @@ pub fn invariants(src: &SourceLayout, t: &Transferred, fin: Option<Final>) -> In
                 if src.mixed && u == 0 && i == 0 && ls == 0 {
                     c += src.column;
                 }
-                let with_tail = src.mixed && u + 1 == n && i + 1 == pieces.len();
+                // amendment 42 item 42.5: the transfer says whether the last
+                // line still shares the parent's line
+                let with_tail = src.mixed && u + 1 == n && i + 1 == pieces.len() && t.last_line_shares_parent_line();
                 if with_tail {
                     c += src.tail_column;
                     out.tail_lines += 1;

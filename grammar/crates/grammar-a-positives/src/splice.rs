@@ -1597,6 +1597,12 @@ pub fn assemble(parent: &str, edits: &[&Edit], reps: &[&str]) -> Result<Assemble
     assemble_parts(parent, &parts, reps)
 }
 
+/// `assemble` for laid-out profile v2 replacements (`assemble_laid_parts`).
+pub fn assemble_laid(parent: &str, edits: &[&Edit], reps: &[&str]) -> Result<Assembled> {
+    let parts: Vec<Part> = edits.iter().map(|e| Part { parent_span: e.parent_span, insert_sep: e.insert_sep.as_deref() }).collect();
+    assemble_laid_parts(parent, &parts, reps)
+}
+
 /// The two fields of an edit that assembly reads (from a plan edit or a record's edit history).
 #[derive(Debug, Clone, Copy)]
 pub struct Part<'a> {
@@ -1615,10 +1621,68 @@ pub fn replacement_lead(r: &str) -> Option<usize> {
     (lead == 0 || (r.starts_with('\n') && !r[1..lead].contains('\n'))).then_some(lead)
 }
 
-/// `assemble` over parent spans and insertion separators. A replacement is
-/// non-empty and has no trailing whitespace; its leading whitespace is
-/// `replacement_lead`'s, outside its final span.
+/// The trailing whitespace a laid-out profile v2 replacement may hold
+/// (protocol A2 amendment 42 item 42.2; `grammar_a_form::profile::
+/// replacement_tail`, pinned by `grammar-cc-human`'s parity test): none, or,
+/// after a boundary break, the parent's whitespace run after the edit
+/// (non-empty, no line break), one line break and a lead with no line break.
+/// Returns (the run's, the whole trailing whitespace's) byte lengths, (0, 0)
+/// for none, or None for trailing whitespace of any other form.
+pub fn replacement_tail(r: &str) -> Option<(usize, usize)> {
+    let t = &r[r.trim_end_matches(py_space).len()..];
+    if t.is_empty() {
+        return Some((0, 0));
+    }
+    let k = t.find('\n')?;
+    (k > 0 && !t[k + 1..].contains('\n')).then_some((k, t.len()))
+}
+
+/// Amendment 42 item 42.2's check inside an edit's extended range: the run
+/// a replacement keeps before its boundary break is the parent's bytes at
+/// `e` exactly and the parent's whole run of non-line-break whitespace there
+/// (each character Unicode whitespace), followed on the line by a parent
+/// byte that is not whitespace, before the next edit's parent start `next`.
+/// Returns the run's byte length (0 without trailing whitespace).
+pub(crate) fn extended_run(parent: &str, e: usize, r: &str, next: usize) -> Result<usize> {
+    let (run, len) = replacement_tail(r).context("replacement layout")?;
+    if len == 0 {
+        return Ok(0);
+    }
+    let kept = &r[r.len() - len..r.len() - len + run];
+    let after = &parent[e..];
+    let rest = after.trim_start_matches(|c: char| py_space(c) && c != '\n');
+    let whole = after.len() - rest.len() == run && kept.chars().all(char::is_whitespace) && rest.chars().next().is_some_and(|c| !py_space(c));
+    ensure!(after.starts_with(kept) && whole && e + run < next, "human characters changed");
+    Ok(run)
+}
+
+/// `assemble` over parent spans and insertion separators, for raw responses
+/// (the raw twin and the screen-fail stratum) and any text that is not a
+/// laid-out profile v2 child. A replacement is non-empty and has no trailing
+/// whitespace; its leading whitespace is `replacement_lead`'s, outside its
+/// final span. Unchanged by amendment 42 (item 42.2: the raw twin's assembly
+/// reads raw responses).
 pub fn assemble_parts(parent: &str, edits: &[Part], reps: &[&str]) -> Result<Assembled> {
+    assemble_parts_as(parent, edits, reps, false)
+}
+
+/// `assemble_parts` for laid-out profile v2 replacements (`grammar_a_form::
+/// profile::assemble_item`'s rules, pinned by `grammar-cc-human`'s parity
+/// test): a replacement may also end with a boundary break
+/// (`replacement_tail`; protocol A2 amendment 42 item 42.2). Its edit's range
+/// is then read as ending after the parent's whitespace run it keeps (its
+/// extended range): the human characters are the parent's bytes outside the
+/// extended ranges, unchanged and in order, and inside one the bytes after
+/// the edit's laid-out text are exactly that run, one line break and a lead
+/// with no line break. The run, the line break and the lead lie outside the
+/// edit's final span, which ends at its last word; no final span starts or
+/// ends in whitespace. Any other trailing whitespace is refused as
+/// `assemble_parts` refuses it.
+pub fn assemble_laid_parts(parent: &str, edits: &[Part], reps: &[&str]) -> Result<Assembled> {
+    assemble_parts_as(parent, edits, reps, true)
+}
+
+fn assemble_parts_as(parent: &str, edits: &[Part], reps: &[&str], laid: bool) -> Result<Assembled> {
     ensure!(edits.len() == reps.len() && !edits.is_empty(), "edit/replacement count");
     let mut order: Vec<usize> = (0..edits.len()).collect();
     order.sort_by_key(|&i| (edits[i].parent_span.0, edits[i].parent_span.1));
@@ -1626,13 +1690,17 @@ pub fn assemble_parts(parent: &str, edits: &[Part], reps: &[&str]) -> Result<Ass
     let mut human = String::new();
     let mut cur = 0usize;
     let mut spans = vec![(0usize, 0usize); edits.len()];
-    for &i in &order {
+    // each edit's extended parent range end (amendment 42 item 42.2)
+    let mut ends = vec![0usize; edits.len()];
+    for (k, &i) in order.iter().enumerate() {
         let (s, e) = edits[i].parent_span;
         let r = reps[i];
         ensure!(s >= cur && s <= e && e <= parent.len(), "edit order or overlap");
         ensure!(parent.is_char_boundary(s) && parent.is_char_boundary(e), "char boundary");
-        let lead = replacement_lead(r).filter(|_| !r.trim_matches(py_space).is_empty() && r.trim_end_matches(py_space) == r);
+        let lead = replacement_lead(r).filter(|_| !r.trim_matches(py_space).is_empty());
         ensure!(lead.is_some(), "replacement layout");
+        let tail = if laid { replacement_tail(r).context("replacement layout")?.1 } else { 0 };
+        ensure!(laid || r.trim_end_matches(py_space) == r, "replacement layout");
         let seg = &parent[cur..s];
         out.push_str(seg);
         human.push_str(seg);
@@ -1642,20 +1710,23 @@ pub fn assemble_parts(parent: &str, edits: &[Part], reps: &[&str]) -> Result<Ass
             ensure!(s == 0 || parent[..s].ends_with(py_space), "left boundary");
             ensure!(e == parent.len() || parent[e..].starts_with(py_space), "right boundary");
         }
+        let next = order.get(k + 1).map_or(usize::MAX, |&j| edits[j].parent_span.0);
+        let run = if laid { extended_run(parent, e, r, next)? } else { 0 };
         let fs = out.len() + lead.unwrap_or(0);
         out.push_str(r);
-        spans[i] = (fs, out.len());
-        cur = e;
+        spans[i] = (fs, out.len() - tail);
+        cur = e + run;
+        ends[i] = cur;
     }
     out.push_str(&parent[cur..]);
     human.push_str(&parent[cur..]);
-    // human characters outside the spans equal the parent minus replaced spans
+    // human characters outside the (extended) spans equal the parent minus
+    // the replaced (extended) spans
     let mut expect = String::new();
     let mut c = 0;
     for &i in &order {
-        let (s, e) = edits[i].parent_span;
-        expect.push_str(&parent[c..s]);
-        c = e;
+        expect.push_str(&parent[c..edits[i].parent_span.0]);
+        c = ends[i];
     }
     expect.push_str(&parent[c..]);
     ensure!(human == expect, "human characters changed");

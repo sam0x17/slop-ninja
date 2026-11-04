@@ -16,7 +16,7 @@ supply the parent, the span and the cleaned response, and keep the records.
 | `echo` | The echo screen `cc_echo_screen_v1` |
 | `window` | The final-document length window `cc_final_length_window_v1` |
 | `measure` | Layout measurement `layout_measure_v2`: content lines with their leading and trailing whitespace, gaps and their exact separator strings, sentence ends, column widths, first-pass hard-wrap evidence and its width W, unwrapped lines, lead changes, second-pass wraps, paragraph boundaries, paragraphs and their form-screen reasons, edge frames, paired emphasis, layout classes, text-free `LayoutCounts` and `MeasureDiag` (for profile v2, the layout audit and form-injection twins) |
-| `transfer` | The layout transfer `layout_transfer_v5` of profile v2: `SourceLayout` (a mirror's or donor's whole text, or a span's paragraphs and lines; properties only, no recorded text: separators, frames, whitespace pools by role, wrap flags, licences, and the unrecorded `LineContext` of a span's or insertion's first and last document lines) and `transfer` |
+| `transfer` | The layout transfer `layout_transfer_v6` of profile v2: `SourceLayout` (a mirror's or donor's whole text, or a span's paragraphs and lines; properties only, no recorded text: separators, frames, whitespace pools by role, wrap flags, licences, and the unrecorded `LineContext` of a span's or insertion's first and last document lines) and `transfer` |
 | `profile` | The profile ids (`raw`, `cc_era_parent_norm_v1`, `cc_cohort_profile_v1`, `cc_cohort_profile_v2`), `Profile`, the every-class steps at assembly, profile v2's population x domain prior (`PriorV2`, `resolve_v2`), the closed population list `R2_POPULATIONS` and its per-child steps (`child_v2`, `item_v2`, `edit_in_item_v2`, `donor_child_v2`, with an item's layout in parent order, `lay_out_item`) |
 | `text`, `rank` | The prose screen, whitespace words and normalisation, `h64`, the sentence splitter `a_comp_sentences_v1`, and the seeded rank |
 
@@ -68,7 +68,7 @@ supply the parent, the span and the cleaned response, and keep the records.
   acceptance and at assembly; reasons `final_document_below_150_words` and
   `final_document_above_450_words`.
 - **Profile v2** (`cc_cohort_profile_v2`, protocol A2 §6.2 as amended by
-  amendments 7, 10, 13, 29, 30 and 38). Four entry points: `child_v2` (a mirror, or a mixed
+  amendments 7, 10, 13, 29, 30, 38 and 42). Four entry points: `child_v2` (a mirror, or a mixed
   child with one replaced span, spliced by `generation::assemble`'s rules),
   `item_v2` (a spliced item: any number of edits, insertions with their
   separators included, laid out in parent order and assembled by
@@ -77,7 +77,7 @@ supply the parent, the span and the cleaned response, and keep the records.
   `item_v2` over that edit, laid out in its item with the siblings' raw
   texts known so far) and `donor_child_v2` (a parentless row laid
   out like a layout donor's `SourceLayout::whole`). Records name the
-  components: `layout_measure_v2`, `layout_transfer_v5` and
+  components: `layout_measure_v2`, `layout_transfer_v6` and
   `cc_form_licence_screen_v1`. Each runs:
   - **the measurement** (`measure`, `layout_measure_v2`). Lines split at
     `'\n'`, each content line's leading and trailing whitespace, each gap's
@@ -110,7 +110,7 @@ supply the parent, the span and the cleaned response, and keep the records.
     counts the candidate runs and their rejection causes, the second-pass
     wraps, lead changes, unwrapped lines, frames, retested runs, blocks
     whose widest line is outside the fit bound and inner `list_like` lines.
-  - **the layout transfer** (`transfer`, `layout_transfer_v5`). The source
+  - **the layout transfer** (`transfer`, `layout_transfer_v6`). The source
     is the whole parent for a mirror (or a layout donor) and the replaced
     span's paragraphs and lines for a mixed child (for an insertion, the
     paragraph and line holding its point). A prose child's frame lines (on
@@ -148,14 +148,40 @@ supply the parent, the span and the cleaned response, and keep the records.
     which `splice`, `assemble_item`, `splice::assemble_parts`,
     `generation::assemble` and the frontier export accept, outside the
     final span), at the earliest break where the moved part, with the
-    source's next continuation lead, fits in the child's own W, else the
-    last; repeated on the shortened line and then the new one. A line is
+    source's next continuation lead, fits in the child's own W; when none
+    fits, the boundary break (amendment 42 item 42.1) just after the edit's
+    last word on the line, which exists when parent words follow it there
+    after a whitespace run; else the last; repeated on the shortened line
+    and then the new one. At a boundary break the parent's whitespace run
+    stays on the line as its trailing whitespace, then one line break and
+    the next continuation lead, then the parent text, not re-wrapped (the
+    (a-ii) construction, item 42.2): the replacement ends with that run,
+    line break and lead (`replacement_tail`), its range is read as ending
+    after the parent's run, and its final span ends at its last word.
+    `splice`, `assemble_item`, `splice::assemble_laid_parts`,
+    `generation::assemble_laid` and the frontier export accept it and check
+    the run against the parent byte for byte ("human characters changed");
+    the raw assemblers (`splice::assemble_parts`, `generation::assemble`)
+    refuse every trailing whitespace as before. When item 13.7 finds no
+    suffix that fits and the boundary break exists, it does not split (item
+    42.3). Boundary breaks are counted (`tail_boundary_breaks`), and an edit
+    whose end line needed one but whose following parent text starts
+    without whitespace (an insertion), or whose run holds a character that
+    is Python whitespace but not Unicode White_Space (U+001C..U+001F), is
+    counted once (`tail_boundary_unavailable`), each only when not 0, in
+    the transfer record and in the renorm, rows and frontier summaries
+    (`profile::tail_boundary_breaks`, `profile::tail_boundary_unavailable`
+    read a record's); the verdict's single-span assembly reads a profile
+    v2 child with `generation::assemble_laid`; the transfer
+    exposes the break read-only (`Transferred::tail_break`,
+    `last_line_shares_parent_line`) for the dry run's count 4. A line is
     over when it is wider than the smallest W of the edits whose wrapped
     words it holds (an item's earlier edits keep theirs). The line left
     before a break between two words takes the source's next wrap trail
     (an empty pool counted); a break before the first word adds nothing
     before it. One-word lines are exempt; a line whose overflow lies in
-    parent text, or that has no break point, is left for count 4. A single
+    parent text with no boundary break, or that has no break point, is left
+    for count 4; a line of parent text alone is never read. A single
     edit reads its parent's text on its first and last lines; an item's
     edit reads the item assembled so far before it and, after it, the
     parent text up to the next edit only (for an insertion whose separator
@@ -319,10 +345,17 @@ re-exports this crate's splitter, and
   whole texts, and item 29.1's order kept), and amendment 39 (an earlier
   edit's line ending at a breaking insertion's separator, the earlier
   edit's W on a shared line, a flowed parent's wrap trail at a break
-  between two words), with the break geometry in `transfer`'s unit tests
+  between two words), `tests/a42_rules.rs` amendment 42 (one child word
+  and a tail over W with and without room above, a 2-space run, start-side
+  and end-side breaks on one edit, an insertion at the end of a line and
+  one glued to the parent text, a later edit on the tail line, child_v2's
+  screen on the assembled document), with the break geometry in
+  `transfer`'s unit tests
   (the earliest fitting break, a moved part of exactly W, the parent text
   moved with it, the smallest W on a shared line, repetition over three
-  lines, lead and trail cycling and empty pools), and `tests/a30_rules.rs` items 30.1 and 30.2 (a closed
+  lines, lead and trail cycling and empty pools; the boundary break's
+  order, 1- and 2-space runs, a blank line above, a tail wider than W, the
+  glued and U+001C cases), and `tests/a30_rules.rs` items 30.1 and 30.2 (a closed
   paragraph with two fixed boundaries, targets inside it, short text
   before it, its end and a closed first paragraph as before).
 - `tests/profile_v2.rs` runs profile v2 on the synthetic fixtures in
@@ -341,7 +374,9 @@ re-exports this crate's splitter, and
   insertions and several edits, layout donors, the population x domain
   prior and its fallbacks, the per-population seed, and records without
   text. `grammar-cc-human`'s `profile_v2_parity` pins `assemble_item` to
-  `splice::assemble_parts` and `norm_prior_seed` to V21's plan key.
+  `splice::assemble_laid_parts` (the boundary break and its restated check
+  included), `splice::assemble_parts` to its unchanged raw rules, and
+  `norm_prior_seed` to V21's plan key.
 - `tests/v1_identity.rs` and `grammar-cc-human`'s `era_norm_v1_identity`
   run one harness (`tests/support/form_v1_harness.rs`, synthetic fixtures)
   through this crate's paths and through the old public paths. Both must

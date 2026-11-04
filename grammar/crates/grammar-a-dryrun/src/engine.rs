@@ -435,7 +435,7 @@ pub fn landed_source(src: Source) -> Result<l::transfer::SourceLayout, Failure> 
     }
 }
 
-/// The landed transfer of `raw` from `src` (`layout_transfer_v5`), with
+/// The landed transfer of `raw` from `src` (`layout_transfer_v6`), with
 /// its source layout: the text `child_v2`, `item_v2`, `edit_in_item_v2` and
 /// `donor_child_v2` lay out, and its diagnostics. An item's edit
 /// (`Source::InItem`) is laid out in its item (`profile::lay_out_item`,

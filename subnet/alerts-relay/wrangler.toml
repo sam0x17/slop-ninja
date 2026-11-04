@@ -29,8 +29,16 @@
 #                             sending domain is onboarded,
 #                             Cloudflare sends only to verified destination
 #                             addresses of the account)
-#   COORDINATOR_STATUS_TOKEN  read-only status tokens, used only while the
-#   EVAL_STATUS_TOKEN         publisher is silent (each Worker checks its own)
+#   COORDINATOR_STATUS_TOKEN  the relay's own token for the coordinator
+#                             (that Worker's STATUS_TOKEN_ALERTS value)
+#   EVAL_STATUS_TOKEN         the relay's own token for the eval Worker
+#                             (that Worker's STATUS_TOKEN_ALERTS value)
+#                             Before the status split (TESTNET.md) each held
+#                             that Worker's shared COORDINATOR_STATUS_TOKEN.
+#                             Both are accepted only through the binding,
+#                             for /status's liveness fields only, and used
+#                             only while the publisher is silent. Never
+#                             delete them in the split's step 5 (TESTNET.md).
 #   HEARTBEAT_URL             optional external dead-man check (https, no
 #                             credentials), pinged after each tick that
 #                             finished with its delivery path working

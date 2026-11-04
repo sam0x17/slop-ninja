@@ -5,7 +5,9 @@
 //!   Authenticates, commits the delivery and its per-block step in the
 //!   ChainJournal, acknowledges with 204, then runs any bounded read-only RPC
 //!   round in `waitUntil`.
-//! - `GET /status`: content-free JSON; requires `COORDINATOR_STATUS_TOKEN`.
+//! - `GET /status`: content-free JSON, served only to the operator token
+//!   from any host and to the publisher's and the alerts relay's own tokens
+//!   through their service bindings (`access`).
 //! - `POST /fault/clear`: operator action; requires `COORDINATOR_OPERATOR_TOKEN`.
 //! - `POST /signing/target`, `POST /signing/control`, `POST /signing/kick`,
 //!   `POST /signing/restart?from_epoch=F`, `POST /signing/revoke`: operator
@@ -36,6 +38,7 @@
 //!
 //! Nothing here logs request bodies, headers or secrets.
 
+use crate::access;
 use crate::chain::{ChainError, Hotkey};
 use crate::config::{self, ChainConfig, DEFAULT_KEY_ID};
 use crate::heartbeat::{self, DeliveryReport, RpcPlan, RpcResult, Settings, Step};
@@ -1590,6 +1593,52 @@ async fn hook(mut req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Res
     }
 }
 
+/// One secret, when installed (the token checks drop short ones).
+fn token_secret(env: &Env, name: &str) -> Option<Zeroizing<String>> {
+    env.secret(name).ok().map(|s| Zeroizing::new(s.to_string()))
+}
+
+/// The installed status and operator tokens.
+struct StatusSecrets {
+    operator: Option<Zeroizing<String>>,
+    monitor: Option<Zeroizing<String>>,
+    publisher: Option<Zeroizing<String>>,
+    alerts: Option<Zeroizing<String>>,
+    shared: Option<Zeroizing<String>>,
+}
+
+impl StatusSecrets {
+    fn read(env: &Env) -> Self {
+        Self {
+            operator: token_secret(env, access::OPERATOR_TOKEN),
+            monitor: token_secret(env, access::MONITOR_TOKEN),
+            publisher: token_secret(env, access::PUBLISHER_TOKEN),
+            alerts: token_secret(env, access::ALERTS_TOKEN),
+            shared: token_secret(env, access::SHARED_TOKEN),
+        }
+    }
+
+    fn tokens(&self) -> access::Tokens<'_> {
+        fn s(t: &Option<Zeroizing<String>>) -> Option<&str> {
+            t.as_ref().map(|t| t.as_str())
+        }
+        access::Tokens::new(s(&self.operator), s(&self.monitor), s(&self.publisher), s(&self.alerts), s(&self.shared))
+    }
+}
+
+/// The status gate (`access::decide`): the caller's report, or the refusal to send.
+fn status_gate(req: &Request, env: &Env, route: access::StatusRoute) -> std::result::Result<access::Report, Result<Response>> {
+    let secrets = StatusSecrets::read(env);
+    let tokens = secrets.tokens();
+    let internal = access::is_internal_host(req.url().ok().as_ref().and_then(|u| u.host_str()));
+    let header = req.headers().get("authorization").ok().flatten();
+    match access::decide(&tokens, internal, header.as_deref(), route) {
+        access::Access::Granted(caller) => Ok(tokens.report(caller)),
+        access::Access::Unauthorized => Err(unauthorized()),
+        access::Access::NotConfigured => Err(error("status_token_not_configured", 503)),
+    }
+}
+
 fn bearer_ok(req: &Request, env: &Env, secret: &str) -> std::result::Result<bool, ()> {
     let Ok(token) = env.secret(secret).map(|s| Zeroizing::new(s.to_string())) else {
         return Err(());
@@ -1632,6 +1681,8 @@ struct ServiceStatus {
     eval_cohort: Option<serde_json::Value>,
     /// This Worker instance's arena counters (content-free).
     arena: serde_json::Value,
+    /// Who read this status and which status tokens are installed.
+    access: access::Report,
 }
 
 async fn do_json(env: &Env, d: &Deployment, base: &str, name: &str) -> Option<serde_json::Value> {
@@ -1646,11 +1697,13 @@ async fn do_json(env: &Env, d: &Deployment, base: &str, name: &str) -> Option<se
 }
 
 async fn status(req: Request, env: Env) -> Result<Response> {
-    match bearer_ok(&req, &env, "COORDINATOR_STATUS_TOKEN") {
-        Err(()) => return error("status_token_not_configured", 503),
-        Ok(false) => return unauthorized(),
-        Ok(true) => {}
-    }
+    let access_report = match status_gate(&req, &env, access::StatusRoute::Worker) {
+        Ok(report) => report,
+        Err(refusal) => return refusal,
+    };
+    // The alerts relay's `/status` is its liveness subset only: no cohort
+    // status (not even read), liveness record or arena counters.
+    let detail = access_report.caller.reads_detail();
     let d = deployment(&env).ok();
     let receiver_ok = d
         .as_ref()
@@ -1666,8 +1719,12 @@ async fn status(req: Request, env: Env) -> Result<Response> {
             .await;
             // The main authority the deployment names (`EVAL_MAIN_AUTHORITY`).
             let cohort = match config::eval_cohort_name(&d.chain) {
-                Some(_) => eval_do::main_status(&env).await,
-                None => None,
+                Some(_) if detail => eval_do::main_status(&env).await,
+                _ => None,
+            };
+            let journal = match journal {
+                Some(j) if !detail => Some(access::alerts_journal(&j)),
+                j => j,
             };
             (journal, cohort, read_liveness(&env, d).await)
         }
@@ -1678,7 +1735,7 @@ async fn status(req: Request, env: Env) -> Result<Response> {
         "verdict": liveness::verdict(live.as_ref(), now),
         "status_answered": chain_journal.is_some(),
         "age_ms": live.as_ref().map(|l| now.saturating_sub(l.checked_at_ms)),
-        "record": live,
+        "record": live.as_ref().filter(|_| detail),
     });
     json(&ServiceStatus {
         service: "slop-ninja-coordinator",
@@ -1700,12 +1757,13 @@ async fn status(req: Request, env: Env) -> Result<Response> {
         chain_journal,
         chain_journal_liveness,
         eval_cohort,
-        arena: arena_exports::arena_status(),
+        arena: if detail { arena_exports::arena_status() } else { serde_json::Value::Null },
+        access: access_report,
     })
 }
 
 async fn clear_fault(mut req: Request, env: Env) -> Result<Response> {
-    match bearer_ok(&req, &env, "COORDINATOR_OPERATOR_TOKEN") {
+    match bearer_ok(&req, &env, access::OPERATOR_TOKEN) {
         Err(()) => return error("operator_token_not_configured", 503),
         Ok(false) => return unauthorized(),
         Ok(true) => {}
@@ -1738,7 +1796,7 @@ async fn clear_fault(mut req: Request, env: Env) -> Result<Response> {
 /// Operator signing actions. The body is the T12 bundle for `target` and a
 /// small JSON control object otherwise.
 async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Response> {
-    match bearer_ok(&req, &env, "COORDINATOR_OPERATOR_TOKEN") {
+    match bearer_ok(&req, &env, access::OPERATOR_TOKEN) {
         Err(()) => return error("operator_token_not_configured", 503),
         Ok(false) => return unauthorized(),
         Ok(true) => {}
@@ -1866,9 +1924,10 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
 }
 
 /// Operator and status routes of the cohort authority (`EVAL_ROLE = "eval"` only).
-/// `GET /eval/status`, `GET /eval/load/status` and `GET
-/// /eval/authority/<name>/status` need the status token; everything else the
-/// operator token. `/eval/load/...` reaches the separate load-rehearsal
+/// `GET /eval/status` passes the status gate as the publisher's read; `GET
+/// /eval/load/status`, `GET /eval/admission/link` and `GET
+/// /eval/authority/<name>/status` as operator reads (`access`); everything
+/// else needs the operator token. `/eval/load/...` reaches the separate load-rehearsal
 /// instance. `/eval/authority/<name>/...` reaches main authority `<name>`
 /// whatever the deployment names, only when the deployment knows it (the
 /// original, the named one and each `EVAL_MAIN_PREVIOUS` entry,
@@ -1890,16 +1949,18 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
     }
     let path = req.path();
     let audit = config::authority_route(&path);
-    let read_only = req.method() == Method::Get
-        && (path == "/eval/status"
-            || path == "/eval/load/status"
-            || path == "/eval/admission/link"
-            || matches!(audit, Some((_, "status"))));
-    let secret = if read_only { "COORDINATOR_STATUS_TOKEN" } else { "COORDINATOR_OPERATOR_TOKEN" };
-    match bearer_ok(&req, &env, secret) {
-        Err(()) => return error("token_not_configured", 503),
-        Ok(false) => return unauthorized(),
-        Ok(true) => {}
+    let get = req.method() == Method::Get;
+    match access::status_route(get, &path) {
+        Some(route) => {
+            if let Err(refusal) = status_gate(&req, &env, route) {
+                return refusal;
+            }
+        }
+        None => match bearer_ok(&req, &env, access::OPERATOR_TOKEN) {
+            Err(()) => return error("token_not_configured", 503),
+            Ok(false) => return unauthorized(),
+            Ok(true) => {}
+        },
     }
     // The chain, the netuid and the main authority vars must all name an object.
     if eval_do::cohort_name(&env, "main").is_none() {

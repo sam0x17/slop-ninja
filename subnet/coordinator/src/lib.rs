@@ -33,6 +33,7 @@
 // The content-free status documents are large `json!` literals.
 #![recursion_limit = "256"]
 
+pub mod access;
 pub mod arena_routes;
 pub mod chain;
 pub mod claims;

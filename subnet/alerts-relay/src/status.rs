@@ -91,4 +91,32 @@ mod tests {
         assert_eq!(parse(b"{}"), Some(WorkerView::default()));
         assert_eq!(parse(b"not json"), None);
     }
+
+    /// The coordinator's `/status` for the relay's token is its liveness
+    /// subset (coordinator `access::alerts_journal`); it still decides the
+    /// relay's rule.
+    #[test]
+    fn the_reduced_liveness_view_parses() {
+        let body = br#"{"service":"slop-ninja-coordinator","chain_journal":{"journal":{"confirmed_age_ms":4000,
+            "fault":{"kind":"gap"}},"signing":{"state":"fault"}},"chain_journal_liveness":{"verdict":"ok",
+            "record":null},"eval_cohort":null,"arena":null,"access":{"caller":"alerts"}}"#;
+        assert_eq!(
+            parse(body),
+            Some(WorkerView {
+                confirmed_age_ms: Some(4000),
+                fault: Some("gap".into()),
+                signing_fault: true
+            })
+        );
+        let kindless =
+            br#"{"chain_journal":{"journal":{"fault":{"kind":null}},"signing":{"state":null}}}"#;
+        assert_eq!(
+            parse(kindless),
+            Some(WorkerView {
+                confirmed_age_ms: None,
+                fault: Some("fault".into()),
+                signing_fault: false
+            })
+        );
+    }
 }

@@ -38,9 +38,13 @@ the host's base URL.
   between the copy and the index write; ignore any cohort the index does not
   list.
 - Nothing published contains document text, labels, per-document
-  predictions, hidden evaluation data, spend figures or credentials. The
+  predictions, spend figures or credentials. The
   [redaction rules](../../subnet/publisher/src/redact.rs) say how this is
-  enforced.
+  enforced. Published records do carry values computed from the hidden
+  evaluation: the package's exact scores, gate outcomes, probe statistics
+  and counts, and each published receipt's outcome class for one attempt on
+  one document. An entrant's artifact can steer those outcomes, so they can
+  reveal information about the hidden documents and their labels.
 - Signed records are the coordinator's exact bytes. Verify them against the
   trust roots in the release's `testnet-trust.json`. The copy at
   `v1/trust/testnet-trust.json` is the same file byte for byte; never trust
@@ -281,9 +285,10 @@ Field meanings:
 A snapshot older than a few minutes (`generated_at`) means the publisher has
 stopped. The operator is alerted when that happens: the publisher posts a
 heartbeat to a separate private alerts Worker after every run whose alert
-phase finished, and that Worker's own cron alerts the operator, through a
-private alert feed the operator's host pulls, when the heartbeats stop (see
-`subnet/alerts-relay/README.md`). It never touches the public host.
+phase finished, and that Worker's own cron alerts the operator, through the
+operator's private alert feed, read from outside Cloudflare, when the
+heartbeats stop (see `subnet/alerts-relay/README.md`). It never touches the
+public host.
 
 ## The cohort index: `v1/cohorts/index.json`
 

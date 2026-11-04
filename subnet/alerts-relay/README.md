@@ -47,11 +47,15 @@ feed build described here is not deployed yet.
    finished and saved its state, the publisher posts a heartbeat
    (`slop_ninja.publisher.heartbeat/v3`) to `POST /heartbeat`.
    - The relay's cron alerts when the heartbeats stop (`publisher_silent`).
-     It then also reads the coordinator Workers' `/status` itself with their
-     read-only tokens (`coordinator_unwatched`), with the watermark bound the
-     publisher's last heartbeat carried. It reads `/status` only, not
-     `/eval/status`, so it stands in for part of the publisher's rules only
-     (see [On call](#on-call)).
+     It then also reads the coordinator Workers' `/status` itself with the
+     relay's own status tokens (`coordinator_unwatched`), with the
+     watermark bound the publisher's last heartbeat carried. With the
+     relay's token, a Worker with the status gate answers only the liveness
+     fields this rule reads: the confirmed watermark's age, the durable
+     fault's kind and the signing state. It sends no cohort status, which
+     `/status` embeds for the other callers, and no arena or liveness
+     record. The relay does not read `/eval/status`, so it stands in for
+     part of the publisher's rules only (see [On call](#on-call)).
    - A crashed publisher, a stopped publisher cron, a state object that does
      not answer and a broken binding all stop the heartbeat. The relay is a
      separate Worker, so none of those stops it.
@@ -466,7 +470,7 @@ off, not a warning; `ALERT_EMAIL_TO` set without `ALERT_EMAIL_ENABLED =
 | `SPEND_FIGURES_IN_EMAIL` | deploy-time var | `true` puts month totals in spend alert email bodies while email is on (default off; never in the feed) |
 | `HEARTBEAT_ENABLED` | deploy-time var | `true` pings `HEARTBEAT_URL` after each tick whose delivery path works (default off) |
 | `DRILL_ID` | deploy-time var | a name (lowercase letters, digits and `._/-`): the next tick writes one drill object for it to the feed, and emails one drill message while email is on (see [Drills](#drills)); unset by default |
-| `COORDINATOR_STATUS_TOKEN`, `EVAL_STATUS_TOKEN` | secrets | read-only status tokens; without one, that Worker is reported as not read |
+| `COORDINATOR_STATUS_TOKEN`, `EVAL_STATUS_TOKEN` | secrets | the relay's own status token for each Worker (that Worker's `STATUS_TOKEN_ALERTS`, or the shared pre-split token until the split; coordinator README, "The status gate"), which reads only `/status`'s liveness fields and only through the binding; without one, that Worker is reported as not read |
 | `HEARTBEAT_URL` | secret | an external dead-man check's https URL (no credentials); when enabled without a valid one, the ping is off and `relay_config_warning` says so |
 | `ALERT_EMAIL_TESTNET` | `send_email` binding | unrestricted, as described above; used only while email is on |
 | `ALERTS_TESTNET` | R2 binding | the private `alerts-bucket-testnet` bucket: the tracker's upload and the alert feed |

@@ -26,11 +26,15 @@ submission and reveal of the rows they calculated.
 
 ### What a validator never receives
 
-A validator never receives hidden evaluation data: not the held-out documents,
-their labels, per-document predictions, the private probe, or any private model
-weights. It trusts the coordinator's execution and labels, and checks the reward
-calculation itself. No zero-knowledge proof or independent re-run of the hidden
-evaluation is part of the protocol.
+A validator never receives the held-out documents, their labels, per-document
+predictions, the private probe, or any private model weights. The package and
+receipts it verifies do carry values computed from the hidden evaluation (exact
+scores, gate outcomes, probe statistics, counts, and one outcome class per
+attempt and document), which an entrant's artifact can steer, so they can
+reveal information about the hidden documents and their labels. It trusts the
+coordinator's execution and labels, and checks the reward calculation itself.
+No zero-knowledge proof or independent re-run of the hidden evaluation is part
+of the protocol.
 
 ## What is live
 

@@ -5,7 +5,7 @@ into static public objects. Once a minute it:
 
 1. reads the coordinator's status through service bindings (the coordinator
    Worker's `/status`, and the eval Worker's `/status` and `/eval/status`,
-   each with that Worker's read-only status token), writes the redacted
+   each with the publisher's own status token for that Worker), writes the redacted
    status snapshot and evaluates the alert rules, before any cohort work;
    once that phase has saved its state, it posts a heartbeat to the alerts
    relay (decision D18, below);
@@ -125,6 +125,19 @@ store.
   admission window in tempos; a
   queued cohort for coordinators without one), and `admitting` is set only
   while the calendar reports the cohort's admission window open.
+- **No work-phase names.** `phase` is `admission` or `evaluating` for the
+  active cohort (`queued`, `idle` or `unknown` without one). Admission opens
+  at a tempo boundary and ends at the roster freeze, and a reward cohort
+  closes at a tempo boundary; the phases in between (`generating`,
+  `sealing`, `scoring`, `packaging`, `transition`) move when their work
+  commits, so the snapshot, rewritten every minute, names none of them
+  (`status::public_phase`; an unknown phase is `evaluating` too). The alert
+  rules still read the coordinator's phase. This hides the phase name only;
+  other public signals still move when hidden work commits. A probe build
+  closes from packaging, mid-tempo, so its `evaluating` ends then. A
+  cohort's records are published, and `last_published_cohort` moves, within
+  a run of its package becoming durable (the start of `transition`), not at
+  a tempo boundary. `fault` turns on when a step fails.
 - **Artifacts are default-deny.** An entrant's artifact is published only
   when the admission route stored its upload envelope (the protocol's
   `SubmissionUpload`, at `ADMISSION_RECORD_KEY`) and that envelope is this
@@ -256,7 +269,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v11`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v12`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -328,6 +341,10 @@ The rule set is `slop_ninja.publisher.alerts/v11`. The table is in
   that do not open under the trust roots (`revocation_unverifiable`);
 - a refused configuration, and a setting the configuration ignored
   (`config_warning`);
+- (v12) a Worker's status gate reporting two of its status tokens equal, at
+  once, or the shared pre-split status token still installed beside both
+  consumer tokens for a tempo (`status_access_warning`, subject the Worker;
+  read from `/status` `access`, which never reaches the public snapshot);
 - runs interrupted for a whole tempo.
 
 Each condition has a hold time. It fires once the hold passes, is re-posted
@@ -341,7 +358,8 @@ nothing: the open entries of the rules that read depends on
 (`durable_fault` on its Worker's journal block, and a `.signing` subject on
 its signing view; `fallback_too_long` on its Worker's mode, and the mode's
 age while in fallback; `webhook_paused` on its Worker's subscription
-state; `watermark_stalled` on its Worker's answer; the cohort
+state; `status_access_warning` on its Worker's `access` report;
+`watermark_stalled` on its Worker's answer; the cohort
 rules on the eval status's complete cohort list (every cohort with its
 number, label and phase); `phase_overrun` also on its epoch and, while its
 cohort is the active one in a work phase or in `admission`, that cohort's
@@ -467,8 +485,10 @@ are `PRIVATE_DIGESTS`, `OPERATOR_HOTKEYS`,
 `ARTIFACT_SOURCE_KEY`, `ADMISSION_RECORD_KEY` and
 `NOTICE`. `ADMISSION_ORIGIN` is tracked (`https://testnet-admission.slop.ninja`,
 the origin `testnet-trust.json` pins). `ALERT_RELAY` is tracked (`"true"`, decision D18). The secrets are
-`COORDINATOR_STATUS_TOKEN` (the coordinator Worker's status token),
-`EVAL_STATUS_TOKEN` (the eval Worker's, which is a different value), and the
+`COORDINATOR_STATUS_TOKEN` (the publisher's status token for the coordinator
+Worker: that Worker's `STATUS_TOKEN_PUBLISHER`, or the shared pre-split token
+until the split; coordinator README, "The status gate"),
+`EVAL_STATUS_TOKEN` (the same for the eval Worker, a different value), and the
 optional `ALERT_SINK_URL` (ignored, with a warning, while the relay is on)
 and `HEARTBEAT_URL`. Before a deploy that turns the relay on, check that
 `wrangler secret list --env testnet` lists no `ALERT_SINK_URL`. The trust roots are

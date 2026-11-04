@@ -49,13 +49,13 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | Entry point | Behaviour |
 | --- | --- |
 | `POST /hook` | rtao-rpc finalized-block webhook: the primary heartbeat. |
-| `GET /status` | Content-free JSON. Needs `Authorization: Bearer` with `COORDINATOR_STATUS_TOKEN`. |
+| `GET /status` | Content-free JSON, served only to the status gate's callers (below). |
 | `POST /fault/clear` | Operator action, body `{"fault_id": n, "reanchor": false}`. Needs `COORDINATOR_OPERATOR_TOKEN`. |
 | `POST /signing/target` | Operator action: install a T12 bundle as the current target (body: the bundle JSON, at most 1 MiB). |
 | `POST /signing/control` | Operator action, body `{"action": "resume" \| "pause" \| "clear_fault" \| "arm_drill" \| "auto_pause" \| "auto_resume" \| "auto_abandoned" \| "auto_unabandoned" \| "auto_gap", "drill": ..., "count": n, "label": ..., "cohort": n}`. |
 | `POST /signing/kick` | Operator action: run one signing round now (the duplicate-wakeup drill). |
-| `GET /eval/status` | `EVAL_ROLE = "eval"` only. Content-free cohort status, with every scorer slot's running state. Needs the status token. |
-| `GET /eval/admission/link` | `EVAL_ROLE = "eval"` only. Probes the framing link to the upload Worker (service binding, internal host, shared interface token) without an upload: `{"frame": "ok"}` or the failure. Needs the status token. |
+| `GET /eval/status` | `EVAL_ROLE = "eval"` only. Content-free cohort status, with every scorer slot's running state. The operator or monitor token, or the publisher's token through its service binding. |
+| `GET /eval/admission/link` | `EVAL_ROLE = "eval"` only. Probes the framing link to the upload Worker (service binding, internal host, shared interface token) without an upload: `{"frame": "ok"}` or the failure. Operator or monitor token. |
 | `POST /eval/plan`, `/eval/clear` | Queue a cohort plan; clear a resumable cohort fault (`{"label": ...}`). Operator token. |
 | `POST /eval/abandon` | End a faulted cohort without a target (`{"label": ..., "reason": "<code>"}`); the only exit of a terminal fault. Operator token. |
 | `POST /eval/probe`, `/eval/scorer-probe` | Pre-flight one generator, or the scorer path, on fixed synthetic text; the measured cost is settled in the spend ledger. Operator token. |
@@ -64,9 +64,58 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `POST /internal/admission/v1/<op>` | `EVAL_ROLE = "eval"` only. The internal admission interface, reachable only through the upload Worker's service binding: a request must name the internal host `eval-admission.internal`, which no public route carries, and present the shared `ADMISSION_INTERFACE_TOKEN` (compared in constant time). Anything else answers 404. The body is one forwarded, already checked request (`slop_ninja_admission_wire::internal::Forward`), relayed to the cohort authority. |
 | cron `* * * * *` | The watchdog. On the coordinator it is the only timer, and no Durable Object alarms are set; on the eval Worker it also kicks the cohort authority and, outside scoring, stops idle scorer slots, while the cohort and scorer Durable Objects keep bounded alarms. The finalized commitment reader is per-block work: each new block's delivery drives it, and the cron only while the watchdog is in fallback (when no delivery arrives), never as its own schedule. |
 
-Without its token secret, a route returns 503. A wrong token gets 401. Both
-tokens must be at least 32 bytes. They are compared in constant time over
+Without its token secret, a route returns 503. A wrong token gets 401. Every
+token must be at least 32 bytes. They are compared in constant time over
 SHA-256 digests.
+
+**The status gate** (`access`). The status documents carry no text, label or
+prediction, but they are a real-time timing and aggregate feed: per-job call,
+server and CPU times, chunk-attempt histograms, document counts by kind and
+status, the draw summary and spend. Both Workers keep a `workers.dev` name
+(the rtao-rpc webhook reaches `POST /hook` there, authenticated by its
+signature), so the detailed reads are served only to:
+
+| Caller | Token (Worker secret) | From | Reads |
+| --- | --- | --- | --- |
+| operator | `COORDINATOR_OPERATOR_TOKEN` | any host | every status route, including `GET /eval/load/status`, `GET /eval/admission/link` and `GET /eval/authority/<name>/status` |
+| monitor (the operator's unattended read-only jobs) | `STATUS_TOKEN_MONITOR` | any host | every status route, as the operator; no route that changes state |
+| publisher | `STATUS_TOKEN_PUBLISHER` | its service binding only (`https://status.internal/...`) | `GET /status`, `GET /eval/status` |
+| alerts relay | `STATUS_TOKEN_ALERTS` | its service binding only | `GET /status`, reduced to the liveness fields its rules read |
+| pre-split shared token | `COORDINATOR_STATUS_TOKEN`, while installed | service bindings only | as the publisher |
+
+"From a service binding" means addressed to the host `status.internal`, which
+no public route of either Worker carries; a public request arrives on the
+`workers.dev` name, so a consumer token presented there gets 401 however it
+leaked. That depends on Cloudflare never delivering a public request whose URL
+names that host: the gate has no other sign that a request came through a
+binding, so TESTNET.md ("Status token split") probes it with a forged `Host`
+and an absolute-URL request line after each gate deploy.
+
+The gate covers only the GET status routes above. Every route that changes
+state checks the operator token alone, so the monitor token never installs a
+target, revokes, restarts or controls signing, abandons a cohort or clears a
+fault. It exists so that the deploy idle and schema checks, the spend tracker
+and the watchers do not hold the operator token. The trade-off: it is the one
+token besides the operator's that reads the full timing feed from a public
+host. It is held only on the operator's host, never by a Worker, and leaking
+it exposes the feed but no control. Giving those jobs the operator token
+instead would leave no public-host read-only credential, but its leak would
+hand over signing control.
+
+The alerts relay's `/status` is its liveness subset: the ChainJournal's
+confirmed watermark age, its durable fault's kind and the signing state
+(`access::alerts_journal`), with no cohort status, liveness record or arena
+counters. For the other callers, `/status` also embeds the main cohort's status
+(`eval_cohort`), the same document `GET /eval/status` serves without its
+limiter and ledger blocks. Each token is a separate value per Worker. `/status`
+reports `access`: the caller, which tokens are installed (never their values),
+whether they are all distinct, and whether the shared pre-split token is still
+installed. It is accepted only so that the publisher and the relay can move to
+their own tokens without a gap; delete it from both Workers once they have
+(TESTNET.md). The publisher alerts on equal tokens and on a shared token left
+installed beside both consumer tokens (`status_access_warning`). The public
+status the publisher derives from these reads names no work phase, although
+publication itself still follows packaging (publisher README).
 
 `/status` reports only:
 
@@ -1986,8 +2035,8 @@ cron ticks while the deployment lists it as a predecessor and the named
 authority's succession is incomplete (its kick reply reports
 `succession_complete`; before that a cohort the predecessor still held at the
 switch finishes and is never skipped, after it every predecessor holds
-nothing), and is reachable at `/eval/authority/<name>/status` (status token,
-read only) and `/eval/authority/<name>/{clear,abandon}` (operator token),
+nothing), and is reachable at `/eval/authority/<name>/status` (operator or
+monitor token, read only) and `/eval/authority/<name>/{clear,abandon}` (operator token),
 for known names only (`config::Authority::known`), so no request creates an
 object for any other name. The eval Worker's ChainJournal and the
 coordinator's signing journal are untouched by the switch; the coordinator's
@@ -2182,8 +2231,9 @@ each value from stdin:
 | --- | --- |
 | `RTAO_WEBHOOK_SIGNING_SECRET` | the 64-hex `signing_secret` returned at registration |
 | `RTAO_WEBHOOK_SUBSCRIPTION_ID` | the `0x` subscription ID |
-| `COORDINATOR_STATUS_TOKEN` | at least 32 random bytes |
 | `COORDINATOR_OPERATOR_TOKEN` | at least 32 random bytes |
+| `STATUS_TOKEN_MONITOR`, `STATUS_TOKEN_PUBLISHER`, `STATUS_TOKEN_ALERTS` | at least 32 random bytes each, one value per consumer and Worker (the status gate) |
+| `COORDINATOR_STATUS_TOKEN` | the pre-split shared status token: delete it once the publisher and the relay present their own |
 | `COORDINATOR_HOTKEY_SEED` | the coordinator hotkey's `0x` 32-byte sr25519 mini-secret (`secretSeed`), piped from the wallet file |
 
 A secret change deploys a new Worker version. A Durable Object instance that

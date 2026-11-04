@@ -65,6 +65,7 @@
 //! | `revocation_unverifiable` | entries of the copied revocation set that do not open under the compiled trust roots (copied unchanged; validators skip them) |
 //! | `config_refused` | the publisher's configuration was refused; only the status fault snapshot is written |
 //! | `config_warning` | the configuration was accepted with a setting ignored (an `ALERT_SINK_URL` while `ALERT_RELAY` is on) |
+//! | `status_access_warning` | a Worker's status gate (`access`) reports two of its status tokens equal (a consumer holding another's routes, or the operator's), or, for a whole tempo, the shared pre-split status token still installed beside both consumer tokens (the split's last step not done) |
 //! | `run_interrupted` | every run for a whole tempo stopped before it finished (it never released its lease) |
 //!
 //! Not covered here (AR-13 gaps, listed in the README): commits by our other
@@ -82,7 +83,7 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v11: `scorer_budget_fault` also fires for a cohort past a budget guard
+/// v12: `status_access_warning` (v11: `scorer_budget_fault` also fires for a cohort past a budget guard
 /// that pauses nothing (`budget_alert`), and `attempts_extended`,
 /// `epoch_deferred` and `inclusion_unknown` (v10: `cohort_fault` also fires for a root step that keeps failing on a
 /// retried code through a whole tempo of chain progress (v9:
@@ -98,8 +99,8 @@ pub use slop_ninja_alerts_wire::{
 /// without a field an open entry needs, carries the open entries it would
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
-/// firings)).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v11";
+/// firings))).
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v12";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -255,6 +256,27 @@ fn worker_conditions(name: &str, w: &WorkerView, r: &Rules, out: &mut Vec<Condit
                 .into(),
             0,
         ));
+    }
+    if let Some(a) = &w.access {
+        if !a.tokens_distinct {
+            out.push(cond(
+                "status_access_warning",
+                name,
+                "two of the Worker's status tokens are equal: one consumer can read another's \
+                 routes; give each its own value"
+                    .into(),
+                0,
+            ));
+        } else if a.shared_status_token && a.publisher_token && a.alerts_token {
+            out.push(cond(
+                "status_access_warning",
+                name,
+                "the shared pre-split status token is still installed beside both consumer \
+                 tokens: delete it once the publisher and the relay present their own"
+                    .into(),
+                r.publication_hold_ms,
+            ));
+        }
     }
     match w.confirmed_age_ms {
         Some(age) if age < r.watermark_stall_ms => {}
@@ -612,6 +634,7 @@ pub const STATUS_RULES: &[&str] = &[
     "coordinator_reveal_mismatch",
     "pointer_stale",
     "auto_target_stalled",
+    "status_access_warning",
 ];
 
 /// What a status-dependent rule's decision lacks this run: a source that
@@ -642,6 +665,8 @@ const MODE: WorkerField = ("mode", |w| w.mode.is_some());
 const MODE_AGE: WorkerField = ("mode_age_ms", |w| {
     w.mode.as_deref() != Some("fallback") || w.mode_age_ms.is_some()
 });
+/// The status gate's report `status_access_warning` reads.
+const ACCESS: WorkerField = ("access", |w| w.access.is_some());
 /// The subscription state `webhook_paused` reads.
 const SUBSCRIPTION: WorkerField = ("watchdog.subscription", |w| w.subscription.is_some());
 
@@ -689,7 +714,8 @@ const COHORTS: EvalField = ("cohorts", |e| !e.cohorts_missing);
 /// `receipt_retention.stalled` list; a
 /// Worker's `durable_fault` its journal block (a `.signing` subject the
 /// signing view instead), `fallback_too_long` its mode (and the mode's age
-/// in fallback), `webhook_paused` its subscription state, `watermark_stalled` its answer (a missing watermark fires);
+/// in fallback), `webhook_paused` its subscription state,
+/// `status_access_warning` its `access` report, `watermark_stalled` its answer (a missing watermark fires);
 /// `status_incomplete` its source's answer.
 pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
     let mut n = Vec::new();
@@ -700,6 +726,7 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
         },
         "fallback_too_long" => need_worker(o, subject, &[MODE, MODE_AGE], &mut n),
         "webhook_paused" => need_worker(o, subject, &[SUBSCRIPTION], &mut n),
+        "status_access_warning" => need_worker(o, subject, &[ACCESS], &mut n),
         "watermark_stalled" => need_worker(o, subject, &[], &mut n),
         "scorer_budget_fault" | "cohort_fault" | "attempts_extended" => {
             need_eval(o, Some(COHORTS), &mut n)
@@ -2681,6 +2708,64 @@ mod tests {
         };
         assert_eq!(evaluate(&with(Some(old)), &p, &r)[0].hold_ms, 0);
         assert!(decided("auto_target_stalled", "coordinator", &with(None)));
+    }
+
+    /// The status gate's report alerts on equal tokens at once and on the
+    /// shared pre-split token left beside both consumer tokens after a
+    /// tempo; a Worker built before the gate (no `access`) raises nothing,
+    /// and an open entry waits for a read that carries the report.
+    #[test]
+    fn an_unfinished_or_mixed_token_split_alerts() {
+        use crate::status::AccessView;
+        let r = rules();
+        let p = PublisherObs::default();
+        let with = |a: Option<AccessView>| {
+            let mut o = healthy();
+            o.eval_worker.as_mut().unwrap().access = a;
+            o
+        };
+        let split = AccessView {
+            tokens_distinct: true,
+            publisher_token: true,
+            alerts_token: true,
+            shared_status_token: false,
+        };
+        assert!(evaluate(&with(None), &p, &r).is_empty());
+        assert!(evaluate(&with(Some(split.clone())), &p, &r).is_empty());
+        // Mid-split: the shared token beside only one consumer token.
+        let midway = AccessView {
+            alerts_token: false,
+            shared_status_token: true,
+            ..split.clone()
+        };
+        assert!(evaluate(&with(Some(midway)), &p, &r).is_empty());
+        let lingering = AccessView {
+            shared_status_token: true,
+            ..split.clone()
+        };
+        let c = evaluate(&with(Some(lingering)), &p, &r);
+        assert_eq!(rules_of(&c), vec!["status_access_warning"]);
+        assert_eq!(
+            (c[0].subject.as_str(), c[0].hold_ms),
+            ("eval_worker", TEMPO)
+        );
+        let equal = AccessView {
+            tokens_distinct: false,
+            ..split.clone()
+        };
+        let c = evaluate(&with(Some(equal)), &p, &r);
+        assert_eq!(rules_of(&c), vec!["status_access_warning"]);
+        assert_eq!(c[0].hold_ms, 0);
+        assert!(STATUS_RULES.contains(&"status_access_warning"));
+        assert!(decided(
+            "status_access_warning",
+            "eval_worker",
+            &with(Some(split))
+        ));
+        assert_eq!(
+            needs("status_access_warning", "eval_worker", &with(None)),
+            vec![Need::Field("eval_worker", "access")]
+        );
     }
 
     /// A setting the configuration ignored is alerted, not refused.

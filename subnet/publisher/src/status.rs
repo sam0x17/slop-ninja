@@ -36,6 +36,19 @@ pub struct WorkerView {
     /// The status had no `chain_journal.journal` block, so `fault` (and the
     /// watermark) say nothing: the alert rules treat that read as unknown.
     pub journal_missing: bool,
+    /// The status gate's `access` report (`None` from a Worker built before
+    /// the gate). Private: alert rules only, never the public snapshot.
+    pub access: Option<AccessView>,
+}
+
+/// A Worker's `access` report: which status tokens it has installed (never
+/// their values) and whether they all differ.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AccessView {
+    pub tokens_distinct: bool,
+    pub publisher_token: bool,
+    pub alerts_token: bool,
+    pub shared_status_token: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -251,6 +264,16 @@ pub struct Observed {
 #[serde(default)]
 struct ServiceJson {
     chain_journal: Option<ChainJournalJson>,
+    access: Option<AccessJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct AccessJson {
+    tokens_distinct: Option<bool>,
+    publisher_token: Option<bool>,
+    alerts_token: Option<bool>,
+    shared_status_token: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -489,10 +512,20 @@ impl StandingJson {
 }
 
 fn worker_view(j: ServiceJson) -> WorkerView {
+    // Every flag is needed: a partial report decides nothing.
+    let access = j.access.and_then(|a| {
+        Some(AccessView {
+            tokens_distinct: a.tokens_distinct?,
+            publisher_token: a.publisher_token?,
+            alerts_token: a.alerts_token?,
+            shared_status_token: a.shared_status_token?,
+        })
+    });
     let c = j.chain_journal.unwrap_or_default();
     let journal_missing = c.journal.is_none();
     let journal = c.journal.unwrap_or_default();
     WorkerView {
+        access,
         mode: c.mode,
         mode_age_ms: c.mode_age_ms,
         confirmed_block: journal.confirmed.and_then(|b| b.number),
@@ -711,6 +744,28 @@ pub const CONFIG_NOTICE: &str = "The publisher's configuration was refused; publ
 pub const UNREACHABLE_NOTICE: &str = "The publisher could not read the coordinator's status this run; the fields \
     below may be missing until it can.";
 
+/// The active cohort's phase as published. Admission opens at a tempo
+/// boundary and ends at the roster freeze, and a reward cohort closes at a
+/// tempo boundary; every phase in between (`generating`, `sealing`,
+/// `scoring`, `packaging`, `transition`) moves when its work commits, so
+/// publishing those names once a minute would time the hidden work (how
+/// long generation and scoring took, which grows with the batch's documents
+/// and an artifact's crashes). They are all published as `evaluating`. An
+/// unknown phase is `evaluating` too, so a new work phase never reaches the
+/// snapshot by name.
+///
+/// This hides only the phase name. Other public signals still move when
+/// hidden work commits: a probe build closes from packaging, mid-tempo, so
+/// its `evaluating` ends then; a cohort's records are published (and
+/// `last_published_cohort` moves) once its package is durable, at the start
+/// of `transition`; and `fault` turns on when a step fails.
+pub fn public_phase(phase: &str) -> &'static str {
+    match phase {
+        "admission" => "admission",
+        _ => "evaluating",
+    }
+}
+
 fn hex_digest(s: &Option<String>) -> Option<String> {
     s.as_ref()
         .map(|d| d.trim_start_matches("0x").to_owned())
@@ -813,7 +868,7 @@ pub fn snapshot(i: &SnapshotInputs<'_>) -> PublicStatus {
         chain: Chain::from_binding(i.chain),
         confirmed,
         phase: Some(match (active, eval) {
-            (Some(c), _) => c.phase.clone(),
+            (Some(c), _) => public_phase(&c.phase).to_owned(),
             (None, Some(e)) if e.cohorts.iter().any(|c| !c.load && c.phase == "queued") => {
                 "queued".into()
             }
@@ -1194,6 +1249,93 @@ pub(crate) mod tests {
         );
         crate::redact::scan_json(text.as_bytes()).unwrap();
         assert_eq!(o.eval.as_ref().unwrap().ledger_over_threshold, Some(true));
+    }
+
+    /// Work phases move when their work commits, so the snapshot names none
+    /// of them (`public_phase` lists the signals this does not hide).
+    #[test]
+    fn work_phases_are_published_as_evaluating() {
+        for phase in [
+            "generating",
+            "sealing",
+            "scoring",
+            "packaging",
+            "transition",
+            "a_later_phase",
+        ] {
+            let o = observed(phase);
+            let snap = snapshot(&SnapshotInputs {
+                chain: &chain(),
+                observed: &o,
+                admission_origin: None,
+                operator_notice: None,
+                last_published_cohort: None,
+                now_ms: 0,
+            });
+            assert_eq!(snap.phase.as_deref(), Some("evaluating"), "{phase}");
+            let text = serde_json::to_string(&snap).unwrap();
+            assert!(
+                !text.contains(phase),
+                "{phase} reached the snapshot: {text}"
+            );
+            // The alert rules still see the coordinator's own phase.
+            assert_eq!(o.eval.as_ref().unwrap().active().unwrap().phase, phase);
+        }
+        assert_eq!(public_phase("admission"), "admission");
+        let o = observed("admission");
+        let snap = snapshot(&SnapshotInputs {
+            chain: &chain(),
+            observed: &o,
+            admission_origin: None,
+            operator_notice: None,
+            last_published_cohort: None,
+            now_ms: 0,
+        });
+        assert_eq!(snap.phase.as_deref(), Some("admission"));
+    }
+
+    /// The status gate's `access` report is parsed for the alert rules
+    /// (a partial report is none) and never reaches the public snapshot.
+    #[test]
+    fn the_access_report_is_private() {
+        let mut v = worker_status("primary", false);
+        v["access"] = json!({"caller": "publisher", "operator_token": true, "monitor_token": true,
+            "publisher_token": true, "alerts_token": false, "shared_status_token": true,
+            "tokens_distinct": false, "internal_host": "status.internal"});
+        let w = parse_worker(&v);
+        assert_eq!(
+            w.access,
+            Some(AccessView {
+                tokens_distinct: false,
+                publisher_token: true,
+                alerts_token: false,
+                shared_status_token: true,
+            })
+        );
+        let mut partial = v.clone();
+        partial["access"] = json!({"tokens_distinct": true});
+        assert_eq!(parse_worker(&partial).access, None);
+        assert_eq!(parse_worker(&worker_status("primary", false)).access, None);
+        let o = Observed {
+            coordinator: Some(w.clone()),
+            eval_worker: Some(w),
+            ..observed("scoring")
+        };
+        let snap = snapshot(&SnapshotInputs {
+            chain: &chain(),
+            observed: &o,
+            admission_origin: None,
+            operator_notice: None,
+            last_published_cohort: None,
+            now_ms: 0,
+        });
+        let text = serde_json::to_string(&snap).unwrap();
+        for field in ["access", "token", "tokens_distinct", "status.internal"] {
+            assert!(
+                !text.contains(field),
+                "{field} reached the snapshot: {text}"
+            );
+        }
     }
 
     /// A reference or target in the status that is not a 64-hex digest never

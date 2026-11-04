@@ -19,9 +19,15 @@
 # Secrets, installed by the operator with `wrangler secret put --env testnet`
 # (their values never appear in tracked files):
 #
-#   COORDINATOR_STATUS_TOKEN  the coordinator Worker's read-only status token
-#   EVAL_STATUS_TOKEN         the eval Worker's read-only status token (each
-#                             Worker checks its own; the values differ)
+#   COORDINATOR_STATUS_TOKEN  the publisher's own token for the coordinator
+#                             (that Worker's STATUS_TOKEN_PUBLISHER value)
+#   EVAL_STATUS_TOKEN         the publisher's own token for the eval Worker
+#                             (that Worker's STATUS_TOKEN_PUBLISHER value)
+#                             Before the status split (TESTNET.md) each held
+#                             that Worker's shared COORDINATOR_STATUS_TOKEN.
+#                             Both are accepted only through the binding; the
+#                             values differ. Never delete them in the split's
+#                             step 5 (TESTNET.md).
 #   ALERT_SINK_URL            optional https alert sink (json, slack or discord);
 #                             ignored, with a config_warning alert, while
 #                             ALERT_RELAY is "true" (check `wrangler secret

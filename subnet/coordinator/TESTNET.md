@@ -89,6 +89,107 @@ wrangler secret put COORDINATOR_OPERATOR_TOKEN --env testnet < $S/operator_token
 wrangler secret put AUTHORIZATION_SIGNING_KEY --env testnet < <authorization seed file>
 ```
 
+### Status token split (the status gate; not yet deployed)
+
+A build with the status gate (README, "The status gate") serves every status
+read on the workers.dev name (`/status`, `/eval/status`, `/eval/load/status`,
+`/eval/admission/link`, `/eval/authority/<name>/status`) only to the operator
+token and to the read-only monitor token `STATUS_TOKEN_MONITOR`. The publisher
+and the alerts relay read through their service bindings with their own
+tokens. The load, link and authority reads are refused to every other token
+on every host, so the shared token cannot be a fallback for them. Until the
+publisher and the relay present their own tokens, the shared
+`COORDINATOR_STATUS_TOKEN` is still accepted, but only through a service
+binding, for `/status` and `/eval/status`. That deploy needs no simultaneous
+secret change. Per Worker (coordinator `--env testnet`, eval
+`--env eval-testnet`), in this order.
+
+Every secret put, bulk upload or delete deploys a new Worker version, like a
+code deploy. On 2026-10-30 the first signing step after a secret upload
+paused with `hotkey_secret_unavailable` until an operator `resume` (README,
+"Secrets"). So every step below that changes a Worker, whether code or
+secret, is a deploy window of its own under `data/locks/cf-deploy.lock`,
+held from the idle check through the post-change probe:
+
+- Coordinator: a window with no unsettled commit or reveal in `/status`
+  `signing`. `pause` signing, make the one change, wait until `/status`
+  answers with the expected journal schema, `resume`, and check that
+  `signing.state` is not `fault`. Never leave signing paused or the lock
+  held past the window.
+- Eval Worker: only in a deployable eval window (the quiet checks pass:
+  no cohort admitting, the admission `objects` counts 0, `authority-check`
+  passes).
+- Publisher and relay: a run or tick must finish between two changes, and
+  the post-change probe reads its next run.
+
+Upload a Worker's new secrets in one `wrangler secret bulk` (JSON on stdin,
+built from the mode-600 files without printing them), not one `secret put`
+each, so each Worker gets one new version per step, not three.
+
+1. Generate one new value per Worker for the monitor token (`openssl rand
+   -hex 32`, mode-600 files beside the others). Make every private reader of
+   any status route on the workers.dev name present it first. These readers
+   include the deploy idle and schema checks, the authority-status reads, the
+   spend tracker and the operator's other private status readers; the
+   private Cloudflare inventory lists them. Each falls back to
+   the shared token on a 401, which is the only token a build before the gate
+   accepts. No unattended reader gets the operator token: it also installs
+   targets, revokes, restarts signing, abandons cohorts and clears faults. The
+   monitor token reads status and nothing else. Record the change of
+   credential in the operator's private notes.
+2. Generate one new value per consumer and Worker in the same way. Put them
+   on that Worker as `STATUS_TOKEN_MONITOR`, `STATUS_TOKEN_PUBLISHER` and
+   `STATUS_TOKEN_ALERTS` in one `wrangler secret bulk`, in that Worker's
+   window (above). The pre-gate build ignores the three names, and the
+   shared token still reads `/status`, so the schema wait and the
+   `signing.state` check use it.
+3. Deploy the gate build, in each Worker's window (above). Check that `/status` with the monitor token reports
+   `access.caller` `monitor` and `access.monitor_token`,
+   `access.publisher_token`, `access.alerts_token` and `access.tokens_distinct`
+   true. Check that the monitor token also reads `/eval/load/status` (eval
+   Worker). Check that the shared token gets 401 on the workers.dev name for
+   `/status` and `/eval/load/status`. Then probe that a public request never
+   counts as internal. On the workers.dev name, send the shared token with a
+   forged host (`curl -H 'Host: status.internal' https://<name>/status`) and
+   with an absolute-URL request line (`curl --request-target
+   https://status.internal/status https://<name>/`). Expect no 200 from either.
+   A 200 means the gate's host check does not hold: roll back and keep the
+   shared token off the consumers. Before the gate (2026-11-04, no token),
+   both probes got Cloudflare's own 403 page on both Workers' workers.dev
+   names, so neither request reached a Worker.
+4. Put the publisher's values on the publisher (`COORDINATOR_STATUS_TOKEN`,
+   `EVAL_STATUS_TOKEN`: the publisher's secret names do not change) and the
+   relay's on the relay (the same two names), one `wrangler secret bulk` per
+   Worker. Check that the publisher's run and the relay's tick read both
+   Workers. From here on, the consumers' secrets named
+   `COORDINATOR_STATUS_TOKEN` hold their own values, not the shared token.
+5. Delete `COORDINATOR_STATUS_TOKEN` from the coordinator and the eval Worker
+   only, each in its Worker's window (above; the coordinator's schema wait
+   and `signing.state` check now use the monitor token). Never delete it
+   from the publisher or the relay: there the same name holds that
+   consumer's own token, and deleting it silently stops the publisher's
+   status reads or the relay's dead-man reads. After each delete,
+   `access.shared_status_token` turns false on that Worker; check again that
+   the publisher's next run and the relay's next tick read both Workers.
+   Then drop the readers' shared-token fallback. Until this step, the
+   publisher's `status_access_warning` alert fires once the shared token has
+   stayed a tempo beside both consumer tokens. It also fires at once if two
+   of a Worker's tokens are equal.
+
+Rollback. Before step 4, a pre-gate build is a plain rollback: the shared
+token is still installed and every consumer and reader still holds it (step
+3). After step 5, a pre-gate build answers every status read with 503
+`status_token_not_configured` (coordinator `/status`) or
+`token_not_configured` (eval status reads): the publisher, the relay, the
+monitor scripts and the coordinator deploy's schema wait, which signing
+resume waits on, all lose status. Before installing a pre-gate build after
+step 5, first re-put `COORDINATOR_STATUS_TOKEN` (one shared value) on the
+coordinator and the eval Worker and on the publisher and the relay
+(`COORDINATOR_STATUS_TOKEN`, `EVAL_STATUS_TOKEN`), and restore the readers'
+shared-token fallback, each in its own window; then roll back. Between
+steps 4 and 5 the consumers hold their own values, which a pre-gate build
+refuses (401), so the same re-put of the consumers' secrets comes first.
+
 ## Coordinator hotkey (M3)
 
 The hotkey file is a plaintext wallet keyfile. Its `secretSeed` is piped to
@@ -151,8 +252,14 @@ that follows is then a no-op.
 ## Operate
 
 ```sh
-# status (content-free JSON; 401 without the token)
+# status (content-free JSON; 401 without the token). The build deployed on
+# 2026-11-04 predates the status gate and takes only the shared status token:
 printf 'Authorization: Bearer %s\n' "$(cat $S/status_token)" |
+  curl -sS --header @- $COORDINATOR_URL/status
+# From a build with the status gate (README, "The status gate") the shared
+# token gets 401 on the workers.dev name; the operator token or the read-only
+# monitor token reads it there:
+printf 'Authorization: Bearer %s\n' "$(cat $S/operator_token)" |
   curl -sS --header @- $COORDINATOR_URL/status
 
 # clear a durable fault (operator token), optionally re-anchoring the cursor
@@ -2834,9 +2941,10 @@ promotions without the lookup canary) and the hostname
   resumable and cleared by the operator (`frame_begin`). Install a rotated
   token in both Workers inside one window (step 3 order), so the link never
   sees one Worker's new token beside the other's old one.
-- **Operator probe.** `GET /eval/admission/link` is a status-token operator
-  probe on the eval Worker's existing `workers.dev` surface (the same token
-  as `/eval/status`). It sends one framing request for the probe key and
+- **Operator probe.** `GET /eval/admission/link` is an operator probe on
+  the eval Worker's existing `workers.dev` surface (the operator or monitor
+  token from a build with the status gate; the shared status token before
+  it). It sends one framing request for the probe key and
   answers `{"frame": "ok"}` when the binding, the internal host and the
   token all work. It reads nothing and returns nothing else.
 

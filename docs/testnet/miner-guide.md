@@ -352,10 +352,11 @@ often decide admission:
 - **Parameters**: at most 160,000,000 for the plain and span classes;
   spec v3's tower class has its own derived bound, 173,549,185. Any other
   file in the directory, an external-data sidecar included, is refused.
-- **Input.** Cohorts feed raw text, at most 2,048 tokens including `[CLS]` and
-  `[SEP]`, with nothing truncated; no batch document falls outside that
-  profile. The spec's canonical text profile records exactly what the scorer
-  does to a document.
+- **Input.** Cohorts feed raw text, with nothing truncated; the scorer
+  accepts at most 2,048 tokens including `[CLS]` and `[SEP]` and answers a
+  longer document `unsupported_length`, for every artifact alike. The
+  spec's canonical text profile records exactly what the scorer does to a
+  document.
 
 Check the directory before you pack it:
 

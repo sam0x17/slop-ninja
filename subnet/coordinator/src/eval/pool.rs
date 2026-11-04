@@ -33,6 +33,20 @@ pub struct PoolManifest {
     pub pool_id: String,
     pub shards: Vec<ShardInfo>,
     pub rows: Vec<PoolRow>,
+    /// The export's selection record. Only its token bound is read here
+    /// ([`PoolManifest::token_bound`]); pool v1 records none.
+    #[serde(default)]
+    pub selection: Option<PoolSelection>,
+}
+
+/// The part of a pool export's `selection` record the draw reads.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct PoolSelection {
+    /// Every row's token count, special tokens excluded, is at most this
+    /// (`tools/a-testnet-eval-manifest` public-candidate export: rows over
+    /// it, or without a count, are excluded before the pool is written).
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -84,6 +98,12 @@ impl PoolManifest {
         }
         Ok(m)
     }
+
+    /// The largest token count, special tokens excluded, the export admitted
+    /// for any row of the pool, if it records one.
+    pub fn token_bound(&self) -> Option<u64> {
+        self.selection.as_ref().and_then(|s| s.max_tokens)
+    }
 }
 
 /// One used row in the ledger (private ids and digests; never text).
@@ -121,6 +141,12 @@ pub struct LedgerEntry {
     /// later cohorts may draw again (fresh stock is never reused).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draw_mode: Option<String>,
+    /// Rows the draw's input screen held out of every role of this cohort
+    /// (`v3::screen_pool`): the scorer would refuse their text for every
+    /// artifact. Written only by cohorts sealed in the seeded order; not
+    /// used rows (a later cohort's screen finds them again).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub screened: Vec<LedgerRow>,
 }
 
 /// One parent use in the rewrite-source ledger.
@@ -197,6 +223,7 @@ pub fn ledger_entry(pool_id: &str, cohort: u64, label: &str, authority: &str, pl
         groups: d.groups.clone(),
         sources: Vec::new(),
         draw_mode: None,
+        screened: Vec::new(),
     }
 }
 
@@ -330,6 +357,7 @@ pub(crate) mod tests {
             pool_id: "p".into(),
             shards: vec![ShardInfo { index: 0, file: "shard-0000.jsonl".into(), rows: rows.len() as u32, sha256: String::new() }],
             rows,
+            selection: None,
         }
     }
 

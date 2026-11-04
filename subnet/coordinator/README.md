@@ -2183,10 +2183,41 @@ the output contract); none is compiled in. Differences from the v2 engine:
   every probe version's documents join the cohort's documents. Mixed and
   model-only items carry spares; the seal keeps exactly each kind's planned
   count by private rank, so the manifest's mix is exact.
-- **Tasks.** The batch is tasks `[0, n)`, then the probe versions in version
-  order, then audit draws A and B. References score the batch only; every
-  executed entrant scores every task. An entrant whose inference content is
-  already published is refused unexecuted.
+- **Tasks.** A plan with `reward_v1.task_order = "seeded_rank_v1"` seals
+  every document, batch, probe and audit alike, in a second private rank
+  keyed by the document (`pool::rank(seed, "task", key)`), independent of
+  the selection rank, its kind and its set, so position predicts neither.
+  The standing-template check requires it; a plan that names no order keeps
+  the appended layout: the batch is tasks `[0, n)`, then the probe versions
+  in version order, then audit draws A and B. Which tasks the references
+  score still names the batch set to anyone who can read the reference
+  receipts, the receipt index or the chunk maps; the seeded order hides the
+  set only where those are private. Under either order the references
+  score the batch tasks only, every executed entrant scores every task, and
+  a chunk holds a run of its job's task list from `chunks.first_task`, a
+  task index (a reference's run takes batch tasks only); the package reads
+  every vector back into the appended layout, so measurements, probe
+  fingerprints (in probe-record order) and the package are the same under
+  both. An entrant whose inference content is already published is refused
+  unexecuted.
+- **Input screen** (seeded plans; `v3::INPUT_SCREEN_RULE`, named in the
+  private batch index v3). Before anything is drawn, the draw refuses a
+  pool whose export records no per-row token bound that stays inside the
+  scorer's 2,048-token limit with `[CLS]` and `[SEP]` (`pool token bound`,
+  deterministic: the cohort pauses as `step_refused`), and holds out of
+  every role each pool row the scorer would refuse as empty (its own rule,
+  `artifact-check` `text::scorer_is_empty`), with its source group; the
+  cohort's ledger entry lists the held rows (`screened`). At seal an empty
+  generated document gives way to a spare, and any other empty document
+  (a probe-record defect) pauses the cohort as `step_refused`
+  (`unscorable sealed document`) before anything is exposed; a clear
+  repeats that refusal (TESTNET.md). The token count of a generated
+  document is not screened: the coordinator holds no copy of the scorer's
+  tokenizer. A generated batch document over the limit is found only at
+  packaging, as the terminal fault `reference_failure`; a document that
+  any job's scorer reply refused as over-length is left out of the strict
+  false-positive count, since no artifact can answer it. That half of exposure finding L9
+  is open.
 - **Package.** `reward_v1::finalize` with the cohort's measurements: the
   public-copy statistics on the batch and the probes, the share, attribution
   and loose false-positive gates on the entrant's own cohort documents, and

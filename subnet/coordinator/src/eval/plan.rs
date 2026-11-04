@@ -512,7 +512,26 @@ pub struct RewardV1Plan {
     /// gate policy (`v3::gate_policy_json`). Absent in plans written before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub incentive: Option<Incentive>,
+    /// How the seal assigns task indices. Absent: the original layout
+    /// (`appended_v1`: the kept batch in its selection rank, then every probe
+    /// version in record order, then audit draws A and B), which stored plans
+    /// keep. [`TASK_ORDER_SEEDED_RANK`]: every sealed document, probe and
+    /// audit documents included, in one private rank independent of the
+    /// selection rank, so a task's position predicts neither its kind nor
+    /// its set. (Which tasks the references score still names the batch set
+    /// wherever their receipts or chunk maps are readable.) Standing
+    /// templates must name it ([`crate::eval::calendar::check`]). An eval
+    /// build older than this field refuses any plan or template naming it
+    /// (`deny_unknown_fields`), so it is never rolled back below it once one
+    /// is stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_order: Option<String>,
 }
+
+/// The seeded task order (`reward_v1.task_order`): after selection, every
+/// sealed document takes its task index from `pool::rank(cohort seed, "task",
+/// key)`, an order independent of the selection rank, the kind and the set.
+pub const TASK_ORDER_SEEDED_RANK: &str = "seeded_rank_v1";
 
 /// The incentive rule of a cohort (user decision D11 (a), testnet).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -715,6 +734,10 @@ impl RewardV1Plan {
         if let Some(i) = &self.incentive {
             e(i.rule == INCENTIVE_REFERENCE_MARGIN, "reward_v1.incentive.rule")?;
         }
+        e(
+            self.task_order.as_deref().is_none_or(|t| t == TASK_ORDER_SEEDED_RANK),
+            "reward_v1.task_order (absent or seeded_rank_v1)",
+        )?;
         for d in &self.canary.drill {
             e(parse32(&d.hotkey).is_some() && (1..=2).contains(&d.flags), "reward_v1.canary.drill")?;
         }
@@ -737,6 +760,12 @@ impl RewardV1Plan {
             }
         }
         Ok(())
+    }
+
+    /// Whether the seal takes task indices from the seeded rank
+    /// ([`TASK_ORDER_SEEDED_RANK`]).
+    pub fn seeded_task_order(&self) -> bool {
+        self.task_order.as_deref() == Some(TASK_ORDER_SEEDED_RANK)
     }
 
     /// The drill flags for an owner hotkey, if any.

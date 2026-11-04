@@ -181,6 +181,14 @@ pub fn check(cfg: &EvalConfig, bytes: &[u8]) -> R<Template> {
         incentive.provisional_gates || cfg.chain.genesis != slop_ninja_protocol::TESTNET_GENESIS,
         "template reward_v1.incentive.provisional_gates (testnet gate thresholds are provisional)",
     )?;
+    // Held-out exposure finding L4: a cohort opened from a standing template
+    // takes its task indices from the seeded rank, so position predicts
+    // neither a document's kind nor its set. The check runs at install: a
+    // template already stored keeps the layout it names.
+    e(
+        t.plan.reward_v1.as_ref().is_some_and(super::plan::RewardV1Plan::seeded_task_order),
+        "template reward_v1.task_order (seeded_rank_v1)",
+    )?;
     // The plan as admission leaves it at the cap, with a predecessor (as
     // after a promotion, so two references score): it validates, its budget
     // covers that roster, and its package step fits the memory model.

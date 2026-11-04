@@ -241,6 +241,22 @@ pub const fn package_bytes(jobs: u64, docs: u64) -> usize {
     if total > usize::MAX as u64 { usize::MAX } else { total as usize }
 }
 
+/// What a cohort sealed in the seeded task order (`reward_v1.task_order`)
+/// holds beside the package step's measured footprint while its job vectors
+/// are resident: the slot -> task layout and the permutation's visited
+/// flags, one of each per document (`eval::v3::prepare_package`, which
+/// permutes each entrant's vectors in place and reads an appended cohort
+/// exactly as before). Derived from the types, not measured: the package
+/// fit's margin over each measured point covers it
+/// (`the_package_fit_covers_the_seeded_layout`). The layout's sort scratch
+/// is freed before the first job vector is built, while the resident
+/// summaries alone are smaller than the vectors they become.
+pub const fn seeded_layout_bytes(docs: u64) -> usize {
+    let per = (core::mem::size_of::<usize>() + core::mem::size_of::<bool>()) as u64;
+    let total = docs.saturating_mul(per);
+    if total > usize::MAX as u64 { usize::MAX } else { total as usize }
+}
+
 /// The seal step's footprint for `docs` documents: fitted to the measured
 /// 12.69 MiB (n = 1,000) and 47.44 MiB (n = 4,000) of 1.3 KB texts (design
 /// §1.3) as `base + per_doc × n`, rounded up. Version `seal-fit-2026-10-31`.
@@ -535,6 +551,20 @@ mod tests {
         for (docs, measured_mib) in [(1_000, 12.69), (4_000, 47.44)] {
             let fit = seal_bytes(docs) as f64 / MIB_F;
             assert!(fit >= measured_mib && fit <= measured_mib * 1.02, "seal n = {docs}: fit {fit:.2} MiB, measured {measured_mib}");
+        }
+    }
+
+    #[test]
+    fn the_package_fit_covers_the_seeded_layout() {
+        const MIB_F: f64 = 1_048_576.0;
+        for (jobs, docs, measured_mib) in [(41, 1_000, 29.56), (65, 1_000, 44.38), (129, 1_000, 83.31), (257, 1_000, 177.31), (129, 4_000, 245.31)] {
+            // The measurements carry two decimals of a MiB.
+            let margin = package_bytes(jobs, docs) as f64 - (measured_mib + 0.005) * MIB_F;
+            assert!(
+                margin >= seeded_layout_bytes(docs) as f64,
+                "J = {jobs}, n = {docs}: margin {margin:.0} B below the seeded layout's {} B",
+                seeded_layout_bytes(docs)
+            );
         }
     }
 

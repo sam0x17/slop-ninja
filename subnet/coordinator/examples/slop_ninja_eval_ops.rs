@@ -84,8 +84,11 @@
 //!   artifact spec) with R_0 from `restart.json`, no predecessor, the probe
 //!   version in RECORD.json, the authority's label prefix (without its
 //!   trailing `-`), both spec digests and the fewest multipart parts that
-//!   carry the spec's largest object at the block's part size, all derived.
-//!   The roster cap is N if given, else the largest cap the coordinator's
+//!   carry the spec's largest object at the block's part size, all derived,
+//!   and the seeded task order (`reward_v1.task_order = seeded_rank_v1`,
+//!   which the restart's probe plan also names; an eval build older than
+//!   that field refuses both, so install them only once eval is deployed
+//!   with it). The roster cap is N if given, else the largest cap the coordinator's
 //!   template check admits (its package step's memory model, the receipt
 //!   index, the scoring lanes), clamped to the tracked `ROSTER_CAP` (a
 //!   deployment ceiling, not a derived figure); the scoring
@@ -616,6 +619,8 @@ fn restart(flags: &BTreeMap<String, String>) {
     let v = plan["reward_v1"].as_object_mut().unwrap_or_else(|| fail("probe template: no reward_v1 block"));
     v.insert("probe_version".into(), json!(version));
     v.insert("probes".into(), json!([]));
+    // A probe version cut now seals in the seeded task order (finding L4).
+    v.insert("task_order".into(), json!(slop_ninja_coordinator::eval::plan::TASK_ORDER_SEEDED_RANK));
     v["canary"]["drill"] = json!([]);
     let bytes = checked_plan(&plan, &authority, ceilings);
     let dir = std::path::PathBuf::from(flag::<String>(flags, "out"));
@@ -746,6 +751,9 @@ fn standing_template(flags: &BTreeMap<String, String>) {
         json!([{"version": version, "size": record["size"], "key": r["probe_record_key"], "sha256": sha_hex(&record_bytes)}]),
     );
     v.remove("probe_version");
+    // Every cohort the template opens seals in the seeded task order (finding
+    // L4); the coordinator's template check requires it.
+    v.insert("task_order".into(), json!(slop_ninja_coordinator::eval::plan::TASK_ORDER_SEEDED_RANK));
     let id = plan["admission"]["artifact_spec"].as_str().map(str::to_owned).unwrap_or_else(|| fail("template: admission.artifact_spec"));
     let bounds = slop_ninja_coordinator::eval::admission::SpecBounds::of_id(&id)
         .unwrap_or_else(|| fail(&format!("template: {id} is not a spec the scorer admits by")));

@@ -1010,27 +1010,60 @@ pub enum ClaimReply {
     Fenced,
 }
 
+/// The tasks of a chunk that the job has not resolved, in task order. A
+/// chunk holds `count` of its job's tasks from task `first` on: every task
+/// for an entrant (the range `[first, first + count)`), the batch tasks for
+/// a reference (they score the batch only). Where the batch is tasks
+/// `[0, n)` (every cohort sealed in the appended order, and every v2 cohort)
+/// both are task ranges; under the seeded order a reference's window takes
+/// the next `count` batch tasks from among the interleaved probe and audit
+/// tasks. Either way the read walks the `docs_task` index over the window
+/// alone.
 fn unresolved(sql: &impl Sql, seq: i64, job: i64, first: i64, count: i64) -> R<Vec<(u32, String)>> {
-    sql.exec(
-        "SELECT d.task, d.text_sha256 FROM docs d
-         WHERE d.seq = ? AND d.task >= ? AND d.task < ?
-           AND NOT EXISTS (SELECT 1 FROM preds p WHERE p.seq = d.seq AND p.job = ? AND p.task = d.task)
-         ORDER BY d.task",
-        &[i(seq), i(first), i(first + count), i(job)],
-    )?
-    .iter()
-    .map(|r| Ok((int(r, 0)? as u32, text(r, 1)?.to_owned())))
-    .collect()
+    let role = sql.exec("SELECT role FROM jobs WHERE seq = ? AND job = ?", &[i(seq), i(job)])?;
+    let reference = role.first().map(|r| text(r, 0)).transpose()?.is_some_and(|r| r == "reference" || r == "previous_reference");
+    let rows = if reference {
+        sql.exec(
+            "SELECT w.task, w.text_sha256 FROM (
+                 SELECT d.task, d.text_sha256 FROM docs d
+                 WHERE d.seq = ? AND d.task >= ? AND d.docset = 'batch'
+                 ORDER BY d.task LIMIT ?) w
+             WHERE NOT EXISTS (SELECT 1 FROM preds p WHERE p.seq = ? AND p.job = ? AND p.task = w.task)
+             ORDER BY w.task",
+            &[i(seq), i(first), i(count.max(0)), i(seq), i(job)],
+        )?
+    } else {
+        sql.exec(
+            "SELECT d.task, d.text_sha256 FROM docs d
+             WHERE d.seq = ? AND d.task >= ? AND d.task < ?
+               AND NOT EXISTS (SELECT 1 FROM preds p WHERE p.seq = d.seq AND p.job = ? AND p.task = d.task)
+             ORDER BY d.task",
+            &[i(seq), i(first), i(first + count), i(job)],
+        )?
+    };
+    rows.iter().map(|r| Ok((int(r, 0)? as u32, text(r, 1)?.to_owned()))).collect()
 }
 
-fn shards_for(sql: &impl Sql, seq: i64, lo: u32, hi: u32) -> R<Vec<(String, String)>> {
-    sql.exec(
-        "SELECT key, sha256 FROM batch_shards WHERE seq = ? AND first_task <= ? AND first_task + docs > ? ORDER BY shard",
+/// The shards a claim reads: those holding at least one of its `tasks` (in
+/// task order). Under the seeded order a reference's batch tasks are spread
+/// among probe and audit tasks it never scores, so the shards between its
+/// first and last task are not all needed. A claim with no task names the
+/// shard of task 0, as before.
+pub(crate) fn shards_for(sql: &impl Sql, seq: i64, tasks: &[u32]) -> R<Vec<(String, String)>> {
+    let (lo, hi) = (tasks.first().copied().unwrap_or(0), tasks.last().copied().unwrap_or(0));
+    let rows = sql.exec(
+        "SELECT key, sha256, first_task, docs FROM batch_shards WHERE seq = ? AND first_task <= ? AND first_task + docs > ? ORDER BY shard",
         &[i(seq), i(i64::from(hi)), i(i64::from(lo))],
-    )?
-    .iter()
-    .map(|r| Ok((text(r, 0)?.to_owned(), text(r, 1)?.to_owned())))
-    .collect()
+    )?;
+    let mut out = Vec::new();
+    for r in &rows {
+        let (first, docs) = (int(r, 2)?, int(r, 3)?);
+        let at = tasks.partition_point(|t| i64::from(*t) < first);
+        if tasks.is_empty() || tasks.get(at).is_some_and(|t| i64::from(*t) < first + docs) {
+            out.push((text(r, 0)?.to_owned(), text(r, 1)?.to_owned()));
+        }
+    }
+    Ok(out)
 }
 
 /// The outcomes an isolation attempt has resolved so far, in task order.
@@ -1105,9 +1138,8 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
             )?;
             Ok(int(&claim[0], 0)?)
         };
-        let lo_t = tasks.first().map(|t| t.0).unwrap_or(0);
-        let hi_t = tasks.last().map(|t| t.0).unwrap_or(0);
         let (task_ids, digests): (Vec<u32>, Vec<String>) = tasks.into_iter().unzip();
+        let shards = shards_for(sql, r.seq, &task_ids)?;
         let isolate = crashes > 0;
         let lease = if isolate { f.score.isolation_lease_ms } else { f.score.lease_ms };
         let claim_of = |attempt: i64, lost: Vec<u8>, record_only: bool, claim: i64, reconcile: bool, done: Vec<TaskOutcome>| -> R<ClaimReply> {
@@ -1123,7 +1155,7 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
                 lease_ms: lease,
                 tasks: task_ids.clone(),
                 digests: digests.clone(),
-                shards: shards_for(sql, r.seq, lo_t, hi_t)?,
+                shards: shards.clone(),
                 done,
                 model_error: artifact_failed && !record_only && !reconcile,
                 reference,
@@ -1355,15 +1387,9 @@ pub fn commit_chunk(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, c
             ],
         )?;
     }
-    let left = int(
-        &sql.exec(
-            "SELECT COUNT(*) FROM docs d, chunks c WHERE d.seq = ? AND c.seq = d.seq AND c.job = ? AND c.chunk = ?
-               AND d.task >= c.first_task AND d.task < c.first_task + c.count
-               AND NOT EXISTS (SELECT 1 FROM preds p WHERE p.seq = d.seq AND p.job = c.job AND p.task = d.task)",
-            &[i(seq), i(cm.job), i(cm.chunk)],
-        )?[0],
-        0,
-    )?;
+    let window = sql.exec("SELECT first_task, count FROM chunks WHERE seq = ? AND job = ? AND chunk = ?", &[i(seq), i(cm.job), i(cm.chunk)])?;
+    let window = window.first().ok_or(EvalError::State("chunk"))?;
+    let left = unresolved(sql, seq, cm.job, int(window, 0)?, int(window, 1)?)?.len() as i64;
     let done = left == 0;
     sql.exec(
         "DELETE FROM iso_done WHERE seq = ? AND job = ? AND chunk = ? AND attempt = ?",

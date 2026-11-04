@@ -1041,12 +1041,25 @@ pub fn fault_with_cause(sql: &impl Sql, seq: i64, code: &str, cause: Option<&str
 /// that is not there (`... missing`), stored bytes that do not parse
 /// (`... json`, `... utf-8`, `... row`, a probe record's version or size), a
 /// signing key or deployment variable that is absent or does not match its
-/// trust root, or another fixed fact the step derives from its inputs. Every
+/// trust root, a sealed document the scorer refuses
+/// ([`crate::eval::v3::UNSCORABLE_DOCUMENT`]), a pool with no qualifying
+/// token bound ([`crate::eval::v3::POOL_TOKEN_BOUND_REFUSED`]), or another
+/// fixed fact the step derives from its inputs. Every
 /// other code (a bucket read or write, a storage transaction, an arena
 /// retry) is transient: the step runs again after [`STEP_RETRY_MS`].
 pub fn step_error_is_deterministic(code: &str) -> bool {
     const SUFFIXES: &[&str] = &[" digest", " missing", " json", " utf-8", " row", "trust root", "must differ", " version or size"];
-    const CODES: &[&str] = &["probe version", "probe task", "probe text", "shard info", "netuid", "receipt root", "unknown_authority"];
+    const CODES: &[&str] = &[
+        "probe version",
+        "probe task",
+        "probe text",
+        "shard info",
+        "netuid",
+        "receipt root",
+        "unknown_authority",
+        crate::eval::v3::UNSCORABLE_DOCUMENT,
+        crate::eval::v3::POOL_TOKEN_BOUND_REFUSED,
+    ];
     code.starts_with("EVAL_") || SUFFIXES.iter().any(|x| code.ends_with(x)) || CODES.contains(&code)
 }
 

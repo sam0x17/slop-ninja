@@ -13,11 +13,25 @@
 //!   fresh canary audit draws (`audit_a`, `audit_b`) and every probe version's
 //!   documents (`probe`) join the cohort's documents. Mixed and model-only
 //!   items carry the plan's spares; the seal keeps exactly the planned count
-//!   of each kind by private rank, so the manifest's mix is exact.
-//! - **Tasks.** The batch is tasks `[0, n)`; probe versions follow in version
-//!   order, then audit draw A and audit draw B. References score the batch
-//!   only; every executed entrant scores every task. An entrant whose
-//!   inference content is already published is never executed.
+//!   of each kind by private rank, so the manifest's mix is exact. Under the
+//!   seeded order the draw first applies the input screen to the pool
+//!   ([`INPUT_SCREEN_RULE`]).
+//! - **Tasks.** Under the seeded order (`reward_v1.task_order =
+//!   seeded_rank_v1`, every standing template) every sealed document, batch,
+//!   probe and audit alike, takes its task index from a private rank keyed by
+//!   the document (`pool::rank(seed, "task", key)`), independent of the
+//!   selection rank, its kind and its set, so position predicts neither.
+//!   Which tasks the references score still names the batch set to anyone
+//!   who reads their receipts or chunk maps, so the set stays hidden only
+//!   where those are private. Plans that name no order keep the
+//!   appended layout: the batch is tasks `[0, n)`, probe versions follow in
+//!   version order, then audit draw A and audit draw B. References score the
+//!   batch tasks only; every executed entrant scores every task; a chunk is a
+//!   window of its job's task list, starting at a task index. The package
+//!   reads every vector back into the appended layout ([`canonical_layout`]),
+//!   so the measurements, the probe fingerprints (in probe-record order) and
+//!   the package are the same under either order. An entrant whose inference
+//!   content is already published is never executed.
 //! - **Package.** [`slop_ninja_protocol::reward_v1::finalize`] with the
 //!   measurements of [`Measure`]: near statistics on the batch and probe,
 //!   cluster pairs, gates, and promotion audits.
@@ -1215,6 +1229,91 @@ fn origin_of(kind: &str) -> R<Origin> {
     }
 }
 
+/// A seal refusal: a sealed probe, audit or human document the scorer would
+/// refuse for every artifact. A backstop: under the seeded order the draw
+/// already holds every such pool row out ([`screen_pool`]), so this fires
+/// only for a defect in a probe record or a document changed after the draw.
+/// Deterministic ([`engine::step_error_is_deterministic`]): the cohort
+/// pauses as `step_refused` at once, and a clear re-runs the same refusal,
+/// because the document is fixed by the cohort's draw or its plan's probe
+/// record.
+pub const UNSCORABLE_DOCUMENT: &str = "unscorable sealed document";
+
+/// A draw refusal under the seeded order: the plan's pool records no token
+/// bound that keeps every row inside the scorer's limit
+/// ([`pool_token_bound_ok`]; pool v1 records none). Deterministic: the
+/// cohort pauses before anything is drawn, written or exposed.
+pub const POOL_TOKEN_BOUND_REFUSED: &str = "pool token bound";
+
+/// The input screen the seeded order applies (finding L9), named in the
+/// batch index:
+/// - **Pool rows** (batch humans, audit draws, mixed parents): the draw
+///   refuses a pool whose export records no per-row token bound within the
+///   scorer's limit ([`pool_token_bound_ok`]), and holds out of every role
+///   each row whose text the scorer refuses as empty ([`screen_pool`]),
+///   with its source group; the held rows are listed in the cohort's ledger
+///   entry.
+/// - **Generated documents**: one the scorer refuses as empty gives way to
+///   a spare at seal.
+/// - **Seal backstop**: any other sealed document the scorer refuses as
+///   empty stops the seal ([`UNSCORABLE_DOCUMENT`]).
+///
+/// Not screened: the token count of a generated document (a mixed child or
+/// a model-only text). The coordinator holds no copy of the pinned
+/// tokenizer, and the generation check bounds length in words. A generated
+/// batch document over the limit is found only at packaging, as a terminal
+/// `reference_failure`. An audit human the scorer refuses as over-length
+/// cannot be drawn from a bounded pool; should one be sealed anyway, the
+/// strict false-positive count leaves it out ([`over_length_tasks`]).
+pub const INPUT_SCREEN_RULE: &str = "pool_token_bound_and_empty_text_v1";
+
+/// Whether the scorer refuses `text` as empty for every artifact (the
+/// scorer's own rule, `artifact-check` `text::scorer_is_empty`).
+pub fn scorer_refuses(text: &str) -> bool {
+    slop_ninja_artifact_check::text::scorer_is_empty(text)
+}
+
+/// Whether a pool's recorded token bound, which counts no special tokens,
+/// keeps every row inside the scorer's limit once `[CLS]` and `[SEP]` are
+/// added.
+pub fn pool_token_bound_ok(m: &pool::PoolManifest) -> bool {
+    use slop_ninja_artifact_check::text::MAX_TOKENS_INCLUDING_SPECIALS;
+    m.token_bound().is_some_and(|b| b.saturating_add(2) <= MAX_TOKENS_INCLUDING_SPECIALS)
+}
+
+/// The draw's screen over pool rows `(row id, text)`: the ids of the rows
+/// the scorer refuses for every artifact. The draw treats them as drawn
+/// before any role draws, so no role takes them or their source groups.
+pub fn screen_pool<'a>(rows: impl IntoIterator<Item = (&'a str, &'a str)>) -> BTreeSet<String> {
+    rows.into_iter().filter(|(_, t)| scorer_refuses(t)).map(|(id, _)| id.to_owned()).collect()
+}
+
+/// The tasks of cohort `seq` whose final outcome, for any job, is the
+/// scorer's over-length refusal (a parse failure with a token count above
+/// the limit). The count comes from the pinned tokenizer every admitted
+/// artifact ships, before any model runs, so the refusal holds for every
+/// artifact alike and says nothing about any of them.
+pub fn over_length_tasks(sql: &impl Sql, seq: i64) -> R<BTreeSet<u32>> {
+    use slop_ninja_artifact_check::text::MAX_TOKENS_INCLUDING_SPECIALS;
+    let limit = i64::try_from(MAX_TOKENS_INCLUDING_SPECIALS).map_err(|_| EvalError::State("token limit"))?;
+    sql.exec(
+        "SELECT DISTINCT task FROM preds WHERE seq = ? AND outcome = 4 AND token_count > ? ORDER BY task",
+        &[i(seq), i(limit)],
+    )?
+    .iter()
+    .map(|r| u32::try_from(int(r, 0)?).map_err(|_| EvalError::State("task")))
+    .collect()
+}
+
+/// The seeded task order: `docs` (each with its document key, unique within
+/// the cohort) sorted by `pool::rank(seed, "task", key)`. The rank depends on
+/// the key alone, never on the selection rank, the kind or the set.
+pub fn seeded_task_order<T>(seed: &[u8; 32], docs: Vec<(&str, T)>) -> Vec<T> {
+    let mut keyed: Vec<([u8; 32], T)> = docs.into_iter().map(|(k, d)| (pool::rank(seed, "task", k), d)).collect();
+    keyed.sort_by_key(|a| a.0);
+    keyed.into_iter().map(|(_, d)| d).collect()
+}
+
 /// Builds the sealed task space, the private batch index, the shards and, for
 /// a cohort, the reward-v1 manifest.
 pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInputs) -> R<SealBuild> {
@@ -1232,12 +1331,26 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
          ORDER BY CASE docset WHEN 'batch' THEN 0 WHEN 'probe' THEN 1 WHEN 'audit_a' THEN 2 ELSE 3 END, idx",
         &[i(seq)],
     )?;
+    let seeded = v.seeded_task_order();
+    let seed = cohort_seed(&cfg.private_seed, &c.label);
     // Exactly the planned count of each kind, by private rank (idx order).
     let mut kept = [0u32; 3];
     let mut spares = Vec::new();
     let mut ordered = Vec::new();
     for r in &rows {
         let set = text(r, 13)?;
+        // The seeded order seals no document the scorer refuses for every
+        // artifact as empty (finding L9). A generated one gives way to a
+        // spare. The draw already held out every such pool row, so any other
+        // is a defect in a probe record (or a document changed after the
+        // draw) and stops the seal before anything is exposed.
+        if seeded && scorer_refuses(text(r, 4)?) {
+            if set == "batch" && text(r, 1)? != "human_only" {
+                spares.push(int(r, 0)?);
+                continue;
+            }
+            return Err(EvalError::State(UNSCORABLE_DOCUMENT));
+        }
         if set == "batch" {
             let k = match text(r, 1)? {
                 "human_only" => 0,
@@ -1257,6 +1370,15 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
     }
     if kept != want {
         return Err(EvalError::State("batch shortfall"));
+    }
+    // Finding L4: the selection rank fills the generated kinds' quotas first
+    // (only they have spares), so its tail is mostly human, and the probe and
+    // audit draws were appended after the batch. Under the seeded order every
+    // sealed document takes its task index from a second private rank, keyed
+    // by the document alone, so neither kind nor set follows from position.
+    if seeded {
+        let keyed = ordered.iter().map(|r| Ok((text(r, 14)?, *r))).collect::<R<Vec<_>>>()?;
+        ordered = seeded_task_order(&seed, keyed);
     }
     let n = want.iter().sum::<u32>();
     let mut task_map = Vec::new();
@@ -1283,9 +1405,9 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
                 .ok_or(EvalError::State("probe key"))?;
             *probe_counts.entry(version).or_default() += 1;
         } else if set == "audit_a" {
-            audit_a.push(text(r, 5)?.to_owned());
+            audit_a.push((idx, text(r, 5)?.to_owned()));
         } else {
-            audit_b.push(text(r, 5)?.to_owned());
+            audit_b.push((idx, text(r, 5)?.to_owned()));
         }
         let meta = json!({"task": task, "set": set, "kind": kind, "domain": text(r, 2)?,
             "source_group_sha256": sha_hex(text(r, 3)?.as_bytes()), "text_sha256": text(r, 5)?,
@@ -1309,11 +1431,15 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
         shard_index.push(json!({"key": key, "docs": chunk.len(), "sha256": sha_hex(body.as_bytes())}));
         shards.push((key, body.into_bytes()));
     }
-    let seed = cohort_seed(&cfg.private_seed, &c.label);
-    let a_refs: Vec<&str> = audit_a.iter().map(String::as_str).collect();
-    let b_refs: Vec<&str> = audit_b.iter().map(String::as_str).collect();
+    // A draw's digest lists its documents in draw order (idx order), which is
+    // their task order in an appended seal, so it names the draw, not where
+    // its documents sit.
+    audit_a.sort_unstable();
+    audit_b.sort_unstable();
+    let a_refs: Vec<&str> = audit_a.iter().map(|(_, sha)| sha.as_str()).collect();
+    let b_refs: Vec<&str> = audit_b.iter().map(|(_, sha)| sha.as_str()).collect();
     let draws = (audit_draw_digest(&seed, "a", &a_refs), audit_draw_digest(&seed, "b", &b_refs));
-    let index = serde_json::to_vec_pretty(&json!({
+    let mut index_json = json!({
         "schema": "slop_ninja_eval_batch_index_v2",
         "cohort": plan.cohort, "label": c.label, "plan_sha256": c.plan_sha256,
         "word_policy": textgen::WORD_POLICY, "prompt_version": textgen::PROMPT_VERSION,
@@ -1321,8 +1447,16 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
         "rewrite_prompts": textgen::REWRITE_PROMPT_SET,
         "batch_tasks": n, "probe_tasks": probe_counts, "audit_tasks": [audit_a.len(), audit_b.len()],
         "tasks": entries.len(), "spares": spares.len(), "shards": shard_index, "documents": entries,
-    }))
-    .map_err(|_| EvalError::State("batch index"))?;
+    });
+    // The seeded order's index (v3) names its rule; the manifest binds the
+    // index by digest, so the rule is committed with the seal. Every earlier
+    // seal's index is unchanged.
+    if let (true, Some(o)) = (seeded, index_json.as_object_mut()) {
+        o.insert("schema".into(), json!("slop_ninja_eval_batch_index_v3"));
+        o.insert("task_order".into(), json!(super::plan::TASK_ORDER_SEEDED_RANK));
+        o.insert("input_screen".into(), json!(INPUT_SCREEN_RULE));
+    }
+    let index = serde_json::to_vec_pretty(&index_json).map_err(|_| EvalError::State("batch index"))?;
     let mut st = state(sql, seq)?;
     st.reference = Some(inputs.reference);
     st.predecessor = inputs.predecessor;
@@ -1520,6 +1654,14 @@ pub fn apply_seal(sql: &impl Sql, seq: i64, b: &SealBuild, puts: u64, now_ms: u6
     )?;
     save_state(sql, seq, &b.state)?;
     let per = i64::from(c.plan.scorer.chunk_docs.max(1));
+    let batch_tasks = sql
+        .exec("SELECT task FROM docs WHERE seq = ? AND docset = 'batch' AND task IS NOT NULL ORDER BY task", &[i(seq)])?
+        .iter()
+        .map(|r| Ok(int(r, 0)?))
+        .collect::<R<Vec<i64>>>()?;
+    if batch_tasks.len() as i64 != n {
+        return Err(EvalError::State("batch task"));
+    }
     let mut roster: Vec<(i64, &str, &ArtifactJson, i64)> = vec![(0, "reference", &c.plan.reference, n)];
     let mut job = 1;
     if let Some(p) = &c.plan.previous_reference {
@@ -1550,10 +1692,20 @@ pub fn apply_seal(sql: &impl Sql, seq: i64, b: &SealBuild, puts: u64, now_ms: u6
                 i(*tasks),
             ],
         )?;
+        // A window holds `per` of the job's tasks from `first_task`, a task
+        // index (`lanes::unresolved`): an entrant's tasks are every task, a
+        // reference's the batch tasks, so its window starts at its first
+        // batch task. Where the batch is tasks `[0, n)` (every appended seal)
+        // both are `k * per`.
         for k in 0..chunks {
+            let first = if *role == "entrant" {
+                k * per
+            } else {
+                *usize::try_from(k * per).ok().and_then(|x| batch_tasks.get(x)).ok_or(EvalError::State("batch task"))?
+            };
             sql.exec(
                 "INSERT INTO chunks (seq, job, chunk, first_task, count, status) VALUES (?, ?, ?, ?, ?, 'pending')",
-                &[i(seq), i(*job), i(k), i(k * per), i(per.min(tasks - k * per))],
+                &[i(seq), i(*job), i(k), i(first), i(per.min(tasks - k * per))],
             )?;
         }
     }
@@ -1585,6 +1737,89 @@ pub struct JobVectors {
     pub involvement: Vec<Option<Probability>>,
     pub share: Vec<Option<u32>>,
     pub roles: Vec<bool>,
+}
+
+impl JobVectors {
+    /// Reads the vectors of a job that scored every task into `layout`
+    /// (slot -> task, [`canonical_layout`]) in place: slot `s` takes task
+    /// `layout[s]`. Follows each cycle of the permutation with swaps, so the
+    /// only memory beside the vectors is `visited` (one flag a task, reused
+    /// across jobs).
+    fn permute_into_layout(&mut self, layout: &[usize], visited: &mut Vec<bool>) -> R<()> {
+        let n = layout.len();
+        if self.involvement.len() != n || self.share.len() != n || self.roles.len() != n {
+            return Err(EvalError::State("job vector length"));
+        }
+        visited.clear();
+        visited.resize(n, false);
+        for start in 0..n {
+            let mut at = start;
+            loop {
+                match visited.get_mut(at) {
+                    Some(seen) if !*seen => *seen = true,
+                    Some(_) => break,
+                    None => return Err(EvalError::State("task space")),
+                }
+                let next = *layout.get(at).ok_or(EvalError::State("task space"))?;
+                if next == start {
+                    break;
+                }
+                if next >= n {
+                    return Err(EvalError::State("task space"));
+                }
+                self.involvement.swap(at, next);
+                self.share.swap(at, next);
+                self.roles.swap(at, next);
+                at = next;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The appended layout of a sealed task space, as slot -> task: the batch
+/// tasks in task order, then each probe version's documents in version and
+/// probe-record order (the order of its fingerprints), then audit draws A and
+/// B in task order. `tasks` lists every task as `(task, docset, key)`, a
+/// probe document's key being `q:<version>:<record task>`. For a cohort
+/// sealed in the appended order this is the identity; under the seeded order
+/// it undoes the interleaving, so the package's measurements and every probe
+/// vector are computed exactly as before.
+pub fn canonical_layout(tasks: &[(u32, &str, &str)]) -> R<Vec<usize>> {
+    let mut slots = tasks
+        .iter()
+        .map(|(task, set, key)| {
+            let place = match *set {
+                "batch" => (0, 0, *task),
+                "probe" => {
+                    let mut parts = key.strip_prefix("q:").ok_or(EvalError::State("probe key"))?.split(':');
+                    let version = parts.next().and_then(|x| x.parse::<u32>().ok());
+                    let record = parts.next().and_then(|x| x.parse::<u32>().ok());
+                    match (version, record, parts.next()) {
+                        (Some(v), Some(r), None) => (1, v, r),
+                        _ => return Err(EvalError::State("probe key")),
+                    }
+                }
+                "audit_a" => (2, 0, *task),
+                "audit_b" => (3, 0, *task),
+                _ => return Err(EvalError::State("task set")),
+            };
+            Ok((place, *task))
+        })
+        .collect::<R<Vec<_>>>()?;
+    slots.sort_unstable();
+    if slots.windows(2).any(|w| w.first().map(|a| a.0) == w.get(1).map(|b| b.0)) {
+        return Err(EvalError::State("task space"));
+    }
+    let layout: Vec<usize> = slots.iter().map(|(_, t)| *t as usize).collect();
+    let mut seen = vec![false; layout.len()];
+    for t in &layout {
+        match seen.get_mut(*t) {
+            Some(x) if !*x => *x = true,
+            _ => return Err(EvalError::State("task space")),
+        }
+    }
+    Ok(layout)
 }
 
 /// A task's private label.
@@ -1619,6 +1854,11 @@ pub struct Measure<'a> {
     pub reference_contents: Vec<Digest>,
     pub plan: &'a RewardV1Plan,
     pub draws: (Digest, Digest),
+    /// Slots (in the appended layout) of the documents the scorer refused
+    /// as over-length for every artifact ([`over_length_tasks`]), left out
+    /// of the strict false-positive count. Empty unless the cohort was
+    /// sealed in the seeded order.
+    pub over_length: BTreeSet<usize>,
 }
 
 fn slice<T: Clone>(v: &[T], (a, b): (usize, usize)) -> R<Vec<T>> {
@@ -1671,12 +1911,19 @@ impl Measure<'_> {
         })
     }
 
-    /// False positives at the operating point (failures count) over a range.
+    /// False positives at the operating point over a range: a failure counts
+    /// as flagged, except on a document no artifact can answer
+    /// ([`Measure::over_length`]).
     fn false_positive_permille_exceeds(&self, v: &JobVectors, range: (usize, usize), max: u32) -> bool {
         let op = self.plan.gates.operating_ppb;
         let mut humans = 0u64;
         let mut flagged = 0u64;
         for t in range.0..range.1 {
+            // No artifact can answer an over-length document, so it measures
+            // none of them; a failure on any other document still counts.
+            if self.over_length.contains(&t) {
+                continue;
+            }
             if self.labels.get(t).is_some_and(|l| l.kind == "human_only") {
                 humans += 1;
                 let p = v.involvement.get(t).copied().flatten();
@@ -1835,21 +2082,50 @@ pub fn prepare_package(
     let mut st = state(sql, c.seq)?;
     let manifest = manifest_again(sql, c)?;
     let index = index_at_seal(&st)?;
-    // Labels in task order.
+    // Labels in task order. Under the seeded order they, and every entrant's
+    // vectors, are read back into the appended layout every measurement
+    // below assumes; an appended seal is in that layout already, and its
+    // package reads exactly what it read before the seeded order existed.
+    let seeded = v.seeded_task_order();
     let label_rows = sql.exec(
-        "SELECT task, docset, kind, share_ppb FROM docs WHERE seq = ? AND task IS NOT NULL ORDER BY task",
+        if seeded {
+            "SELECT task, docset, kind, share_ppb, CASE WHEN docset = 'probe' THEN key END FROM docs
+             WHERE seq = ? AND task IS NOT NULL ORDER BY task"
+        } else {
+            "SELECT task, docset, kind, share_ppb FROM docs WHERE seq = ? AND task IS NOT NULL ORDER BY task"
+        },
         &[i(c.seq)],
     )?;
-    let labels: Vec<Label> = label_rows
-        .iter()
-        .map(|r| {
-            Ok(Label {
-                set: text(r, 1)?.to_owned(),
-                kind: text(r, 2)?.to_owned(),
-                share_ppb: opt_int(r, 3).and_then(|x| u32::try_from(x).ok()).unwrap_or(0),
-            })
+    let label_of = |r: &crate::sql::Row| -> R<Label> {
+        Ok(Label {
+            set: text(r, 1)?.to_owned(),
+            kind: text(r, 2)?.to_owned(),
+            share_ppb: opt_int(r, 3).and_then(|x| u32::try_from(x).ok()).unwrap_or(0),
         })
-        .collect::<R<_>>()?;
+    };
+    let (labels, layout): (Vec<Label>, Option<Vec<usize>>) = if seeded {
+        let layout = canonical_layout(
+            &label_rows
+                .iter()
+                .map(|r| {
+                    let task = u32::try_from(int(r, 0)?).map_err(|_| EvalError::State("task"))?;
+                    // A probe document's key; NULL for every other set.
+                    let key = match r.get(4) {
+                        Some(SqlValue::Text(k)) => k.as_str(),
+                        _ => "",
+                    };
+                    Ok((task, text(r, 1)?, key))
+                })
+                .collect::<R<Vec<_>>>()?,
+        )?;
+        // `canonical_layout` checked that the tasks are exactly `0..len`, so
+        // row `t` (in task order) is task `t`.
+        let labels = layout.iter().map(|t| label_rows.get(*t).ok_or(EvalError::State("task space")).and_then(label_of)).collect::<R<_>>()?;
+        (labels, Some(layout))
+    } else {
+        (label_rows.iter().map(label_of).collect::<R<_>>()?, None)
+    };
+    drop(label_rows);
     let total = labels.len();
     let n = st.batch_tasks as usize;
     let mut probe_ranges = BTreeMap::new();
@@ -1871,6 +2147,7 @@ pub fn prepare_package(
         &[i(c.seq)],
     )?;
     let mut vectors: BTreeMap<i64, JobVectors> = BTreeMap::new();
+    let mut visited = Vec::new();
     for j in &jobs {
         let job = int(j, 0)?;
         let tasks = opt_int(j, 5).unwrap_or(0);
@@ -1884,14 +2161,14 @@ pub fn prepare_package(
             .iter()
             .map(|x| x.map(Probability::new).transpose().map_err(|_| EvalError::State("probability")))
             .collect::<R<Vec<_>>>()?;
-        vectors.insert(
-            job,
-            JobVectors {
-                involvement,
-                share: sm.share_ppb.clone(),
-                roles: sm.roles.clone(),
-            },
-        );
+        let mut jv = JobVectors { involvement, share: sm.share_ppb.clone(), roles: sm.roles.clone() };
+        // A reference's vectors are its batch tasks in task order, which is
+        // the layout's batch order already; an entrant's cover every task and
+        // are permuted in place, so no job's vectors are held twice.
+        if let (Some(layout), false) = (&layout, matches!(text(j, 1)?, "reference" | "previous_reference")) {
+            jv.permute_into_layout(layout, &mut visited)?;
+        }
+        vectors.insert(job, jv);
     }
     let job_of_role = |role: &str| -> R<i64> {
         jobs.iter()
@@ -1961,6 +2238,14 @@ pub fn prepare_package(
     let reference_contents: Vec<Digest> =
         std::iter::once(reference_digests.content.0).chain(st.predecessor.map(|p| p.content.0)).collect();
     let draws = st.audit_draws.map(|(a, b)| (a.0, b.0)).ok_or(EvalError::State("audit draws"))?;
+    // Under the seeded order, the over-length refusals by slot.
+    let over_length: BTreeSet<usize> = match &layout {
+        Some(layout) => {
+            let tasks = over_length_tasks(sql, c.seq)?;
+            layout.iter().enumerate().filter(|(_, t)| u32::try_from(**t).is_ok_and(|t| tasks.contains(&t))).map(|(slot, _)| slot).collect()
+        }
+        None => BTreeSet::new(),
+    };
     let mut package = ScorePackageV2 {
         chain: manifest.chain.clone(),
         cohort: manifest.cohort,
@@ -2016,6 +2301,7 @@ pub fn prepare_package(
             reference_contents,
             plan: v,
             draws,
+            over_length,
         };
         reward_v1::finalize(&mut package, &index, &mut m).map_err(|_| EvalError::State(PACKAGE_REFUSED))?
     };

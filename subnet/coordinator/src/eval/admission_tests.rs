@@ -135,6 +135,7 @@ fn admission_plan(cohort: u64, cap: u16) -> plan::CohortPlan {
             rule: plan::INCENTIVE_REFERENCE_MARGIN.into(),
             provisional_gates: true,
         }),
+        task_order: Some(plan::TASK_ORDER_SEEDED_RANK.into()),
     });
     p.admission = Some(admission_block(cap));
     p
@@ -3101,6 +3102,12 @@ fn the_template_runs_the_testnet_plan_defaults() {
     assert!(
         crate::eval::calendar::check(&cfg(), &serde_json::to_vec(&bare).unwrap()).is_err(),
         "the D11 rule"
+    );
+    let mut appended = t.clone();
+    appended.plan.reward_v1.as_mut().unwrap().task_order = None;
+    assert!(
+        crate::eval::calendar::check(&cfg(), &serde_json::to_vec(&appended).unwrap()).is_err(),
+        "a standing template seals in the seeded task order"
     );
     let mut final_gates = t;
     final_gates

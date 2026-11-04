@@ -2182,6 +2182,35 @@ impl EvalCohort {
         let manifest = PoolManifest::parse(&mbytes, &plan.pool.pool_id).map_err(|e| e.0)?;
         let storage = self.state.storage();
         let dir = plan.pool.manifest_key.rsplit_once('/').map_or("", |x| x.0).to_owned();
+        // The seeded order's input screen on pool rows (finding L9,
+        // `v3::INPUT_SCREEN_RULE`), before anything is drawn or written: a
+        // pool whose export records no token bound inside the scorer's limit
+        // is refused (deterministic: the cohort pauses), and every row the
+        // scorer would refuse as empty is held out of every role, one shard
+        // at a time.
+        let seeded = plan.reward_v1.as_ref().is_some_and(crate::eval::plan::RewardV1Plan::seeded_task_order);
+        let mut screened = std::collections::BTreeSet::new();
+        if seeded {
+            if !v3::pool_token_bound_ok(&manifest) {
+                return Err(v3::POOL_TOKEN_BOUND_REFUSED);
+            }
+            for info in &manifest.shards {
+                let body = self.read(seq, EVAL_BUCKET, &format!("{dir}/{}", info.file), STEP_OBJECT_BYTES, "pool shard read").await?.ok_or("pool shard missing")?;
+                if sha_hex(&body) != info.sha256 {
+                    return Err("pool shard digest");
+                }
+                let rows = std::str::from_utf8(&body)
+                    .map_err(|_| "shard utf-8")?
+                    .lines()
+                    .map(|line| serde_json::from_str::<ShardRow>(line).map_err(|_| "shard row"))
+                    .collect::<std::result::Result<Vec<_>, &'static str>>()?;
+                screened.extend(v3::screen_pool(
+                    rows.iter()
+                        .filter(|r| r.schema == pool::SHARD_SCHEMA && sha_hex(r.text.as_bytes()) == r.text_sha256)
+                        .map(|r| (r.row_id.as_str(), r.text.as_str())),
+                ));
+            }
+        }
         let authority = self.state.id().to_string();
         let entries = read_ledger(self, seq, &dir, &plan.pool.pool_id).await?;
         let mut ledger = pool::Used::default();
@@ -2208,8 +2237,10 @@ impl EvalCohort {
         }
         // Exposed stock: rows no cohort drew come first, then any row again,
         // never twice in this cohort. Fresh stock is never drawn again.
-        // `drawn` holds this cohort's picks.
-        let mut drawn: (std::collections::BTreeSet<String>, std::collections::BTreeSet<String>) = Default::default();
+        // `drawn` holds this cohort's picks, and from the start every row the
+        // screen held out, so no role (and no draw again) takes one or its
+        // source group.
+        let mut drawn: (std::collections::BTreeSet<String>, std::collections::BTreeSet<String>) = (screened.clone(), Default::default());
         let draw_exposed = |want: u64, role_seed: [u8; 32], used: &(std::collections::BTreeSet<String>, std::collections::BTreeSet<String>), drawn: &mut (std::collections::BTreeSet<String>, std::collections::BTreeSet<String>)| {
             let mut avoid_rows = used.0.clone();
             avoid_rows.extend(drawn.0.iter().cloned());
@@ -2338,6 +2369,12 @@ impl EvalCohort {
             })
             .collect();
         entry.draw_mode = Some(v3::DRAW_EXPOSED.into());
+        entry.screened = manifest
+            .rows
+            .iter()
+            .filter(|r| screened.contains(&r.row_id))
+            .map(|r| pool::LedgerRow { row_id: r.row_id.clone(), text_sha256: r.text_sha256.clone() })
+            .collect();
         let entry_key = ledger_key(&dir, &plan.label, &authority);
         put(env, EVAL_BUCKET, &entry_key, serde_json::to_vec_pretty(&entry).map_err(|_| "ledger entry")?)
             .await

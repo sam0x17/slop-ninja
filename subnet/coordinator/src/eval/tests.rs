@@ -132,6 +132,8 @@ fn pool_of(groups: usize) -> (PoolManifest, BTreeMap<String, String>) {
             sha256: String::new(),
         }],
         rows,
+        // The public-candidate export's bound (pool v1 records none).
+        selection: Some(pool::PoolSelection { max_tokens: Some(1000) }),
     };
     (m, texts)
 }
@@ -204,6 +206,26 @@ fn predicted(db: &Sqlite, seq: i64, job: i64, docs: &[(u32, String, String)], p:
         .collect()
 }
 
+/// Scorer stand-in for reward-v1 tests: predictions by document, whatever
+/// its task index.
+fn predicted_doc(db: &Sqlite, seq: i64, job: i64, docs: &[(u32, String, String)], p: &dyn Fn(i64, &str, &str) -> (f64, f64)) -> Vec<Value> {
+    docs.iter()
+        .map(|(task, _, sha)| {
+            let kind: String = if *task == lane_logic::CONTROL_TASK {
+                "control".into()
+            } else {
+                db.conn
+                    .query_row("SELECT kind FROM docs WHERE seq = ?1 AND task = ?2", rusqlite::params![seq, task], |r| r.get(0))
+                    .unwrap()
+            };
+            let (c, s) = p(job, &kind, sha);
+            json!({"id": task.to_string(), "status": "ok", "text_sha256": sha, "token_count": 120,
+                "prediction": {"ai_confidence_percent": c, "ai_share_percent": s.min(c),
+                    "attribution": {"human": {"profile": "other_human"}, "ai": {"profile": "other_ai"}}}})
+        })
+        .collect()
+}
+
 // --------------------------------------------------------------- the runtime
 
 /// What the simulated scorer does with one request.
@@ -250,6 +272,8 @@ type R2Hook<'a> = Box<dyn FnMut(&str, bool) -> bool + 'a>;
 type GenHook<'a> = Box<dyn FnMut(&engine::GenItem) -> Result<String, Reject> + 'a>;
 /// reward-v1 scorer stand-in: `(job, kind, task) -> (confidence %, share %)`.
 type PredictHook<'a> = Box<dyn Fn(i64, &str, u32) -> (f64, f64) + 'a>;
+/// Predictions keyed by document: `(job, kind, text_sha256)`.
+type PredictDocHook<'a> = Box<dyn Fn(i64, &str, &str) -> (f64, f64) + 'a>;
 
 struct Sim<'a> {
     db: &'a Sqlite,
@@ -292,6 +316,10 @@ struct Sim<'a> {
     restarts: u32,
     /// reward-v1: per-job predictions `(job, kind, task) -> (confidence %, share %)`.
     predict: Option<PredictHook<'a>>,
+    /// reward-v1: predictions by document instead of task (checked first).
+    predict_doc: Option<PredictDocHook<'a>>,
+    /// Leaves a v3 cohort in `sealing` (the seal is driven by the test).
+    hold_seal: bool,
     packages_v3: Vec<v3::PackageV3>,
     closures: Vec<v3::ClosureBuild>,
     /// Outage probes run (`engine::probe_due`), by fault code.
@@ -342,6 +370,8 @@ impl<'a> Sim<'a> {
             elapsed: 0,
             restarts: 0,
             predict: None,
+            predict_doc: None,
+            hold_seal: false,
             packages_v3: Vec::new(),
             closures: Vec::new(),
             probes: Vec::new(),
@@ -363,7 +393,13 @@ impl<'a> Sim<'a> {
             progress = true;
             let is_v3 = |seq: i64| tx(self.db, |s| Ok::<_, engine::EvalError>(engine::cohort(s, seq)?.plan.is_v3())).unwrap();
             match w {
-                Work::Draw { seq, plan } if plan.is_v3() => self.draw_v3(seq, &plan),
+                Work::Draw { seq, plan } if plan.is_v3() => {
+                    // The live draw step records a refusal against its cohort.
+                    if let Err(code) = self.draw_v3(seq, &plan) {
+                        tx(self.db, |s| engine::note_step_error(s, seq, code, now)).unwrap();
+                    }
+                }
+                Work::Seal { seq } if self.hold_seal && is_v3(seq) => break,
                 Work::Seal { seq } if is_v3(seq) => self.seal_v3(seq),
                 Work::Package { seq } if is_v3(seq) => self.package_v3(seq),
                 Work::Close { seq } => {
@@ -534,8 +570,16 @@ impl<'a> Sim<'a> {
     }
 
     /// Mirrors the Worker's exposed-stock draw (`cf_eval::draw_v3`).
-    fn draw_v3(&mut self, seq: i64, plan: &CohortPlan) {
+    fn draw_v3(&mut self, seq: i64, plan: &CohortPlan) -> Result<(), &'static str> {
         let c = self.cfg.clone();
+        // The seeded order's input screen on pool rows.
+        let mut screened = BTreeSet::new();
+        if plan.reward_v1.as_ref().is_some_and(super::plan::RewardV1Plan::seeded_task_order) {
+            if !v3::pool_token_bound_ok(&self.pool) {
+                return Err(v3::POOL_TOKEN_BOUND_REFUSED);
+            }
+            screened = v3::screen_pool(self.pool.rows.iter().filter_map(|r| self.texts.get(&r.row_id).map(|t| (r.row_id.as_str(), t.as_str()))));
+        }
         let now = self.now;
         let used = tx(self.db, engine::used_set).unwrap();
         let seed = engine::cohort_seed(&c.private_seed, &plan.label);
@@ -547,7 +591,7 @@ impl<'a> Sim<'a> {
             groups.extend(d.groups.iter().cloned());
         };
         let pool = self.pool.clone();
-        let mut drawn: (BTreeSet<String>, BTreeSet<String>) = Default::default();
+        let mut drawn: (BTreeSet<String>, BTreeSet<String>) = (screened, BTreeSet::new());
         let draw_exposed = |want: u64, role_seed: [u8; 32], drawn: &mut (BTreeSet<String>, BTreeSet<String>)| {
             let mut avoid_rows = used.0.clone();
             avoid_rows.extend(drawn.0.iter().cloned());
@@ -610,6 +654,7 @@ impl<'a> Sim<'a> {
             probe,
         };
         tx(self.db, |s| v3::apply_draw(s, &c, seq, &d, &parents, &texts, &pool::Used::default(), now)).unwrap();
+        Ok(())
     }
 
     fn artifact_digests(&self, a: &super::plan::ArtifactJson) -> v3::ArtifactDigests {
@@ -1015,9 +1060,10 @@ impl LaneIo for SimIo<'_, '_> {
             tasks: docs.iter().map(|d| d.0).collect(),
             isolate: self.claim.isolate,
         };
-        let results = match &self.sim.predict {
-            Some(p) => predicted(self.sim.db, self.r.seq, self.claim.job, docs, p.as_ref()),
-            None => fake_results(self.sim.db, self.r.seq, docs),
+        let results = match (&self.sim.predict_doc, &self.sim.predict) {
+            (Some(p), _) => predicted_doc(self.sim.db, self.r.seq, self.claim.job, docs, p.as_ref()),
+            (None, Some(p)) => predicted(self.sim.db, self.r.seq, self.claim.job, docs, p.as_ref()),
+            (None, None) => fake_results(self.sim.db, self.r.seq, docs),
         };
         let ok = || (results.clone(), engine::CallTiming { call_ms: 9_000, server_ms: 8_500, load_ms: 0, cpu_ms: 30_000 });
         match (self.sim.score)(&req) {
@@ -2887,6 +2933,7 @@ fn v3_block(probes: Vec<super::plan::ProbeRef>) -> super::plan::RewardV1Plan {
         output_contract: "slop_ninja.a.document-v2".into(),
         probe_version: None,
         incentive: None,
+        task_order: None,
     }
 }
 
@@ -5065,4 +5112,615 @@ fn a_due_predecessor_notice_is_retried_each_tick_on_an_idle_store() {
     tx(&db, |s| super::retention::record_notice(s, "main", 14, now)).unwrap();
     tx(&db, |s| super::retention::record_notice(s, "r0b", 14, now)).unwrap();
     assert!(!tx(&db, |s| engine::kick_due(s, &succ, &tick, now)).unwrap(), "nothing left to tell");
+}
+
+// ------------------------------------------- the seeded task order (L4, L9)
+
+/// A document-keyed model: confidence from the kind and the document's
+/// digest, the same whatever task index the document holds.
+fn doc_conf(model: u8, kind: &str, sha: &str, bases: (f64, f64, f64), amp: f64) -> f64 {
+    let d = Sha256::digest([&[model][..], sha.as_bytes()].concat());
+    let noise = (f64::from(u16::from_le_bytes([d[0], d[1]])) / 32767.5) - 1.0;
+    let base = match kind {
+        "human_only" | "control" => bases.0,
+        "mixed" => bases.1,
+        _ => bases.2,
+    };
+    (base + amp * noise).clamp(1.0, 99.0)
+}
+
+/// A sealed task: `(task, docset, kind, key)`.
+type SealedTask = (u32, String, String, String);
+
+/// Every sealed task, in task order.
+fn sealed_tasks(db: &Sqlite, seq: i64) -> Vec<SealedTask> {
+    db.conn
+        .prepare("SELECT task, docset, kind, key FROM docs WHERE seq = ?1 AND task IS NOT NULL ORDER BY task")
+        .unwrap()
+        .query_map([seq], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// A probe version built (in `order`) with document-keyed predictions.
+fn probe_built_doc<'a>(db: &'a Sqlite, order: Option<&str>) -> (Sim<'a>, super::plan::ArtifactJson, super::plan::ProbeRef) {
+    sql::migrate(db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut sim = Sim::new(db, cfg(), 2_000_000);
+    let (pool, texts) = pool_of(120);
+    sim.pool = pool;
+    sim.texts = texts;
+    let weak = v3_artifact(&mut sim, super::plan::tests::identity(0, 0xb0), [1, 2, 3, 4, 5]);
+    let mut probe = plan_v3(1, "testnet-probe-v1", 20, weak.clone());
+    probe.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    {
+        let v = probe.reward_v1.as_mut().unwrap();
+        v.probe_version = Some(1);
+        v.canary.draw_humans = 0;
+        v.task_order = order.map(Into::into);
+    }
+    sim.predict_doc = Some(Box::new(|_, kind, sha| {
+        let c = doc_conf(1, kind, sha, (35.0, 65.0, 70.0), 10.0);
+        (c, c * 0.4)
+    }));
+    let pseq = open_cohort(db, &probe, 10, sim.now);
+    assert_eq!(sim.run(pseq, 3_000), "closed", "fault {:?}", fault_of(db, pseq));
+    let record = sim.eval["probes/v1/record.json"].clone();
+    let probe_ref = super::plan::ProbeRef {
+        version: 1,
+        size: 20,
+        key: "probes/v1/record.json".into(),
+        sha256: lane_logic::sha_hex(&record),
+    };
+    (sim, weak, probe_ref)
+}
+
+const ORDER_LABEL: &str = "testnet-rv1-order";
+
+/// The same reward-v1 cohort (label, documents, models) sealed in `order`
+/// after a probe build sealed in `probe_order`: its sealed tasks, its
+/// package, and the document sets the reference job scored.
+fn order_run(order: Option<&str>, probe_order: Option<&str>) -> (Vec<SealedTask>, v3::PackageV3, BTreeMap<String, i64>) {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, probe_order);
+    let id = super::plan::tests::identity;
+    let copy = v3_artifact(&mut sim, id(31, 0xd1), [1, 2, 3, 31, 5]);
+    let good = v3_artifact(&mut sim, id(32, 0xd2), [1, 2, 3, 32, 5]);
+    let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+    p.entrants = vec![copy, good];
+    p.allow_list = vec![id(31, 0xd1), id(32, 0xd2)];
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = order.map(Into::into);
+    }
+    // Job 0 is R_0, job 1 copies it document for document, job 2 is stronger.
+    sim.predict_doc = Some(Box::new(|job, kind, sha| {
+        let c = match job {
+            0 | 1 => doc_conf(1, kind, sha, (35.0, 65.0, 70.0), 10.0),
+            _ => doc_conf(4, kind, sha, (3.0, 95.0, 97.0), 7.0),
+        };
+        (c, c * 0.4)
+    }));
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    run_to_close(&mut sim, &db, seq, 22);
+    // A reference window starts at a batch task index and holds the next
+    // `chunk_docs` batch tasks, so the windows partition the batch (and are
+    // the task ranges `k * chunk_docs` where the batch is tasks `[0, n)`).
+    let q = |sql: &str| -> Vec<(i64, i64)> {
+        db.conn.prepare(sql).unwrap().query_map([seq], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(Result::unwrap).collect()
+    };
+    let batch: Vec<i64> = q("SELECT task, 0 FROM docs WHERE seq = ?1 AND docset = 'batch' AND task IS NOT NULL ORDER BY task").into_iter().map(|x| x.0).collect();
+    let windows = q("SELECT first_task, count FROM chunks WHERE seq = ?1 AND job = 0 ORDER BY chunk");
+    let per = p.scorer.chunk_docs as usize;
+    assert_eq!(windows, batch.chunks(per).map(|c| (c[0], c.len() as i64)).collect::<Vec<_>>());
+    if order.is_none() {
+        assert_eq!(batch, (0..40).collect::<Vec<_>>());
+    }
+    let mut scored = BTreeMap::new();
+    for (set, count) in db
+        .conn
+        .prepare(
+            "SELECT d.docset, COUNT(*) FROM preds p JOIN docs d ON d.seq = p.seq AND d.task = p.task
+             WHERE p.seq = ?1 AND p.job = 0 GROUP BY d.docset",
+        )
+        .unwrap()
+        .query_map([seq], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+    {
+        scored.insert(set, count);
+    }
+    (sealed_tasks(&db, seq), sim.packages_v3.pop().unwrap(), scored)
+}
+
+/// Held-out exposure finding L4: under the seeded order a task's position
+/// says nothing about its kind or set (the probe and the audit draws are
+/// interleaved with the batch, not appended), and the package is exactly
+/// the appended order's: every vector is read back into the appended layout,
+/// the references score the batch alone and the copy's probe vector matches
+/// R_0's fingerprint in probe-record order.
+#[test]
+fn the_seeded_order_interleaves_every_set_and_packages_as_the_appended_order() {
+    let (appended, a_pkg, a_scored) = order_run(None, None);
+    let (seeded, s_pkg, s_scored) = order_run(Some(super::plan::TASK_ORDER_SEEDED_RANK), None);
+    let n = 40usize;
+    let total = appended.len();
+    assert_eq!(total, n + 20 + 8);
+    // The same documents, in a different order.
+    let docs = |t: &[SealedTask]| -> BTreeSet<(String, String, String)> {
+        t.iter().map(|(_, s, k, key)| (s.clone(), k.clone(), key.clone())).collect()
+    };
+    assert_eq!(docs(&appended), docs(&seeded));
+    assert_eq!(seeded.iter().map(|t| t.0 as usize).collect::<Vec<_>>(), (0..total).collect::<Vec<_>>());
+    // The appended layout: batch [0, n), the probe, then the audits.
+    let sets = |t: &[SealedTask]| t.iter().map(|x| x.1.clone()).collect::<Vec<_>>();
+    let appended_sets = sets(&appended);
+    assert!(appended_sets[..n].iter().all(|s| s == "batch") && appended_sets[n..n + 20].iter().all(|s| s == "probe"));
+    assert!(appended_sets[n + 20..].iter().all(|s| s == "audit_a"));
+    // The seeded layout is the rank order of the keys, so no set is a range.
+    let seed = engine::cohort_seed(&cfg().private_seed, ORDER_LABEL);
+    let mut by_rank: Vec<&str> = seeded.iter().map(|t| t.3.as_str()).collect();
+    by_rank.sort_by_key(|k| pool::rank(&seed, "task", k));
+    assert_eq!(by_rank, seeded.iter().map(|t| t.3.as_str()).collect::<Vec<_>>());
+    let seeded_sets = sets(&seeded);
+    assert!(seeded_sets[..n].iter().any(|s| s != "batch"), "the batch is not the first n tasks");
+    assert!(seeded_sets[n + 20..].iter().any(|s| s != "audit_a"), "the audits are not the tail");
+    assert!(seeded_sets[..total / 2].iter().any(|s| s == "probe") && seeded_sets[total / 2..].iter().any(|s| s == "probe"));
+    // References score the batch alone, under either order.
+    let batch_only = BTreeMap::from([("batch".to_owned(), n as i64)]);
+    assert_eq!((a_scored, s_scored), (batch_only.clone(), batch_only));
+    // The package is the appended order's, but for the manifest (its batch
+    // index digest binds the order) and the receipt root (receipts bind
+    // task indices).
+    let mut s = s_pkg.package.clone();
+    s.cohort_manifest = a_pkg.package.cohort_manifest;
+    s.receipt_root = a_pkg.package.receipt_root;
+    assert_eq!(s, a_pkg.package);
+    let mut components = s_pkg.components.clone();
+    components["cohort_manifest"] = a_pkg.components["cohort_manifest"].clone();
+    assert_eq!(components, a_pkg.components);
+    let m = &s_pkg.package.entrants[0].public.as_ref().unwrap().reference_probes[0];
+    assert_eq!(m.entrant_probe_score, m.public_probe_score, "the copy matches R_0's fingerprint");
+    assert_eq!(s_pkg.vectors.iter().map(|(k, v)| (k, v)).collect::<Vec<_>>(), a_pkg.vectors.iter().map(|(k, v)| (k, v)).collect::<Vec<_>>());
+}
+
+/// L4 with a probe version cut in the seeded order (the ops tool's restart
+/// probe plan): the probe record's tasks are the build's seeded tasks, and a
+/// cohort sealed in either order packages the same, the copy matching R_0's
+/// fingerprint, because the fingerprint and the cohort's probe vectors are
+/// both in probe-record order.
+#[test]
+fn a_probe_cut_in_the_seeded_order_fingerprints_the_same_under_either_cohort_order() {
+    let seeded_rank = Some(super::plan::TASK_ORDER_SEEDED_RANK);
+    let (appended, a_pkg, a_scored) = order_run(None, seeded_rank);
+    let (seeded, s_pkg, s_scored) = order_run(seeded_rank, seeded_rank);
+    let n = 40usize;
+    let batch_only = BTreeMap::from([("batch".to_owned(), n as i64)]);
+    assert_eq!((a_scored, s_scored), (batch_only.clone(), batch_only));
+    let probe_keys = |t: &[SealedTask]| t.iter().filter(|x| x.1 == "probe").map(|x| x.3.clone()).collect::<BTreeSet<_>>();
+    assert_eq!(probe_keys(&appended), probe_keys(&seeded));
+    assert_eq!(probe_keys(&seeded).len(), 20);
+    for pkg in [&a_pkg, &s_pkg] {
+        let m = &pkg.package.entrants[0].public.as_ref().unwrap().reference_probes[0];
+        assert_eq!(m.entrant_probe_score, m.public_probe_score, "the copy matches R_0's seeded-cut fingerprint");
+        let good = &pkg.package.entrants[1].public.as_ref().unwrap().reference_probes[0];
+        assert_ne!(good.entrant_probe_score, good.public_probe_score, "a different model does not");
+    }
+    let mut s = s_pkg.package.clone();
+    s.cohort_manifest = a_pkg.package.cohort_manifest;
+    s.receipt_root = a_pkg.package.receipt_root;
+    assert_eq!(s, a_pkg.package);
+    assert_eq!(s_pkg.vectors.iter().map(|(k, v)| (k, v)).collect::<Vec<_>>(), a_pkg.vectors.iter().map(|(k, v)| (k, v)).collect::<Vec<_>>());
+}
+
+/// Fix round 1 (seal-order): a claim names only the shards that hold its
+/// tasks, so a reference's window under the seeded order does not read the
+/// probe and audit shards between its batch tasks.
+#[test]
+fn a_claim_names_only_the_shards_holding_its_tasks() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    for (k, first, docs) in [(0i64, 0i64, 64i64), (1, 64, 64), (2, 128, 64), (3, 192, 10)] {
+        db.conn
+            .execute(
+                "INSERT INTO batch_shards (seq, shard, key, sha256, first_task, docs) VALUES (7, ?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![k, format!("s{k}"), format!("h{k}"), first, docs],
+            )
+            .unwrap();
+    }
+    let keys = |tasks: &[u32]| -> Vec<String> {
+        tx(&db, |s| lanes::shards_for(s, 7, tasks)).unwrap().into_iter().map(|(k, _)| k).collect()
+    };
+    assert_eq!(keys(&[3, 140, 150]), ["s0", "s2"], "shard 1 holds none of the tasks");
+    assert_eq!(keys(&[63, 64]), ["s0", "s1"]);
+    assert_eq!(keys(&[70, 201]), ["s1", "s3"]);
+    assert_eq!(keys(&[191]), ["s2"]);
+    assert_eq!(keys(&[]), ["s0"], "no task: the shard of task 0, as before");
+    // A contiguous window (every appended claim) names every shard it spans.
+    assert_eq!(keys(&(60..200).collect::<Vec<_>>()), ["s0", "s1", "s2", "s3"]);
+}
+
+/// L4 across cohorts: over many cohort seeds the seeded order puts each kind
+/// and set at every position at its base rate, where the selection rank put
+/// the humans at the tail and the probe and audits after the batch.
+#[test]
+fn under_the_seeded_order_kind_and_set_are_independent_of_position() {
+    // A kept set as the selection rank leaves it: the generated quotas fill
+    // first, so the humans trail; then the probe and the audits.
+    let (h, m, s, probe, audit) = (40usize, 110usize, 50usize, 100usize, 40usize);
+    let mut kept: Vec<(String, &str, &str)> = Vec::new();
+    kept.extend((0..m).map(|j| (format!("m:row-{j}"), "batch", "mixed")));
+    kept.extend((0..s).map(|j| (format!("s:wikipedia:{j}"), "batch", "model_only")));
+    kept.extend((0..h).map(|j| (format!("h:row-{j}"), "batch", "human_only")));
+    kept.extend((0..probe).map(|j| (format!("q:2:{j}"), "probe", if j % 5 == 0 { "human_only" } else { "mixed" })));
+    kept.extend((0..audit).map(|j| (format!("a:row-a{j}"), "audit_a", "human_only")));
+    let total = kept.len();
+    let buckets = 8usize;
+    let (mut human, mut probes, mut audits) = (vec![0u64; buckets], vec![0u64; buckets], vec![0u64; buckets]);
+    let mut last_human = 0u64;
+    let cohorts = 400u64;
+    for c in 0..cohorts {
+        let seed = engine::cohort_seed(&cfg().private_seed, &format!("testnet-order-{c}"));
+        let order = v3::seeded_task_order(&seed, kept.iter().map(|d| (d.0.as_str(), d)).collect());
+        assert_eq!(order.len(), total);
+        for (pos, d) in order.iter().enumerate() {
+            let b = pos * buckets / total;
+            human[b] += u64::from(d.2 == "human_only");
+            probes[b] += u64::from(d.1 == "probe");
+            audits[b] += u64::from(d.1 == "audit_a");
+        }
+        last_human += u64::from(order.last().unwrap().2 == "human_only");
+    }
+    // Each bucket holds total/8 positions per cohort; every rate is within a
+    // few points of its base rate (thousands of documents per bucket).
+    let per_bucket = (cohorts * total as u64) as f64 / buckets as f64;
+    let base = |count: usize| count as f64 / total as f64;
+    let humans_base = base(h + probe / 5 + audit);
+    for b in 0..buckets {
+        for (got, want, what) in [(human[b], humans_base, "human"), (probes[b], base(probe), "probe"), (audits[b], base(audit), "audit")] {
+            let rate = got as f64 / per_bucket;
+            assert!((rate - want).abs() < 0.03, "{what} rate {rate:.3} in bucket {b}, base {want:.3}");
+        }
+    }
+    let rate = last_human as f64 / cohorts as f64;
+    assert!((rate - humans_base).abs() < 0.08, "last task human in {rate:.3} of cohorts, base {humans_base:.3}");
+}
+
+/// Held-out exposure finding L9, the part the coordinator can decide: the
+/// seeded order seals no document the scorer refuses as empty. A generated
+/// document gives way to a spare; any other stops the seal.
+#[test]
+fn the_seeded_seal_screens_out_documents_the_scorer_refuses() {
+    assert!(v3::scorer_refuses("") && v3::scorer_refuses(" \n\t") && v3::scorer_refuses("\u{2003}\u{3000}"));
+    assert!(!v3::scorer_refuses(" a ") && !v3::scorer_refuses("\u{200b}"));
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(super::plan::TASK_ORDER_SEEDED_RANK));
+    let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    }
+    sim.hold_seal = true;
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(&db, seq) == "sealing" {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, seq), "sealing", "fault {:?}", fault_of(&db, seq));
+    let c = sim.cfg.clone();
+    let inputs = v3::SealInputs {
+        reference: sim.artifact_digests(&p.reference),
+        predecessor: None,
+        entrants: Vec::new(),
+    };
+    let first = |set: &str, kind: &str| -> (i64, String) {
+        db.conn
+            .query_row(
+                "SELECT idx, text FROM docs WHERE seq = ?1 AND docset = ?2 AND kind = ?3 AND status = 'ready' ORDER BY idx LIMIT 1",
+                rusqlite::params![seq, set, kind],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+    };
+    let set_text = |idx: i64, t: &str| {
+        db.conn.execute("UPDATE docs SET text = ?1 WHERE seq = ?2 AND idx = ?3", rusqlite::params![t, seq, idx]).unwrap();
+    };
+    // An empty audit human stops the seal before anything is exposed.
+    let (audit, audit_text) = first("audit_a", "human_only");
+    set_text(audit, " \n ");
+    let e = tx(&db, |s| v3::prepare_seal(s, &c, seq, &inputs)).unwrap_err();
+    assert_eq!(e, engine::EvalError::State(v3::UNSCORABLE_DOCUMENT));
+    set_text(audit, &audit_text);
+    // An empty generated document is replaced by a spare.
+    let (mixed, _) = first("batch", "mixed");
+    set_text(mixed, "\t");
+    let b = tx(&db, |s| v3::prepare_seal(s, &c, seq, &inputs)).unwrap();
+    assert!(b.spares.contains(&mixed) && !b.task_map.iter().any(|(idx, _)| *idx == mixed));
+    assert_eq!(b.state.batch_tasks, 40);
+    let index: Value = serde_json::from_slice(&b.index).unwrap();
+    assert_eq!(
+        (index["schema"].as_str(), index["task_order"].as_str(), index["input_screen"].as_str()),
+        (Some("slop_ninja_eval_batch_index_v3"), Some(super::plan::TASK_ORDER_SEEDED_RANK), Some(v3::INPUT_SCREEN_RULE))
+    );
+    let sealed: BTreeSet<i64> = b.task_map.iter().map(|(idx, _)| *idx).collect();
+    for idx in sealed {
+        let t: Option<String> =
+            db.conn.query_row("SELECT text FROM docs WHERE seq = ?1 AND idx = ?2", rusqlite::params![seq, idx], |r| r.get(0)).unwrap();
+        assert!(!v3::scorer_refuses(&t.unwrap()), "sealed document {idx} is empty");
+    }
+}
+
+/// Fix round 1 (seal-order): an unscorable sealed document is a
+/// deterministic step error. The seal pauses its cohort as `step_refused`
+/// at once, with the code in the phase log and shown as deterministic, the
+/// paused seal is not retried, and a clear repeats the same refusal and
+/// pause, because the document is fixed by the draw.
+#[test]
+fn an_unscorable_sealed_document_pauses_the_cohort_instead_of_retrying() {
+    assert!(engine::step_error_is_deterministic(v3::UNSCORABLE_DOCUMENT));
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(super::plan::TASK_ORDER_SEEDED_RANK));
+    let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    }
+    sim.hold_seal = true;
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(&db, seq) == "sealing" {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, seq), "sealing", "fault {:?}", fault_of(&db, seq));
+    let c = sim.cfg.clone();
+    let inputs = v3::SealInputs {
+        reference: sim.artifact_digests(&p.reference),
+        predecessor: None,
+        entrants: Vec::new(),
+    };
+    let (human, _): (i64, String) = db
+        .conn
+        .query_row(
+            "SELECT idx, text FROM docs WHERE seq = ?1 AND docset = 'batch' AND kind = 'human_only' AND status = 'ready' ORDER BY idx LIMIT 1",
+            [seq],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    db.conn.execute("UPDATE docs SET text = ?1 WHERE seq = ?2 AND idx = ?3", rusqlite::params!["\u{3000}\n", seq, human]).unwrap();
+    let seal_step = |now: u64| -> bool {
+        let e = tx(&db, |s| v3::prepare_seal(s, &c, seq, &inputs)).unwrap_err();
+        assert_eq!(e, engine::EvalError::State(v3::UNSCORABLE_DOCUMENT));
+        // The live seal step records its error against the cohort.
+        tx(&db, |s| engine::note_step_error(s, seq, e.code(), now)).unwrap()
+    };
+    let now = sim.now + 1_000;
+    assert!(seal_step(now), "the first refusal pauses the cohort");
+    assert_eq!(fault_of(&db, seq).as_deref(), Some(engine::STEP_REFUSED));
+    let st = status(&db, now);
+    let row = st["cohorts"].as_array().unwrap().iter().find(|x| x["label"] == ORDER_LABEL).unwrap().clone();
+    assert_eq!((row["step_error"]["code"].as_str(), row["step_error"]["deterministic"].as_bool()), (Some(v3::UNSCORABLE_DOCUMENT), Some(true)));
+    let note = format!("step_refused:{}", v3::UNSCORABLE_DOCUMENT);
+    let notes = |row: &Value| row["log"].as_array().unwrap().iter().filter(|l| l["note"].as_str() == Some(note.as_str())).count();
+    assert_eq!(notes(&row), 1);
+    // Paused: the seal is not handed out again, however long it waits.
+    for later in [now + engine::STEP_RETRY_MS + 1, now + 100 * engine::STEP_RETRY_MS] {
+        let w = tx(&db, |s| engine::next_work(s, &c, later)).unwrap();
+        assert!(!matches!(w, Some(Work::Seal { seq: x }) if x == seq), "a paused seal is not retried");
+    }
+    // A clear runs the seal again, which refuses and pauses again.
+    let cleared = tx(&db, |s| engine::clear_fault(s, ORDER_LABEL, now + 10)).unwrap();
+    assert_eq!((cleared.cleared, cleared.refused), (true, None));
+    assert_eq!(fault_of(&db, seq), None);
+    assert!(seal_step(now + 30));
+    assert_eq!(fault_of(&db, seq).as_deref(), Some(engine::STEP_REFUSED));
+    assert_eq!(phase(&db, seq), "sealing", "the same cohort waits; nothing skips it");
+}
+
+#[test]
+fn a_plan_names_only_a_known_task_order() {
+    let weak = super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 0x22);
+    let mut p = plan_v3(1, "testnet-probe-v1", 20, weak);
+    p.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    p.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    let ceil = Ceilings { roster_cap: Some(40), accept_reward_v0: false };
+    p.validate(ceil).unwrap();
+    p.reward_v1.as_mut().unwrap().task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    p.validate(ceil).unwrap();
+    p.reward_v1.as_mut().unwrap().task_order = Some("appended_v1".into());
+    assert!(p.validate(ceil).unwrap_err().0.starts_with("reward_v1.task_order"));
+    // A stored plan without the field reads as it was written.
+    let mut j = serde_json::to_value(&p).unwrap();
+    j["reward_v1"].as_object_mut().unwrap().remove("task_order");
+    let back: CohortPlan = serde_json::from_value(j).unwrap();
+    assert!(!back.reward_v1.as_ref().unwrap().seeded_task_order());
+    assert!(!serde_json::to_string(&back).unwrap().contains("task_order"));
+}
+
+/// Fix round 2 (seal-order, L9): blanks pool rows `rows` (text and digest).
+fn blank_rows(sim: &mut Sim<'_>, rows: &BTreeSet<String>) {
+    for r in &mut sim.pool.rows {
+        if rows.contains(&r.row_id) {
+            let t = "\u{3000}\n ".to_owned();
+            r.text_sha256 = hex::encode(Sha256::digest(t.as_bytes()));
+            sim.texts.insert(r.row_id.clone(), t);
+        }
+    }
+}
+
+/// Opens `p`, runs it until its seal is due and returns the pool rows its
+/// documents drew.
+fn drawn_rows(sim: &mut Sim<'_>, db: &Sqlite, p: &CohortPlan) -> (i64, BTreeSet<String>) {
+    sim.hold_seal = true;
+    let seq = open_cohort(db, p, 20, sim.now);
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(db, seq) == "sealing" {
+            break;
+        }
+    }
+    assert_eq!(phase(db, seq), "sealing", "fault {:?}", fault_of(db, seq));
+    let rows = db
+        .conn
+        .prepare("SELECT pool_row FROM docs WHERE seq = ?1 AND pool_row IS NOT NULL")
+        .unwrap()
+        .query_map([seq], |r| r.get::<_, String>(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    (seq, rows)
+}
+
+/// Fix round 2 (seal-order, L9): under the seeded order the draw holds out
+/// of every role each pool row the scorer would refuse as empty, with its
+/// source group, so the cohort draws other rows and seals; nothing reaches
+/// the seal's backstop.
+#[test]
+fn the_seeded_draw_holds_out_pool_rows_the_scorer_refuses() {
+    assert_eq!(
+        v3::screen_pool([("a", "text"), ("b", " \n"), ("c", ""), ("d", "\u{200b}")]),
+        BTreeSet::from(["b".to_owned(), "c".to_owned()])
+    );
+    let seeded_rank = Some(super::plan::TASK_ORDER_SEEDED_RANK);
+    let plan_for = |weak: super::plan::ArtifactJson, probe_ref: super::plan::ProbeRef| {
+        let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = seeded_rank.map(Into::into);
+        p
+    };
+    // The rows this cohort draws from the intact pool.
+    let db0 = Sqlite::open();
+    let (mut sim0, weak0, probe_ref0) = probe_built_doc(&db0, seeded_rank);
+    let (_, intact) = drawn_rows(&mut sim0, &db0, &plan_for(weak0, probe_ref0));
+    // Blank five of them: the same cohort now draws none of them, nor any
+    // row of their source groups, and seals with no empty document.
+    let blank: BTreeSet<String> = intact.iter().take(5).cloned().collect();
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, seeded_rank);
+    blank_rows(&mut sim, &blank);
+    let groups_of = |sim: &Sim<'_>, rows: &BTreeSet<String>| -> BTreeSet<String> {
+        sim.pool.rows.iter().filter(|r| rows.contains(&r.row_id)).map(|r| r.source_group.clone()).collect()
+    };
+    let blank_groups = groups_of(&sim, &blank);
+    let p = plan_for(weak, probe_ref);
+    let (seq, rows) = drawn_rows(&mut sim, &db, &p);
+    assert!(rows.len() >= 30 && rows.is_disjoint(&blank), "{} of {} drawn rows blank", rows.intersection(&blank).count(), rows.len());
+    assert!(groups_of(&sim, &rows).is_disjoint(&blank_groups), "a held row's group is held with it");
+    let c = sim.cfg.clone();
+    let inputs = v3::SealInputs { reference: sim.artifact_digests(&p.reference), predecessor: None, entrants: Vec::new() };
+    let b = tx(&db, |s| v3::prepare_seal(s, &c, seq, &inputs)).unwrap();
+    for (idx, _) in &b.task_map {
+        let t: String = db.conn.query_row("SELECT text FROM docs WHERE seq = ?1 AND idx = ?2", rusqlite::params![seq, idx], |r| r.get(0)).unwrap();
+        assert!(!v3::scorer_refuses(&t));
+    }
+}
+
+/// Fix round 2 (seal-order, L9): the seeded order draws only from a pool
+/// whose export records a per-row token bound that, with the scorer's
+/// `[CLS]` and `[SEP]`, stays inside its 2,048-token limit, so no batch
+/// human, audit human or mixed parent it seals can exceed the limit. A pool
+/// with no bound (pool v1) or a wider one is refused deterministically
+/// before anything is drawn: the cohort pauses, and nothing skips it. A plan
+/// without the order draws from it as before. (Generated documents carry no
+/// count; their token limit is not screened.)
+#[test]
+fn a_seeded_draw_refuses_a_pool_without_a_token_bound_inside_the_scorer_limit() {
+    let bound = |b: Option<u64>| {
+        let (mut m, _) = pool_of(2);
+        m.selection = b.map(|x| pool::PoolSelection { max_tokens: Some(x) });
+        v3::pool_token_bound_ok(&m)
+    };
+    assert!(bound(Some(1000)) && bound(Some(2046)));
+    assert!(!bound(Some(2047)) && !bound(None) && !bound(Some(u64::MAX)));
+    assert!(engine::step_error_is_deterministic(v3::POOL_TOKEN_BOUND_REFUSED));
+    for (order, refused) in [(Some(super::plan::TASK_ORDER_SEEDED_RANK), true), (None, false)] {
+        let db = Sqlite::open();
+        let (mut sim, weak, probe_ref) = probe_built_doc(&db, order);
+        sim.pool.selection = None;
+        let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+        {
+            let v = p.reward_v1.as_mut().unwrap();
+            v.probes = vec![probe_ref];
+            v.canary.draw_humans = 8;
+            v.task_order = order.map(Into::into);
+        }
+        sim.hold_seal = true;
+        let seq = open_cohort(&db, &p, 20, sim.now);
+        for _ in 0..200 {
+            sim.tick();
+        }
+        let docs: i64 = db.conn.query_row("SELECT COUNT(*) FROM docs WHERE seq = ?1", [seq], |r| r.get(0)).unwrap();
+        if refused {
+            assert_eq!(fault_of(&db, seq).as_deref(), Some(engine::STEP_REFUSED));
+            assert_eq!(docs, 0, "nothing is drawn");
+            let st = status(&db, sim.now);
+            let row = st["cohorts"].as_array().unwrap().iter().find(|x| x["label"] == ORDER_LABEL).unwrap().clone();
+            assert_eq!(row["step_error"]["code"].as_str(), Some(v3::POOL_TOKEN_BOUND_REFUSED));
+        } else {
+            assert_eq!(fault_of(&db, seq), None);
+            assert!(docs > 0);
+        }
+    }
+}
+
+/// Fix round 2 (seal-order, L9): a document the scorer refused as
+/// over-length for any job is one no artifact can answer, so the strict
+/// false-positive count of a promotion audit leaves it out; a failure on
+/// any other audit human still counts as flagged.
+#[test]
+fn the_strict_audit_leaves_out_documents_no_artifact_can_answer() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    for (job, task, outcome, tokens) in [(1i64, 3i64, 4i64, Some(3000i64)), (2, 3, 4, Some(3000)), (1, 4, 4, None), (1, 5, 1, Some(300)), (1, 6, 4, Some(2048)), (1, 7, 4, Some(2049))] {
+        db.conn
+            .execute(
+                "INSERT INTO preds (seq, job, task, attempt, outcome, token_count) VALUES (7, ?1, ?2, 1, ?3, ?4)",
+                rusqlite::params![job, task, outcome, tokens],
+            )
+            .unwrap();
+    }
+    assert_eq!(tx(&db, |s| v3::over_length_tasks(s, 7)).unwrap(), BTreeSet::from([3, 7]));
+    let weak = super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 0x22);
+    let plan = plan_v3(2, ORDER_LABEL, 40, weak);
+    let v = plan.reward_v1.as_ref().unwrap();
+    let low = slop_ninja_protocol::Probability::new(v.gates.operating_ppb / 4).unwrap();
+    let label = |set: &str| v3::Label { set: set.into(), kind: "human_only".into(), share_ppb: 0 };
+    // Slot 0 the batch, slots 1..5 audit draw A (one of them unanswered), 5..6 draw B.
+    let labels = vec![label("batch"), label("audit_a"), label("audit_a"), label("audit_a"), label("audit_a"), label("audit_b")];
+    let vectors = |inv: Vec<Option<slop_ninja_protocol::Probability>>| v3::JobVectors { share: inv.iter().map(|p| p.map(|_| 0)).collect(), roles: vec![true; inv.len()], involvement: inv };
+    let reference = vectors(vec![Some(low); 6]);
+    let entrant = vectors(vec![Some(low), Some(low), Some(low), Some(low), None, Some(low)]);
+    let fingerprints = BTreeMap::new();
+    let measure = |over_length: BTreeSet<usize>| v3::Measure {
+        labels: &labels,
+        batch: 1,
+        probe_ranges: BTreeMap::new(),
+        audit_a: (1, 5),
+        audit_b: (5, 6),
+        reference: &reference,
+        predecessor: None,
+        entrants: vec![Some(&entrant)],
+        hotkeys: vec![[7; 32]],
+        fingerprints: &fingerprints,
+        reference_contents: Vec::new(),
+        plan: v,
+        draws: (slop_ninja_protocol::Digest([1; 32]), slop_ninja_protocol::Digest([2; 32])),
+        over_length,
+    };
+    assert!(v.gates.strict_fpr_max_permille < 250, "one failure in four audit humans fails the strict tier");
+    let strict = |over: BTreeSet<usize>| slop_ninja_protocol::reward_v1::Measurements::promotion_audit(&mut measure(over), 0).unwrap().strict_fpr_passed;
+    assert!(!strict(BTreeSet::new()), "an unanswered audit human counts as flagged");
+    assert!(strict(BTreeSet::from([4])), "unless no artifact could answer it");
+    assert!(!strict(BTreeSet::from([2])), "leaving out another document does not excuse the failure");
 }

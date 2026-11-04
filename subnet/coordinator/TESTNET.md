@@ -3348,6 +3348,67 @@ code paths are in the README (Faults, Active tempos, Signing).
   per round; the signed records do not name extensions. Admission-step
   errors are still not classified per cohort.
 
+### Seeded task order and the seal input screen
+
+Code: `reward_v1.task_order = seeded_rank_v1` (coordinator README, "Tasks"
+and "Input screen"). It changes nothing live until three steps are done in
+this order, each only after the one before it succeeded:
+
+1. Deploy eval with the field. A build older than it refuses any plan or
+   template that names `task_order` (`RewardV1Plan` denies unknown
+   fields): a template install answers 422, and a stored plan naming it
+   cannot be read. Do not run the ops tool's new `restart` probe plan or
+   `standing-template` output against an older eval build.
+2. Cut the next probe version from the ops tool's restart probe plan (it
+   names the seeded order).
+3. Reinstall the standing template naming the order and that probe
+   version. The template check refuses one without the order; a template
+   already stored keeps opening cohorts in the appended layout.
+
+Once a plan or template naming the order is stored, never roll eval back
+below this field: the older build cannot read that template or any stored
+cohort plan naming the order, nor a pool ledger entry that lists screened
+rows (its ledger reader denies unknown fields, and a draw refuses when the
+ledger cannot be read), so AGENTS.md's recoverable-rollback rule rules such
+a rollback out. Record the eval build of step 1 as that floor in the
+private Cloudflare inventory when it is deployed.
+
+**Pool screen (draw).** A seeded draw first refuses a pool whose manifest
+records no `selection.max_tokens` with `max_tokens + 2 <= 2048` (the
+export's counts exclude `[CLS]` and `[SEP]`): code `pool token bound`,
+deterministic, the cohort pauses as `step_refused` before anything is
+drawn or written. Pool v1 records no bound, so a seeded template must name
+`testnet-human-pool-pc1` (bound 1,000). The draw then reads every shard of
+the pool and holds out of every role each row whose text the scorer
+refuses as empty, with its source group; the cohort's ledger entry lists
+them under `screened` (row id and digest; they are not used rows). The
+draw is otherwise unchanged and still deterministic: the held rows follow
+from the pool's content alone.
+
+**An unscorable sealed document.** If a probe document of a seeded seal
+(or, after a pool screen, a document changed after its draw) is empty
+under the scorer's rule, the seal refuses (`unscorable sealed document`,
+deterministic): the cohort pauses as `step_refused` at once, its phase log
+names the code, and `/eval/status` shows the step error as deterministic.
+The document is fixed by the cohort's draw or its plan's probe record, so
+`/eval/clear` runs the seal again and it refuses again; nothing is exposed
+while it waits. Recovery is an operator decision: correct the probe source
+for later cohorts, then abandon this unexposed cohort with
+`/eval/abandon {"label": "...", "reason": "unscorable_document"}`, or
+leave it paused. The coordinator never skips it on its own.
+
+**Token limit (L9, half open).** Pool rows are bounded by the pool screen.
+Generated documents (mixed children, model-only texts) are not: the
+coordinator holds no copy of the scorer's tokenizer, and the generation
+check bounds length in words. An over-length
+generated batch document is found at packaging, after every entrant scored
+it, as the terminal fault `reference_failure` (abandon only). An audit
+document that any job's scorer reply refused as over-length is left out of
+the strict false-positive count (every artifact gets the same refusal). The
+remaining options (a token count from the pinned tokenizer before seal,
+either compiled into eval or asked of the scorer under `R_0`) are in the
+lane notes; until one lands, L9 stays open in the readiness list.
+
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 
 The projection's inputs come from the load rehearsals of 2026-10-31 (3 to 129

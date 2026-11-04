@@ -476,7 +476,13 @@ Drills run on the test network only, with a build that has the
   `commit_reveal_checked`, `resumed`, `package_verified`, `row_derived`,
   `enqueued`, `dispatched`, `submitted` (a dispatch call that added an attempt
   returned) and `tempo_enqueued`. It is refused on Finney, and builds without
-  the feature refuse to start when it is set.
+  the feature refuse to start when it is set. The persistent units clear the
+  environment, so a unit's `Environment=` no longer sets it: pass it
+  explicitly through a drill-only drop-in (`sandbox-unit --drill-fault`, or
+  the `env -i` arguments without the sandbox; validator README,
+  "Fault-injection hooks"), remove that drop-in afterwards, and confirm
+  that the fault fired (exit 86) before reading the drill's result. The M2
+  drills below predate the cleared environment.
 - `slop_ninja_drill_proxy` is a loopback WebSocket proxy to one public
   endpoint. It logs every submission's extrinsic hash, per-minute request
   counts and (with `--trace`) every request. It injects one fault around the

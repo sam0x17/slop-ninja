@@ -535,7 +535,7 @@ fn config(root: &Path) -> Result<ValidatorConfig> {
     let text = include_str!("../validator.example.toml")
         .replace("netuid = 0", &format!("netuid = {NETUID}"))
         .replace(
-            "/home/operator/.local/state/slop_ninja_validator/weights-journal.json",
+            "/home/operator/.local/state/slop_ninja_validator/NAME/weights-journal.json",
             &root.join("journal.json").display().to_string(),
         )
         .replace(
@@ -1097,7 +1097,7 @@ fn package_and_dispatch_configuration_is_explicit_and_checked() -> Result<()> {
     let base = include_str!("../validator.example.toml")
         .replace("netuid = 0", &format!("netuid = {NETUID}"))
         .replace(
-            "/home/operator/.local/state/slop_ninja_validator/weights-journal.json",
+            "/home/operator/.local/state/slop_ninja_validator/NAME/weights-journal.json",
             &root.path().join("journal.json").display().to_string(),
         );
     let keys = trusted();

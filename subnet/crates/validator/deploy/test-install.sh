@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests install.sh's release checks against a scratch release signed by a
-# throwaway key, with a stub validator, systemctl and loginctl: no chain call,
+# throwaway key, with a stub validator, systemctl, loginctl and systemd-run: no chain call,
 # no unit installed or started, nothing written outside the scratch directory.
 #
 #   deploy/test-install.sh <empty scratch directory>
@@ -58,12 +58,21 @@ cat >"$stubs/systemctl" <<EOF
 #!/usr/bin/env bash
 printf 'systemctl %s\n' "\$*" >>"$scratch/calls.log"
 EOF
+# systemd-run runs the command after -- directly (the units' restrictions
+# are the real installer's concern; fetch_tests checks the planned call).
+cat >"$stubs/systemd-run" <<EOF
+#!/usr/bin/env bash
+printf 'systemd-run %s\n' "\$*" >>"$scratch/calls.log"
+while [[ \$# -gt 0 && "\$1" != -- ]]; do shift; done
+shift
+exec "\$@"
+EOF
 cat >"$stubs/loginctl" <<EOF
 #!/usr/bin/env bash
 printf 'loginctl %s\n' "\$*" >>"$scratch/calls.log"
 [[ "\$1" != show-user ]] || echo yes
 EOF
-chmod 0755 "$stubs/systemctl" "$stubs/loginctl"
+chmod 0755 "$stubs/systemctl" "$stubs/loginctl" "$stubs/systemd-run"
 cat >"$scratch/config.toml" <<'EOF'
 # test configuration; the stub validator does not read it
 EOF
@@ -104,7 +113,7 @@ run_install() {
   mkdir -p "$home"
   status=0
   out=$(env -i PATH="$PATH" HOME="$home" USER=tester TMPDIR="$scratch/tmp" \
-    SYSTEMCTL="$stubs/systemctl" LOGINCTL="$stubs/loginctl" BWRAP="$scratch/no-bwrap" \
+    SYSTEMCTL="$stubs/systemctl" LOGINCTL="$stubs/loginctl" SYSTEMD_RUN="$stubs/systemd-run" BWRAP="$scratch/no-bwrap" \
     bash "$deploy/install.sh" --instance test "$@" 2>&1) || status=$?
 }
 mkdir -p "$scratch/tmp"
@@ -142,6 +151,10 @@ make_release "$good"
 expect_installed "good signature" "$good"
 grep -qF "Good \"file\" signature for $principal" <<<"$out" && pass || fail "good signature: no Good line: $out"
 grep -qF 'systemctl --user daemon-reload' "$scratch/calls.log" && pass || fail "good signature: no daemon-reload"
+# Without a sandbox the validator is still checked under the unit's own
+# restrictions, once per unit.
+[[ $(grep -c '^systemd-run --user --wait --pipe --collect --quiet --service-type=exec .*-p NoNewPrivileges=yes.* check-config$' "$scratch/calls.log") -eq 2 ]] \
+  && pass || fail "good signature: check-config not run under the units' restrictions: $(cat "$scratch/calls.log")"
 [[ -z "$(ls -A "$scratch/tmp")" ]] && pass || fail "good signature: staging copies left behind"
 
 # A dry run checks the signature, prints the install from the release

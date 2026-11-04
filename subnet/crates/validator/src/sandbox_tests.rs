@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 use crate::config::ValidatorConfig;
-use crate::sandbox::{Access, Bind, Layout, RootEntry, UnitKind, binds, render_drop_in};
+use crate::sandbox::{
+    Access, Bind, Guarded, Layout, RootEntry, SANDBOX_ENV, UnitKind, binds, binds_digest, guard,
+    journal_dir_strays, render_drop_in, sweep_journal_temps,
+};
 
 fn scratch() -> Result<tempfile::TempDir> {
     let root = std::env::var_os("SLOP_NINJA_TEST_TMPDIR")
@@ -275,12 +278,14 @@ fn the_drop_in_quotes_paths_and_resets_exec_start() -> Result<()> {
             access: Access::Read,
             dir: false,
             role: "the configuration",
+            covers: Vec::new(),
         },
         Bind {
             path: odd.clone(),
             access: Access::Write,
             dir: true,
             role: "the journal directory",
+            covers: vec![(odd.join("bundles"), "the package directory")],
         },
     ];
     let binary = Path::new("/home/op/.local/bin/slop_ninja_validator");
@@ -292,6 +297,7 @@ fn the_drop_in_quotes_paths_and_resets_exec_start() -> Result<()> {
         binary,
         config,
         UnitKind::Dispatch,
+        &[],
     )?;
     let lines: Vec<&str> = text.lines().collect();
     let service = lines.iter().position(|line| *line == "[Service]").unwrap();
@@ -309,12 +315,14 @@ fn the_drop_in_quotes_paths_and_resets_exec_start() -> Result<()> {
     );
     let exec = lines[service + 7];
     assert_eq!(lines.len(), service + 8, "ExecStart is the last line");
-    assert!(exec.starts_with(
+    let marker = format!("dispatch:{}", binds_digest(&binds));
+    assert!(exec.starts_with(&format!(
         "ExecStart=/usr/bin/bwrap --unshare-all --unshare-user --share-net --disable-userns --as-pid-1 \
          --new-session --clearenv --setenv HOME %h --setenv RUST_BACKTRACE 0 \
+         --setenv {SANDBOX_ENV} {marker} \
          --ro-bind /usr /usr --ro-bind /etc /etc --symlink usr/bin /bin \
          --ro-bind-try /run/systemd/resolve /run/systemd/resolve --proc /proc --dev /dev --tmpfs /tmp "
-    ), "{exec}");
+    )), "{exec}");
     let quoted = "\"/home/op/my state/100%%$$HOME\\\"x\\\\y\"";
     assert!(
         exec.contains(&format!("--bind {quoted} {quoted} ")),
@@ -325,16 +333,47 @@ fn the_drop_in_quotes_paths_and_resets_exec_start() -> Result<()> {
     ));
     assert!(
         exec.ends_with(
-            " --chdir / -- /home/op/.local/bin/slop_ninja_validator --config \
+            " --remount-ro / --chdir / -- /home/op/.local/bin/slop_ninja_validator --config \
          /home/op/.config/slop_ninja_validator/v.toml run --dispatch"
         ),
         "{exec}"
     );
-    // Every bind is listed in the header comment, before [Service].
+    // Every bind is listed in the header comment, before [Service], with
+    // the configured paths it covers and the access they get through it.
     assert!(
         lines[..service]
             .iter()
             .any(|line| line.contains("read-write") && line.contains("my state"))
+    );
+    assert!(
+        lines[..service].iter().any(|line| line.contains("read-write through it")
+            && line.contains("bundles (the package directory)")),
+        "{text}"
+    );
+    assert!(!text.contains("SLOP_NINJA_DRILL_FAULT"));
+    // A drill passes its fault explicitly; no other variable is accepted.
+    let drill = render_drop_in(
+        Path::new("/usr/bin/bwrap"),
+        &layout(),
+        &binds,
+        binary,
+        config,
+        UnitKind::Dispatch,
+        &[("SLOP_NINJA_DRILL_FAULT", "submitted:2".to_owned())],
+    )?;
+    assert!(drill.contains(" --setenv SLOP_NINJA_DRILL_FAULT submitted:2 "), "{drill}");
+    assert!(drill.contains("# Also passed: SLOP_NINJA_DRILL_FAULT"));
+    assert!(
+        render_drop_in(
+            Path::new("/usr/bin/bwrap"),
+            &layout(),
+            &binds,
+            binary,
+            config,
+            UnitKind::Dispatch,
+            &[("HTTPS_PROXY", "http://proxy".to_owned())],
+        )
+        .is_err()
     );
 
     let dry = render_drop_in(
@@ -344,6 +383,7 @@ fn the_drop_in_quotes_paths_and_resets_exec_start() -> Result<()> {
         binary,
         config,
         UnitKind::DryRun,
+        &[],
     )?;
     assert!(
         dry.trim_end()
@@ -359,7 +399,8 @@ fn the_drop_in_quotes_paths_and_resets_exec_start() -> Result<()> {
             &control,
             binary,
             config,
-            UnitKind::Dispatch
+            UnitKind::Dispatch,
+            &[]
         )
         .is_err()
     );
@@ -370,7 +411,8 @@ fn the_drop_in_quotes_paths_and_resets_exec_start() -> Result<()> {
             &binds,
             binary,
             config,
-            UnitKind::Dispatch
+            UnitKind::Dispatch,
+            &[]
         )
         .is_err()
     );
@@ -381,7 +423,8 @@ fn the_drop_in_quotes_paths_and_resets_exec_start() -> Result<()> {
             &binds,
             binary,
             config,
-            UnitKind::Dispatch
+            UnitKind::Dispatch,
+            &[]
         )
         .is_err()
     );
@@ -413,5 +456,150 @@ fn the_host_layout_mirrors_the_root() -> Result<()> {
     if let Some(dir) = &layout.resolver_dir {
         assert!(dir.starts_with("/run"));
     }
+    Ok(())
+}
+
+/// The journal's directory is bound read-write as a whole, so anything in it
+/// that is not this instance's journal family, package or caches is a
+/// stray: another instance's journal and lock, an old package, key files.
+#[test]
+fn the_journal_directory_holds_only_this_instance() -> Result<()> {
+    let h = Home::new()?;
+    let extra = format!(
+        "{}[fetch]\nbase_url = \"https://status.example/\"\n",
+        package(&h.state.join("package.json")),
+    );
+    let config = h.config(&extra)?;
+    for name in [
+        "journal.json",
+        "journal.json.lock",
+        "journal.json.reveal-rows.json",
+        "journal.json.held-target.json.reset-1",
+        "journal.json.revocations.json.lock",
+        ".journal-write-1-0",
+        "package.json",
+        "package.json.next",
+    ] {
+        std::fs::write(h.state.join(name), b"")?;
+    }
+    std::fs::create_dir(h.state.join("public-cache"))?;
+    // The installer's empty per-instance directory beside it shows nothing.
+    std::fs::create_dir(h.state.join("v2"))?;
+    assert_eq!(journal_dir_strays(&config)?, Vec::<PathBuf>::new());
+    // A name that only starts like the journal's is not in its family.
+    for name in ["journal.json-old", "other-journal.json.lock", "package-t1.json"] {
+        std::fs::write(h.state.join(name), b"")?;
+    }
+    std::fs::create_dir(h.state.join("keys"))?;
+    std::fs::write(h.state.join("keys/trusted_keys.toml"), b"")?;
+    let strays = journal_dir_strays(&config)?;
+    let names: Vec<_> = strays
+        .iter()
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        names,
+        ["journal.json-old", "keys", "other-journal.json.lock", "package-t1.json"]
+    );
+
+    // A package in a subdirectory of the journal's directory owns that
+    // subdirectory, and so do the caches.
+    let h = Home::new()?;
+    std::fs::create_dir_all(h.state.join("bundles"))?;
+    std::fs::create_dir_all(h.state.join("runtime"))?;
+    let config = h.config(
+        &package(&h.state.join("bundles/active.json")).replace(
+            "[package]\n",
+            &format!(
+                "runtime_cache_dir = \"{}\"\n[package]\n",
+                h.state.join("runtime").display()
+            ),
+        ),
+    )?;
+    assert_eq!(journal_dir_strays(&config)?, Vec::<PathBuf>::new());
+    Ok(())
+}
+
+/// A write temporary a killed process left is removed under the journal's
+/// lock, and only when no other journal shares the directory and no running
+/// validator holds this one's lock.
+#[test]
+fn stale_journal_temporaries_are_swept_only_when_safe() -> Result<()> {
+    let h = Home::new()?;
+    let journal = h.state.join("journal.json");
+    assert_eq!(sweep_journal_temps(&journal)?, 0);
+    let temps = [".journal-write-1-0", ".journal-write-1-3"];
+    for name in temps {
+        std::fs::write(h.state.join(name), b"")?;
+    }
+    // Another journal's lock beside it: its writer could own a temporary.
+    std::fs::write(h.state.join("other.json.lock"), b"")?;
+    assert_eq!(sweep_journal_temps(&journal)?, 0);
+    assert!(h.state.join(temps[0]).exists());
+    std::fs::remove_file(h.state.join("other.json.lock"))?;
+    // This journal's lock held (a running validator): nothing removed.
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(h.state.join("journal.json.lock"))?;
+    held.lock()?;
+    assert_eq!(sweep_journal_temps(&journal)?, 0);
+    assert!(h.state.join(temps[1]).exists());
+    drop(held);
+    assert_eq!(sweep_journal_temps(&journal)?, 2);
+    for name in temps {
+        assert!(!h.state.join(name).exists());
+    }
+    // The lock is released again for rtao's own open.
+    let lock = std::fs::File::open(h.state.join("journal.json.lock"))?;
+    assert!(lock.try_lock().is_ok());
+    Ok(())
+}
+
+/// Inside a sandbox the startup check accepts the drop-in's marker only for
+/// the bind list the configuration names now and for the unit it was
+/// rendered for, and refuses a journal directory shared with another
+/// journal while PID 1.
+#[test]
+fn the_startup_guard_compares_the_drop_in_with_the_configuration() -> Result<()> {
+    let h = Home::new()?;
+    let config = h.config(&package(&h.state.join("package.json")))?;
+    let binds = h.binds(&config, UnitKind::DryRun)?;
+    let marker = format!("dry-run:{}", binds_digest(&binds));
+    let check = |config: &ValidatorConfig, unit, marker: Option<&str>, pid_one| {
+        guard(config, &h.config_path, &h.binary, &h.home, unit, marker, pid_one)
+    };
+    assert_eq!(check(&config, None, None, false)?, Guarded::NotSandboxed);
+    assert_eq!(check(&config, None, None, true)?, Guarded::Unverified);
+    assert_eq!(check(&config, None, Some(&marker), true)?, Guarded::Matches);
+    assert_eq!(
+        check(&config, Some(UnitKind::DryRun), Some(&marker), true)?,
+        Guarded::Matches
+    );
+    let error = check(&config, Some(UnitKind::Dispatch), Some(&marker), true).unwrap_err();
+    assert!(error.to_string().contains("rendered for the dry-run unit"), "{error}");
+    for bad in ["dry-run", "nonsense:00", "dry-run:00"] {
+        assert!(check(&config, None, Some(bad), true).is_err(), "{bad}");
+    }
+    // A configured path that moved since the drop-in was rendered.
+    let runtime = h.home.join("runtime");
+    std::fs::create_dir_all(&runtime)?;
+    let moved = h.config(&package(&h.state.join("package.json")).replace(
+        "[package]\n",
+        &format!("runtime_cache_dir = \"{}\"\n[package]\n", runtime.display()),
+    ))?;
+    let error = check(&moved, None, Some(&marker), true).unwrap_err();
+    assert!(error.to_string().contains("re-run deploy/install.sh"), "{error}");
+    // ... and one the sandbox does not even show.
+    let unbound = h.config(&package(&h.home.join("absent/package.json")))?;
+    let error = format!("{:#}", check(&unbound, None, Some(&marker), true).unwrap_err());
+    assert!(error.contains("no longer matches"), "{error}");
+    // Another journal's lock in the directory: refused as PID 1 only.
+    std::fs::write(h.state.join("other.json.lock"), b"")?;
+    let error = check(&config, None, Some(&marker), true).unwrap_err();
+    assert!(error.to_string().contains("another journal"), "{error}");
+    assert_eq!(check(&config, None, None, false)?, Guarded::NotSandboxed);
     Ok(())
 }

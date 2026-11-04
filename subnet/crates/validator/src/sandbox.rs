@@ -21,10 +21,26 @@
 //! bus, the agent sockets, a container daemon's socket) and `/tmp`. The
 //! drop-in is generated from the configuration, so the installer writes it
 //! again whenever it runs; [`check`] runs the configuration check and a
-//! visibility test inside the same sandbox before the drop-in is used.
+//! visibility test inside the same sandbox before the drop-in is used. The
+//! sandbox's root is remounted read-only after the binds, so a write to a
+//! path the drop-in does not bind fails instead of landing on a temporary
+//! root that vanishes at the next start, and the drop-in sets [`SANDBOX_ENV`]
+//! to a digest of its bind list, which [`guard`] compares with the bind list
+//! the configuration names now: a drop-in older than a configuration change
+//! refuses to start (exit 2) instead of running with unbound state.
+//!
+//! Inside the sandbox the validator is PID 1, as it is in every other
+//! sandboxed validator's namespace. rtao's native journal names its write
+//! temporary `.journal-write-<pid>-<n>` in the journal's directory, with `n`
+//! counting from 0 in each process, and creates it exclusively; nothing
+//! removes one a killed process left behind. [`sweep_journal_temps`]
+//! removes them while holding the journal's lock, and only where no other
+//! journal shares the directory, before the journal opens, and [`guard`]
+//! refuses a sandboxed start whose journal directory holds another journal
+//! (both would be PID 1 and collide on the same names).
 
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     path::{Component, Path, PathBuf},
     process::Command,
 };
@@ -45,6 +61,20 @@ pub enum UnitKind {
 }
 
 impl UnitKind {
+    /// The `sandbox-unit --unit` name, also the first field of [`SANDBOX_ENV`].
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Dispatch => "dispatch",
+            Self::DryRun => "dry-run",
+        }
+    }
+
+    fn from_name(name: &str) -> Option<Self> {
+        [Self::Dispatch, Self::DryRun]
+            .into_iter()
+            .find(|kind| kind.name() == name)
+    }
+
     /// The validator arguments the unit runs.
     pub fn command(self) -> &'static [&'static str] {
         match self {
@@ -70,6 +100,11 @@ pub struct Bind {
     pub dir: bool,
     /// What the configuration uses it for.
     pub role: &'static str,
+    /// Configured paths inside this directory that need no bind of their
+    /// own, with their roles: they get this bind's access, which can be
+    /// more than they need (a package directory inside the read-write
+    /// journal directory is writable).
+    pub covers: Vec<(PathBuf, &'static str)>,
 }
 
 struct Wanted {
@@ -213,7 +248,7 @@ pub fn binds(
             ensure!(
                 !home.starts_with(&item.path),
                 "{} {} is the home directory or contains it; give it a directory of its own \
-                 (for example ~/.local/state/slop_ninja_validator)",
+                 (for example ~/.local/state/slop_ninja_validator/<instance>)",
                 item.role,
                 item.path.display()
             );
@@ -237,10 +272,10 @@ pub fn binds(
             same.access = same.access.max(item.access);
             continue;
         }
-        let covered = kept.iter().any(|bind| {
+        if let Some(cover) = kept.iter_mut().find(|bind| {
             bind.dir && item.path.starts_with(&bind.path) && bind.access >= item.access
-        });
-        if covered {
+        }) {
+            cover.covers.push((item.path, item.role));
             continue;
         }
         let exists = if item.dir {
@@ -269,11 +304,267 @@ pub fn binds(
             access: item.access,
             dir: item.dir,
             role: item.role,
+            covers: Vec::new(),
         });
     }
     // The first sort placed shallow paths first; exact repeats were merged
     // in place, so the order still has each directory before its contents.
     Ok(kept)
+}
+
+/// The variable the drop-in sets inside the sandbox: `<unit>:<digest>`, the
+/// unit name and [`binds_digest`] of the bind list the drop-in was rendered
+/// with.
+pub const SANDBOX_ENV: &str = "SLOP_NINJA_SANDBOX_BINDS";
+
+/// SHA-256 over the bind list's paths, access and kind, in bind order: what
+/// the drop-in mounts, so it changes exactly when the drop-in must.
+pub fn binds_digest(binds: &[Bind]) -> String {
+    use sha2::{Digest as _, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"slop_ninja_sandbox_binds_v1\n");
+    for bind in binds {
+        let access = match bind.access {
+            Access::Read => "r",
+            Access::Write => "w",
+        };
+        let kind = if bind.dir { "d" } else { "f" };
+        let path = bind.path.as_os_str().as_encoded_bytes();
+        hasher.update(format!("{access}{kind}{}:", path.len()).as_bytes());
+        hasher.update(path);
+        hasher.update(b"\n");
+    }
+    hex::encode(hasher.finalize())
+}
+
+fn marker(kind: UnitKind, binds: &[Bind]) -> String {
+    format!("{}:{}", kind.name(), binds_digest(binds))
+}
+
+/// rtao's native journal names its write temporaries
+/// `.journal-write-<pid>-<n>` in the journal's directory.
+const JOURNAL_TEMP_PREFIX: &str = ".journal-write-";
+
+/// `name` is `stem` or `stem.<anything>`.
+fn in_family(name: &OsStr, stem: &OsStr) -> bool {
+    let (name, stem) = (name.as_encoded_bytes(), stem.as_encoded_bytes());
+    name == stem || (name.len() > stem.len() && name.starts_with(stem) && name[stem.len()] == b'.')
+}
+
+fn journal_parts(journal: &Path) -> Result<(&Path, &OsStr)> {
+    let dir = journal
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .context("journal_path has no parent directory")?;
+    let name = journal
+        .file_name()
+        .context("journal_path has no file name")?;
+    Ok((dir, name))
+}
+
+/// Another journal's lock in the journal's directory: a `*.lock` entry that
+/// is not one of this journal's (`<journal>.lock`, `<journal>.*.lock`). rtao
+/// never unlinks a lock file, so every journal ever opened there has one.
+fn foreign_locks(journal: &Path) -> Result<Vec<PathBuf>> {
+    let (dir, name) = journal_parts(journal)?;
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))? {
+        let entry = entry?;
+        let entry_name = entry.file_name();
+        if entry_name.as_encoded_bytes().ends_with(b".lock") && !in_family(&entry_name, name) {
+            found.push(entry.path());
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+/// Entries of the journal's directory, which the sandbox binds read-write
+/// as a whole, that belong neither to this journal (`<journal>` and
+/// `<journal>.*`, rtao's write temporaries), nor to the package
+/// (`<package>` and `<package>.*` beside it, or the directory holding it),
+/// nor are (or hold) the fetch cache, a `file://` mirror or the runtime
+/// cache, nor are an empty directory. Another instance's journal, an old
+/// journal, key files or a configuration kept there would all be readable
+/// and writable inside the sandbox; the drop-in is refused while any is
+/// present.
+pub fn journal_dir_strays(config: &ValidatorConfig) -> Result<Vec<PathBuf>> {
+    let (dir, name) = journal_parts(&config.journal_path)?;
+    let mut owned: Vec<PathBuf> = Vec::new();
+    let mut package_stem = None;
+    if let Some(package) = &config.package {
+        if package.path.parent() == Some(dir) {
+            package_stem = package.path.file_name();
+        } else {
+            owned.push(package.path.clone());
+        }
+    }
+    if let Some(fetch) = &config.fetch {
+        owned.push(fetch.cache_dir(&config.journal_path)?);
+        if let Ok(base) = fetch.base()
+            && base.scheme() == "file"
+            && let Ok(mirror) = base.to_file_path()
+        {
+            owned.push(mirror);
+        }
+    }
+    owned.extend(config.rpc.runtime_cache_dir.clone());
+    let mut strays = Vec::new();
+    for entry in std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))? {
+        let entry = entry?;
+        let entry_name = entry.file_name();
+        let path = entry.path();
+        let ours = in_family(&entry_name, name)
+            || entry_name.as_encoded_bytes().starts_with(JOURNAL_TEMP_PREFIX.as_bytes())
+            || package_stem.is_some_and(|stem| in_family(&entry_name, stem))
+            || owned.iter().any(|owned| owned.starts_with(&path));
+        // An empty directory shows nothing (the installer creates
+        // `<state>/<instance>` beside a journal kept directly in `<state>`).
+        let empty_dir = entry.file_type().is_ok_and(|kind| kind.is_dir())
+            && std::fs::read_dir(&path).is_ok_and(|mut entries| entries.next().is_none());
+        if !ours && !empty_dir {
+            strays.push(path);
+        }
+    }
+    strays.sort();
+    Ok(strays)
+}
+
+/// Removes rtao write temporaries (`.journal-write-*`) that a process killed
+/// between creating and renaming one left in the journal's directory.
+/// Without this, every later process that is PID 1 of its namespace (every
+/// sandboxed start) fails its journal write with the same number with
+/// "File exists". Runs only while holding the journal's lifetime lock (so no
+/// live writer of this journal exists) and only when no other journal's lock
+/// is in the directory (another journal's writer could own a temporary);
+/// otherwise removes nothing. Returns how many it removed. The lock is
+/// released before returning, for rtao's own open.
+pub fn sweep_journal_temps(journal: &Path) -> Result<usize> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let (dir, name) = journal_parts(journal)?;
+    let mut temps = Vec::new();
+    for entry in std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))? {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .as_encoded_bytes()
+            .starts_with(JOURNAL_TEMP_PREFIX.as_bytes())
+            && entry.file_type().is_ok_and(|kind| kind.is_file())
+        {
+            temps.push(entry.path());
+        }
+    }
+    if temps.is_empty() || !foreign_locks(journal)?.is_empty() {
+        return Ok(0);
+    }
+    let mut lock_name = name.to_os_string();
+    lock_name.push(".lock");
+    let lock_path = dir.join(lock_name);
+    // As rtao does, refuse a lock that is not a regular file.
+    if let Ok(meta) = std::fs::symlink_metadata(&lock_path) {
+        ensure!(
+            meta.file_type().is_file(),
+            "the journal lock {} is not a regular file",
+            lock_path.display()
+        );
+    }
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(&lock_path)
+        .context("cannot open the journal lock")?;
+    if lock.try_lock().is_err() {
+        // Held by a running validator: its own open reports that.
+        return Ok(0);
+    }
+    for temp in &temps {
+        std::fs::remove_file(temp)
+            .with_context(|| format!("cannot remove {}", temp.display()))?;
+    }
+    std::fs::File::open(dir)?.sync_all()?;
+    drop(lock);
+    Ok(temps.len())
+}
+
+/// What [`guard`] found.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Guarded {
+    /// Not in a sandbox: not PID 1 and no [`SANDBOX_ENV`].
+    NotSandboxed,
+    /// [`SANDBOX_ENV`] matches the bind list this configuration names.
+    Matches,
+    /// PID 1 with no [`SANDBOX_ENV`]: a drop-in from an earlier build, or a
+    /// sandbox this crate did not render. Nothing could be compared.
+    Unverified,
+}
+
+/// The startup check inside a sandbox. `marker` is [`SANDBOX_ENV`]'s value,
+/// `pid_one` whether this process is PID 1 of its namespace, `unit` the
+/// unit the command runs as (`None` for `check-config`, which takes it from
+/// the marker) and `binary` the path the validator was started as.
+/// Refuses when the journal's directory holds another journal while this
+/// process is PID 1 (both would name their write temporaries alike), and
+/// when the marker names another unit or a bind list other than the one
+/// [`binds`] derives from this configuration now (a configured path changed
+/// without re-running the installer).
+pub fn guard(
+    config: &ValidatorConfig,
+    config_path: &Path,
+    binary: &Path,
+    home: &Path,
+    unit: Option<UnitKind>,
+    marker: Option<&str>,
+    pid_one: bool,
+) -> Result<Guarded> {
+    if pid_one {
+        let others = foreign_locks(&config.journal_path)?;
+        ensure!(
+            others.is_empty(),
+            "the journal directory also holds another journal ({}); inside a sandbox every \
+             validator is PID 1, so journals sharing a directory collide on rtao's write \
+             temporaries. Give each instance a directory of its own \
+             (~/.local/state/slop_ninja_validator/<instance>/) and re-run deploy/install.sh",
+            others
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    let Some(marker) = marker else {
+        return Ok(if pid_one {
+            Guarded::Unverified
+        } else {
+            Guarded::NotSandboxed
+        });
+    };
+    let (name, digest) = marker
+        .split_once(':')
+        .with_context(|| format!("{SANDBOX_ENV} is malformed"))?;
+    let marked = UnitKind::from_name(name)
+        .with_context(|| format!("{SANDBOX_ENV} names an unknown unit"))?;
+    if let Some(unit) = unit {
+        ensure!(
+            unit == marked,
+            "the sandbox drop-in was rendered for the {} unit, not the {} unit; re-run deploy/install.sh",
+            marked.name(),
+            unit.name()
+        );
+    }
+    let now = binds(config, config_path, binary, marked, home).context(
+        "the sandbox no longer matches the configuration (a configured path changed, or the \
+         drop-in does not bind it); re-run deploy/install.sh",
+    )?;
+    ensure!(
+        binds_digest(&now) == digest,
+        "the sandbox drop-in binds other paths than this configuration names (a configured \
+         path changed since the installer rendered it); re-run deploy/install.sh, which \
+         renders and tests a new drop-in"
+    );
+    Ok(Guarded::Matches)
 }
 
 /// Absolute, valid UTF-8, no control characters, and only plain components
@@ -370,7 +661,15 @@ fn path_word(path: &Path) -> Word {
 }
 
 /// The bubblewrap options that build the sandbox, without the command.
-fn sandbox_words(bwrap: &Path, layout: &Layout, binds: &[Bind]) -> Vec<Word> {
+/// `marker` is [`SANDBOX_ENV`]'s value; `env` adds variables (names from
+/// [`PASSED_ENV`]).
+fn sandbox_words(
+    bwrap: &Path,
+    layout: &Layout,
+    binds: &[Bind],
+    marker: &str,
+    env: &[(&str, String)],
+) -> Vec<Word> {
     let mut words = vec![
         path_word(bwrap),
         lit("--unshare-all"),
@@ -389,7 +688,13 @@ fn sandbox_words(bwrap: &Path, layout: &Layout, binds: &[Bind]) -> Vec<Word> {
         lit("--setenv"),
         lit("RUST_BACKTRACE"),
         lit("0"),
+        lit("--setenv"),
+        lit(SANDBOX_ENV),
+        lit(marker),
     ];
+    for (name, value) in env {
+        words.extend([lit("--setenv"), lit(*name), lit(value.clone())]);
+    }
     for entry in &layout.entries {
         match entry {
             RootEntry::ReadOnly(path) => {
@@ -418,9 +723,23 @@ fn sandbox_words(bwrap: &Path, layout: &Layout, binds: &[Bind]) -> Vec<Word> {
         };
         words.extend([lit(option), path_word(&bind.path), path_word(&bind.path)]);
     }
-    words.extend([lit("--chdir"), lit("/"), lit("--")]);
+    // After every bind (bubblewrap creates their mount points on the root):
+    // a write anywhere but a read-write bind, /tmp or /dev now fails.
+    words.extend([
+        lit("--remount-ro"),
+        lit("/"),
+        lit("--chdir"),
+        lit("/"),
+        lit("--"),
+    ]);
     words
 }
+
+/// The only variables a drop-in passes besides `HOME`, `RUST_BACKTRACE` and
+/// [`SANDBOX_ENV`]: the units clear the environment, so a unit's
+/// `Environment=` and the user manager's variables never reach the
+/// validator.
+pub const PASSED_ENV: &[&str] = &[crate::faults::DRILL_FAULT_ENV];
 
 fn validator_words(binary: &Path, config_path: &Path, command: &[&str]) -> Vec<Word> {
     let mut words = vec![path_word(binary), lit("--config"), path_word(config_path)];
@@ -467,7 +786,8 @@ fn unit_word(word: &Word) -> Result<String> {
 /// allow-lists to the template's plus exactly what bubblewrap needs to build
 /// the sandbox (no network namespace; no nested user namespace inside it).
 /// Both lists are reset first, so the drop-in means the same over a template
-/// that sets neither.
+/// that sets neither. `env` passes extra variables, each named in
+/// [`PASSED_ENV`] (a testnet drill's fault).
 pub fn render_drop_in(
     bwrap: &Path,
     layout: &Layout,
@@ -475,13 +795,24 @@ pub fn render_drop_in(
     binary: &Path,
     config_path: &Path,
     kind: UnitKind,
+    env: &[(&str, String)],
 ) -> Result<String> {
     check_path(bwrap, "the bwrap path")?;
     ensure!(
         unit_word(&path_word(bwrap))? == bwrap.to_string_lossy(),
         "the bwrap path must be plain (letters, digits and /._-+=,:@)"
     );
-    let mut words = sandbox_words(bwrap, layout, binds);
+    for (name, value) in env {
+        ensure!(
+            PASSED_ENV.contains(name),
+            "{name} is not a variable the sandbox passes"
+        );
+        ensure!(
+            !value.is_empty() && !value.chars().any(char::is_control),
+            "{name} must be a non-empty value without control characters"
+        );
+    }
+    let mut words = sandbox_words(bwrap, layout, binds, &marker(kind, binds), env);
     words.extend(validator_words(binary, config_path, kind.command()));
     let line = words
         .iter()
@@ -506,6 +837,20 @@ pub fn render_drop_in(
             bind.path.to_string_lossy().replace('\n', " "),
             bind.role
         ));
+        for (path, role) in &bind.covers {
+            text.push_str(&format!(
+                "#     {access} through it: {} ({role})\n",
+                path.to_string_lossy().replace('\n', " "),
+            ));
+        }
+    }
+    text.push_str(
+        "# Everything else on the sandbox's root is read-only. Only HOME,\n\
+         # RUST_BACKTRACE and SLOP_NINJA_SANDBOX_BINDS (this bind list's digest,\n\
+         # checked at startup) reach the validator: a unit's Environment= does not.\n",
+    );
+    for (name, _) in env {
+        text.push_str(&format!("# Also passed: {name}\n"));
     }
     text.push_str(
         "[Service]\n\
@@ -542,12 +887,14 @@ pub struct CheckReport {
 }
 
 /// Runs `check-config` and a visibility test inside the sandbox the drop-in
-/// describes (the same bubblewrap options): every bound path must be
+/// describes (the same bubblewrap options, [`SANDBOX_ENV`] included, so
+/// `check-config` also runs [`guard`] there): every bound path must be
 /// readable (directories bound read-write also writable), and every other
 /// host entry of each directory above a bound path (from `/` down, other
 /// wallets and keys beside a bound hotkey included) and of the home
 /// directory must be absent, as must the host's entries of `/tmp`. Reads no
 /// key and no chain.
+#[allow(clippy::too_many_arguments)]
 pub fn check(
     bwrap: &Path,
     layout: &Layout,
@@ -555,9 +902,10 @@ pub fn check(
     binary: &Path,
     config_path: &Path,
     home: &Path,
+    kind: UnitKind,
     journal_exists: bool,
 ) -> Result<CheckReport> {
-    let sandbox = sandbox_words(bwrap, layout, binds);
+    let sandbox = sandbox_words(bwrap, layout, binds, &marker(kind, binds), &[]);
     let run = |tail: Vec<Word>| -> Result<std::process::Output> {
         let mut words = sandbox.clone();
         words.extend(tail);

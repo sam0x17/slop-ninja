@@ -1167,7 +1167,7 @@ fn base_config(root: &Path) -> String {
     include_str!("../validator.example.toml")
         .replace("netuid = 0", "netuid = 601")
         .replace(
-            "/home/operator/.local/state/slop_ninja_validator/weights-journal.json",
+            "/home/operator/.local/state/slop_ninja_validator/NAME/weights-journal.json",
             &root.join("journal.json").display().to_string(),
         )
 }
@@ -1273,8 +1273,8 @@ fn the_installer_plans_persistent_units_with_linger() -> Result<()> {
             .env_remove("XDG_STATE_HOME")
             .output()
     };
-    // No bubblewrap here: `auto` falls back to no sandbox and plans removing
-    // any earlier drop-in.
+    // No bubblewrap here and no drop-in installed: `auto` falls back to no
+    // sandbox, with nothing to remove.
     let installer = |args: &[&str]| installer_with(args, "/nonexistent/bwrap");
     let out = installer(&[
         "--instance",
@@ -1304,7 +1304,9 @@ fn the_installer_plans_persistent_units_with_linger() -> Result<()> {
             home.display()
         ),
         format!(
-            "install -d -m 0700 {}/.config/slop_ninja_validator {}/.local/state/slop_ninja_validator",
+            "install -d -m 0700 {}/.config/slop_ninja_validator {}/.local/state/slop_ninja_validator \
+             {}/.local/state/slop_ninja_validator/v2\n",
+            home.display(),
             home.display(),
             home.display()
         ),
@@ -1313,12 +1315,30 @@ fn the_installer_plans_persistent_units_with_linger() -> Result<()> {
         "systemctl --user daemon-reload".to_owned(),
         "systemctl --user enable --now slop_ninja_validator-dispatch@v2.service".to_owned(),
         "init".to_owned(),
-        format!("rm -f {}/slop_ninja_validator-dispatch@v2.service.d/50-sandbox.conf", units.display()),
-        format!("rm -f {}/slop_ninja_validator@v2.service.d/50-sandbox.conf", units.display()),
     ] {
         assert!(text.contains(&expected), "missing {expected:?} in:\n{text}");
     }
     assert!(!text.contains("sandbox-unit"));
+    assert!(!text.contains("rm -f"), "{text}");
+    // Without the sandbox the validator is still checked under each unit's
+    // own restrictions, in a transient unit with the template's hardening
+    // and the unit's cleared environment.
+    let under_unit = format!(
+        "systemd-run --user --wait --pipe --collect --quiet --service-type=exec -p MemoryMax=2G \
+         -p MemorySwapMax=0 -p NoNewPrivileges=yes -p UMask=0077 -p LockPersonality=yes \
+         -p MemoryDenyWriteExecute=yes -p RestrictRealtime=yes -p RestrictSUIDSGID=yes \
+         -p RestrictNamespaces=yes -p KeyringMode=private \
+         -p RestrictAddressFamilies=AF_INET\\ AF_INET6\\ AF_NETLINK -p SystemCallArchitectures=native \
+         -p SystemCallFilter=@system-service -p SystemCallErrorNumber=EPERM -- /usr/bin/env -i HOME={} \
+         RUST_BACKTRACE=0 ",
+        home.display()
+    );
+    let checked = format!(
+        "{under_unit}{}/.local/bin/slop_ninja_validator --config {}/.config/slop_ninja_validator/v2.toml check-config\n",
+        home.display(),
+        home.display()
+    );
+    assert_eq!(text.matches(&checked).count(), 2, "missing {checked:?} in:\n{text}");
     assert!(!home.join(".config").exists(), "a dry run touches nothing");
 
     // With bubblewrap (any executable stands in for it in a dry run), both
@@ -1339,20 +1359,48 @@ fn the_installer_plans_persistent_units_with_linger() -> Result<()> {
                 config_path.display(),
                 validator.display()
             );
+            // Rendered to a temporary, tested under the unit's restrictions
+            // (the drop-in's own lists join them once it exists), then
+            // moved into place.
+            let staged = format!("{}/{unit}.d/.50-sandbox.conf.new", units.display());
             for expected in [
-                format!("{call} --check"),
-                format!("{call} > {}/{unit}.d/50-sandbox.conf", units.display()),
+                format!("{call} > {staged}\n"),
+                format!("RUST_BACKTRACE=0 {call} --check\n"),
+                format!("mv -f {staged} {}/{unit}.d/50-sandbox.conf\n", units.display()),
             ] {
                 assert!(text.contains(&expected), "missing {expected:?} in:\n{text}");
             }
         }
+        assert!(text.contains(&under_unit), "{text}");
         assert!(!text.contains("rm -f"), "{text}");
+        assert!(
+            !text.lines().any(|line| line.contains("systemd-run") && line.ends_with(" check-config")),
+            "{text}"
+        );
     }
     assert!(!home.join(".config").exists(), "a dry run touches nothing");
     for (mode, bwrap) in [("bwrap", "/nonexistent/bwrap"), ("sometimes", "/bin/true")] {
         let out = installer_with(&["--instance", "v2", "--sandbox", mode, "--dry-run"], bwrap)?;
         assert_eq!(out.status.code(), Some(2), "--sandbox {mode} with {bwrap}");
     }
+    // With a drop-in installed, `auto` never falls back to no sandbox: a
+    // bubblewrap that stopped working fails and keeps the drop-in. Only
+    // `--sandbox none` removes it.
+    let dropin = units.join("slop_ninja_validator-dispatch@v2.service.d/50-sandbox.conf");
+    std::fs::create_dir_all(dropin.parent().unwrap())?;
+    std::fs::write(&dropin, "[Service]\n")?;
+    let out = installer(&["--instance", "v2", "--config", &config.display().to_string(), "--dry-run"])?;
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("the drop-in is kept"));
+    let out = installer(&[
+        "--instance", "v2", "--config", &config.display().to_string(), "--sandbox", "none", "--dry-run",
+    ])?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains(&format!("rm -f {}\n", dropin.display())), "{text}");
+    assert!(!text.contains("slop_ninja_validator@v2.service.d/50-sandbox.conf"), "{text}");
+    assert!(dropin.exists(), "a dry run removes nothing");
+    std::fs::remove_dir_all(home.join(".config"))?;
     for bad in [
         vec!["--instance", "../x", "--dry-run"],
         vec!["--instance", "v2", "--start", "--dry-run"],
@@ -1421,6 +1469,64 @@ fn the_installer_plans_persistent_units_with_linger() -> Result<()> {
         let l = l.trim_start();
         l.starts_with("RestartSteps=") || l.starts_with("RestartMaxDelaySec=")
     }));
+    Ok(())
+}
+
+/// Every `[Service]` setting of the unit templates and of a rendered
+/// drop-in is either carried into the installer's transient check unit
+/// (`hardening_keys`) or describes only the long-running unit
+/// (`unit_only_keys`), so a hardening setting added to a template is never
+/// left out of the check that the unit can run.
+#[test]
+fn the_installer_checks_under_every_hardening_setting_of_the_units() -> Result<()> {
+    let deploy = Path::new(env!("CARGO_MANIFEST_DIR")).join("deploy");
+    let script = std::fs::read_to_string(deploy.join("install.sh"))?;
+    let list = |name: &str| -> Vec<String> {
+        let line = script
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("{name}=\"")))
+            .unwrap_or_else(|| panic!("install.sh sets no {name}"));
+        line.trim_end_matches('"').split(' ').map(str::to_owned).collect()
+    };
+    let (carried, unit_only) = (list("hardening_keys"), list("unit_only_keys"));
+    assert!(carried.iter().all(|key| !unit_only.contains(key)));
+    let layout = crate::sandbox::Layout {
+        entries: vec![crate::sandbox::RootEntry::ReadOnly("/usr".into())],
+        resolver_dir: None,
+    };
+    let dropin = crate::sandbox::render_drop_in(
+        Path::new("/usr/bin/bwrap"),
+        &layout,
+        &[],
+        Path::new("/v/slop_ninja_validator"),
+        Path::new("/v/v.toml"),
+        crate::sandbox::UnitKind::Dispatch,
+        &[],
+    )?;
+    let mut seen = 0;
+    for text in [
+        std::fs::read_to_string(deploy.join("slop_ninja_validator-dispatch@.service"))?,
+        std::fs::read_to_string(deploy.join("slop_ninja_validator@.service"))?,
+        dropin,
+    ] {
+        let mut service = false;
+        for line in text.lines() {
+            if line.starts_with('[') {
+                service = line == "[Service]";
+                continue;
+            }
+            let Some((key, _)) = line.split_once('=') else { continue };
+            if !service || line.starts_with('#') {
+                continue;
+            }
+            assert!(
+                carried.iter().chain(&unit_only).any(|known| known == key),
+                "install.sh does not classify {key}"
+            );
+            seen += 1;
+        }
+    }
+    assert!(seen > 40, "{seen}");
     Ok(())
 }
 

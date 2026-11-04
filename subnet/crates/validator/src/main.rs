@@ -115,6 +115,12 @@ enum Command {
         /// Test the sandbox instead of printing the drop-in.
         #[arg(long)]
         check: bool,
+        /// Testnet drills only: pass `SLOP_NINJA_DRILL_FAULT=<phase>[:<n>]`
+        /// into the sandbox (the units clear the environment, so a unit's
+        /// `Environment=` never reaches the validator). Install the result
+        /// as a drill-only drop-in and remove it after the drill.
+        #[arg(long, value_name = "PHASE[:N]")]
+        drill_fault: Option<String>,
     },
     /// Read-only finalized observation: epoch state, this hotkey's
     /// `TimelockedWeightCommits` entries for recent epochs, its `Weights` row,
@@ -149,7 +155,13 @@ fn main() -> ExitCode {
     };
     slop_ninja_validator::logging::init(&config.log);
     let code = match args.command {
-        Command::CheckConfig => report(check_config(&config)),
+        Command::CheckConfig => {
+            if let Err(error) = sandbox_guard(&config, &args.config, None) {
+                tracing::error!(event = "sandbox_refused", error = %error);
+                return ExitCode::from(EXIT_CONFIG);
+            }
+            report(check_config(&config))
+        }
         Command::Init => {
             report(chain_identity(&config).and_then(|identity| init_journal(&config, identity)))
                 .inspect(|_| tracing::info!(event = "journal_created"))
@@ -178,7 +190,16 @@ fn main() -> ExitCode {
             binary,
             bwrap,
             check,
-        } => report(sandbox_unit(&config, &args.config, unit, &binary, &bwrap, check)),
+            drill_fault,
+        } => report(sandbox_unit(
+            &config,
+            &args.config,
+            unit,
+            &binary,
+            &bwrap,
+            check,
+            drill_fault,
+        )),
         Command::Observe { epochs, at } => {
             if !(1..=32).contains(&epochs) {
                 tracing::error!(event = "config_refused", error = "--epochs must be 1..=32");
@@ -194,14 +215,19 @@ fn main() -> ExitCode {
                 );
                 return ExitCode::from(EXIT_CONFIG);
             }
-            run(
-                config,
-                if dispatch {
-                    Mode::Dispatch
-                } else {
-                    Mode::DryRun
-                },
-            )
+            let (mode, kind) = if dispatch {
+                (Mode::Dispatch, slop_ninja_validator::sandbox::UnitKind::Dispatch)
+            } else {
+                (Mode::DryRun, slop_ninja_validator::sandbox::UnitKind::DryRun)
+            };
+            // Before anything opens the journal: a sandbox rendered for other
+            // paths, or a journal directory shared with another journal
+            // while PID 1, needs the operator.
+            if let Err(error) = sandbox_guard(&config, &args.config, Some(kind)) {
+                tracing::error!(event = "sandbox_refused", error = %error);
+                return ExitCode::from(EXIT_CONFIG);
+            }
+            run(config, mode)
         }
     };
     ExitCode::from(code.unwrap_or(EXIT_ERROR))
@@ -282,6 +308,43 @@ fn fetch_command(config: ValidatorConfig) -> Option<u8> {
     }
 }
 
+/// [`slop_ninja_validator::sandbox::guard`] for this process: PID 1 of its
+/// namespace, `SLOP_NINJA_SANDBOX_BINDS`, started as `argv[0]`.
+fn sandbox_guard(
+    config: &ValidatorConfig,
+    config_path: &std::path::Path,
+    unit: Option<slop_ninja_validator::sandbox::UnitKind>,
+) -> Result<()> {
+    use slop_ninja_validator::sandbox::{self, Guarded};
+    let marker = std::env::var(sandbox::SANDBOX_ENV).ok();
+    let pid_one = std::process::id() == 1;
+    if marker.is_none() && !pid_one {
+        return Ok(());
+    }
+    let binary = PathBuf::from(
+        std::env::args_os()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("no argv[0]"))?,
+    );
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    match sandbox::guard(
+        config,
+        config_path,
+        &binary,
+        &home,
+        unit,
+        marker.as_deref(),
+        pid_one,
+    )? {
+        Guarded::Unverified => tracing::warn!(
+            event = "sandbox_unverified",
+            hint = "PID 1 without SLOP_NINJA_SANDBOX_BINDS: re-run deploy/install.sh to render a drop-in this build checks"
+        ),
+        Guarded::Matches | Guarded::NotSandboxed => {}
+    }
+    Ok(())
+}
+
 fn sandbox_unit(
     config: &ValidatorConfig,
     config_path: &std::path::Path,
@@ -289,6 +352,7 @@ fn sandbox_unit(
     binary: &std::path::Path,
     bwrap: &std::path::Path,
     check: bool,
+    drill_fault: Option<String>,
 ) -> Result<()> {
     use slop_ninja_validator::sandbox::{self, Layout, UnitKind};
     let kind = match unit {
@@ -301,6 +365,27 @@ fn sandbox_unit(
     anyhow::ensure!(home.is_absolute(), "HOME must be absolute");
     let layout = Layout::host()?;
     let binds = sandbox::binds(config, config_path, binary, kind, &home)?;
+    let strays = sandbox::journal_dir_strays(config)?;
+    anyhow::ensure!(
+        strays.is_empty(),
+        "the journal directory, which the sandbox binds read-write as a whole, also holds \
+         entries that are not this instance's journal, package or caches: {}. Give each \
+         instance a state directory of its own (~/.local/state/slop_ninja_validator/<instance>/) \
+         and move other journals, packages and key files out",
+        strays
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if let Some(value) = &drill_fault {
+        let phase = value.split_once(':').map_or(value.as_str(), |(phase, _)| phase);
+        slop_ninja_validator::faults::Phase::parse(phase)?;
+    }
+    let env: Vec<(&str, String)> = drill_fault
+        .map(|value| (slop_ninja_validator::faults::DRILL_FAULT_ENV, value))
+        .into_iter()
+        .collect();
     if check {
         anyhow::ensure!(
             sandbox::available(bwrap),
@@ -313,13 +398,14 @@ fn sandbox_unit(
             binary,
             config_path,
             &home,
+            kind,
             config.journal_path.is_file(),
         )?;
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         print!(
             "{}",
-            sandbox::render_drop_in(bwrap, &layout, &binds, binary, config_path, kind)?
+            sandbox::render_drop_in(bwrap, &layout, &binds, binary, config_path, kind, &env)?
         );
     }
     Ok(())

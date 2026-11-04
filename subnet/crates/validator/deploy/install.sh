@@ -23,23 +23,35 @@
 #                  none exists; an existing configuration is never replaced
 # --init           create the journal if the configuration names none yet
 # --enable         enable slop_ninja_validator-dispatch@NAME (starts at boot)
-# --start          with --enable, start it now
+# --start          with --enable, start it now, and fail unless it is
+#                  still running, with no restart, 5 s later
 # --sandbox MODE   auto (default), bwrap or none. bwrap writes a drop-in for
 #                  both units that runs the validator in a bubblewrap sandbox
 #                  showing it only its binary, this configuration, the hotkey
 #                  files it names and its state directories, after testing
-#                  that sandbox (sandbox-unit --check); it fails if bubblewrap
-#                  is missing or refused. auto does the same when bubblewrap
-#                  works and otherwise warns and removes any drop-in; none
-#                  removes it. Re-run after changing a path in the
-#                  configuration. Without the sandbox the validator can read
-#                  everything this account can: run it as a Unix user of its
-#                  own (README, "Isolation").
+#                  that sandbox (sandbox-unit --check) under the unit's own
+#                  restrictions (systemd-run with the unit's hardening); it
+#                  fails if bubblewrap is missing or refused. auto does the
+#                  same when bubblewrap works; where it does not, auto warns
+#                  and continues without a sandbox only when no drop-in is
+#                  installed yet, and otherwise fails and keeps the drop-in,
+#                  so isolation is removed only by an explicit --sandbox
+#                  none, which removes it. Re-run after changing a path in
+#                  the configuration (a validator whose drop-in no longer
+#                  matches its configuration refuses to start, exit 2).
+#                  Without the sandbox the validator can read everything
+#                  this account can: run it as a Unix user of its own
+#                  (README, "Isolation").
 # --dry-run        print every action instead of performing it
 #
 # The units are user units: lingering (loginctl enable-linger) keeps them
 # running without a login session and starts them at boot. Linux only: macOS
 # is not a declared platform, so no launchd job is provided.
+#
+# Each instance keeps its journal, package and caches in a directory of its
+# own, ~/.local/state/slop_ninja_validator/NAME (created here): the sandbox
+# binds the journal's directory read-write as a whole, so sandbox-unit refuses
+# a directory that also holds another instance's files.
 #
 # Nothing here reads a private key, signs or contacts the chain except `init`,
 # which reads only the hotkey's public companion. Re-running is safe.
@@ -79,6 +91,7 @@ run() {
 [[ "$(uname -s)" == Linux ]] || die "only Linux is a declared platform; no launchd job is provided"
 
 systemctl_cmd=${SYSTEMCTL:-systemctl}
+systemd_run_cmd=${SYSTEMD_RUN:-systemd-run}
 bwrap_cmd=${BWRAP:-$(command -v bwrap || true)}
 loginctl_cmd=${LOGINCTL:-loginctl}
 user=${USER:-$(id -un)}
@@ -87,6 +100,7 @@ bin_dir="$HOME/.local/bin"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/slop_ninja_validator"
 unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/slop_ninja_validator"
+instance_state="$state_dir/$instance"
 config="$config_dir/$instance.toml"
 validator="$bin_dir/slop_ninja_validator"
 unit="slop_ninja_validator-dispatch@$instance.service"
@@ -168,7 +182,7 @@ if [[ -n "$from" ]]; then
 fi
 
 run install -d -m 0755 "$bin_dir"
-run install -d -m 0700 "$config_dir" "$state_dir"
+run install -d -m 0700 "$config_dir" "$state_dir" "$instance_state"
 run install -d -m 0755 "$unit_dir"
 
 if [[ -n "$from" ]]; then
@@ -210,40 +224,102 @@ else
   ((init == 0)) || run "$validator" --config "$config" init
 fi
 
+# The unit's own restrictions, for the checks below: a check passes only
+# where the unit's process can do the same. hardening_keys are carried into
+# a transient unit (systemd-run -p); unit_only_keys are the templates' other
+# [Service] settings, which describe the long-running unit only (start,
+# restart, stop and logging). Every [Service] key of the templates and the
+# drop-in is in one of the two lists (fetch_tests checks it).
+hardening_keys="NoNewPrivileges UMask LockPersonality MemoryDenyWriteExecute RestrictRealtime RestrictSUIDSGID RestrictNamespaces KeyringMode RestrictAddressFamilies SystemCallArchitectures SystemCallFilter SystemCallErrorNumber MemoryMax MemorySwapMax"
+unit_only_keys="Type ExecStart Restart RestartSec RestartSteps RestartMaxDelaySec RestartPreventExitStatus KillSignal TimeoutStopSec SyslogIdentifier"
+# unit_props FILE...: the hardening assignments of the [Service] sections of
+# FILE... read in order, as systemd merges them (an empty value resets the
+# key), one Key=Value per line.
+unit_props() {
+  awk -v keys="$hardening_keys" '
+    BEGIN { n = split(keys, k, " "); for (i = 1; i <= n; i++) want[k[i]] = 1 }
+    FNR == 1 { service = 0 }
+    /^\[/ { service = ($0 == "[Service]"); next }
+    !service || /^[[:space:]]*(#|;)/ || index($0, "=") == 0 { next }
+    {
+      key = substr($0, 1, index($0, "=") - 1); value = substr($0, index($0, "=") + 1)
+      if (!(key in want)) next
+      if (!(key in count)) order[++keys_seen] = key
+      if (value == "") { count[key] = 0; next }
+      values[key, ++count[key]] = value
+    }
+    END { for (i = 1; i <= keys_seen; i++) for (j = 1; j <= count[order[i]]; j++) print order[i] "=" values[order[i], j] }
+  ' "$@"
+}
+# under_unit FILE... -- COMMAND...: runs COMMAND in a transient user unit
+# with the hardening of FILE... and the unit's cleared environment, waiting
+# for it and passing its exit status on.
+under_unit() {
+  local files=() props=() line
+  # A dry run plans a drop-in it has not rendered: skip files not there yet.
+  while [[ "$1" != -- ]]; do [[ ! -f "$1" ]] || files+=("$1"); shift; done
+  shift
+  while IFS= read -r line; do props+=(-p "$line"); done < <(unit_props "${files[@]}")
+  run "$systemd_run_cmd" --user --wait --pipe --collect --quiet --service-type=exec "${props[@]}" -- \
+    /usr/bin/env -i HOME="$HOME" RUST_BACKTRACE=0 "$@" </dev/null
+}
+
+# A check's report is not needed; a dry run prints the planned command.
+check_out=/dev/null
+((dry == 0)) || check_out=/dev/stdout
+
 # The sandbox drop-ins, one per unit of this instance. In a dry run the
 # sandbox is planned, not tested.
 dropin_name=50-sandbox.conf
-sandbox_units=("slop_ninja_validator-dispatch@$instance.service:dispatch" "slop_ninja_validator@$instance.service:dry-run")
+sandbox_units=("slop_ninja_validator-dispatch@$instance.service:dispatch:slop_ninja_validator-dispatch@.service" "slop_ninja_validator@$instance.service:dry-run:slop_ninja_validator@.service")
+installed_dropins=()
+for entry in "${sandbox_units[@]}"; do
+  unit_name=${entry%%:*}
+  [[ ! -e "$unit_dir/$unit_name.d/$dropin_name" ]] || installed_dropins+=("$unit_dir/$unit_name.d/$dropin_name")
+done
+# auto never removes isolation it finds installed: a bubblewrap that stopped
+# working (an update, a changed AppArmor policy, another PATH) fails the
+# install and keeps the drop-in, so the next restart is not silently
+# unsandboxed. Only --sandbox none removes it.
+no_bwrap() {
+  [[ "$sandbox" == auto ]] || die "--sandbox bwrap: $1"
+  ((${#installed_dropins[@]} == 0)) \
+    || die "$1, but ${installed_dropins[*]} is installed; the drop-in is kept. Fix bubblewrap and re-run, or pass --sandbox none to remove the isolation"
+  echo "install.sh: WARNING: $1, so the validator runs without file isolation" >&2
+  sandbox=none
+}
 if [[ "$sandbox" != none ]]; then
   if [[ -z "$bwrap_cmd" || ! -x "$bwrap_cmd" ]]; then
-    [[ "$sandbox" == auto ]] || die "--sandbox bwrap: bubblewrap (bwrap) is not installed"
-    echo "install.sh: WARNING: bubblewrap (bwrap) is not installed, so the validator runs without file isolation" >&2
-    sandbox=none
+    no_bwrap "bubblewrap (bwrap) is not installed"
   elif ((dry == 0)) && ! "$bwrap_cmd" --unshare-all --unshare-user --share-net --disable-userns \
       --ro-bind / / -- /bin/true >/dev/null 2>&1; then
-    [[ "$sandbox" == auto ]] || die "--sandbox bwrap: $bwrap_cmd cannot create a sandbox on this host"
-    echo "install.sh: WARNING: $bwrap_cmd cannot create a sandbox here, so the validator runs without file isolation" >&2
-    sandbox=none
+    no_bwrap "$bwrap_cmd cannot create a sandbox on this host"
   else
     sandbox=bwrap
   fi
 fi
 if [[ "$sandbox" == bwrap ]]; then
   for entry in "${sandbox_units[@]}"; do
-    unit_name=${entry%%:*} kind=${entry##*:}
+    unit_name=${entry%%:*} rest=${entry#*:}
+    kind=${rest%%:*} template=${rest#*:}
     dropin_dir="$unit_dir/$unit_name.d"
+    render=("$validator" --config "$config" sandbox-unit --unit "$kind" --binary "$validator" --bwrap "$bwrap_cmd")
     run install -d -m 0755 "$dropin_dir"
     if ((dry)); then
-      run "$validator" --config "$config" sandbox-unit --unit "$kind" --binary "$validator" --bwrap "$bwrap_cmd" --check
-      printf '+ %q --config %q sandbox-unit --unit %q --binary %q --bwrap %q > %q\n' \
-        "$validator" "$config" "$kind" "$validator" "$bwrap_cmd" "$dropin_dir/$dropin_name"
+      printf '+'; printf ' %q' "${render[@]}"; printf ' > %q\n' "$dropin_dir/.$dropin_name.new"
+      under_unit "$here/$template" "$dropin_dir/.$dropin_name.new" -- "${render[@]}" --check
+      run mv -f "$dropin_dir/.$dropin_name.new" "$dropin_dir/$dropin_name"
     else
-      "$validator" --config "$config" sandbox-unit --unit "$kind" --binary "$validator" --bwrap "$bwrap_cmd" --check >/dev/null \
-        || die "the sandbox test failed for $unit_name (sandbox-unit --check above); fix the paths it names, or pass --sandbox none"
       tmp=$(mktemp "$dropin_dir/.$dropin_name.XXXXXX")
-      if ! "$validator" --config "$config" sandbox-unit --unit "$kind" --binary "$validator" --bwrap "$bwrap_cmd" >"$tmp"; then
+      if ! "${render[@]}" >"$tmp"; then
         rm -f -- "$tmp"
-        die "sandbox-unit could not render the drop-in for $unit_name"
+        die "sandbox-unit refused the drop-in for $unit_name (see the error above); fix the paths it names, or pass --sandbox none"
+      fi
+      # The test runs under the unit's hardening and this drop-in's own
+      # namespace and system-call lists, as the unit will.
+      if ! under_unit "$here/$template" "$tmp" -- "${render[@]}" --check >/dev/null; then
+        rm -f -- "$tmp"
+        die "the sandbox test failed for $unit_name under the unit's restrictions (see above); fix the paths it names, or pass --sandbox none"
       fi
       chmod 0644 "$tmp"
       mv -f -- "$tmp" "$dropin_dir/$dropin_name"
@@ -252,10 +328,14 @@ if [[ "$sandbox" == bwrap ]]; then
   echo "install.sh: the validator runs in a bubblewrap sandbox (drop-in $dropin_name; re-run after changing a configured path)"
 else
   for entry in "${sandbox_units[@]}"; do
-    unit_name=${entry%%:*}
-    if ((dry)) || [[ -e "$unit_dir/$unit_name.d/$dropin_name" ]]; then
+    unit_name=${entry%%:*} template=${entry##*:}
+    if [[ -e "$unit_dir/$unit_name.d/$dropin_name" ]]; then
       run rm -f "$unit_dir/$unit_name.d/$dropin_name"
     fi
+    # Without the drop-in the template's own restrictions apply; check that
+    # the validator starts under them.
+    under_unit "$here/$template" -- "$validator" --config "$config" check-config >"$check_out" \
+      || die "check-config fails under the restrictions of $unit_name (see above); this host cannot run the unit as installed"
   done
   echo "install.sh: no file isolation: the validator can read everything $user can; run it as a Unix user of its own (README, \"Isolation\")" >&2
 fi
@@ -270,6 +350,15 @@ run "$systemctl_cmd" --user daemon-reload
 if ((enable)); then
   if ((start)); then
     run "$systemctl_cmd" --user enable --now "$unit"
+    # A unit that cannot start (refused by the sandbox, a check, the host)
+    # exits at once; one that restarts would hide it behind Restart=always.
+    if ((dry == 0)); then
+      sleep 5
+      state=$("$systemctl_cmd" --user show "$unit" --property=ActiveState --value 2>/dev/null || true)
+      restarts=$("$systemctl_cmd" --user show "$unit" --property=NRestarts --value 2>/dev/null || true)
+      [[ "$state" == active && "${restarts:-0}" == 0 ]] \
+        || die "$unit is not running 5 s after start (ActiveState=${state:-unknown}, NRestarts=${restarts:-unknown}); see journalctl --user -u $unit"
+    fi
   else
     run "$systemctl_cmd" --user enable "$unit"
   fi

@@ -922,19 +922,65 @@ container daemon. Three layers address this:
   read-only (dispatch unit only); the journal's directory read-write; the
   package's directory, read-write with `[fetch]` and read-only without; the
   fetch cache and `rpc.runtime_cache_dir` read-write; and a `file://` mirror
-  read-only. `sandbox-unit` refuses a directory bind that is the home
-  directory or contains it, a `..` path and a required path that does not
-  exist, so keep each path in a directory of its own (the example's
-  `~/.local/state/slop_ninja_validator`). Before writing a drop-in the
-  installer runs `sandbox-unit --check`. That runs `check-config` inside the
-  sandbox, then tests that every bound path is readable (and writable where
-  bound so) and that every other entry of each directory above a bound
-  path, of the home directory and of the host's `/tmp` is absent. With
-  `auto`, a host without a working `bwrap` gets a warning and no drop-in.
-  `--sandbox bwrap` fails instead, and `--sandbox none` removes the
-  drop-ins. Re-run the installer after changing any configured path, and
+  read-only. A configured path inside a bound directory gets that
+  directory's access: a package directory inside the journal's directory
+  is read-write even without `[fetch]`. The drop-in's comment lists each
+  such path under the bind that covers it. After the binds the sandbox's
+  root is remounted read-only, so a write to any path the drop-in does not
+  bind fails instead of landing on a temporary root that vanishes at the
+  next start.
+  `sandbox-unit` refuses a directory bind that is the home directory or
+  contains it, a `..` path and a required path that does not exist. It also
+  refuses a journal directory holding anything but this instance's journal
+  files (`<journal>` and `<journal>.*`), its package (`<package>` and
+  `<package>.*`, or the directory holding it), its caches and a mirror:
+  the whole directory is bound read-write, so another instance's journal,
+  an old package or a key file there would be readable and writable inside
+  the sandbox. Give each instance a state directory of its own,
+  `~/.local/state/slop_ninja_validator/<instance>/`, which the installer
+  creates. Inside the sandbox the validator is PID 1, as every sandboxed
+  validator is, and rtao's journal names its write temporaries
+  `.journal-write-<pid>-<n>`. Journals sharing a directory would collide
+  on those names, so a validator that is PID 1 refuses to start (exit 2)
+  when another journal's lock is beside its own. Before the journal opens,
+  the validator removes temporaries a killed process left (holding the
+  journal's lock, and only when no other journal shares the directory).
+  Otherwise a temporary left by an OOM kill, a SIGKILL after
+  `TimeoutStopSec` or a power loss would fail every later start at the
+  same write with "File exists".
+  The drop-in sets `SLOP_NINJA_SANDBOX_BINDS` to the unit and a digest of
+  its bind list. At startup (`run` and `check-config`) the validator
+  derives the bind list from its configuration again and refuses to start
+  (exit 2, `sandbox_refused`, not restarted) when the two differ, for
+  example after a configured path changed without re-running the
+  installer. A PID 1 start without the variable (a drop-in from an earlier
+  build) logs `sandbox_unverified`.
+  The installer renders each drop-in to a temporary file, then runs
+  `sandbox-unit --check` in a transient unit (`systemd-run --user --wait
+  --pipe`) with the template's hardening and that drop-in's namespace and
+  system-call lists, so the check passes only where the unit can build the
+  same sandbox. `--check` runs `check-config` inside the sandbox, which
+  includes the startup comparison above, then tests that every bound path is
+  readable (and writable where bound so) and that every other entry of
+  each directory above a bound path, of the home directory and of the
+  host's `/tmp` is absent. Without a drop-in the installer instead runs
+  `check-config` under each template's own hardening. With `--start` it
+  then requires the dispatch unit to be running, with no restart, 5 s after
+  the start. With `auto`, a host without a working `bwrap` gets a warning
+  and no drop-in only when none is installed yet. If a drop-in is already
+  installed, `auto` fails and keeps it, so isolation is removed only by
+  `--sandbox none`. `--sandbox bwrap` always fails without a working
+  `bwrap`. Re-run the installer after changing any configured path, and
   restart the unit after installing a bundle by hand only when the package
   directory changed.
+- **The environment.** Both units clear it: `env -i` in the templates,
+  `--clearenv` in the drop-in. The validator sees only `HOME`,
+  `RUST_BACKTRACE` and, in the sandbox, `SLOP_NINJA_SANDBOX_BINDS`. A
+  unit's `Environment=` and `EnvironmentFile=`, the user manager's own
+  environment and `environment.d` never reach it. This includes proxy
+  variables, which this build does not pass. A testnet drill's
+  `SLOP_NINJA_DRILL_FAULT` reaches it only when the drill passes it
+  explicitly ([Fault-injection hooks](#fault-injection-hooks)).
 - **A Unix user of its own** is still the recommendation for every
   validator, and is required wherever the validator shares a host with
   other services or operator credentials. The sandbox shares the operator's
@@ -947,7 +993,7 @@ container daemon. Three layers address this:
   installer as that user; the units and drop-in work unchanged under its
   user manager.
 
-
+### Version and build commit
 
 `slop_ninja_validator --version` and `slop-ninja-journal --version` (or
 `-V`) print the crate version and the commit the build came from; include
@@ -971,6 +1017,18 @@ builds compile hooks that always pass. Boundaries inside rtao's submission
 (after signing, after send) are covered by rtao's journal, which persists the
 signed attempt before network I/O, by the offline lost-response tests below,
 and by the live drills in [TESTNET-M2.md](TESTNET-M2.md#7-fault-drills).
+
+A drill build reads `SLOP_NINJA_DRILL_FAULT` from its environment, and the
+units clear the environment ([Isolation](#isolation)), so a unit's
+`Environment=` setting no longer arms a drill. A drill passes the variable
+explicitly instead. With the sandbox, render a drill-only drop-in with
+`sandbox-unit --unit dispatch --binary <binary> --drill-fault
+<phase>[:<n>]` into `<unit>.d/60-drill.conf`, which replaces the
+sandbox drop-in's `ExecStart=`. Without the sandbox, use a drop-in that
+resets `ExecStart=` and adds `SLOP_NINJA_DRILL_FAULT=<phase>[:<n>]` to the
+`env -i` arguments. Remove the drop-in after the drill. Each drill must
+confirm that its fault fired (exit 86 in the unit's log): a variable that
+does not reach the process arms nothing.
 
 ## Tests
 

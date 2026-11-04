@@ -39,7 +39,7 @@ fn config(root: &Path) -> Result<ValidatorConfig> {
         &EXAMPLE
             .replace("netuid = 0", "netuid = 7")
             .replace(
-                "/home/operator/.local/state/slop_ninja_validator/weights-journal.json",
+                "/home/operator/.local/state/slop_ninja_validator/NAME/weights-journal.json",
                 &root.join("journal.json").display().to_string(),
             )
             .replace("/home/operator/.bittensor/wallets", &root.join("wallets").display().to_string()),

@@ -601,7 +601,7 @@ fn config_text(root: &Path, network: &str, netuid: u16) -> String {
         .replace("network = \"test\"", &format!("network = \"{network}\""))
         .replace("netuid = 0", &format!("netuid = {netuid}"))
         .replace(
-            "/home/operator/.local/state/slop_ninja_validator/weights-journal.json",
+            "/home/operator/.local/state/slop_ninja_validator/NAME/weights-journal.json",
             &root.join("journal.json").display().to_string(),
         )
         .replace(

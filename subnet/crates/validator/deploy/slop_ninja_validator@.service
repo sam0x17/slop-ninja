@@ -27,6 +27,9 @@ MemorySwapMax=0
 # Isolation. The user manager passes its own environment to every unit (on an
 # operator host that can include API keys and agent sockets), so ExecStart
 # starts the validator through `env -i` with only HOME and RUST_BACKTRACE.
+# An Environment= or EnvironmentFile= setting added to this unit therefore
+# never reaches the validator (README, "Isolation"; a drill passes its
+# fault explicitly, README "Fault-injection hooks").
 # The settings below need no namespace, so they work in user units even
 # where unprivileged user namespaces are restricted (Ubuntu's AppArmor
 # default; there ProtectHome=, PrivateTmp=, BindPaths= and the other mount

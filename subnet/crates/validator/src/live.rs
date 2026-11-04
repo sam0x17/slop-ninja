@@ -149,6 +149,14 @@ pub fn open_adapter(
     clock: ChainClock,
 ) -> Result<NativeWeightAdapter> {
     let netuid = identity.netuid;
+    // A write temporary a killed process left would make this process's
+    // write with the same number fail ("File exists") when both are PID 1
+    // of a sandbox. Any failure here leaves the open to report the cause.
+    match crate::sandbox::sweep_journal_temps(&config.journal_path) {
+        Ok(0) => {}
+        Ok(removed) => tracing::warn!(event = "journal_temps_removed", removed),
+        Err(error) => tracing::warn!(event = "journal_temps_unswept", error = %error),
+    }
     NativeWeightAdapter::open(
         &config.journal_path,
         SchedulerConfig {

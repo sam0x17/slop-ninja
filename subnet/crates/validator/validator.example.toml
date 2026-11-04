@@ -5,7 +5,11 @@
 network = "test"            # "test" or "finney"; fixes the expected genesis
 netuid = 0                  # REQUIRED: 601 on testnet. 0 is refused, so an unedited copy never runs
 weight_version = 0          # WeightsVersionKey of the subnet; subnet 601 reads 0
-journal_path = "/home/operator/.local/state/slop_ninja_validator/weights-journal.json"
+# One state directory per instance: NAME is the --instance name, and
+# deploy/install.sh creates ~/.local/state/slop_ninja_validator/NAME. The
+# sandbox binds the journal's directory read-write as a whole, so keep no
+# other instance's journal, package or key files in it.
+journal_path = "/home/operator/.local/state/slop_ninja_validator/NAME/weights-journal.json"
 
 [wallet]
 path = "/home/operator/.bittensor/wallets"
@@ -39,7 +43,7 @@ level = "info"
 # receipt_public_key, authorization_public_key); never chain keys, and never a
 # keys.json published beside a package.
 # [package]
-# path = "/home/operator/.local/state/slop_ninja_validator/package.json"
+# path = "/home/operator/.local/state/slop_ninja_validator/NAME/package.json"
 # [package.trusted_keys]
 # package = "<64 hex>"
 # receipt = "<64 hex>"
@@ -52,7 +56,7 @@ level = "info"
 # base_url = "https://<public status host>/"  # https:// only; no credentials, query or fragment
 # poll_secs = 300     # how often a continuous run checks for a new target or authorization (at least 60); also each session's time bound
 # stall_secs = 60     # abandon a request that receives nothing this long; it resumes next time
-# cache_dir = "/home/operator/.local/state/slop_ninja_validator/public-cache"  # the default: beside the journal
+# cache_dir = "/home/operator/.local/state/slop_ninja_validator/NAME/public-cache"  # the default: beside the journal
 
 # Read only by `run --dispatch`. Without that flag the keyfile is never opened.
 # The file's <hotkey>pub.txt must name the same account as [wallet].

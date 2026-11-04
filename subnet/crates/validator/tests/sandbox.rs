@@ -182,3 +182,114 @@ fn the_printed_drop_in_names_no_unbound_path() {
             .ends_with(&format!("--config {} run", op.config.display()))
     );
 }
+
+/// The words of the drop-in's `ExecStart=` (every word here is plain), with
+/// `%h` replaced and the unit's `run` replaced by `command`.
+fn drop_in_argv(op: &Operator, command: &[&str]) -> Vec<String> {
+    let out = sandbox_unit(op, &[]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8(out.stdout).unwrap();
+    let exec = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("ExecStart="))
+        .find(|line| !line.is_empty())
+        .expect("an ExecStart line");
+    let home = op.home.display().to_string();
+    let mut words: Vec<String> = exec
+        .split(' ')
+        .map(|word| {
+            assert!(!word.starts_with('"'), "quoted word {word} in {exec}");
+            if word == "%h" { home.clone() } else { word.to_owned() }
+        })
+        .collect();
+    assert_eq!(words.pop().as_deref(), Some("run"));
+    words.extend(command.iter().map(|word| (*word).to_owned()));
+    words
+}
+
+fn run_argv(argv: &[String], home: &Path) -> std::process::Output {
+    Command::new(&argv[0])
+        .args(&argv[1..])
+        .env_clear()
+        .env("HOME", home)
+        .output()
+        .expect("run bwrap")
+}
+
+/// Inside the sandbox every validator is PID 1, so a write temporary a
+/// killed process left (`.journal-write-1-<n>`) collides with the next
+/// process's write of the same number. The journal opens anyway: the
+/// temporaries are swept under the journal's lock first.
+#[test]
+fn a_left_journal_temporary_does_not_block_the_next_sandboxed_start() {
+    if !bwrap_works() {
+        eprintln!("skipped: {BWRAP} is missing or cannot create user namespaces here");
+        return;
+    }
+    let op = operator();
+    for name in [".journal-write-1-0", ".journal-write-1-1", ".journal-write-1-2"] {
+        std::fs::write(op.state.join(name), b"").unwrap();
+    }
+    let out = run_argv(&drop_in_argv(&op, &["init"]), &op.home);
+    assert!(
+        out.status.success(),
+        "init inside the sandbox: {}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(op.state.join("journal.json").is_file());
+    let left: Vec<_> = std::fs::read_dir(&op.state)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(".journal-write-"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+}
+
+/// A drop-in rendered before a configured path changed refuses to start
+/// (exit 2) instead of writing that path onto the sandbox's temporary root;
+/// so does a journal directory shared with another journal. The root itself
+/// is read-only.
+#[test]
+fn a_stale_drop_in_or_a_shared_journal_directory_refuses_to_start() {
+    if !bwrap_works() {
+        eprintln!("skipped: {BWRAP} is missing or cannot create user namespaces here");
+        return;
+    }
+    let op = operator();
+    let argv = drop_in_argv(&op, &["check-config"]);
+    let out = run_argv(&argv, &op.home);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+
+    // Writes outside the binds fail.
+    let mut shell = argv.clone();
+    let start = shell.iter().position(|word| word == "--").unwrap() + 1;
+    shell.truncate(start);
+    shell.extend(["/bin/sh".into(), "-c".into(), "touch /x || touch \"$HOME/x\" || exit 9".into()]);
+    assert_eq!(run_argv(&shell, &op.home).status.code(), Some(9));
+
+    let text = std::fs::read_to_string(&op.config).unwrap();
+    let runtime = op.home.join("runtime-cache");
+    std::fs::create_dir_all(&runtime).unwrap();
+    std::fs::write(
+        &op.config,
+        text.replace(
+            "[rpc]\n",
+            &format!("[rpc]\nruntime_cache_dir = \"{}\"\n", runtime.display()),
+        ),
+    )
+    .unwrap();
+    let out = run_argv(&argv, &op.home);
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("re-run deploy/install.sh"));
+    std::fs::write(&op.config, &text).unwrap();
+
+    std::fs::write(op.state.join("other-journal.json.lock"), b"").unwrap();
+    let out = run_argv(&argv, &op.home);
+    assert_eq!(out.status.code(), Some(2), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("another journal"));
+    // The installer's render refuses the shared directory too.
+    let out = sandbox_unit(&op, &[]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("other-journal.json.lock"));
+}

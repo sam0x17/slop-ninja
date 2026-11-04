@@ -45,9 +45,11 @@ repository is <https://github.com/sam0x17/slop-ninja>. The commands fetch everyt
 
 - The testnet reference is **R0**, scored in every cohort. Its
   [reference package](reference-packages.md) is published under CC BY-SA 4.0
-  when public access opens, with a training companion that holds R0's
-  encoder. The recipe below starts from ModernBERT-base and public data; you
-  can start from R0's encoder instead ([Warm start from R0](#warm-start-from-r0)).
+  with a training companion that holds R0's encoder. Until public access
+  opens, both are attached to the testnet release as two tar archives
+  ([miner guide](miner-guide.md#r_0-archives-optional)). The recipe below
+  starts from ModernBERT-base and public data; you can start from R0's
+  encoder instead ([Warm start from R0](#warm-start-from-r0)).
 - **Promotion applies.** An entrant that beats the reference by the margin δ
   and passes the promotion checks becomes the next reference, as the
   whitepaper's promotion rule says. Its artifact is published with its cohort,
@@ -516,10 +518,15 @@ upload), with a registered hotkey ([steps 3 and 4](miner-guide.md#3-wallet-and-h
 (`model/encoder.safetensors`, 598,442,828 bytes, SHA-256
 `a167c6072e946be3ce23aa06a1f6ea0e0150dd29dafa3fb387980fe90c236927`) and its
 classifier config, listed in the package's `training/companion.json` as
-64 MiB parts, under the same CC BY-SA 4.0 licence
-([public layout](public-layout.md)). To start from R0's encoder instead of
-ModernBERT-base, rebuild the file from its parts, check its SHA-256, and pass
-it to step 5:
+64 MiB parts, under the same CC BY-SA 4.0 licence. Until public access
+opens, the companion is attached to the testnet release as
+`slop-ninja-r0-training-companion-143ca2d9.tar`; then its parts are also
+downloadable from the [public layout](public-layout.md). To start from R0's
+encoder instead of ModernBERT-base, rebuild the file from its parts and check
+its SHA-256 (the [miner guide](miner-guide.md#r_0-archives-optional) gives
+the commands, which write it to `r0-companion/model/encoder.safetensors` in
+the directory you extract the archives in), and
+pass it to step 5:
 
 ```sh
 $PY $PYDIR/public_a.py parent --upstream modernbert-base \

@@ -21,13 +21,14 @@ closes.
 | [Training guide](training-guide.md) and its public recipe, the path from ModernBERT-base and public data to an admissible artifact | in the repository; tested end to end on Linux x86_64 with CUDA (a smoke run) |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Signed release binaries (Linux x86_64) | not yet live: binaries built from the public repository, signed and smoke-tested when it is published |
+| Signed release binaries (Linux x86_64) | not yet live: the miner client and the artifact checker, built from the public repository, signed and smoke-tested when the release is published; a validator release follows later |
 | Coordinator unsigned cohort read (`GET /admission/v1/cohort`), used by `check`, `commit`, `status` and `next-cohort`, served by the upload Worker at `https://testnet-admission.slop.ninja` | live |
 | Coordinator signed admission routes, used by `upload`, `abort` and the hotkey view of `status` | not yet open to outside hotkeys: until they are, an outside hotkey's signed request is answered `not_found` (exit 1) |
 | Public status host (`--public`), with the published packages, leaderboard and artifacts | not yet live; until it is, `status` and `next-cohort` show the calendar from the coordinator's unsigned cohort read |
 | The coordinator's admission origin pinned in the release trust file | pinned: `https://testnet-admission.slop.ninja` |
 | Validators committing the launch burn row ([Rewards](#13-rewards)) | live since November 3, 2026: both Slop Ninja validators commit and reveal it on subnet 601 each tempo |
-| Reference packages (`R_0` and the S2c span package) | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
+| `R_0` reference package and training companion | built and checked; attached to the testnet release until public access opens ([`R_0` archives](#r_0-archives-optional)) |
+| S2c span package | built and checked; downloadable when public access opens ([Reference model](#reference-model)) |
 
 The [training guide](training-guide.md) produces an admissible artifact from
 public material and ends with `pack` and `check`. `commit` needs only the
@@ -65,20 +66,33 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
 ### Release binaries (Linux x86_64)
 
 Releases appear on the public repository's Releases page (not yet live).
-Each release holds the Linux x86_64 binaries `slop_ninja_miner` and
-`slop_ninja_artifact_check` (and the validator's two), `testnet-trust.json`,
-`SHA256SUMS` and the detached signature `SHA256SUMS.sig`. The binaries need
-glibc 2.34 or later; on any other platform, build from source.
+The first release holds:
 
-Download every file of the release into one directory, then verify it before
-you run anything, with the key and allowed-signers line from the [landing
-page](README.md#release-key):
+- the Linux x86_64 binaries `slop_ninja_miner` and
+  `slop_ninja_artifact_check`;
+- `testnet-trust.json`, the trust file;
+- two optional tar archives, `slop-ninja-r0-reference-package-143ca2d9.tar`
+  and `slop-ninja-r0-training-companion-143ca2d9.tar`: `R_0`'s reference
+  package and its training companion, about 1.2 GB together
+  ([below](#r_0-archives-optional));
+- `SHA256SUMS`, the digests of those five files, and its detached signature
+  `SHA256SUMS.sig`;
+- `allowed_signers` and `slop-ninja-release-testnet.pub`, copies of the key
+  for convenience only.
+
+It holds no validator binaries: the validator client is changing, and a
+validator release follows later. The binaries need glibc 2.34 or later; on
+any other platform, build from source.
+
+Download the release's files into one directory (the two archives only if you
+want them), then verify them before you run anything, with the key and
+allowed-signers line from the [landing page](README.md#release-key):
 
 ```sh
 printf '%s\n' 'slop-ninja-testnet-release namespaces="file" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGCXMX0I4LTRrHt0MkCsDfg/OUeQ7Sfd0/EytxMUdYPK slop-ninja testnet release' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I slop-ninja-testnet-release -n file \
   -s SHA256SUMS.sig < SHA256SUMS
-sha256sum -c SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
 mkdir -p ~/.local/bin
 install -m 0755 slop_ninja_miner slop_ninja_artifact_check ~/.local/bin/
 slop_ninja_miner --version
@@ -87,9 +101,65 @@ slop_ninja_miner --version
 `ssh-keygen` must print `Good "file" signature for
 slop-ninja-testnet-release` with the fingerprint
 `SHA256:4YzEnNK8C7zjNWvasiQhv0XDJKdrnKB6L33stMQra1Q`, and `sha256sum` `OK`
-for every file; stop if either does not. Take the key from the landing page,
-not from the release's own copy. Keep the release's `testnet-trust.json`: the
-signature covers it, and the client reads it to decide where it may upload.
+for every file you downloaded (with `--ignore-missing` it skips the archives
+you left out; check that both binaries and `testnet-trust.json` are among
+them);
+stop if either does not. Take the key from the landing page, not from the
+release's own copy. Keep the release's `testnet-trust.json`: the signature
+covers it, and the client reads it to decide where it may upload.
+
+### `R_0` archives (optional)
+
+You need the two archives only to score against `R_0` locally or to start
+training from its encoder ([Warm start from
+R0](training-guide.md#warm-start-from-r0)). The public data host is not
+enabled yet, so they are attached to the release until public access opens;
+then the package directory they hold is also downloadable from the [public
+layout](public-layout.md). Both are licensed CC BY-SA 4.0; the package's
+`NOTICE.md`, which also covers the companion, says how to credit R0 and its
+base model.
+
+The archive files are covered by `SHA256SUMS`, so verify them with the
+commands above. Both are rooted at the package digest, so extracted into one
+directory they give `R_0`'s package directory, byte for byte as the [public
+layout](public-layout.md) lists it under
+`v1/reference/packages/143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c/`.
+In the directory holding the release files, extract them and check the package
+digest and every part:
+
+```sh
+tar -xf slop-ninja-r0-reference-package-143ca2d9.tar
+tar -xf slop-ninja-r0-training-companion-143ca2d9.tar
+cd 143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c
+sha256sum artifact-files.json   # must print 143ca2d95954e502a053fdd2c6deb6501e3e55273846dc04e310a3ee84c57f0c
+for f in parts/* training/parts/*; do printf '%s  %s\n' "${f##*/}" "$f"; done | sha256sum -c --quiet
+```
+
+The last command prints nothing when every part matches its name. Then
+rebuild the six model files into `../r0-artifact` and the companion (R0's
+encoder `model/encoder.safetensors` and its `runtime-base/config.json`) into
+`../r0-companion`, by concatenating each file's parts in the listed order, and
+check every rebuilt file. This needs `jq`; extracting and rebuilding take
+about 2.4 GB of disk beside the archives.
+
+```sh
+mkdir ../r0-artifact ../r0-companion
+jq -r '.files[] | .name as $n | .parts[] | "\(.sha256) \($n)"' artifact-files.json |
+  while read -r h name; do cat "parts/$h" >> "../r0-artifact/$name"; done
+jq -r '.files[] | "\(.sha256)  ../r0-artifact/\(.name)"' artifact-files.json | sha256sum -c
+jq -r '.files[] | .name as $n | .parts[] | "\(.sha256) \($n)"' training/companion.json |
+  while read -r h name; do mkdir -p "../r0-companion/${name%/*}"; cat "training/parts/$h" >> "../r0-companion/$name"; done
+jq -r '.files[] | "\(.sha256)  ../r0-companion/\(.name)"' training/companion.json | sha256sum -c
+slop_ninja_artifact_check --spec v2 check-dir ../r0-artifact
+```
+
+Both `sha256sum -c` commands must print `OK` for every file, and `check-dir`
+must report the inference-content digest
+`d7232991612ae9693477a152d73e2b6ca5ac83b2d9cf5cd78e1eac4ecf96a36f` and the
+package digest above. The rebuild appends to the files it writes, so run it
+once, into the new directories the `mkdir` creates. `../r0-artifact` is the
+directory to give the [local scorer](#score-it-locally-optional), and
+`../r0-companion/model/encoder.safetensors` is the encoder for the warm start.
 
 ### Build from source
 
@@ -755,10 +825,12 @@ Testnet's reference is `R_0`, Slop Ninja's released *A* document model,
 scored in every cohort. Its score on each batch is in the signed package, and
 it is the bar that ends the launch burn. Its
 [reference package](reference-packages.md) (the six files as the scorer
-loads them, package `143ca2d9…c57f0c`) is published under CC BY-SA 4.0 when
-public access opens, so you can score it locally with the same engine as your
-own artifact. Slop Ninja's S2c span package is published the same way; it is
-a span-serving package, not a reference.
+loads them, package `143ca2d9…c57f0c`) is published under CC BY-SA 4.0,
+attached to the testnet release until public access opens
+([`R_0` archives](#r_0-archives-optional)), so you can score it locally with
+the same engine as your own artifact. Slop Ninja's S2c span package is
+published when public access opens; it is a span-serving package, not a
+reference.
 
 The testnet reference will be replaced at most once outside the promotion rule:
 by a better reference Slop Ninja trains, only if it passes every required gate,

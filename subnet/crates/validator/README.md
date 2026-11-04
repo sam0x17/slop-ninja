@@ -571,9 +571,13 @@ earlier build) is installed at the next start when it verifies against the
 held record and discarded otherwise (`staged_install`). A continuous run
 then continues on the successor in the same process. In a dispatch run the
 fetcher polls every `poll_secs`; a startup fetch that must wait hands its
-successor to the loop, which starts waiting at once. A refusal (`Refused` or
-a digest failure) is logged as `fetch_refused` with `alert = true`; outcomes
-that are only incomplete are logged as `fetch_kept`. The last outcome code
+successor to the loop, which starts waiting at once. In the loop's
+background sessions a refusal (`Refused` or a digest failure) is logged as
+`fetch_refused` with `alert = true`; outcomes that are only incomplete are
+logged as `fetch_kept`. The startup session and the sessions of a wait after
+a deferred tempo log their report as `fetch_startup` or `fetch_waiting`
+(info level), a refusal there only as `"alert": true` inside the report.
+The last outcome code
 is the dispatch report's `last_fetch`. `fetch` runs one session without the
 journal or chain, installs nothing and prints a content-free report (exit 0
 verified, 75 incomplete or cache busy, 3 refused).

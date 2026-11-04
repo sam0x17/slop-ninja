@@ -9,20 +9,25 @@ monetary value; see the [terms](terms.md).
 ## What a validator does
 
 Slop Ninja operates one lead validator, the coordinator. It runs the hidden
-evaluation of every cohort, then signs and publishes a score package. Every
-other validator:
+evaluation of every cohort, derives the native weight row, and signs and
+publishes that row off chain. Every other validator:
 
-1. fetches the published package from the public status host and verifies it
-   against pinned public keys;
-2. derives the native weight row itself, with the shared protocol crate and
-   the frozen `reward-v1` rules;
+1. reads the unsigned authorization pointer from the public status host,
+   which only locates objects, and verifies the signed authorization and
+   coordinator row it names against pinned public keys;
+2. journals the signed revocation set the pointer names;
 3. commits that row on chain through its own journaled, timelocked
-   commit-reveal, at every tempo while the cohort's target is active.
+   commit-reveal, at every tempo while the row's target is active, and keeps
+   committing the last signed row through coordinator silence. Its only
+   change to the row burns the units of a registration that no longer
+   exists ([What the validator verifies](#what-the-validator-verifies)).
 
 Validators work in parallel. None waits for the coordinator's own chain row,
-and the coordinator's row and certificate are later consistency audits, not
-prerequisites. The only thing other validators contribute is timely on-chain
-submission and reveal of the rows they calculated.
+and the coordinator's chain row and certificate are later consistency
+audits, not prerequisites. The only thing other validators contribute is
+timely on-chain submission and reveal of the coordinator's row. A validator
+may check models in its own way and publish its own scores; those are
+advisory and never change its row.
 
 ### What a validator never receives
 
@@ -50,9 +55,10 @@ the hidden evaluation is part of the protocol.
 | Piece | State |
 | --- | --- |
 | `slop_ninja_validator` startup checks, `observe`, the dry run and journaled dispatch | built and tested on Linux x86_64; live commits, per-tempo re-commits and fault drills ran on subnet 601 on October 30, 2026, under a fixture package |
-| Verification of `reward-v1` packages | in the current source (build from source, [section 2](#2-install)); validator release binaries follow in a later release |
-| Published packages on the public status host | not yet live |
-| The package fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, so until it is live every validator installs each new target's bundle by hand. The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step once that build is deployed (below) |
+| Verification of the coordinator's signed row (`slop_ninja.coordinator_row_bundle/v1`; earlier package bundles are refused as `bundle_schema_retired`) | in the current source (build from source, [section 2](#2-install)); validator release binaries follow in a later release |
+| The coordinator's signed row | built and tested offline; the coordinator build that signs it is not yet deployed |
+| Published rows on the public status host | not yet live |
+| The row fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, so until it is live every validator installs each row bundle by hand or reads a local mirror (below). The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
 | Committing the launch burn row | live on subnet 601: both Slop Ninja validators commit and reveal it each tempo under rtao's owner-row opt-in (below); first native commit and reveal on November 3, 2026 |
 | Release public key | published on the [landing page](README.md#release-key) |
@@ -110,9 +116,10 @@ copy it to `~/.config/slop_ninja_validator/<instance>.toml` with mode 0600, and
 set every value. Paths must be absolute. The file holds no secrets. The
 example ships with `netuid = 0`, which is refused, so an unedited copy never
 runs; set `netuid = 601`. Its `[package]`, `[fetch]` and `[dispatch]` sections
-are commented out: uncomment them when the public host is live and you want
-to sign. Edited for subnet 601, the values that matter look like this (the
-example's `[recovery]` and `[log]` sections keep their defaults):
+are commented out: uncomment them when a row is available (from the public
+host, a local mirror or a bundle you install by hand) and you want to sign.
+Edited for subnet 601, the values that matter look like this (the example's
+`[recovery]` and `[log]` sections keep their defaults):
 
 ```toml
 network = "test"
@@ -149,20 +156,23 @@ hotkey_file = "/home/operator/.bittensor/wallets/my-wallet/hotkeys/my-validator"
 - **Trusted keys.** Take the three keys from the release's
   `testnet-trust.json` (schema `slop_ninja_testnet_trust_roots_v1`). They are
   Ed25519 application keys, never chain keys. Pin them; never trust a
-  `keys.json` published beside a package. The keys in the repository's
+  `keys.json` published beside a bundle. The keys in the repository's
   `subnet/coordinator/testnet-trust.json` today are rehearsal keys; they will
   be rotated before the testnet is announced, so use the file from the signed
   release.
 - **`[package]`** names the bundle file the validator verifies. With
   `[fetch]`, the validator writes it there itself; without `[fetch]`, you
   install it. Without `[package]`, `run` stops after startup.
-- **`[fetch]`** names the public status host (`https://` only, no
-  credentials, query or fragment). The validator checks it at every start and
-  then every `poll_secs` (300 by default, at least 60, the index documents'
-  cache lifetime) during a dispatch run; see [Fetching published
-  packages](#fetching-published-packages). `stall_secs` (60) abandons a
+- **`[fetch]`** names the public status host (`https://`, with no
+  credentials, query or fragment), or a local mirror `file:///<dir>/`
+  ([below](#fetching-the-coordinators-row)). The validator checks it at
+  every start and then every `poll_secs` (300 by default, at least 60, the pointer's
+  cache lifetime) during a dispatch run; see [Fetching the coordinator's
+  row](#fetching-the-coordinators-row). `stall_secs` (60) abandons a
   request that receives nothing for that long; it resumes at the next check.
-  The cache defaults to `public-cache` beside the journal.
+  `cache_dir` (default `public-cache` beside the journal) holds only the
+  fetcher's lock and what an earlier release cached there; a row fetch
+  stores nothing on disk.
 - **`[dispatch]`** names the keyfile that `run --dispatch` signs with. Its
   `pub.txt` must name the `[wallet]` hotkey. Without `--dispatch` the keyfile
   is never opened. Leave `max_finalized_blocks` unset: the run is then
@@ -224,18 +234,19 @@ Every run starts the same way, against one finalized block:
 4. Reads at the finalized block that the subnet exists, that the hotkey has a
    UID, and that commit-reveal is enabled (below).
 5. Resumes explicitly. With `[fetch]`, runs one fetch and installs what it
-   verified (below). Then verifies the package, derives the row and either
-   prints the dry run or dispatches.
+   verified (below). Then verifies the installed bundle, takes its signed
+   row and either prints the dry run or dispatches.
 
-Without `--dispatch`, the journal is not written: the run derives the row,
+Without `--dispatch`, the journal is not written: the run takes the row,
 encrypts it to the predicted reveal round, composes the timelocked commit,
 type-checks it against live metadata and prints its signing-payload hash. No
 key is read. With `--dispatch`, the row is enqueued as a journaled operation,
 the keyfile is unlocked, and each finalized block drives the scheduler. Once
 the commit is final the validator reads it back; once the reveal is observed
 it compares the on-chain `Weights` row with the row that commitment carried.
-The run then re-commits the target once per tempo, with the row derived
-afresh from that tempo's finalized registrations, until it is stopped. A
+The run then re-commits the installed row once per tempo, checked against
+that tempo's finalized registrations ([What the validator
+verifies](#what-the-validator-verifies)), until it is stopped. A
 successor target, once installed, takes over in the same process; a tempo
 with nothing to commit (below) is waited out in the same process too.
 
@@ -244,8 +255,8 @@ with nothing to commit (below) is waited out in the same process too.
 | 0 | completed: the dry run printed; a bounded run reached its block bound or installed a successor (`superseded`); or a signal | restarts |
 | 1 | an error, such as an RPC failure | restarts |
 | 2 | invalid configuration, a missing journal, or `--dispatch` without `[package]` and `[dispatch]` | stays stopped |
-| 3 | halted by a check: subnet or hotkey not registered, commit-reveal disabled, chain mismatch, recovery that needs review, a refused package or row, or chain weights that differ from the row of the commitment that set them | stays stopped |
-| 75 | wait and retry: recovery still in progress, refused upstream (`upstream_storage_refused`), or work awaiting recovery; outside a continuous dispatch run, also a deferred tempo or no bundle installed yet (`bundle_unavailable`) | restarts |
+| 3 | halted by a check: subnet or hotkey not registered, commit-reveal disabled, chain mismatch, recovery that needs review, a refused bundle or row, or chain weights that differ from the row of the commitment that set them | stays stopped |
+| 75 | wait and retry: recovery still in progress, refused upstream (`upstream_storage_refused`), or work awaiting recovery; outside a continuous dispatch run, also a deferred tempo, no bundle installed yet (`bundle_unavailable`) or an installed bundle of a retired schema (`bundle_schema_retired`); a continuous run exits on a retired bundle only when a successor waits on in-flight work (see upgrading, under [Fetching the coordinator's row](#fetching-the-coordinators-row)) | restarts |
 
 ### Persistent operation
 
@@ -261,8 +272,9 @@ never resets while a unit keeps restarting, so it would leave every later
 restart at its maximum.) A continuous run does not exit for routine work:
 it continues on a new target, and waits out a tempo with nothing to commit,
 in the same process. Both set
-`MemoryMax=2G` (twice the measured worst case at the largest receipt
-indexes the protocol can sign) and `MemorySwapMax=0`. The dispatch unit is enabled for
+`MemoryMax=2G` and `MemorySwapMax=0`. The limit was derived for an earlier
+fetcher that verified receipts and is kept as an over-provision: a row
+fetch session reads at most 64 MiB into memory. The dispatch unit is enabled for
 `default.target`, and lingering starts your user manager at boot, so the
 validator survives logout and reboots. The installer does all of this:
 
@@ -313,65 +325,84 @@ Stopping the unit pauses the journal; retained work survives, and the next
 start recovers first. Keep `recommit` at its default, `per_tempo`: with
 `once`, every restart commits again.
 
-## Fetching published packages
+## Fetching the coordinator's row
 
-The fetcher reads the coordinator's signed records from the public status
-host, in the publisher's layout `v1` (see [the public
-layout](public-layout.md)):
+The fetcher reads one document from the public status host, in the
+publisher's layout `v1` (see [the public layout](public-layout.md)), and the
+signed objects it names. `v1/authorizations/current.json` (schema
+`slop_ninja.public.authorization/v2`) lists, each as a content-addressed
+object with its SHA-256 and its length:
 
-- `v1/authorizations/current.json`: the authorization that lets validators
-  commit now (`launch` or `cohort`), any refresh of its renew-by hint, and
-  the revocation set (the latest signed revocation of every revoked target,
-  concatenated), each a content-addressed object listed with its SHA-256
-  and its exact signed length (for the set, a whole multiple of one
-  revocation's). The pointer's schema is
-  `slop_ninja.public.authorization/v2`: a validator built before it refuses
-  the pointer by its schema (`fetch_refused`), cannot see revocations, and
-  must be upgraded. The coordinator writes it whenever a closed cohort's
-  target is installed, with the authorization it signs for that cohort.
-  **The public host is not deployed yet**; until it is, the fetcher reports
-  `unpublished` and the validator keeps the bundle you install
-  (`base_url` may also name a local directory holding a copy of the layout,
-  `file:///<dir>/`, checked exactly as the host is);
-- `v1/cohorts/index.json`: every published cohort, its target digest and
-  whether its detailed receipts are still published;
-- each cohort's `publication.json`, which lists every object with its SHA-256
-  and length, and its `chunk-map.json` for the receipt bundles.
+- the authorization validators commit under now (`launch` or `cohort`) and
+  any refresh of its renew-by hint;
+- the revocation set: the latest signed revocation of every revoked target,
+  concatenated;
+- `row`: the coordinator's signed row (`CoordinatorRow`, under the
+  authorization key) under that authorization; [What a validator never
+  receives](#what-a-validator-never-receives) lists its fields.
 
-These documents are unsigned and only locate objects. Each object must match
-its listed SHA-256 and length before it is used; the signed records are then
-verified under your pinned keys exactly as for a bundle file you installed.
-A lying host can make a fetch fail, never change what is verified. It also
-cannot fill your disk or memory: an authorization's length is fixed by its
-schema and its signature is checked before anything else is fetched; every
-receipt bundle must be accounted for by the signed receipt index and listed
-in `publication.json` before any is read; a session reads at most 64 MiB
-into memory for documents and records, cached objects included, plus at
-most two signed receipt indexes (about 128 MiB, the largest the protocol
-can sign), and ends after `poll_secs`; receipt bundles stream to disk,
-bounded by the signed index; and every session prunes the cache to what it
-and the bundles your validator holds need. While your installed or staged
-bundle file cannot be read (`installed_bundle_unreadable`, alerting), no
-session prunes and none takes a new cohort into the cache
-(`cache_keep_unknown`) until it reads again. A refusal of
-records the host served is logged as `fetch_refused` with `alert = true`.
+Nothing else is read, not even the public cohort listing or the cohort
+summaries. Cohort records, score packages, receipts, receipt indexes and
+chunk maps stay with the coordinator. A
+validator release from before the copy model does not read `row` and cannot
+install a cohort target from this layout: upgrade it.
 
-For a cohort authorization, the fetcher takes the target's cohort and the
-carrying cohort the authorization names (a later cohort that produced no
-target), with their manifests, packages, closure, published index, receipt
-index and every receipt bundle, assembles the bundle, and verifies it
-against the target your validator holds. A session reads at most 64 MiB
-into memory for documents and records (the bundle file bound) and at most
-two signed receipt indexes (about 128 MiB) beside it, and refuses a
-declared length before reading the body. A
-download interrupted part-way is kept as a partial file and continued with a
-range request at the next check; an object that fails its digest is deleted
-and fetched again. Verified objects stay in the cache while the current
-pointer or your installed bundle needs them. One session at a time uses the
-cache: `fetch` exits 75 while the running unit holds it.
+The coordinator signs each closed cohort's authorization itself. It derives
+the installed target's row from its own finalized snapshot once a tempo and
+whenever a target is installed, independent of its own commitment, and
+signs a new row record only when the paid entries change. Until a row
+exists under the current authorization, the session reports `row_unpublished` and retries at the next check, and the
+installed bundle keeps committing. **The public host is not deployed yet**;
+until it is, the fetcher reports `unpublished` and the validator keeps the
+bundle you install. `base_url` may instead name a local directory holding a
+copy of the layout (`file:///<dir>/`), checked exactly as the host is;
+whatever fills it writes each object before the pointer, the pointer last.
+An operator with read access to the coordinator's private bucket can fill
+one with
+[`deploy/row-mirror.sh`](../../subnet/crates/validator/deploy/row-mirror.sh)
+on a timer (every few minutes is enough: rows change rarely, and a
+validator commits once a tempo).
 
-What the validator does with a verified bundle:
+The pointer is unsigned and only locates objects. Each object must match its
+listed SHA-256 and length before it is used; the signed records are then
+verified under your pinned keys exactly as for a bundle file you installed
+([What the validator verifies](#what-the-validator-verifies)). A lying host
+can make a fetch fail, never change what is verified. It also cannot fill
+your memory: an authorization's, renewal's or revocation's listed length must
+be its schema's exact signed length (for the set, a whole multiple of one
+revocation's), a row's at most the protocol's longest row, and a longer
+listing is refused before it is requested; a session reads at most 64 MiB
+into memory and ends after `poll_secs`. The revocation set is journaled
+before anything else (below). A session whose pointer and held target are
+unchanged since the last session that produced a bundle reports `unchanged`
+without reading any object other than the revocation set, which every
+session reads and journals first. Nothing is cached on disk; only a bundle
+the validator installs is written, to `[package] path`. One session at a
+time holds the cache lock: `fetch` exits 75 while the running unit holds it.
+A refusal of records the host served, or an object that fails its listed
+digest, sets `alert` in the session's outcome; an outcome that is only
+incomplete does not. Where it is logged depends on which session saw it.
+The background sessions of the dispatch loop log an alert as
+`fetch_refused` with `alert = true` (warning level) and anything else as
+`fetch_kept`, once per change. The session a run makes at startup, and the
+sessions it makes while it waits after a deferred tempo (for example over
+a retired bundle, below), log their whole report at info level as
+`fetch_startup` or `fetch_waiting`, with `"alert": true` inside the report
+and no separate `fetch_refused` event; `fetch` prints the same report. An
+alert filter that matches only `fetch_refused` misses those.
 
+The fetcher assembles the three objects into a coordinator-row bundle
+(schema `slop_ninja.coordinator_row_bundle/v1`) and verifies it against the
+target your validator holds. What the validator does with a verified
+bundle:
+
+- **The same bundle again**: nothing changes.
+- **A re-signed row of the same target and authorization** (the coordinator
+  signs a new row when the paid entries change: a deregistration, a
+  re-registration, a UID changing hands, an owner move): installed when it
+  is later by its commit epoch and derivation block; one that is not later
+  is kept out (`row_not_newer`), so a stale or replayed pointer never rolls
+  the row back.
 - **The same target under a newer authorization** (issued later: a newer
   carrying cohort's authorization, or a re-authorization after a
   revocation): it is installed at once, and a continuous run uses it from
@@ -385,40 +416,35 @@ What the validator does with a verified bundle:
   is retired as `superseded`. The run continues on the new target in the
   same process. The old target's last commitment still reveals afterwards;
   its `Weights` are compared with that commitment's own row, which the
-  validator records beside the journal (`<journal>.reveal-rows.json`).
+  validator records beside the journal (`<journal>.reveal-rows.json`). A
+  validator that fell behind by several cohorts moves straight to the
+  current row's target the same way.
 - **A target that activates no later than the installed one** (a stale or
-  rolled-back pointer) is never installed.
-- **A successor whose records are not all on the host yet** (not yet
-  listed, an object missing, receipts not published) never produces a
-  bundle: the old target keeps its per-tempo commitments.
-- **A validator that fell behind** by more than one target (offline across
-  several cohorts) checks each intermediate target's records and closure,
-  without receipts because it commits nothing for them, and moves its held
-  target forward through them to the current one.
+  rolled-back pointer) is never installed. Fetched, its row fails
+  verification against your held target, an alert (logged as above:
+  `fetch_refused` from the dispatch loop, or `"alert": true` inside a
+  `fetch_startup` or `fetch_waiting` report); the run continues and the
+  installed row keeps committing.
 
-Receipts follow the N+2 rule: the host deletes a cohort's receipt index,
-chunk map and bundles once the coordinator retires them, after the next two
-cohorts complete and the cohort's target is superseded. The cohort whose
-target the current authorization commits stays published. A carrying
-cohort produces no target, so its receipts are deleted two cohorts later
-even while the current authorization still names it. New commitments
-need retained receipts, so a validator that never fetched a cohort's
-receipts before they were deleted reports `receipts_expired` and keeps its
-installed bundle; one that fetched them earlier assembles from its own
-verified cache. Commitments already submitted recover from the journal
-without receipts. The cache keeps detailed receipts only for the cohorts
-of bundles your validator holds (installed, staged, or verified and waiting
-to be installed) and drops them at the first session after a successor is
-installed; it is not an archive. Once the host has deleted a carrier's
-receipts, an installed bundle that names them (schema v3) verifies only
-from the cache, so keep the cache in place across restarts and updates (or
-move it only together with its `[fetch] cache_dir` setting). If its files
-go missing or change, the validator does not halt: it logs
-`bundle_cache_unreadable` (alerting), retries, and the next session
-re-fetches them while the host still has them. A validator that starts
-fresh after the host deleted a carrier's receipts cannot assemble that
-target's bundle and commits nothing for it until the next authorization
-(`receipts_expired`).
+**Upgrading from a release that verified score packages.** Bundles of a
+cohort's records and receipts (`slop_ninja.reward_v1_bundle/v1` and `/v3`)
+and the fixture bundle `slop_ninja.fixture_package/v1` are retired. One
+still installed when the new build starts is a deferral
+(`bundle_schema_retired`), never a halt and never a commit: recovery and the
+fetcher keep running, and nothing new commits until a row bundle is
+installed (a continuous run waits for the fetcher; any other run exits 75
+for a later retry). A row bundle of the target your validator already holds
+is installed in place over the retired one at once, even with a commitment
+in flight (that commitment belongs to the same target), so the next tempo
+commits without a restart. A successor target that must wait for in-flight
+work over a retired bundle exits 75 instead, and the restart's finalized
+recovery settles that work. The new build never touches the earlier
+release's fetch cache (`cohorts/` and `authorizations/` under `cache_dir`):
+a rollback to that release needs the receipts its installed bundle
+references, which may exist only there. Keep it until the new release is
+accepted, then remove it with the unit stopped
+(`rm -r <cache>/cohorts <cache>/authorizations`). Install the new release
+only once the coordinator publishes rows.
 
 **No authorization expires.** Your validator keeps committing the installed
 target for as long as it is the held target, however long the coordinator is
@@ -460,39 +486,44 @@ leaves the journal alone.
 `slop_ninja_validator --config $C fetch` runs one session without the
 journal or the chain and prints a content-free report: 0 with a verified
 bundle (not installed; `run` decides), 75 when the records are not complete
-on the host yet, 3 when the protocol refused them.
+on the host yet or the running unit holds the cache lock, 3 when the
+protocol refused them.
 
 ## What the validator verifies
 
-Before any row exists, the validator verifies the bundle and refuses it (exit 3)
-on any failure:
+Before any row exists, the validator verifies the installed bundle and
+refuses it (exit 3) on any failure (a bundle of a retired schema is a
+deferral, not a refusal; see upgrading, under [Fetching the coordinator's
+row](#fetching-the-coordinators-row)):
 
-- each signed record is authenticated before it is decoded: the cohort manifest,
-  the score package and the calculation target under the package key, and the
-  receipt index under the receipt key;
-- the package is bound to its manifest, the target to the package, and the
-  receipt index to the package's receipt root and count;
-- every stored receipt object matches its index entry;
-- the package names this validator's chain genesis and netuid.
+- the authorization (launch or reward-intent), any renew-by hint refresh
+  and the coordinator's row each authenticate under the pinned
+  authorization key before they are decoded, and name this validator's
+  chain genesis and netuid;
+- the row names the authorization's record digest, target, carrying cohort
+  and manifest digest, and issue epoch;
+- a launch row is accepted only while the held target is the launch burn
+  row; a cohort row's target is the held one with the same activation
+  epoch, or one that activates later.
 
-For `reward-v1` bundles (in the current source) it also checks every
-receipt chunk, the published-artifact index against the manifest's binding,
-the recomputed outcome, the cohort closure against the manifest's minimums,
-and the reward-intent authorization against the active target and your
-journaled revocations (it has no end epoch), at every tempo's re-commit as
-well.
+Every per-tempo commitment checks the authorization again for its epoch and
+against your journaled revocations; it has no end epoch.
 
 It then reads the subnet's registrations (`SubnetworkN`, `Keys`,
-`BlockAtRegistration`, `SubnetOwnerHotkey`) at the same finalized block and
-derives the row. Credit belongs to a hotkey and its registration generation:
-units of a hotkey no longer registered under that generation go to the owner
-hotkey's UID, which burns them.
+`BlockAtRegistration`, `SubnetOwnerHotkey`) at the same finalized block. The
+row it commits is the signed entries, with one rule that uses no score, the
+rule the coordinator's own derivation applies: the burn entry, and every
+entry whose UID, hotkey and registration block the snapshot no longer holds
+(a deregistration, a re-registration, the UID handed to another hotkey), go
+to the owner hotkey's UID, which burns them. Each moved entry is logged
+(`row_uid_moved`); when units must burn and the owner hotkey holds no UID,
+the tempo is deferred (`row_deferred`). A UID that changed hands is never
+paid to its new holder, through coordinator silence included. Nothing else
+changes a UID or a weight.
 
-The validator does not check what it cannot see: the hidden documents, the
-labels and the executions behind each score. It trusts the measured scores and
-recomputes eligibility, clustering, credit, normalization and quantization
-under the common versioned rules, so identical inputs give identical rows on
-every validator.
+The validator does not see the hidden evaluation: no documents, labels,
+executions, scores or receipts. It recomputes nothing; what it commits is
+the coordinator's signed row.
 
 ## Commit-reveal
 
@@ -507,12 +538,13 @@ Subnet 601 runs native weight commit-reveal. The validator:
 If the flag is ever disabled, new commitments pause; nothing falls back to
 plaintext weights. Reveals are timelocked to a future drand round and happen on
 chain without the validator, so they can complete while the coordinator is
-silent. Commit-reveal hides each submission until its reveal, but the public
-package lets anyone derive the same row, so it neither prevents copying nor
-proves that a validator calculated the row itself.
+silent. Commit-reveal hides each submission until its reveal, but the
+coordinator's signed row is public once published, so anyone can commit the
+same row: it neither prevents copying nor proves anything about a
+validator's own checks.
 
-Each active cohort target is re-derived and committed once per tempo, about 20
-commitments a day, against a fresh finalized registration snapshot. During a
+The installed row is committed once per tempo, about 20 commitments a day,
+each checked against a fresh finalized registration snapshot. During a
 coordinator outage, validators keep re-committing the last active target for as
 long as the outage lasts: no authorization expires. Only a newer authorization
 or a signed revocation changes what they commit. Cohorts are delayed, never
@@ -562,7 +594,7 @@ coordinator, now commit and reveal it each tempo; read back at block
 8,363,204, the chain held both rows as weight 1.0 on the owner UID and
 nothing for any miner UID. They commit it under the launch authorization,
 which, like every authorization, does not expire
-([Fetching published packages](#fetching-published-packages)): it stops only
+([Fetching the coordinator's row](#fetching-the-coordinators-row)): it stops only
 when a successor target supersedes it or a signed revocation withdraws it.
 
 ## The journal

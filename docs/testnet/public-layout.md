@@ -4,7 +4,9 @@ Layout `v1` of the public status host for testnet subnet 601: the objects the
 publisher writes, what each one holds, and how a validator or miner client
 verifies them. The publisher is the cron Worker in
 [`subnet/publisher`](../../subnet/publisher/README.md); this page is the
-contract it implements. W7's validator fetcher and the miner client's
+contract it implements. The validator fetcher reads only the authorization
+pointer and the signed objects it names
+([What a validator checks](#what-a-validator-checks)). The miner client's
 `status` and `next-cohort` (with `--public`; without it they read the
 coordinator's unsigned cohort read, `GET /admission/v1/cohort`) read these
 paths.
@@ -22,21 +24,31 @@ the host's base URL.
 
 - Every object is static. The host serves the bucket's objects directly, and
   no Worker code runs per request.
-- Paths never change once published. Signed cohort objects, artifacts and
-  authorization objects are immutable (`cache-control: public,
-  max-age=31536000, immutable`). Detailed receipts (the receipt index, the
-  chunk map and the bundles) are deleted after N+2 (see
-  [Retention](#retention)), so they are served with `cache-control: public,
+- Paths never change once published. Artifacts, authorization objects and
+  the signed cohort objects a publisher built before the copy model copies
+  are immutable (`cache-control: public, max-age=31536000, immutable`).
+  Index documents, pointers and the status snapshot are rewritten in place,
+  and they and the cohort summaries are served with `cache-control: public,
+  max-age=60`. A publisher built from this tree publishes no detailed
+  receipt (no receipt index, chunk map or bundle), so nothing on the host is
+  deleted under N+2. A publisher built before the copy model that publishes
+  receipts (decision D7) also publishes the detailed receipts and deletes
+  them after N+2 (see
+  [Retention](#retention)), so it serves them with `cache-control: public,
   max-age=<one tempo in seconds>` and never as immutable: a deleted bundle
-  leaves caches within a tempo. Index documents, pointers and the status
-  snapshot are rewritten in place (`cache-control: public, max-age=60`).
-- The publisher copies a cohort's objects only after the cohort closed, and
-  only after it has verified them as a validator would (below). It verifies
-  the copies again, and only then lists the cohort in the index. **A cohort is
-  published exactly when the cohort index lists it.** An object can be stored
-  under a cohort directory before the cohort is listed, if a run stopped
-  between the copy and the index write; ignore any cohort the index does not
-  list.
+  leaves caches within a tempo.
+- Every publisher verifies a cohort's objects in the private bucket only
+  after the cohort closed, before it publishes anything for it
+  ([What the publisher checks](#what-the-publisher-checks)). A publisher
+  built from this tree then writes only the cohort's allow-listed summary
+  and reads it back through the allow-list check; it copies none of the
+  coordinator's signed records, indexes, components or receipts. A
+  publisher built before the copy model copies the verified objects and
+  verifies the copies again. Only then is the cohort listed in the index.
+  **A cohort is published exactly when the cohort index lists it.** An
+  object can be stored under a cohort directory before the cohort is
+  listed, if a run stopped between that write and the index write; ignore
+  any cohort the index does not list.
 - Nothing published contains document text, labels, per-document
   predictions, spend figures or credentials. The
   [redaction rules](../../subnet/publisher/src/redact.rs) say how this is
@@ -70,14 +82,21 @@ the host's base URL.
 | `v1/reference/current.json`, `v1/reference/previous.json` | `R_k` and `R_k-1` after the newest cohort's close, schema `slop_ninja.public.reference/v1` | when a cohort closes |
 | `v1/reference/packages/<sha256>/...` | One staged [reference package](reference-packages.md), named by its parts manifest's SHA-256: `artifact-files.json`, `parts/<sha256>`, `package.json`, `NOTICE.md`, `upstream/` and `reference/`, and for `R_0` its training companion `training/` | never, once staged |
 | `v1/artifacts/<sha256>.bin` | An admitted outside entrant's artifact object, named by its SHA-256 | never, once written |
-| `v1/authorizations/current.json` | The authorization validators commit under now, any renew-by hint refresh and the revocation set, schema `slop_ninja.public.authorization/v2` | when the coordinator installs an authorization or journals a revocation |
-| `v1/authorizations/<sha256>.signed` | One signed authorization, refresh or revocation, named by its SHA-256 | never, once written |
+| `v1/authorizations/current.json` | The authorization validators commit under now, any renew-by hint refresh, the revocation set and the coordinator's signed row, schema `slop_ninja.public.authorization/v2` | when the coordinator installs an authorization, journals a revocation or signs a row |
+| `v1/authorizations/<sha256>.signed` | One signed authorization, refresh, revocation set or coordinator row, named by its SHA-256 | never, once written |
 | `v1/trust/testnet-trust.json` | The trust roots, byte-identical to the release's file | when the roots rotate (decision D20) |
 
 ### One cohort: `v1/cohorts/<label>/`
 
 The object names are the coordinator's own. The same names are used in the
 private receipts bucket under `cohorts/<label>/`.
+
+These are coordinator records, and no validator built from this tree reads
+them: a validator commits the coordinator's signed row
+([What a validator checks](#what-a-validator-checks)). The table describes
+what a publisher built before the copy model publishes. A publisher built
+from this tree keeps them private and publishes only what its allow-list names (see
+[Rules](#rules)).
 
 | Object | Record | Verify with |
 | --- | --- | --- |
@@ -99,8 +118,9 @@ byte for byte as the coordinator wrote them. To fetch a bundle, strip
 `{public}/v1/cohorts/<label>/`.
 
 With decision D7 (b), receipt indexes, chunk maps and bundles are not
-published (`PUBLISH_RECEIPTS = "false"`), and validators get them another
-way.
+published (`PUBLISH_RECEIPTS = "false"`). A publisher built from this tree
+refuses `PUBLISH_RECEIPTS = "true"` and never publishes them, and a
+validator built from this tree reads none of them.
 
 `publication.json` lists every object copied, with its path relative to the
 cohort directory, its SHA-256 and its length. Before writing it, the
@@ -108,10 +128,15 @@ publisher verified each object, and then verified each copy. The record also
 states the artifact state of every entrant (below), and why
 `components.json` was withheld, when it was.
 
-### Verification order
+### What the publisher checks
 
-This is what the publisher checks before it publishes, and what a validator
-checks after it fetches. The coordinator's
+Every publisher runs these checks on a closed cohort's objects in the
+private bucket before it publishes anything for the cohort or lists it. Check
+4 runs only where receipts are published (decision D7, a publisher built
+before the copy model); a publisher built from this tree reads no receipt
+and runs checks 1-3, 5 and 6. A publisher built before the copy model runs
+them again on its copies. A validator never runs these checks
+([What a validator checks](#what-a-validator-checks)). The coordinator's
 `examples/reward_v1_verify.rs` runs the same checks.
 
 1. The manifest is this chain's (testnet genesis, netuid 601), and its label
@@ -207,7 +232,8 @@ revocation set:
   "kind": "cohort",
   "authorization": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> },
   "renewal": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> },
-  "revocations": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
+  "revocations": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> },
+  "row": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
 }
 ```
 
@@ -223,6 +249,11 @@ revocation set:
   whatever target it holds. Schema v2 replaced v1's single latest
   `revocation`; a validator built for v1 refuses a v2 pointer by its schema,
   cannot see revocations, and must be upgraded.
+- `row` is the coordinator's signed row (`CoordinatorRow`, authorization
+  key) under the authorization the pointer names, or absent (the key is
+  left out) until the coordinator signs one under it. A publisher built from
+  this tree copies it only once it verifies; otherwise it publishes the
+  pointer without `row`, and validators keep the row they hold.
 - No authorization expires. Its `renew_by_epoch` is a non-binding hint: an
   authorization keeps validators committing its target until a newer one
   supersedes it or a revocation withdraws it (every authorization of the
@@ -231,11 +262,46 @@ revocation set:
   does not verify under their trust roots.
 - Each object is content-addressed and signed with the authorization key.
   Check its SHA-256 and length, then open it under the trust roots.
-- A `cohort` authorization appears only once the cohort that carries it is
-  listed in the index, with the manifest and package digests it names.
-- The pointer is rewritten when the coordinator installs an authorization or
-  journals a revocation. It has no validity window. Objects are never
+- A publisher built from this tree copies an authorization, its row and the
+  revocation set as soon as they verify, before and independently of any
+  cohort listing. A publisher built before the copy model copies a `cohort`
+  authorization only once the cohort that carries it is listed in the index,
+  and it does not know `row`: it refuses a private pointer that carries
+  `row` (unknown fields are refused) and copies nothing from it, so the
+  public pointer, revocations included, stays as it was. The copy-model
+  publisher therefore deploys before the coordinator that signs rows (the
+  copy-model deploy order in
+  [`TESTNET.md`](../../subnet/coordinator/TESTNET.md)).
+- The pointer is rewritten when the coordinator installs an authorization,
+  journals a revocation or signs a row. It has no validity window. Objects are never
   deleted.
+
+### What a validator checks
+
+A validator built from this tree reads the pointer and the objects it
+names, and nothing else: no cohort object, receipt or index. It checks:
+
+1. each listed length against its record's bound before the object is
+   requested, and each object against its listed SHA-256 and length before
+   it is used;
+2. the revocation set first: each entry under the pinned authorization key,
+   journaled before anything else (an entry that does not verify is
+   skipped);
+3. the authorization, any renewal and the row under the pinned trust roots,
+   each naming this chain;
+4. that the row names the authorization's record digest, target, carrying
+   cohort and manifest digest, and issue epoch;
+5. that a launch row comes only while the held target is the launch burn
+   row, and that a cohort row's target is the held one, with the same
+   activation epoch, or one that activates later.
+
+Every per-tempo commitment then checks the authorization again against the
+journaled revocations.
+
+The [validator guide](validator-guide.md#fetching-the-coordinators-row)
+says what it does with a verified row.
+
+### The publisher's source
 
 The publisher's source is the coordinator's private pointer
 `authorizations/current.json` in the receipts bucket, with the same schema
@@ -371,6 +437,12 @@ a cohort whose plan names an artifact spec carry `limits`, the limits record
 
 ### Retention
 
+A publisher built from this tree publishes no detailed receipt, so the
+public host has no retention rule and that publisher deletes nothing under
+N+2; the coordinator's N+2 rule applies to its private receipts. The rest of
+this section describes a publisher built before the copy model that
+publishes receipts (decision D7).
+
 Detailed receipts follow the coordinator's N+2 rule on the public host. The
 coordinator deletes cohort N's private detailed receipts once N+1 and N+2
 complete and N's target is superseded, holding the active target's cohort
@@ -387,10 +459,9 @@ sets `receipts_retained: false` in the
 index entry and `receipts_deleted_after` (the marker's due-after cohort) in
 the publication record. The manifest, package (with the receipt root and count), target,
 closure, published indexes and artifacts stay (the artifacts of `R_k` and
-`R_k-1` included). New commitments need retained
-receipts, so fetch them while the cohort is current. Caches keep a deleted
-bundle for one tempo at most (see [Rules](#rules)). Nothing else is ever
-deleted.
+`R_k-1` included). Caches keep a deleted bundle for one tempo at most (see
+[Rules](#rules)). Nothing else is ever deleted. A validator built from this
+tree reads no receipt.
 
 ## The leaderboard: `v1/leaderboard.json`
 

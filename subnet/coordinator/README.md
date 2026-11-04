@@ -689,8 +689,11 @@ Reconciliation uses only RPC-confirmed state and never resends:
   settles as `events_unverifiable`; an attempt whose bodies cannot be read
   either settles as `inclusion_unverifiable` (dispatch `unverifiable`, the
   nonce floor past its nonce, which the head showed consumed, and the
-  operation `failed`; an included commit is revealed by the chain on its
-  own), and the next epoch commits with no operator clear. None is retried
+  operation `failed` with `inclusion: "unknown"` in its status, so a
+  delivery audit reads that epoch as unknown rather than missing, and the
+  publisher alerts it once, `inclusion_unknown`; an included commit is
+  revealed by the chain on its own), and the next epoch commits with no
+  operator clear. None is retried
   forever behind the signer-wide backoff.
 - **Era expired:** at a confirmed block at or past the expiry with the nonce
   unconsumed, the attempt can never be included. Only then may the operation
@@ -1242,13 +1245,13 @@ a 15-minute alarm wall). The cohort object stays the only authority:
 - **Spend.** Lanes report cumulative metering (container provisioned time and
   CPU, lane Durable Object time) with every report and commit. Each sweep
   checks measured spend and the remaining work's upper bound against the
-  plan's `scoring_budget_microusd`, counted from the spend measured at the
-  last budget clear; exceeding it pauses the cohort (`scoring_budget`,
-  resumable) and stops its lanes. The budget is a runaway guard for one
-  cohort: it pauses that cohort for spend until an operator clears it (the
-  only spend pause; the monthly `SpendLedger` never refuses or pauses), and
-  the clear resumes the same cohort with a fresh allowance of the plan's
-  budget. Nothing is skipped or abandoned by it. A lane silent past its staleness bound is
+  plan's `scoring_budget_microusd`; passing it raises the cohort's budget
+  alert (`/eval/status` cohort `budget_alert`, the publisher's
+  `scorer_budget_fault`) and pauses nothing: spend is tracked, never capped.
+  The generation budget is the same alert: an item past it is still claimed.
+  No lane stops, and the monthly `SpendLedger` never refuses or pauses
+  either. (A store that paused as `scoring_budget` or `generation_budget`
+  under the earlier guard still resumes with a clear.) A lane silent past its staleness bound is
   charged a bound for its unreported metering (from its last report through
   the staleness bound plus its container's inactivity grace); that bound is
   reported and settled, but never part of the guard, because a lane that
@@ -1273,7 +1276,10 @@ jump of several, and every boundary a lagging watermark replays while it
 catches up after an outage (those tempos passed while nobody observed them).
 A tick whose head reading fails or is refused by the RPC budget proves no
 lag: it records the watermark but not a new epoch index, and the next tick
-with a head reading decides that increment.
+with a head reading decides that increment. The watermark's epoch as read
+is reported beside the stored one (`/eval/status` `watermark_epoch`); while
+head readings keep failing it runs ahead, and two epochs ahead (a whole
+tempo of watermark progress) the publisher alerts `epoch_deferred`.
 Uncredited tempos are counted on `/eval/status` and never consume a minimum,
 so after an outage and its catch-up the same cohort resumes and advances at
 later boundaries, its admission and transition windows never compressed into
@@ -1295,18 +1301,35 @@ the replay.
 
 A fault pauses the cohort with its state intact. Two kinds:
 
-- **Resumable** (outages, platform refusals, budget guards and failed root
-  steps): `generation_unavailable` (an item's 10th consecutive Workers AI
-  outage), `scorer_unavailable` (6 consecutive scorer failures that never
-  reached the model), `arena_capacity`, `arena_defect` and
+- **Resumable** (outages, platform refusals, unresolved infrastructure and
+  failed root steps): `generation_unavailable` (an item's 10th consecutive
+  Workers AI outage), `scorer_unavailable` (6 consecutive scorer failures
+  that never reached the model), `arena_capacity`, `arena_defect` and
   `object_over_bound` (a platform bound a corrected deployment lifts),
-  `scoring_budget` and `generation_budget` (resumed with a fresh allowance of
-  the plan's budget counted from the spend measured at the clear), and
-  `step_refused` (below). `POST /eval/clear {"label"}` resumes the same
-  cohort with fresh outage allowances; no attempt, answer or receipt is reset.
-  The list is `/eval/status` `resumable_faults`.
-- **Terminal under the frozen plan:** `unresolved_infrastructure` (every one of
-  a chunk's `max_attempts` has a receipt and none resolved it),
+  `unresolved_infrastructure` (below), and `step_refused` (below).
+  `POST /eval/clear {"label"}` resumes the same cohort with fresh outage
+  allowances; no attempt, answer or receipt is reset. The list is
+  `/eval/status` `resumable_faults`. (`scoring_budget` and
+  `generation_budget` are listed for stores that paused under the earlier
+  budget guard; the guards now only alert.)
+- **Unresolved infrastructure.** Every attempt that leaves a document
+  unresolved is infrastructure-caused (an expired lease with nothing stored,
+  a crash, a failed request; a model failure resolves its document as a
+  `model_error`), so a chunk that used its `max_attempts` with documents
+  unresolved gets another round of `max_attempts` by itself, logged in the
+  phase log (`infrastructure attempts extended to N`) and counted in the
+  cohort's `attempt_extensions` and `extension_receipts`. The bounds are
+  structural: attempt numbers stay within 255, and the plan's receipt
+  reservation (every scored document at `max_attempts`) plus each
+  extension's worst case (its unresolved documents at every added attempt)
+  stays within one signed receipt index. Only when no further round fits
+  does that job fault alone and the cohort pause at the end of scoring
+  (`unresolved_infrastructure`); a clear returns the job to scoring, whose
+  next claim extends again under the deployed build's bound or faults again.
+  The sealed manifest's `max_attempts` is then the allowance per round; the
+  signed records do not name extensions (the receipt index lists every
+  attempt's receipt, so a verifier sees all of them).
+- **Terminal under the frozen plan:**
   `draw_shortfall` and `batch_shortfall` (the pool or generation cannot meet
   the plan's kind counts within its tolerance). A clear would fault again at
   once, so it is refused with `abandon_required`. `POST /eval/abandon
@@ -1481,11 +1504,13 @@ Every attempt gets a v1 `AttemptReceipt`:
   the cohort proceeds. A manifest over `artifact_max_mib` or not matching its
   package digest attributes at once. Reference artifacts are never
   attributed: their failures count as scorer failures and pause the cohort;
-- under the v1 manifest `max_attempts` bounds attempt numbers. When the last
-  one is spent, a record-only claim writes the remaining lost receipts
-  (`...-attempt-N-lost.bin`) and that **job alone** faults
-  (`unresolved_infrastructure`): the other lanes finish, and the cohort pauses
-  at the end of scoring, since packaging needs every job.
+- under the v1 manifest `max_attempts` is the attempt allowance per round.
+  When a round's last attempt is spent, a record-only claim writes the
+  remaining lost receipts (`...-attempt-N-lost.bin`) and the chunk gets
+  another round (unresolved infrastructure, above). Only when none fits does
+  that **job alone** fault (`unresolved_infrastructure`): the other lanes
+  finish, and the cohort pauses at the end of scoring, since packaging needs
+  every job.
 
 **Receipts** are stored as chunk objects (`slop_ninja_receipt_chunk_v1`:
 `u32_le(len) || receipt` repeated). At packaging, one bundle lane per job
@@ -1644,8 +1669,8 @@ bounded by the Container `max_instances` (equal to `MAX_SCORE_LANES`), the
 plan's lane caps and the per-cohort `scoring_budget_microusd` (checked at
 admission against the plan's own upper bound, J x n x `doc_ub` + lanes x
 `cold_ub`, with every entrant's probe and audit documents counted, and at
-every sweep against measured spend plus the remaining bound). These are
-runaway guards for one cohort. The `SpendLedger` tracks; it never refuses or
+every sweep against measured spend plus the remaining bound, which raises an
+alert and pauses nothing). The `SpendLedger` tracks; it never refuses or
 pauses anything for spend. A plan's generation and scoring budgets are
 recorded as a reservation before it queues (keyed by the billing cycle from
 `BILLING_CYCLE_DAY`: 1, calendar months, a user decision), a finished

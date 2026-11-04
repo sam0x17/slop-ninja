@@ -1034,7 +1034,7 @@ fn settle(sql: &impl Sql, subject: &str, code: &str, now_ms: u64) -> Result<(), 
                     &[diagnostic.as_str().into(), bind_u64(now_ms)?, op_id.into()],
                 )?;
                 log(sql, now_ms, a.search_hi, Some(op_id), Some(n), "diagnostic", Some(&diagnostic))?;
-                fail_op(sql, op_id, "inclusion_unverifiable", now_ms)?;
+                fail_op(sql, op_id, INCLUSION_UNVERIFIABLE, now_ms)?;
             } else {
                 fault(sql, "attempt_unverifiable", Some(op_id), Some(n), now_ms)?;
             }
@@ -1834,6 +1834,10 @@ fn set_op_state(
         detail,
     )
 }
+
+/// An operation's failure detail when its consumed nonce's inclusion could
+/// not be read (`settle`): failed for this signer, its inclusion unknown.
+pub const INCLUSION_UNVERIFIABLE: &str = "inclusion_unverifiable";
 
 fn fail_op(sql: &impl Sql, op_id: &str, code: &str, now_ms: u64) -> Result<(), StoreError> {
     journal::bump(sql, "commit_ops_failed")?;
@@ -4583,6 +4587,12 @@ pub struct OpStatus {
     pub epoch: u64,
     pub state: String,
     pub detail: Option<String>,
+    /// `unknown` for an operation that failed as `inclusion_unverifiable`:
+    /// its nonce was consumed but its inclusion could not be read, so its
+    /// commit may be on chain. A delivery audit reads such an epoch as
+    /// unknown, never as a missing commit (the publisher alerts it once,
+    /// `inclusion_unknown`). `None` for every other operation.
+    pub inclusion: Option<&'static str>,
     pub preflight_block: Option<u64>,
     pub uid: Option<u64>,
     pub row: Option<serde_json::Value>,
@@ -4728,6 +4738,7 @@ pub fn status(
             epoch: uint(&r, 1)?,
             state: text(&r, 2)?.to_owned(),
             detail: opt_t(&r, 3),
+            inclusion: (opt_t(&r, 3).as_deref() == Some(INCLUSION_UNVERIFIABLE)).then_some("unknown"),
             preflight_block: opt_u(&r, 4),
             uid: opt_u(&r, 5),
             row: opt_t(&r, 6).and_then(|j| serde_json::from_str(&j).ok()),

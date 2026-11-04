@@ -836,5 +836,12 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 18,
             statements: crate::eval::engine::SCHEMA_V18,
         },
+        // v19: infrastructure attempt extensions per chunk, the first budget
+        // guard a cohort passed (alert only), and the confirmed watermark's
+        // epoch as last read.
+        Migration {
+            version: 19,
+            statements: crate::eval::engine::SCHEMA_V19,
+        },
     ],
 };

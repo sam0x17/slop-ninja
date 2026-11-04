@@ -325,6 +325,22 @@ pub const SCHEMA_V16: &[&str] = &[
 /// is judged (and alerted) by chain progress, never by wall time.
 pub const SCHEMA_V18: &[&str] = &["ALTER TABLE cohorts ADD COLUMN step_error_since_epoch INTEGER"];
 
+/// v19: stuck-states fix round 2. A chunk's attempt allowance once extended
+/// past the plan's `max_attempts` for infrastructure failures
+/// (`chunks.attempt_limit`, `lanes::extend_attempts`) with the cohort's
+/// extension count and the receipts those extensions may add; the first
+/// budget guard a cohort passed, which alerts and pauses nothing
+/// (`cohorts.budget_alert`, [`note_budget`]); and the epoch index at the
+/// confirmed watermark as the last tick read it (`eval_obs.watermark_epoch`),
+/// so an increment deferred for an unknown head epoch is visible.
+pub const SCHEMA_V19: &[&str] = &[
+    "ALTER TABLE chunks ADD COLUMN attempt_limit INTEGER",
+    "ALTER TABLE cohorts ADD COLUMN attempt_extensions INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN extension_receipts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN budget_alert TEXT",
+    "ALTER TABLE eval_obs ADD COLUMN watermark_epoch INTEGER",
+];
+
 /// A plan names fresh stock without an admitted external entrant.
 pub const FRESH_STOCK_REFUSED: &str =
     "pool (fresh stock is drawn only for a cohort with an admitted external entrant; list exposed pools in EXPOSED_POOLS)";
@@ -336,25 +352,22 @@ pub const FRESH_STOCK_REFUSED_CODE: &str = "fresh_stock_refused";
 /// allows the work: outages, refused scorer slots, platform refusals (an
 /// arena or object bound, which a corrected deployment lifts), a root step
 /// that failed the same way under the same inputs ([`STEP_REFUSED`]), and
-/// the budget guards (a runaway guard for one cohort, which pauses it for
-/// spend until an operator clear; the clear resumes it with a fresh
-/// allowance of the plan's budget counted from the spend measured at the
-/// clear). Every other fault is terminal under the
+/// [`UNRESOLVED_INFRASTRUCTURE`]. Every other fault is terminal under the
 /// plan (no attempt, human or case is left) and needs [`abandon`].
 /// `package_refused` resumes once a corrected build is deployed: the frozen
 /// inputs are unchanged and packaging runs again from them.
 /// `reference_failure` is terminal by cause: infrastructure failures never
-/// reach packaging (a job whose every allowed attempt ended unresolved
-/// pauses the cohort as `unresolved_infrastructure` at the end of scoring),
-/// so it names model failures of the reference artifact itself, attributed
-/// by crash isolation, which the same frozen evidence repeats.
-/// `unresolved_infrastructure` is still terminal (an open residual): a
-/// clear could only resume it with infrastructure-only attempts beyond the
-/// plan's `max_attempts`, which the plan's receipt bound and signed receipt
-/// index do not yet provide for.
+/// reach packaging (a job with unresolved documents pauses the cohort as
+/// `unresolved_infrastructure` at the end of scoring), so it names model
+/// failures of the reference artifact itself, attributed by crash
+/// isolation, which the same frozen evidence repeats.
+/// The budget codes are kept for stores that paused under the earlier
+/// guard: the guards now only alert ([`note_budget`]), and a clear of an
+/// old budget fault resumes the cohort as before.
 pub const RESUMABLE_FAULTS: &[&str] = &[
     "generation_unavailable",
     "scorer_unavailable",
+    UNRESOLVED_INFRASTRUCTURE,
     "package_refused",
     crate::eval::commitments::SNAPSHOT_DISCARDED,
     crate::eval::admission::FRAMING_UNAVAILABLE,
@@ -375,9 +388,23 @@ pub const RESUMABLE_FAULTS: &[&str] = &[
 /// status (`step_error`). An operator clear runs the step again, after the
 /// cause is corrected (an object restored, a key or build deployed).
 pub const STEP_REFUSED: &str = "step_refused";
-/// The scoring and generation budget guards ([`clear_fault`]).
+/// The scoring and generation budget guards ([`note_budget`]).
 pub const SCORING_BUDGET: &str = "scoring_budget";
 pub const GENERATION_BUDGET: &str = "generation_budget";
+
+/// A job's chunk still has unresolved documents and no further attempt fits:
+/// its attempt allowance is at the attempt number's range, or one more
+/// round of the plan's `max_attempts` per unresolved document would take the
+/// cohort's receipts past one signed receipt index
+/// (`lanes::extend_attempts`). Every attempt that leaves a document
+/// unresolved is infrastructure-caused (a model failure resolves its
+/// document as a model error), so until those bounds a chunk's attempts are
+/// extended by themselves and no outage, eviction or expired lease ends
+/// one. The job faults alone; the cohort pauses at the end of scoring.
+/// Resumable: a clear returns the faulted jobs to scoring, and their next
+/// claims extend again under the deployed build's receipt bound, or fault
+/// again (visibly) if it still holds no further attempt.
+pub const UNRESOLVED_INFRASTRUCTURE: &str = "unresolved_infrastructure";
 
 /// The delay before a root step that failed runs again (the alarm's re-arm
 /// after a step error), during which a failed closure yields to other work.
@@ -627,6 +654,13 @@ pub fn observe(sql: &impl Sql, kick: &Kick, now_ms: u64) -> R<Vec<String>> {
         )?;
     }
     if let Some(e) = kick.epoch {
+        // The watermark's epoch as read, recorded even when the increment
+        // below is deferred, so a stored epoch held back by unknown head
+        // epochs shows against it in the status.
+        sql.exec(
+            "UPDATE eval_obs SET watermark_epoch = ? WHERE id = 1 AND (watermark_epoch IS NULL OR watermark_epoch < ?)",
+            &[bind_u64(e.index)?, bind_u64(e.index)?],
+        )?;
         match before.epoch {
             Some(b) if e.block.number <= b.block.number => {}
             Some(b) if e.index < b.index => {
@@ -791,6 +825,34 @@ pub(crate) fn set_phase(sql: &impl Sql, seq: i64, phase: &str, now_ms: u64, note
     Ok(())
 }
 
+/// Records that cohort `seq` passed a budget guard (`code`: [`SCORING_BUDGET`]
+/// or [`GENERATION_BUDGET`]): measured spend plus the bound of the work left
+/// is past the plan's budget. Spend is tracked, never capped: nothing pauses
+/// or is refused, the cohort keeps running, and the status's `budget_alert`
+/// (the first guard passed, kept for the cohort) raises the publisher's
+/// alert. The phase log names it once.
+pub fn note_budget(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
+    if sql
+        .exec("UPDATE cohorts SET budget_alert = ? WHERE seq = ? AND budget_alert IS NULL RETURNING seq", &[s(code), i(seq)])?
+        .is_empty()
+    {
+        return Ok(());
+    }
+    let o = observed(sql)?;
+    sql.exec(
+        "INSERT INTO phase_log (seq, phase, at_ms, confirmed_number, epoch_index, note)
+         SELECT seq, phase, ?, ?, ?, ? FROM cohorts WHERE seq = ?",
+        &[
+            bind_u64(now_ms)?,
+            o.confirmed.map_or(SqlValue::Null, |c| i(c.number as i64)),
+            o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)),
+            s(format!("budget:{code} passed; tracking only, nothing paused")),
+            i(seq),
+        ],
+    )?;
+    Ok(())
+}
+
 /// Pauses a cohort with a content-free fault code; its work and evidence stay.
 pub fn fault(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
     // Logged once: a cohort already faulted keeps its first fault and entry.
@@ -829,7 +891,12 @@ pub fn step_error_is_deterministic(code: &str) -> bool {
 /// Records that a root step of cohort `seq` (draw, seal, package, closure)
 /// failed with `code`: the code, since when and how many times in a row, and
 /// when it may run again ([`STEP_RETRY_MS`]; a closure that waits yields to
-/// every other step, [`crate::eval::v3::closure_due`]). A deterministic code
+/// every other step, [`crate::eval::v3::closure_due`]). The stored epoch of
+/// the first failure (`step_error_since_epoch`) is kept until a step
+/// succeeds ([`note_step`]), whatever code later failures carry, so a step
+/// failing on alternating transient codes is still judged by the chain
+/// progress since it first failed; a row without one (written before v18)
+/// takes the current stored epoch. A deterministic code
 /// ([`step_error_is_deterministic`]) also pauses the cohort ([`refuse_step`]).
 /// Returns whether the cohort is paused by a fault.
 pub fn note_step_error(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<bool> {
@@ -837,13 +904,12 @@ pub fn note_step_error(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<b
     sql.exec(
         "UPDATE cohorts SET step_errors = CASE WHEN step_error IS ? THEN step_errors + 1 ELSE 1 END,
             step_error_since_ms = CASE WHEN step_error IS ? THEN step_error_since_ms ELSE ? END,
-            step_error_since_epoch = CASE WHEN step_error IS ? THEN step_error_since_epoch ELSE ? END,
+            step_error_since_epoch = COALESCE(step_error_since_epoch, ?),
             step_error = ?, step_retry_ms = ? WHERE seq = ?",
         &[
             s(code),
             s(code),
             bind_u64(now_ms)?,
-            s(code),
             epoch,
             s(code),
             bind_u64(now_ms.saturating_add(STEP_RETRY_MS))?,
@@ -907,6 +973,15 @@ pub fn clear_fault(sql: &impl Sql, label: &str, now_ms: u64) -> R<Cleared> {
         return Ok(Cleared { cleared: false, refused: Some("abandon_required") });
     }
     match code.as_str() {
+        UNRESOLVED_INFRASTRUCTURE => {
+            // Back to scoring: each faulted job's next claim extends its
+            // exhausted chunks under the deployed receipt bound, or faults
+            // the job again if none fits. No attempt or receipt is reset.
+            sql.exec(
+                "UPDATE jobs SET status = 'running', fault = NULL WHERE seq = ? AND status = 'faulted' AND fault = ?",
+                &[i(seq), s(UNRESOLVED_INFRASTRUCTURE)],
+            )?;
+        }
         SCORING_BUDGET => {
             let c = cohort(sql, seq)?;
             let measured = crate::eval::lanes::spend(sql, &c, &["score"], now_ms, false)?.measured_nanousd;
@@ -2808,7 +2883,8 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
         let row = &q("SELECT manifest_digest, evaluation_set, task_count, receipt_root, receipt_count, package_digest,
                 target_digest, steps, step_ms, r2_puts, draw, opened_epoch, opened_block, packaged_epoch, closed_epoch,
                 counts, abandoned_reason, abandoned_fault, step_error, step_error_since_ms, step_errors, step_retry_ms,
-                score_base_nanousd, gen_base_microusd, step_error_since_epoch FROM cohorts WHERE seq = ?")?[0];
+                score_base_nanousd, gen_base_microusd, step_error_since_epoch, attempt_extensions, extension_receipts,
+                budget_alert FROM cohorts WHERE seq = ?")?[0];
         let receipts = int(&q("SELECT COUNT(*) FROM receipts WHERE seq = ?")?[0], 0)?;
         let retention = crate::eval::retention::cohort_status(sql, c.seq, &held)?;
         let v3 = if c.plan.is_v3() {
@@ -2851,13 +2927,21 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             // The spend each budget counts from since its last clear.
             "budget_base": json!({"scoring_microusd": opt_int(row, 22).map(|n| (n.max(0) as u64).div_ceil(1000)),
                 "generation_microusd": opt_int(row, 23)}),
+            // The first budget guard passed (`note_budget`): tracking only.
+            "budget_alert": opt_text(row, 27),
+            // Infrastructure attempt extensions past `max_attempts`
+            // (`lanes::extend_attempts`) and the receipts they may add.
+            "attempt_extensions": opt_int(row, 25), "extension_receipts": opt_int(row, 26),
             "reward_v1": v3,
             "log": log,
         }));
     }
     let used = int(&sql.exec("SELECT COUNT(*) FROM pool_used", &[])?[0], 0)?;
+    let watermark_epoch = opt_int(&sql.exec("SELECT watermark_epoch FROM eval_obs WHERE id = 1", &[])?[0], 0);
     Ok(json!({
-        "observed": o, "kick_age_ms": now_ms.saturating_sub(o.kick_ms),
+        // The epoch index at the confirmed watermark as last read: ahead of
+        // `observed.epoch` while an increment waits for a head reading.
+        "observed": o, "watermark_epoch": watermark_epoch, "kick_age_ms": now_ms.saturating_sub(o.kick_ms),
         "active_tempo_rule": ACTIVE_TEMPO_RULE, "resumable_faults": RESUMABLE_FAULTS,
         "pool_rows_used": used, "receipt_retention": crate::eval::retention::status(sql)?, "cohorts": out,
     }))

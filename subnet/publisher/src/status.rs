@@ -84,6 +84,10 @@ pub struct OpView {
     pub state: String,
     pub commit_block: Option<u64>,
     pub reveal_weights_match: Option<bool>,
+    /// The operation's detail code (`inclusion_unverifiable`: its consumed
+    /// nonce's inclusion could not be read, so whether its commit landed is
+    /// unknown).
+    pub detail: Option<String>,
 }
 
 /// One cohort of `/eval/status`.
@@ -103,6 +107,12 @@ pub struct CohortView {
     pub load: bool,
     /// The cohort's failing root step (`step_error`), when one is reported.
     pub step_error: Option<StepErrorView>,
+    /// The first budget guard the cohort passed (`budget_alert`: tracking
+    /// only, nothing paused); absent from coordinators that do not report it.
+    pub budget_alert: Option<String>,
+    /// Infrastructure attempt extensions past `max_attempts`
+    /// (`attempt_extensions`).
+    pub attempt_extensions: Option<u64>,
 }
 
 /// A cohort's failing root step: its code, the stored epoch at its first
@@ -137,6 +147,10 @@ pub struct RewardView {
 pub struct EvalView {
     pub confirmed_block: Option<u64>,
     pub epoch: Option<u64>,
+    /// The epoch index at the confirmed watermark as the last tick read it
+    /// (`watermark_epoch`): ahead of `epoch` while an increment waits for a
+    /// head reading. Absent from coordinators that do not report it.
+    pub watermark_epoch: Option<u64>,
     /// Tempos the coordinator has credited (`observed.active_tempos`): its
     /// scheduling clock, which uncredited tempos (silence, a stale or
     /// non-live observation, a catch-up jump) do not advance. Absent from
@@ -316,12 +330,14 @@ struct OpJson {
     state: Option<String>,
     commit_block: Option<u64>,
     reveal_weights_match: Option<bool>,
+    detail: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct EvalJson {
     observed: ObservedJson,
+    watermark_epoch: Option<u64>,
     cohorts: Option<Vec<CohortJson>>,
     reward: Option<RewardJson>,
     /// `null` when the coordinator's ledger call failed: that read is
@@ -421,6 +437,8 @@ struct CohortJson {
     transition_tempos: Option<u64>,
     load: Option<bool>,
     step_error: Option<StepErrorView>,
+    budget_alert: Option<String>,
+    attempt_extensions: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -524,6 +542,7 @@ fn worker_view(j: ServiceJson) -> WorkerView {
                             state: o.state.unwrap_or_default(),
                             commit_block: o.commit_block,
                             reveal_weights_match: o.reveal_weights_match,
+                            detail: o.detail,
                         })
                     })
                     .collect(),
@@ -551,6 +570,8 @@ fn eval_view(j: EvalJson) -> EvalView {
                 transition_tempos: c.transition_tempos,
                 load: c.load.unwrap_or(false),
                 step_error: c.step_error,
+                budget_alert: c.budget_alert,
+                attempt_extensions: c.attempt_extensions,
             })
         })
         .collect();
@@ -568,6 +589,7 @@ fn eval_view(j: EvalJson) -> EvalView {
     EvalView {
         confirmed_block: j.observed.confirmed.and_then(|b| b.number),
         epoch: j.observed.epoch.and_then(|e| e.index),
+        watermark_epoch: j.watermark_epoch,
         active_tempos: j.observed.active_tempos,
         cohorts,
         cohorts_missing,

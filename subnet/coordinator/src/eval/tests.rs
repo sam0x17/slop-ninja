@@ -1419,13 +1419,13 @@ fn throttles_use_no_attempt_and_keep_the_generator_and_reservations_bound_spend(
 }
 
 #[test]
-fn concurrent_generation_claims_never_exceed_the_budget_and_late_results_are_fenced() {
+fn concurrent_generation_claims_past_the_budget_alert_and_late_results_are_fenced() {
     let db = Sqlite::open();
     sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
     let (pool, texts) = pool_fixture();
     let mut p = wide(20, 0);
-    // About three items' worth of upper bound.
-    p.generation_budget_microusd = 1_400;
+    // Less than one item's upper bound: every claim passes the guard.
+    p.generation_budget_microusd = 100;
     let seq = open_cohort(&db, &p, 10, 1_000_000);
     let c = cfg();
     let now = 1_000_100;
@@ -1435,7 +1435,7 @@ fn concurrent_generation_claims_never_exceed_the_budget_and_late_results_are_fen
     let t: BTreeMap<String, String> = d.rows.iter().map(|r| (r.row_id.clone(), texts[&r.row_id].clone())).collect();
     assert!(tx(&db, |s| engine::apply_draw(s, &c, seq, &d, &t, &pool::Used::default(), now)).unwrap());
     tx(&db, |s| engine::next_work(s, &c, now)).unwrap();
-    let grants: BTreeMap<String, u32> = [("@cf/meta/llama-3.2-3b-instruct".to_owned(), 20)].into();
+    let grants: BTreeMap<String, u32> = [("@cf/meta/llama-3.2-3b-instruct".to_owned(), 3)].into();
     let lane = |l: i64| {
         let g: i64 = db.conn.query_row("SELECT gen FROM lanes WHERE seq = 1 AND kind = 'gen' AND lane = ?1", [l], |r| r.get(0)).unwrap();
         LaneRef { seq, kind: "gen".into(), lane: l, generation: g }
@@ -1444,9 +1444,14 @@ fn concurrent_generation_claims_never_exceed_the_budget_and_late_results_are_fen
     let GenClaimReply::Items { items: first, .. } = tx(&db, |s| lanes::gen_claim(s, &c, &a, "a", &grants, now)).unwrap() else { panic!() };
     let second = tx(&db, |s| lanes::gen_claim(s, &c, &b, "b", &grants, now)).unwrap();
     let reserved: i64 = db.conn.query_row("SELECT gen_reserved_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap();
-    assert!(reserved as u64 <= p.generation_budget_microusd);
-    assert!(!first.is_empty() && first.len() < 12);
-    assert!(matches!(second, GenClaimReply::Wait { .. }), "the budget is fully reserved: {second:?}");
+    assert!(!first.is_empty());
+    // Spend is tracked, never capped: past the budget the second lane still
+    // claims, and the cohort's budget alert is raised.
+    assert!(reserved as u64 > p.generation_budget_microusd);
+    let GenClaimReply::Items { items: second, .. } = second else { panic!("the budget refuses nothing: {second:?}") };
+    assert!(second.iter().all(|it| first.iter().all(|f| f.idx != it.idx)), "no item is claimed twice");
+    assert_eq!(status(&db, now)["cohorts"][0]["budget_alert"], "generation_budget");
+    let held: i64 = db.conn.query_row("SELECT gen_reserved_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap();
     // The first lane stalls past its lease; another claim takes the item over.
     let later = now + 130_000;
     heartbeat(&db, later);
@@ -1464,29 +1469,108 @@ fn concurrent_generation_claims_never_exceed_the_budget_and_late_results_are_fen
     assert_eq!(status, "pending");
     assert!(cost > 0, "the spend was real");
     let reserved: i64 = db.conn.query_row("SELECT gen_reserved_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap();
-    assert!(reserved as u64 <= p.generation_budget_microusd, "a stale reservation is replaced, never added to");
+    assert!(reserved <= held, "a stale reservation is replaced, never added to");
 }
 
 #[test]
-fn a_job_that_spends_every_attempt_faults_alone_and_the_cohort_pauses_at_the_end() {
+fn infrastructure_failures_past_max_attempts_extend_the_chunk_and_the_same_cohort_finishes() {
     let db = Sqlite::open();
     sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
     let seq = open_cohort(&db, &wide(20, 2), 10, 1_000_000);
     let mut sim = Sim::new(&db, cfg(), 1_000_010);
     sim.tick_ms = 5_000;
-    // Job 1's chunk 2 never stores anything: every invocation dies before its puts.
+    // Job 1's chunk 2 stores nothing for its first five attempts (lane
+    // evictions, expired leases): every one of the plan's 3 attempts and two
+    // more are lost to infrastructure. None of that ends the cohort.
+    sim.score = Box::new(|q| if q.job == 1 && q.chunk == 2 && q.attempt <= 5 { Score::DieBeforePut } else { Score::Ok });
+    assert_eq!(sim.run(seq, 4_000), "transition", "the same cohort finishes");
+    assert_eq!(fault_of(&db, seq), None);
+    let n = numbers(&db, seq, 1, 8);
+    assert_eq!(n[..5], [(1, 5), (2, 5), (3, 5), (4, 5), (5, 5)], "every lost attempt has its receipt: {n:?}");
+    assert_eq!(n[5].0, 6, "the first attempt that stored its results resolves it: {n:?}");
+    assert_ne!(n[5].1, 5);
+    let st = status(&db, sim.now);
+    let c0 = &st["cohorts"][0];
+    assert_eq!(c0["attempt_extensions"], 1, "one round of max_attempts more: {}", c0["log"]);
+    assert_eq!(c0["extension_receipts"], 4 * 3, "the chunk's 4 unresolved documents at 3 added attempts");
+    assert!(
+        c0["log"].as_array().unwrap().iter().any(|e| e["note"].as_str().is_some_and(|n| n.contains("attempts extended to 6"))),
+        "{}",
+        c0["log"]
+    );
+    let b = sim.packages.pop().unwrap();
+    verify(&sim, &b);
+}
+
+#[test]
+fn a_chunk_with_no_further_attempt_faults_alone_and_a_clear_resumes_the_same_cohort() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 2), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 5_000;
+    // The attempt number's range is the structural bound: a chunk already
+    // allowed 255 attempts gets no further round. Model it by moving job 1's
+    // chunk 2, before anything of it is recorded, 254 attempts on: its first
+    // attempt (claimed or not) becomes the 255th.
     sim.score = Box::new(|q| if q.job == 1 && q.chunk == 2 { Score::DieBeforePut } else { Score::Ok });
-    sim.run(seq, 2_000);
+    let mut moved = 0;
+    for _ in 0..2_000 {
+        moved = db
+            .conn
+            .execute(
+                "UPDATE chunks SET attempt_limit = 255, attempt = attempt + 254, recorded = 254,
+                    inflight = CASE WHEN inflight > 0 THEN inflight + 254 ELSE 0 END
+                 WHERE seq = 1 AND job = 1 AND chunk = 2 AND attempt <= 1 AND recorded = 0",
+                [],
+            )
+            .unwrap();
+        if moved == 1 {
+            break;
+        }
+        sim.tick();
+    }
+    assert_eq!(moved, 1, "the chunk was moved before its first claim");
+    assert_eq!(sim.run(seq, 2_000), "scoring");
     let st = status(&db, sim.now);
     let c0 = &st["cohorts"][0];
     assert_eq!(c0["fault"], "unresolved_infrastructure");
     assert_eq!(c0["job_status"], json!({"done": 2, "faulted": 1}), "the other jobs finished");
-    assert_eq!(numbers(&db, seq, 1, 8), [(1, 5), (2, 5), (3, 5)], "every allowed attempt has a receipt");
-    assert_eq!(tx(&db, |s| engine::clear_fault(s, "testnet-rehearsal-1", sim.now)).unwrap().refused, Some("abandon_required"));
+    assert!(st["resumable_faults"].as_array().unwrap().iter().any(|f| f == "unresolved_infrastructure"));
+    // Resumable: the clear returns the job to scoring. Its next claim still
+    // finds no further attempt within the bound and faults it again, visibly.
+    let cleared = tx(&db, |s| engine::clear_fault(s, "testnet-rehearsal-1", sim.now)).unwrap();
+    assert_eq!((cleared.cleared, cleared.refused), (true, None));
+    let js: String = db.conn.query_row("SELECT status FROM jobs WHERE seq = 1 AND job = 1", [], |r| r.get(0)).unwrap();
+    assert_eq!(js, "running");
+    assert_eq!(sim.run(seq, 400), "scoring");
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("unresolved_infrastructure"));
+    // Abandonment stays available to the operator.
+    assert!(tx(&db, |s| engine::abandon(s, "testnet-rehearsal-1", "unresolved_infrastructure", sim.now)).unwrap());
 }
 
 #[test]
-fn the_scoring_budget_faults_before_spend_can_exceed_it() {
+fn an_extension_past_one_signed_receipt_index_faults_the_job_instead() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 2);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    // Earlier extensions already account for every receipt one signed index
+    // holds beyond the plan's own reservation.
+    let room = super::plan::receipt_index_bound() - p.receipt_bound();
+    db.conn.execute("UPDATE cohorts SET extension_receipts = ?1 WHERE seq = 1", [room as i64]).unwrap();
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 5_000;
+    sim.score = Box::new(|q| if q.job == 1 && q.chunk == 2 { Score::DieBeforePut } else { Score::Ok });
+    sim.run(seq, 2_000);
+    let c0 = &status(&db, sim.now)["cohorts"][0];
+    assert_eq!(c0["fault"], "unresolved_infrastructure");
+    assert_eq!(c0["attempt_extensions"], 0);
+    assert_eq!(numbers(&db, seq, 1, 8), [(1, 5), (2, 5), (3, 5)], "every allowed attempt has a receipt");
+}
+
+#[test]
+fn the_scoring_budget_alerts_and_never_pauses_the_cohort() {
     let db = Sqlite::open();
     sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
     let mut p = wide(20, 1);
@@ -1505,27 +1589,30 @@ fn the_scoring_budget_faults_before_spend_can_exceed_it() {
         }
     }
     assert_eq!((phase(&db, seq).as_str(), fault_of(&db, seq)), ("scoring", None), "measured spend fits");
+    assert_eq!(status(&db, sim.now)["cohorts"][0]["budget_alert"], Value::Null);
     // The lanes' metering now says far more was spent than the bound assumed.
     db.conn.execute("UPDATE lanes SET active_ms = 10000000 WHERE seq = 1 AND kind = 'score' AND first_seen_ms > 0", []).unwrap();
     sim.tick();
-    assert_eq!(fault_of(&db, seq).as_deref(), Some("scoring_budget"));
-    sim.tick();
-    assert!(sim.lanes.values().filter(|l| l.kind == "score").all(|l| !l.armed), "every lane stopped");
-    // A runaway guard that pauses for spend: the operator's clear resumes the same
-    // cohort with a fresh allowance of the plan's budget counted from the
-    // spend measured now, and a second runaway pauses it again.
-    let cleared = tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap();
-    assert_eq!((cleared.cleared, cleared.refused), (true, None));
-    let base = status(&db, sim.now)["cohorts"][0]["budget_base"]["scoring_microusd"].as_u64().unwrap();
-    assert!(base > ub, "the measured spend at the clear is the new base: {base}");
-    sim.tick();
-    assert_eq!(fault_of(&db, seq), None, "the remaining work fits the fresh allowance");
-    db.conn.execute("UPDATE lanes SET active_ms = 30000000 WHERE seq = 1 AND kind = 'score' AND first_seen_ms > 0", []).unwrap();
-    sim.tick();
-    assert_eq!(fault_of(&db, seq).as_deref(), Some("scoring_budget"), "a second runaway pauses it again");
-    assert!(tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap().cleared);
+    // Spend is tracked, never capped: the alert is raised and nothing pauses.
+    assert_eq!(fault_of(&db, seq), None);
+    let c0 = &status(&db, sim.now)["cohorts"][0];
+    assert_eq!(c0["budget_alert"], "scoring_budget");
+    assert_eq!(
+        c0["log"].as_array().unwrap().iter().filter(|e| e["note"].as_str().is_some_and(|n| n.starts_with("budget:"))).count(),
+        1
+    );
     assert_eq!(sim.run(seq, 400), "transition", "the same cohort finishes");
     assert_eq!(fault_of(&db, seq), None);
+    let c0 = &status(&db, sim.now)["cohorts"][0];
+    assert_eq!(c0["budget_alert"], "scoring_budget", "kept for the cohort");
+    assert_eq!(
+        c0["log"].as_array().unwrap().iter().filter(|e| e["note"].as_str().is_some_and(|n| n.starts_with("budget:"))).count(),
+        1,
+        "logged once"
+    );
+    // A store that paused under the earlier guard still resumes with a clear.
+    db.conn.execute("UPDATE cohorts SET fault = 'scoring_budget' WHERE seq = 1", []).unwrap();
+    assert!(tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap().cleared);
     // A plan whose budget is below its own upper bound is refused outright.
     let mut low = wide(20, 1);
     low.cohort = 9;
@@ -1587,31 +1674,22 @@ fn load_mode_rescores_a_sealed_batch_without_a_target() {
 }
 
 #[test]
-fn a_spent_generation_budget_pauses_resumably_and_abandon_still_ends_it() {
+fn a_spent_generation_budget_alerts_and_generation_goes_on() {
     let db = Sqlite::open();
     sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
     let mut p = wide(20, 0);
     p.generation_budget_microusd = 1;
     let seq = open_cohort(&db, &p, 1, 5_000);
     let mut sim = Sim::new(&db, cfg(), 5_010);
-    sim.run(seq, 50);
+    // A budget that cannot hold one item: every item is still generated,
+    // and the cohort carries the alert. Nothing pauses for spend.
+    assert_eq!(sim.run(seq, 400), "transition");
+    assert_eq!(fault_of(&db, seq), None);
     let st = status(&db, sim.now);
-    assert_eq!(st["cohorts"][0]["fault"], "generation_budget");
-    // Resumable: the clear grants a fresh allowance from the cost so far.
-    // This plan's budget cannot hold one item, so it pauses again at once.
-    let cleared = tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap();
-    assert_eq!((cleared.cleared, cleared.refused), (true, None));
-    sim.run(seq, 50);
-    assert_eq!(fault_of(&db, seq).as_deref(), Some("generation_budget"));
+    assert_eq!(st["cohorts"][0]["budget_alert"], "generation_budget");
+    assert_eq!(st["pool_rows_used"], 8);
+    // Abandon still takes only codes, and only for a faulted cohort.
     assert!(tx(&db, |s| engine::abandon(s, &p.label, "Budget Spent", sim.now)).is_err(), "reasons are codes");
-    assert!(tx(&db, |s| engine::abandon(s, &p.label, "generation_budget_spent", sim.now)).unwrap());
-    let st = status(&db, sim.now);
-    assert_eq!(st["cohorts"][0]["phase"], "abandoned");
-    assert_eq!(st["pool_rows_used"], 8, "its drawn humans stay used");
-    // Abandonment settles its (zero) spend.
-    sim.tick();
-    let settled: Option<i64> = db.conn.query_row("SELECT settled_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap();
-    assert!(settled.is_some());
 }
 
 #[test]
@@ -1811,7 +1889,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 18));
+    assert_eq!((report.from, report.to), (3, 19));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -4079,6 +4157,19 @@ fn a_deterministic_step_error_pauses_its_cohort_resumably() {
     assert!(!tx(&db, |s| engine::note_step_error(s, seq, "pool manifest read", 1_000_260)).unwrap());
     let e = &status(&db, 1_000_260)["cohorts"][0]["step_error"];
     assert_eq!((e["since_epoch"].as_u64(), e["count"].as_i64()), (Some(first_epoch), Some(3)));
+    // Fix round 2: a step failing on alternating transient codes keeps the
+    // epoch it first failed in, so the alert still sees its persistence.
+    kick_at(&db, first_epoch + 2, 1_000_270);
+    for (k, code) in ["summary read", "closure put", "summary read"].iter().enumerate() {
+        assert!(!tx(&db, |s| engine::note_step_error(s, seq, code, 1_000_271 + k as u64)).unwrap());
+    }
+    let e = &status(&db, 1_000_280)["cohorts"][0]["step_error"];
+    assert_eq!((e["code"].as_str(), e["since_epoch"].as_u64(), e["count"].as_i64()), (Some("summary read"), Some(first_epoch), Some(1)));
+    // A row written before v18 (no epoch) takes the current stored epoch.
+    db.conn.execute("UPDATE cohorts SET step_error_since_epoch = NULL WHERE seq = ?1", [seq]).unwrap();
+    assert!(!tx(&db, |s| engine::note_step_error(s, seq, "closure put", 1_000_290)).unwrap());
+    let e = &status(&db, 1_000_290)["cohorts"][0]["step_error"];
+    assert_eq!(e["since_epoch"].as_u64(), Some(first_epoch + 2));
     // A completed step clears it.
     tx(&db, |s| engine::note_step(s, seq, 5)).unwrap();
     assert!(status(&db, 1_000_300)["cohorts"][0]["step_error"].is_null());
@@ -4224,10 +4315,15 @@ fn a_boundary_tick_without_a_head_reading_defers_the_increment() {
     assert_eq!(o.epoch.unwrap().index, 10, "the new epoch waits for a head reading");
     assert_eq!((o.active_tempos, o.uncredited_tempos, o.kicks), (0, 0, 3));
     assert_eq!(o.confirmed.unwrap().number, 1000 + 11 * 361 + 4, "the watermark still moves");
+    // Fix round 2: the watermark's epoch is reported beside the stored one,
+    // so a deferral that persists shows (the publisher's epoch_deferred).
+    let st = status(&db, now + 120_000);
+    assert_eq!((st["watermark_epoch"].as_u64(), st["observed"]["epoch"]["index"].as_u64()), (Some(11), Some(10)));
     // The next tick reads epoch 11 live: the boundary is credited.
     kick_at(&db, 11, now + 180_000);
     let o = tx(&db, engine::observed).unwrap();
     assert_eq!((o.epoch.unwrap().index, o.active_tempos, o.uncredited_tempos), (11, 1, 0));
+    assert_eq!(status(&db, now + 180_000)["watermark_epoch"].as_u64(), Some(11));
     // Within a stored epoch an unknown head changes nothing.
     unknown(11, 1000 + 11 * 361 + 30, now + 240_000);
     assert!(tx(&db, engine::observed).unwrap().epoch_live, "observed live once, it stays live");

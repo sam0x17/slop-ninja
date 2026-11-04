@@ -35,9 +35,17 @@
 //!   document that crashes alone, on an instance that then scores a control
 //!   document, is a model error for that job's document only (utility 0 there);
 //!   every other job and the cohort proceed.
-//! - **Job-scoped faults.** A job whose chunk spends every attempt unresolved is
-//!   faulted alone; the other lanes finish, and the cohort pauses at the end of
-//!   scoring (`unresolved_infrastructure`), since packaging needs every job.
+//! - **Attempt extensions.** Every attempt that leaves a document unresolved
+//!   is infrastructure-caused (an expired lease with nothing stored, a
+//!   crash, a failed request; a model failure resolves its document as a
+//!   model error), so a chunk that used its `max_attempts` with documents
+//!   unresolved gets another round of `max_attempts` ([`extend_attempts`]),
+//!   bounded only by the attempt number's range and the signed receipt
+//!   index: outages, evictions and expired leases never end a cohort.
+//! - **Job-scoped faults.** A job whose chunk has no further attempt within
+//!   those bounds is faulted alone; the other lanes finish, and the cohort
+//!   pauses at the end of scoring (`unresolved_infrastructure`, resumable),
+//!   since packaging needs every job.
 //! - **Silence.** No claim is granted unless a heartbeat arrived within
 //!   `HEARTBEAT_FRESH_MS` (and the load instance's hold flag is off). Work
 //!   already dispatched may finish and persist its evidence; lanes then stop
@@ -218,6 +226,72 @@ fn fault_job(sql: &impl Sql, seq: i64, job: i64, code: &str, now: u64) -> R<()> 
         )?;
     }
     Ok(())
+}
+
+/// Extends the attempt allowance of chunk `chunk` of job `job` whose every
+/// allowed attempt is recorded while `unresolved` of its documents have no
+/// outcome: those attempts were all infrastructure-caused (lost leases,
+/// crashes, failed requests), so the chunk gets one more round of the
+/// plan's `max_attempts`. The bounds are structural, never time: the
+/// attempt number's range (`u8`), and the receipts one signed receipt index
+/// holds, against the plan's own reservation (every scored document at
+/// `max_attempts`, [`crate::eval::plan::CohortPlan::receipt_bound`]) plus
+/// every earlier extension's worst case (each unresolved document at each
+/// added attempt). Returns the new allowance, or `None` when no further
+/// attempt fits (the caller faults the job). Logged in the cohort's phase
+/// log and counted in its status (`attempt_extensions`).
+pub fn extend_attempts(sql: &impl Sql, c: &Cohort, job: i64, chunk: i64, unresolved: u64, now: u64) -> R<Option<u8>> {
+    let row = &sql.exec(
+        "SELECT ch.attempt_limit, co.extension_receipts FROM chunks ch JOIN cohorts co ON co.seq = ch.seq
+         WHERE ch.seq = ? AND ch.job = ? AND ch.chunk = ?",
+        &[i(c.seq), i(job), i(chunk)],
+    )?;
+    let row = row.first().ok_or(EvalError::State("chunk"))?;
+    let round = u64::from(c.plan.max_attempts);
+    let limit = opt_int(row, 0).map_or(round, |l| l.max(0) as u64);
+    let next = limit.saturating_add(round).min(u64::from(u8::MAX));
+    if next <= limit {
+        return Ok(None);
+    }
+    let added = unresolved.saturating_mul(next - limit);
+    let extended = uint(row, 1)?;
+    let bound = crate::eval::plan::receipt_index_bound();
+    if c.plan.receipt_bound().saturating_add(extended).saturating_add(added) > bound {
+        return Ok(None);
+    }
+    sql.exec(
+        "UPDATE chunks SET attempt_limit = ? WHERE seq = ? AND job = ? AND chunk = ?",
+        &[bind_u64(next)?, i(c.seq), i(job), i(chunk)],
+    )?;
+    sql.exec(
+        "UPDATE cohorts SET attempt_extensions = attempt_extensions + 1, extension_receipts = extension_receipts + ?
+         WHERE seq = ?",
+        &[bind_u64(added)?, i(c.seq)],
+    )?;
+    let o = engine::observed(sql)?;
+    sql.exec(
+        "INSERT INTO phase_log (seq, phase, at_ms, confirmed_number, epoch_index, note)
+         SELECT seq, phase, ?, ?, ?, ? FROM cohorts WHERE seq = ?",
+        &[
+            bind_u64(now)?,
+            o.confirmed.map_or(SqlValue::Null, |b| i(b.number as i64)),
+            o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)),
+            s(format!("job {job} chunk {chunk}: infrastructure attempts extended to {next} ({unresolved} unresolved)")),
+            i(c.seq),
+        ],
+    )?;
+    Ok(Some(next as u8))
+}
+
+/// A chunk whose allowance is used up with documents unresolved: extended
+/// ([`extend_attempts`]) when a further round fits, else its job faults
+/// alone (`unresolved_infrastructure`). Returns whether it was extended.
+fn exhausted(sql: &impl Sql, c: &Cohort, job: i64, chunk: i64, unresolved: u64, now: u64) -> R<bool> {
+    if extend_attempts(sql, c, job, chunk, unresolved, now)?.is_some() {
+        return Ok(true);
+    }
+    fault_job(sql, c.seq, job, engine::UNRESOLVED_INFRASTRUCTURE, now)?;
+    Ok(false)
 }
 
 // ------------------------------------------------------------------ planning
@@ -514,8 +588,9 @@ pub fn scoring_sweep(sql: &impl Sql, cfg: &EvalConfig, c: &Cohort, now: u64) -> 
         let stop = live_lane_names(sql, seq, &["score"])?;
         let faulted = int(&sql.exec("SELECT COUNT(*) FROM jobs WHERE seq = ? AND status = 'faulted'", &[i(seq)])?[0], 0)?;
         if faulted > 0 {
-            // Packaging needs every job: the missing evidence pauses the cohort.
-            fault(sql, seq, "unresolved_infrastructure", now)?;
+            // Packaging needs every job: the missing evidence pauses the
+            // cohort (resumable: `engine::UNRESOLVED_INFRASTRUCTURE`).
+            fault(sql, seq, engine::UNRESOLVED_INFRASTRUCTURE, now)?;
             return Ok(Work::Dispatch { seq, kicks: Vec::new(), stop });
         }
         sql.exec("UPDATE cohorts SET scoring_finished_ms = ? WHERE seq = ?", &[bind_u64(now)?, i(seq)])?;
@@ -526,20 +601,19 @@ pub fn scoring_sweep(sql: &impl Sql, cfg: &EvalConfig, c: &Cohort, now: u64) -> 
         return Ok(Work::Dispatch { seq, kicks, stop });
     }
     // Measured spend so far, plus what the remaining work may still cost,
-    // must fit the plan's budget, counted from the spend measured at the last
-    // budget clear (`engine::clear_fault`). The unreported bound charged to a
-    // lane silent past its staleness bound is tracked, reported and settled,
-    // but never part of this guard: a lane that stops reporting through an
-    // outage is time passing, and time never pauses or ends a cohort.
+    // past the plan's budget (counted from the spend measured at the last
+    // clear of a budget fault a store may still hold from the earlier
+    // guard) raises the budget alert (`engine::note_budget`). Spend is
+    // tracked, never capped: nothing pauses and no lane stops. The
+    // unreported bound charged to a lane silent past its staleness bound is
+    // tracked, reported and settled, but never part of this guard.
     let sp = spend(sql, c, &["score"], now, false)?;
     let base = u128::from(uint(&sql.exec("SELECT score_base_nanousd FROM cohorts WHERE seq = ?", &[i(seq)])?[0], 0)?);
     let unresolved = unresolved_tasks(sql, seq)?;
     let unstarted = int(&sql.exec("SELECT COUNT(*) FROM lanes WHERE seq = ? AND kind = 'score' AND kicks = 0", &[i(seq)])?[0], 0)?;
     let remaining = u128::from(unresolved) * u128::from(f.cost.doc_ub_nanousd) + unstarted as u128 * u128::from(f.cost.cold_ub_nanousd);
     if cost::nano_to_micro_ceil(sp.measured_nanousd.saturating_sub(base) + remaining) > f.score.scoring_budget_microusd {
-        fault(sql, seq, engine::SCORING_BUDGET, now)?;
-        let stop = live_lane_names(sql, seq, &["score"])?;
-        return Ok(Work::Dispatch { seq, kicks: Vec::new(), stop });
+        engine::note_budget(sql, seq, engine::SCORING_BUDGET, now)?;
     }
     let kicks = lanes_due(sql, cfg, c, &["score"], now)?;
     Ok(Work::Dispatch { seq, kicks, stop: Vec::new() })
@@ -942,8 +1016,8 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
     let range = sql.exec("SELECT chunk_lo, chunk_hi FROM lanes WHERE seq = ? AND kind = 'score' AND lane = ?", &[i(r.seq), i(r.lane)])?;
     let (lo, hi) = (int(&range[0], 0)?, int(&range[0], 1)?);
     let candidates = sql.exec(
-        "SELECT chunk, first_task, count, attempt, recorded, inflight, reconcile_checked, crashes, iso_yield FROM chunks
-         WHERE seq = ? AND job = ? AND status = 'pending' AND claim_until_ms <= ?
+        "SELECT chunk, first_task, count, attempt, recorded, inflight, reconcile_checked, crashes, iso_yield, attempt_limit
+         FROM chunks WHERE seq = ? AND job = ? AND status = 'pending' AND claim_until_ms <= ?
          ORDER BY (chunk >= ? AND chunk < ?) DESC, chunk LIMIT 64",
         &[i(r.seq), i(job), bind_u64(now)?, i(lo), i(hi)],
     )?;
@@ -951,6 +1025,7 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
         let (chunk, first, count) = (int(ch, 0)?, int(ch, 1)?, int(ch, 2)?);
         let (allocated, recorded, inflight, checked, crashes) = (int(ch, 3)?, int(ch, 4)?, int(ch, 5)?, int(ch, 6)?, int(ch, 7)?);
         let iso_yield = int(ch, 8)?;
+        let mut limit = opt_int(ch, 9).unwrap_or(i64::from(c.plan.max_attempts));
         let tasks = unresolved(sql, r.seq, job, first, count)?;
         if tasks.is_empty() {
             continue;
@@ -1011,12 +1086,18 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
             return claim_of(inflight, ((recorded + 1)..inflight).map(|a| a as u8).collect(), false, claim, true, Vec::new());
         }
         let lost: Vec<u8> = ((recorded + 1)..=allocated).map(|a| a as u8).collect();
-        let record_only = allocated >= i64::from(c.plan.max_attempts);
-        if record_only && lost.is_empty() {
-            // Every allowed attempt has a receipt and none resolved these tasks.
-            fault_job(sql, r.seq, job, "unresolved_infrastructure", now)?;
-            return Ok(ClaimReply::Done);
+        if allocated >= limit && lost.is_empty() {
+            // Every allowed attempt has a receipt and none resolved these
+            // tasks: all infrastructure-caused, so another round, if one fits.
+            match extend_attempts(sql, &c, job, chunk, task_ids.len() as u64, now)? {
+                Some(next) => limit = i64::from(next),
+                None => {
+                    fault_job(sql, r.seq, job, engine::UNRESOLVED_INFRASTRUCTURE, now)?;
+                    return Ok(ClaimReply::Done);
+                }
+            }
         }
+        let record_only = allocated >= limit;
         let attempt = if record_only { allocated } else { allocated + 1 };
         let claim = stamp(attempt, if record_only { 0 } else { attempt }, lease, if record_only { "record" } else { "fresh" })?;
         sql.exec(
@@ -1264,7 +1345,9 @@ pub fn commit_chunk(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, c
         )?
         .is_empty();
     if cm.record_only && !done {
-        fault_job(sql, seq, cm.job, "unresolved_infrastructure", now)?;
+        // The lost attempts are recorded and the allowance is used up.
+        let c = cohort(sql, seq)?;
+        exhausted(sql, &c, cm.job, cm.chunk, left.max(0) as u64, now)?;
     }
     sql.exec(
         "UPDATE lanes SET chunks = chunks + 1, lost = lost + ?, reconciled = reconciled + ?,
@@ -1621,6 +1704,10 @@ fn gen_wants(sql: &impl Sql, seq: i64, now: u64) -> R<BTreeMap<String, u32>> {
 /// A generation lane's claim, against the rate-limiter grants it holds: items
 /// whose next generator is granted, each reserving its upper-bound cost. The
 /// reply names the models with claimable work, for the lane's next acquire.
+/// Spend is tracked, never capped: an item whose bound, with the cost so far
+/// and the reservations in flight, passes the plan's generation budget is
+/// still claimed, and the cohort's budget alert is raised
+/// (`engine::note_budget`); nothing pauses.
 pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, grants: &BTreeMap<String, u32>, now: u64) -> R<GenClaimReply> {
     if fence(sql, r)?.is_none() {
         return Ok(GenClaimReply::Fenced);
@@ -1637,11 +1724,12 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
     let seed = cohort_seed(&cfg.private_seed, &c.label);
     let reserved_row = &sql.exec("SELECT gen_reserved_microusd, gen_base_microusd FROM cohorts WHERE seq = ?", &[i(r.seq)])?[0];
     let mut reserved = uint(reserved_row, 0)?;
-    // The budget counts from the generation cost at the last budget clear.
+    // The budget counts from the generation cost at the last clear of a
+    // budget fault a store may still hold from the earlier guard.
     let spent = c.gen_cost_microusd.saturating_sub(uint(reserved_row, 1)?);
     let mut items = Vec::new();
-    let mut refused_budget = false;
-    'models: for (model, n) in grants {
+    let mut over_budget = false;
+    for (model, n) in grants {
         let rows = sql.exec(
             "SELECT idx, kind, domain, parent, spec, attempts, generator_next, reserved_microusd FROM docs
              WHERE seq = ? AND status = 'pending' AND generator_next = ? AND claim_until_ms <= ? AND not_before_ms <= ?
@@ -1654,10 +1742,7 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
             let bound = (engine::BUDGET_PROMPT_TOKENS * pi + u64::from(it.prompt.max_tokens) * po).div_ceil(1_000_000);
             // A stale claim's reservation is replaced, never added to.
             let stale = uint(row, 7)?;
-            if spent + reserved.saturating_sub(stale) + bound > c.plan.generation_budget_microusd {
-                refused_budget = true;
-                break 'models;
-            }
+            over_budget |= spent + reserved.saturating_sub(stale) + bound > c.plan.generation_budget_microusd;
             reserved = reserved.saturating_sub(stale) + bound;
             let claim = sql.exec(
                 "UPDATE docs SET claim_gen = claim_gen + 1, claim_until_ms = ?, holder = ?, reserved_microusd = ?
@@ -1669,20 +1754,18 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
         }
     }
     sql.exec("UPDATE cohorts SET gen_reserved_microusd = ? WHERE seq = ?", &[bind_u64(reserved)?, i(r.seq)])?;
+    if over_budget {
+        engine::note_budget(sql, r.seq, engine::GENERATION_BUDGET, now)?;
+    }
     let wants = gen_wants(sql, r.seq, now)?;
     if !items.is_empty() {
         return Ok(GenClaimReply::Items { items, wants });
-    }
-    if refused_budget && reserved == 0 {
-        // Not one more item fits and nothing in flight can release budget.
-        fault(sql, r.seq, engine::GENERATION_BUDGET, now)?;
-        return Ok(GenClaimReply::Paused);
     }
     let pending = int(&sql.exec("SELECT COUNT(*) FROM docs WHERE seq = ? AND status = 'pending'", &[i(r.seq)])?[0], 0)?;
     if pending == 0 {
         return Ok(GenClaimReply::Done);
     }
-    if !wants.is_empty() && !refused_budget {
+    if !wants.is_empty() {
         // Work exists for models this lane holds no grant for.
         return Ok(GenClaimReply::Wait { ms: 0, wants });
     }

@@ -47,7 +47,10 @@
 //! | `webhook_paused` | a Worker reports its webhook subscription presumed paused: no delivery for longer than the provider can retry one, while blocks are owed (paused, or a provider-side stall: an operator checks the subscription's state and resumes it only when paused) |
 //! | `watermark_stalled` | a Worker's RPC-confirmed watermark is older than the watchdog silence plus two cron periods, or absent |
 //! | `phase_overrun` | the active cohort is still in a work phase, or in `admission` with its window no longer admitting (the roster freeze waiting; the detail names on what), at its package deadline (`K - transition` tempos after it opened, in the tempos the coordinator credited: uncredited tempos (an outage, a catch-up jump) extend the cohort's schedule and are not an overrun; epochs only from coordinators that do not report credited tempos) |
-//! | `scorer_budget_fault` | a cohort not yet closed (admitting, closing or evaluating) is paused by a scorer or budget fault |
+//! | `scorer_budget_fault` | a cohort not yet closed (admitting, closing or evaluating) is paused by a scorer or budget fault, or has passed a budget guard (`budget_alert`: tracking only, the cohort keeps running) |
+//! | `attempts_extended` | a cohort not yet closed has a chunk whose infrastructure failures (lost leases, crashes, failed requests) used the plan's `max_attempts` and got another round (`attempt_extensions`); nothing is paused |
+//! | `epoch_deferred` | the epoch index at the eval status's confirmed watermark is two or more past its stored epoch: increments have waited for a head-epoch reading through a whole tempo of watermark progress (failed or refused head reads), so the cohort schedule is not advancing |
+//! | `inclusion_unknown` | a recent coordinator commit operation settled `inclusion_unverifiable`: its nonce was consumed but the inclusion could not be read, so whether that epoch's commit landed is unknown (the signer keeps running; one alert per operation) |
 //! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step, or `step_refused` when a root step fails in a way no wait changes), or a closed cohort's closure step is paused; or such a cohort's root step has kept failing on a retried (transient) code through a whole tempo of chain progress (its stored epoch two past the one it first failed in), which pauses nothing |
 //! | `ledger_threshold` | the spend ledger's billing month (settled spend plus open reservations) is past the deployment's private alert threshold; tracking only, nothing is refused |
 //! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error) |
@@ -79,7 +82,9 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v10: `cohort_fault` also fires for a root step that keeps failing on a
+/// v11: `scorer_budget_fault` also fires for a cohort past a budget guard
+/// that pauses nothing (`budget_alert`), and `attempts_extended`,
+/// `epoch_deferred` and `inclusion_unknown` (v10: `cohort_fault` also fires for a root step that keeps failing on a
 /// retried code through a whole tempo of chain progress (v9:
 /// `auto_target_stalled`; v8: `phase_overrun` also covers a cohort still in `admission` at its
 /// package deadline with its window closed (its roster freeze waiting), and
@@ -93,8 +98,8 @@ pub use slop_ninja_alerts_wire::{
 /// without a field an open entry needs, carries the open entries it would
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
-/// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v10";
+/// firings)).
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v11";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -125,6 +130,15 @@ pub fn deadline_phase(e: &EvalView, c: &CohortView, elapsed: u64) -> bool {
 /// epoch is this many past the one it first failed in: it has failed
 /// through at least one whole tempo of chain progress.
 pub const STEP_ERROR_EPOCHS: u64 = 2;
+
+/// `epoch_deferred` fires once the confirmed watermark's epoch is this many
+/// past the stored epoch: a whole tempo of watermark progress without the
+/// stored epoch advancing (judged by chain blocks, never wall time).
+pub const DEFERRED_EPOCHS: u64 = 2;
+
+/// The coordinator's detail for a commit operation whose inclusion could
+/// not be read (`inclusion_unknown`).
+pub const INCLUSION_UNVERIFIABLE: &str = "inclusion_unverifiable";
 
 /// Cohort faults that are scorer or budget faults (AR-13).
 pub const SCORER_BUDGET_FAULTS: &[&str] = &[
@@ -305,7 +319,30 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                     format!("fault {code} in {}", c.phase),
                     0,
                 ));
-            } else if let Some(err) = &c.step_error
+            } else if let Some(code) = c.budget_alert.as_ref().filter(|_| c.active()) {
+                out.push(cond(
+                    "scorer_budget_fault",
+                    &c.label,
+                    format!(
+                        "budget guard {code} passed in {} (tracking only, nothing paused)",
+                        c.phase
+                    ),
+                    0,
+                ));
+            }
+            if let Some(n) = c.attempt_extensions.filter(|n| *n > 0 && c.active()) {
+                out.push(cond(
+                    "attempts_extended",
+                    &c.label,
+                    format!(
+                        "{n} chunk attempt extensions past max_attempts in {} (infrastructure failures; nothing paused)",
+                        c.phase
+                    ),
+                    0,
+                ));
+            }
+            if c.fault.is_none()
+                && let Some(err) = &c.step_error
                 && let (Some(since), Some(now)) = (err.since_epoch, e.epoch)
                 && now >= since.saturating_add(STEP_ERROR_EPOCHS)
             {
@@ -325,6 +362,16 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                     0,
                 ));
             }
+        }
+        if let (Some(w), Some(stored)) = (e.watermark_epoch, e.epoch)
+            && w >= stored.saturating_add(DEFERRED_EPOCHS)
+        {
+            out.push(cond(
+                "epoch_deferred",
+                "eval",
+                format!("confirmed watermark in epoch {w}, stored epoch {stored}: increments wait for a head-epoch reading"),
+                0,
+            ));
         }
         if let Some(c) = e.active()
             && let (Some((elapsed, credited)), Some(k)) = (e.cohort_age(c), c.k_tempos)
@@ -407,6 +454,21 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                 "no commit among recent operations".into(),
                 0,
             )),
+        }
+        for op in signing
+            .ops
+            .iter()
+            .filter(|op| op.detail.as_deref() == Some(INCLUSION_UNVERIFIABLE))
+        {
+            out.push(cond(
+                "inclusion_unknown",
+                &format!("coordinator.epoch-{}", op.epoch),
+                format!(
+                    "commit at epoch {} settled with its inclusion unknown (nonce consumed, inclusion unreadable); the signer keeps running",
+                    op.epoch
+                ),
+                0,
+            ));
         }
         for op in signing
             .ops
@@ -539,6 +601,9 @@ pub const STATUS_RULES: &[&str] = &[
     "watermark_stalled",
     "phase_overrun",
     "scorer_budget_fault",
+    "attempts_extended",
+    "epoch_deferred",
+    "inclusion_unknown",
     "cohort_fault",
     "ledger_threshold",
     "retention_stalled",
@@ -636,7 +701,16 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
         "fallback_too_long" => need_worker(o, subject, &[MODE, MODE_AGE], &mut n),
         "webhook_paused" => need_worker(o, subject, &[SUBSCRIPTION], &mut n),
         "watermark_stalled" => need_worker(o, subject, &[], &mut n),
-        "scorer_budget_fault" | "cohort_fault" => need_eval(o, Some(COHORTS), &mut n),
+        "scorer_budget_fault" | "cohort_fault" | "attempts_extended" => {
+            need_eval(o, Some(COHORTS), &mut n)
+        }
+        "epoch_deferred" => need_eval(
+            o,
+            Some(("watermark_epoch", |e| {
+                e.watermark_epoch.is_some() && e.epoch.is_some()
+            })),
+            &mut n,
+        ),
         "phase_overrun" => {
             need_eval(
                 o,
@@ -679,7 +753,7 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
             Some(("ledger standing", |e| e.ledger_threshold_set.is_some())),
             &mut n,
         ),
-        "commit_gap" | "coordinator_reveal_mismatch" => {
+        "commit_gap" | "coordinator_reveal_mismatch" | "inclusion_unknown" => {
             need_worker(o, "coordinator", &[SIGNING], &mut n);
             need_eval(o, Some(("epoch", |e| e.epoch.is_some())), &mut n);
         }
@@ -1321,6 +1395,7 @@ mod tests {
                 state: "revealed".into(),
                 commit_block: Some(1),
                 reveal_weights_match: Some(false),
+                detail: None,
             }],
             ..SigningView::default()
         });
@@ -1370,6 +1445,133 @@ mod tests {
         mark(st, &ev, now, true);
         acknowledge(st, &ev, now);
         ev
+    }
+
+    /// Stuck-states fix round 2 (finding 4): a closed cohort's root step
+    /// failing on alternating transient codes keeps the epoch it first
+    /// failed in (the coordinator no longer resets it on a code change), so
+    /// it alerts once, as one episode, whatever code each read shows.
+    #[test]
+    fn a_step_failing_on_alternating_codes_alerts_once() {
+        let t = 1_793_645_520_000;
+        let mut st = AlertState::default();
+        let read = |code: &str, since: u64| {
+            let mut j = eval_status("admission");
+            j["cohorts"][0]["step_error"] = json!({"code": code, "since_epoch": since, "count": 1});
+            let mut e = parse_eval(&j);
+            e.ledger_over_threshold = Some(false);
+            let mut o = healthy();
+            o.eval = Some(e);
+            o
+        };
+        // Within the first tempo nothing fires, whichever code.
+        assert!(run(&mut st, &read("summary read", 23_169), t).is_empty());
+        assert!(run(&mut st, &read("closure put", 23_169), t + 60_000).is_empty());
+        let fired = run(&mut st, &read("summary read", 23_168), t + 120_000);
+        assert_eq!(
+            kinds(&fired),
+            vec![(EventKind::Firing, "cohort_fault", "testnet-c6")]
+        );
+        for (k, code) in ["closure put", "summary read", "closure put"]
+            .iter()
+            .enumerate()
+        {
+            let ev = run(
+                &mut st,
+                &read(code, 23_168),
+                t + 180_000 + k as u64 * 60_000,
+            );
+            assert!(ev.is_empty(), "a code change is the same episode: {ev:?}");
+        }
+    }
+
+    /// Stuck-states fix round 2 (findings 3, 1, 8, 9): the alert-only
+    /// conditions. A budget guard passed, attempt extensions, a stored
+    /// epoch held behind the watermark for a whole tempo, and a commit whose
+    /// inclusion is unknown each raise their own rule and pause nothing.
+    #[test]
+    fn the_alert_only_conditions_fire_on_their_reads() {
+        let (r, p) = (rules(), PublisherObs::default());
+        let with = |f: &dyn Fn(&mut Value)| {
+            let mut j = eval_status("admission");
+            f(&mut j);
+            let mut e = parse_eval(&j);
+            e.ledger_over_threshold = Some(false);
+            let mut o = healthy();
+            o.eval = Some(e);
+            o
+        };
+        let c = evaluate(
+            &with(&|j| j["cohorts"][1]["budget_alert"] = json!("scoring_budget")),
+            &p,
+            &r,
+        );
+        assert_eq!(rules_of(&c), vec!["scorer_budget_fault"]);
+        assert_eq!(
+            (c[0].subject.as_str(), c[0].detail.as_str()),
+            (
+                "testnet-c7",
+                "budget guard scoring_budget passed in admission (tracking only, nothing paused)"
+            )
+        );
+        // Closed cohorts carry theirs for the record only.
+        assert!(
+            evaluate(
+                &with(&|j| j["cohorts"][0]["budget_alert"] = json!("scoring_budget")),
+                &p,
+                &r
+            )
+            .is_empty()
+        );
+        let c = evaluate(
+            &with(&|j| j["cohorts"][1]["attempt_extensions"] = json!(2)),
+            &p,
+            &r,
+        );
+        assert_eq!(rules_of(&c), vec!["attempts_extended"]);
+        assert!(
+            evaluate(
+                &with(&|j| j["cohorts"][1]["attempt_extensions"] = json!(0)),
+                &p,
+                &r
+            )
+            .is_empty()
+        );
+        // The watermark one epoch ahead is an increment waiting a tick; two
+        // ahead is a whole tempo of watermark progress without one.
+        assert!(evaluate(&with(&|j| j["watermark_epoch"] = json!(23_171)), &p, &r).is_empty());
+        let deferred = with(&|j| j["watermark_epoch"] = json!(23_172));
+        let c = evaluate(&deferred, &p, &r);
+        assert_eq!(rules_of(&c), vec!["epoch_deferred"]);
+        assert_eq!(c[0].subject, "eval");
+        assert!(decided("epoch_deferred", "eval", &deferred));
+        // A coordinator that does not report the watermark epoch leaves it
+        // undecided rather than clear.
+        assert!(!decided("epoch_deferred", "eval", &healthy()));
+        let mut o = healthy();
+        o.coordinator.as_mut().unwrap().signing = Some(SigningView {
+            state: "active".into(),
+            reason: None,
+            ops: vec![
+                OpView {
+                    epoch: 23_170,
+                    state: "committed".into(),
+                    commit_block: Some(2),
+                    ..OpView::default()
+                },
+                OpView {
+                    epoch: 23_169,
+                    state: "failed".into(),
+                    detail: Some(INCLUSION_UNVERIFIABLE.into()),
+                    ..OpView::default()
+                },
+            ],
+            ..SigningView::default()
+        });
+        let c = evaluate(&o, &p, &r);
+        assert_eq!(rules_of(&c), vec!["inclusion_unknown"]);
+        assert_eq!(c[0].subject, "coordinator.epoch-23169");
+        assert!(decided("inclusion_unknown", "coordinator.epoch-23169", &o));
     }
 
     /// The coordinator has not committed for two tempos (the testnet's

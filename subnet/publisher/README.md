@@ -256,7 +256,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v10`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v11`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -276,8 +276,24 @@ The rule set is `slop_ninja.publisher.alerts/v10`. The table is in
   `step_refused` and (v7) a closed cohort whose closure step is paused, and
   (v10, `cohort_fault`) a root step of such a cohort that keeps failing on a
   retried code (`step_error`) through a whole tempo of chain progress: the
-  eval status's stored epoch two past `step_error.since_epoch`; nothing is
-  paused by it;
+  eval status's stored epoch two past `step_error.since_epoch`, which the
+  coordinator keeps from the first failure until a step succeeds, whatever
+  code later failures carry (v11), so alternating transient codes alert
+  too; nothing is paused by it;
+- (v11) alert-only cohort conditions, none of which pauses anything: a
+  cohort past a budget guard (`scorer_budget_fault` from `budget_alert`;
+  spend is tracked, never capped), and a cohort whose chunks got
+  infrastructure attempts past `max_attempts` (`attempts_extended` from
+  `attempt_extensions`);
+- (v11) the eval status's stored epoch held back by unknown head epochs
+  (`epoch_deferred`: `watermark_epoch`, the epoch index at the confirmed
+  watermark, two or more past `observed.epoch.index`, a whole tempo of
+  watermark progress judged by chain blocks); the cohort schedule is not
+  advancing meanwhile;
+- (v11) a coordinator commit operation that settled with its inclusion
+  unknown (`inclusion_unknown`, subject `coordinator.epoch-N`: detail
+  `inclusion_unverifiable`; one alert per operation while it is among the
+  recent operations; the signer keeps running);
 - the spend ledger's billing month past the deployment's private alert
   threshold (the ledger's `over_threshold` flag; tracking only);
 - receipt deletion falling behind the N+2 rule (`retention_stalled`: the

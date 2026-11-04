@@ -1615,6 +1615,8 @@ fn an_unsearchable_attempt_settles_without_pausing_the_signer() {
     assert!(h.chain.head >= start + 63, "settled only after the refusals spanned the maximum backoff");
     let o = &h.ops()[0];
     assert_eq!(o.detail.as_deref(), Some("inclusion_unverifiable"), "{o:#?}");
+    // Fix round 2: labelled as unknown, never as a plain failed commit.
+    assert_eq!(o.inclusion, Some("unknown"));
     assert_eq!(o.diagnostic.as_deref(), Some("inclusion_unverifiable:state_unavailable"));
     assert_eq!(o.attempts[0].dispatch.as_deref(), Some("unverifiable"));
     assert_eq!(o.attempts[0].sends, 1, "never resent");

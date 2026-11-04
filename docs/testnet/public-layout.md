@@ -281,7 +281,7 @@ Field meanings:
 
 | Field | Meaning |
 | --- | --- |
-| `phase` | The active cohort's phase (`admission`, `generating`, `sealing`, `scoring`, `packaging`, `transition`); `queued` when only a queued cohort waits; `idle` when there is none; `unknown` when the status could not be read |
+| `phase` | `admission` while the active cohort's window is open or its roster is not yet frozen; `evaluating` from the roster freeze until the cohort closes; `queued` when only a queued cohort waits; `idle` when there is none; `unknown` when the status could not be read. The work phases (generation, sealing, scoring, packaging, transition) are not published by name. A reward cohort closes at a tempo boundary; a probe build closes when its work commits, within a tempo. The phase name is the only thing hidden: a cohort's records (and `last_published_cohort`) are published within a publisher run of its package becoming durable, and `fault` turns on when a step fails, so the snapshot as a whole still shows when some hidden work finished. |
 | `mode` | `burn` while the launch burn row is the active target; `target` once a cohort target is active |
 | `fault` | `true` when any durable fault is active, or the publisher could not read the coordinator's status. No fault detail is published. |
 | `admitting.planned_cutoff_epoch` | The opening epoch plus the cohort's admission minimum. Tempos that pass while the coordinator is silent do not count, so the actual cutoff can be later. |

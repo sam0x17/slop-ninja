@@ -170,6 +170,7 @@ fn epoch(db: &Sqlite, index: u64, last_epoch_block: u64, now: u64) {
             index,
             last_epoch_block,
         }),
+        head_epoch: Some(index),
     };
     tx(db, |s| engine::observe(s, &kick, now)).unwrap();
     // The commitment reader keeps up with the cursor (one poll per block).
@@ -182,7 +183,7 @@ fn heartbeat(db: &Sqlite, blocks: u64) {
     let number = tx(db, cursor).unwrap().unwrap_or(0) + blocks;
     let kick = Kick {
         confirmed: Some(BlockRef { number, hash: Id([0xbe; 32]) }),
-        epoch: None,
+        ..Kick::default()
     };
     tx(db, |s| engine::observe(s, &kick, NOW)).unwrap();
 }

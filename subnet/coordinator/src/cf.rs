@@ -476,6 +476,21 @@ impl DurableObject for ChainJournal {
                     Err(_) => error("store_unavailable", 503),
                 }
             }
+            // The confirmed watermark with the RPC finalized head it trails:
+            // a tick reads the epoch at both, so the cohort authority knows
+            // whether its epoch observation is the head's (a live epoch) or a
+            // catch-up replay (`eval::engine::ACTIVE_TEMPO_RULE`).
+            (Method::Get, "/confirmed-head") => {
+                match transaction(&storage, |sql| {
+                    Ok::<_, StoreError>(ConfirmedHead {
+                        confirmed: crate::journal::confirmed(sql)?,
+                        head: crate::journal::rpc_finalized_head(sql)?,
+                    })
+                }) {
+                    Ok(c) => json(&c),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
             (Method::Post, "/rpc-reserve") => {
                 let per_minute = s.rpc_calls_per_minute;
                 match transaction(&storage, move |sql| {
@@ -1386,7 +1401,8 @@ async fn hook(mut req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Res
                                 if !budget.allows(eval_do::KICK_TIMEOUT_MS) {
                                     break;
                                 }
-                                let _ = eval_do::kick(&env, instance, confirmed, None).await;
+                                let kick = crate::eval::engine::Kick { confirmed, ..Default::default() };
+                                let _ = eval_do::kick(&env, instance, kick).await;
                             }
                         }
                         if plan.is_some() {
@@ -1937,12 +1953,11 @@ async fn scheduled(env: Env) {
         let _ = pointer_drive(&env, &d).await;
     }
     if eval_do::enabled(&env) && config::eval_cohort_name(&d.chain).is_some() {
-        let epoch = epoch_read(&env, &d).await;
-        let confirmed = epoch.map(|e| e.block);
+        let kick = tick_kick(&env, &d).await;
         let mut main_reply = None;
         for instance in ["main", "load"] {
             if budget.allows(eval_do::KICK_TIMEOUT_MS) {
-                let reply = eval_do::kick(&env, instance, confirmed, epoch).await;
+                let reply = eval_do::kick(&env, instance, kick).await;
                 if instance == "main" {
                     main_reply = reply;
                 }
@@ -1958,7 +1973,7 @@ async fn scheduled(env: Env) {
             let complete = main_reply.as_ref().is_some_and(|v| v["succession_complete"] == true);
             for name in config::kicked_authorities(&a, true, complete).iter().skip(1) {
                 if budget.allows(eval_do::KICK_TIMEOUT_MS) {
-                    let _ = eval_do::kick_authority(&env, name, confirmed, epoch).await;
+                    let _ = eval_do::kick_authority(&env, name, kick).await;
                 }
             }
         }
@@ -2210,16 +2225,58 @@ async fn queue(batch: worker::MessageBatch<crate::eval::lanes::LaneKick>, env: E
 /// Reads the subnet epoch index at the RPC-confirmed watermark: one
 /// `state_queryStorageAt` call, charged to the journal's shared RPC budget.
 async fn epoch_read(env: &Env, d: &Deployment) -> Option<crate::eval::chain::EpochObservation> {
-    let netuid = d.chain.netuid?;
     let mut r = journal_call(env, d, Method::Get, "/confirmed", None).await.ok()?;
     let confirmed: Option<crate::wire::BlockRef> = cf_io::response_json(&mut r, ROUND_REPLY_BYTES).await.ok()?;
-    let confirmed = confirmed?;
+    epoch_at(env, d, confirmed?).await
+}
+
+/// The epoch facts at `at`: one `state_queryStorageAt` call, charged to the
+/// journal's shared RPC budget.
+async fn epoch_at(env: &Env, d: &Deployment, at: crate::wire::BlockRef) -> Option<crate::eval::chain::EpochObservation> {
+    let netuid = d.chain.netuid?;
     let mut r = journal_call(env, d, Method::Post, "/rpc-reserve", None).await.ok()?;
     if !cf_io::response_json::<bool>(&mut r, ROUND_REPLY_BYTES).await.ok()? {
         return None;
     }
-    let body = rpc_post(&d.rpc_url, crate::eval::chain::epoch_request(4, netuid, &confirmed.hash))
+    let body = rpc_post(&d.rpc_url, crate::eval::chain::epoch_request(4, netuid, &at.hash))
         .await
         .ok()?;
-    crate::eval::chain::parse_epoch(4, &body, netuid, confirmed)
+    crate::eval::chain::parse_epoch(4, &body, netuid, at)
+}
+
+/// The confirmed watermark and the RPC finalized head (`/confirmed-head`).
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+struct ConfirmedHead {
+    confirmed: Option<crate::wire::BlockRef>,
+    head: Option<crate::wire::BlockRef>,
+}
+
+/// A tick's kick for the cohort authorities: the epoch at the RPC-confirmed
+/// watermark, and the epoch index at the RPC finalized head, which decides
+/// whether that observation is live (`eval::engine::ACTIVE_TEMPO_RULE`).
+/// While the watermark is the head this is the same reading; while it lags
+/// (a catch-up) one more call, charged to the same budget. A head read that
+/// fails leaves the observation not live, which credits nothing.
+async fn tick_kick(env: &Env, d: &Deployment) -> crate::eval::engine::Kick {
+    let mut kick = crate::eval::engine::Kick::default();
+    let Ok(mut r) = journal_call(env, d, Method::Get, "/confirmed-head", None).await else {
+        return kick;
+    };
+    let Ok(heads) = cf_io::response_json::<ConfirmedHead>(&mut r, ROUND_REPLY_BYTES).await else {
+        return kick;
+    };
+    let Some(confirmed) = heads.confirmed else {
+        return kick;
+    };
+    let Some(epoch) = epoch_at(env, d, confirmed).await else {
+        return kick;
+    };
+    kick.confirmed = Some(epoch.block);
+    kick.epoch = Some(epoch);
+    kick.head_epoch = match heads.head {
+        Some(h) if h == confirmed => Some(epoch.index),
+        Some(h) if h.number > confirmed.number => epoch_at(env, d, h).await.map(|e| e.index),
+        _ => None,
+    };
+    kick
 }

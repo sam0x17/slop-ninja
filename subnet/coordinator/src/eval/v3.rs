@@ -2432,12 +2432,26 @@ pub fn commit_closure(sql: &impl Sql, seq: i64, digest: &Digest, puts: u64) -> R
 }
 
 /// A closed v3 cohort whose closure is not yet published.
-pub fn closure_due(sql: &impl Sql) -> R<Option<i64>> {
-    let rows = sql.exec(
-        "SELECT seq FROM cohorts WHERE phase = 'closed' AND v3 IS NOT NULL AND closure_digest IS NULL
-           AND package_digest IS NOT NULL ORDER BY seq LIMIT 1",
-        &[],
-    )?;
+/// A closed reward-v1 cohort whose closure is not yet written. With
+/// `due_by`, only one that may run then: not paused by a fault (a closure
+/// that cannot be written pauses its own cohort as `step_refused` and blocks
+/// nothing else) and past the retry time of its last failed attempt
+/// (`engine::note_step_error`), so a failing closure yields to admission,
+/// later cohorts, settlement and purges instead of holding the head of every
+/// step. Without it, any pending closure (the work a succession waits for).
+pub fn closure_due(sql: &impl Sql, due_by: Option<u64>) -> R<Option<i64>> {
+    let rows = match due_by {
+        Some(now) => sql.exec(
+            "SELECT seq FROM cohorts WHERE phase = 'closed' AND v3 IS NOT NULL AND closure_digest IS NULL
+               AND package_digest IS NOT NULL AND fault IS NULL AND step_retry_ms <= ? ORDER BY seq LIMIT 1",
+            &[bind_u64(now)?],
+        )?,
+        None => sql.exec(
+            "SELECT seq FROM cohorts WHERE phase = 'closed' AND v3 IS NOT NULL AND closure_digest IS NULL
+               AND package_digest IS NOT NULL ORDER BY seq LIMIT 1",
+            &[],
+        )?,
+    };
     rows.first().map(|r| int(r, 0)).transpose().map_err(EvalError::from)
 }
 

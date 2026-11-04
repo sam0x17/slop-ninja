@@ -67,6 +67,20 @@ fn kick_at(db: &Sqlite, index: u64, now: u64) -> Vec<String> {
             index,
             last_epoch_block: 990 + index * 361,
         }),
+        // A live observation: the watermark is the head.
+        head_epoch: Some(index),
+    };
+    tx(db, |s| engine::observe(s, &k, now)).unwrap()
+}
+
+/// A tick during a catch-up: the epoch read at a lagging confirmed watermark
+/// `block` (in epoch `index`) while the head is in epoch `head`.
+fn kick_lagging(db: &Sqlite, block: u64, index: u64, head: u64, now: u64) -> Vec<String> {
+    let at = BlockRef { number: block, hash: Id([(block % 251) as u8; 32]) };
+    let k = Kick {
+        confirmed: Some(at),
+        epoch: Some(EpochObservation { block: at, index, last_epoch_block: 990 + index * 361 }),
+        head_epoch: Some(head),
     };
     tx(db, |s| engine::observe(s, &k, now)).unwrap()
 }
@@ -1497,7 +1511,21 @@ fn the_scoring_budget_faults_before_spend_can_exceed_it() {
     assert_eq!(fault_of(&db, seq).as_deref(), Some("scoring_budget"));
     sim.tick();
     assert!(sim.lanes.values().filter(|l| l.kind == "score").all(|l| !l.armed), "every lane stopped");
-    assert_eq!(tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap().refused, Some("abandon_required"));
+    // A runaway guard, never a cap: the operator's clear resumes the same
+    // cohort with a fresh allowance of the plan's budget counted from the
+    // spend measured now, and a second runaway pauses it again.
+    let cleared = tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap();
+    assert_eq!((cleared.cleared, cleared.refused), (true, None));
+    let base = status(&db, sim.now)["cohorts"][0]["budget_base"]["scoring_microusd"].as_u64().unwrap();
+    assert!(base > ub, "the measured spend at the clear is the new base: {base}");
+    sim.tick();
+    assert_eq!(fault_of(&db, seq), None, "the remaining work fits the fresh allowance");
+    db.conn.execute("UPDATE lanes SET active_ms = 30000000 WHERE seq = 1 AND kind = 'score' AND first_seen_ms > 0", []).unwrap();
+    sim.tick();
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scoring_budget"), "a second runaway pauses it again");
+    assert!(tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap().cleared);
+    assert_eq!(sim.run(seq, 400), "transition", "the same cohort finishes");
+    assert_eq!(fault_of(&db, seq), None);
     // A plan whose budget is below its own upper bound is refused outright.
     let mut low = wide(20, 1);
     low.cohort = 9;
@@ -1559,7 +1587,7 @@ fn load_mode_rescores_a_sealed_batch_without_a_target() {
 }
 
 #[test]
-fn a_spent_generation_budget_is_terminal_and_only_abandon_ends_it() {
+fn a_spent_generation_budget_pauses_resumably_and_abandon_still_ends_it() {
     let db = Sqlite::open();
     sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
     let mut p = wide(20, 0);
@@ -1569,8 +1597,12 @@ fn a_spent_generation_budget_is_terminal_and_only_abandon_ends_it() {
     sim.run(seq, 50);
     let st = status(&db, sim.now);
     assert_eq!(st["cohorts"][0]["fault"], "generation_budget");
+    // Resumable: the clear grants a fresh allowance from the cost so far.
+    // This plan's budget cannot hold one item, so it pauses again at once.
     let cleared = tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap();
-    assert_eq!((cleared.cleared, cleared.refused), (false, Some("abandon_required")));
+    assert_eq!((cleared.cleared, cleared.refused), (true, None));
+    sim.run(seq, 50);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("generation_budget"));
     assert!(tx(&db, |s| engine::abandon(s, &p.label, "Budget Spent", sim.now)).is_err(), "reasons are codes");
     assert!(tx(&db, |s| engine::abandon(s, &p.label, "generation_budget_spent", sim.now)).unwrap());
     let st = status(&db, sim.now);
@@ -1692,7 +1724,7 @@ fn a_draw_never_takes_a_human_the_durable_ledger_records() {
 }
 
 #[test]
-fn phase_minimums_count_only_tempos_observed_while_heartbeats_are_fresh() {
+fn phase_minimums_count_only_tempos_observed_live() {
     let db = Sqlite::open();
     sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
     let mut now = 1_000_000u64;
@@ -1779,7 +1811,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 15));
+    assert_eq!((report.from, report.to), (3, 16));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -3958,4 +3990,231 @@ fn deletion_runs_while_the_active_cohort_waits_on_its_lanes() {
         tx(&db, |s| engine::next_work(s, &cfg(), 2_000_000)).unwrap(),
         Some(Work::Dispatch { ref kicks, .. }) if kicks.is_empty()
     ));
+}
+
+// ------------------------------------------------- stuck states (audit A1, B1, B2, C2)
+
+/// A1/D2: a coordinator outage leaves scoring lanes silent past their
+/// staleness bound. Their unreported bound is tracked and settled, but it is
+/// time passing, not spend: it never trips the scoring budget, and the same
+/// cohort resumes and finishes after the outage.
+#[test]
+fn a_coordinator_outage_never_trips_the_scoring_budget() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = wide(20, 1);
+    let f = p.fanout.as_mut().unwrap();
+    let ub = super::cost::nano_to_micro_ceil(super::cost::scoring_upper_bound_nanousd(2, 20, 6, &f.cost));
+    f.score.scoring_budget_microusd = ub;
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.claims_per_run = 1;
+    for _ in 0..100 {
+        sim.tick();
+        let preds: i64 = db.conn.query_row("SELECT COUNT(*) FROM preds", [], |r| r.get(0)).unwrap();
+        if preds > 0 {
+            break;
+        }
+    }
+    assert_eq!((phase(&db, seq).as_str(), fault_of(&db, seq)), ("scoring", None));
+    // Three hours with no heartbeat, no step and no lane report.
+    sim.now += 3 * 3_600_000;
+    let st = status(&db, sim.now);
+    let unreported = st["cohorts"][0]["lanes"]["spend"]["scoring_unreported_bound_microusd"].as_u64();
+    assert!(unreported.unwrap_or(0) > ub, "the silent lanes' bound alone exceeds the budget: {unreported:?}");
+    assert_eq!(sim.run(seq, 400), "transition", "the same cohort resumes and finishes");
+    assert_eq!(fault_of(&db, seq), None, "an outage never trips the budget");
+}
+
+/// D2: platform refusals (an arena or object bound a corrected deployment
+/// lifts) pause the cohort and an operator clear resumes the same cohort; they
+/// never force abandonment.
+#[test]
+fn platform_faults_pause_and_resume_the_same_cohort() {
+    for code in ["arena_capacity", "arena_defect", "object_over_bound", engine::STEP_REFUSED] {
+        let db = Sqlite::open();
+        sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+        let p = wide(20, 0);
+        let seq = open_cohort(&db, &p, 10, 1_000_000);
+        tx(&db, |s| engine::fault(s, seq, code, 1_000_100)).unwrap();
+        assert!(tx(&db, engine::active).unwrap().is_none(), "{code}: paused");
+        let cleared = tx(&db, |s| engine::clear_fault(s, &p.label, 1_000_200)).unwrap();
+        assert_eq!((cleared.cleared, cleared.refused), (true, None), "{code}");
+        assert_eq!(tx(&db, engine::active).unwrap().map(|c| c.seq), Some(seq), "{code}: the same cohort resumes");
+    }
+}
+
+/// B2: a root step's error is recorded against its cohort. A transient one
+/// (a bucket read) is retried and shown; one no wait changes (a digest that
+/// does not match its record) pauses the cohort with a resumable fault that
+/// names the code once, and the operator can clear or abandon it.
+#[test]
+fn a_deterministic_step_error_pauses_its_cohort_resumably() {
+    assert!(engine::step_error_is_deterministic("pool manifest digest"));
+    assert!(engine::step_error_is_deterministic("artifact manifest missing"));
+    assert!(engine::step_error_is_deterministic("EVAL_PACKAGE_SIGNING_KEY"));
+    assert!(engine::step_error_is_deterministic("package signing key is not the configured trust root"));
+    for transient in ["pool manifest read", "closure put", "seal commit", "arena_retry", "arena_poisoned", "next_work"] {
+        assert!(!engine::step_error_is_deterministic(transient), "{transient}");
+    }
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    assert!(!tx(&db, |s| engine::note_step_error(s, seq, "pool manifest read", 1_000_100)).unwrap());
+    assert!(!tx(&db, |s| engine::note_step_error(s, seq, "pool manifest read", 1_000_200)).unwrap());
+    let e = &status(&db, 1_000_200)["cohorts"][0]["step_error"];
+    assert_eq!((e["code"].as_str(), e["count"].as_i64(), e["since_ms"].as_i64()), (Some("pool manifest read"), Some(2), Some(1_000_100)));
+    assert_eq!(e["deterministic"], false);
+    assert_eq!(fault_of(&db, seq), None, "a transient error never pauses");
+    // A completed step clears it.
+    tx(&db, |s| engine::note_step(s, seq, 5)).unwrap();
+    assert!(status(&db, 1_000_300)["cohorts"][0]["step_error"].is_null());
+    // A digest mismatch pauses it, logged once with its code.
+    assert!(tx(&db, |s| engine::note_step_error(s, seq, "pool manifest digest", 1_000_400)).unwrap());
+    assert!(tx(&db, |s| engine::note_step_error(s, seq, "pool manifest digest", 1_000_500)).unwrap());
+    assert_eq!(fault_of(&db, seq).as_deref(), Some(engine::STEP_REFUSED));
+    let notes: Vec<String> = status(&db, 1_000_500)["cohorts"][0]["log"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|l| l["note"].as_str().map(str::to_owned))
+        .filter(|n| n.contains("step_refused"))
+        .collect();
+    assert_eq!(notes, ["fault:step_refused", "step_refused:pool manifest digest"]);
+    assert!(engine::RESUMABLE_FAULTS.contains(&engine::STEP_REFUSED));
+    let cleared = tx(&db, |s| engine::clear_fault(s, &p.label, 1_000_600)).unwrap();
+    assert!(cleared.cleared);
+    assert_eq!(tx(&db, engine::active).unwrap().map(|c| c.seq), Some(seq));
+    // Paused again, the operator may also end it.
+    tx(&db, |s| engine::refuse_step(s, seq, "fingerprint vector digest", 1_000_700)).unwrap();
+    assert!(tx(&db, |s| engine::abandon(s, &p.label, "step_refused", 1_000_800)).unwrap());
+}
+
+/// B1: a closed reward-v1 cohort whose closure cannot be written no longer
+/// holds the head of every step. After a failed attempt it waits its retry
+/// time while other work runs, and one that fails in a way no wait changes
+/// pauses only its own cohort (resumably) and blocks nothing else.
+#[test]
+fn a_closure_that_cannot_be_written_holds_up_no_other_work() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seqs = closed_cohorts(&db, &[30, 31]);
+    let (closing, other) = (seqs[0], seqs[1]);
+    db.conn.execute("UPDATE cohorts SET v3 = '{}', package_digest = 'p' WHERE seq = ?1", [closing]).unwrap();
+    // The other cohort's spend is not yet settled: work behind the closure.
+    db.conn.execute("UPDATE cohorts SET settled_microusd = NULL WHERE seq = ?1", [other]).unwrap();
+    let next = |now: u64| tx(&db, |s| engine::next_work(s, &cfg(), now)).unwrap();
+    let now = 2_000_000u64;
+    assert_eq!(next(now), Some(Work::Close { seq: closing }));
+    // A transient failure: the closure waits its retry time; the rest runs.
+    tx(&db, |s| engine::note_step_error(s, closing, "closure put", now)).unwrap();
+    assert!(matches!(next(now + 1), Some(Work::Settle { seq, .. }) if seq == other), "{:?}", next(now + 1));
+    assert_eq!(next(now + engine::STEP_RETRY_MS), Some(Work::Close { seq: closing }), "retried after its wait");
+    // A closure that can never be written (a key that is not deployed).
+    tx(&db, |s| engine::note_step_error(s, closing, "EVAL_PACKAGE_SIGNING_KEY", now + engine::STEP_RETRY_MS)).unwrap();
+    assert_eq!(fault_of(&db, closing).as_deref(), Some(engine::STEP_REFUSED));
+    for later in [now + 2 * engine::STEP_RETRY_MS, now + 86_400_000] {
+        assert!(matches!(next(later), Some(Work::Settle { seq, .. }) if seq == other), "nothing else waits on it");
+    }
+    // With the rest done, the paused closure re-arms no alarm, still counts
+    // as held work for a succession, and the operator's clear runs it again
+    // at once.
+    db.conn.execute("UPDATE cohorts SET settled_microusd = 1 WHERE seq = ?1", [other]).unwrap();
+    assert!(!tx(&db, |s| engine::has_due_work(s, &cfg(), now + 86_400_000)).unwrap());
+    assert!(tx(&db, |s| engine::blocking_work(s, &cfg())).unwrap());
+    assert!(tx(&db, |s| engine::clear_fault(s, "testnet-ret-30", now + 86_400_000)).unwrap().cleared);
+    assert_eq!(next(now + 86_400_000), Some(Work::Close { seq: closing }));
+}
+
+/// C2: a multi-hour outage, then a fallback catch-up that walks the lagging
+/// confirmed watermark across a dozen historical epoch boundaries with a
+/// tick every minute. None of the replayed boundaries is credited (they
+/// passed while nobody observed them), so the cohort's admission window is
+/// not compressed into the catch-up; once caught up, the next live boundary
+/// is credited as usual and the same cohort moves on.
+#[test]
+fn a_multi_hour_catch_up_replay_credits_no_historical_tempo() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut now = 1_000_000u64;
+    let p = wide(20, 0); // admission 1 tempo
+    let bytes = serde_json::to_vec(&p).unwrap();
+    tx(&db, |s| engine::queue(s, &cfg(), &bytes, now)).unwrap();
+    assert!(kick_at(&db, 10, now).is_empty());
+    now += 60_000;
+    assert_eq!(kick_at(&db, 11, now), ["testnet-rehearsal-1:admission"]);
+    let o = tx(&db, engine::observed).unwrap();
+    assert_eq!(o.active_tempos, 1);
+    // Three hours of silence; the head is now in epoch 25.
+    now += 3 * 3_600_000;
+    let head = 25u64;
+    // The catch-up: 93 heights a tick from epoch 11's block to the head's.
+    let mut block = 1000 + 11 * 361;
+    let end = 1000 + head * 361;
+    let mut ticks = 0;
+    while block < end {
+        block = (block + 93).min(end);
+        now += 60_000;
+        ticks += 1;
+        let index = (block - 1000) / 361;
+        let moved = kick_lagging(&db, block, index, head, now);
+        assert!(moved.is_empty(), "tick {ticks} at epoch {index}: {moved:?}");
+    }
+    assert!(ticks > 40, "a multi-hour catch-up: {ticks} ticks");
+    let o = tx(&db, engine::observed).unwrap();
+    assert_eq!(o.epoch.unwrap().index, head);
+    assert_eq!((o.active_tempos, o.uncredited_tempos), (1, head - 11), "no replayed boundary is credited");
+    assert_eq!(phase(&db, 1), "admission", "the admission window is not compressed into the catch-up");
+    // Caught up: the head's epoch is observed live; the next boundary credits.
+    now += 60_000;
+    assert!(kick_at(&db, head, now).is_empty());
+    now += 60_000;
+    assert_eq!(kick_at(&db, head + 1, now), ["testnet-rehearsal-1:generating"]);
+    let o = tx(&db, engine::observed).unwrap();
+    assert_eq!(o.active_tempos, 2);
+}
+
+/// C2: a watermark a few blocks behind the head at a boundary tick does not
+/// lose the boundary's credit: an epoch observed live once stays live.
+#[test]
+fn a_boundary_tick_behind_the_head_keeps_its_credit() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let now = 1_000_000u64;
+    kick_at(&db, 10, now);
+    // The boundary to 11 has passed at the head, the watermark is still in 10.
+    kick_lagging(&db, 1000 + 10 * 361 + 300, 10, 11, now + 60_000);
+    kick_at(&db, 11, now + 120_000);
+    let o = tx(&db, engine::observed).unwrap();
+    assert_eq!((o.active_tempos, o.uncredited_tempos), (1, 0));
+    // A tick without a head reading (older Worker, failed read) credits none.
+    let at = BlockRef { number: 1000 + 12 * 361, hash: Id([12; 32]) };
+    let k = Kick { confirmed: Some(at), epoch: Some(EpochObservation { block: at, index: 12, last_epoch_block: 990 + 12 * 361 }), head_epoch: None };
+    tx(&db, |s| engine::observe(s, &k, now + 180_000)).unwrap();
+    let o = tx(&db, engine::observed).unwrap();
+    assert_eq!((o.active_tempos, o.uncredited_tempos), (1, 1));
+}
+
+/// Follow-ups verify item 8: a predecessor notice that came back with work
+/// left is retried once a tick on an otherwise idle store, instead of
+/// waiting for the next cohort's steps (and paging `retention_stalled`
+/// meanwhile). A delivery kick (no epoch) does not arm it, and nothing does
+/// once the predecessor reported nothing left.
+#[test]
+fn a_due_predecessor_notice_is_retried_each_tick_on_an_idle_store() {
+    use crate::config::Authority;
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let succ = EvalConfig { authority: Authority::named_after("r0c", 13, &["r0b"]).unwrap(), ..cfg() };
+    closed_cohorts(&db, &[13, 14]);
+    assert!(tx(&db, |s| super::retention::notice_due(s, &succ)).unwrap().is_some());
+    let now = 5_000_000;
+    assert!(!tx(&db, |s| engine::has_due_work(s, &succ, now)).unwrap(), "idle otherwise: the alarm never re-arms for it");
+    let tick = Kick { epoch: Some(EpochObservation { block: BlockRef { number: 9_000, hash: Id([9; 32]) }, index: 30, last_epoch_block: 8_990 }), ..Kick::default() };
+    assert!(tx(&db, |s| engine::kick_due(s, &succ, &tick, now)).unwrap(), "a tick arms one notice attempt");
+    assert!(!tx(&db, |s| engine::kick_due(s, &succ, &Kick::default(), now)).unwrap(), "a delivery does not");
+    tx(&db, |s| super::retention::record_notice(s, "main", 14, now)).unwrap();
+    tx(&db, |s| super::retention::record_notice(s, "r0b", 14, now)).unwrap();
+    assert!(!tx(&db, |s| engine::kick_due(s, &succ, &tick, now)).unwrap(), "nothing left to tell");
 }

@@ -21,7 +21,6 @@
 //! text.
 
 use super::{TxError, error, json, migrate_storage, now_ms, transaction};
-use crate::eval::chain::EpochObservation;
 use crate::eval::engine::{self, EvalConfig, GenItem, GenOutcome, HEARTBEAT_FRESH_MS, Kick, Work};
 use crate::eval::lanes::{self, BundleReport, LaneKick, LaneRef, LaneReport, SummaryReport};
 use crate::eval::package;
@@ -367,13 +366,8 @@ pub async fn audit_status(env: &Env, authority: &str) -> Result<Response> {
 
 /// A tick's kick to main authority `authority` by name (an earlier one that
 /// may still hold work; `config::kicked_authorities`).
-pub async fn kick_authority(
-    env: &Env,
-    authority: &str,
-    confirmed: Option<crate::wire::BlockRef>,
-    epoch: Option<EpochObservation>,
-) -> Option<Value> {
-    let body = serde_json::to_string(&Kick { confirmed, epoch }).ok()?;
+pub async fn kick_authority(env: &Env, authority: &str, kick: Kick) -> Option<Value> {
+    let body = serde_json::to_string(&kick).ok()?;
     let mut r = authority_fetch(
         env,
         engine::INSTANCE_MAIN,
@@ -714,7 +708,7 @@ impl DurableObject for EvalCohort {
                 let moved = match transaction(&storage, move |sql| {
                     let moved = engine::observe(sql, &kick, now)?;
                     let scoring = engine::active(sql)?.is_some_and(|c| c.phase == "scoring");
-                    Ok::<_, engine::EvalError>((moved, engine::has_due_work(sql, &c2, now)?, scoring))
+                    Ok::<_, engine::EvalError>((moved, engine::kick_due(sql, &c2, &kick, now)?, scoring))
                 }) {
                     Ok(v) => v,
                     Err(_) => return error("store_unavailable", 503),
@@ -972,6 +966,29 @@ impl EvalCohort {
     fn fault_now(&self, seq: i64, code: &'static str) -> &'static str {
         let now = now_ms();
         let _ = transaction(&self.state.storage(), move |sql| engine::fault(sql, seq, code, now));
+        code
+    }
+
+    /// A root step of cohort `seq` failed with `code`: recorded against the
+    /// cohort (`engine::note_step_error`), which pauses it when no wait
+    /// changes the failure. Returns the code for the step's own error.
+    fn step_failed(&self, seq: i64, code: &'static str) -> &'static str {
+        let now = now_ms();
+        let _ = transaction(&self.state.storage(), move |sql| engine::note_step_error(sql, seq, code, now));
+        code
+    }
+
+    /// The engine refused a root step of cohort `seq` under its stored
+    /// inputs (a plan or state refusal): the same inputs refuse it again, so
+    /// the cohort pauses (`engine::refuse_step`, resumable) instead of
+    /// retrying every 30 s. A storage error stays a transient step error.
+    fn step_refused_now(&self, seq: i64, e: engine::EvalError) -> &'static str {
+        let code = e.code();
+        if matches!(e, engine::EvalError::Store(_)) {
+            return code;
+        }
+        let now = now_ms();
+        let _ = transaction(&self.state.storage(), move |sql| engine::refuse_step(sql, seq, code, now));
         code
     }
 
@@ -1312,36 +1329,71 @@ impl EvalCohort {
             };
             use crate::arena_routes::{R_COHORT_CLOSE, R_COHORT_DRAW, R_COHORT_LOAD_SEAL, R_COHORT_PACKAGE, R_COHORT_SEAL, STEP_BASE_BYTES};
             match work {
+                // A cohort's root step: a failure is recorded against its
+                // cohort (`engine::note_step_error`): a transient one waits
+                // its retry time (a closure meanwhile yields to every other
+                // step), a deterministic one pauses that cohort, resumably.
                 Work::Draw { seq, plan } => {
-                    let child = self.step_scope(scope, R_COHORT_DRAW, seq, STEP_BASE_BYTES)?;
-                    let fut = async { if plan.is_v3() { self.draw_v3(&cfg, seq, &plan).await } else { self.draw(&cfg, seq, &plan).await } };
-                    child.scoped(fut).map_err(|_| "arena_defect")?.await?;
-                    let _ = child.close();
+                    let r = async {
+                        let child = self.step_scope(scope, R_COHORT_DRAW, seq, STEP_BASE_BYTES)?;
+                        let fut = async { if plan.is_v3() { self.draw_v3(&cfg, seq, &plan).await } else { self.draw(&cfg, seq, &plan).await } };
+                        child.scoped(fut).map_err(|_| "arena_defect")?.await?;
+                        let _ = child.close();
+                        Ok::<(), &'static str>(())
+                    }
+                    .await;
+                    r.map_err(|code| self.step_failed(seq, code))?;
                 }
                 Work::Seal { seq } => {
-                    let plan = plan_of(seq)?;
-                    let child = self.step_scope_physical(scope, R_COHORT_SEAL, seq, crate::arena_routes::seal_bytes(seal_docs(&plan)))?;
-                    let fut = async { if plan.is_v3() { self.seal_v3(&cfg, seq, &plan).await } else { self.seal(&cfg, seq).await } };
-                    child.scoped(fut).map_err(|_| "arena_defect")?.await?;
-                    let _ = child.close();
+                    let r = async {
+                        let plan = plan_of(seq)?;
+                        let child = self.step_scope_physical(scope, R_COHORT_SEAL, seq, crate::arena_routes::seal_bytes(seal_docs(&plan)))?;
+                        let fut = async { if plan.is_v3() { self.seal_v3(&cfg, seq, &plan).await } else { self.seal(&cfg, seq).await } };
+                        child.scoped(fut).map_err(|_| "arena_defect")?.await?;
+                        let _ = child.close();
+                        Ok::<(), &'static str>(())
+                    }
+                    .await;
+                    r.map_err(|code| self.step_failed(seq, code))?;
                 }
                 Work::LoadSeal { seq, source } => {
-                    let child = self.step_scope(scope, R_COHORT_LOAD_SEAL, seq, STEP_BASE_BYTES)?;
-                    child.scoped(self.load_seal(&cfg, seq, &source)).map_err(|_| "arena_defect")?.await?;
-                    let _ = child.close();
+                    let r = async {
+                        let child = self.step_scope(scope, R_COHORT_LOAD_SEAL, seq, STEP_BASE_BYTES)?;
+                        child.scoped(self.load_seal(&cfg, seq, &source)).map_err(|_| "arena_defect")?.await?;
+                        let _ = child.close();
+                        Ok::<(), &'static str>(())
+                    }
+                    .await;
+                    r.map_err(|code| self.step_failed(seq, code))?;
                 }
                 Work::Package { seq } => {
-                    let plan = plan_of(seq)?;
-                    let (jobs, docs) = package_shape(&plan);
-                    let child = self.step_scope_physical(scope, R_COHORT_PACKAGE, seq, crate::arena_routes::package_step_bytes(jobs, docs))?;
-                    let fut = async { if plan.is_v3() { self.package_v3(&cfg, seq, &plan).await } else { self.package(&cfg, seq, &instance, &plan).await } };
-                    child.scoped(fut).map_err(|_| "arena_defect")?.await?;
-                    let _ = child.close();
+                    let r = async {
+                        let plan = plan_of(seq)?;
+                        let (jobs, docs) = package_shape(&plan);
+                        let child = self.step_scope_physical(scope, R_COHORT_PACKAGE, seq, crate::arena_routes::package_step_bytes(jobs, docs))?;
+                        let fut = async { if plan.is_v3() { self.package_v3(&cfg, seq, &plan).await } else { self.package(&cfg, seq, &instance, &plan).await } };
+                        child.scoped(fut).map_err(|_| "arena_defect")?.await?;
+                        let _ = child.close();
+                        Ok::<(), &'static str>(())
+                    }
+                    .await;
+                    r.map_err(|code| self.step_failed(seq, code))?;
                 }
                 Work::Close { seq } => {
-                    let child = self.step_scope(scope, R_COHORT_CLOSE, seq, STEP_BASE_BYTES)?;
-                    child.scoped(self.close_v3(&cfg, seq)).map_err(|_| "arena_defect")?.await?;
-                    let _ = child.close();
+                    let r = async {
+                        let child = self.step_scope(scope, R_COHORT_CLOSE, seq, STEP_BASE_BYTES)?;
+                        child.scoped(self.close_v3(&cfg, seq)).map_err(|_| "arena_defect")?.await?;
+                        let _ = child.close();
+                        Ok::<(), &'static str>(())
+                    }
+                    .await;
+                    if let Err(code) = r {
+                        // The closure waits out its retry time (or its fault)
+                        // and this step goes on with the rest of the work:
+                        // a closure that cannot be written holds nothing up.
+                        self.step_failed(seq, code);
+                        continue;
+                    }
                 }
                 Work::Settle { seq, key, microusd } => {
                     // A ledger outage only delays the charge; evaluation never waits on it.
@@ -1595,7 +1647,7 @@ impl EvalCohort {
         let now = now_ms();
         let drawn = transaction(&storage, move |sql| engine::apply_draw(sql, &c2, seq, &d, &wanted, &ledger, now))
             .map_err(|e| match e {
-                TxError::Operation(e) => e.code(),
+                TxError::Operation(e) => self.step_refused_now(seq, e),
                 TxError::Runtime => "draw commit",
             })?;
         if !drawn && let Ok(b) = env.bucket(EVAL_BUCKET) {
@@ -1633,7 +1685,7 @@ impl EvalCohort {
         let index = self.read(seq, EVAL_BUCKET, &source.index_key, STEP_OBJECT_BYTES, "source index read").await?.ok_or("source index missing")?;
         let c2 = cfg.clone();
         let b = transaction(&storage, move |sql| engine::prepare_load_seal(sql, &c2, seq, &index)).map_err(|e| match e {
-            TxError::Operation(e) => e.code(),
+            TxError::Operation(e) => self.step_refused_now(seq, e),
             TxError::Runtime => "prepare load seal",
         })?;
         let (package_key, _) = load_keys(&self.env)?;
@@ -1676,7 +1728,7 @@ impl EvalCohort {
         }
         let c2 = cfg.clone();
         let b = transaction(&storage, move |sql| engine::prepare_package(sql, &c2, seq, &summaries)).map_err(|e| match e {
-            TxError::Operation(e) => e.code(),
+            TxError::Operation(e) => self.step_refused_now(seq, e),
             TxError::Runtime => "prepare package",
         })?;
         let (package_key, receipt_key) = instance_keys(&self.env, instance)?;
@@ -1897,9 +1949,10 @@ pub async fn scorer_probe(
 }
 
 /// The kick a heartbeat sends to an instance: the confirmed watermark and, from
-/// ticks, the epoch. Returns the authority's reply (`moved`, `work`, `scoring`).
-pub async fn kick(env: &Env, instance: &str, confirmed: Option<crate::wire::BlockRef>, epoch: Option<EpochObservation>) -> Option<Value> {
-    let body = serde_json::to_string(&Kick { confirmed, epoch }).ok()?;
+/// ticks, the epoch with the head's epoch index. Returns the authority's
+/// reply (`moved`, `work`, `scoring`).
+pub async fn kick(env: &Env, instance: &str, kick: Kick) -> Option<Value> {
+    let body = serde_json::to_string(&kick).ok()?;
     let mut r = cohort_fetch_within(env, instance, Method::Post, "/kick", Some(body), Some(KICK_TIMEOUT_MS)).await.ok()?;
     if r.status_code() != 200 {
         super::cf_io::discard(&mut r);
@@ -2132,7 +2185,7 @@ impl EvalCohort {
         let now = now_ms();
         let drawn = transaction(&storage, move |sql| v3::apply_draw(sql, &c2, seq, &d, &parents, &texts, &ledger, now))
             .map_err(|e| match e {
-                TxError::Operation(e) => e.code(),
+                TxError::Operation(e) => self.step_refused_now(seq, e),
                 TxError::Runtime => "draw commit",
             })?;
         if !drawn && let Ok(b) = env.bucket(EVAL_BUCKET) {
@@ -2158,7 +2211,7 @@ impl EvalCohort {
             // A plan naming other references than the chain can never seal:
             // the cohort faults for the operator instead of retrying.
             TxError::Operation(e) if e.code() == v3::REFERENCE_CHAIN_MISMATCH => self.fault_now(seq, "reference_chain_mismatch"),
-            TxError::Operation(e) => e.code(),
+            TxError::Operation(e) => self.step_refused_now(seq, e),
             TxError::Runtime => "prepare seal",
         })?;
         for group in b.shards.chunks(PARALLEL) {
@@ -2226,7 +2279,7 @@ impl EvalCohort {
         let storage = self.state.storage();
         let summaries = self.summaries(seq, plan).await?;
         let (index, chunk_map) = transaction(&storage, move |sql| engine::receipt_index(sql, seq)).map_err(|e| match e {
-            TxError::Operation(e) => e.code(),
+            TxError::Operation(e) => self.step_refused_now(seq, e),
             TxError::Runtime => "receipt index",
         })?;
         let (package_key, receipt_key) = keys(&self.env)?;
@@ -2314,7 +2367,7 @@ impl EvalCohort {
                 let _ = transaction(&storage, move |sql| engine::fault(sql, seq, v3::PACKAGE_REFUSED, now));
                 return Err(v3::PACKAGE_REFUSED);
             }
-            Err(TxError::Operation(e)) => return Err(e.code()),
+            Err(TxError::Operation(e)) => return Err(self.step_refused_now(seq, e)),
             Err(TxError::Runtime) => return Err("prepare package"),
         };
         for (key, bytes) in &b.vectors {
@@ -2354,7 +2407,7 @@ impl EvalCohort {
         let storage = self.state.storage();
         let c2 = cfg.clone();
         let b = transaction(&storage, move |sql| v3::prepare_closure(sql, &c2, seq)).map_err(|e| match e {
-            TxError::Operation(e) => e.code(),
+            TxError::Operation(e) => self.step_refused_now(seq, e),
             TxError::Runtime => "prepare closure",
         })?;
         let (package_key, _) = keys(&self.env)?;

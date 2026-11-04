@@ -711,9 +711,10 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
   curl -sS --header @- -H 'Content-Type: application/json' --data-binary @plan.json \
     $EVAL_URL/eval/plan
 # pre-flight a generator or the scorer path on fixed synthetic text: /eval/probe, /eval/scorer-probe
-# resume after an outage fault: /eval/clear {"label": "..."}
-#   (a terminal fault answers {"cleared": false, "refused": "abandon_required"})
-# end a terminally faulted cohort without a target: /eval/abandon {"label": "...", "reason": "<code>"}
+# resume after an outage, platform, budget or step_refused fault: /eval/clear {"label": "..."}
+#   (a terminal fault answers {"cleared": false, "refused": "abandon_required"};
+#   /eval/status lists resumable_faults, and a cohort's step_error names a failing root step)
+# end a faulted cohort without a target: /eval/abandon {"label": "...", "reason": "<code>"}
 # the load-rehearsal instance: GET /eval/load/status; POST /eval/load/{plan,clear,abandon,hold}
 #   (a load plan is slop_ninja_eval_load_plan_v1; {"hold": true} makes every claim answer Paused)
 # load plans and gates: examples/slop_ninja_eval_ops.rs (load-plan; gate --for deploy|load on both
@@ -748,9 +749,13 @@ ledger's standing.
    pays one start bound for most of its lanes.
 2. Every plan declares `fanout.score.scoring_budget_microusd`. A plan whose
    own upper bound (J x n x `doc_ub` + lanes x `cold_ub`) exceeds it is
-   refused; each sweep checks measured spend, a bound for lanes presumed dead
-   and the remaining work's bound, and faults the cohort (`scoring_budget`,
-   terminal) before it can be exceeded.
+   refused; each sweep checks measured spend and the remaining work's bound,
+   and pauses the cohort (`scoring_budget`, resumable) before it can be
+   exceeded. A runaway guard, never a cap: a clear resumes the same cohort
+   with a fresh allowance of the plan's budget counted from the spend
+   measured at the clear. The bound charged to lanes silent past their
+   staleness bound is reported and settled but never counts toward the
+   guard, so an outage cannot pause a cohort through it.
 3. The `SpendLedger` tracks the month and never refuses or pauses anything
    for spend: a plan's generation and scoring budgets are recorded as a
    reservation before it queues, and a finished cohort settles its measured

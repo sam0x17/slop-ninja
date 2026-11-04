@@ -612,6 +612,13 @@ pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
                 ) STRICT",
             ],
         },
+        // v11: an attempt whose inclusion search reads block bodies one by
+        // one, because the endpoint no longer serves the nonce at the
+        // retained blocks the binary search probes.
+        Migration {
+            version: 11,
+            statements: &["ALTER TABLE sign_attempts ADD COLUMN search_scan INTEGER NOT NULL DEFAULT 0"],
+        },
     ],
 };
 
@@ -740,6 +747,14 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
                     PRIMARY KEY (cohort, hotkey)
                 ) STRICT",
             ],
+        },
+        // v16: stuck-state recovery: the epoch observation's liveness (an
+        // epoch seen while it was the head's credits tempos), each cohort's
+        // failing root step and its retry time, and the spend measured at a
+        // budget clear.
+        Migration {
+            version: 16,
+            statements: crate::eval::engine::SCHEMA_V16,
         },
     ],
 };

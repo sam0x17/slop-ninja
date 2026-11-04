@@ -57,13 +57,21 @@ const GEN_BACKOFF_MAX_MS: u64 = 120_000;
 pub const SCORER_FAILURES_MAX: i64 = 6;
 /// Backoff of a chunk whose request never reached the model.
 pub const SCORER_BACKOFF_MS: u64 = 30_000;
-/// A heartbeat at most this old counts the coordinator as observing: an epoch
-/// increment then credits an active tempo, and the alarm re-arms itself.
+/// A heartbeat at most this old counts the coordinator as alive: claims are
+/// granted and the alarm re-arms itself. It never credits a tempo
+/// ([`ACTIVE_TEMPO_RULE`] reads chain epochs only).
 pub const HEARTBEAT_FRESH_MS: u64 = 600_000;
-/// The active-tempo rule: each observed increase of the epoch index credits one
-/// active tempo if the previous heartbeat is fresh, else none. A jump of several
-/// tempos credits at most one; missed tempos are never charged.
-pub const ACTIVE_TEMPO_RULE: &str = "fresh_heartbeat_single_increment_v1";
+/// The active-tempo rule, by chain epochs observed and never by wall-clock
+/// time: an observation is live when its epoch is the chain head's epoch at
+/// the time it is made (the tick reads the epoch index at the RPC-confirmed
+/// watermark and at the RPC finalized head). An increase of the epoch index
+/// by exactly one credits one active tempo when the earlier epoch was
+/// observed live at least once and the new observation is live. Every other
+/// increase (a jump of several, or replayed epochs while a lagging watermark
+/// catches up after an outage) credits none: those tempos passed while the
+/// coordinator was not observing them, are counted as uncredited and never
+/// consume a minimum, so the same cohort resumes at later boundaries.
+pub const ACTIVE_TEMPO_RULE: &str = "live_epoch_single_increment_v2";
 /// Upper bound on prompt tokens assumed when checking a wave against the budget.
 pub(crate) const BUDGET_PROMPT_TOKENS: u64 = 1500;
 
@@ -292,10 +300,31 @@ pub const SCHEMA_V7: &[&str] = &[
     "ALTER TABLE jobs ADD COLUMN artifact_failed TEXT",
 ];
 
+/// v16: stuck-state recovery. Whether the stored epoch observation's epoch
+/// was ever observed while it was the chain head's (`epoch_live`, the
+/// [`ACTIVE_TEMPO_RULE`]); each cohort's failing root step (its code, since
+/// when, how many times, and when it may run again, so a closure that fails
+/// yields to other work: [`note_step_error`]); and the spend measured when
+/// an operator cleared a budget fault, from which the plan's budget counts
+/// again ([`clear_fault`]).
+pub const SCHEMA_V16: &[&str] = &[
+    "ALTER TABLE eval_obs ADD COLUMN epoch_live INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN step_error TEXT",
+    "ALTER TABLE cohorts ADD COLUMN step_error_since_ms INTEGER",
+    "ALTER TABLE cohorts ADD COLUMN step_errors INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN step_retry_ms INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN score_base_nanousd INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN gen_base_microusd INTEGER NOT NULL DEFAULT 0",
+];
+
 /// Fault codes an operator clear can resume, because the frozen plan still
-/// allows the work: outages and refused scorer slots. Every other fault is
-/// terminal under the plan (no attempt, budget, human or case is left) and
-/// needs [`abandon`].
+/// allows the work: outages, refused scorer slots, platform refusals (an
+/// arena or object bound, which a corrected deployment lifts), a root step
+/// that failed the same way under the same inputs ([`STEP_REFUSED`]), and
+/// the budget guards (a runaway guard for one cohort, never a cap: a clear
+/// resumes with a fresh allowance of the plan's budget counted from the
+/// spend measured at the clear). Every other fault is terminal under the
+/// plan (no attempt, human or case is left) and needs [`abandon`].
 /// `package_refused` resumes once a corrected build is deployed: the frozen
 /// inputs are unchanged and packaging runs again from them.
 /// A plan names fresh stock without an admitted external entrant.
@@ -312,7 +341,29 @@ pub const RESUMABLE_FAULTS: &[&str] = &[
     crate::eval::commitments::SNAPSHOT_DISCARDED,
     crate::eval::admission::FRAMING_UNAVAILABLE,
     crate::eval::commitments::STATE_UNAVAILABLE,
+    "arena_capacity",
+    "arena_defect",
+    "object_over_bound",
+    STEP_REFUSED,
+    SCORING_BUDGET,
+    GENERATION_BUDGET,
 ];
+
+/// A cohort's root step (draw, seal, package or closure) failed in a way no
+/// wait changes: a content check (a digest or object that does not match its
+/// record), a missing object or key, or an engine refusal under the same
+/// stored inputs ([`step_error_is_deterministic`]). The cohort pauses with
+/// its work and evidence kept; the failing code is in its phase log and its
+/// status (`step_error`). An operator clear runs the step again, after the
+/// cause is corrected (an object restored, a key or build deployed).
+pub const STEP_REFUSED: &str = "step_refused";
+/// The scoring and generation budget guards ([`clear_fault`]).
+pub const SCORING_BUDGET: &str = "scoring_budget";
+pub const GENERATION_BUDGET: &str = "generation_budget";
+
+/// The delay before a root step that failed runs again (the alarm's re-arm
+/// after a step error), during which a failed closure yields to other work.
+pub const STEP_RETRY_MS: u64 = 30_000;
 
 /// The crash-isolation rule, as published in `components.json`.
 pub const CRASH_RULE: &str = "crash isolation: after a request kills its container (the container stops or stops \
@@ -450,6 +501,12 @@ pub(crate) fn item_digest(seed: &[u8; 32], key: &str) -> [u8; 32] {
 pub struct Kick {
     pub confirmed: Option<BlockRef>,
     pub epoch: Option<EpochObservation>,
+    /// Ticks: the epoch index at the RPC finalized head when `epoch` was
+    /// read at the confirmed watermark; `epoch` is live when they are equal
+    /// ([`ACTIVE_TEMPO_RULE`]). Absent (a delivery, a failed head read, or
+    /// a Worker built before the rule), no observation is live.
+    #[serde(default)]
+    pub head_epoch: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -460,14 +517,17 @@ pub struct Observed {
     pub kicks: u64,
     /// Active tempos under [`ACTIVE_TEMPO_RULE`]; the phase minimums count these.
     pub active_tempos: u64,
-    /// Epoch-index increments that passed unobserved or during silence.
+    /// Epoch-index increments that passed unobserved, during silence or in
+    /// a catch-up replay.
     pub uncredited_tempos: u64,
+    /// The stored epoch was observed while it was the chain head's epoch.
+    pub epoch_live: bool,
 }
 
 pub fn observed(sql: &impl Sql) -> R<Observed> {
     let rows = sql.exec(
         "SELECT kick_ms, kicks, confirmed_number, confirmed_hash, epoch_index, epoch_block,
-                epoch_block_hash, last_epoch_block, active_tempos, uncredited_tempos FROM eval_obs WHERE id = 1",
+                epoch_block_hash, last_epoch_block, active_tempos, uncredited_tempos, epoch_live FROM eval_obs WHERE id = 1",
         &[],
     )?;
     let r = rows.first().ok_or(StoreError("eval_obs row"))?;
@@ -493,18 +553,22 @@ pub fn observed(sql: &impl Sql) -> R<Observed> {
         kicks: uint(r, 1)?,
         active_tempos: uint(r, 8)?,
         uncredited_tempos: uint(r, 9)?,
+        epoch_live: int(r, 10)? != 0,
     })
 }
 
 /// Records a heartbeat's observations (monotonic) and advances boundary phases.
 ///
-/// An increase of the epoch index credits one active tempo when the previous
-/// heartbeat arrived within [`HEARTBEAT_FRESH_MS`]; after silence it credits
-/// none, and a jump of several tempos never credits more than one. The phase
-/// minimums count active tempos, so coordinator silence consumes no scheduling
-/// budget and recovery resumes at a later boundary without charging missed ones.
+/// Tempos are credited by [`ACTIVE_TEMPO_RULE`]: an increase of the epoch
+/// index by one credits one active tempo when the earlier epoch was observed
+/// live and the new observation is live; replayed historical epochs and
+/// jumps credit none. The phase minimums count active tempos, so coordinator
+/// silence and the catch-up after it consume no scheduling budget, and
+/// recovery resumes the same cohort at a later boundary without charging
+/// missed ones.
 pub fn observe(sql: &impl Sql, kick: &Kick, now_ms: u64) -> R<Vec<String>> {
     let before = observed(sql)?;
+    let before_live = before.epoch_live;
     sql.exec(
         "UPDATE eval_obs SET kick_ms = ?, kicks = kicks + 1 WHERE id = 1",
         &[bind_u64(now_ms)?],
@@ -524,26 +588,31 @@ pub fn observe(sql: &impl Sql, kick: &Kick, now_ms: u64) -> R<Vec<String>> {
                 sql.exec("UPDATE eval_obs SET epoch_regressions = epoch_regressions + 1 WHERE id = 1", &[])?;
             }
             _ => {
+                let live = kick.head_epoch == Some(e.index);
+                let same = before.epoch.is_some_and(|b| b.index == e.index);
                 if let Some(b) = before.epoch
                     && e.index > b.index
                 {
-                    let fresh = before.kick_ms > 0 && now_ms.saturating_sub(before.kick_ms) <= HEARTBEAT_FRESH_MS;
-                    let credit = u64::from(fresh);
+                    let credit = u64::from(e.index == b.index + 1 && before_live && live);
                     sql.exec(
                         "UPDATE eval_obs SET active_tempos = active_tempos + ?,
                             uncredited_tempos = uncredited_tempos + ? WHERE id = 1",
                         &[bind_u64(credit)?, bind_u64(e.index - b.index - credit)?],
                     )?;
                 }
+                // An epoch observed live once stays so for later observations
+                // of the same epoch (a watermark a few blocks behind the head
+                // at a boundary tick); a new epoch starts from this one's.
                 sql.exec(
                     "UPDATE eval_obs SET epoch_index = ?, epoch_block = ?, epoch_block_hash = ?,
-                        last_epoch_block = ?, epoch_ms = ? WHERE id = 1",
+                        last_epoch_block = ?, epoch_ms = ?, epoch_live = ? WHERE id = 1",
                     &[
                         bind_u64(e.index)?,
                         bind_u64(e.block.number)?,
                         s(e.block.hash.to_hex()),
                         bind_u64(e.last_epoch_block)?,
                         bind_u64(now_ms)?,
+                        i(i64::from(live || (same && before_live))),
                     ],
                 )?;
             }
@@ -697,6 +766,63 @@ pub fn fault(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
     Ok(())
 }
 
+/// Whether a root step's error code names a failure no wait changes: a
+/// content check against a record (`... digest`), an object the step needs
+/// that is not there (`... missing`), stored bytes that do not parse
+/// (`... json`, `... utf-8`, `... row`, a probe record's version or size), a
+/// signing key or deployment variable that is absent or does not match its
+/// trust root, or another fixed fact the step derives from its inputs. Every
+/// other code (a bucket read or write, a storage transaction, an arena
+/// retry) is transient: the step runs again after [`STEP_RETRY_MS`].
+pub fn step_error_is_deterministic(code: &str) -> bool {
+    const SUFFIXES: &[&str] = &[" digest", " missing", " json", " utf-8", " row", "trust root", "must differ", " version or size"];
+    const CODES: &[&str] = &["probe version", "probe task", "probe text", "shard info", "netuid", "receipt root", "unknown_authority"];
+    code.starts_with("EVAL_") || SUFFIXES.iter().any(|x| code.ends_with(x)) || CODES.contains(&code)
+}
+
+/// Records that a root step of cohort `seq` (draw, seal, package, closure)
+/// failed with `code`: the code, since when and how many times in a row, and
+/// when it may run again ([`STEP_RETRY_MS`]; a closure that waits yields to
+/// every other step, [`crate::eval::v3::closure_due`]). A deterministic code
+/// ([`step_error_is_deterministic`]) also pauses the cohort ([`refuse_step`]).
+/// Returns whether the cohort is paused by a fault.
+pub fn note_step_error(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<bool> {
+    sql.exec(
+        "UPDATE cohorts SET step_errors = CASE WHEN step_error IS ? THEN step_errors + 1 ELSE 1 END,
+            step_error_since_ms = CASE WHEN step_error IS ? THEN step_error_since_ms ELSE ? END,
+            step_error = ?, step_retry_ms = ? WHERE seq = ?",
+        &[s(code), s(code), bind_u64(now_ms)?, s(code), bind_u64(now_ms.saturating_add(STEP_RETRY_MS))?, i(seq)],
+    )?;
+    if step_error_is_deterministic(code) {
+        refuse_step(sql, seq, code, now_ms)?;
+    }
+    Ok(!sql.exec("SELECT 1 FROM cohorts WHERE seq = ? AND fault IS NOT NULL", &[i(seq)])?.is_empty())
+}
+
+/// Pauses cohort `seq` as [`STEP_REFUSED`] (resumable, alerted once as a
+/// cohort fault) because its root step failed with `code` in a way no wait
+/// changes; the phase log names the code. A cohort already paused keeps its
+/// first fault.
+pub fn refuse_step(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
+    if sql.exec("SELECT 1 FROM cohorts WHERE seq = ? AND fault IS NULL", &[i(seq)])?.is_empty() {
+        return Ok(());
+    }
+    fault(sql, seq, STEP_REFUSED, now_ms)?;
+    let o = observed(sql)?;
+    sql.exec(
+        "INSERT INTO phase_log (seq, phase, at_ms, confirmed_number, epoch_index, note)
+         SELECT seq, phase, ?, ?, ?, ? FROM cohorts WHERE seq = ?",
+        &[
+            bind_u64(now_ms)?,
+            o.confirmed.map_or(SqlValue::Null, |c| i(c.number as i64)),
+            o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)),
+            s(format!("step_refused:{code}")),
+            i(seq),
+        ],
+    )?;
+    Ok(())
+}
+
 /// The outcome of an operator clear.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct Cleared {
@@ -707,19 +833,40 @@ pub struct Cleared {
 }
 
 /// Operator action: clear a resumable fault so the cohort's work resumes where
-/// it stopped, with fresh outage allowances. A terminal fault (attempts,
-/// budget, humans or cases exhausted under the frozen plan) is refused: it would
-/// fault again at once, so the cohort can only be abandoned.
+/// it stopped, with fresh outage allowances. A budget fault resumes with a
+/// fresh allowance of the plan's budget, counted from the spend measured now:
+/// the guard stops a runaway again, never the cohort for good. A failed root
+/// step runs again at once. A terminal fault (attempts, humans or cases
+/// exhausted under the frozen plan) is refused: it would fault again at once,
+/// so the cohort can only be abandoned.
 pub fn clear_fault(sql: &impl Sql, label: &str, now_ms: u64) -> R<Cleared> {
     let rows = sql.exec("SELECT seq, fault FROM cohorts WHERE label = ? AND fault IS NOT NULL", &[s(label)])?;
     let Some(r) = rows.first() else {
         return Ok(Cleared { cleared: false, refused: Some("no_fault") });
     };
     let seq = int(r, 0)?;
-    if !RESUMABLE_FAULTS.contains(&text(r, 1)?) {
+    let code = text(r, 1)?.to_owned();
+    if !RESUMABLE_FAULTS.contains(&code.as_str()) {
         return Ok(Cleared { cleared: false, refused: Some("abandon_required") });
     }
-    sql.exec("UPDATE cohorts SET fault = NULL, scorer_failures = 0 WHERE seq = ?", &[i(seq)])?;
+    match code.as_str() {
+        SCORING_BUDGET => {
+            let c = cohort(sql, seq)?;
+            let measured = crate::eval::lanes::spend(sql, &c, &["score"], now_ms, false)?.measured_nanousd;
+            sql.exec(
+                "UPDATE cohorts SET score_base_nanousd = ? WHERE seq = ?",
+                &[i(i64::try_from(measured).unwrap_or(i64::MAX)), i(seq)],
+            )?;
+        }
+        GENERATION_BUDGET => {
+            sql.exec("UPDATE cohorts SET gen_base_microusd = gen_cost_microusd WHERE seq = ?", &[i(seq)])?;
+        }
+        _ => {}
+    }
+    sql.exec(
+        "UPDATE cohorts SET fault = NULL, scorer_failures = 0, step_retry_ms = 0 WHERE seq = ?",
+        &[i(seq)],
+    )?;
     // Released claims are taken again with fresh outage allowances; no attempt
     // number, answer or receipt is reset, and nothing is skipped.
     sql.exec(
@@ -1322,8 +1469,9 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work
     // a ledger outage never delays evaluation. The purge of private
     // per-document predictions comes first, so a failing ledger (a settle
     // that keeps returning an error) never holds private results in the
-    // bucket.
-    if let Some(seq) = crate::eval::v3::closure_due(sql)? {
+    // bucket. A due closure comes first; one that failed waits out its retry
+    // time (or its fault) without holding anything else (`v3::closure_due`).
+    if let Some(seq) = crate::eval::v3::closure_due(sql, Some(now_ms))? {
         return Ok(Some(Work::Close { seq }));
     }
     if !cfg.is_load()
@@ -2509,9 +2657,12 @@ pub fn commit_package(sql: &impl Sql, seq: i64, b: &PackageBuild, puts: u64, now
     Ok(())
 }
 
+/// A root step of cohort `seq` completed: its time is counted and any
+/// failure it recorded before ([`note_step_error`]) clears.
 pub fn note_step(sql: &impl Sql, seq: i64, ms: u64) -> R<()> {
     sql.exec(
-        "UPDATE cohorts SET steps = steps + 1, step_ms = step_ms + ? WHERE seq = ?",
+        "UPDATE cohorts SET steps = steps + 1, step_ms = step_ms + ?, step_error = NULL, step_error_since_ms = NULL,
+            step_errors = 0, step_retry_ms = 0 WHERE seq = ?",
         &[bind_u64(ms)?, i(seq)],
     )?;
     Ok(())
@@ -2599,7 +2750,8 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             .collect::<R<_>>()?;
         let row = &q("SELECT manifest_digest, evaluation_set, task_count, receipt_root, receipt_count, package_digest,
                 target_digest, steps, step_ms, r2_puts, draw, opened_epoch, opened_block, packaged_epoch, closed_epoch,
-                counts, abandoned_reason, abandoned_fault FROM cohorts WHERE seq = ?")?[0];
+                counts, abandoned_reason, abandoned_fault, step_error, step_error_since_ms, step_errors, step_retry_ms,
+                score_base_nanousd, gen_base_microusd FROM cohorts WHERE seq = ?")?[0];
         let receipts = int(&q("SELECT COUNT(*) FROM receipts WHERE seq = ?")?[0], 0)?;
         let retention = crate::eval::retention::cohort_status(sql, c.seq, &held)?;
         let v3 = if c.plan.is_v3() {
@@ -2633,6 +2785,14 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             "receipt_root": opt_text(row, 3), "receipt_count": opt_int(row, 4),
             "package": opt_text(row, 5), "target": opt_text(row, 6),
             "steps": int(row, 7)?, "step_ms": int(row, 8)?, "r2_puts": int(row, 9)?,
+            // A failing root step (`note_step_error`): its code, since when,
+            // how many times in a row, and when it may run again.
+            "step_error": opt_text(row, 18).map(|code| json!({"code": code, "since_ms": opt_int(row, 19),
+                "count": opt_int(row, 20), "retry_ms": opt_int(row, 21),
+                "deterministic": step_error_is_deterministic(&code)})),
+            // The spend each budget counts from since its last clear.
+            "budget_base": json!({"scoring_microusd": opt_int(row, 22).map(|n| (n.max(0) as u64).div_ceil(1000)),
+                "generation_microusd": opt_int(row, 23)}),
             "reward_v1": v3,
             "log": log,
         }));
@@ -2659,6 +2819,18 @@ pub fn has_due_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<bool> {
     Ok(work(sql, cfg, Some(now_ms))? || crate::eval::retention::has_work(sql)?)
 }
 
+/// What a kick arms the step alarm for: [`has_due_work`], or, on a tick (a
+/// kick that carries the epoch), a due predecessor notice
+/// (`eval::retention::notice_due`). A notice that came back with work left,
+/// or failed, is so retried once a tick (the cron cadence), on an otherwise
+/// idle store too, until the predecessor reports nothing left; the alarm
+/// itself never re-arms for a notice, so an unreachable predecessor costs
+/// one attempt a tick and holds nothing else.
+pub fn kick_due(sql: &impl Sql, cfg: &EvalConfig, kick: &Kick, now_ms: u64) -> R<bool> {
+    Ok(has_due_work(sql, cfg, now_ms)?
+        || (kick.epoch.is_some() && crate::eval::retention::notice_due(sql, cfg)?.is_some()))
+}
+
 /// The work a succession or an authority switch waits for (`work` in the
 /// status; `eval::succession::supersede`, `config::deploy_check`): an active
 /// cohort with work, a closure, a finished cohort whose spend is not yet
@@ -2675,7 +2847,7 @@ pub fn blocking_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
 fn work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool> {
     Ok(active(sql)?.is_some()
         || crate::eval::admission::has_work(sql, cfg, due_by)?
-        || crate::eval::v3::closure_due(sql)?.is_some()
+        || crate::eval::v3::closure_due(sql, due_by)?.is_some()
         || !sql
             .exec(
                 "SELECT 1 FROM cohorts WHERE (phase IN ('transition','closed','abandoned')

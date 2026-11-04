@@ -702,6 +702,9 @@ struct H {
     runtime_requests: Vec<(&'static str, u64)>,
     /// The next outcomes of these steps fail with this RPC error.
     rpc_fail: Option<(&'static str, RpcError, u32)>,
+    /// State reads at blocks below this one answer a JSON-RPC error (a
+    /// pruning node after a long outage); block bodies are still served.
+    pruned_below: Option<u64>,
     /// Metadata the node serves instead of the real one.
     bad_metadata: bool,
     /// Every call the harness made: (step, block).
@@ -735,6 +738,7 @@ impl H {
             unretained: Default::default(),
             runtime_requests: vec![],
             rpc_fail: None,
+            pruned_below: None,
             bad_metadata: false,
             calls: vec![],
             reads: vec![],
@@ -826,6 +830,11 @@ impl H {
                 .unwrap()
                 .to_owned();
             self.reads.push((purpose, at));
+        }
+        if let (SignPlan::Read { at, .. }, Some(pruned)) = (p, self.pruned_below)
+            && at.number < pruned
+        {
+            return Some(SignOutcome::Read { result: Err(RpcError::Remote) });
         }
         if let Some((s, e, n)) = self.rpc_fail
             && s == step
@@ -1539,6 +1548,73 @@ fn undecodable_events_settle_into_a_diagnostic_and_the_next_epoch_commits() {
     assert_eq!(h.ops()[1].attempts[0].nonce, 8);
 }
 
+/// Audit B4: after a long outage the endpoint no longer serves state at the
+/// blocks the live attempt's inclusion search probes (a pruning node), so
+/// every nonce probe and the events read there answer a JSON-RPC error.
+/// Before, that was retried forever behind the signer-wide backoff, holding
+/// every later commit with no fault. Now each answer counts against the
+/// attempt (a visible failing subject), the search goes on by block bodies,
+/// which need no state, the inclusion is found, its events settle as
+/// unverifiable, and the next epoch commits.
+#[test]
+fn pruned_history_resolves_the_live_attempt_by_block_bodies() {
+    let mut h = H::new();
+    h.resume();
+    h.send.set(Send::AcceptReportUncertain);
+    h.until(40, |h| {
+        h.ops()
+            .first()
+            .is_some_and(|o| o.attempts.iter().any(|a| a.state == "uncertain"))
+    });
+    // Forty blocks pass unconfirmed; then the node serves no state below
+    // the head the journal confirms next.
+    h.pruned_below = Some(h.chain.head + 40);
+    h.jump(40);
+    let s = h.status();
+    let f = failure(&s, "attempt").expect("the refused probe is a failing subject");
+    assert_eq!(f.code, "state_unavailable");
+    assert_eq!(s.health, "failing", "visible in /status");
+    assert_eq!(h.counter("sign_search_scans"), 1);
+    h.until(200, |h| h.ops()[0].state == "committed");
+    let o = &h.ops()[0];
+    assert_eq!(o.attempts[0].state, "included", "{o:#?}");
+    assert_eq!(o.attempts[0].sends, 1, "never resent");
+    assert!(
+        o.diagnostic
+            .as_deref()
+            .is_some_and(|d| d.starts_with("events_unverifiable:state_unavailable")),
+        "{o:#?}"
+    );
+    assert_eq!(h.status().nonce_floor, 8, "the nonce floor advanced past it");
+    h.until(400, |h| h.ops().len() == 2 && h.ops()[1].state == "committed");
+    assert_eq!(h.ops()[1].attempts[0].nonce, 8);
+}
+
+/// Audit B4: when the bodies are gone too, the attempt settles into a
+/// durable fault (alerted as `durable_fault`) instead of a silent retry
+/// loop, and the operator's clear searches again.
+#[test]
+fn an_unsearchable_attempt_faults_visibly_and_a_clear_searches_again() {
+    let mut h = H::new();
+    h.resume();
+    h.send.set(Send::AcceptReportUncertain);
+    h.until(40, |h| {
+        h.ops()
+            .first()
+            .is_some_and(|o| o.attempts.iter().any(|a| a.state == "uncertain"))
+    });
+    h.pruned_below = Some(h.chain.head + 40);
+    h.jump(40);
+    h.rpc_fail = Some(("block", RpcError::Remote, 1_000));
+    h.until(120, |h| h.status().reason.as_deref() == Some("fault:attempt_unverifiable"));
+    // The bodies are back: the clear resumes the same search.
+    h.rpc_fail = None;
+    assert!(tx(&h.db, |sql| clear_fault(sql, h.now.get())).unwrap());
+    h.resume();
+    h.until(200, |h| h.ops()[0].state == "committed");
+    assert_eq!(h.ops()[0].attempts[0].state, "included");
+}
+
 #[test]
 fn a_failing_reveal_search_never_starves_the_next_commit() {
     let mut h = H::new();
@@ -1741,7 +1817,7 @@ fn v4_storage_upgrades_with_its_signing_journal_intact() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (4, 10));
+    assert_eq!((report.from, report.to), (4, 11));
     let s = tx(&db, signer).unwrap();
     assert_eq!(
         (s.state.as_str(), s.nonce_floor, s.runtime, s.runtime_block),

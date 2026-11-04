@@ -228,7 +228,10 @@ procedure for subnet 601 is [TESTNET-M2.md](TESTNET-M2.md).
     `slop_ninja_authorization_revoked`), work that never signed is retired
     (`authorization_revoked`), and new commitments pause
     (`authorization_paused`, `alert = true`) while reconciliation continues,
-    until a newer authorization or successor arrives. Without `[fetch]` the
+    until a newer authorization or successor arrives. A tracked operation
+    retired before it signed has nothing to read back (`tracked_retired`),
+    so the per-tempo re-commit follows it and a refreshed authorization
+    resumes commitments at the next epoch. Without `[fetch]` the
     run first stays until this target's outstanding reveals have been
     compared, then waits as in step 9 and reads the bundle file again each
     epoch.

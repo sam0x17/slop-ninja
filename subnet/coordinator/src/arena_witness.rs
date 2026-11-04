@@ -270,7 +270,7 @@ fn arena_witness_cohort_routes_fit_their_footprints() {
     assert!(queued.0 >= 0);
     // `/kick` and `/status` over the queued widest plan (the plan copy).
     witness(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {
-        let moved = tx(&db, |s| engine::observe(s, &Kick { confirmed: None, epoch: None }, 2_000)).expect("kick");
+        let moved = tx(&db, |s| engine::observe(s, &Kick::default(), 2_000)).expect("kick");
         moved.len()
     });
     witness(R_COHORT_FETCH.route(), COHORT_CONTROL_BYTES, || {

@@ -9,7 +9,7 @@ const NOW: u64 = 1_793_000_000_000;
 pub(crate) fn journal() -> Sqlite {
     let db = Sqlite::open();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (0, 10));
+    assert_eq!((report.from, report.to), (0, 11));
     db
 }
 
@@ -45,22 +45,22 @@ fn status_of(db: &Sqlite) -> JournalStatus {
 fn migrations_are_versioned_and_idempotent() {
     let db = journal();
     let again = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((again.from, again.to), (10, 10));
+    assert_eq!((again.from, again.to), (11, 11));
     assert_eq!(
         tx(&db, |sql| migrate(sql, &EVAL_COHORT_SCHEMA)),
         Err(MigrationError::Family)
     );
     db.conn
         .execute(
-            "UPDATE schema_meta SET value = '11' WHERE name = 'version'",
+            "UPDATE schema_meta SET value = '12' WHERE name = 'version'",
             [],
         )
         .unwrap();
     assert_eq!(
         tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)),
         Err(MigrationError::NewerStoredVersion {
-            stored: 11,
-            supported: 10
+            stored: 12,
+            supported: 11
         })
     );
     const GAPPED: Schema = Schema {
@@ -94,7 +94,7 @@ fn v1_storage_upgrades_in_place_to_latest() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (1, 10));
+    assert_eq!((report.from, report.to), (1, 11));
     assert_eq!(db.count("deliveries"), 1);
     assert_eq!(db.count("watchdog"), 1);
     assert_eq!(db.count("rpc_budget"), 1);
@@ -501,7 +501,7 @@ fn v2_storage_upgrades_with_the_watermark_seeded_at_its_anchor() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (2, 10));
+    assert_eq!((report.from, report.to), (2, 11));
     let s = status_of(&db);
     assert_eq!((s.cursor, s.confirmed), (Some(block(13)), Some(block(10))));
     assert_eq!(s.provisional_blocks, Some(3));
@@ -602,4 +602,65 @@ fn a_contradicting_audit_never_confirms_and_reanchor_drops_the_watermark() {
     tx(&db, |s| clear_fault(s, fault, true, NOW)).unwrap();
     let s = status_of(&db);
     assert_eq!((s.cursor, s.confirmed), (None, None));
+}
+
+/// Audit E3's guard: `schema_meta` records only a store's family and
+/// version, so a migration a store may already hold must never be edited in
+/// place or renumbered (a store at that version would keep its old
+/// statements unseen, and two branches numbering different migrations alike
+/// would skip one). Each migration's statements are pinned by digest; a new
+/// migration appends a version and its pin.
+#[test]
+fn migrations_are_pinned_by_content() {
+    use sha2::{Digest as _, Sha256};
+    fn digests(schema: &Schema) -> Vec<String> {
+        schema
+            .migrations
+            .iter()
+            .map(|m| {
+                let mut h = Sha256::new();
+                for statement in m.statements {
+                    h.update(statement.as_bytes());
+                    h.update([0]);
+                }
+                hex::encode(h.finalize())[..16].to_owned()
+            })
+            .collect()
+    }
+    // v1-v15 are deployed on eval-testnet (store 15 since 2026-11-03); v16 is
+    // this branch's.
+    const EVAL: &[&str] = &[
+        "bb26853f9d8c37f8",
+        "a77de0832bb5add7",
+        "304e3d790a649d98",
+        "71b36fa12a72ed6f",
+        "242df39085d9ff7d",
+        "3b3ffb24f67367fb",
+        "133196c0c6c70e8f",
+        "f9a332c3c891c400",
+        "e83603bcf596c17f",
+        "8c93de08a934046a",
+        "69e64bd181d2fd2c",
+        "1c2a4876a7892de0",
+        "621f1d98b70acc3d",
+        "0c390502d4453d38",
+        "ef72c4f128f274e4",
+        "e5e208c78d7e36b6",
+    ];
+    // v1-v10 are deployed on both testnet Workers; v11 is this branch's.
+    const JOURNAL: &[&str] = &[
+        "ee5a5573215817c9",
+        "35a786f8d817d001",
+        "4c9694e1b875a044",
+        "b959d0c7e245ad63",
+        "f761291eec8fb730",
+        "820713585c3fce1f",
+        "d122032fc44e55a9",
+        "da75cd430f733bf4",
+        "f48d266267134443",
+        "e3de0843c295d069",
+        "bcbc696385d2f3db",
+    ];
+    let (e, j) = (digests(&EVAL_COHORT_SCHEMA), digests(&CHAIN_JOURNAL_SCHEMA));
+    assert!(e == EVAL && j == JOURNAL, "migrations changed or were not pinned: eval_cohort {e:?}, chain_journal {j:?}");
 }

@@ -2120,6 +2120,15 @@ impl AppPorts for LivePorts {
                     ledger.persist()?;
                 }
 
+                // A tracked operation retired before it ever signed (an
+                // in-loop revocation) has nothing to read back: the
+                // per-tempo re-commit below may follow it, so a refreshed
+                // authorization resumes commitments instead of stalling.
+                if !read_back && self.tracked_settled(&tracked.0, read_back)? {
+                    tracing::info!(event = "tracked_retired", operation_id = %tracked.0, tempo = ?tracked.1);
+                    read_back = true;
+                }
+
                 // A fetched bundle: refresh the authorization in place, or
                 // switch to a verified successor once nothing is in flight.
                 // A failed decision (a chain read, an install write) is
@@ -2421,6 +2430,24 @@ impl LivePorts {
             .controls()
             .operation(operation_id)?
             .unwrap_or_default())
+    }
+
+    /// Whether the per-tempo re-commit may follow the tracked operation:
+    /// its commit was read back (`read_back`), or it can never land and so
+    /// has nothing to read back. That is an operation retired before it
+    /// signed (a journaled revocation at a finalized head, or a target that
+    /// is no longer the held one): handed back with no finalized inclusion
+    /// and no attempt in flight. Waiting for its read-back would hold every
+    /// later tempo, even after a refreshed authorization resumes them.
+    pub(crate) fn tracked_settled(&self, operation_id: &str, read_back: bool) -> Result<bool> {
+        if read_back {
+            return Ok(true);
+        }
+        let status = self.status(operation_id)?;
+        if status.finalized_success_block.is_some() || status.unresolved > 0 {
+            return Ok(false);
+        }
+        Ok(AppPorts::retired(self, operation_id)?.is_some())
     }
 
     /// Authorize every retained operation of the derived target whose row is

@@ -256,7 +256,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v6`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v7`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -270,7 +270,8 @@ The rule set is `slop_ninja.publisher.alerts/v6`. The table is in
   resuming, and fallback carries the cursor meanwhile);
 - a stalled confirmed watermark;
 - a work phase past its package deadline;
-- scorer, budget and other cohort faults;
+- scorer, budget and other cohort faults, including a root step paused as
+  `step_refused` and (v7) a closed cohort whose closure step is paused;
 - the spend ledger's billing month past the deployment's private alert
   threshold (the ledger's `over_threshold` flag; tracking only);
 - receipt deletion falling behind the N+2 rule (`retention_stalled`: the

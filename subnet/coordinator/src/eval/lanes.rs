@@ -525,13 +525,19 @@ pub fn scoring_sweep(sql: &impl Sql, cfg: &EvalConfig, c: &Cohort, now: u64) -> 
         let kicks = lanes_due(sql, cfg, &c2, &["summary", "bundle"], now)?;
         return Ok(Work::Dispatch { seq, kicks, stop });
     }
-    // Spend so far, plus what the remaining work may still cost, must fit.
+    // Measured spend so far, plus what the remaining work may still cost,
+    // must fit the plan's budget, counted from the spend measured at the last
+    // budget clear (`engine::clear_fault`). The unreported bound charged to a
+    // lane silent past its staleness bound is tracked, reported and settled,
+    // but never part of this guard: a lane that stops reporting through an
+    // outage is time passing, and time never pauses or ends a cohort.
     let sp = spend(sql, c, &["score"], now, false)?;
+    let base = u128::from(uint(&sql.exec("SELECT score_base_nanousd FROM cohorts WHERE seq = ?", &[i(seq)])?[0], 0)?);
     let unresolved = unresolved_tasks(sql, seq)?;
     let unstarted = int(&sql.exec("SELECT COUNT(*) FROM lanes WHERE seq = ? AND kind = 'score' AND kicks = 0", &[i(seq)])?[0], 0)?;
     let remaining = u128::from(unresolved) * u128::from(f.cost.doc_ub_nanousd) + unstarted as u128 * u128::from(f.cost.cold_ub_nanousd);
-    if cost::nano_to_micro_ceil(sp.measured_nanousd + sp.unreported_nanousd + remaining) > f.score.scoring_budget_microusd {
-        fault(sql, seq, "scoring_budget", now)?;
+    if cost::nano_to_micro_ceil(sp.measured_nanousd.saturating_sub(base) + remaining) > f.score.scoring_budget_microusd {
+        fault(sql, seq, engine::SCORING_BUDGET, now)?;
         let stop = live_lane_names(sql, seq, &["score"])?;
         return Ok(Work::Dispatch { seq, kicks: Vec::new(), stop });
     }
@@ -1629,8 +1635,10 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
     }
     let f = c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
     let seed = cohort_seed(&cfg.private_seed, &c.label);
-    let reserved_row = &sql.exec("SELECT gen_reserved_microusd FROM cohorts WHERE seq = ?", &[i(r.seq)])?[0];
+    let reserved_row = &sql.exec("SELECT gen_reserved_microusd, gen_base_microusd FROM cohorts WHERE seq = ?", &[i(r.seq)])?[0];
     let mut reserved = uint(reserved_row, 0)?;
+    // The budget counts from the generation cost at the last budget clear.
+    let spent = c.gen_cost_microusd.saturating_sub(uint(reserved_row, 1)?);
     let mut items = Vec::new();
     let mut refused_budget = false;
     'models: for (model, n) in grants {
@@ -1646,7 +1654,7 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
             let bound = (engine::BUDGET_PROMPT_TOKENS * pi + u64::from(it.prompt.max_tokens) * po).div_ceil(1_000_000);
             // A stale claim's reservation is replaced, never added to.
             let stale = uint(row, 7)?;
-            if c.gen_cost_microusd + reserved.saturating_sub(stale) + bound > c.plan.generation_budget_microusd {
+            if spent + reserved.saturating_sub(stale) + bound > c.plan.generation_budget_microusd {
                 refused_budget = true;
                 break 'models;
             }
@@ -1667,7 +1675,7 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
     }
     if refused_budget && reserved == 0 {
         // Not one more item fits and nothing in flight can release budget.
-        fault(sql, r.seq, "generation_budget", now)?;
+        fault(sql, r.seq, engine::GENERATION_BUDGET, now)?;
         return Ok(GenClaimReply::Paused);
     }
     let pending = int(&sql.exec("SELECT COUNT(*) FROM docs WHERE seq = ? AND status = 'pending'", &[i(r.seq)])?[0], 0)?;

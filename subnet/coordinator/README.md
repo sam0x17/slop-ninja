@@ -57,7 +57,7 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `GET /eval/status` | `EVAL_ROLE = "eval"` only. Content-free cohort status, with every scorer slot's running state. Needs the status token. |
 | `GET /eval/admission/link` | `EVAL_ROLE = "eval"` only. Probes the framing link to the upload Worker (service binding, internal host, shared interface token) without an upload: `{"frame": "ok"}` or the failure. Needs the status token. |
 | `POST /eval/plan`, `/eval/clear` | Queue a cohort plan; clear a resumable cohort fault (`{"label": ...}`). Operator token. |
-| `POST /eval/abandon` | End a terminally faulted cohort without a target (`{"label": ..., "reason": "<code>"}`). Operator token. |
+| `POST /eval/abandon` | End a faulted cohort without a target (`{"label": ..., "reason": "<code>"}`); the only exit of a terminal fault. Operator token. |
 | `POST /eval/probe`, `/eval/scorer-probe` | Pre-flight one generator, or the scorer path, on fixed synthetic text; the measured cost is settled in the spend ledger. Operator token. |
 | `POST /eval/template`, `/eval/template/pause`, `GET /eval/calendar` | Install the standing cohort template; pause or resume opening cohorts from it (`{"paused": bool}`); the cohort calendar. Operator token. |
 | `/admission/...` | Always 404. The public admission routes (contract `slop_ninja.admission/v1`, `docs/testnet/admission-api.md`) are the key-free upload Worker's (`subnet/admission-worker`, `slop-ninja-admission-testnet`), not this Worker's. |
@@ -671,7 +671,18 @@ Reconciliation uses only RPC-confirmed state and never resends:
   the anchoring block and the confirmed block finds the inclusion block. Its
   body must contain these exact bytes, otherwise `fault:foreign_nonce_use`.
   Its events give `ExtrinsicSuccess` or `ExtrinsicFailed` and
-  `TimelockedWeightsCommitted`. The floor becomes nonce + 1.
+  `TimelockedWeightsCommitted`. The floor becomes nonce + 1. If the endpoint
+  answers a probe there with a JSON-RPC error (it no longer serves that
+  state, as a pruning node does after a long outage), the search goes on by
+  block bodies, which need no state: each block after the last one known not
+  to hold the bytes, up to the block that consumed the nonce or the era's
+  expiry (`search_scan`, journal v11; logged `search_scan`). Each such error
+  counts against the attempt (code `state_unavailable`, a failing subject in
+  `/status`): an included attempt whose events cannot be read settles as
+  `events_unverifiable`, and an attempt whose bodies cannot be read either
+  settles as `fault:attempt_unverifiable` (alerted as `durable_fault`), after
+  which a clear searches again. None is retried forever behind the
+  signer-wide backoff.
 - **Era expired:** at a confirmed block at or past the expiry with the nonce
   unconsumed, the attempt can never be included. Only then may the operation
   sign a new attempt, with the nonce read again, if the epoch's window is
@@ -1041,9 +1052,16 @@ a 15-minute alarm wall). The cohort object stays the only authority:
   not re-arm.
 - **Spend.** Lanes report cumulative metering (container provisioned time and
   CPU, lane Durable Object time) with every report and commit. Each sweep
-  checks measured spend, a bound for lanes presumed dead, and the remaining
-  work's upper bound against the plan's `scoring_budget_microusd`; exceeding
-  it faults the cohort (`scoring_budget`, terminal) and stops its lanes.
+  checks measured spend and the remaining work's upper bound against the
+  plan's `scoring_budget_microusd`, counted from the spend measured at the
+  last budget clear; exceeding it pauses the cohort (`scoring_budget`,
+  resumable) and stops its lanes. The budget is a runaway guard for one
+  cohort, never a cap: a clear resumes the same cohort with a fresh
+  allowance of the plan's budget. A lane silent past its staleness bound is
+  charged a bound for its unreported metering (from its last report through
+  the staleness bound plus its container's inactivity grace); that bound is
+  reported and settled, but never part of the guard, because a lane that
+  stops reporting through an outage is time passing, not spend.
 - **Status.** `/eval/status` reports, per cohort, lane counts by kind and
   status, kicks and re-kicks, starts and start failures, lost and reconciled
   attempts, fenced commits, hand-back and attribution events (in all and per
@@ -1053,12 +1071,19 @@ a 15-minute alarm wall). The cohort object stays the only authority:
   ledger.
 
 **Active tempos.** The phase minimums count active tempos, not raw epoch-index
-differences (`fresh_heartbeat_single_increment_v1`): an observed increase of
-the index credits one active tempo when the previous heartbeat is at most
-10 minutes old, and none after silence; a jump of several tempos credits at
-most one. Tempos that pass while the eval Worker is silent are counted as
-uncredited on `/eval/status` and never consume a minimum, so after an outage the
-cohort resumes and advances at later boundaries.
+differences (`live_epoch_single_increment_v2`), by chain epochs observed and
+never by wall-clock time. Each tick reads the epoch index at the RPC-confirmed
+watermark and, when the watermark trails the RPC finalized head, at the head
+too (one more call); an observation is live when both name the same epoch,
+and an epoch observed live once stays live. An increase of the index by
+exactly one credits one active tempo when the earlier epoch was observed
+live and the new observation is live. Every other increase credits none: a
+jump of several, and every boundary a lagging watermark replays while it
+catches up after an outage (those tempos passed while nobody observed them).
+Uncredited tempos are counted on `/eval/status` and never consume a minimum,
+so after an outage and its catch-up the same cohort resumes and advances at
+later boundaries, its admission and transition windows never compressed into
+the replay.
 
 **Phases.**
 
@@ -1076,20 +1101,40 @@ cohort resumes and advances at later boundaries.
 
 A fault pauses the cohort with its state intact. Two kinds:
 
-- **Resumable** (outages): `generation_unavailable` (an item's 10th consecutive
-  Workers AI outage) and `scorer_unavailable` (6 consecutive scorer failures
-  that never reached the model). `POST /eval/clear {"label"}` resumes the same
+- **Resumable** (outages, platform refusals, budget guards and failed root
+  steps): `generation_unavailable` (an item's 10th consecutive Workers AI
+  outage), `scorer_unavailable` (6 consecutive scorer failures that never
+  reached the model), `arena_capacity`, `arena_defect` and
+  `object_over_bound` (a platform bound a corrected deployment lifts),
+  `scoring_budget` and `generation_budget` (resumed with a fresh allowance of
+  the plan's budget counted from the spend measured at the clear), and
+  `step_refused` (below). `POST /eval/clear {"label"}` resumes the same
   cohort with fresh outage allowances; no attempt, answer or receipt is reset.
+  The list is `/eval/status` `resumable_faults`.
 - **Terminal under the frozen plan:** `unresolved_infrastructure` (every one of
   a chunk's `max_attempts` has a receipt and none resolved it),
-  `generation_budget` (not one more item fits the budget), `draw_shortfall`
-  and `batch_shortfall` (the pool or generation cannot meet the plan's kind
-  counts within its tolerance). A clear would fault again at once, so it is
-  refused with `abandon_required`. `POST /eval/abandon {"label", "reason"}`
-  (a content-free code) ends the cohort without a target: the calculation
-  target stays the previous cohort's, every receipt and the phase log stay, its
-  drawn humans stay used, and the next queued cohort opens at the next
-  boundary. Elapsed time never abandons a cohort.
+  `draw_shortfall` and `batch_shortfall` (the pool or generation cannot meet
+  the plan's kind counts within its tolerance). A clear would fault again at
+  once, so it is refused with `abandon_required`. `POST /eval/abandon
+  {"label", "reason"}` (a content-free code) ends the cohort without a target:
+  the calculation target stays the previous cohort's, every receipt and the
+  phase log stay, its drawn humans stay used, and the next queued cohort opens
+  at the next boundary. Elapsed time never abandons a cohort, and a platform
+  or time-caused fault never needs abandonment.
+
+**Root step errors.** A cohort's root step (draw, seal, package, closure) that
+fails is recorded against its cohort: `/eval/status` cohort `step_error`
+(code, since, count, retry time, and whether it is deterministic). A transient
+code (a bucket read or write, a storage transaction, an arena retry) runs
+again after 30 s. A code no wait changes (a digest or object that does not
+match its record, a missing object or key, stored bytes that do not parse, an
+engine refusal under the same stored inputs) pauses the cohort as
+`step_refused`, named once in its phase log (`step_refused:<code>`) and
+alerted as `cohort_fault`; a clear runs the step again once the cause is
+corrected. A closure that fails waits out its retry time (or its fault) while
+every other step runs, so a closure that cannot be written holds up no
+admission, later cohort, settlement or purge; it still counts as held work
+for a succession.
 
 **Humans.** The pool is the allow-listed Dev-iter `human_only` rows exported by
 [`tools/a-testnet-eval-manifest`](../../tools/a-testnet-eval-manifest/README.md)
@@ -1366,9 +1411,10 @@ only moves a deletion later.
   current authorization still names waits, and the next notice marks it
   again once the pointer moves on. The successor repeats the notice until the
   predecessor reports nothing left, because a retired authority's alarm
-  re-arms only while it is kicked. An unanswered notice is retried whenever
-  the successor next steps; it never keeps the successor's alarm armed by
-  itself. Due deletions keep an object's alarm armed but are not `work` for
+  re-arms only while it is kicked. An unanswered notice, or one answered
+  with work left, is retried at each tick (a kick that carries the epoch
+  arms one step for it, `engine::kick_due`), on an otherwise idle successor
+  too; it never keeps the successor's alarm armed by itself. Due deletions keep an object's alarm armed but are not `work` for
   a succession or an authority switch (`engine::blocking_work`; the status
   reports them as `retention_work`): whatever remains finishes under the
   successor's notices, so a storage fault there never holds up a restart.

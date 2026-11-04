@@ -48,7 +48,7 @@
 //! | `watermark_stalled` | a Worker's RPC-confirmed watermark is older than the watchdog silence plus two cron periods, or absent |
 //! | `phase_overrun` | the active cohort is still in a work phase at its package deadline (`K - transition` tempos after it opened) |
 //! | `scorer_budget_fault` | a cohort not yet closed (admitting, closing or evaluating) is paused by a scorer or budget fault |
-//! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step) |
+//! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step, or `step_refused` when a root step fails in a way no wait changes), or a closed cohort's closure step is paused |
 //! | `ledger_threshold` | the spend ledger's billing month (settled spend plus open reservations) is past the deployment's private alert threshold; tracking only, nothing is refused |
 //! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error) |
 //! | `ledger_threshold_unset` | the eval status's ledger standing names no alert threshold (the deploy did not pass `SPEND_ALERT_MICROUSD`), so `ledger_threshold` cannot fire |
@@ -78,13 +78,15 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v6: `pointer_stale` and `revocation_unverifiable` (v5: `webhook_paused`
+/// v7: `cohort_fault` also reads closed cohorts (a paused closure step) and
+/// the eval Worker's `step_refused` (v6: `pointer_stale` and
+/// `revocation_unverifiable`; v5: `webhook_paused`
 /// and `retention_stalled`; v4: an unknown status read, unanswered or answered
 /// without a field an open entry needs, carries the open entries it would
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v6";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v7";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -249,9 +251,15 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
     }
     let epoch = o.eval.as_ref().and_then(|e| e.epoch);
     if let Some(e) = &o.eval {
-        // Every cohort not yet closed: an admitting cohort can be paused
-        // while an earlier one is still evaluating.
-        for c in e.cohorts.iter().filter(|c| c.active()) {
+        // Every cohort not yet closed (an admitting cohort can be paused
+        // while an earlier one is still evaluating), and a closed one whose
+        // closure step is paused (`step_refused`, or an arena or object
+        // bound): its closure is never written until an operator clears it.
+        for c in e
+            .cohorts
+            .iter()
+            .filter(|c| c.active() || (!c.load && c.phase == "closed"))
+        {
             if let Some(code) = &c.fault {
                 let rule = if SCORER_BUDGET_FAULTS.contains(&code.as_str()) {
                     "scorer_budget_fault"
@@ -1001,6 +1009,16 @@ mod tests {
         let c = evaluate(&o, &p, &r);
         assert_eq!(rules_of(&c), vec!["cohort_fault"]);
         assert_eq!(c[0].subject, "testnet-c8");
+        // Audit B1: a closed cohort whose closure step is paused (it cannot
+        // be written until an operator clears it) alerts too.
+        let mut o = healthy();
+        o.eval.as_mut().unwrap().cohorts[0].fault = Some("step_refused".into());
+        let c = evaluate(&o, &p, &r);
+        assert_eq!(rules_of(&c), vec!["cohort_fault"]);
+        assert_eq!(
+            (c[0].subject.as_str(), c[0].detail.as_str()),
+            ("testnet-c6", "fault step_refused in closed")
+        );
         // Fix round 2, findings 2 and 4: a ledger standing without a
         // threshold is reported, never read as "not over".
         let mut j = eval_status("admission");

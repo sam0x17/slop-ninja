@@ -1532,6 +1532,52 @@ fn the_dispatch_loop_withdraws_a_revoked_target_then_resumes_on_reauthorization(
     Ok(())
 }
 
+/// Audit B5: in per-tempo mode the dispatch loop queues the next tempo only
+/// once the tracked operation is settled. A journaled revocation applied at
+/// a finalized head (the loop's own `revocation_head`) retires the tracked
+/// operation before it signs; it can never land, so it has nothing to read
+/// back. Before, the loop waited for that read-back forever, so even a
+/// refreshed authorization never queued another tempo.
+#[test]
+fn a_tracked_operation_retired_before_signing_needs_no_read_back() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let mut app = TestApp::open(&config, &bundle())?;
+    app.bundle = launch_bundle(10);
+    app.epoch = 60;
+    let first = match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Enqueued { operation_id, .. } => operation_id,
+        other => panic!("expected the burn row queued, got {other:?}"),
+    };
+    // Queued and not yet signed: it may still land, so it waits.
+    assert!(!app.live.tracked_settled(&first, false)?);
+    assert!(app.live.tracked_settled(&first, true)?, "a read-back settles it");
+    let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
+    let current = crate::package_v2::verify(&launch_bundle(10), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap();
+    let launch = slop_ninja_protocol::sign(
+        slop_ninja_protocol::LaunchAuthorization::new(&chain(), 1, 10).unwrap(),
+        &authorization_key(),
+    )
+    .unwrap();
+    let checked = slop_ninja_protocol::LaunchAuthorization::check(&launch, &trusted(), &chain(), &launch_held).unwrap();
+    let revocation = slop_ninja_protocol::sign(
+        slop_ninja_protocol::RewardIntentRevocation::new(&checked, 1, 61).unwrap(),
+        &authorization_key(),
+    )
+    .unwrap();
+    let store = crate::revocations::path(&config.journal_path);
+    assert!(crate::revocations::record(&store, &trusted(), &chain(), &revocation.to_bytes()?)?.new);
+    let mut watch = crate::live::RevocationWatch::default();
+    let revoked = app.live.revocation_head(&current, &mut watch, 0)?;
+    assert_eq!(revoked.retired, 1);
+    assert_eq!(retired_reason(&app, &first).as_deref(), Some("authorization_revoked"));
+    // Retired before it signed: settled without a read-back, so the loop's
+    // per-tempo block runs again (and a refreshed authorization resumes).
+    assert!(app.live.tracked_settled(&first, false)?, "retired before signing: nothing to read back");
+    Ok(())
+}
+
 // reward-v1 cohort bundles against the real journal: the held target, a
 // target switch, a missed tempo, a re-derived row and rollbacks.
 

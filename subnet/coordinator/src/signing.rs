@@ -1771,11 +1771,14 @@ struct Attempt {
     included_block: Option<u64>,
     included_index: Option<u32>,
     ciphertext_sha256: String,
+    /// The inclusion search reads block bodies one by one instead of the
+    /// nonce at retained blocks ([`attempt_state_unavailable`]).
+    search_scan: bool,
 }
 
 const ATTEMPT_COLUMNS: &str =
     "op_id, attempt, nonce, expiry, floor_block, reveal_round, extrinsic_hex,
-    state, search_lo, search_hi, checked_block, included_block, included_index, ciphertext_sha256";
+    state, search_lo, search_hi, checked_block, included_block, included_index, ciphertext_sha256, search_scan";
 
 fn attempt_from(r: &crate::sql::Row) -> Result<Attempt, StoreError> {
     let opt = |i| match r.get(i) {
@@ -1797,6 +1800,7 @@ fn attempt_from(r: &crate::sql::Row) -> Result<Attempt, StoreError> {
         included_block: opt(11),
         included_index: opt(12).map(|v| v as u32),
         ciphertext_sha256: text(r, 13)?.to_owned(),
+        search_scan: opt(14).is_some_and(|v| v != 0),
     })
 }
 
@@ -2388,6 +2392,25 @@ fn attempt_step(
         // earlier holder's was made uncertain when the claim changed hands.
         "sending" => Ok(None),
         "submitted" | "uncertain" => {
+            if let (Some(lo), Some(hi)) = (a.search_lo, a.search_hi)
+                && a.search_scan
+            {
+                // The body scan: the next block after the last one known not
+                // to hold these bytes. A mortal attempt is included at or
+                // before its era's expiry, so nothing later is read.
+                let next = lo.saturating_add(1);
+                if next > hi.min(a.expiry) {
+                    // No block left where these bytes could be.
+                    displaced(sql, &a, now_ms)?;
+                    return Ok(None);
+                }
+                return Ok(Some(SignPlan::Block {
+                    claim: token.clone(),
+                    at: retained(sql, next)?,
+                    op_id: a.op_id,
+                    attempt: a.attempt,
+                }));
+            }
             if let (Some(lo), Some(hi)) = (a.search_lo, a.search_hi) {
                 if hi <= lo.saturating_add(1) {
                     return Ok(Some(SignPlan::Block {
@@ -2688,27 +2711,52 @@ pub fn on_result_within(
     }
     let confirmed = journal::confirmed(sql)?;
     let subject = plan_subject(&pending);
-    let chained = match apply(sql, ctx, &pending, outcome, now_ms) {
-        Ok(chained) => {
-            // A subject's failures clear only when its work completes, not
-            // at a handover to the next step of the same work.
-            if let Some(subject) = &subject
-                && rpc_error.is_none()
-                && chained.is_none()
-            {
-                clear_failure(sql, subject)?;
-            }
-            chained
+    // A JSON-RPC error answer to a historical read of the live attempt (a
+    // nonce probe of its inclusion search, a block body, its events): the
+    // endpoint does not serve that block's state (pruned after a long
+    // outage) or refuses it. Retried behind the signer-wide backoff, it
+    // would hold the live attempt, and with it every new commit, forever and
+    // unseen. It counts against the attempt instead (a failing subject in
+    // `/status`, settled at `DIAG_CAP`: an included attempt's events as
+    // `events_unverifiable`, any other as `fault:attempt_unverifiable`), and
+    // a nonce probe's search goes on by block bodies, which need no state.
+    let historical = rpc_error == Some(RpcError::Remote)
+        && subject.as_deref().is_some_and(|s| s.starts_with("attempt:"))
+        && matches!(
+            &pending,
+            SignPlan::Block { .. }
+                | SignPlan::Read { read: ReadPurpose::NonceProbe { .. } | ReadPurpose::Events { .. }, .. }
+        );
+    let chained = if historical {
+        attempt_state_unavailable(sql, &pending, now_ms)?;
+        let at = confirmed.map_or(0, |c| c.number);
+        if let Some(subject) = &subject {
+            record_failure(sql, subject, "state_unavailable", at, now_ms)?;
         }
-        Err(SignError::Chain(e)) => {
-            let at = confirmed.map_or(0, |c| c.number);
-            match &subject {
-                Some(subject) => record_failure(sql, subject, e.code, at, now_ms)?,
-                None => note_error(sql, &format!("submit: {}", e.code), now_ms)?,
+        None
+    } else {
+        match apply(sql, ctx, &pending, outcome, now_ms) {
+            Ok(chained) => {
+                // A subject's failures clear only when its work completes, not
+                // at a handover to the next step of the same work.
+                if let Some(subject) = &subject
+                    && rpc_error.is_none()
+                    && chained.is_none()
+                {
+                    clear_failure(sql, subject)?;
+                }
+                chained
             }
-            None
+            Err(SignError::Chain(e)) => {
+                let at = confirmed.map_or(0, |c| c.number);
+                match &subject {
+                    Some(subject) => record_failure(sql, subject, e.code, at, now_ms)?,
+                    None => note_error(sql, &format!("submit: {}", e.code), now_ms)?,
+                }
+                None
+            }
+            Err(e) => return Err(e),
         }
-        Err(e) => return Err(e),
     };
     let next = match confirmed {
         _ if rpc_error.is_some() || !more => None,
@@ -2734,6 +2782,26 @@ pub fn on_result_within(
         fenced: false,
         plan,
     })
+}
+
+/// A historical read of the live attempt answered with a JSON-RPC error
+/// (`on_result_within`): a nonce probe's binary search switches to the body
+/// scan, which reads each block after the last one known not to hold the
+/// attempt's bytes, up to the block that consumed its nonce or its era's
+/// expiry, and needs no state at those blocks.
+fn attempt_state_unavailable(sql: &impl Sql, pending: &SignPlan, now_ms: u64) -> Result<(), StoreError> {
+    let SignPlan::Read { read: ReadPurpose::NonceProbe { op_id, attempt: n, mid }, .. } = pending else {
+        return Ok(());
+    };
+    let Some(a) = attempt(sql, op_id, *n)? else {
+        return Ok(());
+    };
+    if a.search_scan {
+        return Ok(());
+    }
+    set_attempt(sql, &a, "search_scan = 1", vec![])?;
+    journal::bump(sql, "sign_search_scans")?;
+    log(sql, now_ms, Some(*mid), Some(op_id), Some(*n), "search_scan", Some("nonce state unavailable"))
 }
 
 fn rpc_error(outcome: &SignOutcome) -> Option<RpcError> {
@@ -3798,19 +3866,31 @@ fn apply_block(
                 Some(&format!("index {i}")),
             )?;
         }
+        None if a.search_scan && at_block.number < a.search_hi.unwrap_or(0).min(a.expiry) => {
+            // The body scan goes on past a block without these bytes.
+            set_attempt(sql, &a, "search_lo = ?", vec![bind_u64(at_block.number)?])?;
+        }
         None => {
-            // The nonce was consumed here by bytes this journal never signed.
-            set_attempt(
-                sql,
-                &a,
-                "state = 'displaced', resolved_at_ms = ?",
-                vec![bind_u64(now_ms)?],
-            )?;
-            fault(sql, "foreign_nonce_use", Some(op_id), Some(n), now_ms)?;
-            fail_op(sql, op_id, "nonce_displaced", now_ms)?;
+            // The nonce was consumed here by bytes this journal never signed
+            // (or, for a body scan, nowhere in the attempt's era before the
+            // block that consumed it).
+            displaced(sql, &a, now_ms)?;
         }
     }
     Ok(())
+}
+
+/// The attempt's nonce was consumed by bytes this journal never signed: a
+/// durable fault, and the epoch's operation fails.
+fn displaced(sql: &impl Sql, a: &Attempt, now_ms: u64) -> Result<(), StoreError> {
+    set_attempt(
+        sql,
+        a,
+        "state = 'displaced', resolved_at_ms = ?",
+        vec![bind_u64(now_ms)?],
+    )?;
+    fault(sql, "foreign_nonce_use", Some(&a.op_id), Some(a.attempt), now_ms)?;
+    fail_op(sql, &a.op_id, "nonce_displaced", now_ms)
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -628,7 +628,8 @@ fn migrations_are_pinned_by_content() {
             .collect()
     }
     // v1-v16 are deployed on eval-testnet (store 16 since 2026-11-04); v17 is
-    // this branch's.
+    // the commitment reader's call observations, v18 the stuck-states fix
+    // round's step-error epoch.
     const EVAL: &[&str] = &[
         "bb26853f9d8c37f8",
         "a77de0832bb5add7",
@@ -647,6 +648,7 @@ fn migrations_are_pinned_by_content() {
         "ef72c4f128f274e4",
         "e5e208c78d7e36b6",
         "2950d55dafc23816",
+        "dd90865bbfd05bf0",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's.

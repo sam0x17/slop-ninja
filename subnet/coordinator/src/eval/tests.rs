@@ -1511,7 +1511,7 @@ fn the_scoring_budget_faults_before_spend_can_exceed_it() {
     assert_eq!(fault_of(&db, seq).as_deref(), Some("scoring_budget"));
     sim.tick();
     assert!(sim.lanes.values().filter(|l| l.kind == "score").all(|l| !l.armed), "every lane stopped");
-    // A runaway guard, never a cap: the operator's clear resumes the same
+    // A runaway guard that pauses for spend: the operator's clear resumes the same
     // cohort with a fresh allowance of the plan's budget counted from the
     // spend measured now, and a second runaway pauses it again.
     let cleared = tx(&db, |s| engine::clear_fault(s, &p.label, sim.now)).unwrap();
@@ -1811,7 +1811,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 17));
+    assert_eq!((report.from, report.to), (3, 18));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -4054,7 +4054,11 @@ fn a_deterministic_step_error_pauses_its_cohort_resumably() {
     assert!(engine::step_error_is_deterministic("artifact manifest missing"));
     assert!(engine::step_error_is_deterministic("EVAL_PACKAGE_SIGNING_KEY"));
     assert!(engine::step_error_is_deterministic("package signing key is not the configured trust root"));
-    for transient in ["pool manifest read", "closure put", "seal commit", "arena_retry", "arena_poisoned", "next_work"] {
+    // Fix round 1: an object that is not there is told apart from a read
+    // that failed.
+    assert!(engine::step_error_is_deterministic("summary missing"));
+    assert!(engine::step_error_is_deterministic("used ledger missing"));
+    for transient in ["pool manifest read", "closure put", "seal commit", "arena_retry", "arena_poisoned", "next_work", "summary read", "used ledger read"] {
         assert!(!engine::step_error_is_deterministic(transient), "{transient}");
     }
     let db = Sqlite::open();
@@ -4067,6 +4071,14 @@ fn a_deterministic_step_error_pauses_its_cohort_resumably() {
     assert_eq!((e["code"].as_str(), e["count"].as_i64(), e["since_ms"].as_i64()), (Some("pool manifest read"), Some(2), Some(1_000_100)));
     assert_eq!(e["deterministic"], false);
     assert_eq!(fault_of(&db, seq), None, "a transient error never pauses");
+    // Fix round 1: the stored epoch at its first failure, kept while it
+    // persists across later epochs (the alert judges it by chain progress).
+    let first_epoch = tx(&db, engine::observed).unwrap().epoch.unwrap().index;
+    assert_eq!(e["since_epoch"].as_u64(), Some(first_epoch));
+    kick_at(&db, first_epoch + 1, 1_000_250);
+    assert!(!tx(&db, |s| engine::note_step_error(s, seq, "pool manifest read", 1_000_260)).unwrap());
+    let e = &status(&db, 1_000_260)["cohorts"][0]["step_error"];
+    assert_eq!((e["since_epoch"].as_u64(), e["count"].as_i64()), (Some(first_epoch), Some(3)));
     // A completed step clears it.
     tx(&db, |s| engine::note_step(s, seq, 5)).unwrap();
     assert!(status(&db, 1_000_300)["cohorts"][0]["step_error"].is_null());
@@ -4188,12 +4200,56 @@ fn a_boundary_tick_behind_the_head_keeps_its_credit() {
     kick_at(&db, 11, now + 120_000);
     let o = tx(&db, engine::observed).unwrap();
     assert_eq!((o.active_tempos, o.uncredited_tempos), (1, 0));
-    // A tick without a head reading (older Worker, failed read) credits none.
-    let at = BlockRef { number: 1000 + 12 * 361, hash: Id([12; 32]) };
-    let k = Kick { confirmed: Some(at), epoch: Some(EpochObservation { block: at, index: 12, last_epoch_block: 990 + 12 * 361 }), head_epoch: None };
-    tx(&db, |s| engine::observe(s, &k, now + 180_000)).unwrap();
+}
+
+/// Fix round 1 (C2): a boundary tick whose head reading failed or was
+/// refused by the RPC budget proves no lag. The new epoch is not recorded,
+/// so the next tick that reads it live credits the boundary; a proven lag
+/// (a head epoch ahead of the watermark's) still settles it as uncredited.
+#[test]
+fn a_boundary_tick_without_a_head_reading_defers_the_increment() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let now = 1_000_000u64;
+    kick_at(&db, 10, now);
+    let unknown = |index: u64, block: u64, now: u64| {
+        let at = BlockRef { number: block, hash: Id([(block % 251) as u8; 32]) };
+        let k = Kick { confirmed: Some(at), epoch: Some(EpochObservation { block: at, index, last_epoch_block: 990 + index * 361 }), head_epoch: None };
+        tx(&db, |s| engine::observe(s, &k, now)).unwrap();
+    };
+    // Two ticks in epoch 11 without a head reading: nothing is settled.
+    unknown(11, 1000 + 11 * 361, now + 60_000);
+    unknown(11, 1000 + 11 * 361 + 4, now + 120_000);
     let o = tx(&db, engine::observed).unwrap();
-    assert_eq!((o.active_tempos, o.uncredited_tempos), (1, 1));
+    assert_eq!(o.epoch.unwrap().index, 10, "the new epoch waits for a head reading");
+    assert_eq!((o.active_tempos, o.uncredited_tempos, o.kicks), (0, 0, 3));
+    assert_eq!(o.confirmed.unwrap().number, 1000 + 11 * 361 + 4, "the watermark still moves");
+    // The next tick reads epoch 11 live: the boundary is credited.
+    kick_at(&db, 11, now + 180_000);
+    let o = tx(&db, engine::observed).unwrap();
+    assert_eq!((o.epoch.unwrap().index, o.active_tempos, o.uncredited_tempos), (11, 1, 0));
+    // Within a stored epoch an unknown head changes nothing.
+    unknown(11, 1000 + 11 * 361 + 30, now + 240_000);
+    assert!(tx(&db, engine::observed).unwrap().epoch_live, "observed live once, it stays live");
+    // A proven lag still settles: the head is already in epoch 13.
+    kick_lagging(&db, 1000 + 12 * 361 + 2, 12, 13, now + 300_000);
+    let o = tx(&db, engine::observed).unwrap();
+    assert_eq!((o.epoch.unwrap().index, o.active_tempos, o.uncredited_tempos), (12, 1, 1));
+}
+
+/// Fix round 1 (C2): the tick's head-epoch decision. A watermark at the
+/// head reuses its own reading, a head ahead needs one read there, and a
+/// missing, older or conflicting head is unknown (never a lag).
+#[test]
+fn the_tick_reads_the_head_epoch_only_when_the_head_is_ahead() {
+    use engine::{HeadEpoch, head_epoch_source};
+    let at = |n: u64, h: u8| BlockRef { number: n, hash: Id([h; 32]) };
+    let confirmed = at(5_000, 1);
+    assert_eq!(head_epoch_source(confirmed, 13, Some(confirmed)), HeadEpoch::Known(13));
+    assert_eq!(head_epoch_source(confirmed, 13, Some(at(5_002, 2))), HeadEpoch::ReadAt(at(5_002, 2)));
+    assert_eq!(head_epoch_source(confirmed, 13, None), HeadEpoch::Unknown);
+    assert_eq!(head_epoch_source(confirmed, 13, Some(at(5_000, 9))), HeadEpoch::Unknown, "conflicting hashes");
+    assert_eq!(head_epoch_source(confirmed, 13, Some(at(4_990, 3))), HeadEpoch::Unknown, "a head behind the watermark");
 }
 
 /// Follow-ups verify item 8: a predecessor notice that came back with work

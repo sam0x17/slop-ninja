@@ -256,7 +256,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v9`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v10`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -273,7 +273,11 @@ The rule set is `slop_ninja.publisher.alerts/v9`. The table is in
   `admission` there with its window closed (its roster freeze waiting; the detail names
   on what, from the calendar's `freeze_wait`);
 - scorer, budget and other cohort faults, including a root step paused as
-  `step_refused` and (v7) a closed cohort whose closure step is paused;
+  `step_refused` and (v7) a closed cohort whose closure step is paused, and
+  (v10, `cohort_fault`) a root step of such a cohort that keeps failing on a
+  retried code (`step_error`) through a whole tempo of chain progress: the
+  eval status's stored epoch two past `step_error.since_epoch`; nothing is
+  paused by it;
 - the spend ledger's billing month past the deployment's private alert
   threshold (the ledger's `over_threshold` flag; tracking only);
 - receipt deletion falling behind the N+2 rule (`retention_stalled`: the

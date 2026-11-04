@@ -681,11 +681,17 @@ Reconciliation uses only RPC-confirmed state and never resends:
   to hold the bytes, up to the block that consumed the nonce or the era's
   expiry (`search_scan`, journal v11; logged `search_scan`). Each such error
   counts against the attempt (code `state_unavailable`, a failing subject in
-  `/status`): an included attempt whose events cannot be read settles as
-  `events_unverifiable`, and an attempt whose bodies cannot be read either
-  settles as `fault:attempt_unverifiable` (alerted as `durable_fault`), after
-  which a clear searches again. None is retried forever behind the
-  signer-wide backoff.
+  `/status`), and a later answer clears it, so a burst of endpoint errors
+  (an overload or internal error rather than pruned state) recovers by
+  itself. Only refusals through 60 confirmed blocks of backoff (seven
+  failures: 1 + 2 + 4 + 8 + 16 + 32 blocks between them) settle it, and
+  never pause the signer: an included attempt whose events cannot be read
+  settles as `events_unverifiable`; an attempt whose bodies cannot be read
+  either settles as `inclusion_unverifiable` (dispatch `unverifiable`, the
+  nonce floor past its nonce, which the head showed consumed, and the
+  operation `failed`; an included commit is revealed by the chain on its
+  own), and the next epoch commits with no operator clear. None is retried
+  forever behind the signer-wide backoff.
 - **Era expired:** at a confirmed block at or past the expiry with the nonce
   unconsumed, the attempt can never be included. Only then may the operation
   sign a new attempt, with the nonce read again, if the epoch's window is
@@ -706,13 +712,15 @@ loop:
   in `sign_failures` against the step's subject: the head runtime, the
   preflight, one attempt, one operation's read-back, or its reveal. The
   subject backs off by confirmed blocks (1, 2, 4 ... up to 60), and other
-  subjects keep planning. After five failures it settles:
+  subjects keep planning. After five failures (seven for
+  `state_unavailable`, above) it settles:
 
 | Subject | Settles as |
 | --- | --- |
 | reveal of an operation | diagnostic `reveal_unverifiable:CODE`; the operation stays `committed` and its reveal is no longer checked (the chain reveals on its own) |
 | read-back | read-back `unverifiable`, diagnostic `readback_unverifiable:CODE`; the reveal is still tracked |
 | an included attempt (its events do not decode) | dispatch `unverifiable`; the nonce floor still advances past its nonce; the operation is `committed` with diagnostic `events_unverifiable:CODE`, and the read-back then checks the commit in the chain's queue |
+| an attempt whose consumed nonce's inclusion the endpoint keeps refusing (`state_unavailable`) | dispatch `unverifiable`; the nonce floor advances past its nonce; the operation is `failed` with diagnostic `inclusion_unverifiable:state_unavailable`; the signer stays active |
 | any other attempt (its nonce cannot be read) | `fault:attempt_unverifiable`, since no later nonce can be allocated safely |
 | head runtime, preflight | never: they keep the 60-block backoff, so unparsable metadata is fetched again about every 12 minutes, not every round |
 
@@ -1237,8 +1245,10 @@ a 15-minute alarm wall). The cohort object stays the only authority:
   plan's `scoring_budget_microusd`, counted from the spend measured at the
   last budget clear; exceeding it pauses the cohort (`scoring_budget`,
   resumable) and stops its lanes. The budget is a runaway guard for one
-  cohort, never a cap: a clear resumes the same cohort with a fresh
-  allowance of the plan's budget. A lane silent past its staleness bound is
+  cohort: it pauses that cohort for spend until an operator clears it (the
+  only spend pause; the monthly `SpendLedger` never refuses or pauses), and
+  the clear resumes the same cohort with a fresh allowance of the plan's
+  budget. Nothing is skipped or abandoned by it. A lane silent past its staleness bound is
   charged a bound for its unreported metering (from its last report through
   the staleness bound plus its container's inactivity grace); that bound is
   reported and settled, but never part of the guard, because a lane that
@@ -1252,7 +1262,7 @@ a 15-minute alarm wall). The cohort object stays the only authority:
   ledger.
 
 **Active tempos.** The phase minimums count active tempos, not raw epoch-index
-differences (`live_epoch_single_increment_v2`), by chain epochs observed and
+differences (`live_epoch_single_increment_v3`), by chain epochs observed and
 never by wall-clock time. Each tick reads the epoch index at the RPC-confirmed
 watermark and, when the watermark trails the RPC finalized head, at the head
 too (one more call); an observation is live when both name the same epoch,
@@ -1261,6 +1271,9 @@ exactly one credits one active tempo when the earlier epoch was observed
 live and the new observation is live. Every other increase credits none: a
 jump of several, and every boundary a lagging watermark replays while it
 catches up after an outage (those tempos passed while nobody observed them).
+A tick whose head reading fails or is refused by the RPC budget proves no
+lag: it records the watermark but not a new epoch index, and the next tick
+with a head reading decides that increment.
 Uncredited tempos are counted on `/eval/status` and never consume a minimum,
 so after an outage and its catch-up the same cohort resumes and advances at
 later boundaries, its admission and transition windows never compressed into
@@ -1305,9 +1318,13 @@ A fault pauses the cohort with its state intact. Two kinds:
 
 **Root step errors.** A cohort's root step (draw, seal, package, closure) that
 fails is recorded against its cohort: `/eval/status` cohort `step_error`
-(code, since, count, retry time, and whether it is deterministic). A transient
-code (a bucket read or write, a storage transaction, an arena retry) runs
-again after 30 s. A code no wait changes (a digest or object that does not
+(code, since, the stored epoch at its first failure, count, retry time, and
+whether it is deterministic). A transient code (a bucket read or write, a
+storage transaction, an arena retry) runs again after 30 s; one that keeps
+failing through a whole tempo of chain progress (the stored epoch two past
+`since_epoch`) is alerted as `cohort_fault` and still pauses nothing. An
+object that is not there has its own `... missing` code, apart from a failed
+read of it. A code no wait changes (a digest or object that does not
 match its record, a missing object or key, stored bytes that do not parse, an
 engine refusal under the same stored inputs) pauses the cohort as
 `step_refused`, named once in its phase log (`step_refused:<code>`) and
@@ -1315,7 +1332,9 @@ alerted as `cohort_fault`; a clear runs the step again once the cause is
 corrected. A closure that fails waits out its retry time (or its fault) while
 every other step runs, so a closure that cannot be written holds up no
 admission, later cohort, settlement or purge; it still counts as held work
-for a succession.
+for a succession. If even its failure cannot be recorded (the store refuses
+the transaction), the step ends and the alarm's 30 s re-arm retries it,
+rather than running the same closure again at once.
 
 **Humans.** The pool is the allow-listed Dev-iter `human_only` rows exported by
 [`tools/a-testnet-eval-manifest`](../../tools/a-testnet-eval-manifest/README.md)

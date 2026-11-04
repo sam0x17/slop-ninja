@@ -250,7 +250,7 @@ async fn read_ledger(c: &EvalCohort, seq: i64, dir: &str, pool_id: &str) -> std:
         }
         let listed = list.execute().await.map_err(|_| "used ledger list")?;
         for o in listed.objects() {
-            let bytes = c.read(seq, EVAL_BUCKET, &o.key(), STEP_OBJECT_BYTES, "used ledger read").await?.ok_or("used ledger read")?;
+            let bytes = c.read(seq, EVAL_BUCKET, &o.key(), STEP_OBJECT_BYTES, "used ledger read").await?.ok_or("used ledger missing")?;
             entries.push(LedgerEntry::parse(&bytes, pool_id).map_err(|e| e.0)?);
         }
         if !listed.truncated() {
@@ -973,9 +973,15 @@ impl EvalCohort {
     /// cohort (`engine::note_step_error`), which pauses it when no wait
     /// changes the failure. Returns the code for the step's own error.
     fn step_failed(&self, seq: i64, code: &'static str) -> &'static str {
-        let now = now_ms();
-        let _ = transaction(&self.state.storage(), move |sql| engine::note_step_error(sql, seq, code, now));
+        self.note_step_failed(seq, code);
         code
+    }
+
+    /// Records a root step's failure (`engine::note_step_error`); whether
+    /// the record was written (its retry time and any fault with it).
+    fn note_step_failed(&self, seq: i64, code: &'static str) -> bool {
+        let now = now_ms();
+        transaction(&self.state.storage(), move |sql| engine::note_step_error(sql, seq, code, now)).is_ok()
     }
 
     /// The engine refused a root step of cohort `seq` under its stored
@@ -1391,7 +1397,12 @@ impl EvalCohort {
                         // The closure waits out its retry time (or its fault)
                         // and this step goes on with the rest of the work:
                         // a closure that cannot be written holds nothing up.
-                        self.step_failed(seq, code);
+                        // A failure that could not be recorded has no retry
+                        // time, so the same closure would be due again at
+                        // once: the step ends and the alarm's re-arm waits.
+                        if !self.note_step_failed(seq, code) {
+                            return Err(code);
+                        }
                         continue;
                     }
                 }
@@ -1715,7 +1726,7 @@ impl EvalCohort {
         let mut summaries = Vec::new();
         for group in refs.chunks(PARALLEL) {
             for r in join_all(group.iter().map(|(k, sha)| async move {
-                let b = self.read(seq, EVAL_BUCKET, k, bound, "summary read").await?.ok_or("summary read")?;
+                let b = self.read(seq, EVAL_BUCKET, k, bound, "summary read").await?.ok_or("summary missing")?;
                 if &sha_hex(&b) != sha {
                     return Err("summary digest");
                 }
@@ -2261,7 +2272,7 @@ impl EvalCohort {
         let mut summaries = Vec::new();
         for group in refs.chunks(PARALLEL) {
             for r in join_all(group.iter().map(|(k, sha)| async move {
-                let b = self.read(seq, EVAL_BUCKET, k, bound, "summary read").await?.ok_or("summary read")?;
+                let b = self.read(seq, EVAL_BUCKET, k, bound, "summary read").await?.ok_or("summary missing")?;
                 if &sha_hex(&b) != sha {
                     return Err("summary digest");
                 }

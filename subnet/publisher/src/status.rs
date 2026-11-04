@@ -101,6 +101,19 @@ pub struct CohortView {
     pub admission_tempos: Option<u64>,
     pub transition_tempos: Option<u64>,
     pub load: bool,
+    /// The cohort's failing root step (`step_error`), when one is reported.
+    pub step_error: Option<StepErrorView>,
+}
+
+/// A cohort's failing root step: its code, the stored epoch at its first
+/// failure (absent from coordinators that do not report it) and how many
+/// times in a row it failed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct StepErrorView {
+    pub code: String,
+    pub since_epoch: Option<u64>,
+    pub count: Option<u64>,
 }
 
 impl CohortView {
@@ -407,6 +420,7 @@ struct CohortJson {
     admission_tempos: Option<u64>,
     transition_tempos: Option<u64>,
     load: Option<bool>,
+    step_error: Option<StepErrorView>,
 }
 
 #[derive(Deserialize, Default)]
@@ -536,6 +550,7 @@ fn eval_view(j: EvalJson) -> EvalView {
                 admission_tempos: c.admission_tempos,
                 transition_tempos: c.transition_tempos,
                 load: c.load.unwrap_or(false),
+                step_error: c.step_error,
             })
         })
         .collect();

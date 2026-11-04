@@ -48,7 +48,7 @@
 //! | `watermark_stalled` | a Worker's RPC-confirmed watermark is older than the watchdog silence plus two cron periods, or absent |
 //! | `phase_overrun` | the active cohort is still in a work phase, or in `admission` with its window no longer admitting (the roster freeze waiting; the detail names on what), at its package deadline (`K - transition` tempos after it opened, in the tempos the coordinator credited: uncredited tempos (an outage, a catch-up jump) extend the cohort's schedule and are not an overrun; epochs only from coordinators that do not report credited tempos) |
 //! | `scorer_budget_fault` | a cohort not yet closed (admitting, closing or evaluating) is paused by a scorer or budget fault |
-//! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step, or `step_refused` when a root step fails in a way no wait changes), or a closed cohort's closure step is paused |
+//! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step, or `step_refused` when a root step fails in a way no wait changes), or a closed cohort's closure step is paused; or such a cohort's root step has kept failing on a retried (transient) code through a whole tempo of chain progress (its stored epoch two past the one it first failed in), which pauses nothing |
 //! | `ledger_threshold` | the spend ledger's billing month (settled spend plus open reservations) is past the deployment's private alert threshold; tracking only, nothing is refused |
 //! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error) |
 //! | `ledger_threshold_unset` | the eval status's ledger standing names no alert threshold (the deploy did not pass `SPEND_ALERT_MICROUSD`), so `ledger_threshold` cannot fire |
@@ -79,7 +79,9 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v9: `auto_target_stalled` (v8: `phase_overrun` also covers a cohort still in `admission` at its
+/// v10: `cohort_fault` also fires for a root step that keeps failing on a
+/// retried code through a whole tempo of chain progress (v9:
+/// `auto_target_stalled`; v8: `phase_overrun` also covers a cohort still in `admission` at its
 /// package deadline with its window closed (its roster freeze waiting), and
 /// counts a cohort's age in the coordinator's credited tempos
 /// (`observed.active_tempos - opened_active`) rather than epochs, so an
@@ -92,7 +94,7 @@ pub use slop_ninja_alerts_wire::{
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v9";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v10";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -119,6 +121,11 @@ pub fn deadline_phase(e: &EvalView, c: &CohortView, elapsed: u64) -> bool {
         None => c.admission_tempos.is_some_and(|a| elapsed >= a),
     }
 }
+/// A cohort's failing root step alerts (`cohort_fault`) once the stored
+/// epoch is this many past the one it first failed in: it has failed
+/// through at least one whole tempo of chain progress.
+pub const STEP_ERROR_EPOCHS: u64 = 2;
+
 /// Cohort faults that are scorer or budget faults (AR-13).
 pub const SCORER_BUDGET_FAULTS: &[&str] = &[
     "scorer_unavailable",
@@ -296,6 +303,25 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                     rule,
                     &c.label,
                     format!("fault {code} in {}", c.phase),
+                    0,
+                ));
+            } else if let Some(err) = &c.step_error
+                && let (Some(since), Some(now)) = (err.since_epoch, e.epoch)
+                && now >= since.saturating_add(STEP_ERROR_EPOCHS)
+            {
+                // A root step retried on a transient code that has kept
+                // failing for a whole tempo of chain progress: nothing is
+                // paused, but no wait has fixed it (a refused write, a
+                // binding that is not deployed).
+                out.push(cond(
+                    "cohort_fault",
+                    &c.label,
+                    format!(
+                        "step error {} in {} since epoch {since} ({} failures), still retried",
+                        err.code,
+                        c.phase,
+                        err.count.unwrap_or(0)
+                    ),
                     0,
                 ));
             }
@@ -1220,6 +1246,44 @@ mod tests {
             (c[0].subject.as_str(), c[0].detail.as_str()),
             ("testnet-c6", "fault step_refused in closed")
         );
+        // Fix round 1: a closed cohort's closure retried on a transient
+        // code alerts once it has failed through a whole tempo of chain
+        // progress (the stored epoch two past its first failure's), and
+        // pauses nothing; within that span, or with a fault, it adds none.
+        for (since, fires) in [(23_168u64, true), (23_169, false), (23_170, false)] {
+            let mut j = eval_status("admission");
+            j["cohorts"][0]["step_error"] = json!({"code": "closure put", "since_ms": 1, "since_epoch": since, "count": 300, "retry_ms": 2, "deterministic": false});
+            let mut o = healthy();
+            let mut e = parse_eval(&j);
+            e.ledger_over_threshold = Some(false);
+            o.eval = Some(e);
+            let c = evaluate(&o, &p, &r);
+            if fires {
+                assert_eq!(rules_of(&c), vec!["cohort_fault"], "since {since}");
+                assert_eq!(c[0].subject, "testnet-c6");
+                assert_eq!(
+                    c[0].detail,
+                    "step error closure put in closed since epoch 23168 (300 failures), still retried"
+                );
+            } else {
+                assert!(c.is_empty(), "since {since}: {c:?}");
+            }
+        }
+        let mut j = eval_status("admission");
+        j["cohorts"][0]["step_error"] =
+            json!({"code": "summary missing", "since_epoch": 23_100, "count": 1});
+        j["cohorts"][0]["fault"] = json!("step_refused");
+        let mut o = healthy();
+        let mut e = parse_eval(&j);
+        e.ledger_over_threshold = Some(false);
+        o.eval = Some(e);
+        let c = evaluate(&o, &p, &r);
+        assert_eq!(
+            rules_of(&c),
+            vec!["cohort_fault"],
+            "one condition for the paused cohort"
+        );
+        assert_eq!(c[0].detail, "fault step_refused in closed");
         // Fix round 2, findings 2 and 4: a ledger standing without a
         // threshold is reported, never read as "not over".
         let mut j = eval_status("admission");

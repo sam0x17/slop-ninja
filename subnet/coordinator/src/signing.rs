@@ -730,6 +730,33 @@ fn log(
 pub const DIAG_CAP: u64 = 5;
 /// Longest block backoff of one subject.
 const MAX_BACKOFF_BLOCKS: u64 = 60;
+/// The code of a historical read of the live attempt answered with a
+/// JSON-RPC error (`on_result_within`).
+pub const STATE_UNAVAILABLE: &str = "state_unavailable";
+/// Failures after which a [`STATE_UNAVAILABLE`] subject settles: the first
+/// count whose backoffs before it span [`MAX_BACKOFF_BLOCKS`] confirmed
+/// blocks (never fewer than [`DIAG_CAP`]). An endpoint that answers errors
+/// for a shorter span (an overload or an internal error rather than pruned
+/// state) is retried and recovers with no settle.
+pub const UNAVAILABLE_SETTLE_FAILURES: u64 = {
+    let (mut n, mut span) = (1u64, 0u64);
+    while span < MAX_BACKOFF_BLOCKS {
+        span += backoff_blocks(n);
+        n += 1;
+    }
+    if n < DIAG_CAP { DIAG_CAP } else { n }
+};
+
+/// The block backoff after a subject's `failures`-th failure: 1, 2, 4, ...
+/// up to [`MAX_BACKOFF_BLOCKS`].
+const fn backoff_blocks(failures: u64) -> u64 {
+    let shift = failures.saturating_sub(1);
+    if shift >= 63 {
+        return MAX_BACKOFF_BLOCKS;
+    }
+    let b = 1u64 << shift;
+    if b < MAX_BACKOFF_BLOCKS { b } else { MAX_BACKOFF_BLOCKS }
+}
 /// Runtime re-learns for one read before it counts as a failure.
 const RELEARN_CAP: u64 = 4;
 const RPC_BACKOFF_MS: u64 = 5_000;
@@ -815,10 +842,7 @@ fn record_failure(
         return Ok(());
     }
     let failures = prior.map_or(0, |(f, _)| f).saturating_add(1);
-    let backoff = 1u64
-        .checked_shl(u32::try_from(failures.saturating_sub(1)).unwrap_or(u32::MAX))
-        .unwrap_or(MAX_BACKOFF_BLOCKS)
-        .min(MAX_BACKOFF_BLOCKS);
+    let backoff = backoff_blocks(failures);
     sql.exec(
         "INSERT INTO sign_failures (subject, failures, code, first_at_ms, last_at_ms, retry_block, settled)
          VALUES (?, ?, ?, ?, ?, ?, 0)
@@ -844,7 +868,8 @@ fn record_failure(
         "step_failed",
         Some(&format!("{} {code} #{failures}", short_subject(subject))),
     )?;
-    if failures >= DIAG_CAP {
+    let cap = if code == STATE_UNAVAILABLE { UNAVAILABLE_SETTLE_FAILURES } else { DIAG_CAP };
+    if failures >= cap {
         settle(sql, subject, code, now_ms)?;
     }
     Ok(())
@@ -881,6 +906,14 @@ fn note_error(sql: &impl Sql, error: &str, now_ms: u64) -> Result<(), StoreError
 ///   attempt's dispatch is `unverifiable`, the nonce floor still advances
 ///   past its nonce, and the operation is `committed` with diagnostic
 ///   `events_unverifiable:CODE`; the read-back then checks the chain's queue.
+/// - `attempt:N:OP` whose nonce the head showed consumed (an inclusion
+///   search) but whose historical state and bodies the endpoint keeps
+///   refusing ([`STATE_UNAVAILABLE`]): its inclusion cannot be decided, so
+///   the attempt's dispatch is `unverifiable`, the nonce floor advances past
+///   its nonce (consumed at the head, so later nonces are safe), and the
+///   operation fails as `inclusion_unverifiable`. The signer is not paused:
+///   the chain reveals an included commit on its own, and the next epoch
+///   commits with no operator clear.
 /// - `attempt:N:OP` otherwise (its nonce cannot be read): a signer fault,
 ///   because no later nonce can be allocated safely.
 /// - `head` and `preflight` never settle: they keep their capped backoff,
@@ -983,6 +1016,25 @@ fn settle(sql: &impl Sql, subject: &str, code: &str, now_ms: u64) -> Result<(), 
                     "diagnostic",
                     Some(&diagnostic),
                 )?;
+            } else if code == STATE_UNAVAILABLE && a.search_lo.is_some() && a.search_hi.is_some() {
+                let diagnostic = format!("inclusion_unverifiable:{code}");
+                set_attempt(
+                    sql,
+                    &a,
+                    "dispatch = 'unverifiable', resolved_at_ms = ?",
+                    vec![bind_u64(now_ms)?],
+                )?;
+                sql.exec(
+                    "UPDATE signer SET nonce_floor = MAX(nonce_floor, ?) WHERE id = 1",
+                    &[bind_u64(a.nonce.saturating_add(1))?],
+                )?;
+                journal::bump(sql, "sign_inclusions_unverifiable")?;
+                sql.exec(
+                    "UPDATE commit_ops SET diagnostic = ?, updated_at_ms = ? WHERE op_id = ?",
+                    &[diagnostic.as_str().into(), bind_u64(now_ms)?, op_id.into()],
+                )?;
+                log(sql, now_ms, a.search_hi, Some(op_id), Some(n), "diagnostic", Some(&diagnostic))?;
+                fail_op(sql, op_id, "inclusion_unverifiable", now_ms)?;
             } else {
                 fault(sql, "attempt_unverifiable", Some(op_id), Some(n), now_ms)?;
             }
@@ -1852,8 +1904,8 @@ fn live_attempt(sql: &impl Sql) -> Result<Option<Attempt>, StoreError> {
     let rows = sql.exec(
         &format!(
             "SELECT {ATTEMPT_COLUMNS} FROM sign_attempts
-             WHERE state IN ('signed', 'sending', 'submitted', 'uncertain')
-                OR (state = 'included' AND dispatch IS NULL)
+             WHERE state IN ('signed', 'sending', 'submitted', 'uncertain', 'included')
+               AND dispatch IS NULL
              ORDER BY signed_at_ms"
         ),
         &[],
@@ -2747,12 +2799,16 @@ pub fn on_result_within(
     // A JSON-RPC error answer to a historical read of the live attempt (a
     // nonce probe of its inclusion search, a block body, its events): the
     // endpoint does not serve that block's state (pruned after a long
-    // outage) or refuses it. Retried behind the signer-wide backoff, it
-    // would hold the live attempt, and with it every new commit, forever and
-    // unseen. It counts against the attempt instead (a failing subject in
-    // `/status`, settled at `DIAG_CAP`: an included attempt's events as
-    // `events_unverifiable`, any other as `fault:attempt_unverifiable`), and
-    // a nonce probe's search goes on by block bodies, which need no state.
+    // outage), or refuses it for a while (overload, an internal error).
+    // Retried behind the signer-wide backoff, it would hold the live
+    // attempt, and with it every new commit, forever and unseen. It counts
+    // against the attempt instead (a failing subject in `/status`), and a
+    // nonce probe's search goes on by block bodies, which need no state. A
+    // later answer clears it. Only refusals spanning
+    // `UNAVAILABLE_SETTLE_FAILURES` failures of block backoff settle it,
+    // without pausing the signer: an included attempt's events as
+    // `events_unverifiable`, a consumed nonce's inclusion as
+    // `inclusion_unverifiable`.
     let historical = rpc_error == Some(RpcError::Remote)
         && subject.as_deref().is_some_and(|s| s.starts_with("attempt:"))
         && matches!(
@@ -2764,7 +2820,7 @@ pub fn on_result_within(
         attempt_state_unavailable(sql, &pending, now_ms)?;
         let at = confirmed.map_or(0, |c| c.number);
         if let Some(subject) = &subject {
-            record_failure(sql, subject, "state_unavailable", at, now_ms)?;
+            record_failure(sql, subject, STATE_UNAVAILABLE, at, now_ms)?;
         }
         None
     } else {

@@ -830,5 +830,11 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 17,
             statements: crate::eval::commitments::SCHEMA_V17,
         },
+        // v18: the stored epoch at a cohort's first failure of its failing
+        // root step, so its persistence is judged by chain progress.
+        Migration {
+            version: 18,
+            statements: crate::eval::engine::SCHEMA_V18,
+        },
     ],
 };

@@ -1590,11 +1590,15 @@ fn pruned_history_resolves_the_live_attempt_by_block_bodies() {
     assert_eq!(h.ops()[1].attempts[0].nonce, 8);
 }
 
-/// Audit B4: when the bodies are gone too, the attempt settles into a
-/// durable fault (alerted as `durable_fault`) instead of a silent retry
-/// loop, and the operator's clear searches again.
+/// Audit B4, fix round 1: when the bodies are gone too, the attempt (whose
+/// nonce the head showed consumed) settles only after the endpoint refused
+/// it through `MAX_BACKOFF_BLOCKS` of chain progress, and never pauses the
+/// signer: its inclusion is `inclusion_unverifiable`, the nonce floor moves
+/// past its consumed nonce, its operation fails, and the next epoch commits
+/// with no operator clear.
 #[test]
-fn an_unsearchable_attempt_faults_visibly_and_a_clear_searches_again() {
+fn an_unsearchable_attempt_settles_without_pausing_the_signer() {
+    assert_eq!(UNAVAILABLE_SETTLE_FAILURES, 7, "backoffs 1+2+4+8+16+32 span the 60-block maximum");
     let mut h = H::new();
     h.resume();
     h.send.set(Send::AcceptReportUncertain);
@@ -1606,13 +1610,57 @@ fn an_unsearchable_attempt_faults_visibly_and_a_clear_searches_again() {
     h.pruned_below = Some(h.chain.head + 40);
     h.jump(40);
     h.rpc_fail = Some(("block", RpcError::Remote, 1_000));
-    h.until(120, |h| h.status().reason.as_deref() == Some("fault:attempt_unverifiable"));
-    // The bodies are back: the clear resumes the same search.
+    let start = h.chain.head;
+    h.until(200, |h| h.ops()[0].state == "failed");
+    assert!(h.chain.head >= start + 63, "settled only after the refusals spanned the maximum backoff");
+    let o = &h.ops()[0];
+    assert_eq!(o.detail.as_deref(), Some("inclusion_unverifiable"), "{o:#?}");
+    assert_eq!(o.diagnostic.as_deref(), Some("inclusion_unverifiable:state_unavailable"));
+    assert_eq!(o.attempts[0].dispatch.as_deref(), Some("unverifiable"));
+    assert_eq!(o.attempts[0].sends, 1, "never resent");
+    let s = h.status();
+    assert_eq!(s.state, "active", "the signer is not paused: {:?}", s.reason);
+    assert_eq!(s.nonce_floor, 8, "the consumed nonce is behind the floor");
+    let f = failure(&s, "attempt").unwrap();
+    assert!(f.settled && f.failures == UNAVAILABLE_SETTLE_FAILURES, "{f:?}");
+    assert_eq!(h.counter("signing_faults"), 0);
+    assert_eq!(h.counter("sign_inclusions_unverifiable"), 1);
+    // The endpoint serves bodies again: the next epoch commits on the next
+    // nonce, with no clear.
     h.rpc_fail = None;
-    assert!(tx(&h.db, |sql| clear_fault(sql, h.now.get())).unwrap());
+    h.until(400, |h| h.ops().len() == 2 && h.ops()[1].state == "committed");
+    assert_eq!(h.ops()[1].attempts[0].nonce, 8);
+}
+
+/// Fix round 1 (B4): a short burst of JSON-RPC errors on the body scan (an
+/// overloaded endpoint, not pruned history) is retried and recovers by
+/// itself: the scan goes on, the inclusion is found, nothing settles and no
+/// operator clear is needed.
+#[test]
+fn a_burst_of_endpoint_errors_during_the_body_scan_recovers_by_itself() {
+    let mut h = H::new();
     h.resume();
-    h.until(200, |h| h.ops()[0].state == "committed");
-    assert_eq!(h.ops()[0].attempts[0].state, "included");
+    h.send.set(Send::AcceptReportUncertain);
+    h.until(40, |h| {
+        h.ops()
+            .first()
+            .is_some_and(|o| o.attempts.iter().any(|a| a.state == "uncertain"))
+    });
+    h.pruned_below = Some(h.chain.head + 40);
+    h.jump(40);
+    // `DIAG_CAP` refused bodies after the refused nonce probe: one more
+    // failure than used to fault the signer, fewer than the settle span.
+    h.rpc_fail = Some(("block", RpcError::Remote, DIAG_CAP as u32));
+    h.until(300, |h| h.ops()[0].state == "committed");
+    let o = &h.ops()[0];
+    assert_eq!(o.attempts[0].state, "included", "{o:#?}");
+    let s = h.status();
+    assert_eq!(s.state, "active", "{:?}", s.reason);
+    assert_eq!(h.counter("signing_faults"), 0);
+    assert_eq!(h.counter("sign_inclusions_unverifiable"), 0);
+    assert!(h.counter("sign_step_failures") > DIAG_CAP, "the burst was counted against the attempt");
+    h.until(400, |h| h.ops().len() == 2 && h.ops()[1].state == "committed");
+    assert_eq!(h.ops()[1].attempts[0].nonce, 8);
 }
 
 #[test]

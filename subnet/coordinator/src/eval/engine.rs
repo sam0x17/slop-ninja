@@ -70,8 +70,11 @@ pub const HEARTBEAT_FRESH_MS: u64 = 600_000;
 /// increase (a jump of several, or replayed epochs while a lagging watermark
 /// catches up after an outage) credits none: those tempos passed while the
 /// coordinator was not observing them, are counted as uncredited and never
-/// consume a minimum, so the same cohort resumes at later boundaries.
-pub const ACTIVE_TEMPO_RULE: &str = "live_epoch_single_increment_v2";
+/// consume a minimum, so the same cohort resumes at later boundaries. A
+/// tick whose head epoch is unknown (a failed or budget-deferred head read)
+/// proves no lag: it never moves the stored epoch to a new index, so the
+/// next tick with a head reading decides that increment.
+pub const ACTIVE_TEMPO_RULE: &str = "live_epoch_single_increment_v3";
 /// Upper bound on prompt tokens assumed when checking a wave against the budget.
 pub(crate) const BUDGET_PROMPT_TOKENS: u64 = 1500;
 
@@ -317,16 +320,11 @@ pub const SCHEMA_V16: &[&str] = &[
     "ALTER TABLE cohorts ADD COLUMN gen_base_microusd INTEGER NOT NULL DEFAULT 0",
 ];
 
-/// Fault codes an operator clear can resume, because the frozen plan still
-/// allows the work: outages, refused scorer slots, platform refusals (an
-/// arena or object bound, which a corrected deployment lifts), a root step
-/// that failed the same way under the same inputs ([`STEP_REFUSED`]), and
-/// the budget guards (a runaway guard for one cohort, never a cap: a clear
-/// resumes with a fresh allowance of the plan's budget counted from the
-/// spend measured at the clear). Every other fault is terminal under the
-/// plan (no attempt, human or case is left) and needs [`abandon`].
-/// `package_refused` resumes once a corrected build is deployed: the frozen
-/// inputs are unchanged and packaging runs again from them.
+/// v18: the stored epoch index at a cohort's first failure of its failing
+/// root step ([`note_step_error`]), so a transient step error that persists
+/// is judged (and alerted) by chain progress, never by wall time.
+pub const SCHEMA_V18: &[&str] = &["ALTER TABLE cohorts ADD COLUMN step_error_since_epoch INTEGER"];
+
 /// A plan names fresh stock without an admitted external entrant.
 pub const FRESH_STOCK_REFUSED: &str =
     "pool (fresh stock is drawn only for a cohort with an admitted external entrant; list exposed pools in EXPOSED_POOLS)";
@@ -334,6 +332,26 @@ pub const FRESH_STOCK_REFUSED: &str =
 /// The draw's fault code for a fresh pool without an admitted outside entrant.
 pub const FRESH_STOCK_REFUSED_CODE: &str = "fresh_stock_refused";
 
+/// Fault codes an operator clear can resume, because the frozen plan still
+/// allows the work: outages, refused scorer slots, platform refusals (an
+/// arena or object bound, which a corrected deployment lifts), a root step
+/// that failed the same way under the same inputs ([`STEP_REFUSED`]), and
+/// the budget guards (a runaway guard for one cohort, which pauses it for
+/// spend until an operator clear; the clear resumes it with a fresh
+/// allowance of the plan's budget counted from the spend measured at the
+/// clear). Every other fault is terminal under the
+/// plan (no attempt, human or case is left) and needs [`abandon`].
+/// `package_refused` resumes once a corrected build is deployed: the frozen
+/// inputs are unchanged and packaging runs again from them.
+/// `reference_failure` is terminal by cause: infrastructure failures never
+/// reach packaging (a job whose every allowed attempt ended unresolved
+/// pauses the cohort as `unresolved_infrastructure` at the end of scoring),
+/// so it names model failures of the reference artifact itself, attributed
+/// by crash isolation, which the same frozen evidence repeats.
+/// `unresolved_infrastructure` is still terminal (an open residual): a
+/// clear could only resume it with infrastructure-only attempts beyond the
+/// plan's `max_attempts`, which the plan's receipt bound and signed receipt
+/// index do not yet provide for.
 pub const RESUMABLE_FAULTS: &[&str] = &[
     "generation_unavailable",
     "scorer_unavailable",
@@ -503,10 +521,35 @@ pub struct Kick {
     pub epoch: Option<EpochObservation>,
     /// Ticks: the epoch index at the RPC finalized head when `epoch` was
     /// read at the confirmed watermark; `epoch` is live when they are equal
-    /// ([`ACTIVE_TEMPO_RULE`]). Absent (a delivery, a failed head read, or
-    /// a Worker built before the rule), no observation is live.
+    /// ([`ACTIVE_TEMPO_RULE`]). Absent (a failed or refused head read, no
+    /// stored head, conflicting hashes), the head epoch is unknown: the
+    /// observation is not live, and an `epoch` at a new index is not
+    /// recorded, so it neither credits nor counts as uncredited.
     #[serde(default)]
     pub head_epoch: Option<u64>,
+}
+
+/// Where a tick takes the head epoch from ([`head_epoch_source`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeadEpoch {
+    /// The watermark is the head: the epoch already read there.
+    Known(u64),
+    /// The head is ahead of the watermark: one more epoch read, at this block.
+    ReadAt(BlockRef),
+    /// No usable head (none stored, behind the watermark, or a different
+    /// block at the watermark's height): unknown, never lagging.
+    Unknown,
+}
+
+/// The tick's head-epoch decision: `confirmed` is the RPC-confirmed
+/// watermark whose epoch index is `confirmed_index`, `head` the stored RPC
+/// finalized head.
+pub fn head_epoch_source(confirmed: BlockRef, confirmed_index: u64, head: Option<BlockRef>) -> HeadEpoch {
+    match head {
+        Some(h) if h == confirmed => HeadEpoch::Known(confirmed_index),
+        Some(h) if h.number > confirmed.number => HeadEpoch::ReadAt(h),
+        _ => HeadEpoch::Unknown,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -565,7 +608,9 @@ pub fn observed(sql: &impl Sql) -> R<Observed> {
 /// jumps credit none. The phase minimums count active tempos, so coordinator
 /// silence and the catch-up after it consume no scheduling budget, and
 /// recovery resumes the same cohort at a later boundary without charging
-/// missed ones.
+/// missed ones. An observation at a new index whose head epoch is unknown
+/// is left for the next tick with a head reading: only a proven lag (a
+/// head epoch ahead of it) settles an increment as uncredited.
 pub fn observe(sql: &impl Sql, kick: &Kick, now_ms: u64) -> R<Vec<String>> {
     let before = observed(sql)?;
     let before_live = before.epoch_live;
@@ -587,6 +632,7 @@ pub fn observe(sql: &impl Sql, kick: &Kick, now_ms: u64) -> R<Vec<String>> {
             Some(b) if e.index < b.index => {
                 sql.exec("UPDATE eval_obs SET epoch_regressions = epoch_regressions + 1 WHERE id = 1", &[])?;
             }
+            _ if kick.head_epoch.is_none() && before.epoch.is_none_or(|b| e.index > b.index) => {}
             _ => {
                 let live = kick.head_epoch == Some(e.index);
                 let same = before.epoch.is_some_and(|b| b.index == e.index);
@@ -787,11 +833,22 @@ pub fn step_error_is_deterministic(code: &str) -> bool {
 /// ([`step_error_is_deterministic`]) also pauses the cohort ([`refuse_step`]).
 /// Returns whether the cohort is paused by a fault.
 pub fn note_step_error(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<bool> {
+    let epoch = observed(sql)?.epoch.map_or(SqlValue::Null, |e| i(e.index as i64));
     sql.exec(
         "UPDATE cohorts SET step_errors = CASE WHEN step_error IS ? THEN step_errors + 1 ELSE 1 END,
             step_error_since_ms = CASE WHEN step_error IS ? THEN step_error_since_ms ELSE ? END,
+            step_error_since_epoch = CASE WHEN step_error IS ? THEN step_error_since_epoch ELSE ? END,
             step_error = ?, step_retry_ms = ? WHERE seq = ?",
-        &[s(code), s(code), bind_u64(now_ms)?, s(code), bind_u64(now_ms.saturating_add(STEP_RETRY_MS))?, i(seq)],
+        &[
+            s(code),
+            s(code),
+            bind_u64(now_ms)?,
+            s(code),
+            epoch,
+            s(code),
+            bind_u64(now_ms.saturating_add(STEP_RETRY_MS))?,
+            i(seq),
+        ],
     )?;
     if step_error_is_deterministic(code) {
         refuse_step(sql, seq, code, now_ms)?;
@@ -2661,7 +2718,7 @@ pub fn commit_package(sql: &impl Sql, seq: i64, b: &PackageBuild, puts: u64, now
 /// failure it recorded before ([`note_step_error`]) clears.
 pub fn note_step(sql: &impl Sql, seq: i64, ms: u64) -> R<()> {
     sql.exec(
-        "UPDATE cohorts SET steps = steps + 1, step_ms = step_ms + ?, step_error = NULL, step_error_since_ms = NULL,
+        "UPDATE cohorts SET steps = steps + 1, step_ms = step_ms + ?, step_error = NULL, step_error_since_ms = NULL, step_error_since_epoch = NULL,
             step_errors = 0, step_retry_ms = 0 WHERE seq = ?",
         &[bind_u64(ms)?, i(seq)],
     )?;
@@ -2751,7 +2808,7 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
         let row = &q("SELECT manifest_digest, evaluation_set, task_count, receipt_root, receipt_count, package_digest,
                 target_digest, steps, step_ms, r2_puts, draw, opened_epoch, opened_block, packaged_epoch, closed_epoch,
                 counts, abandoned_reason, abandoned_fault, step_error, step_error_since_ms, step_errors, step_retry_ms,
-                score_base_nanousd, gen_base_microusd FROM cohorts WHERE seq = ?")?[0];
+                score_base_nanousd, gen_base_microusd, step_error_since_epoch FROM cohorts WHERE seq = ?")?[0];
         let receipts = int(&q("SELECT COUNT(*) FROM receipts WHERE seq = ?")?[0], 0)?;
         let retention = crate::eval::retention::cohort_status(sql, c.seq, &held)?;
         let v3 = if c.plan.is_v3() {
@@ -2785,10 +2842,11 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             "receipt_root": opt_text(row, 3), "receipt_count": opt_int(row, 4),
             "package": opt_text(row, 5), "target": opt_text(row, 6),
             "steps": int(row, 7)?, "step_ms": int(row, 8)?, "r2_puts": int(row, 9)?,
-            // A failing root step (`note_step_error`): its code, since when,
-            // how many times in a row, and when it may run again.
+            // A failing root step (`note_step_error`): its code, since when
+            // (and since which stored epoch), how many times in a row, and
+            // when it may run again.
             "step_error": opt_text(row, 18).map(|code| json!({"code": code, "since_ms": opt_int(row, 19),
-                "count": opt_int(row, 20), "retry_ms": opt_int(row, 21),
+                "since_epoch": opt_int(row, 24), "count": opt_int(row, 20), "retry_ms": opt_int(row, 21),
                 "deterministic": step_error_is_deterministic(&code)})),
             // The spend each budget counts from since its last clear.
             "budget_base": json!({"scoring_microusd": opt_int(row, 22).map(|n| (n.max(0) as u64).div_ceil(1000)),

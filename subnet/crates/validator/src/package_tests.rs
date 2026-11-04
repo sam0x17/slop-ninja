@@ -1555,6 +1555,19 @@ fn a_tracked_operation_retired_before_signing_needs_no_read_back() -> Result<()>
     assert!(app.live.tracked_settled(&first, true)?, "a read-back settles it");
     let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
     let current = crate::package_v2::verify(&launch_bundle(10), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap();
+    // The target's work, derived while it is still authorized.
+    let snap = crate::package_v2::snapshot(&registered(), owner().hotkey.0).unwrap();
+    let work = crate::package_v2::derive(
+        std::sync::Arc::new(
+            crate::package_v2::verify(&launch_bundle(10), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap(),
+        ),
+        &snap,
+        validator2().hotkey.0,
+        60,
+    )
+    .unwrap()
+    .work;
+    assert!(app.live.per_tempo_gate(&work, &first, false)?.is_none(), "queued: the gate is shut");
     let launch = slop_ninja_protocol::sign(
         slop_ninja_protocol::LaunchAuthorization::new(&chain(), 1, 10).unwrap(),
         &authorization_key(),
@@ -1575,6 +1588,46 @@ fn a_tracked_operation_retired_before_signing_needs_no_read_back() -> Result<()>
     // Retired before it signed: settled without a read-back, so the loop's
     // per-tempo block runs again (and a refreshed authorization resumes).
     assert!(app.live.tracked_settled(&first, false)?, "retired before signing: nothing to read back");
+    // Fix round 1: the loop's whole per-tempo gate, not only the helper.
+    // Before the revocation the queued operation held it shut; retired, it
+    // is handed back and the gate opens with no read-back.
+    let retained = app.live.per_tempo_gate(&work, &first, false)?.expect("the gate opens without a read-back");
+    assert!(retained.iter().any(|op| op.id == first && op.handed_off), "{retained:?}");
+    // A refreshed authorization then queues the next tempo's operation.
+    app.revocation_store = Some(store);
+    app.bundle = launch_bundle(63);
+    app.epoch = 63;
+    let next = match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Enqueued { operation_id, .. } => operation_id,
+        other => panic!("expected the next tempo queued after the refresh, got {other:?}"),
+    };
+    assert_ne!(next, first);
+    assert!(app.live.authorized_for_tests().get(&next).is_some(), "the next tempo holds a fresh grant");
+    Ok(())
+}
+
+/// Fix round 1 (B5): the per-tempo gate stays shut while the tracked
+/// operation is queued and may still land.
+#[test]
+fn the_per_tempo_gate_waits_for_a_queued_tracked_operation() -> Result<()> {
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let mut app = TestApp::open(&config, &bundle())?;
+    app.bundle = launch_bundle(10);
+    app.epoch = 60;
+    let first = match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Enqueued { operation_id, .. } => operation_id,
+        other => panic!("expected the burn row queued, got {other:?}"),
+    };
+    let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
+    let a = std::sync::Arc::new(
+        crate::package_v2::verify(&launch_bundle(10), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held).unwrap(),
+    );
+    let snap = crate::package_v2::snapshot(&registered(), owner().hotkey.0).unwrap();
+    let work = crate::package_v2::derive(a, &snap, validator2().hotkey.0, 60).unwrap().work;
+    assert!(app.live.per_tempo_gate(&work, &first, false)?.is_none(), "queued, unsigned: it may still land");
+    assert!(app.live.per_tempo_gate(&work, &first, true)?.is_none(), "read back but not yet handed back by rtao");
     Ok(())
 }
 

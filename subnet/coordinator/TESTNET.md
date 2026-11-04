@@ -755,9 +755,11 @@ ledger's standing.
    own upper bound (J x n x `doc_ub` + lanes x `cold_ub`) exceeds it is
    refused; each sweep checks measured spend and the remaining work's bound,
    and pauses the cohort (`scoring_budget`, resumable) before it can be
-   exceeded. A runaway guard, never a cap: a clear resumes the same cohort
-   with a fresh allowance of the plan's budget counted from the spend
-   measured at the clear. The bound charged to lanes silent past their
+   exceeded. A runaway guard for one cohort: it pauses that cohort for spend
+   until an operator clears it (the scoring and generation guards are the
+   only spend pauses), and the clear resumes the same cohort with a fresh
+   allowance of the plan's budget counted from the spend measured at the
+   clear. The bound charged to lanes silent past their
    staleness bound is reported and settled but never counts toward the
    guard, so an outage cannot pause a cohort through it.
 3. The `SpendLedger` tracks the month and never refuses or pauses anything

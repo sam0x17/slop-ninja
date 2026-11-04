@@ -2198,134 +2198,127 @@ impl AppPorts for LivePorts {
                 // re-commit for the next epoch. rtao signs it at that epoch's
                 // offset and never twice in one epoch. No commitment of the
                 // old target is queued while a switch waits.
-                if per_tempo && read_back && !fetch_state.waiting() {
-                    let controls = self
-                        .adapter
-                        .as_ref()
-                        .context("journal is not open")?
-                        .controls();
-                    let operations = controls.target_operations(&derived.work)?;
-                    let tracked_done = operations
-                        .iter()
-                        .any(|op| op.id == tracked.0 && op.handed_off);
-                    if tracked_done && operations.iter().all(|op| op.handed_off) {
-                        let period = match period {
-                            Some(period) => period,
-                            None => *period.insert(self.reveal_period().await?),
-                        };
-                        let last = match self.last_commit_epoch(mechanism, period) {
-                            Some(epoch) => epoch,
-                            None => {
-                                // The watcher holds no commit: fall back to
-                                // finalized chain state.
-                                let epoch = self.finalized_epoch_index().await?;
-                                if self.hotkey_commits(mechanism.0, epoch).await?.is_empty() {
-                                    epoch.saturating_sub(1)
-                                } else {
-                                    epoch
-                                }
+                if per_tempo
+                    && read_back
+                    && !fetch_state.waiting()
+                    && let Some(operations) = self.per_tempo_gate(&derived.work, &tracked.0, read_back)?
+                {
+                    let period = match period {
+                        Some(period) => period,
+                        None => *period.insert(self.reveal_period().await?),
+                    };
+                    let last = match self.last_commit_epoch(mechanism, period) {
+                        Some(epoch) => epoch,
+                        None => {
+                            // The watcher holds no commit: fall back to
+                            // finalized chain state.
+                            let epoch = self.finalized_epoch_index().await?;
+                            if self.hotkey_commits(mechanism.0, epoch).await?.is_empty() {
+                                epoch.saturating_sub(1)
+                            } else {
+                                epoch
                             }
-                        };
-                        let retained: Vec<_> = operations.iter().map(|op| op.tempo).collect();
-                        // The label follows the journal's last commit; after
-                        // a deferral it is never behind the finalized epoch.
-                        let finalized_epoch = self.finalized_epoch_index().await?;
-                        // Without a fetcher, a paused authorization keeps
-                        // the run only until its outstanding reveals compared.
-                        let due = retry_after_epoch.is_none_or(|after| finalized_epoch > after)
-                            || (authorization_paused && background.is_none() && !awaiting_reveals);
-                        if due {
-                            let label = crate::app::next_tempo(last.max(finalized_epoch.saturating_sub(1)), &retained)?;
-                            // reward-v1: each tempo's row is derived afresh
-                            // against a finalized snapshot and owner hotkey,
-                            // under the bundle's authorization checked again.
-                            match self.rederive(derived, authority.clone(), &header, label).await? {
-                                Ok((next, choice, label)) => {
-                                    let owner_rows = choice.policy();
-                                    let id = match self.adapter_mut()?.enqueue_with_owner_rows(
-                                        &next.work,
-                                        next.input.clone(),
-                                        owner_rows,
-                                    )? {
-                                        Enqueued::Created(id) | Enqueued::Existing(id) => id,
-                                    };
-                                    let hash = slop_ninja_subnet::weight_row_hash(next.input.clone())?;
-                                    self.authorized.grant(&id, &hash, choice);
-                                    ledger.record(&id, &hash, next.chain_entries());
-                                    ledger.persist()?;
-                                    tracing::info!(
-                                        event = "tempo_enqueued",
-                                        operation_id = %id,
+                        }
+                    };
+                    let retained: Vec<_> = operations.iter().map(|op| op.tempo).collect();
+                    // The label follows the journal's last commit; after
+                    // a deferral it is never behind the finalized epoch.
+                    let finalized_epoch = self.finalized_epoch_index().await?;
+                    // Without a fetcher, a paused authorization keeps
+                    // the run only until its outstanding reveals compared.
+                    let due = retry_after_epoch.is_none_or(|after| finalized_epoch > after)
+                        || (authorization_paused && background.is_none() && !awaiting_reveals);
+                    if due {
+                        let label = crate::app::next_tempo(last.max(finalized_epoch.saturating_sub(1)), &retained)?;
+                        // reward-v1: each tempo's row is derived afresh
+                        // against a finalized snapshot and owner hotkey,
+                        // under the bundle's authorization checked again.
+                        match self.rederive(derived, authority.clone(), &header, label).await? {
+                            Ok((next, choice, label)) => {
+                                let owner_rows = choice.policy();
+                                let id = match self.adapter_mut()?.enqueue_with_owner_rows(
+                                    &next.work,
+                                    next.input.clone(),
+                                    owner_rows,
+                                )? {
+                                    Enqueued::Created(id) | Enqueued::Existing(id) => id,
+                                };
+                                let hash = slop_ninja_subnet::weight_row_hash(next.input.clone())?;
+                                self.authorized.grant(&id, &hash, choice);
+                                ledger.record(&id, &hash, next.chain_entries());
+                                ledger.persist()?;
+                                tracing::info!(
+                                    event = "tempo_enqueued",
+                                    operation_id = %id,
+                                    tempo = label,
+                                    last_commit_epoch = last,
+                                    registration_block = ?next.snapshot_block,
+                                    row_digest = %next.row_digest,
+                                    owner_rows = ?owner_rows
+                                );
+                                report.tempo_enqueued.push((label, id.clone()));
+                                if report.tempo_enqueued.len() > crate::app::REPORT_RECENT {
+                                    report.tempo_enqueued.remove(0);
+                                }
+                                faults.hit(Phase::TempoEnqueued)?;
+                                tracked = (id, Some(label));
+                                tracked_since = None;
+                                tracked_attempts = None;
+                                window_alerted = false;
+                                attempt_alert = None;
+                                limits_checked_for = None;
+                                read_back = false;
+                                retry_after_epoch = None;
+                                authorization_paused = false;
+                            }
+                            Err(refusal) if crate::app::is_row_deferral(refusal.code) => {
+                                // Nothing to commit this tempo; a later
+                                // snapshot is tried afresh next epoch.
+                                crate::app::log_tempo_deferred(Some(label), refusal.code);
+                                report.tempo_deferred.push((label, refusal.code.to_owned()));
+                                if report.tempo_deferred.len() > crate::app::REPORT_RECENT {
+                                    report.tempo_deferred.remove(0);
+                                }
+                                retry_after_epoch = Some(finalized_epoch);
+                            }
+                            Err(refusal)
+                                if matches!(refusal.code, "authorization_refused" | "authorization_revoked")
+                                    && (background.is_some() || awaiting_reveals) =>
+                            {
+                                // The authorization yields no commitment
+                                // (revoked, or its target is no longer
+                                // the held one): new commitments pause
+                                // here, reconciliation continues, and the
+                                // fetcher's newer authorization or
+                                // successor resumes them. Without a
+                                // fetcher the run stays only until this
+                                // target's outstanding reveals compared,
+                                // then ends to read the bundle again.
+                                if !authorization_paused {
+                                    tracing::warn!(
+                                        event = "authorization_paused",
+                                        code = refusal.code,
                                         tempo = label,
-                                        last_commit_epoch = last,
-                                        registration_block = ?next.snapshot_block,
-                                        row_digest = %next.row_digest,
-                                        owner_rows = ?owner_rows
+                                        awaiting_reveals,
+                                        fetcher = background.is_some(),
+                                        alert = true
                                     );
-                                    report.tempo_enqueued.push((label, id.clone()));
-                                    if report.tempo_enqueued.len() > crate::app::REPORT_RECENT {
-                                        report.tempo_enqueued.remove(0);
-                                    }
-                                    faults.hit(Phase::TempoEnqueued)?;
-                                    tracked = (id, Some(label));
-                                    tracked_since = None;
-                                    tracked_attempts = None;
-                                    window_alerted = false;
-                                    attempt_alert = None;
-                                    limits_checked_for = None;
-                                    read_back = false;
-                                    retry_after_epoch = None;
-                                    authorization_paused = false;
                                 }
-                                Err(refusal) if crate::app::is_row_deferral(refusal.code) => {
-                                    // Nothing to commit this tempo; a later
-                                    // snapshot is tried afresh next epoch.
-                                    crate::app::log_tempo_deferred(Some(label), refusal.code);
-                                    report.tempo_deferred.push((label, refusal.code.to_owned()));
-                                    if report.tempo_deferred.len() > crate::app::REPORT_RECENT {
-                                        report.tempo_deferred.remove(0);
-                                    }
-                                    retry_after_epoch = Some(finalized_epoch);
+                                authorization_paused = true;
+                                report.tempo_deferred.push((label, refusal.code.to_owned()));
+                                if report.tempo_deferred.len() > crate::app::REPORT_RECENT {
+                                    report.tempo_deferred.remove(0);
                                 }
-                                Err(refusal)
-                                    if matches!(refusal.code, "authorization_refused" | "authorization_revoked")
-                                        && (background.is_some() || awaiting_reveals) =>
-                                {
-                                    // The authorization yields no commitment
-                                    // (revoked, or its target is no longer
-                                    // the held one): new commitments pause
-                                    // here, reconciliation continues, and the
-                                    // fetcher's newer authorization or
-                                    // successor resumes them. Without a
-                                    // fetcher the run stays only until this
-                                    // target's outstanding reveals compared,
-                                    // then ends to read the bundle again.
-                                    if !authorization_paused {
-                                        tracing::warn!(
-                                            event = "authorization_paused",
-                                            code = refusal.code,
-                                            tempo = label,
-                                            awaiting_reveals,
-                                            fetcher = background.is_some(),
-                                            alert = true
-                                        );
-                                    }
-                                    authorization_paused = true;
-                                    report.tempo_deferred.push((label, refusal.code.to_owned()));
-                                    if report.tempo_deferred.len() > crate::app::REPORT_RECENT {
-                                        report.tempo_deferred.remove(0);
-                                    }
-                                    retry_after_epoch = Some(finalized_epoch);
-                                }
-                                Err(refusal) => {
-                                    // The authorization yields nothing or the
-                                    // row cannot be derived: end the run,
-                                    // which the caller retries after reading
-                                    // the bundle and revocations again.
-                                    tracing::warn!(event = "tempo_deferred", tempo = label, code = refusal.code);
-                                    report.stop = format!("tempo_deferred:{}", refusal.code);
-                                    return Ok(());
-                                }
+                                retry_after_epoch = Some(finalized_epoch);
+                            }
+                            Err(refusal) => {
+                                // The authorization yields nothing or the
+                                // row cannot be derived: end the run,
+                                // which the caller retries after reading
+                                // the bundle and revocations again.
+                                tracing::warn!(event = "tempo_deferred", tempo = label, code = refusal.code);
+                                report.stop = format!("tempo_deferred:{}", refusal.code);
+                                return Ok(());
                             }
                         }
                     }
@@ -2448,6 +2441,30 @@ impl LivePorts {
             return Ok(false);
         }
         Ok(AppPorts::retired(self, operation_id)?.is_some())
+    }
+
+    /// The dispatch loop's per-tempo gate (plan decision 12): the target's
+    /// retained operations, when the next tempo may be queued. The tracked
+    /// operation must be settled ([`Self::tracked_settled`]: read back, or
+    /// retired before it signed) and it and every other retained operation
+    /// of the target handed back by rtao (a retirement hands it back).
+    pub(crate) fn per_tempo_gate(
+        &self,
+        work: &WeightWork,
+        tracked: &str,
+        read_back: bool,
+    ) -> Result<Option<Vec<slop_ninja_subnet::TargetOperation>>> {
+        if !self.tracked_settled(tracked, read_back)? {
+            return Ok(None);
+        }
+        let operations = self
+            .adapter
+            .as_ref()
+            .context("journal is not open")?
+            .controls()
+            .target_operations(work)?;
+        let tracked_done = operations.iter().any(|op| op.id == tracked && op.handed_off);
+        Ok((tracked_done && operations.iter().all(|op| op.handed_off)).then_some(operations))
     }
 
     /// Authorize every retained operation of the derived target whose row is

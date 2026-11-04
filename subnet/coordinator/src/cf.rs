@@ -2541,8 +2541,10 @@ struct ConfirmedHead {
 /// watermark, and the epoch index at the RPC finalized head, which decides
 /// whether that observation is live (`eval::engine::ACTIVE_TEMPO_RULE`).
 /// While the watermark is the head this is the same reading; while it lags
-/// (a catch-up) one more call, charged to the same budget. A head read that
-/// fails leaves the observation not live, which credits nothing.
+/// (a catch-up, and the usual tick right after a boundary) one more call,
+/// charged to the same budget. A head read that fails or is refused leaves
+/// the head epoch unknown: a new epoch is then decided by the next tick
+/// with a head reading, never settled as uncredited.
 async fn tick_kick(env: &Env, d: &Deployment) -> crate::eval::engine::Kick {
     let mut kick = crate::eval::engine::Kick::default();
     let Ok(mut r) = journal_call(env, d, Method::Get, "/confirmed-head", None).await else {
@@ -2559,10 +2561,10 @@ async fn tick_kick(env: &Env, d: &Deployment) -> crate::eval::engine::Kick {
     };
     kick.confirmed = Some(epoch.block);
     kick.epoch = Some(epoch);
-    kick.head_epoch = match heads.head {
-        Some(h) if h == confirmed => Some(epoch.index),
-        Some(h) if h.number > confirmed.number => epoch_at(env, d, h).await.map(|e| e.index),
-        _ => None,
+    kick.head_epoch = match crate::eval::engine::head_epoch_source(confirmed, epoch.index, heads.head) {
+        crate::eval::engine::HeadEpoch::Known(index) => Some(index),
+        crate::eval::engine::HeadEpoch::ReadAt(h) => epoch_at(env, d, h).await.map(|e| e.index),
+        crate::eval::engine::HeadEpoch::Unknown => None,
     };
     kick
 }

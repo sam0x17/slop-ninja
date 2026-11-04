@@ -46,7 +46,7 @@
 //! | `fallback_too_long` | a Worker has been in fallback mode for a whole tempo |
 //! | `webhook_paused` | a Worker reports its webhook subscription presumed paused: no delivery for longer than the provider can retry one, while blocks are owed (paused, or a provider-side stall: an operator checks the subscription's state and resumes it only when paused) |
 //! | `watermark_stalled` | a Worker's RPC-confirmed watermark is older than the watchdog silence plus two cron periods, or absent |
-//! | `phase_overrun` | the active cohort is still in a work phase at its package deadline (`K - transition` tempos after it opened) |
+//! | `phase_overrun` | the active cohort is still in a work phase, or in `admission` with its window no longer admitting (the roster freeze waiting; the detail names on what), at its package deadline (`K - transition` tempos after it opened, in the tempos the coordinator credited: uncredited tempos (an outage, a catch-up jump) extend the cohort's schedule and are not an overrun; epochs only from coordinators that do not report credited tempos) |
 //! | `scorer_budget_fault` | a cohort not yet closed (admitting, closing or evaluating) is paused by a scorer or budget fault |
 //! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step, or `step_refused` when a root step fails in a way no wait changes), or a closed cohort's closure step is paused |
 //! | `ledger_threshold` | the spend ledger's billing month (settled spend plus open reservations) is past the deployment's private alert threshold; tracking only, nothing is refused |
@@ -72,27 +72,52 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::config::SinkFormat;
-use crate::status::{EvalView, Observed, WorkerView};
+use crate::status::{CohortView, EvalView, Observed, WorkerView};
 
 pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v7: `cohort_fault` also reads closed cohorts (a paused closure step) and
-/// the eval Worker's `step_refused` (v6: `pointer_stale` and
+/// v8: `phase_overrun` also covers a cohort still in `admission` at its
+/// package deadline with its window closed (its roster freeze waiting), and
+/// counts a cohort's age in the coordinator's credited tempos
+/// (`observed.active_tempos - opened_active`) rather than epochs, so an
+/// outage that extends a cohort's schedule is not an overrun
+/// (v7: `cohort_fault` also reads closed cohorts (a paused closure step) and
+/// the eval Worker's `step_refused`; v6: `pointer_stale` and
 /// `revocation_unverifiable`; v5: `webhook_paused`
 /// and `retention_stalled`; v4: an unknown status read, unanswered or answered
 /// without a field an open entry needs, carries the open entries it would
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v7";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v8";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
 
-/// Work phases that must end by the package deadline.
+/// Work phases that must end by the package deadline. A cohort in
+/// `admission` whose window no longer admits is bounded by it too
+/// ([`deadline_phase`]).
 pub const WORK_PHASES: &[&str] = &["generating", "sealing", "scoring", "packaging"];
+
+/// Whether the active cohort `c`, `elapsed` tempos after it opened, is in a
+/// phase its package deadline bounds: a work phase, or `admission` once its
+/// window no longer admits (closing, its roster freeze waiting, or a cohort
+/// without coordinator admission). Without the calendar's window flags for
+/// it, the window counts as closed once its `admission_tempos` elapsed.
+pub fn deadline_phase(e: &EvalView, c: &CohortView, elapsed: u64) -> bool {
+    if WORK_PHASES.contains(&c.phase.as_str()) {
+        return true;
+    }
+    if c.phase != "admission" {
+        return false;
+    }
+    match e.window_of(c.cohort).and_then(|w| w.window_open) {
+        Some(open) => !open,
+        None => c.admission_tempos.is_some_and(|a| elapsed >= a),
+    }
+}
 /// Cohort faults that are scorer or budget faults (AR-13).
 pub const SCORER_BUDGET_FAULTS: &[&str] = &[
     "scorer_unavailable",
@@ -275,23 +300,27 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
             }
         }
         if let Some(c) = e.active()
-            && let (true, Some(now), Some(opened), Some(k)) = (
-                WORK_PHASES.contains(&c.phase.as_str()),
-                epoch,
-                c.opened_epoch,
-                c.k_tempos,
-            )
+            && let (Some((elapsed, credited)), Some(k)) = (e.cohort_age(c), c.k_tempos)
         {
             let deadline = k.saturating_sub(c.transition_tempos.unwrap_or(0));
-            let elapsed = now.saturating_sub(opened);
-            if elapsed >= deadline {
+            let unit = if credited {
+                "credited tempos"
+            } else {
+                "epochs"
+            };
+            if elapsed >= deadline && deadline_phase(e, c, elapsed) {
+                let phase = match (c.phase.as_str(), e.window_of(c.cohort)) {
+                    ("admission", w) => format!(
+                        "admission with its window closed (roster freeze: {})",
+                        w.and_then(|w| w.freeze_wait.as_deref())
+                            .unwrap_or("not reported")
+                    ),
+                    (p, _) => p.to_owned(),
+                };
                 out.push(cond(
                     "phase_overrun",
                     &c.label,
-                    format!(
-                        "{} after {elapsed} tempos; package deadline {deadline}",
-                        c.phase
-                    ),
+                    format!("{phase} after {elapsed} {unit}; package deadline {deadline}"),
                     0,
                 ));
             }
@@ -535,9 +564,11 @@ const COHORTS: EvalField = ("cohorts", |e| !e.cohorts_missing);
 /// What this run's reads lack to decide `rule/subject` (a status-dependent
 /// rule): `commit_gap` and the reveal check need the coordinator's signing
 /// view and the eval status's epoch; the cohort rules the eval status's
-/// complete cohort list, and `phase_overrun` also its epoch and, while its
-/// cohort is the active one in a work phase, that cohort's `opened_epoch`
-/// and `k_tempos`; `ledger_threshold` the eval status's ledger flag,
+/// complete cohort list, and `phase_overrun` also its clock (credited tempos
+/// `observed.active_tempos`, else the epoch) and, while its cohort is the
+/// active one in a work phase or in `admission`, that cohort's opening on
+/// the same clock (`opened_active`, else `opened_epoch`) and `k_tempos`;
+/// `ledger_threshold` the eval status's ledger flag,
 /// `ledger_threshold_unset` its ledger standing, `retention_stalled` its
 /// `receipt_retention.stalled` list; a
 /// Worker's `durable_fault` its journal block (a `.signing` subject the
@@ -556,15 +587,23 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
         "watermark_stalled" => need_worker(o, subject, &[], &mut n),
         "scorer_budget_fault" | "cohort_fault" => need_eval(o, Some(COHORTS), &mut n),
         "phase_overrun" => {
-            need_eval(o, Some(("epoch", |e| e.epoch.is_some())), &mut n);
+            need_eval(
+                o,
+                Some(("epoch", |e| e.active_tempos.is_some() || e.epoch.is_some())),
+                &mut n,
+            );
             if o.eval.as_ref().is_some_and(|e| e.cohorts_missing) {
                 n.push(Need::Field("eval", "cohorts"));
             }
             if let Some(c) = o.eval.as_ref().and_then(|e| e.active())
                 && c.label == subject
-                && WORK_PHASES.contains(&c.phase.as_str())
+                && (WORK_PHASES.contains(&c.phase.as_str()) || c.phase == "admission")
             {
-                if c.opened_epoch.is_none() {
+                let credited = o.eval.as_ref().is_some_and(|e| e.active_tempos.is_some());
+                if credited && c.opened_active.is_none() {
+                    n.push(Need::Field("eval", "opened_active"));
+                }
+                if !credited && c.opened_epoch.is_none() {
                     n.push(Need::Field("eval", "opened_epoch"));
                 }
                 if c.k_tempos.is_none() {
@@ -893,6 +932,7 @@ mod tests {
     use crate::config::CRON_PERIOD_MS;
     use crate::status::tests::{eval_status, worker_status};
     use crate::status::{OpView, SigningView, parse_eval, parse_worker};
+    use serde_json::Value;
 
     const TEMPO: u64 = 360 * 12 * 1000;
 
@@ -921,6 +961,141 @@ mod tests {
             evaluate(&healthy(), &PublisherObs::default(), &rules()),
             vec![]
         );
+    }
+
+    /// At the daily shape with a 17-tempo window (K 20, transition 2) the
+    /// freeze has no spare tempo: a cohort still in `admission` with its
+    /// window closed overruns at the package deadline (18 tempos after it
+    /// opened), and the detail names what the freeze waits on. An open
+    /// window (extended past uncredited tempos) does not.
+    #[test]
+    fn a_stalled_roster_freeze_overruns_the_package_deadline() {
+        let (r, p) = (rules(), PublisherObs::default());
+        let at = |elapsed: u64, calendar: Value| -> Observed {
+            let mut j = eval_status("admission");
+            j["cohorts"][1]["admission_tempos"] = json!(17);
+            j["observed"]["epoch"]["index"] = json!(23_169 + elapsed);
+            if !calendar.is_null() {
+                j["calendar"] = calendar;
+            }
+            let mut e = parse_eval(&j);
+            e.ledger_over_threshold = Some(false);
+            let mut o = healthy();
+            o.coordinator.as_mut().unwrap().signing = None;
+            o.eval = Some(e);
+            o
+        };
+        let window = |open: bool, wait: Value| {
+            json!({"current": {"cohort": 7, "window_open": open, "window_closing": !open, "freeze_wait": wait},
+                   "next": {"cohort": 8, "earliest_open_epoch": 23_189, "admission_tempos": 17}})
+        };
+        let closing = window(false, json!("commitment snapshot pending"));
+        assert!(evaluate(&at(17, closing.clone()), &p, &r).is_empty());
+        let c = evaluate(&at(18, closing.clone()), &p, &r);
+        assert_eq!(rules_of(&c), vec!["phase_overrun"]);
+        assert_eq!(c[0].subject, "testnet-c7");
+        assert_eq!(
+            c[0].detail,
+            "admission with its window closed (roster freeze: commitment snapshot pending) after 18 epochs; package deadline 18"
+        );
+        // Still admitting at the deadline: not a freeze stall.
+        assert!(evaluate(&at(18, window(true, Value::Null)), &p, &r).is_empty());
+        // No calendar flags: the window counts as closed once its 17
+        // tempos elapsed.
+        let c = evaluate(&at(18, Value::Null), &p, &r);
+        assert_eq!(rules_of(&c), vec!["phase_overrun"]);
+        assert!(c[0].detail.contains("roster freeze: not reported"));
+        // The rule reads the admitting cohort's opening: without it the
+        // read decides nothing.
+        let mut o = at(18, closing);
+        o.eval.as_mut().unwrap().cohorts[1].opened_epoch = None;
+        assert!(!decided("phase_overrun", "testnet-c7", &o));
+    }
+
+    /// The package deadline is counted in the tempos the coordinator
+    /// credited, the clock it schedules the cohort by: after an uncredited
+    /// tempo (an outage, a stale heartbeat, a catch-up jump) the window
+    /// closes one epoch later than planned, and neither its freeze nor the
+    /// work after it is an overrun until the credited deadline.
+    #[test]
+    fn an_uncredited_tempo_moves_the_package_deadline_with_the_schedule() {
+        let (r, p) = (rules(), PublisherObs::default());
+        // Cohort 7 opened at epoch 23,169 with 100 tempos credited; `epochs`
+        // after it, `uncredited` of them not credited.
+        let at = |phase: &str,
+                  epochs: u64,
+                  uncredited: u64,
+                  admission: u64,
+                  open: Option<bool>|
+         -> Observed {
+            let mut j = eval_status(phase);
+            j["cohorts"][1]["admission_tempos"] = json!(admission);
+            j["cohorts"][1]["opened_active"] = json!(100);
+            j["observed"]["epoch"]["index"] = json!(23_169 + epochs);
+            j["observed"]["active_tempos"] = json!(100 + epochs - uncredited);
+            if let Some(open) = open {
+                j["calendar"] = json!({"current": {"cohort": 7, "window_open": open, "window_closing": !open,
+                    "freeze_wait": if open { Value::Null } else { json!("verification or verdicts pending") }}});
+            }
+            let mut e = parse_eval(&j);
+            e.ledger_over_threshold = Some(false);
+            let mut o = healthy();
+            o.coordinator.as_mut().unwrap().signing = None;
+            o.eval = Some(e);
+            o
+        };
+        for admission in [17, 16] {
+            // One uncredited tempo during admission: the window closes at
+            // epoch 18 (17 credited), its freeze still verifying. Counted in
+            // epochs this was an overrun; in credited tempos it is not.
+            let closing = at("admission", 18, 1, admission, Some(false));
+            let e = closing.eval.as_ref().unwrap();
+            assert_eq!(e.cohort_age(&e.cohorts[1]), Some((17, true)));
+            assert!(
+                evaluate(&closing, &p, &r).is_empty(),
+                "admission {admission}"
+            );
+            assert!(decided("phase_overrun", "testnet-c7", &closing));
+            // Still in admission at the credited deadline: the freeze stalls.
+            let c = evaluate(&at("admission", 19, 1, admission, Some(false)), &p, &r);
+            assert_eq!(rules_of(&c), vec!["phase_overrun"]);
+            assert_eq!(
+                c[0].detail,
+                "admission with its window closed (roster freeze: verification or verdicts pending) after 18 credited tempos; package deadline 18"
+            );
+            // Without the calendar flags the window counts as closed once its
+            // tempos were credited, still on the credited clock.
+            assert!(evaluate(&at("admission", 18, 1, admission, None), &p, &r).is_empty());
+        }
+        // Three uncredited tempos (an outage): every work phase is on its
+        // credited schedule until 18 credited tempos.
+        for phase in WORK_PHASES {
+            assert!(
+                evaluate(&at(phase, 20, 3, 16, None), &p, &r).is_empty(),
+                "{phase}"
+            );
+            let c = evaluate(&at(phase, 21, 3, 16, None), &p, &r);
+            assert_eq!(rules_of(&c), vec!["phase_overrun"], "{phase}");
+            assert_eq!(
+                c[0].detail,
+                format!("{phase} after 18 credited tempos; package deadline 18")
+            );
+        }
+        // The credited count reported without the cohort's credited opening
+        // decides nothing, and never falls back to epochs (which would fire).
+        let mut o = at("scoring", 21, 3, 16, None);
+        o.eval.as_mut().unwrap().cohorts[1].opened_active = None;
+        assert!(evaluate(&o, &p, &r).is_empty());
+        assert!(!decided("phase_overrun", "testnet-c7", &o));
+        assert_eq!(
+            needs("phase_overrun", "testnet-c7", &o),
+            vec![Need::Field("eval", "opened_active")]
+        );
+        // The credited clock needs no epoch.
+        let mut o = at("scoring", 21, 0, 16, None);
+        o.eval.as_mut().unwrap().epoch = None;
+        assert!(decided("phase_overrun", "testnet-c7", &o));
+        assert_eq!(rules_of(&evaluate(&o, &p, &r)), vec!["phase_overrun"]);
     }
 
     #[test]

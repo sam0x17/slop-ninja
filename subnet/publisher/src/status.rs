@@ -80,6 +80,9 @@ pub struct CohortView {
     pub phase: String,
     pub fault: Option<String>,
     pub opened_epoch: Option<u64>,
+    /// The coordinator's credited-tempo count when the cohort opened
+    /// (`opened_active`; absent from coordinators that do not report it).
+    pub opened_active: Option<u64>,
     pub k_tempos: Option<u64>,
     pub admission_tempos: Option<u64>,
     pub transition_tempos: Option<u64>,
@@ -107,6 +110,11 @@ pub struct RewardView {
 pub struct EvalView {
     pub confirmed_block: Option<u64>,
     pub epoch: Option<u64>,
+    /// Tempos the coordinator has credited (`observed.active_tempos`): its
+    /// scheduling clock, which uncredited tempos (silence, a stale or
+    /// non-live observation, a catch-up jump) do not advance. Absent from
+    /// coordinators that do not report it.
+    pub active_tempos: Option<u64>,
     pub cohorts: Vec<CohortView>,
     /// The status had no `cohorts` array, or a cohort without its number,
     /// label or phase (dropped from `cohorts`): the cohort rules treat that
@@ -138,19 +146,51 @@ pub struct EvalView {
 /// (queued, or the standing template's next number).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CalendarView {
-    /// `(cohort, window_open, window_closing)` of the current cohort; the
-    /// window flags are `None` from coordinators that do not report them.
-    pub current: Option<(u64, Option<bool>, Option<bool>)>,
+    /// The current cohort's admission window state.
+    pub current: Option<CalendarCurrent>,
     /// The next cohort as the calendar reports it (`cohort`,
     /// `earliest_open_epoch`, and `admission_tempos` from coordinators that
     /// report it).
     pub next: Option<NextCohort>,
 }
 
+/// The calendar's current cohort (`calendar.current`): the window flags
+/// are `None` from coordinators that do not report them, and `freeze_wait`
+/// (what a closing window's roster freeze waits on) is set only while the
+/// window is closing.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CalendarCurrent {
+    pub cohort: u64,
+    pub window_open: Option<bool>,
+    pub window_closing: Option<bool>,
+    pub freeze_wait: Option<String>,
+}
+
 impl EvalView {
+    /// The calendar's window state for `cohort`, when it reports one.
+    pub fn window_of(&self, cohort: u64) -> Option<&CalendarCurrent> {
+        self.calendar
+            .as_ref()
+            .and_then(|k| k.current.as_ref())
+            .filter(|c| c.cohort == cohort)
+    }
+
     /// The main instance's active cohort.
     pub fn active(&self) -> Option<&CohortView> {
         self.cohorts.iter().find(|c| c.active())
+    }
+
+    /// Tempos since cohort `c` opened on the clock the coordinator schedules
+    /// it by: its credited tempos (`observed.active_tempos - opened_active`)
+    /// when the status reports its count, and epochs (`observed.epoch -
+    /// opened_epoch`) only from coordinators that do not. With the count
+    /// reported but the cohort's `opened_active` absent, `None`: the two
+    /// clocks are never mixed. The flag is true for credited tempos.
+    pub fn cohort_age(&self, c: &CohortView) -> Option<(u64, bool)> {
+        match self.active_tempos {
+            Some(now) => Some((now.saturating_sub(c.opened_active?), true)),
+            None => Some((self.epoch?.saturating_sub(c.opened_epoch?), false)),
+        }
     }
 }
 
@@ -304,6 +344,7 @@ struct CalendarCurrentJson {
     cohort: Option<u64>,
     window_open: Option<bool>,
     window_closing: Option<bool>,
+    freeze_wait: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -319,6 +360,7 @@ struct CalendarNextJson {
 struct ObservedJson {
     confirmed: Option<BlockJson>,
     epoch: Option<EpochJson>,
+    active_tempos: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -335,6 +377,7 @@ struct CohortJson {
     phase: Option<String>,
     fault: Option<String>,
     opened_epoch: Option<u64>,
+    opened_active: Option<u64>,
     k_tempos: Option<u64>,
     admission_tempos: Option<u64>,
     transition_tempos: Option<u64>,
@@ -447,6 +490,7 @@ fn eval_view(j: EvalJson) -> EvalView {
                 phase: c.phase?,
                 fault: c.fault,
                 opened_epoch: c.opened_epoch,
+                opened_active: c.opened_active,
                 k_tempos: c.k_tempos,
                 admission_tempos: c.admission_tempos,
                 transition_tempos: c.transition_tempos,
@@ -468,6 +512,7 @@ fn eval_view(j: EvalJson) -> EvalView {
     EvalView {
         confirmed_block: j.observed.confirmed.and_then(|b| b.number),
         epoch: j.observed.epoch.and_then(|e| e.index),
+        active_tempos: j.observed.active_tempos,
         cohorts,
         cohorts_missing,
         reward: j.reward.map(|r| RewardView {
@@ -484,9 +529,14 @@ fn eval_view(j: EvalJson) -> EvalView {
         retention_error: j.receipt_retention.last_error,
         ledger_threshold_set,
         calendar: j.calendar.map(|c| CalendarView {
-            current: c
-                .current
-                .and_then(|x| Some((x.cohort?, x.window_open, x.window_closing))),
+            current: c.current.and_then(|x| {
+                Some(CalendarCurrent {
+                    cohort: x.cohort?,
+                    window_open: x.window_open,
+                    window_closing: x.window_closing,
+                    freeze_wait: x.freeze_wait,
+                })
+            }),
             next: c.next.and_then(|n| {
                 Some(NextCohort {
                     cohort: n.cohort?,
@@ -625,10 +675,8 @@ pub fn snapshot(i: &SnapshotInputs<'_>) -> PublicStatus {
     // `admission`.
     let calendar = eval.and_then(|e| e.calendar.as_ref());
     let window_open = |cohort: u64| {
-        calendar
-            .and_then(|k| k.current)
-            .filter(|(c, _, _)| *c == cohort)
-            .and_then(|(_, open, _)| open)
+        eval.and_then(|e| e.window_of(cohort))
+            .and_then(|w| w.window_open)
             .unwrap_or(true)
     };
     let admitting = active

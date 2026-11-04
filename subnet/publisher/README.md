@@ -256,7 +256,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v7`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v8`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -269,7 +269,9 @@ The rule set is `slop_ninja.publisher.alerts/v7`. The table is in
   which never pauses; the operator checks the subscription's state before
   resuming, and fallback carries the cursor meanwhile);
 - a stalled confirmed watermark;
-- a work phase past its package deadline;
+- a work phase past its package deadline, or (v8) a cohort still in
+  `admission` there with its window closed (its roster freeze waiting; the detail names
+  on what, from the calendar's `freeze_wait`);
 - scorer, budget and other cohort faults, including a root step paused as
   `step_refused` and (v7) a closed cohort whose closure step is paused;
 - the spend ledger's billing month past the deployment's private alert
@@ -312,8 +314,8 @@ age while in fallback; `webhook_paused` on its Worker's subscription
 state; `watermark_stalled` on its Worker's answer; the cohort
 rules on the eval status's complete cohort list (every cohort with its
 number, label and phase); `phase_overrun` also on its epoch and, while its
-cohort is the active one in a work phase, that cohort's `opened_epoch` and
-`k_tempos`; `ledger_threshold` on its ledger flag,
+cohort is the active one in a work phase or in `admission`, that cohort's
+`opened_epoch` and `k_tempos`; `ledger_threshold` on its ledger flag,
 `ledger_threshold_unset` on its ledger standing and `retention_stalled` on
 its `receipt_retention.stalled` list; `commit_gap` and
 `coordinator_reveal_mismatch` on the coordinator's signing view and the

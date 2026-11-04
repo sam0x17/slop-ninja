@@ -987,14 +987,24 @@ impl CohortPlan {
     /// job scores the batch.
     pub fn scored_docs(&self) -> u64 {
         match &self.reward_v1 {
-            Some(v) if !self.is_probe_build() => {
+            Some(_) if !self.is_probe_build() => {
                 let refs = 1 + u64::from(self.previous_reference.is_some());
-                let probe: u64 = v.probes.iter().map(|p| u64::from(p.size)).sum();
-                let per_entrant =
-                    u64::from(self.n) + probe + u64::from(self.audit_humans()) + u64::from(self.audit_b_humans());
-                refs * u64::from(self.n) + self.entrants.len() as u64 * per_entrant
+                refs * u64::from(self.n) + self.entrants.len() as u64 * self.entrant_docs()
             }
             _ => self.jobs() as u64 * u64::from(self.n),
+        }
+    }
+
+    /// Documents one entrant's job scores, one attempt: under reward-v1 the
+    /// batch, every probe version in use and both canary audit draws;
+    /// otherwise the batch.
+    pub fn entrant_docs(&self) -> u64 {
+        match &self.reward_v1 {
+            Some(v) if !self.is_probe_build() => {
+                let probe: u64 = v.probes.iter().map(|p| u64::from(p.size)).sum();
+                u64::from(self.n) + probe + u64::from(self.audit_humans()) + u64::from(self.audit_b_humans())
+            }
+            _ => u64::from(self.n),
         }
     }
 

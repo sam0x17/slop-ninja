@@ -248,14 +248,16 @@ counts them (`CohortManifestV2::opened_epoch`, `CohortSchedule`).
 
 A commitment needs finality and the coordinator's logging of it (the nominal
 wait is at most 60 seconds after finality, and it can be longer) before a
-session can open. An object of about 610 MB must then be uploaded before the
-cutoff. Commit and upload together, not near the cutoff. The window is the
-standing template's `admission_tempos` (17 tempos under the current testnet
-template), frozen in each cohort's plan when it is queued; `next` in the cohort
-response and the status snapshot gives the next cohort's. The operator's
-calendar view reports the template's value, the last window as measured on
-chain and the template's window at that measurement's blocks per tempo, in
-blocks and nominal minutes.
+session can open. The object, up to about 955 MB (the spec's largest
+object), must then be uploaded before the cutoff. Commit and upload together,
+not near the cutoff. The window is the standing template's `admission_tempos`
+(16 tempos under the testnet template), frozen in each cohort's plan when it
+is queued, so a cohort queued before the template took that value keeps its
+own (one tempo, or 17); `next` in the cohort response and the status snapshot
+gives the next cohort's. The operator's calendar view reports the template's value, the
+last window as measured on chain (its blocks per tempo taken over the epoch
+boundaries it spanned) and the template's window at that interval, in blocks
+and nominal minutes.
 
 ## 4. Signed requests
 
@@ -420,7 +422,7 @@ cursor in it dates request signatures.
     "max_parts": 10000,
     "limits": "<hex digest of the cohort's limits record>"
   },
-  "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 17 }
+  "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 16 }
 }
 ```
 
@@ -870,7 +872,7 @@ the client reads only these fields and ignores the rest:
   "fault": false,
   "notice": "…",
   "admitting": { "cohort": 7, "label": "testnet-c7", "opened_epoch": 23169, "planned_cutoff_epoch": 23170 },
-  "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 17 },
+  "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 16 },
   "coordinator": "https://…",
   "active_target": "<hex or null>",
   "reference": "<hex or null>"

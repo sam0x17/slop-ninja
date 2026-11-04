@@ -2457,8 +2457,8 @@ standing template (AR-7). Code (branch `subnet-testnet/standing-r0`):
   largest cap the checks admit with no ceiling, and the refusal one past
   it) beside the ceiling.
 
-The daily shape is n = 1,000, K = 20 (one admission tempo at first, 17 from
-the miner-ux lane's derivation below; two transition tempos), renew-by hint 40 tempos (no expiry), the 1,024-document probe, 200 audit humans, three
+The daily shape is n = 1,000, K = 20 (one admission tempo at first, then the
+window the miner-ux lane derives below; two transition tempos), renew-by hint 40 tempos (no expiry), the 1,024-document probe, 200 audit humans, three
 attempts, one scoring lane per artifact, no pre-start, spec v3, the exposed
 pool `testnet-human-pool-pc1`, and the incentive rule with provisional
 gates. Spec v3's tower-class object needs the longest step the alarm wall
@@ -2898,39 +2898,125 @@ publishes at the first boundary after the package and closes `transition`
 tempos later (`engine::advance`), so it still closes at `E + K` when
 `A <= K - transition - W`, with `W` the tempos its work after the cutoff
 needs. `W` gives that work at most half of its tempos (the design note's
-scoring rule), bounded by the measured work of a cohort plus the largest
+scoring rule), bounded by the measured work of a cohort, plus the largest
 object's submission (a session that completes at the cutoff is framed and
-verified after it) plus one model load of that object at the plan's
-`load_ms_per_mib` (one scoring lane per artifact, all in parallel within
-`MAX_SCORE_LANES`). The largest object's submission, scaled from a measured
-one, must also fit in at most half of the window. Inputs for r0: 360 blocks
-per tempo (cohort 18's measured window); cohort 18's work, cutoff to durable
-package, 732 s; test miner 1's 613,185,948-byte submission in the cohort 13
-drill, bounded at 582 s from the end of the step before its commitment to
-its `verified` answer (commit, finality, logging on the minute cron then,
-upload from the operator host through the eval Worker, framing and the
-verdict run). Scaled to spec v3's largest object (954,576,228 bytes) that is
-907 s; one load of it 110 s; work bound 1,749 s, under half of a 4,320 s
-tempo, so `W = 1` and `A = 20 - 2 - 1 = 17`: a 6,120-block window (about
-20 h 24 min) and 3 tempos (1,080 blocks, about 3 h 36 min) between windows.
-The scoring work at a full 40-entrant roster is not yet measured; work that
-runs past its tempo moves the close (and the next opening) later by whole
-tempos and never skips or shortens a cohort. The upload Worker's path is
-measured at its own live stage; rerun the tool with new measurements and
-reinstall when they change. A queued cohort keeps the window it was queued
-with (a reinstall never changes a queued or running cohort).
+verified after it), plus the verdict queue of a full roster still verifying
+at the cutoff (the freeze waits for every such session, `admission::ready`;
+verdicts run from the cohort object's alarm step, `STEP_READS_IN_FLIGHT` = 6
+a round, so `ceil(roster / 6)` rounds, each one fresh instance: the measured
+cold path scaled to the largest object plus one load of it at the plan's
+allowance, which counts the load twice), plus one model load of that object at the plan's
+`load_ms_per_mib`, plus one entrant's scoring lane of it (one scoring lane
+per artifact, all in parallel within `MAX_SCORE_LANES`): a measured lane
+scaled linearly to an entrant's documents (`CohortPlan::entrant_docs`: the
+batch, every probe version and both audit draws) and to the object's bytes.
+The measured work already contains its reference lane, so counting the
+entrant lane in full is conservative. The largest object's submission,
+scaled from a measured one, must also fit in at most half of the window.
+Seconds per tempo are the chain's tempo interval in blocks at an assumed
+block interval (`--block-secs`, default the nominal 12 s), which the tool
+prints with the derivation.
+
+Inputs for r0: 360 blocks per tempo (cohort 18's window over its epoch span);
+cohort 18's work, cutoff to durable package, 732 s; test miner 1's
+613,185,948-byte submission in the cohort 13 drill, bounded at 582 s from the
+end of the step before its commitment to its `verified` answer (commit,
+finality, logging on the minute cron then, upload from the operator host
+through the eval Worker, framing and the verdict run); cohort 18's R_0 lane,
+306 s from the scoring start to its end for 1,000 documents with a
+613,189,229-byte object (cold path, load and 32 chunks); the longest cold path
+of that object in the load runs above, 54.6 s (so 55 s; `--cold-path-secs`).
+Scaled to spec v3's largest object (954,576,228 bytes) the submission is
+907 s, one load of it 110 s, one entrant lane of it (2,224 documents)
+1,060 s, and one verdict 86 + 110 = 196 s, so a roster of 40 (the deployment
+ceiling the tool counts the queue for) verifying at the cutoff takes 7 rounds,
+1,372 s; work bound 4,181 s, over half of a 4,320 s tempo and under half of
+two, so `W = 2` and `A = 20 - 2 - 2 = 16`: a 5,760-block window (about
+19 h 12 min) and 4 tempos (1,440 blocks, about 4 h 48 min) between windows.
+The verdict queue leaves 139 s of the two tempos' half, so a measured verdict
+or full-roster scoring time that grows the bound past 4,320 s gives `W = 3`
+and `A = 15`. The first derivation left the scoring lane and the verdict
+queue out (work bound 1,749 s, `W = 1`, `A = 17`); fix round 1 added the
+lane, fix round 2 the queue (the window is unchanged). Sessions verifying at
+the cutoff beyond the roster (at most one per registered hotkey) are not in
+the bound: they move the freeze, and the close, later. Scoring at a full 40-entrant roster and the upload Worker's
+submission path are not yet measured (the 582 s submission used the eval
+Worker's earlier upload path and the minute-cron reader): both are measured
+at their first live drill, and the tool is rerun with them; the template is
+reinstalled only when the window changes. Work that runs past its tempos
+moves the close (and the next opening) later by whole tempos and never skips
+or shortens a cohort. A queued cohort keeps the window it was queued with (a
+reinstall never changes a queued or running cohort).
+
+**Resubmissions within a window** (fix round 1, item 3). A newer commitment
+supersedes a hotkey's session and runs a new verdict (one fresh scorer
+instance: a cold path, a load and one control document), so a longer window
+admits more verdicts per cohort. Three bounds hold, none of them a cap the
+lane chose: a hotkey has at most one session verifying at a time (a
+superseded session's verdict never runs), its commitments are limited by the
+chain's per-epoch commitment space (`MaxSpace` 3,100 bytes per epoch and at
+least 100 bytes a commitment: at most 31 a tempo), and the cohort object
+runs verdicts only from its alarm's step (one at a time), claiming at most
+`STEP_READS_IN_FLIGHT` (6) runs per round, each at least one cold path
+(29-30 s at the median in the load runs). So a 16-tempo window
+(69,120 s) runs at most about 6 x 69,120 / 30 = 13,824 verdicts across all
+hotkeys (about 864 in the one-tempo window), and one hotkey at most 31 x 16 =
+496. Each verdict costs about one cold path and one load of instance time
+(the cost projection below prices a cold path), so the abusive worst case,
+which needs many registered hotkeys committing again all window, is material
+against the testnet's daily scoring cost. Spend is tracked, not capped: `ledger_threshold` alerts on it, and the
+operator can refuse a session with a recorded reason. A per-hotkey
+per-cohort verdict bound is an open decision (D6 keeps per-hotkey limits
+open); nothing in the announcement depends on it. The same queue bounds the
+freeze: every session completed before the cutoff is verified after it, at
+most one per registered hotkey, 6 at a time, so a cutoff with many completed
+sessions moves the freeze, and the close, later; `phase_overrun` reports a
+freeze still waiting at the package deadline.
 
 Live (2026-11-03, from main 62e3535d): the publisher deployed 23:25Z and
 eval-testnet 23:39Z (after the upload Worker lane's eval deploy; no
 migration, store 15, journal 10; quiet: cohort 18 in its transition, 19
 queued). The r0 template was reinstalled at 23:2xZ with `admission_tempos`
 17 (otherwise byte-identical to the installed one); cohort 19 keeps its
-queued one-tempo plan, so cohort 20 is the first with the 17-tempo window,
-and no cohort is skipped or shortened. Read back: `/eval/status`
+queued one-tempo plan, so cohort 20 is the first with a long window, and no
+cohort is skipped or shortened. Read back: `/eval/status`
 `calendar.next` = cohort 19, `earliest_open_epoch` 113 (was 99),
 `admission_tempos` 1; `admission_window.template_window` = 17 tempos, 6,120
 blocks, 1,224 nominal minutes; the public snapshot's `next` the same, and
-`admitting` null while nothing admits.
+`admitting` null while nothing admits. Fix rounds 1 and 2 derive 16. Not yet
+installed when this was written: the 16-tempo reinstall needs this branch's
+tool, so it follows its landing. A reinstall before cohort 19 reaches its
+transition (when the calendar queues cohort 20 from the template) makes
+cohort 20 the first with 16 tempos; a later one leaves cohort 20 at 17 and
+makes cohort 21 the first. The outcome is recorded here once it is read back
+(`calendar.next.admission_tempos` with the next cohort queued).
+
+#### Fix round 1 (2026-11-04)
+
+| Item | Outcome |
+| --- | --- |
+| 1 a roster freeze that stalls after a 17-tempo window raises no alert | fixed: `phase_overrun` also fires for a cohort still in `admission` at its package deadline once its window no longer admits (the calendar's `window_open`, else `admission_tempos` elapsed); the calendar's `current.freeze_wait` (`admission::freeze_wait`, read-only) names what the freeze waits on, and the detail carries it. Publisher test at the 17-tempo shape |
+| 2, 14 `earliest_open_epoch` counted epochs, not credited tempos, and could show the observed epoch | fixed: `calendar::earliest_close` also counts the tempos the coordinator still has to credit (`opened_active + K`, `published_active + transition`, or the package and publication still to come), each later boundary crediting at most one, and is always after the observed epoch; the epoch formula alone applies only to rows without the `*_active` marks |
+| 3 a 17-tempo window raises the resubmission ceiling | recorded above (counts and bounds); no code change |
+| 4, 13 `blocks_per_tempo` over a plan's tempos is inflated by an extended window | fixed: measured over the window's epoch span (`closed_at_epoch - opened_epoch`), with `epochs`, `admission_tempos` and `extended` beside it; the tool's help names the chain's tempo interval |
+| 5 cohort 19 keeps a one-tempo window | noted: the first long window is cohort 20's (earliest epoch 133); cohort 19 is neither abandoned nor re-planned |
+| 6 inconsistent submission sizes; the test's inputs were not the recorded ones | fixed: "up to about 955 MB (the spec's largest object)" in the miner guide and the admission API; the test uses the recorded inputs and reproduces both 17 (without the scoring lane) and 16 |
+| 7 re-check record | noted |
+| 8 the work bound left out entrant scoring | fixed: `--score-secs`, `--score-docs`, `--score-bytes` (a measured lane, scaled); the derivation gives 16 |
+| 9 eval deploy quiet windows shrink to the gap between windows | recorded in the private coordination notes (the deployable tempos per cohort); the quiet checks still refuse while a cohort admits |
+| 10 the design note's nominal phase table | open: a decision for the operator (a testnet note in the design note, or new nominal phases) |
+| 11 the submission input predates the upload Worker | open: measured at the upload Worker's first live drill, then the tool is rerun |
+| 12 `NOMINAL_BLOCK_SECS` documented as display-only while the derivation used it | fixed: the block interval is a derivation input (`block_secs`, the tool's `--block-secs`, default the nominal 12 s), printed with the derivation; the comment states its use |
+| 15 the miner guide named cohorts 19 and 20 | fixed: the guide states the rule; the cohort-specific note is in the live record above |
+| 16 a private host name in two earlier commits' history | no change here: the port squashes the three commits |
+
+#### Fix round 2 (2026-11-04)
+
+| Item | Outcome |
+| --- | --- |
+| 1, 4 `phase_overrun` counted a cohort's age in epochs, so an uncredited tempo (an outage, a stale heartbeat, a catch-up jump) raised it when an extended window closed and through the work phases after | fixed: the rule counts credited tempos (`observed.active_tempos - opened_active`, the clock `engine::advance` schedules by) and epochs only for a coordinator that reports no credited count; with the count reported but the cohort's `opened_active` absent the read decides nothing (never a mixed clock). Publisher rules v8 (not yet deployed) and test `an_uncredited_tempo_moves_the_package_deadline_with_the_schedule` |
+| 2, 6 the docs say 16 tempos while the installed template has 17 | the docs state the template's 16 and that a cohort keeps the window it was queued with (one tempo, or 17 for cohorts queued before the reinstall), and point to `next-cohort`; the live record above states the reinstall as pending, with both outcomes |
+| 3, 5 the work bound counted one post-cutoff verdict, not the queue a full roster verifying at the cutoff makes | fixed: `WindowInputs::cold_path_secs` (`--cold-path-secs`) and the roster the queue is counted for (`--roster-cap`, else the deployment ceiling); `ceil(roster / 6)` rounds of one verdict each in the bound. Rerun at the r0 inputs: still `A = 16` (bound 4,181 s) |
 
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 

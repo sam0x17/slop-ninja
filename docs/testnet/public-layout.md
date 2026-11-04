@@ -243,7 +243,7 @@ miner client reads ([admission API](admission-api.md), section 10):
   "fault": false,
   "notice": "Launch burn: … Testnet: …",
   "admitting": { "cohort": 7, "label": "testnet-c7", "opened_epoch": 23169, "planned_cutoff_epoch": 23170 },
-  "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 17 },
+  "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 16 },
   "coordinator": "https://…",
   "active_target": "<64 hex>",
   "reference": "<64 hex>"

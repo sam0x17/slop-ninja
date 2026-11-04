@@ -1847,9 +1847,22 @@ fn the_calendar_names_the_next_opening_at_the_earliest_close_before_it() {
     assert_eq!((k, a, tr), (4, 1, 2));
     tx(&db, |s| calendar::install(s, &cfg(), &serde_json::to_vec(&t).unwrap(), NOW)).unwrap();
     let next = |db: &Sqlite| tx(db, calendar::next).unwrap().unwrap();
-    let at = |db: &Sqlite, e: u64| {
-        tx(db, |s| s.exec("UPDATE eval_obs SET epoch_index = ? WHERE id = 1", &[bind_u64(e)?]).map(|_| ())).unwrap()
+    // A boundary the coordinator credited (one active tempo per epoch), and
+    // a jump it did not credit (an outage).
+    let set = |db: &Sqlite, e: u64, credit: bool| {
+        tx(db, |s| {
+            s.exec(
+                "UPDATE eval_obs SET active_tempos = active_tempos + CASE WHEN ? THEN ? - epoch_index ELSE 0 END,
+                    epoch_index = ? WHERE id = 1",
+                &[SqlValue::Integer(i64::from(credit)), bind_u64(e)?, bind_u64(e)?],
+            )
+            .map(|_| ())
+        })
+        .unwrap()
     };
+    let at = |db: &Sqlite, e: u64| set(db, e, true);
+    let jump = |db: &Sqlite, e: u64| set(db, e, false);
+    let active = |db: &Sqlite| tx(db, engine::observed).unwrap().active_tempos;
     epoch(&db, 10, OPEN_BLOCK - 100, NOW);
     // Nothing yet: the template's first cohort, at the next boundary.
     assert_eq!(next(&db), NextCohort { cohort: 1, earliest_open_epoch: Some(11), admission_tempos: Some(a) });
@@ -1870,22 +1883,33 @@ fn the_calendar_names_the_next_opening_at_the_earliest_close_before_it() {
     at(&db, 12);
     assert_eq!(next(&db).earliest_open_epoch, Some(15));
     // Published late (at 14): the transition counts from there.
-    tx(&db, |s| s.exec("UPDATE cohorts SET published_epoch = 14 WHERE cohort = 1", &[]).map(|_| ())).unwrap();
     at(&db, 14);
+    let published = active(&db);
+    tx(&db, |s| {
+        s.exec("UPDATE cohorts SET published_epoch = 14, published_active = ? WHERE cohort = 1", &[bind_u64(published)?])
+            .map(|_| ())
+    })
+    .unwrap();
     assert_eq!(next(&db).earliest_open_epoch, Some(16));
     // The next cohort queued: the same opening, from the cohort before it.
     let (_, plan) = tx(&db, |s| calendar::due_any(s, 0)).unwrap().unwrap();
     tx(&db, |s| engine::queue(s, &cfg(), &plan, NOW)).unwrap();
     assert_eq!(next(&db), NextCohort { cohort: 2, earliest_open_epoch: Some(16), admission_tempos: Some(a) });
-    // Overdue (an outage left the close for a later boundary): never past.
-    at(&db, 19);
-    assert_eq!(next(&db).earliest_open_epoch, Some(19));
+    // An outage the coordinator did not credit (14 to 19): the transition
+    // still owes both its tempos, so the close is two boundaries after the
+    // observed one, never the observed one itself.
+    jump(&db, 19);
+    assert_eq!(next(&db).earliest_open_epoch, Some(21));
+    // Credited at last, and still open past its due close (work or a
+    // missed wakeup): the next boundary, never the observed one.
+    at(&db, 22);
+    assert_eq!(next(&db).earliest_open_epoch, Some(23));
     // Closed: the next boundary.
     tx(&db, |s| s.exec("UPDATE cohorts SET phase = 'closed' WHERE cohort = 1", &[]).map(|_| ())).unwrap();
-    assert_eq!(next(&db).earliest_open_epoch, Some(20));
+    assert_eq!(next(&db).earliest_open_epoch, Some(23));
     // The status view and the cohort read carry the same next cohort.
     let view = tx(&db, calendar::view).unwrap();
-    assert_eq!(view["next"], serde_json::json!({"cohort": 2, "earliest_open_epoch": 20, "admission_tempos": a}));
+    assert_eq!(view["next"], serde_json::json!({"cohort": 2, "earliest_open_epoch": 23, "admission_tempos": a}));
     // Paused with nothing queued: no next cohort.
     tx(&db, |s| s.exec("DELETE FROM cohorts WHERE cohort = 2", &[]).map(|_| ())).unwrap();
     tx(&db, |s| calendar::set_paused(s, true)).unwrap();
@@ -1894,56 +1918,118 @@ fn the_calendar_names_the_next_opening_at_the_earliest_close_before_it() {
     // the live case, and work done in the window's closing tempo still
     // closes K after the opening.
     let daily = calendar::CloseShape { opened: 93, k: 20, admission: 1, transition: 2, v3: true };
-    assert_eq!(calendar::earliest_close(&daily, Some(94), Some(95), 98), 113);
+    assert_eq!(calendar::earliest_close(&daily, Some(94), Some(95), 98, None), 113);
     let long = calendar::CloseShape { opened: 0, k: 20, admission: 17, transition: 2, v3: true };
-    assert_eq!(calendar::earliest_close(&long, None, None, 5), 20);
-    assert_eq!(calendar::earliest_close(&long, Some(17), None, 17), 20);
-    assert_eq!(calendar::earliest_close(&long, Some(18), None, 18), 21, "one tempo late moves the close one tempo");
+    assert_eq!(calendar::earliest_close(&long, None, None, 5, None), 20);
+    assert_eq!(calendar::earliest_close(&long, Some(17), None, 17, None), 20);
+    assert_eq!(calendar::earliest_close(&long, Some(18), None, 18, None), 21, "one tempo late moves the close one tempo");
     let v0 = calendar::CloseShape { v3: false, ..long };
-    assert_eq!(calendar::earliest_close(&v0, Some(19), None, 19), 21);
+    assert_eq!(calendar::earliest_close(&v0, Some(19), None, 19, None), 21);
+    // In credited tempos: every boundary credited, the same bound.
+    let credited = |now, packaged, published| calendar::Credited { now, opened: 0, packaged, published };
+    assert_eq!(calendar::earliest_close(&long, None, None, 5, Some(&credited(5, None, None))), 20);
+    assert_eq!(calendar::earliest_close(&long, Some(17), None, 17, Some(&credited(17, Some(17), None))), 20);
+    // Three uncredited tempos while admitting (epoch 8, 5 credited): the
+    // window, the work and the close all move three boundaries later.
+    assert_eq!(calendar::earliest_close(&long, None, None, 8, Some(&credited(5, None, None))), 23);
+    // Published at 21 with 18 credited: two transition tempos owed.
+    assert_eq!(calendar::earliest_close(&long, Some(20), Some(21), 21, Some(&credited(18, None, Some(18)))), 23);
+    // v0, packaged with 17 credited at epoch 19: K owes 3, the transition 2.
+    assert_eq!(calendar::earliest_close(&v0, Some(19), None, 19, Some(&credited(17, Some(17), None))), 22);
+    assert_eq!(calendar::earliest_close(&v0, None, None, 19, Some(&credited(19, None, None))), 21);
 }
 
 /// Miner UX: the standing template's admission window is derived from
-/// measurements (work after the cutoff, one submission of a measured size)
-/// and the plan's own shape, so a full cohort still closes K tempos after it
-/// opened; nothing in it is a tuned figure.
+/// measurements (work after the cutoff, one submission of a measured size,
+/// one scoring lane and one cold path of a measured size) and the plan's own
+/// shape, with a full roster's verdict queue at the cutoff, so a full cohort
+/// still closes K tempos after it opened; nothing in it is a tuned figure.
+/// The inputs are the recorded r0 ones (TESTNET.md).
 #[test]
-fn the_admission_window_is_derived_from_measured_work_and_upload() {
+fn the_admission_window_is_derived_from_measured_work_upload_and_scoring() {
     use crate::eval::calendar::{self, WindowInputs, derive_admission_tempos};
-    let t = daily_template("testnet-cohort", 40);
+    let mut t = daily_template("testnet-cohort", 40);
+    // The installed r0 template's load allowance and the step budget that
+    // holds one isolation proof of the spec's largest object at it.
+    let score = &mut t.plan.fanout.as_mut().unwrap().score;
+    score.load_ms_per_mib = Some(120);
+    score.step_budget_ms = Some(780_000);
     let object = SpecBounds::of(Version::V3).unwrap().object_bytes;
-    // Cohort 18's measured work (cutoff to durable package) and a measured
-    // 613 MB submission (commit to verified), 360 blocks per tempo.
-    let live = WindowInputs { tempo_blocks: 360, work_secs: 732, upload_secs: 323, upload_bytes: 613_000_000 };
-    let d = derive_admission_tempos(&t.plan, object, &live).unwrap();
+    assert_eq!(object, 954_576_228);
+    assert_eq!(t.plan.entrant_docs(), 1000 + 1024 + 200);
+    // Cohort 18's work (cutoff to durable package, 732 s), test miner 1's
+    // 613,185,948-byte submission in the cohort 13 drill (582 s, commit to
+    // verified), cohort 18's R_0 lane (306 s for 1,000 documents with a
+    // 613,189,229-byte object) and the longest cold path of that object in
+    // the load runs (54.6 s, so 55), at 360 blocks per tempo.
+    let live = WindowInputs {
+        tempo_blocks: 360,
+        block_secs: calendar::NOMINAL_BLOCK_SECS,
+        work_secs: 732,
+        upload_secs: 582,
+        upload_bytes: 613_185_948,
+        score_secs: 306,
+        score_docs: 1000,
+        score_bytes: 613_189_229,
+        cold_path_secs: 55,
+    };
+    let d = derive_admission_tempos(&t.plan, object, 40, &live).unwrap();
     assert_eq!(d.tempo_secs, 4320);
-    assert_eq!(d.largest_upload_secs, (323 * u128::from(object)).div_ceil(613_000_000) as u64);
-    assert_eq!(d.load_secs, (object.div_ceil(1 << 20) * 100).div_ceil(1000));
-    assert_eq!(d.work_bound_secs, 732 + d.largest_upload_secs + d.load_secs);
-    assert!(d.work_bound_secs * 2 <= d.tempo_secs);
-    assert_eq!((d.work_tempos, d.admission_tempos), (1, 20 - 2 - 1));
+    assert_eq!((d.largest_upload_secs, d.load_secs), (907, 110));
+    assert_eq!(d.entrant_lane_secs, 1060);
+    // A full roster of 40 verifying at the cutoff: 7 rounds of 6, each one
+    // cold path scaled to the largest object (86 s) and one load of it.
+    assert_eq!((d.verdict_secs, d.verdict_rounds, d.verdict_queue_secs), (86 + 110, 7, 7 * 196));
+    assert_eq!(d.work_bound_secs, 732 + 907 + 1372 + 110 + 1060);
+    assert!(d.work_bound_secs * 2 <= 2 * 4320, "the queue still fits two tempos at r0");
+    assert_eq!((d.work_tempos, d.admission_tempos), (2, 20 - 2 - 2));
+    // The verdict queue grows by whole rounds: 43 entrants take an eighth.
+    assert_eq!(derive_admission_tempos(&t.plan, object, 43, &live).unwrap().verdict_rounds, 8);
+    // Without the scoring lane and the verdict queue (roster 0: one
+    // post-cutoff verdict only) the same inputs give the first install's 17,
+    // and with the queue but no scoring lane, 16.
+    let unscored = WindowInputs { score_secs: 0, ..live };
+    let first = derive_admission_tempos(&t.plan, object, 0, &unscored).unwrap();
+    assert_eq!((first.verdict_queue_secs, first.work_bound_secs, first.work_tempos, first.admission_tempos), (0, 1749, 1, 17));
+    let queued = derive_admission_tempos(&t.plan, object, 40, &unscored).unwrap();
+    assert_eq!((queued.work_bound_secs, queued.admission_tempos), (1749 + 1372, 16));
     // The derived window passes the template check, and a full cohort's
-    // work in the tempo the window closes at still closes at K.
+    // work in the tempos after the window closes still closes at K.
     let mut long = t.clone();
     long.plan.admission_tempos = d.admission_tempos;
     calendar::check(&cfg(), &serde_json::to_vec(&long).unwrap()).unwrap();
     let shape = calendar::CloseShape { opened: 0, k: 20, admission: d.admission_tempos, transition: 2, v3: true };
-    assert_eq!(calendar::earliest_close(&shape, Some(d.admission_tempos), None, d.admission_tempos), 20);
-    // Work bound past half a tempo takes a second tempo from the window.
-    let slow = WindowInputs { work_secs: 2161 - d.largest_upload_secs - d.load_secs, ..live };
-    assert_eq!(derive_admission_tempos(&t.plan, object, &slow).unwrap().admission_tempos, 16);
+    for packaged in [16, 17] {
+        assert_eq!(calendar::earliest_close(&shape, Some(packaged), None, packaged, None), 20);
+    }
+    // Work bound past one tempo takes a third tempo from the window.
+    let slow = WindowInputs { work_secs: 4321 - 907 - 1372 - 110 - 1060, ..live };
+    assert_eq!(derive_admission_tempos(&t.plan, object, 40, &slow).unwrap().admission_tempos, 15);
+    let at_bound = WindowInputs { work_secs: 4320 - 907 - 1372 - 110 - 1060, ..live };
+    assert_eq!(derive_admission_tempos(&t.plan, object, 40, &at_bound).unwrap().admission_tempos, 16);
+    // A slower block interval lengthens the tempo: 15 s blocks give 5,400 s,
+    // the bound still needs two tempos.
+    let slower = WindowInputs { block_secs: 15, ..live };
+    assert_eq!(derive_admission_tempos(&t.plan, object, 40, &slower).unwrap().tempo_secs, 5400);
     // A submission that would not fit half the window is refused, as is a
-    // period with no room for a window.
+    // period with no room for a window, or a zero input.
     let crawl = WindowInputs { upload_secs: 40_000_000, ..live };
-    assert!(derive_admission_tempos(&t.plan, object, &crawl).is_err());
+    assert!(derive_admission_tempos(&t.plan, object, 40, &crawl).is_err());
     let mut short = t.plan.clone();
     short.k_tempos = 3;
-    assert!(derive_admission_tempos(&short, object, &live).is_err());
-    assert!(derive_admission_tempos(&t.plan, object, &WindowInputs { tempo_blocks: 0, ..live }).is_err());
+    assert!(derive_admission_tempos(&short, object, 40, &live).is_err());
+    for zero in [
+        WindowInputs { tempo_blocks: 0, ..live },
+        WindowInputs { block_secs: 0, ..live },
+        WindowInputs { score_docs: 0, ..live },
+        WindowInputs { score_bytes: 0, ..live },
+    ] {
+        assert!(derive_admission_tempos(&t.plan, object, 40, &zero).is_err());
+    }
     // The display: tempos, blocks and nominal minutes.
     assert_eq!(
-        calendar::window_json(17, 360),
-        serde_json::json!({"tempos": 17, "blocks": 6120, "nominal_minutes": 1224})
+        calendar::window_json(16, 360),
+        serde_json::json!({"tempos": 16, "blocks": 5760, "nominal_minutes": 1152})
     );
 }
 
@@ -2587,17 +2673,25 @@ fn the_freeze_waits_for_a_tempo_boundary_once_its_work_is_in_late() {
         Some(m.registration_block),
     );
     // The verdict comes in after the close's epoch: ready at epoch 13, the
-    // roster freezes at the next boundary (14), not mid-tempo.
+    // roster freezes at the next boundary (14), not mid-tempo. The status
+    // reads what the freeze waits on without changing anything.
+    let wait = |db: &Sqlite| {
+        let v = tx(db, crate::eval::calendar::view).unwrap();
+        (v["current"]["window_closing"].clone(), v["current"]["freeze_wait"].clone())
+    };
+    assert_eq!(wait(&db), (json!(true), json!("verification or verdicts pending")));
     epoch(&db, 13, cutoff + 360, NOW + 3);
     assert!(matches!(
         tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap(),
         Some(Boundary::Waiting(_))
     ));
     admit_all(&db);
+    assert_eq!(wait(&db).1, json!("the freeze step has not run since the window closed"));
     assert!(matches!(
         tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap(),
         Some(Boundary::Waiting(w)) if w.contains("next tempo boundary")
     ));
+    assert_eq!(wait(&db).1, json!("ready: the roster freezes at the next tempo boundary"));
     epoch(&db, 14, cutoff + 720, NOW + 4);
     assert!(matches!(
         tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap(),
@@ -2610,6 +2704,25 @@ fn the_freeze_waits_for_a_tempo_boundary_once_its_work_is_in_late() {
     })
     .unwrap();
     assert_eq!((c.phase.as_str(), closed), ("generating", 14));
+    assert_eq!(wait(&db), (json!(false), json!(null)), "frozen: nothing to wait on");
+    // The measured window: blocks per tempo over its epoch span (11 to 12).
+    let measured = |db: &Sqlite| tx(db, crate::eval::calendar::admission_window).unwrap()["last_measured"].clone();
+    let m1 = measured(&db);
+    assert_eq!((m1["blocks"].clone(), m1["epochs"].clone(), m1["blocks_per_tempo"].clone()), (json!(360), json!(1), json!(360)));
+    assert_eq!(m1["extended"], json!(false));
+    // A window the coordinator extended past two uncredited tempos spans
+    // three boundaries: still 360 blocks per tempo (not 1,080), and marked.
+    tx(&db, |s| {
+        s.exec(
+            "UPDATE adm_cohorts SET cutoff_block = ?, closed_at_epoch = 14 WHERE seq = 1",
+            &[bind_u64(OPEN_BLOCK + 1080)?],
+        )
+        .map(|_| ())
+    })
+    .unwrap();
+    let m2 = measured(&db);
+    assert_eq!((m2["blocks"].clone(), m2["epochs"].clone(), m2["blocks_per_tempo"].clone()), (json!(1080), json!(3), json!(360)));
+    assert_eq!(m2["extended"], json!(true));
 }
 
 #[test]

@@ -2875,6 +2875,36 @@ pub fn try_freeze(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Bou
     Ok(Some(b))
 }
 
+/// What a closing window's freeze waits on, read without changing
+/// anything (status and alerts; [`try_freeze`] decides): the reasons it
+/// returns as [`Boundary::Waiting`], in its order. `None` unless the window
+/// of `seq` is closing. A verdict reached on another scorer build shows as
+/// verification pending once the freeze step has re-queued it.
+pub fn freeze_wait(sql: &impl Sql, seq: i64) -> R<Option<&'static str>> {
+    let rows = sql.exec(
+        "SELECT cutoff_block, ready_epoch FROM adm_cohorts WHERE seq = ? AND state = 'closing'",
+        &[i(seq)],
+    )?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    let verifying = count(
+        sql,
+        "SELECT COUNT(*) FROM adm_sessions WHERE seq = ? AND state = 'verifying'",
+        &[i(seq)],
+    )?;
+    if verifying > 0 {
+        return Ok(Some("verification or verdicts pending"));
+    }
+    let cutoff = opt_int(r, 0).map(|v| v as u64);
+    if snapshot_needs(sql)?.is_some_and(|(c, _)| Some(c) == cutoff) {
+        return Ok(Some("commitment snapshot pending"));
+    }
+    Ok(Some(if opt_int(r, 1).is_some() {
+        "ready: the roster freezes at the next tempo boundary"
+    } else {
+        "the freeze step has not run since the window closed"
+    }))
+}
+
 fn fault_freeze(sql: &impl Sql, seq: i64, why: &'static str, now_ms: u64) -> R<Option<Boundary>> {
     let _ = why;
     engine::fault(sql, seq, FREEZE_FAULT, now_ms)?;

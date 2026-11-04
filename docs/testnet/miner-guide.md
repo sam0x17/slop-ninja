@@ -51,8 +51,9 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
   registration cost floats: it read about 0.155 τ on October 30, 2026 and
   0.0005 τ on November 1, 2026. Slop Ninja does not hand out test TAO; use the
   community testnet sources.
-- An uplink that can send about 610 MB inside a cohort's admission window
-  (17 tempos, about 20 hours, under the current testnet template; see
+- An uplink that can send your packed object, up to about 955 MB (the spec's
+  largest object), inside a cohort's admission window (16 tempos, about 19
+  hours, under the testnet template; `next-cohort` prints each cohort's own; see
   [step 8](#8-wait-for-an-admitting-cohort)).
 
 ## 2. Install
@@ -448,26 +449,29 @@ as the time approaches.
 
 Testnet runs one cohort a day: 20 tempos of 360 blocks, about 24 hours. Each
 cohort opens at the tempo boundary that closes the one before it, and its
-admission window opens with it. Under the current standing template the
-window lasts 17 tempos (6,120 blocks, about 20 hours 24 minutes): the cohort
-then freezes its roster, generates, scores and packages in the next tempo,
-publishes at the boundary after that and closes two tempos later, when the next
-cohort opens. Between two windows there are about 3 tempos (about 3 hours 36
+admission window opens with it. The testnet standing template's window is 16
+tempos (5,760 blocks, about 19 hours 12 minutes): the cohort then freezes its
+roster, generates, scores and packages in the next two tempos, publishes at
+the boundary after that and closes two tempos later, when the next cohort
+opens. Between two such windows there are about 4 tempos (about 4 hours 48
 minutes) in which no cohort admits. The window is a plan parameter frozen with
-each cohort, so a cohort already queued keeps the window it was queued with
-(cohort 19 admits for one tempo; cohort 20 is the first with 17); `next-cohort`
-prints each cohort's own window, and the cutoff it prints is planned, not
-promised.
+each cohort when it is queued, so a cohort queued before the template took its
+current value keeps the window it was queued with (the first testnet cohorts
+admit for one tempo, and the first long-window cohorts for 17 tempos, with
+about 3 tempos between windows). `next-cohort` prints each cohort's own
+window; trust it over this page, and treat the cutoff it prints as planned,
+not promised.
 
 The window's length comes from measurements, not a chosen figure: it is the
 cohort period less the two-tempo transition and the tempos the work after the
-cutoff needs (measured work, a submission completing at the cutoff and one
-model load of the largest object, sized to at most half of its tempos), and
-the time from a commitment to the `verified` answer for the largest object
-the spec admits (about 955 MB; about 15 minutes from the operator's host,
-scaled from a measured 613 MB submission) fits in under half of it.
-Your own uplink sets your time; a slow one still fits easily unless you start
-in the window's last hours.
+cutoff needs (measured work, a submission completing at the cutoff, the
+verdicts of a full roster still being verified at the cutoff, one model load
+of the largest object and one entrant's scoring of it, sized to at most half
+of its tempos), and the time from a commitment to the `verified` answer
+for the largest object the spec admits (about 955 MB; about 15 minutes in the
+operator's measurement, scaled from a 613 MB submission) fits in under half of
+it. Your own uplink sets your time; a slow one still fits easily unless you
+start in the window's last hours.
 
 A commitment counts for a cohort only when its block is at or after the
 cohort's opening block and before its cutoff block. A commitment made earlier

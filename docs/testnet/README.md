@@ -18,7 +18,7 @@ Testnet subnet 601 is the rehearsal. It has no monetary value.
 | --- | --- |
 | Network | Bittensor testnet, netuid 601 |
 | What you submit | one *A* artifact per hotkey per cohort: an ONNX graph of the allow-listed ModernBERT-base architecture, heads, calibration, contract and the pinned tokenizer ([artifact spec](artifact-spec.md)) |
-| Cohorts | one a day: 20 tempos of 360 blocks; admission lasts 17 tempos under the current template (at least one tempo by the rules) |
+| Cohorts | one a day: 20 tempos of 360 blocks; admission lasts 16 tempos under the testnet template (at least one tempo by the rules; a cohort keeps the window it was queued with, so earlier ones admit for one tempo or 17; `next-cohort` prints each cohort's own) |
 | Roster cap | 40 entrants per cohort, earliest finalized commitment first |
 | Batch | about 1,000 hidden documents per cohort, human-only, mixed and model-only |
 | Reward | AI-involvement Brier, against the reference `R_k`; share, attribution and false-positive tiers are gates |

@@ -3259,3 +3259,35 @@ fn receipt_chunks_must_hold_every_indexed_receipt_once() -> Result<()> {
     assert_eq!(target_bundle::verify_receipt_chunks(&index, &[&a, &cut]).unwrap_err(), Error::Mismatch("receipt chunk truncated"));
     Ok(())
 }
+
+#[test]
+fn an_abandonment_record_round_trips_signs_and_refuses_free_text() -> Result<()> {
+    let record = submission::CohortAbandonment {
+        chain: chain(),
+        cohort: 19,
+        cohort_label: "testnet-r0-19".into(),
+        cohort_manifest: Some(Digest([7; 32])),
+        fault: "unresolved_infrastructure".into(),
+        reason: "operator:receipt_capacity".into(),
+        abandoned_epoch: Some(120),
+    };
+    let bytes = record.to_bytes()?;
+    assert_eq!(submission::CohortAbandonment::from_bytes(&bytes)?, record);
+    // Before its seal: no manifest; no epoch observed.
+    let early = submission::CohortAbandonment { cohort_manifest: None, abandoned_epoch: None, ..record.clone() };
+    assert_eq!(submission::CohortAbandonment::from_bytes(&early.to_bytes()?)?, early);
+    // Signed only by the package key, and opened under it.
+    let keys = crate::fixtures::trusted_keys();
+    let signed = sign(record.clone(), &crate::fixtures::package_key())?.to_bytes()?;
+    assert_eq!(Signed::<submission::CohortAbandonment>::open(&signed, &keys)?, record);
+    let by_receipt_key = sign(record.clone(), &crate::fixtures::receipt_key())?.to_bytes()?;
+    assert!(Signed::<submission::CohortAbandonment>::open(&by_receipt_key, &keys).is_err());
+    // Codes only: no free text, nothing empty or over the bound.
+    for bad in ["Budget Spent", "", "a b", &"x".repeat(submission::ABANDONMENT_CODE_MAX + 1)] {
+        let r = submission::CohortAbandonment { reason: bad.to_owned(), ..record.clone() };
+        assert!(r.to_bytes().is_err(), "{bad:?}");
+        let f = submission::CohortAbandonment { fault: bad.to_owned(), ..record.clone() };
+        assert!(f.to_bytes().is_err(), "{bad:?}");
+    }
+    Ok(())
+}

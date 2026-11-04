@@ -16,7 +16,7 @@
 //! resolves, and a run that reaches its invocation's step budget hands the
 //! attempt back, so the next claim continues it under the same attempt number.
 
-use crate::eval::engine::{self, CallTiming};
+use crate::eval::engine::{self, CallTiming, ScorerCause};
 use crate::eval::lanes::{ArtifactRef, Assignment, ChunkClaim, ChunkCommit, IsoReply, LaneRef, Meter};
 use crate::eval::receipts::{self, ChunkFacts, TaskOutcome};
 use crate::eval::score;
@@ -83,6 +83,24 @@ pub fn outcomes_from_results(docs: &[(u32, String, String)], results: &[Value]) 
             None => TaskOutcome::infrastructure(*task),
         })
         .collect()
+}
+
+/// A reference job's document left without an answer (the scorer's error
+/// for it, or a crash reproduced on a proven instance) is never attributed
+/// to the reference (`engine::ARTIFACT_RULE`): its receipt keeps the model
+/// error the scorer gave, marked [`TaskOutcome::unattributed`], so the commit
+/// keeps no outcome row and the document stays unresolved and runs again at
+/// its next attempt. A reference whose attempts and receipt-bounded
+/// extensions run out pauses its cohort (`unresolved_infrastructure`; the
+/// status names jobs that reached the receipt bound). An answer, valid or
+/// not, is kept: a reference that answers invalidly holds its package
+/// (`reference_failure`, terminal).
+pub fn unanswered(c: &ChunkClaim, o: TaskOutcome) -> TaskOutcome {
+    if c.reference && o.class == 2 && !o.artifact_failed {
+        TaskOutcome { unattributed: true, ..o }
+    } else {
+        o
+    }
 }
 
 /// Why a scorer request failed.
@@ -188,6 +206,13 @@ pub enum ChunkEnd {
 /// Batch shards already read in this invocation, by key.
 pub type ShardCache = BTreeMap<String, BTreeMap<u32, (String, String)>>;
 
+/// A hand-back body that counts a scorer failure with its cause
+/// (`engine::note_scorer_failure`), so the cohort object knows whether its
+/// automatic probe exercises it.
+fn failed(cause: ScorerCause) -> Value {
+    json!({"failure": true, "cause": cause})
+}
+
 /// Backoff after a claim went back on a failure.
 const FAILURE_REARM_MS: u64 = 5_000;
 /// First put retry delay; it doubles while the claim's lease has time left.
@@ -267,9 +292,9 @@ async fn read_docs<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, cac
 ///   with its attempt allocated, for reconciliation.
 pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, cache: &mut ShardCache) -> ChunkEnd {
     let deadline = io.now_ms() + c.lease_ms.saturating_sub(LEASE_MARGIN_MS);
-    let give_back = json!({"failure": true});
+    let (unclassified, store, slot) = (failed(ScorerCause::Unclassified), failed(ScorerCause::Store), failed(ScorerCause::Slot));
     let (Some(manifest), Some(artifact)) = (cx.a.manifest.as_deref().and_then(engine::parse_digest), engine::parse_digest(&cx.art.id)) else {
-        let _ = call(io, "/lane/give-back", cx, c, give_back).await;
+        let _ = call(io, "/lane/give-back", cx, c, unclassified).await;
         return ChunkEnd::Rearm(FAILURE_REARM_MS);
     };
     let facts = ChunkFacts {
@@ -291,7 +316,7 @@ pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim,
     if c.record_only {
         let Ok(built) = receipts::build_chunk(&facts, &[]) else { return ChunkEnd::Next };
         if put_retry(io, true, &built.object_key, &built.object, deadline).await.is_err() {
-            let _ = call(io, "/lane/release", cx, c, give_back).await;
+            let _ = call(io, "/lane/release", cx, c, store).await;
             return ChunkEnd::Rearm(FAILURE_REARM_MS);
         }
         commit(io, cx, c, Vec::new(), built, CallTiming::default(), false, false).await;
@@ -308,7 +333,7 @@ pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim,
         let docs = match read_docs(io, cx, c, cache).await {
             Ok(d) => d,
             Err(_) => {
-                let _ = call(io, "/lane/give-back", cx, c, give_back).await;
+                let _ = call(io, "/lane/give-back", cx, c, store).await;
                 return ChunkEnd::Rearm(FAILURE_REARM_MS);
             }
         };
@@ -320,15 +345,16 @@ pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim,
                 IsoEnd::ArtifactFailed => (merge(c, &done, true), false, iso.timing),
                 IsoEnd::Fenced => return ChunkEnd::Next,
                 IsoEnd::Yield { failure } => {
-                    let _ = call(io, "/lane/iso-yield", cx, c, json!({"failure": failure})).await;
-                    return if failure { ChunkEnd::Rearm(FAILURE_REARM_MS) } else { ChunkEnd::Rearm(0) };
+                    let body = failure.map_or_else(|| json!({"failure": false}), failed);
+                    let _ = call(io, "/lane/iso-yield", cx, c, body).await;
+                    return if failure.is_some() { ChunkEnd::Rearm(FAILURE_REARM_MS) } else { ChunkEnd::Rearm(0) };
                 }
             }
         } else {
             match io.score(&docs, c.lease_ms.saturating_sub(15_000).max(5_000)).await {
-                Ok((results, t)) => (outcomes_from_results(&docs, &results), false, t),
+                Ok((results, t)) => (outcomes_from_results(&docs, &results).into_iter().map(|o| unanswered(c, o)).collect(), false, t),
                 Err(ScoreFailure::NotDispatched) => {
-                    let _ = call(io, "/lane/give-back", cx, c, give_back).await;
+                    let _ = call(io, "/lane/give-back", cx, c, slot).await;
                     return ChunkEnd::Rearm(FAILURE_REARM_MS);
                 }
                 // Dispatched, container up: infrastructure errors, retried normally.
@@ -351,7 +377,7 @@ pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim,
         deadline
     };
     let Ok(built) = receipts::build_chunk(&facts, &outcomes) else {
-        let _ = call(io, "/lane/release", cx, c, give_back).await;
+        let _ = call(io, "/lane/release", cx, c, unclassified).await;
         return ChunkEnd::Rearm(FAILURE_REARM_MS);
     };
     // Results first, then the receipt object, then the commit.
@@ -359,7 +385,7 @@ pub async fn run_chunk<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim,
     if put_retry(io, false, &rkey, &results_body, deadline).await.is_err()
         || put_retry(io, true, &built.object_key, &built.object, deadline).await.is_err()
     {
-        let _ = call(io, "/lane/release", cx, c, give_back).await;
+        let _ = call(io, "/lane/release", cx, c, store).await;
         return ChunkEnd::Rearm(FAILURE_REARM_MS);
     }
     if io.fault(Fault::DieAfterPut).await {
@@ -383,7 +409,7 @@ fn merge(c: &ChunkClaim, done: &BTreeMap<u32, TaskOutcome>, artifact: bool) -> V
 }
 
 async fn reconcile<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, facts: &ChunkFacts<'_>, rkey: &str, deadline: u64) -> ChunkEnd {
-    let retry_later = json!({"failure": true});
+    let retry_later = failed(ScorerCause::Store);
     let res = match io.eval_get(rkey).await {
         Err(()) => {
             // Not a confirmed absence: never record a durable answer as lost.
@@ -454,7 +480,7 @@ async fn commit<I: LaneIo>(
     // answers `already`); a refused commit goes back counted, so a commit that
     // can never land pauses the cohort instead of looping.
     if io.cohort("/lane/commit", body).await == Err(CohortError::Refused) {
-        let _ = call(io, "/lane/release", cx, c, json!({"failure": true})).await;
+        let _ = call(io, "/lane/release", cx, c, failed(ScorerCause::Commit)).await;
     }
 }
 
@@ -469,7 +495,7 @@ pub enum IsoEnd {
     ArtifactFailed,
     /// Handed back unfinished (step budget, a pause, a restart or a refusal);
     /// `failure` counts a scorer failure. The next claim continues it.
-    Yield { failure: bool },
+    Yield { failure: Option<ScorerCause> },
     /// The claim is no longer this lane's.
     Fenced,
 }
@@ -503,7 +529,7 @@ async fn restart<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, out: 
     let _ = call(io, "/lane/renew", cx, c, json!({})).await;
     match r {
         Ok(()) => Ok(()),
-        Err(RestartFailure::Infra(_)) => Err(IsoEnd::Yield { failure: true }),
+        Err(RestartFailure::Infra(_)) => Err(IsoEnd::Yield { failure: Some(ScorerCause::Slot) }),
         Err(RestartFailure::Artifact { code, definitive }) => Err(artifact_failed(io, cx, c.job, code, definitive).await),
     }
 }
@@ -514,7 +540,7 @@ async fn artifact_failed<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, job: i64, cod
     let body = json!({"lane": cx.r, "job": job, "code": code, "definitive": definitive});
     match io.cohort("/lane/artifact-failure", body).await {
         Ok(Value::Bool(true)) => IsoEnd::ArtifactFailed,
-        _ => IsoEnd::Yield { failure: false },
+        _ => IsoEnd::Yield { failure: None },
     }
 }
 
@@ -551,7 +577,7 @@ pub async fn isolate<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, d
     for doc in docs.iter().filter(|d| !done.contains_key(&d.0)) {
         if fresh_needed {
             if !io.may_run(io.restart_bound_ms()).await {
-                return stop(out, IsoEnd::Yield { failure: false });
+                return stop(out, IsoEnd::Yield { failure: None });
             }
             if let Err(end) = restart(io, cx, c, &mut out).await {
                 return stop(out, end);
@@ -559,7 +585,7 @@ pub async fn isolate<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, d
             fresh_needed = false;
         }
         if !io.may_run(doc_ms).await {
-            return stop(out, IsoEnd::Yield { failure: false });
+            return stop(out, IsoEnd::Yield { failure: None });
         }
         out.calls += 1;
         let one = std::slice::from_ref(doc);
@@ -568,12 +594,12 @@ pub async fn isolate<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, d
                 add(&mut out.timing, t);
                 outcomes_from_results(one, &results).remove(0)
             }
-            Err(ScoreFailure::NotDispatched) => return stop(out, IsoEnd::Yield { failure: true }),
+            Err(ScoreFailure::NotDispatched) => return stop(out, IsoEnd::Yield { failure: Some(ScorerCause::Slot) }),
             Err(ScoreFailure::Failed) => TaskOutcome::infrastructure(doc.0),
             Err(ScoreFailure::Died) => {
                 // Prove a fresh instance on the control, then run the document alone again.
                 if !io.may_run(io.restart_bound_ms() + 2 * doc_ms).await {
-                    return stop(out, IsoEnd::Yield { failure: false });
+                    return stop(out, IsoEnd::Yield { failure: None });
                 }
                 if let Err(end) = restart(io, cx, c, &mut out).await {
                     return stop(out, end);
@@ -586,7 +612,7 @@ pub async fn isolate<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, d
                         let end = artifact_failed(io, cx, c.job, "control document failed on a fresh instance", false).await;
                         return stop(out, end);
                     }
-                    Err(_) => return stop(out, IsoEnd::Yield { failure: true }),
+                    Err(_) => return stop(out, IsoEnd::Yield { failure: Some(ScorerCause::Slot) }),
                 }
                 out.calls += 1;
                 match io.score(one, doc_ms).await {
@@ -600,10 +626,11 @@ pub async fn isolate<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, d
                         TaskOutcome::isolated_crash(doc.0)
                     }
                     Err(ScoreFailure::Failed) => TaskOutcome::infrastructure(doc.0),
-                    Err(ScoreFailure::NotDispatched) => return stop(out, IsoEnd::Yield { failure: true }),
+                    Err(ScoreFailure::NotDispatched) => return stop(out, IsoEnd::Yield { failure: Some(ScorerCause::Slot) }),
                 }
             }
         };
+        let outcome = unanswered(c, outcome);
         let reply = call(io, "/lane/iso-progress", cx, c, json!({"outcomes": [outcome]})).await;
         match reply.map(|v| serde_json::from_value::<IsoReply>(v).unwrap_or_default()) {
             Ok(r) if !r.held => return stop(out, IsoEnd::Fenced),
@@ -613,12 +640,12 @@ pub async fn isolate<I: LaneIo>(io: &mut I, cx: &ChunkCtx<'_>, c: &ChunkClaim, d
                     return stop(out, IsoEnd::ArtifactFailed);
                 }
                 if r.paused {
-                    return stop(out, IsoEnd::Yield { failure: false });
+                    return stop(out, IsoEnd::Yield { failure: None });
                 }
             }
             // Not known to be recorded: hand back without it, so no other outcome
             // of this document can be stored under this attempt by another lane.
-            Err(_) => return stop(out, IsoEnd::Yield { failure: true }),
+            Err(_) => return stop(out, IsoEnd::Yield { failure: Some(ScorerCause::Commit) }),
         }
     }
     out
@@ -757,10 +784,40 @@ mod tests {
         }).collect()
     }
 
+    /// L2 (B8 item 2): a reference's unanswered document (a scorer error,
+    /// or a crash reproduced on a proven instance) keeps the model error in
+    /// its receipt but is unattributed, so it stays unresolved and runs
+    /// again; its answers, valid or invalid, are kept, and an entrant's
+    /// model errors are its own.
+    #[test]
+    fn a_reference_never_has_an_unanswered_document_attributed() {
+        use slop_ninja_protocol::{Outcome, Probability};
+        let mut c = claim(vec![1], vec![String::new()]);
+        let error = TaskOutcome::new(1, &Outcome::ModelError, None, None, Some(7));
+        let invalid = TaskOutcome::new(1, &Outcome::InvalidOutput, None, None, None);
+        let parse = TaskOutcome::new(1, &Outcome::ParseFailure, None, None, None);
+        let p = Probability::from_f64(0.5).unwrap();
+        let answer = TaskOutcome::new(1, &Outcome::Prediction { involvement: p, share: p }, None, None, None);
+        for o in [&error, &TaskOutcome::isolated_crash(1), &TaskOutcome::artifact_failed(1), &invalid, &parse, &answer] {
+            assert_eq!(&unanswered(&c, o.clone()), o, "an entrant's outcome is kept");
+        }
+        c.reference = true;
+        // The receipt keeps what the scorer answered (a model error), but
+        // the document is not resolved by it.
+        let e = unanswered(&c, error.clone());
+        assert_eq!((e.class, e.unattributed, e.resolves()), (2, true, false));
+        assert_eq!(TaskOutcome { unattributed: false, ..e }, error);
+        let iso = unanswered(&c, TaskOutcome::isolated_crash(1));
+        assert_eq!((iso.class, iso.isolated_crash, iso.unattributed, iso.resolves()), (2, true, true, false));
+        for o in [invalid, parse, answer] {
+            assert_eq!(unanswered(&c, o.clone()), o, "an answer is kept");
+        }
+    }
+
     fn claim(tasks: Vec<u32>, digests: Vec<String>) -> ChunkClaim {
         ChunkClaim {
             job: 1, chunk: 0, attempt: 2, lost: vec![], record_only: false, claim: 1, reconcile: false,
-            isolate: true, lease_ms: 240_000, tasks, digests, shards: vec![], done: vec![], model_error: false,
+            isolate: true, lease_ms: 240_000, tasks, digests, shards: vec![], done: vec![], model_error: false, reference: false,
         }
     }
 
@@ -810,7 +867,7 @@ mod tests {
     fn a_control_a_fresh_instance_cannot_score_is_the_artifacts_failure_not_the_documents() {
         let mut f = Fake { poison: [1].into(), control_dies: true, ..Default::default() };
         let r = run(&mut f, 3, &[]);
-        assert_eq!(r.end, IsoEnd::Yield { failure: false }, "counted against the artifact, not as a scorer failure");
+        assert_eq!(r.end, IsoEnd::Yield { failure: None }, "counted against the artifact, not as a scorer failure");
         assert_eq!(classes(&r.new), [(0, 1, false)], "task 1 is not attributed and not recorded");
         assert!(f.posts.contains(&"/lane/artifact-failure".to_owned()));
         // Once the cohort records the artifact as failed, the run ends so the
@@ -820,7 +877,7 @@ mod tests {
         // A restart that fails hands back counted, with nothing dispatched.
         let mut f = Fake { restarts_fail: true, ..Default::default() };
         let r = run(&mut f, 2, &[]);
-        assert_eq!(r.end, IsoEnd::Yield { failure: true });
+        assert_eq!(r.end, IsoEnd::Yield { failure: Some(ScorerCause::Slot) });
         assert!(f.calls.is_empty() && r.new.is_empty());
     }
 
@@ -829,7 +886,7 @@ mod tests {
         // Review 2026-10-31: an isolation run could outlast the 15-minute alarm wall.
         let mut f = Fake { poison: [0, 1, 2, 3, 4, 5].into(), budget: Some(5), ..Default::default() };
         let r = run(&mut f, 6, &[]);
-        assert_eq!(r.end, IsoEnd::Yield { failure: false });
+        assert_eq!(r.end, IsoEnd::Yield { failure: None });
         // Restart, task 0, proof, control, rerun: one document attributed, then the budget.
         assert_eq!(classes(&r.new), [(0, 2, true)]);
         assert_eq!(f.progress, r.new);

@@ -294,6 +294,18 @@ struct Sim<'a> {
     predict: Option<PredictHook<'a>>,
     packages_v3: Vec<v3::PackageV3>,
     closures: Vec<v3::ClosureBuild>,
+    /// Outage probes run (`engine::probe_due`), by fault code.
+    probes: Vec<String>,
+    /// The job whose artifact each scorer probe started.
+    probe_jobs: Vec<i64>,
+    /// Virtual time each probe takes (the clock moves on by it).
+    probe_ms: u64,
+    /// The cohort and start time of each probe.
+    probe_starts: Vec<(i64, u64)>,
+    /// The spend ledger does not answer: every settle fails.
+    ledger_down: bool,
+    /// Settles attempted, for assertions.
+    settle_calls: u32,
 }
 
 impl<'a> Sim<'a> {
@@ -332,6 +344,12 @@ impl<'a> Sim<'a> {
             predict: None,
             packages_v3: Vec::new(),
             closures: Vec::new(),
+            probes: Vec::new(),
+            probe_jobs: Vec::new(),
+            probe_ms: 0,
+            probe_starts: Vec::new(),
+            ledger_down: false,
+            settle_calls: 0,
         }
     }
 
@@ -403,7 +421,18 @@ impl<'a> Sim<'a> {
                     break;
                 }
                 Work::Settle { seq, microusd, .. } => {
-                    tx(self.db, |s| lanes::mark_settled(s, seq, microusd)).unwrap();
+                    // Mirrors `cf_eval`: a ledger that does not answer only
+                    // delays the settle, which waits out its retry time.
+                    self.settle_calls += 1;
+                    if self.ledger_down {
+                        tx(self.db, |s| engine::bookkeeping_failed(s, engine::BOOKKEEPING_SETTLE, "ledger_settle", now)).unwrap();
+                        break;
+                    }
+                    tx(self.db, |s| {
+                        lanes::mark_settled(s, seq, microusd)?;
+                        engine::bookkeeping_done(s, engine::BOOKKEEPING_SETTLE)
+                    })
+                    .unwrap();
                 }
                 Work::Purge { seq, prefixes } => {
                     self.eval.retain(|k, _| !prefixes.iter().any(|p| k.starts_with(p)));
@@ -452,6 +481,52 @@ impl<'a> Sim<'a> {
                 }
                 Work::OpenNext { plan, .. } => {
                     tx(self.db, |s| engine::queue(s, &c, &plan, now)).unwrap();
+                }
+                // Mirrors `cf_eval::run_probe`: a generation probe asks the
+                // simulated provider; a scorer probe starts a fresh instance
+                // of the probed artifact (the reference, job 0, or the
+                // previous reference, job 1) and scores the control document.
+                Work::Probe { seq, code, probe } => {
+                    let p2 = probe.clone();
+                    let ticket = tx(self.db, |s| engine::probe_begin(s, seq, &p2, now)).unwrap();
+                    let o = match &probe {
+                        engine::Probe::Generation { item, .. } => {
+                            let g = outcome(item, (self.generate)(item));
+                            let ok = engine::probe_answered(&g);
+                            engine::ProbeOutcome { ok, definitive: false, ms: self.probe_ms, nanousd: 1_000_000, note: "down".into() }
+                        }
+                        engine::Probe::Scorer { body, .. } => {
+                            let plan = tx(self.db, |s| engine::cohort(s, seq)).unwrap().plan;
+                            let previous = plan.previous_reference.as_ref().is_some_and(|p| body["package_sha256"] == p.package_sha256.as_str());
+                            let job = i64::from(previous);
+                            self.probe_jobs.push(job);
+                            let req = Req { lane: "fault-probe".into(), job, chunk: -1, attempt: 0, tasks: vec![lane_logic::CONTROL_TASK], isolate: true };
+                            let (ok, definitive) = match (self.start)(job, false) {
+                                Ok(()) => ((self.score)(&req) == Score::Ok, false),
+                                Err(RestartFailure::Artifact { definitive, code }) => (false, definitive && code.starts_with("refused")),
+                                Err(_) => (false, false),
+                            };
+                            engine::ProbeOutcome { ok, definitive, ms: self.probe_ms, nanousd: 2_000_000, note: "down".into() }
+                        }
+                    };
+                    self.probes.push(code.clone());
+                    self.probe_starts.push((seq, now));
+                    self.now += self.probe_ms;
+                    let end = self.now;
+                    if !tx(self.db, |s| engine::probe_done(s, seq, &code, &ticket, &o, end)).unwrap() {
+                        break;
+                    }
+                }
+                Work::AbandonMarker { seq } => {
+                    let (key, record) = tx(self.db, |s| engine::abandonment_record(s, &c, seq)).unwrap();
+                    if (self.r2)(&key, true) {
+                        // The receipts put failed: retried later, and the step goes on.
+                        tx(self.db, |s| engine::abandon_marker_failed(s, seq, "abandonment record put", now)).unwrap();
+                        continue;
+                    }
+                    let signed = slop_ninja_protocol::sign(record, &slop_ninja_protocol::fixtures::package_key()).unwrap();
+                    self.rcpt.insert(key, signed.to_bytes().unwrap());
+                    tx(self.db, |s| engine::abandon_marker_written(s, seq, now)).unwrap();
                 }
             }
         }
@@ -1624,6 +1699,617 @@ fn the_scoring_budget_alerts_and_never_pauses_the_cohort() {
     );
 }
 
+/// L2 (A2): a generation outage pauses the cohort; once the provider answers
+/// again the next tick's probe resumes the same cohort with nothing reset,
+/// with no operator. A probe that keeps failing only keeps the cohort
+/// paused, however long, and every probe's time and spend are recorded
+/// and charged with the cohort.
+#[test]
+fn a_generation_outage_resumes_by_itself_once_the_provider_answers() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 10_000;
+    sim.generate = Box::new(|_| Err(Reject::Transport));
+    sim.run(seq, 400);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("generation_unavailable"));
+    // A day of failing probes: paused, never skipped or abandoned.
+    for _ in 0..8_640 {
+        sim.tick();
+    }
+    assert_eq!((phase(&db, seq).as_str(), fault_of(&db, seq).as_deref()), ("generating", Some("generation_unavailable")));
+    let runs = sim.probes.len();
+    assert!((1_400..=1_441).contains(&runs), "one probe a minute: {runs}");
+    assert!(sim.probes.iter().all(|c| c == "generation_unavailable"));
+    let st = status(&db, sim.now);
+    let pr = &st["cohorts"][0]["probes"];
+    assert_eq!((pr["runs"].as_u64(), pr["failures"].as_u64()), (Some(runs as u64), Some(runs as u64)));
+    assert_eq!(pr["microusd"].as_u64(), Some(runs as u64 * 1_000), "the probes' spend is recorded");
+    let failed: i64 = db.conn.query_row("SELECT SUM(status = 'failed') FROM docs WHERE seq = 1", [], |r| r.get(0)).unwrap();
+    assert_eq!(failed, 0, "no item was dropped");
+    // The provider is back: the next probe resumes it.
+    sim.generate = Box::new(|it| Ok(answer(it)));
+    for _ in 0..7 {
+        sim.tick();
+    }
+    assert_eq!(fault_of(&db, seq), None);
+    let log = st_log(&db, seq);
+    assert_eq!(log.iter().filter(|n| n.starts_with("fault_auto_cleared:generation_unavailable")).count(), 1);
+    assert_eq!(sim.run(seq, 400), "transition");
+    // The probes are charged with the cohort's spend at its settle.
+    for _ in 0..3 {
+        sim.tick();
+    }
+    let (settled, gen_cost): (i64, i64) = db
+        .conn
+        .query_row("SELECT settled_microusd, gen_cost_microusd FROM cohorts WHERE seq = 1", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert!(settled >= gen_cost + (runs as i64 + 1) * 1_000, "{settled} {gen_cost}");
+}
+
+fn st_log(db: &Sqlite, seq: i64) -> Vec<String> {
+    db.conn
+        .prepare("SELECT note FROM phase_log WHERE seq = ?1 ORDER BY rowid")
+        .unwrap()
+        .query_map([seq], |r| r.get::<_, Option<String>>(0))
+        .unwrap()
+        .filter_map(Result::unwrap)
+        .collect()
+}
+
+/// L2 (A3): scorer slots that never reach the model pause the cohort; once
+/// the platform recovers, a probe (the control document on a fresh
+/// instance of the reference) resumes the same cohort. The probe never
+/// counts against an entrant's artifact. Terminal faults are never cleared
+/// by a probe, and no probe runs while the coordinator is silent.
+#[test]
+fn a_scorer_outage_resumes_by_itself_and_terminal_faults_never_do() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 2), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 3_000;
+    let down = std::rc::Rc::new(std::cell::Cell::new(true));
+    let d2 = down.clone();
+    sim.score = Box::new(move |_| if d2.get() { Score::NotDispatched } else { Score::Ok });
+    sim.run(seq, 400);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"));
+    for _ in 0..100 {
+        sim.tick();
+    }
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"), "the platform is still down");
+    assert!(!sim.probes.is_empty());
+    // Silence: once the last heartbeat is stale, no probe runs.
+    sim.heartbeats = false;
+    for _ in 0..=(engine::HEARTBEAT_FRESH_MS / sim.tick_ms) {
+        sim.tick();
+    }
+    let n = sim.probes.len();
+    for _ in 0..400 {
+        sim.tick();
+    }
+    assert_eq!(sim.probes.len(), n, "no probe while the coordinator is silent");
+    sim.heartbeats = true;
+    down.set(false);
+    for _ in 0..25 {
+        sim.tick();
+    }
+    assert_eq!(fault_of(&db, seq), None, "the first good probe resumes it");
+    assert_eq!(sim.run(seq, 400), "transition");
+    let failures: i64 = db.conn.query_row("SELECT SUM(artifact_failures) FROM jobs WHERE seq = 1", [], |r| r.get(0)).unwrap();
+    assert_eq!(failures, 0, "no entrant was charged for a probe or an outage");
+    // A terminal fault: probes never run for it and never clear it.
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick();
+    assert_eq!(phase(&db, seq), "generating");
+    tx(&db, |s| engine::fault(s, seq, "batch_shortfall", sim.now)).unwrap();
+    for _ in 0..200 {
+        sim.tick();
+    }
+    assert!(sim.probes.is_empty());
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("batch_shortfall"));
+    assert!(!tx(&db, |s| engine::auto_clear(s, seq, "batch_shortfall", "probe", sim.now)).unwrap());
+    let ok = engine::ProbeOutcome { ok: true, definitive: false, ms: 1, nanousd: 1, note: "ok".into() };
+    let ticket = engine::ProbeTicket { started_ms: sim.now, fault_n: 1, until_ms: sim.now };
+    assert!(!tx(&db, |s| engine::probe_done(s, seq, "batch_shortfall", &ticket, &ok, sim.now)).unwrap());
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("batch_shortfall"));
+    let st = status(&db, sim.now);
+    assert_eq!((st["cohorts"][0]["self_clearing"].as_bool(), st["cohorts"][0]["operator_clear_needed"].as_bool()), (Some(false), Some(true)));
+}
+
+/// L2 (B8, C1 item 3, eval half): abandoning a cohort writes its signed,
+/// content-free abandonment record beside its other signed records, once,
+/// so the automatic target handoff can move past it.
+#[test]
+fn an_abandoned_cohort_gets_one_signed_abandonment_record() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.generate = Box::new(|_| Err(Reject::Transport));
+    sim.tick_ms = 10_000;
+    sim.run(seq, 400);
+    assert!(tx(&db, |s| engine::abandon(s, &p.label, "drill", sim.now)).unwrap());
+    sim.tick();
+    let key = format!("cohorts/{}/{}", p.label, engine::ABANDONMENT_KEY);
+    let bytes = sim.rcpt.get(&key).expect("the record is written").clone();
+    let keys = slop_ninja_protocol::fixtures::trusted_keys();
+    let r = slop_ninja_protocol::Signed::<slop_ninja_protocol::submission::CohortAbandonment>::open(&bytes, &keys).unwrap();
+    assert_eq!(
+        (r.cohort, r.cohort_label.as_str(), r.cohort_manifest, r.fault.as_str(), r.reason.as_str()),
+        (p.cohort, p.label.as_str(), None, "generation_unavailable", "drill")
+    );
+    assert_eq!(r.chain, cfg().chain);
+    assert!(r.abandoned_epoch.is_some());
+    assert!(status(&db, sim.now)["cohorts"][0]["abandonment_record_ms"].as_u64().is_some());
+    sim.rcpt.remove(&key);
+    for _ in 0..5 {
+        sim.tick();
+    }
+    assert!(!sim.rcpt.contains_key(&key), "written once");
+    assert!(tx(&db, |s| engine::abandon_marker_due(s, &cfg(), None)).unwrap().is_none());
+    assert!(tx(&db, |s| engine::abandon_marker_due(s, &load_cfg(), None)).unwrap().is_none());
+}
+
+/// L2 (B8 item 2): a reference is never attributed. A document that
+/// crashes the reference's instance even alone on a proven instance is an
+/// infrastructure error, not a model error that would hold the package for
+/// good (`reference_failure`): it stays unresolved and runs again, past the
+/// plan's `max_attempts` (`lanes::extend_attempts`), and the same cohort
+/// finishes once the platform answers. No other document runs again.
+#[test]
+fn a_reference_document_that_keeps_crashing_stays_unresolved_and_reruns_alone() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 5_000;
+    // Task 3 kills the reference's instance (alone too) through attempt 4.
+    sim.score = Box::new(|q| if q.job == 0 && q.tasks.contains(&3) && q.attempt <= 4 { Score::Crash } else { Score::Ok });
+    assert_eq!(sim.run(seq, 3_000), "transition");
+    let outcomes = numbers(&db, seq, 0, 3);
+    assert!(outcomes.len() > 3, "past max_attempts: {outcomes:?}");
+    assert_eq!(outcomes.last().map(|x| x.1), Some(1), "answered at last");
+    // Before it: infrastructure receipts (the chunk's crash) and the model
+    // errors the scorer gave alone (the isolated crash), which the receipts
+    // record as they were but which never resolve a reference's document.
+    assert!(outcomes[..outcomes.len() - 1].iter().all(|(_, o)| *o == 5 || *o == 2), "unresolved before: {outcomes:?}");
+    assert!(outcomes.iter().any(|(_, o)| *o == 2), "the receipts keep the scorer's model error: {outcomes:?}");
+    let model_errors: i64 =
+        db.conn.query_row("SELECT COUNT(*) FROM preds WHERE seq = 1 AND job = 0 AND outcome = 2", [], |r| r.get(0)).unwrap();
+    assert_eq!(model_errors, 0, "a reference is never attributed a model error");
+    for t in (0..20).filter(|t| !(0..4).contains(t)) {
+        assert_eq!(numbers(&db, seq, 0, t), [(1, 1)], "task {t} ran once");
+    }
+}
+
+/// L2 review r1 (item 1): a `scorer_unavailable` whose cause the probe
+/// does not exercise (bucket writes that fail) is recorded with its cause
+/// and never cleared by a probe: the cohort stays paused and visible until
+/// an operator clears it, with no fault/clear loop.
+#[test]
+fn a_store_caused_scorer_pause_is_never_cleared_by_a_probe() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 3_000;
+    let outage = std::rc::Rc::new(std::cell::Cell::new(true));
+    let o2 = outage.clone();
+    // Every results and receipt object write fails; the scorer is fine.
+    sim.r2 = Box::new(move |key, put| o2.get() && put && !key.ends_with(engine::ABANDONMENT_KEY));
+    sim.run(seq, 400);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"));
+    for _ in 0..400 {
+        sim.tick();
+    }
+    assert!(sim.probes.is_empty(), "the probe touches no bucket, so none runs: {:?}", sim.probes);
+    let st = status(&db, sim.now);
+    assert_eq!(st["cohorts"][0]["fault_cause"], "store");
+    assert_eq!(st["cohorts"][0]["probes"]["probed"], false);
+    let log = st_log(&db, seq);
+    assert_eq!(log.iter().filter(|n| n.starts_with("fault:")).count(), 1, "one pause, no loop: {log:?}");
+    assert!(!log.iter().any(|n| n.starts_with("fault_auto_cleared")));
+    outage.set(false);
+    assert!(tx(&db, |s| engine::clear_fault(s, "testnet-rehearsal-1", sim.now)).unwrap().cleared);
+    assert_eq!(sim.run(seq, 800), "transition");
+}
+
+/// L2 review r2 (item 3): a probe that succeeds while capacity is only
+/// partly back clears the pause, and the cohort pausing again before any
+/// chunk commits is probed again after a doubled interval each time (no
+/// tight loop, and never held for an operator). Once capacity fully
+/// returns, the same cohort resumes and finishes with no operator, and its
+/// progress resets the back-off.
+#[test]
+fn a_partly_recovered_scorer_backs_the_probe_off_and_the_cohort_still_resumes_by_itself() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 3_000;
+    let down = std::rc::Rc::new(std::cell::Cell::new(true));
+    let d2 = down.clone();
+    // The probe's single instance scores its control document; the lanes'
+    // batches still find no capacity.
+    sim.score = Box::new(move |q| if d2.get() && q.chunk >= 0 { Score::NotDispatched } else { Score::Ok });
+    sim.run(seq, 400);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"));
+    let t0 = sim.now;
+    while sim.now < t0 + 30 * 60_000 {
+        sim.tick();
+    }
+    // Pause at 0, then probes at about 2, 6, 14 and 30 minutes.
+    let runs = sim.probes.len();
+    assert!((3..=6).contains(&runs), "backed off, never a loop and never held: {runs}");
+    let log = st_log(&db, seq);
+    assert_eq!(log.iter().filter(|n| n.starts_with("fault_auto_cleared")).count(), runs, "{log:?}");
+    let st = status(&db, sim.now);
+    let pr = &st["cohorts"][0]["probes"];
+    assert!(pr["no_progress_clears"].as_i64().unwrap() >= 3, "{pr}");
+    assert!(pr["interval_ms"].as_u64().unwrap() >= 8 * engine::PROBE_EVERY_MS, "{pr}");
+    if st["cohorts"][0]["fault"].is_string() {
+        assert_eq!(st["cohorts"][0]["self_clearing"], true);
+        assert_eq!(st["cohorts"][0]["operator_clear_needed"], false);
+    }
+    // Capacity fully returns: the same cohort finishes with no operator.
+    down.set(false);
+    let mut finished = false;
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(&db, seq) == "transition" {
+            finished = true;
+            break;
+        }
+    }
+    assert!(finished, "resumed by itself: {}", phase(&db, seq));
+    assert!(!st_log(&db, seq).iter().any(|n| n == "fault_cleared"), "no operator clear");
+    let cleared: i64 = db.conn.query_row("SELECT auto_cleared FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap();
+    assert_eq!(cleared, 0, "progress reset the back-off");
+}
+
+/// L2 review r1 (item 1), r2 (item 3): an automatic clear keeps the next
+/// probe at least a backed-off interval away, so a cohort that pauses again
+/// within seconds is not probed again before it; an operator clear probes
+/// at once.
+#[test]
+fn an_automatic_clear_keeps_the_next_probe_time() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let now = 2_000_000;
+    tx(&db, |s| engine::fault(s, seq, engine::GENERATION_UNAVAILABLE, now)).unwrap();
+    let ok = engine::ProbeOutcome { ok: true, definitive: false, ms: 1, nanousd: 1, note: "ok".into() };
+    let probe = engine::Probe::Scorer { lane: "x".into(), body: json!({}), admit: false };
+    let t = tx(&db, |s| engine::probe_begin(s, seq, &probe, now)).unwrap();
+    assert!(tx(&db, |s| engine::probe_done(s, seq, engine::GENERATION_UNAVAILABLE, &t, &ok, now + 5)).unwrap());
+    let after: i64 = db.conn.query_row("SELECT probe_after_ms FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap();
+    assert_eq!(after as u64, now + 5 + engine::probe_interval_ms(1), "one clear without progress: a doubled interval");
+    assert_eq!(engine::probe_interval_ms(1), 2 * engine::PROBE_EVERY_MS);
+    assert_eq!(engine::probe_interval_ms(i64::MAX), engine::PROBE_EVERY_MS << engine::PROBE_BACKOFF_DOUBLINGS);
+    // An operator clear probes at once.
+    tx(&db, |s| engine::fault(s, seq, engine::GENERATION_UNAVAILABLE, now + 10)).unwrap();
+    assert!(tx(&db, |s| engine::clear_fault(s, "testnet-rehearsal-1", now + 20)).unwrap().cleared);
+    let after: i64 = db.conn.query_row("SELECT probe_after_ms FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap();
+    assert_eq!(after, 0);
+}
+
+/// L2 review r1 (item 5), r2 (item 7): a probe's start is durable before
+/// its call. While it may still run (its deadline), no second probe starts,
+/// however many steps run; a probe cut off mid-call is charged its bound
+/// once its deadline and an interval have passed, and the cut-off probe's
+/// late outcome leaves the newer probe's pending record alone.
+#[test]
+fn a_probe_cut_off_mid_call_is_charged_its_bound() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let now = 2_000_000;
+    tx(&db, |s| engine::fault(s, seq, engine::GENERATION_UNAVAILABLE, now)).unwrap();
+    db.conn.execute("UPDATE eval_obs SET kick_ms = ?1 WHERE id = 1", [now as i64]).unwrap();
+    let Some(Work::Probe { probe, .. }) = tx(&db, |s| engine::probe_due(s, &cfg(), now)).unwrap() else {
+        panic!("a probe is due");
+    };
+    let c = tx(&db, |s| engine::cohort(s, seq)).unwrap();
+    let bound = engine::probe_bound_nanousd(&c, &probe).unwrap();
+    assert!(bound > 0);
+    let first = tx(&db, |s| engine::probe_begin(s, seq, &probe, now)).unwrap();
+    assert_eq!(first.until_ms, now + engine::probe_run_ms(&c, &probe).unwrap() + crate::liveness::TIMEOUT_MS);
+    // Steps while it runs, past the old one-minute interval: none starts another.
+    for at in [now + 1, now + engine::PROBE_EVERY_MS + 1, first.until_ms - 1, first.until_ms + engine::PROBE_EVERY_MS - 1] {
+        db.conn.execute("UPDATE eval_obs SET kick_ms = ?1 WHERE id = 1", [at as i64]).unwrap();
+        assert!(tx(&db, |s| engine::probe_due(s, &cfg(), at)).unwrap().is_none(), "in flight at {at}");
+    }
+    // The step was cut off: the next probe charges the first one's bound.
+    let later = first.until_ms + engine::PROBE_EVERY_MS;
+    db.conn.execute("UPDATE eval_obs SET kick_ms = ?1 WHERE id = 1", [later as i64]).unwrap();
+    assert!(tx(&db, |s| engine::probe_due(s, &cfg(), later)).unwrap().is_some());
+    let second = tx(&db, |s| engine::probe_begin(s, seq, &probe, later)).unwrap();
+    let (charged, runs, last): (i64, i64, String) = db
+        .conn
+        .query_row("SELECT probe_nanousd, probes, probe_last FROM cohorts WHERE seq = ?1", [seq], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap();
+    assert_eq!((charged as u64, runs, last.as_str()), (bound, 1, "cut_off"));
+    let st = status(&db, later);
+    assert_eq!(st["cohorts"][0]["probes"]["pending_bound_microusd"].as_u64(), Some(bound.div_ceil(1000)));
+    // The first probe's late outcome: the second's record stays.
+    let fail = engine::ProbeOutcome { ok: false, definitive: false, ms: 7, nanousd: 9, note: "late".into() };
+    assert!(!tx(&db, |s| engine::probe_done(s, seq, engine::GENERATION_UNAVAILABLE, &first, &fail, later + 1)).unwrap());
+    let (started, pending): (Option<i64>, i64) = db
+        .conn
+        .query_row("SELECT probe_started_ms, probe_pending_nanousd FROM cohorts WHERE seq = ?1", [seq], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert_eq!((started.map(|v| v as u64), pending as u64), (Some(second.started_ms), bound));
+    // The second's own outcome is recorded and ends it.
+    let ok = engine::ProbeOutcome { ok: true, definitive: false, ms: 1, nanousd: 1, note: "ok".into() };
+    assert!(tx(&db, |s| engine::probe_done(s, seq, engine::GENERATION_UNAVAILABLE, &second, &ok, later + 2)).unwrap());
+}
+
+/// L2 review r2 (item 6): a probe's outcome applies only to the fault it was
+/// started for. An operator clears the fault while a probe runs and the
+/// cohort pauses again with the same code: the old probe's success does not
+/// resume the new pause, and its definitive refusal does not hold it.
+#[test]
+fn a_probe_outcome_never_applies_to_a_later_fault_with_the_same_code() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 1), 10, 1_000_000);
+    let now = 2_000_000;
+    tx(&db, |s| engine::fault_with_cause(s, seq, engine::SCORER_UNAVAILABLE, Some("slot"), now)).unwrap();
+    let probe = engine::Probe::Scorer { lane: "x".into(), body: json!({}), admit: false };
+    for o in [
+        engine::ProbeOutcome { ok: true, definitive: false, ms: 1, nanousd: 1, note: "ok".into() },
+        engine::ProbeOutcome { ok: false, definitive: true, ms: 1, nanousd: 1, note: "definitive_refusal:x".into() },
+    ] {
+        let t = tx(&db, |s| engine::probe_begin(s, seq, &probe, now)).unwrap();
+        assert!(tx(&db, |s| engine::clear_fault(s, "testnet-rehearsal-1", now + 1)).unwrap().cleared);
+        tx(&db, |s| engine::fault_with_cause(s, seq, engine::SCORER_UNAVAILABLE, Some("slot"), now + 2)).unwrap();
+        assert!(!tx(&db, |s| engine::probe_done(s, seq, engine::SCORER_UNAVAILABLE, &t, &o, now + 3)).unwrap());
+        assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"), "the new pause stays");
+        assert_eq!(status(&db, now + 3)["cohorts"][0]["fault_cause"], "slot", "and keeps its own cause");
+    }
+}
+
+/// L2 review r2 (item 1): a probe that takes minutes never holds the
+/// bookkeeping of an earlier cohort while a later one stays paused: the
+/// purge of private predictions, the spend settle and the signed
+/// abandonment record all run between probes. A ledger that does not
+/// answer only delays the settle, which waits out its retry time, so it
+/// never holds the probe either.
+#[test]
+fn long_probes_never_hold_the_purge_settle_or_abandonment_record() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 10_000;
+    sim.generate = Box::new(|_| Err(Reject::Transport));
+    sim.run(seq, 400);
+    assert!(tx(&db, |s| engine::abandon(s, &p.label, "drill", sim.now)).unwrap());
+    // The next cohort opens and pauses on the same outage before any tick
+    // reaches the earlier cohort's bookkeeping.
+    let mut p2 = wide(20, 0);
+    p2.cohort = 2;
+    p2.label = "testnet-rehearsal-2".into();
+    let seq2 = tx(&db, |s| engine::queue(s, &cfg(), &serde_json::to_vec(&p2).unwrap(), sim.now)).unwrap();
+    for e in 0..3 {
+        kick_at(&db, 20 + e, sim.now);
+    }
+    sim.ledger_down = true;
+    sim.probe_ms = 120_000;
+    let purged = |db: &Sqlite| -> Option<i64> { db.conn.query_row("SELECT purged_ms FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap() };
+    let settled = |db: &Sqlite| -> Option<i64> { db.conn.query_row("SELECT settled_microusd FROM cohorts WHERE seq = 1", [], |r| r.get(0)).unwrap() };
+    let mut paused_at = None;
+    for _ in 0..400 {
+        sim.tick();
+        if paused_at.is_none() && fault_of(&db, seq2).is_some() {
+            paused_at = Some(sim.probes.len());
+        }
+        if paused_at.is_some() && sim.probes.len() >= paused_at.unwrap() + 4 {
+            break;
+        }
+    }
+    assert_eq!(fault_of(&db, seq2).as_deref(), Some("generation_unavailable"), "the later cohort stays paused");
+    assert!(sim.probes.len() >= paused_at.unwrap() + 4, "probes kept running while the ledger failed: {:?}", sim.probes.len());
+    assert!(purged(&db).is_some(), "private predictions purged between probes");
+    // The purge ran before the later cohort's first probe, not behind it.
+    let first = sim.probe_starts.iter().find(|(s, _)| *s == seq2).unwrap().1;
+    assert!(purged(&db).unwrap() as u64 <= first, "purged at {:?}, first probe at {first}", purged(&db));
+    let key = format!("cohorts/{}/{}", p.label, engine::ABANDONMENT_KEY);
+    assert!(sim.rcpt.contains_key(&key), "the abandonment record was written between probes");
+    assert!(settled(&db).is_none() && sim.settle_calls > 1, "the settle failed and was retried");
+    let st = status(&db, sim.now);
+    assert_eq!(st["bookkeeping_retry"][0]["kind"], "settle");
+    // The ledger answers: the settle lands between probes.
+    sim.ledger_down = false;
+    for _ in 0..20 {
+        sim.tick();
+    }
+    assert!(settled(&db).is_some());
+    assert_eq!(fault_of(&db, seq2).as_deref(), Some("generation_unavailable"));
+    assert!(status(&db, sim.now)["bookkeeping_retry"].as_array().unwrap().is_empty());
+}
+
+/// L2 review r2 (item 9): a cohort paused by a legacy budget fault signs
+/// its abandonment record with the neutral `resource_guard` code, as both
+/// its fault and (when the operator gave the fault code) its reason.
+#[test]
+fn a_budget_paused_cohort_is_abandoned_under_a_neutral_code() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick();
+    db.conn.execute("UPDATE cohorts SET fault = 'scoring_budget' WHERE seq = ?1", [seq]).unwrap();
+    assert!(tx(&db, |s| engine::abandon(s, &p.label, engine::SCORING_BUDGET, sim.now)).unwrap());
+    let (_, r) = tx(&db, |s| engine::abandonment_record(s, &cfg(), seq)).unwrap();
+    assert_eq!((r.fault.as_str(), r.reason.as_str()), (engine::RESOURCE_GUARD, engine::RESOURCE_GUARD));
+    assert!(!r.fault.contains("budget") && !r.reason.contains("budget"));
+    for _ in 0..5 {
+        sim.tick();
+    }
+    let bytes = sim.rcpt[&format!("cohorts/{}/{}", p.label, engine::ABANDONMENT_KEY)].clone();
+    let keys = slop_ninja_protocol::fixtures::trusted_keys();
+    let signed = slop_ninja_protocol::Signed::<slop_ninja_protocol::submission::CohortAbandonment>::open(&bytes, &keys).unwrap();
+    assert_eq!((signed.fault.as_str(), signed.reason.as_str()), ("resource_guard", "resource_guard"));
+    assert_eq!(engine::ABANDONMENT_KEY, slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD);
+}
+
+/// L2 review r1 (item 1): a previous reference's slot failures are probed
+/// with its own artifact, not the reference's.
+#[test]
+fn a_previous_reference_pause_probes_its_own_artifact() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = wide(20, 1);
+    p.previous_reference = Some(super::plan::tests::artifact(super::plan::tests::identity(0, 0xb0), 0x23));
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 3_000;
+    let broken = std::rc::Rc::new(std::cell::Cell::new(true));
+    let b2 = broken.clone();
+    sim.start = Box::new(move |job, _| {
+        if job == 1 && b2.get() { Err(RestartFailure::Artifact { code: "artifact load failed", definitive: false }) } else { Ok(()) }
+    });
+    sim.run(seq, 800);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"));
+    assert_eq!(status(&db, sim.now)["cohorts"][0]["fault_cause"], "slot:previous_reference");
+    for _ in 0..100 {
+        sim.tick();
+    }
+    assert!(!sim.probe_jobs.is_empty());
+    assert!(sim.probe_jobs.iter().all(|j| *j == 1), "the previous reference's artifact: {:?}", sim.probe_jobs);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"), "its load still fails");
+    broken.set(false);
+    for _ in 0..25 {
+        sim.tick();
+    }
+    assert_eq!(fault_of(&db, seq), None, "its first good probe resumes it");
+    assert_eq!(sim.run(seq, 800), "transition");
+}
+
+/// L2 review r1 (item 10): a generator the provider stopped serving
+/// answers the probe as served (the work path rotates the item's
+/// generator), so the paused cohort resumes instead of waiting.
+#[test]
+fn a_retired_generator_resumes_a_generation_pause() {
+    let g = |m: Reject| GenOutcome { idx: 0, generator: "g".into(), claim: 0, output: Err(m), prompt_tokens: 0, completion_tokens: 0, ms: 0 };
+    assert!(engine::probe_answered(&g(Reject::ModelUnavailable)));
+    assert!(!engine::probe_answered(&g(Reject::Transport)));
+    assert!(!engine::probe_answered(&g(Reject::Throttled)));
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let mut p = wide(20, 0);
+    let (old, new) = ("@cf/meta/llama-3.2-3b-instruct", "@cf/meta/llama-3.2-1b-instruct");
+    p.generators = vec![old.into(), new.into()];
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 10_000;
+    sim.generate = Box::new(|_| Err(Reject::Transport));
+    sim.run(seq, 400);
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("generation_unavailable"));
+    // The old generator is retired; the other serves.
+    sim.generate = Box::new(move |it| if it.generator == old { Err(Reject::ModelUnavailable) } else { Ok(answer(it)) });
+    for _ in 0..12 {
+        sim.tick();
+    }
+    assert_eq!(fault_of(&db, seq), None);
+    assert_eq!(sim.run(seq, 800), "transition");
+}
+
+/// L2 review r1 (items 3, 11): an abandonment record that cannot be written
+/// waits out its retry time and never holds up the next cohort's work.
+#[test]
+fn a_failing_abandonment_record_holds_no_other_work() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 10_000;
+    sim.generate = Box::new(|_| Err(Reject::Transport));
+    sim.run(seq, 400);
+    let blocked = std::rc::Rc::new(std::cell::Cell::new(true));
+    let b2 = blocked.clone();
+    sim.r2 = Box::new(move |key, put| b2.get() && put && key.ends_with(engine::ABANDONMENT_KEY));
+    assert!(tx(&db, |s| engine::abandon(s, &p.label, engine::GENERATION_UNAVAILABLE, sim.now)).unwrap());
+    sim.generate = Box::new(|it| Ok(answer(it)));
+    let mut p2 = wide(20, 0);
+    p2.cohort = 2;
+    p2.label = "testnet-rehearsal-2".into();
+    let bytes = serde_json::to_vec(&p2).unwrap();
+    let seq2 = tx(&db, |s| engine::queue(s, &cfg(), &bytes, sim.now)).unwrap();
+    for e in 0..3 {
+        kick_at(&db, 20 + e, sim.now);
+    }
+    assert_eq!(sim.run(seq2, 2_000), "transition", "the next cohort ran while the record kept failing");
+    let st = status(&db, sim.now);
+    assert!(st["cohorts"][0]["abandonment_record_ms"].is_null());
+    assert_eq!(st["cohorts"][0]["abandonment_record_retry"]["error"], "abandonment record put");
+    blocked.set(false);
+    for _ in 0..10 {
+        sim.tick();
+    }
+    let key = format!("cohorts/{}/{}", p.label, engine::ABANDONMENT_KEY);
+    assert!(sim.rcpt.contains_key(&key), "written once the bucket answers");
+}
+
+/// L2 review r1 (item 14): an abandonment reason is a listed public-safe
+/// code or the cohort's own fault code; an older stored reason outside the
+/// vocabulary is published as `unlisted`.
+#[test]
+fn abandonment_reasons_come_from_a_fixed_vocabulary() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let p = wide(20, 0);
+    let seq = open_cohort(&db, &p, 10, 1_000_000);
+    tx(&db, |s| engine::fault(s, seq, "batch_shortfall", 1_000_100)).unwrap();
+    for bad in ["operator:spend_cap", "budget", "provider_account"] {
+        assert!(tx(&db, |s| engine::abandon(s, &p.label, bad, 1_000_200)).is_err(), "{bad}");
+    }
+    assert!(tx(&db, |s| engine::abandon(s, &p.label, "batch_shortfall", 1_000_200)).unwrap());
+    let (_, r) = tx(&db, |s| engine::abandonment_record(s, &cfg(), seq)).unwrap();
+    assert_eq!(r.reason, "batch_shortfall");
+    db.conn.execute("UPDATE cohorts SET abandoned_reason = 'old_free_code' WHERE seq = ?1", [seq]).unwrap();
+    let (_, r) = tx(&db, |s| engine::abandonment_record(s, &cfg(), seq)).unwrap();
+    assert_eq!(r.reason, "unlisted");
+    for code in engine::ABANDON_REASONS {
+        assert!(code.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'), "{code}");
+    }
+}
+
+/// L2 review r1 (item 9): a new cohort plan declares its generation pause
+/// bound; a template without one gives its cohorts the compiled bound
+/// written into their plans, so the seal binds it.
+#[test]
+fn a_new_plan_declares_its_generation_pause_bound() {
+    let mut p = wide(20, 0);
+    p.fanout.as_mut().unwrap().generation.failures_before_pause = None;
+    let bytes = serde_json::to_vec(&p).unwrap();
+    let e = engine::admit(&cfg(), &bytes).unwrap_err();
+    assert!(format!("{e:?}").contains("fanout.generation.failures_before_pause"), "{e:?}");
+    p.fanout.as_mut().unwrap().generation.failures_before_pause = Some(7);
+    let (plan, _) = engine::admit(&cfg(), &serde_json::to_vec(&p).unwrap()).unwrap();
+    assert_eq!(plan.fanout().unwrap().generation.failures_before_pause(), 7);
+}
+
+/// L2 review r1 (item 12): probes run on one stable lane object per
+/// instance and authority, never one per cohort.
+#[test]
+fn the_probe_lane_is_one_stable_name_per_scope() {
+    let name = engine::probe_lane_name(&cfg());
+    assert_eq!(name, format!("a-scorer/{}/{}/fault-probe", crate::config::NETWORK, cfg().lane_scope()));
+    assert!(!name.contains("rehearsal"));
+}
+
 #[test]
 fn load_mode_rescores_a_sealed_batch_without_a_target() {
     // A main cohort seals a batch; the load instance re-scores it for 6 copies.
@@ -1889,7 +2575,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 19));
+    assert_eq!((report.from, report.to), (3, 20));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -2032,7 +2718,17 @@ fn an_artifact_that_never_loads_is_model_errors_and_a_reference_that_never_loads
     });
     sim.run(seq, 800);
     assert_eq!(fault_of(&db, seq).as_deref(), Some("scorer_unavailable"));
+    // A definitive refusal is a cause no probe clears: no probe cold-starts
+    // the refused artifact again (L2 review r1, item 8); the operator clears
+    // it once a scorer that admits the reference is deployed.
+    for _ in 0..200 {
+        sim.tick();
+    }
+    assert!(sim.probes.is_empty(), "no probe of a definitive refusal: {:?}", sim.probes);
     assert_eq!(refused.get(), 1, "one refused load, then paused");
+    let st = status(&db, sim.now);
+    assert_eq!(st["cohorts"][0]["fault_cause"], "definitive:reference");
+    assert_eq!(st["cohorts"][0]["probes"]["probed"], false);
     let st = status(&db, sim.now);
     assert!(st["cohorts"][0]["jobs"][0]["artifact_failed"].is_null(), "a reference is never attributed");
     let note: String = db

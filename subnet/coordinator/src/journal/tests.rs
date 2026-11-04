@@ -629,7 +629,8 @@ fn migrations_are_pinned_by_content() {
     }
     // v1-v17 are deployed on eval-testnet (store 17 since 2026-11-04); v18 is
     // the stuck-states fix round 1's step-error epoch, v19 fix round 2's
-    // attempt extensions, budget alert and watermark epoch.
+    // attempt extensions, budget alert and watermark epoch; v20 the
+    // eval-no-skip lane's outage probe and abandonment record.
     const EVAL: &[&str] = &[
         "bb26853f9d8c37f8",
         "a77de0832bb5add7",
@@ -650,6 +651,7 @@ fn migrations_are_pinned_by_content() {
         "2950d55dafc23816",
         "dd90865bbfd05bf0",
         "7a8ff491377e3cc9",
+        "942dc264582d1a0c",
     ];
     // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
     // lane's; v12 the automatic target handoff's.

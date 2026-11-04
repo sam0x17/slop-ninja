@@ -2238,14 +2238,37 @@ fn a_packaged_cohort_without_its_closure_holds_later_ones() {
         listed(&idx.unwrap()),
         vec![SEED_LABEL.to_owned(), b.label.clone(), next.label.clone()]
     );
-    // Abandoned (its record beside it): no closure follows, N+1 is listed.
+    // Abandoned (its signed record beside it): no closure follows, N+1 is
+    // listed. A record that does not verify (unsigned bytes, another
+    // label, another chain) holds as if absent.
     let (b, next, x) = two_cohorts();
     x.receipts.remove(&format!("{}/{}", dir(&b.label), verify::CLOSURE));
-    x.receipts.insert(
-        &format!("{}/{}", dir(&b.label), publish::ABANDONMENT),
-        vec![1],
-    );
-    let (report, idx) = run(&cfg, &x, &mut Memo::default());
+    let rec = format!("{}/{}", dir(&b.label), publish::ABANDONMENT);
+    let record = |label: &str, chain: slop_ninja_protocol::ChainBinding| {
+        let a = slop_ninja_protocol::submission::CohortAbandonment {
+            chain,
+            cohort: b.c.manifest.cohort,
+            cohort_label: label.to_owned(),
+            cohort_manifest: None,
+            fault: "generation_unavailable".into(),
+            reason: "drill".into(),
+            abandoned_epoch: Some(1),
+        };
+        slop_ninja_protocol::sign(a, &slop_ninja_protocol::fixtures::package_key())
+            .unwrap()
+            .to_bytes()
+            .unwrap()
+    };
+    let mut other_chain = cfg.chain.clone();
+    other_chain.netuid += 1;
+    let mut memo = Memo::default();
+    for bad in [vec![1], record("testnet-other", cfg.chain.clone()), record(&b.label, other_chain)] {
+        x.receipts.insert(&rec, bad);
+        let (report, _) = run(&cfg, &x, &mut memo);
+        assert!(report.published.is_empty(), "{report:?}");
+    }
+    x.receipts.insert(&rec, record(&b.label, cfg.chain.clone()));
+    let (report, idx) = run(&cfg, &x, &mut memo);
     assert_eq!(report.published, vec![next.label.clone()], "{report:?}");
     assert!(!idx.unwrap().contains(&b.label));
     // Abandoned with no abandonment record (none is written yet), but the

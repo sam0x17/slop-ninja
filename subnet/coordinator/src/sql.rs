@@ -843,5 +843,11 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 19,
             statements: crate::eval::engine::SCHEMA_V19,
         },
+        // v20: the automatic outage probe's state and spend, and the
+        // abandonment record's write.
+        Migration {
+            version: 20,
+            statements: crate::eval::engine::SCHEMA_V20,
+        },
     ],
 };

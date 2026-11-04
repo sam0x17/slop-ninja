@@ -126,6 +126,16 @@ pub struct CohortView {
     /// Infrastructure attempt extensions past `max_attempts`
     /// (`attempt_extensions`).
     pub attempt_extensions: Option<u64>,
+    /// What raised the cohort's fault (`fault_cause`: a scorer failure
+    /// class, a definitive refusal, an admission subject), when reported.
+    pub fault_cause: Option<String>,
+    /// Whether the coordinator reports that the cohort's fault does not
+    /// clear by itself (`operator_clear_needed`): an operator clear or an
+    /// abandonment is needed. Absent from coordinators that do not report it.
+    pub operator_clear_needed: Option<bool>,
+    /// Jobs whose attempts no further extension fits under the receipt bound
+    /// (`receipt_bound_reached_jobs`).
+    pub receipt_bound_reached_jobs: Vec<u64>,
 }
 
 /// A cohort's failing root step: its code, the stored epoch at its first
@@ -462,6 +472,9 @@ struct CohortJson {
     step_error: Option<StepErrorView>,
     budget_alert: Option<String>,
     attempt_extensions: Option<u64>,
+    fault_cause: Option<String>,
+    operator_clear_needed: Option<bool>,
+    receipt_bound_reached_jobs: Option<Vec<u64>>,
 }
 
 #[derive(Deserialize, Default)]
@@ -605,6 +618,9 @@ fn eval_view(j: EvalJson) -> EvalView {
                 step_error: c.step_error,
                 budget_alert: c.budget_alert,
                 attempt_extensions: c.attempt_extensions,
+                fault_cause: c.fault_cause,
+                operator_clear_needed: c.operator_clear_needed,
+                receipt_bound_reached_jobs: c.receipt_bound_reached_jobs.unwrap_or_default(),
             })
         })
         .collect();

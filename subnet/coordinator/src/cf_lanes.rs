@@ -1307,7 +1307,7 @@ impl EvalLane {
                         }
                     }
                     refund(unused).await;
-                    let timeout = a.gen_lease_ms.saturating_sub(15_000).max(10_000);
+                    let timeout = crate::eval::lanes::gen_call_timeout_ms(a.gen_lease_ms);
                     let done = join_all(items.iter().map(|it| ev::ai_generate(env, it, timeout))).await;
                     let feedback: Vec<Feedback> = done
                         .iter()

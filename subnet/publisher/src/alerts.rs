@@ -51,6 +51,7 @@
 //! | `attempts_extended` | a cohort not yet closed has a chunk whose infrastructure failures (lost leases, crashes, failed requests) used the plan's `max_attempts` and got another round (`attempt_extensions`); nothing is paused |
 //! | `epoch_deferred` | the epoch index at the eval status's confirmed watermark is two or more past its stored epoch: increments have waited for a head-epoch reading through a whole tempo of watermark progress (failed or refused head reads), so the cohort schedule is not advancing |
 //! | `inclusion_unknown` | a recent coordinator commit operation settled `inclusion_unverifiable`: its nonce was consumed but the inclusion could not be read, so whether that epoch's commit landed is unknown (the signer keeps running; one alert per operation) |
+//! | `operator_clear_needed` | a cohort the other fault rules report is paused by a fault the coordinator says does not clear by itself (`operator_clear_needed`: not a probed outage in a work phase, nor an admission outage whose subjects it re-reads; for example a store-caused or definitive scorer pause, `unresolved_infrastructure` with jobs at the receipt bound, or a terminal fault): it stays paused until an operator clears or abandons it. The detail names the fault, its cause and any jobs at the receipt bound |
 //! | `cohort_fault` | a cohort not yet closed is paused by any other fault (for example `framing_unavailable` while admission waits on a framing step, or `step_refused` when a root step fails in a way no wait changes), or a closed cohort's closure step is paused; or such a cohort's root step has kept failing on a retried (transient) code through a whole tempo of chain progress (its stored epoch two past the one it first failed in), which pauses nothing |
 //! | `ledger_threshold` | the spend ledger's billing month (settled spend plus open reservations) is past the deployment's private alert threshold; tracking only, nothing is refused |
 //! | `retention_stalled` | the eval status reports a due cohort whose detailed receipts remain after a further completion, or a predecessor authority not yet finished after one (judged by completions, never a clock): deletion is not keeping up with the N+2 rule (a failing step or unreadable authorization pointer, named by its last error); or (subject `public_receipts`) the publisher's own N+2 reading of the public record disagrees with the coordinator's retirement markers, which alone delete public receipts: a marker whose due point the record reached while the public reading still holds the cohort, or a cohort the public reading found due with no marker after two further completions |
@@ -83,7 +84,12 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v13: `retention_stalled` for `public_receipts`, the publisher's own
+/// v14: `operator_clear_needed` for a paused cohort whose fault the
+/// coordinator says does not clear by itself, and the fault rules' detail
+/// names the fault's cause and any jobs at the receipt bound; the retired
+/// `monthly_cap` fault code is dropped from [`SCORER_BUDGET_FAULTS`]
+/// (nothing raises it; budgets only alert); v13:
+/// `retention_stalled` for `public_receipts`, the publisher's own
 /// cross-check of the coordinator's retirement markers, which now alone
 /// delete public detailed receipts; a pass that did not finish its
 /// retention step keeps the previous reading ([`retention_after_pass`])
@@ -105,7 +111,7 @@ pub use slop_ninja_alerts_wire::{
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v13";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v14";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -152,7 +158,6 @@ pub const SCORER_BUDGET_FAULTS: &[&str] = &[
     "scoring_budget",
     "generation_budget",
     "unresolved_infrastructure",
-    "monthly_cap",
 ];
 
 /// Thresholds, each derived from a deployment parameter or the readiness
@@ -359,12 +364,28 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
                 } else {
                     "cohort_fault"
                 };
-                out.push(cond(
-                    rule,
-                    &c.label,
-                    format!("fault {code} in {}", c.phase),
-                    0,
-                ));
+                let mut detail = format!("fault {code} in {}", c.phase);
+                if let Some(cause) = &c.fault_cause {
+                    detail.push_str(&format!(" (cause {cause})"));
+                }
+                if !c.receipt_bound_reached_jobs.is_empty() {
+                    detail.push_str(&format!(
+                        "; jobs at the receipt bound: {:?}",
+                        c.receipt_bound_reached_jobs
+                    ));
+                }
+                out.push(cond(rule, &c.label, detail.clone(), 0));
+                // The coordinator says this pause does not clear by itself:
+                // an operator clear or abandonment is needed, unlike a
+                // probed outage that resumes once the platform answers.
+                if c.operator_clear_needed == Some(true) {
+                    out.push(cond(
+                        "operator_clear_needed",
+                        &c.label,
+                        format!("{detail}: no automatic clear; /eval/clear or /eval/abandon"),
+                        0,
+                    ));
+                }
             } else if let Some(code) = c.budget_alert.as_ref().filter(|_| c.active()) {
                 out.push(cond(
                     "scorer_budget_fault",
@@ -659,6 +680,7 @@ pub const STATUS_RULES: &[&str] = &[
     "epoch_deferred",
     "inclusion_unknown",
     "cohort_fault",
+    "operator_clear_needed",
     "ledger_threshold",
     "retention_stalled",
     "ledger_threshold_unset",
@@ -760,7 +782,7 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
         "webhook_paused" => need_worker(o, subject, &[SUBSCRIPTION], &mut n),
         "status_access_warning" => need_worker(o, subject, &[ACCESS], &mut n),
         "watermark_stalled" => need_worker(o, subject, &[], &mut n),
-        "scorer_budget_fault" | "cohort_fault" | "attempts_extended" => {
+        "scorer_budget_fault" | "cohort_fault" | "attempts_extended" | "operator_clear_needed" => {
             need_eval(o, Some(COHORTS), &mut n)
         }
         "epoch_deferred" => need_eval(
@@ -1139,6 +1161,43 @@ mod tests {
 
     fn rules_of(c: &[Condition]) -> Vec<&'static str> {
         c.iter().map(|c| c.rule).collect()
+    }
+
+    /// v14: a paused cohort whose fault the coordinator says does not
+    /// clear by itself also raises `operator_clear_needed`, its detail
+    /// naming the cause and any jobs at the receipt bound; a self-clearing
+    /// pause (a probed outage) raises only its fault rule, and so does a
+    /// coordinator that does not report the field.
+    #[test]
+    fn a_pause_that_needs_an_operator_is_told_apart_from_a_self_clearing_one() {
+        let (r, p) = (rules(), PublisherObs::default());
+        let at = |fault: &str, cause: Value, needed: Value, bound: Value| -> Vec<Condition> {
+            let mut j = eval_status("scoring");
+            j["cohorts"][1]["fault"] = json!(fault);
+            j["cohorts"][1]["fault_cause"] = cause;
+            j["cohorts"][1]["operator_clear_needed"] = needed;
+            j["cohorts"][1]["receipt_bound_reached_jobs"] = bound;
+            let mut e = parse_eval(&j);
+            e.ledger_over_threshold = Some(false);
+            let mut o = healthy();
+            o.coordinator.as_mut().unwrap().signing = None;
+            o.eval = Some(e);
+            evaluate(&o, &p, &r)
+        };
+        let c = at("scorer_unavailable", json!("slot"), json!(false), json!([]));
+        assert_eq!(rules_of(&c), vec!["scorer_budget_fault"]);
+        assert_eq!(c[0].detail, "fault scorer_unavailable in scoring (cause slot)");
+        let c = at("scorer_unavailable", json!("store"), json!(true), json!([]));
+        assert_eq!(rules_of(&c), vec!["scorer_budget_fault", "operator_clear_needed"]);
+        assert!(c[1].detail.contains("cause store") && c[1].detail.contains("no automatic clear"), "{c:?}");
+        let c = at("unresolved_infrastructure", Value::Null, json!(true), json!([2, 5]));
+        assert_eq!(rules_of(&c), vec!["scorer_budget_fault", "operator_clear_needed"]);
+        assert!(c[1].detail.contains("jobs at the receipt bound: [2, 5]"), "{c:?}");
+        let c = at("step_refused", Value::Null, json!(true), Value::Null);
+        assert_eq!(rules_of(&c), vec!["cohort_fault", "operator_clear_needed"]);
+        let c = at("step_refused", Value::Null, Value::Null, Value::Null);
+        assert_eq!(rules_of(&c), vec!["cohort_fault"]);
+        assert!(STATUS_RULES.contains(&"operator_clear_needed"));
     }
 
     #[test]

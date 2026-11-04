@@ -175,6 +175,13 @@ pub struct TaskOutcome {
     /// or could not score a control document, on fresh instances).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub artifact_failed: bool,
+    /// A reference job's document the scorer left without an answer (its
+    /// error for the document, or a crash reproduced on a proven instance):
+    /// the receipt records the model error the scorer gave, but a reference
+    /// is never attributed, so the commit keeps no outcome row for it and
+    /// the document stays unresolved (`lane_logic::unanswered`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unattributed: bool,
 }
 
 impl TaskOutcome {
@@ -193,7 +200,15 @@ impl TaskOutcome {
             tokens,
             isolated_crash: false,
             artifact_failed: false,
+            unattributed: false,
         }
+    }
+
+    /// Whether the commit keeps an outcome row for this document (it is
+    /// resolved): every outcome except an infrastructure error and a
+    /// reference's unattributed one ([`TaskOutcome::unattributed`]).
+    pub fn resolves(&self) -> bool {
+        self.class != 5 && !self.unattributed
     }
 
     pub fn infrastructure(task: u32) -> Self {

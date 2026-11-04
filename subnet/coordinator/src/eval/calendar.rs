@@ -446,6 +446,12 @@ pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>
     plan.reference = reference;
     plan.previous_reference = previous;
     plan.entrants = Vec::new();
+    // A template installed before the generation pause bound was required
+    // gives its cohorts the bound those builds compiled in, written into the
+    // plan so the cohort's seal binds it.
+    if let Some(f) = plan.fanout.as_mut() {
+        f.generation.failures_before_pause.get_or_insert(crate::eval::plan::GEN_FAILURES_BEFORE_PAUSE_COMPILED);
+    }
     let bytes = serde_json::to_vec(&plan).map_err(|_| EvalError::State("next plan"))?;
     Ok(Some((plan.label, bytes)))
 }

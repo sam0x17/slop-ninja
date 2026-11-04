@@ -45,11 +45,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Model answers (accepted or rejected for content) per item before it is
 /// dropped from the batch. Outages (transport failures, or no output at all)
-/// never count: they back off and, past [`GEN_INFRA_MAX`], pause the cohort.
+/// never count: they back off and, past the plan's
+/// `fanout.generation.failures_before_pause`, pause the cohort.
 pub const MAX_GEN_ATTEMPTS: i64 = 4;
-/// Consecutive outage failures of one item that pause the cohort
-/// (`generation_unavailable`): with the backoff below, about 10 minutes.
-pub const GEN_INFRA_MAX: i64 = 10;
 const GEN_BACKOFF_BASE_MS: u64 = 5_000;
 const GEN_BACKOFF_MAX_MS: u64 = 120_000;
 /// Consecutive scorer failures that never reached the model (a slot that does
@@ -341,6 +339,43 @@ pub const SCHEMA_V19: &[&str] = &[
     "ALTER TABLE eval_obs ADD COLUMN watermark_epoch INTEGER",
 ];
 
+/// v20: the automatic resume probe of an outage fault ([`probe_due`],
+/// [`probe_begin`], [`probe_done`]: when the next probe may run, how many
+/// ran, consecutive failures, their measured time and spend, the bound
+/// charged for a probe in flight, and the last outcome), the cause recorded
+/// with a fault (`fault_cause`, and `scorer_cause` while scorer failures
+/// count), whether the cohort was cleared automatically with no progress
+/// since (`auto_cleared`: how many in a row, which backs the probe interval
+/// off, [`probe_interval_ms`]), which fault a probe was started for
+/// (`fault_n`, counted per cohort, and `probe_fault_n`) and until when it
+/// may still run (`probe_until_ms`), when the signed abandonment record of
+/// an abandoned cohort was written or may be retried
+/// ([`Work::AbandonMarker`]), and the jobs whose attempts no further
+/// extension fits under the receipt bound (`receipt_bound_reached`), and the
+/// retry time of a bookkeeping step that failed (`bookkeeping_retry`,
+/// [`bookkeeping_failed`]).
+pub const SCHEMA_V20: &[&str] = &[
+    "ALTER TABLE cohorts ADD COLUMN probe_after_ms INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN probes INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN probe_failures INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN probe_ms INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN probe_nanousd INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN probe_last TEXT",
+    "ALTER TABLE cohorts ADD COLUMN abandon_marker_ms INTEGER",
+    "ALTER TABLE cohorts ADD COLUMN abandon_marker_retry_ms INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN abandon_marker_error TEXT",
+    "ALTER TABLE cohorts ADD COLUMN fault_cause TEXT",
+    "ALTER TABLE cohorts ADD COLUMN scorer_cause TEXT",
+    "ALTER TABLE cohorts ADD COLUMN auto_cleared INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN probe_started_ms INTEGER",
+    "ALTER TABLE cohorts ADD COLUMN probe_pending_nanousd INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE cohorts ADD COLUMN probe_until_ms INTEGER",
+    "ALTER TABLE cohorts ADD COLUMN probe_fault_n INTEGER",
+    "ALTER TABLE cohorts ADD COLUMN fault_n INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE jobs ADD COLUMN receipt_bound_reached INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE bookkeeping_retry (kind TEXT PRIMARY KEY, after_ms INTEGER NOT NULL, code TEXT NOT NULL)",
+];
+
 /// A plan names fresh stock without an admitted external entrant.
 pub const FRESH_STOCK_REFUSED: &str =
     "pool (fresh stock is drawn only for a cohort with an admitted external entrant; list exposed pools in EXPOSED_POOLS)";
@@ -348,25 +383,31 @@ pub const FRESH_STOCK_REFUSED: &str =
 /// The draw's fault code for a fresh pool without an admitted outside entrant.
 pub const FRESH_STOCK_REFUSED_CODE: &str = "fresh_stock_refused";
 
-/// Fault codes an operator clear can resume, because the frozen plan still
-/// allows the work: outages, refused scorer slots, platform refusals (an
-/// arena or object bound, which a corrected deployment lifts), a root step
-/// that failed the same way under the same inputs ([`STEP_REFUSED`]), and
+/// Fault codes an operator clear can resume, because the cohort's work can
+/// still finish: outages, refused scorer slots, platform refusals (an arena
+/// or object bound, which a corrected deployment lifts), a root step that
+/// failed the same way under the same inputs ([`STEP_REFUSED`]), a roster
+/// freeze the engine refused ([`crate::eval::admission::FREEZE_FAULT`]: the
+/// clear runs the freeze again on the same roster), and
 /// [`UNRESOLVED_INFRASTRUCTURE`]. Every other fault is terminal under the
-/// plan (no attempt, human or case is left) and needs [`abandon`].
-/// `package_refused` resumes once a corrected build is deployed: the frozen
-/// inputs are unchanged and packaging runs again from them.
-/// `reference_failure` is terminal by cause: infrastructure failures never
-/// reach packaging (a job with unresolved documents pauses the cohort as
-/// `unresolved_infrastructure` at the end of scoring), so it names model
-/// failures of the reference artifact itself, attributed by crash
-/// isolation, which the same frozen evidence repeats.
-/// The budget codes are kept for stores that paused under the earlier
-/// guard: the guards now only alert ([`note_budget`]), and a clear of an
-/// old budget fault resumes the cohort as before.
+/// plan (no human or case is left) and needs [`abandon`]. `package_refused`
+/// resumes once a corrected build is deployed: the frozen inputs are
+/// unchanged and packaging runs again from them. `reference_failure` is
+/// terminal by cause: it names a reference that answered invalidly (an
+/// answer that does not parse or holds no valid prediction). A reference's
+/// unanswered document (a scorer error, a crash reproduced on a proven
+/// instance) is never attributed to it: its receipt keeps the model error,
+/// marked unattributed, and the document stays unresolved
+/// (`lane_logic::unanswered`). The budget
+/// codes are kept for stores that paused under the earlier guard: the
+/// guards now only alert ([`note_budget`]), and a clear of an old budget
+/// fault resumes the cohort as before. The outage faults among these
+/// ([`PROBED_FAULTS`], [`EVIDENCE_CLEARED_FAULTS`]) also clear by themselves
+/// once the work they paused succeeds again ([`auto_clear`]).
 pub const RESUMABLE_FAULTS: &[&str] = &[
-    "generation_unavailable",
-    "scorer_unavailable",
+    GENERATION_UNAVAILABLE,
+    SCORER_UNAVAILABLE,
+    crate::eval::admission::FREEZE_FAULT,
     UNRESOLVED_INFRASTRUCTURE,
     "package_refused",
     crate::eval::commitments::SNAPSHOT_DISCARDED,
@@ -379,6 +420,112 @@ pub const RESUMABLE_FAULTS: &[&str] = &[
     SCORING_BUDGET,
     GENERATION_BUDGET,
 ];
+
+/// Generation's outage fault: an item's consecutive outages reached the
+/// plan's `fanout.generation.failures_before_pause`.
+pub const GENERATION_UNAVAILABLE: &str = "generation_unavailable";
+/// The scorer's outage fault: scorer slots that never reached the model
+/// reached `fanout.score.failures_before_pause`, or (admission) a verdict's
+/// platform failures did.
+pub const SCORER_UNAVAILABLE: &str = "scorer_unavailable";
+/// Outage faults of a work phase that an automatic probe may clear
+/// ([`probe_due`]): while the cohort is paused by one whose recorded cause
+/// the probe exercises ([`probed_cause`]), each tick runs one bounded probe
+/// of the paused platform, with no count or time limit, and the first that
+/// succeeds resumes the same cohort ([`probe_done`]). A probe that keeps
+/// failing only keeps the cohort paused. A cause the probe cannot see (a
+/// store failure, a refused commit, a definitive refusal) and a cohort that
+/// paused again with no progress since its last automatic clear are left to
+/// an operator clear, paused and visible.
+pub const PROBED_FAULTS: &[&str] = &[GENERATION_UNAVAILABLE, SCORER_UNAVAILABLE];
+
+/// Admission's outage faults, cleared once the subject that raised them
+/// succeeds and no other subject still meets its pause condition
+/// ([`crate::eval::admission`]'s `outage_passed`): the session whose framing
+/// kept being cut off framed, the commitment whose block's state was missing
+/// was served, or the verdict that kept meeting platform failures reached
+/// the scorer. The attempts go on with their backoff while the cohort is
+/// paused, so they are the probe; nothing extra is spent.
+pub const EVIDENCE_CLEARED_FAULTS: &[&str] = &[
+    crate::eval::admission::FRAMING_UNAVAILABLE,
+    crate::eval::commitments::STATE_UNAVAILABLE,
+    SCORER_UNAVAILABLE,
+];
+
+/// How often a paused cohort's outage probe runs: once per fallback tick
+/// (the coordinator's one-minute cron), however many kicks arrive, counted
+/// from the end of the previous probe.
+pub const PROBE_EVERY_MS: u64 = 60_000;
+
+/// The most times the probe interval doubles after automatic clears that
+/// saw no progress ([`probe_interval_ms`]): the longest wait, 64 one-minute
+/// ticks, stays under one default subnet tempo (360 blocks at the 12 s
+/// block time, `watchdog::BLOCK_TIME_MS`), so a platform that recovers is
+/// probed within the tempo it recovers in. There is no count or time limit.
+pub const PROBE_BACKOFF_DOUBLINGS: i64 = 6;
+
+/// The wait between a paused cohort's probes after `no_progress_clears`
+/// automatic clears in a row that saw no progress (`auto_cleared`):
+/// [`PROBE_EVERY_MS`] doubled once per clear, at most
+/// [`PROBE_BACKOFF_DOUBLINGS`] times. Progress resets the count
+/// ([`note_progress`]).
+pub fn probe_interval_ms(no_progress_clears: i64) -> u64 {
+    PROBE_EVERY_MS << no_progress_clears.clamp(0, PROBE_BACKOFF_DOUBLINGS)
+}
+
+/// What caused a scorer failure counted toward `scorer_unavailable`
+/// ([`note_scorer_failure`]), recorded with the fault (`fault_cause`) so only
+/// a cause the automatic probe exercises is cleared by it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScorerCause {
+    /// A scorer slot that did not start, load or take the request, or an
+    /// isolation instance that could not be restarted: what the probe
+    /// exercises (a fresh instance of the artifact scoring a document).
+    Slot,
+    /// A bucket read or write of the lane (batch shards, results or receipt
+    /// objects): the probe touches no bucket.
+    Store,
+    /// The cohort object refused a lane's commit: the probe commits nothing.
+    Commit,
+    /// A failure the lane did not classify (a request from an older lane
+    /// build, a receipt build error): never cleared automatically.
+    #[default]
+    Unclassified,
+}
+
+impl ScorerCause {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Slot => "slot",
+            Self::Store => "store",
+            Self::Commit => "commit",
+            Self::Unclassified => "unclassified",
+        }
+    }
+}
+
+/// Whether the recorded cause of a `scorer_unavailable` fault is one the
+/// probe exercises: slot failures of the reference (`slot`) or of the
+/// previous reference (`slot:previous_reference`), each probed with its own
+/// artifact.
+pub fn probed_cause(cause: Option<&str>) -> bool {
+    matches!(cause, Some("slot" | "slot:previous_reference"))
+}
+
+/// Whether fault `code` of a cohort in `phase`, raised by `cause`, clears
+/// without an operator: a probed outage in a work phase ([`probe_due`]:
+/// a generation outage, or a scorer outage of a [`probed_cause`]), or an
+/// admission outage while the cohort admits (its subjects re-read each
+/// admission step, [`EVIDENCE_CLEARED_FAULTS`]). Every other fault waits for
+/// an operator clear or an abandonment.
+pub fn self_clearing(phase: &str, code: &str, cause: Option<&str>) -> bool {
+    if WORK_PHASES.contains(&phase) {
+        code == GENERATION_UNAVAILABLE || (code == SCORER_UNAVAILABLE && probed_cause(cause))
+    } else {
+        phase == "admission" && EVIDENCE_CLEARED_FAULTS.contains(&code)
+    }
+}
 
 /// A cohort's root step (draw, seal, package or closure) failed in a way no
 /// wait changes: a content check (a digest or object that does not match its
@@ -855,9 +1002,24 @@ pub fn note_budget(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
 
 /// Pauses a cohort with a content-free fault code; its work and evidence stay.
 pub fn fault(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
+    fault_with_cause(sql, seq, code, None, now_ms).map(|_| ())
+}
+
+/// [`fault`] with the fault's cause (`fault_cause`: what raised it, a short
+/// content-free code such as a scorer failure class or the admission
+/// subject), which decides whether the fault clears without an operator
+/// ([`probe_due`], [`auto_clear`]). Returns whether this call set the fault
+/// (a cohort already faulted keeps its first fault and cause).
+pub fn fault_with_cause(sql: &impl Sql, seq: i64, code: &str, cause: Option<&str>, now_ms: u64) -> R<bool> {
     // Logged once: a cohort already faulted keeps its first fault and entry.
-    if sql.exec("UPDATE cohorts SET fault = ? WHERE seq = ? AND fault IS NULL RETURNING seq", &[s(code), i(seq)])?.is_empty() {
-        return Ok(());
+    if sql
+        .exec(
+            "UPDATE cohorts SET fault = ?, fault_cause = ?, fault_n = fault_n + 1 WHERE seq = ? AND fault IS NULL RETURNING seq",
+            &[s(code), cause.map_or(SqlValue::Null, s), i(seq)],
+        )?
+        .is_empty()
+    {
+        return Ok(false);
     }
     let o = observed(sql)?;
     sql.exec(
@@ -871,7 +1033,7 @@ pub fn fault(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
             i(seq),
         ],
     )?;
-    Ok(())
+    Ok(true)
 }
 
 /// Whether a root step's error code names a failure no wait changes: a
@@ -977,8 +1139,12 @@ pub fn clear_fault(sql: &impl Sql, label: &str, now_ms: u64) -> R<Cleared> {
             // Back to scoring: each faulted job's next claim extends its
             // exhausted chunks under the deployed receipt bound, or faults
             // the job again if none fits. No attempt or receipt is reset.
+            // A job that reached the receipt bound (`receipt_bound_reached`,
+            // shown in the status) faults again unless the deployed bound
+            // grew: the mark is set again in that case.
             sql.exec(
-                "UPDATE jobs SET status = 'running', fault = NULL WHERE seq = ? AND status = 'faulted' AND fault = ?",
+                "UPDATE jobs SET status = 'running', fault = NULL, receipt_bound_reached = 0
+                 WHERE seq = ? AND status = 'faulted' AND fault = ?",
                 &[i(seq), s(UNRESOLVED_INFRASTRUCTURE)],
             )?;
         }
@@ -995,12 +1161,82 @@ pub fn clear_fault(sql: &impl Sql, label: &str, now_ms: u64) -> R<Cleared> {
         }
         _ => {}
     }
+    resume(sql, seq, now_ms, "fault_cleared", false)?;
+    Ok(Cleared { cleared: true, refused: None })
+}
+
+/// Clears the outage fault `code` of cohort `seq` without an operator, once
+/// the work it paused succeeded again: an automatic probe ([`probe_done`]),
+/// or the success of the admission subject that raised it
+/// ([`EVIDENCE_CLEARED_FAULTS`]). `code` must still be the cohort's fault, so
+/// a later or different fault is never cleared this way, and no terminal
+/// fault ever is. In a work phase only a cause the probe exercises clears
+/// ([`probed_cause`]); a fault the probe cannot see (a store failure, a
+/// refused commit, a definitive refusal) stays for an operator. A cohort
+/// that pauses again with no progress since its last automatic clear (a
+/// committed chunk or a generation answer resets `auto_cleared`) is still
+/// probed and cleared, never held for good: each such clear doubles the
+/// wait before its next probe ([`probe_interval_ms`]), so a partly recovered
+/// platform cannot make a tight fault/clear loop, and the same cohort
+/// resumes by itself once it fully recovers. The phase log records
+/// `fault_auto_cleared:<code>` and how (`how`, a short content-free code).
+/// Returns whether it cleared.
+pub fn auto_clear(sql: &impl Sql, seq: i64, code: &str, how: &str, now_ms: u64) -> R<bool> {
+    if !(PROBED_FAULTS.contains(&code) || EVIDENCE_CLEARED_FAULTS.contains(&code)) {
+        return Ok(false);
+    }
+    let rows = sql.exec("SELECT phase, fault_cause FROM cohorts WHERE seq = ? AND fault = ?", &[i(seq), s(code)])?;
+    let Some(r) = rows.first() else { return Ok(false) };
+    let work_phase = WORK_PHASES.contains(&text(r, 0)?);
+    if work_phase {
+        if !PROBED_FAULTS.contains(&code) {
+            return Ok(false);
+        }
+        if code == SCORER_UNAVAILABLE && !probed_cause(opt_text(r, 1).as_deref()) {
+            return Ok(false);
+        }
+    }
+    resume(sql, seq, now_ms, &format!("fault_auto_cleared:{code} ({how})"), work_phase)?;
+    Ok(true)
+}
+
+/// The phases whose outage faults the automatic probe handles.
+pub const WORK_PHASES: &[&str] = &["generating", "sealing", "scoring", "packaging"];
+
+/// The cohort made progress (a committed chunk, a generation answer): the
+/// probe interval's back-off starts again ([`probe_interval_ms`]), and a
+/// later pause is probed within one [`PROBE_EVERY_MS`] of now.
+pub fn note_progress(sql: &impl Sql, seq: i64, now_ms: u64) -> R<()> {
     sql.exec(
-        "UPDATE cohorts SET fault = NULL, scorer_failures = 0, step_retry_ms = 0 WHERE seq = ?",
-        &[i(seq)],
+        "UPDATE cohorts SET auto_cleared = 0, probe_after_ms = MIN(probe_after_ms, ?) WHERE seq = ? AND auto_cleared != 0",
+        &[bind_u64(now_ms.saturating_add(PROBE_EVERY_MS))?, i(seq)],
     )?;
-    // Released claims are taken again with fresh outage allowances; no attempt
-    // number, answer or receipt is reset, and nothing is skipped.
+    Ok(())
+}
+
+/// Resumes paused cohort `seq`: its fault, its cause and outage counters
+/// cleared, its claims released so they are taken again with fresh outage
+/// allowances. No attempt number, answer or receipt is reset, and nothing is
+/// skipped. An automatic clear (`automatic`) counts one more clear without
+/// progress (`auto_cleared`, reset by [`note_progress`]) and sets the next
+/// probe's time from that count ([`probe_interval_ms`]), so a cohort that
+/// pauses again waits at least a full, backed-off probe interval; an
+/// operator clear probes at once and resets the count.
+fn resume(sql: &impl Sql, seq: i64, now_ms: u64, note: &str, automatic: bool) -> R<()> {
+    sql.exec(
+        "UPDATE cohorts SET fault = NULL, fault_cause = NULL, scorer_cause = NULL, scorer_failures = 0,
+            step_retry_ms = 0, probe_failures = 0,
+            auto_cleared = CASE WHEN ? THEN auto_cleared + 1 ELSE 0 END,
+            probe_after_ms = CASE WHEN ? THEN probe_after_ms ELSE 0 END WHERE seq = ?",
+        &[i(i64::from(automatic)), i(i64::from(automatic)), i(seq)],
+    )?;
+    if automatic {
+        let n = int(&sql.exec("SELECT auto_cleared FROM cohorts WHERE seq = ?", &[i(seq)])?[0], 0)?;
+        sql.exec(
+            "UPDATE cohorts SET probe_after_ms = MAX(probe_after_ms, ?) WHERE seq = ?",
+            &[bind_u64(now_ms.saturating_add(probe_interval_ms(n)))?, i(seq)],
+        )?;
+    }
     sql.exec(
         "UPDATE docs SET claim_until_ms = 0, infra_failures = 0, not_before_ms = 0, throttle_since_ms = 0
          WHERE seq = ? AND status = 'pending'",
@@ -1008,8 +1244,7 @@ pub fn clear_fault(sql: &impl Sql, label: &str, now_ms: u64) -> R<Cleared> {
     )?;
     sql.exec("UPDATE chunks SET claim_until_ms = 0 WHERE seq = ? AND status = 'pending'", &[i(seq)])?;
     let c = cohort(sql, seq)?;
-    set_phase(sql, seq, &c.phase, now_ms, "fault_cleared")?;
-    Ok(Cleared { cleared: true, refused: None })
+    set_phase(sql, seq, &c.phase, now_ms, note)
 }
 
 /// Operator action: end a faulted cohort without a target, so later cohorts can
@@ -1018,13 +1253,16 @@ pub fn clear_fault(sql: &impl Sql, label: &str, now_ms: u64) -> R<Cleared> {
 /// the cohort row with its receipt root and count stay; its detailed receipts
 /// follow the N+2 rule like any other cohort's (`eval::retention`). Private
 /// texts leave Durable Object storage as at a close. The calculation target
-/// stays the previous cohort's.
+/// stays the previous cohort's. The main instance then writes the signed,
+/// content-free abandonment record ([`Work::AbandonMarker`],
+/// [`abandonment_record`]) beside the cohort's other signed records, so the
+/// automatic target handoff can move past it.
 pub fn abandon(sql: &impl Sql, label: &str, reason: &str, now_ms: u64) -> R<bool> {
     let code_ok = !reason.is_empty()
-        && reason.len() <= 64
+        && reason.len() <= slop_ninja_protocol::submission::ABANDONMENT_CODE_MAX
         && reason.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_-.:".contains(&b));
     if !code_ok {
-        return Err(EvalError::Plan("abandon reason (a-z 0-9 _ - . :, at most 64)"));
+        return Err(EvalError::Plan("abandon reason (a-z 0-9 _ - . :, at most ABANDONMENT_CODE_MAX bytes)"));
     }
     // A faulted admission-phase cohort (a coordinator-admitted roster that
     // cannot freeze) is abandoned like a faulted work phase.
@@ -1036,6 +1274,9 @@ pub fn abandon(sql: &impl Sql, label: &str, reason: &str, now_ms: u64) -> R<bool
     )?;
     let Some(r) = rows.first() else { return Ok(false) };
     let (seq, fault_code) = (int(r, 0)?, text(r, 1)?.to_owned());
+    if !abandon_reason_listed(reason, &fault_code) {
+        return Err(EvalError::Plan("abandon reason (one of ABANDON_REASONS, or the cohort's fault code)"));
+    }
     let o = observed(sql)?;
     sql.exec(
         "UPDATE cohorts SET abandoned_reason = ?, abandoned_fault = ?, fault = NULL, closed_epoch = ? WHERE seq = ?",
@@ -1054,6 +1295,396 @@ pub fn abandon(sql: &impl Sql, label: &str, reason: &str, now_ms: u64) -> R<bool
     }
     set_phase(sql, seq, "abandoned", now_ms, &format!("abandoned:{reason} after fault:{fault_code}; no target"))?;
     Ok(true)
+}
+
+/// The reason codes an abandonment may give, besides the cohort's own fault
+/// code (which the engine wrote). The signed abandonment record carries the
+/// reason to readers outside the eval store, so it is a public-safe code
+/// from this fixed vocabulary or an engine fault code, never a figure, an
+/// account or a provider name; the legacy budget fault codes are published
+/// as [`RESOURCE_GUARD`] ([`published_code`]).
+pub const ABANDON_REASONS: &[&str] = &[
+    // The fault is terminal under the frozen plan (no attempt, human or case left).
+    "terminal_fault",
+    // The frozen plan cannot be completed as written.
+    "plan_defect",
+    // The cohort's reference cannot be scored by any deployable scorer.
+    "reference_unusable",
+    // The pool cannot supply the plan's documents.
+    "pool_shortfall",
+    // The chain record restarts under a new authority.
+    "authority_restart",
+    // A rehearsal or fault drill.
+    "drill",
+];
+
+/// Whether `reason` may be given for abandoning a cohort paused by
+/// `fault_code`: a listed reason ([`ABANDON_REASONS`]) or the fault code.
+pub fn abandon_reason_listed(reason: &str, fault_code: &str) -> bool {
+    ABANDON_REASONS.contains(&reason) || reason == fault_code
+}
+
+/// The signed abandonment record's key under the cohort's receipts prefix:
+/// the name the publisher reads, from the shared receipts-bucket contract.
+pub use slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD as ABANDONMENT_KEY;
+
+/// The neutral code the signed abandonment record gives, as its fault and
+/// reason, for the legacy budget fault codes ([`SCORING_BUDGET`],
+/// [`GENERATION_BUDGET`]): stores that paused under the earlier budget
+/// guard keep their codes, but the published record names no budget.
+pub const RESOURCE_GUARD: &str = "resource_guard";
+
+/// A fault or reason code as the signed abandonment record publishes it:
+/// the legacy budget codes as [`RESOURCE_GUARD`], every other code as it is.
+pub fn published_code(code: &str) -> &str {
+    match code {
+        SCORING_BUDGET | GENERATION_BUDGET => RESOURCE_GUARD,
+        c => c,
+    }
+}
+
+/// An abandoned cohort of this instance whose signed abandonment record is
+/// not written yet (main instance only: a load cohort is never in the chain
+/// record), and whose retry time has passed by `due_by` (`None`: any). The
+/// record is a later consistency aid for the target handoff, so it never
+/// holds other work: it is chosen only where receipt deletion is, once
+/// admission and the active cohort have nothing to send ([`next_work`]), and
+/// a write that fails waits out [`STEP_RETRY_MS`] ([`abandon_marker_failed`]).
+pub fn abandon_marker_due(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<Option<Work>> {
+    if cfg.is_load() {
+        return Ok(None);
+    }
+    let rows = sql.exec(
+        "SELECT seq FROM cohorts WHERE phase = 'abandoned' AND abandon_marker_ms IS NULL AND abandon_marker_retry_ms <= ?
+         ORDER BY seq LIMIT 1",
+        &[match due_by {
+            Some(n) => bind_u64(n)?,
+            None => i(i64::MAX),
+        }],
+    )?;
+    Ok(rows.first().map(|r| int(r, 0)).transpose()?.map(|seq| Work::AbandonMarker { seq }))
+}
+
+/// The abandonment record of `seq` could not be written (`code`, a short
+/// content-free code): it is retried after [`STEP_RETRY_MS`], and every
+/// other step goes on meanwhile.
+pub fn abandon_marker_failed(sql: &impl Sql, seq: i64, code: &str, now_ms: u64) -> R<()> {
+    sql.exec(
+        "UPDATE cohorts SET abandon_marker_retry_ms = ?, abandon_marker_error = ? WHERE seq = ? AND abandon_marker_ms IS NULL",
+        &[bind_u64(now_ms.saturating_add(STEP_RETRY_MS))?, s(code), i(seq)],
+    )?;
+    Ok(())
+}
+
+/// The abandonment record of abandoned cohort `seq` and its key: content-free
+/// (the chain, cohort number and label, its manifest digest when it was
+/// sealed, the fault it was paused by, the operator's reason code, and the
+/// epoch observed when it was abandoned). A cohort abandoned before reasons
+/// were recorded carries `unrecorded`. Legacy budget codes are published as
+/// [`RESOURCE_GUARD`] ([`published_code`]).
+pub fn abandonment_record(sql: &impl Sql, cfg: &EvalConfig, seq: i64) -> R<(String, slop_ninja_protocol::submission::CohortAbandonment)> {
+    let c = cohort(sql, seq)?;
+    if c.phase != "abandoned" {
+        return Err(EvalError::State("abandonment record of a cohort not abandoned"));
+    }
+    let r = &sql.exec("SELECT abandoned_reason, abandoned_fault, closed_epoch FROM cohorts WHERE seq = ?", &[i(seq)])?[0];
+    let fault = opt_text(r, 1);
+    let record = slop_ninja_protocol::submission::CohortAbandonment {
+        chain: cfg.chain.clone(),
+        cohort: c.plan.cohort,
+        cohort_label: c.label.clone(),
+        cohort_manifest: c.manifest_digest.as_deref().map(|d| parse_digest(d).ok_or(EvalError::State("manifest digest"))).transpose()?,
+        fault: fault.as_deref().map_or("unrecorded", published_code).to_owned(),
+        // A reason stored before the vocabulary (an older free code) is
+        // published as `unlisted`; the store keeps the original.
+        reason: match opt_text(r, 0) {
+            Some(x) if abandon_reason_listed(&x, fault.as_deref().unwrap_or("")) => published_code(&x).to_owned(),
+            Some(_) => "unlisted".into(),
+            None => "unrecorded".into(),
+        },
+        abandoned_epoch: opt_int(r, 2).map(|e| e as u64),
+    };
+    Ok((format!("{}/{ABANDONMENT_KEY}", receipt_prefix(&c.label)), record))
+}
+
+/// The abandonment record of `seq` is durable in the receipts bucket.
+pub fn abandon_marker_written(sql: &impl Sql, seq: i64, now_ms: u64) -> R<()> {
+    sql.exec(
+        "UPDATE cohorts SET abandon_marker_ms = ? WHERE seq = ? AND phase = 'abandoned' AND abandon_marker_ms IS NULL",
+        &[bind_u64(now_ms)?, i(seq)],
+    )?;
+    Ok(())
+}
+
+// --------------------------------------------------------- outage probes
+
+/// One bounded probe of the platform an outage fault paused ([`probe_due`]).
+/// A probe runs on a fixed control text (never cohort text) and touches no
+/// job. Its time and spend are recorded with the cohort and charged at its
+/// settle ([`probe_begin`], [`probe_done`]), and its runs, failures, time
+/// and spend are in the cohort's status. It writes no R2 receipt and is not
+/// bound into the signed score package: an open exception to the rule that
+/// every inference attempt has one, recorded for a decision (the existing
+/// `/eval/probe`, `/eval/scorer-probe` and admission runs are the same).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Probe {
+    /// One generation on a fixed synthetic prompt (never cohort text) by
+    /// `item.generator`, a generator of the paused items, within the lane's
+    /// call timeout.
+    Generation { item: GenItem, timeout_ms: u64 },
+    /// The control document on a freshly started scorer instance of the
+    /// artifact whose slots failed (the cohort's reference, or its previous
+    /// reference), under the cohort's label, spec and lane limits (the
+    /// admission route's single-use run): `body` is the scorer lane's
+    /// `/admit` request, or its `/run` request for a plan that names no
+    /// artifact spec (`admit` false). `lane` is one stable name per
+    /// instance and authority ([`probe_lane_name`]). It never touches an
+    /// entrant's job.
+    Scorer { lane: String, body: Value, admit: bool },
+}
+
+/// The scorer lane object a probe runs on: one per instance and authority
+/// (`EvalConfig::lane_scope`), stable across cohorts, so probes add no lane
+/// objects or container identities. A probe destroys any running instance
+/// before it starts and stops its own when done.
+pub fn probe_lane_name(cfg: &EvalConfig) -> String {
+    format!("a-scorer/{}/{}/fault-probe", crate::config::NETWORK, cfg.lane_scope())
+}
+
+/// A work-phase cohort paused by an outage fault ([`PROBED_FAULTS`]) whose
+/// next probe is due: one at a time (never while an earlier probe may still
+/// run, `probe_until_ms`), at most one per [`probe_interval_ms`] after the
+/// previous one ended, and only while the coordinator is alive (a fresh
+/// heartbeat), so silence costs nothing and never counts against anything.
+/// There is no count or time limit: a cohort is never skipped or abandoned
+/// because its probes keep failing. Only a cause the probe exercises is
+/// probed (a `scorer_unavailable` with a `fault_cause` of [`probed_cause`];
+/// a probe that met a definitive refusal records `definitive:probe`, which
+/// is not): the others wait for an operator clear.
+pub fn probe_due(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work>> {
+    if !crate::eval::lanes::live(sql, now_ms)? {
+        return Ok(None);
+    }
+    let rows = sql.exec(
+        "SELECT seq, fault, fault_cause FROM cohorts
+          WHERE (fault = ? OR (fault = ? AND fault_cause IN ('slot', 'slot:previous_reference')))
+            AND phase IN ('generating','sealing','scoring','packaging')
+            AND probe_after_ms <= ? AND (probe_started_ms IS NULL OR COALESCE(probe_until_ms, 0) <= ?)
+          ORDER BY seq LIMIT 1",
+        &[s(GENERATION_UNAVAILABLE), s(SCORER_UNAVAILABLE), bind_u64(now_ms)?, bind_u64(now_ms)?],
+    )?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    let (seq, code, cause) = (int(r, 0)?, text(r, 1)?.to_owned(), opt_text(r, 2));
+    let c = cohort(sql, seq)?;
+    let f = c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
+    let probe = if code == GENERATION_UNAVAILABLE {
+        // The generator of the paused item with the most outages in a row.
+        let g = sql.exec(
+            "SELECT generator_next FROM docs WHERE seq = ? AND status = 'pending' AND generator_next IS NOT NULL
+             ORDER BY infra_failures DESC, idx LIMIT 1",
+            &[i(seq)],
+        )?;
+        let generator = match g.first().and_then(|r| opt_text(r, 0)) {
+            Some(g) => g,
+            None => c.plan.generators.first().cloned().ok_or(EvalError::Plan("generators"))?,
+        };
+        let item = GenItem {
+            idx: -1,
+            kind: "probe".into(),
+            generator,
+            prompt: textgen::scratch_prompt("fineweb", "a short walk along a canal in early spring", 80),
+            attempt: 0,
+            claim: 0,
+        };
+        Probe::Generation { item, timeout_ms: crate::eval::lanes::gen_call_timeout_ms(f.generation.lease_ms) }
+    } else {
+        // The artifact whose slots failed: the previous reference's own
+        // load is probed with its artifact, every other cause with the
+        // reference's.
+        let a = match (cause.as_deref(), &c.plan.previous_reference) {
+            (Some("slot:previous_reference"), Some(p)) => p,
+            _ => &c.plan.reference,
+        };
+        let lane = probe_lane_name(cfg);
+        let control = json!([{"id": "0", "text": crate::eval::lane_logic::CONTROL_TEXT}]);
+        match (c.plan.load_spec_sha256(), crate::eval::admission::AdmitLimits::of(&c.plan)) {
+            (Some(spec), Some(limits)) => Probe::Scorer {
+                lane,
+                body: json!({"package_sha256": a.package_sha256, "manifest_key": a.manifest_key, "label": c.label,
+                    "spec_sha256": spec, "limits": limits, "docs": control}),
+                admit: true,
+            },
+            _ => Probe::Scorer {
+                lane,
+                body: json!({"package_sha256": a.package_sha256, "manifest_key": a.manifest_key, "docs": control}),
+                admit: false,
+            },
+        }
+    };
+    Ok(Some(Work::Probe { seq, code, probe }))
+}
+
+/// The most probe `p` of cohort `seq` can spend (nano-dollars), charged if
+/// its outcome is never recorded (a step cut off mid-call): a generation's
+/// prompt bytes (each at most one token) and its completion allowance at
+/// the generator's price; a scorer probe's instance and lane object held
+/// for every allowance the run is given (two loads, the inactivity bound
+/// and the control document's limit; a plan without limits, its lease),
+/// with every vCPU busy.
+pub fn probe_bound_nanousd(c: &Cohort, p: &Probe) -> R<u64> {
+    let f = c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
+    Ok(match p {
+        Probe::Generation { item, .. } => {
+            let prompt = (item.prompt.system.len() + item.prompt.user.len()) as u64;
+            textgen::cost_microusd(&item.generator, prompt, u64::from(item.prompt.max_tokens)).saturating_mul(1_000)
+        }
+        Probe::Scorer { .. } => u64::try_from(cost::unreported_bound_nanousd(probe_run_ms(c, p)?, &f.cost)).unwrap_or(u64::MAX),
+    })
+}
+
+/// The longest probe `p` of cohort `seq`'s run is given: a generation's
+/// call timeout, or every allowance the scorer run is given (two loads, the
+/// inactivity bound and the control document's limit; a plan without
+/// limits, its score lease), the same allowances [`probe_bound_nanousd`]
+/// charges for.
+pub fn probe_run_ms(c: &Cohort, p: &Probe) -> R<u64> {
+    let f = c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
+    Ok(match p {
+        Probe::Generation { timeout_ms, .. } => *timeout_ms,
+        Probe::Scorer { .. } => match crate::eval::admission::AdmitLimits::of(&c.plan) {
+            Some(l) => l.load_wait_ms.saturating_mul(2).saturating_add(l.inactivity_ms).saturating_add(l.doc_timeout_ms),
+            None => f.score.lease_ms,
+        },
+    })
+}
+
+/// A probe that started ([`probe_begin`]): when (its id), which fault it
+/// was started for (the cohort's `fault_n` then), and the deadline its
+/// call is bounded by (`until_ms`: [`probe_run_ms`] plus one Durable Object
+/// call's allowance, `liveness::TIMEOUT_MS`). [`probe_done`] applies an
+/// outcome only to the probe and the fault it names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProbeTicket {
+    pub started_ms: u64,
+    pub fault_n: i64,
+    pub until_ms: u64,
+}
+
+/// Records, before probe `p` of cohort `seq` runs, that it started: its
+/// start, the fault it is for and its deadline ([`ProbeTicket`]), so no
+/// second probe starts while it may still run ([`probe_due`]) and a probe
+/// cut off mid-call is not run again before its deadline and a probe
+/// interval have passed; and its bound ([`probe_bound_nanousd`]) as pending
+/// spend, charged with the cohort unless [`probe_done`] replaces it with
+/// the measured spend. A probe still pending from an earlier cut-off step
+/// is charged its bound now.
+pub fn probe_begin(sql: &impl Sql, seq: i64, p: &Probe, now_ms: u64) -> R<ProbeTicket> {
+    let c = cohort(sql, seq)?;
+    let bound = probe_bound_nanousd(&c, p)?;
+    let until_ms = now_ms.saturating_add(probe_run_ms(&c, p)?).saturating_add(crate::liveness::TIMEOUT_MS);
+    let r = &sql.exec("SELECT fault_n, auto_cleared FROM cohorts WHERE seq = ?", &[i(seq)])?[0];
+    let (fault_n, cleared) = (int(r, 0)?, int(r, 1)?);
+    sql.exec(
+        "UPDATE cohorts SET probe_nanousd = probe_nanousd + probe_pending_nanousd,
+            probes = probes + CASE WHEN probe_started_ms IS NULL THEN 0 ELSE 1 END,
+            probe_last = CASE WHEN probe_started_ms IS NULL THEN probe_last ELSE 'cut_off' END,
+            probe_pending_nanousd = ?, probe_started_ms = ?, probe_until_ms = ?, probe_fault_n = ?,
+            probe_after_ms = ? WHERE seq = ?",
+        &[
+            bind_u64(bound)?,
+            bind_u64(now_ms)?,
+            bind_u64(until_ms)?,
+            i(fault_n),
+            bind_u64(until_ms.saturating_add(probe_interval_ms(cleared)))?,
+            i(seq),
+        ],
+    )?;
+    Ok(ProbeTicket { started_ms: now_ms, fault_n, until_ms })
+}
+
+/// Whether a generation probe's answer shows the provider serving again: a
+/// model answer (accepted or rejected for its content), or a model the
+/// provider no longer serves (the work path then uses an attempt and rotates
+/// the item's generator, `apply_generation`), never an outage, a throttle or
+/// a budget refusal.
+pub fn probe_answered(g: &GenOutcome) -> bool {
+    !is_outage(g) && !matches!(g.output, Err(Reject::Transport | Reject::Throttled | Reject::Budget))
+}
+
+/// How a probe ended ([`probe_done`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProbeOutcome {
+    pub ok: bool,
+    /// The scorer refused the artifact definitively (a deterministic check
+    /// that no retry passes): no further probe runs until an operator clear.
+    pub definitive: bool,
+    pub ms: u64,
+    pub nanousd: u64,
+    /// `ok`, or a short content-free code for the failure.
+    pub note: String,
+}
+
+/// Records probe `t` of cohort `seq`'s outage fault `code`: its measured
+/// time and spend (`nanousd`, charged with the cohort's spend at its
+/// settle, in place of the bound [`probe_begin`] held), and its outcome
+/// (`ok`, or a short content-free code). The next probe waits a probe
+/// interval from now ([`probe_interval_ms`]). A success resumes the same
+/// cohort with nothing reset or skipped ([`auto_clear`]); a failure keeps
+/// it paused until the next probe; a definitive refusal records
+/// `definitive:probe` as the fault's cause, so no further probe runs (a
+/// deterministic check fails the same way on every fresh instance) until an
+/// operator clears it after deploying a scorer that admits the artifact.
+/// The outcome applies only to the fault the probe was started for: when
+/// the cohort's fault is another one now (an operator cleared it and the
+/// cohort paused again), the probe only records its spend. A probe whose
+/// start is no longer the recorded one (a later probe began after this one
+/// was taken for cut off) leaves that probe's pending record alone.
+/// Returns whether the cohort resumed.
+pub fn probe_done(sql: &impl Sql, seq: i64, code: &str, t: &ProbeTicket, o: &ProbeOutcome, now_ms: u64) -> R<bool> {
+    let last = if o.ok { "ok".to_owned() } else { crate::eval::limiter::sanitize(&o.note) };
+    let r = &sql.exec(
+        "SELECT probe_started_ms = ?, fault = ? AND fault_n = ?, auto_cleared FROM cohorts WHERE seq = ?",
+        &[bind_u64(t.started_ms)?, s(code), i(t.fault_n), i(seq)],
+    )?[0];
+    let (current, same_fault, cleared) = (opt_int(r, 0) == Some(1), opt_int(r, 1) == Some(1), int(r, 2)?);
+    if current {
+        sql.exec(
+            "UPDATE cohorts SET probes = probes + 1, probe_ms = probe_ms + ?, probe_nanousd = probe_nanousd + ?,
+                probe_pending_nanousd = 0, probe_started_ms = NULL, probe_until_ms = NULL, probe_fault_n = NULL,
+                probe_last = ?, probe_after_ms = ?,
+                probe_failures = CASE WHEN ? THEN 0 ELSE probe_failures + 1 END
+             WHERE seq = ?",
+            &[
+                bind_u64(o.ms)?,
+                bind_u64(o.nanousd)?,
+                s(last),
+                bind_u64(now_ms.saturating_add(probe_interval_ms(cleared)))?,
+                i(i64::from(o.ok)),
+                i(seq),
+            ],
+        )?;
+    } else {
+        // The probe was charged its bound as cut off when the later one
+        // began; its measured spend replaces nothing.
+        sql.exec(
+            "UPDATE cohorts SET probe_ms = probe_ms + ? WHERE seq = ?",
+            &[bind_u64(o.ms)?, i(seq)],
+        )?;
+    }
+    if !same_fault {
+        return Ok(false);
+    }
+    if o.definitive && !o.ok {
+        sql.exec(
+            "UPDATE cohorts SET fault_cause = 'definitive:probe' WHERE seq = ? AND fault = ? AND fault_n = ?",
+            &[i(seq), s(code), i(t.fault_n)],
+        )?;
+        return Ok(false);
+    }
+    if !o.ok {
+        return Ok(false);
+    }
+    auto_clear(sql, seq, code, "probe", now_ms)
 }
 
 /// What a plan costs at most, checked before it is queued: the plan's
@@ -1089,6 +1720,14 @@ pub fn admit(cfg: &EvalConfig, bytes: &[u8]) -> R<(CohortPlan, Admission)> {
         return Err(EvalError::Plan(FRESH_STOCK_REFUSED));
     }
     let f = plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
+    // The generation pause bound is part of what the plan's seal binds, so a
+    // new cohort plan declares it; only plans stored before it was required
+    // fall back to the bound those builds compiled in
+    // (`plan::GEN_FAILURES_BEFORE_PAUSE_COMPILED`). A load plan generates
+    // nothing.
+    if !plan.is_load() && f.generation.failures_before_pause.is_none() {
+        return Err(EvalError::Plan("fanout.generation.failures_before_pause (required in a new plan)"));
+    }
     let jobs = plan.jobs() as u32;
     let cap = f.score.max_lanes.min(cfg.max_score_lanes);
     let lanes = cost::plan_score_lanes(jobs, plan.n, plan.scorer.chunk_docs, f.score.lane_docs, cap).len() as u32;
@@ -1591,6 +2230,12 @@ pub enum Work {
     /// ledger under its own key; marked settled only after the ledger
     /// answers (`admission::charge_settled`).
     AdmissionSettle { key: String, microusd: u64 },
+    /// Run one outage probe of paused cohort `seq` ([`probe_due`]) and
+    /// record it ([`probe_done`]).
+    Probe { seq: i64, code: String, probe: Probe },
+    /// Write abandoned cohort `seq`'s signed abandonment record
+    /// ([`abandonment_record`]) to the receipts bucket, then mark it written.
+    AbandonMarker { seq: i64 },
 }
 
 /// The next root step or sweep, if any. Phase moves that need no I/O (all
@@ -1612,16 +2257,32 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work
         return Ok(Some(w));
     }
     let Some(c) = active(sql)? else {
-        if let Some(w) = crate::eval::lanes::purge_due(sql, now_ms)? {
+        if bookkeeping_due(sql, BOOKKEEPING_PURGE, now_ms)?
+            && let Some(w) = crate::eval::lanes::purge_due(sql, now_ms)?
+        {
             return Ok(Some(w));
         }
-        if let Some(w) = crate::eval::lanes::settle_due(sql, cfg, now_ms)? {
+        if bookkeeping_due(sql, BOOKKEEPING_SETTLE, now_ms)?
+            && let Some(w) = crate::eval::lanes::settle_due(sql, cfg, now_ms)?
+        {
             return Ok(Some(w));
         }
-        if let Some(w) = crate::eval::admission::charge_due(sql)? {
+        if bookkeeping_due(sql, BOOKKEEPING_CHARGE, now_ms)?
+            && let Some(w) = crate::eval::admission::charge_due(sql)?
+        {
             return Ok(Some(w));
         }
-        return retention_work(sql, cfg);
+        if let Some(w) = retention_work(sql, cfg, now_ms)? {
+            return Ok(Some(w));
+        }
+        // A cohort paused by an outage probes it once a probe interval
+        // (`probe_due`), last: the bookkeeping above is quick and a probe
+        // can take minutes, so the purge of private predictions, settles,
+        // receipt deletion and the abandonment record never wait behind an
+        // outage's probes; and a bookkeeping step that fails waits out its
+        // retry time ([`bookkeeping_failed`]), so a ledger or bucket outage
+        // never holds the probe either.
+        return probe_due(sql, cfg, now_ms);
     };
     let work = active_work(sql, cfg, c, now_ms)?;
     // While the active cohort only waits on its lanes (a sweep with nothing
@@ -1630,7 +2291,7 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work
     if let Some(Work::Dispatch { kicks, stop, .. }) = &work
         && kicks.is_empty()
         && stop.is_empty()
-        && let Some(w) = retention_work(sql, cfg)?
+        && let Some(w) = retention_work(sql, cfg, now_ms)?
     {
         return Ok(Some(w));
     }
@@ -1638,12 +2299,63 @@ pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work
 }
 
 /// The next receipt deletion step, else a due predecessor notice
-/// (`eval::retention`).
-fn retention_work(sql: &impl Sql, cfg: &EvalConfig) -> R<Option<Work>> {
-    if let Some(w) = crate::eval::retention::next_work(sql, cfg)? {
-        return Ok(Some(w));
+/// (`eval::retention`), else a due abandonment record
+/// ([`abandon_marker_due`]): bookkeeping that runs when admission and the
+/// active cohort have nothing to send, so none of it holds them up.
+fn retention_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<Work>> {
+    if bookkeeping_due(sql, BOOKKEEPING_RETENTION, now_ms)? {
+        if let Some(w) = crate::eval::retention::next_work(sql, cfg)? {
+            return Ok(Some(w));
+        }
+        if let Some(w) = crate::eval::retention::notice_due(sql, cfg)? {
+            return Ok(Some(w));
+        }
     }
-    crate::eval::retention::notice_due(sql, cfg)
+    abandon_marker_due(sql, cfg, Some(now_ms))
+}
+
+/// Bookkeeping kinds with their own retry time ([`bookkeeping_failed`]): the
+/// purge of a finished cohort's private predictions ([`Work::Purge`]).
+pub const BOOKKEEPING_PURGE: &str = "purge";
+/// A finished cohort's spend settle ([`Work::Settle`]).
+pub const BOOKKEEPING_SETTLE: &str = "settle";
+/// An admission run's charge settle ([`Work::AdmissionSettle`]).
+pub const BOOKKEEPING_CHARGE: &str = "charge";
+/// Receipt deletion and predecessor notices ([`Work::RetireReceipts`],
+/// [`Work::RetentionNotice`]).
+pub const BOOKKEEPING_RETENTION: &str = "retention";
+
+/// The bookkeeping kind of `w`, if it is one ([`bookkeeping_failed`]).
+pub fn bookkeeping_kind(w: &Work) -> Option<&'static str> {
+    Some(match w {
+        Work::Purge { .. } => BOOKKEEPING_PURGE,
+        Work::Settle { .. } => BOOKKEEPING_SETTLE,
+        Work::AdmissionSettle { .. } => BOOKKEEPING_CHARGE,
+        Work::RetireReceipts { .. } | Work::RetentionNotice { .. } => BOOKKEEPING_RETENTION,
+        _ => return None,
+    })
+}
+
+/// A bookkeeping step of `kind` failed (`code`, a short content-free code):
+/// that kind waits out [`STEP_RETRY_MS`] while every other step, the outage
+/// probe included, goes on.
+pub fn bookkeeping_failed(sql: &impl Sql, kind: &str, code: &str, now_ms: u64) -> R<()> {
+    sql.exec(
+        "INSERT INTO bookkeeping_retry (kind, after_ms, code) VALUES (?, ?, ?)
+         ON CONFLICT (kind) DO UPDATE SET after_ms = excluded.after_ms, code = excluded.code",
+        &[s(kind), bind_u64(now_ms.saturating_add(STEP_RETRY_MS))?, s(crate::eval::lanes::textgen_safe(code))],
+    )?;
+    Ok(())
+}
+
+/// A bookkeeping step of `kind` succeeded: an earlier failure is over.
+pub fn bookkeeping_done(sql: &impl Sql, kind: &str) -> R<()> {
+    sql.exec("DELETE FROM bookkeeping_retry WHERE kind = ?", &[s(kind)])?;
+    Ok(())
+}
+
+fn bookkeeping_due(sql: &impl Sql, kind: &str, now_ms: u64) -> R<bool> {
+    Ok(sql.exec("SELECT 1 FROM bookkeeping_retry WHERE kind = ? AND after_ms > ?", &[s(kind), bind_u64(now_ms)?])?.is_empty())
 }
 
 /// The active cohort's next root step or sweep.
@@ -1747,9 +2459,11 @@ pub fn throttle_backoff_ms(idx: i64, throttles: i64) -> u64 {
 /// A model answer (accepted, or rejected for its content) uses one of the
 /// item's [`MAX_GEN_ATTEMPTS`] and rotates the generator, as does a model the
 /// provider no longer serves. An outage uses none: the item backs off
-/// exponentially, and its [`GEN_INFRA_MAX`]th consecutive outage pauses the
-/// cohort (`generation_unavailable`, resumable by a clear), so an outage never
-/// drops items from the batch. A throttle (rate limit or capacity) uses no
+/// exponentially, and its consecutive outages reaching the plan's
+/// `fanout.generation.failures_before_pause` pause the cohort
+/// (`generation_unavailable`, cleared by the first probe that the provider
+/// answers, [`probe_due`], or by an operator), so an outage never drops items
+/// from the batch. A throttle (rate limit or capacity) uses no
 /// attempt and keeps the generator: the item backs off, until its accumulated
 /// throttling passes the plan's `max_throttle_ms`, after which a throttle counts
 /// as an outage. A result whose claim is no longer the item's latest records
@@ -1759,7 +2473,8 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
     if c.phase != "generating" {
         return Err(EvalError::State("generation outside generating"));
     }
-    let max_throttle = c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?.generation.max_throttle_ms;
+    let gl = &c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?.generation;
+    let (max_throttle, pause_after) = (gl.max_throttle_ms, i64::from(gl.failures_before_pause()));
     let seed = cohort_seed(&cfg.private_seed, &c.label);
     let (mut accepted, mut rejected, mut outages, mut throttled, mut fenced) = (0, 0, 0, 0, 0);
     let mut pause = false;
@@ -1855,10 +2570,10 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
         }
         if outage || is_throttle {
             // An outage, or throttling past the plan's bound: no attempt, backoff,
-            // and the GEN_INFRA_MAXth in a row pauses the cohort.
+            // and the plan's `failures_before_pause`th in a row pauses the cohort.
             outages += 1;
             let failures = int(r, 5)? + 1;
-            pause |= failures >= GEN_INFRA_MAX;
+            pause |= failures >= pause_after;
             sql.exec(
                 "UPDATE docs SET infra_failures = ?, not_before_ms = ? WHERE seq = ? AND idx = ?",
                 &[i(failures), bind_u64(now_ms + gen_backoff_ms(failures))?, i(seq), i(g.idx)],
@@ -1921,8 +2636,12 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
             gen_reserved_microusd = MAX(0, gen_reserved_microusd - ?) WHERE seq = ?",
         &[bind_u64(cost_total)?, bind_u64(released)?, i(seq)],
     )?;
+    if accepted + rejected > 0 {
+        // The provider answered: the probe's back-off starts again.
+        note_progress(sql, seq, now_ms)?;
+    }
     if pause {
-        fault(sql, seq, "generation_unavailable", now_ms)?;
+        fault(sql, seq, GENERATION_UNAVAILABLE, now_ms)?;
     }
     Ok(json!({"accepted": accepted, "rejected": rejected, "outages": outages, "throttled": throttled,
         "fenced": fenced, "cost_microusd": cost_total}))
@@ -2243,14 +2962,43 @@ pub struct CallTiming {
 }
 
 /// Counts a scorer failure that never reached the model (a lane whose
-/// container did not start or load, or a refused batch); pauses the cohort
-/// (`scorer_unavailable`) at the plan's bound. Any commit resets the count.
-pub fn note_scorer_failure(sql: &impl Sql, seq: i64, now_ms: u64) -> R<bool> {
-    sql.exec("UPDATE cohorts SET scorer_failures = scorer_failures + 1 WHERE seq = ?", &[i(seq)])?;
+/// container did not start or load, a refused batch, a bucket read or write,
+/// a refused commit); pauses the cohort (`scorer_unavailable`) at the plan's
+/// bound. Any commit resets the count. `cause` and, for a slot failure, the
+/// role of job `job` are kept while failures count (`scorer_cause`) and
+/// recorded with the fault (`fault_cause`), so the automatic probe clears
+/// only what it exercises ([`probed_cause`]): one failure the probe cannot
+/// see (a store failure, a refused commit, an unclassified one) in a run
+/// leaves the pause to an operator clear.
+pub fn note_scorer_failure(sql: &impl Sql, seq: i64, cause: ScorerCause, job: Option<i64>, now_ms: u64) -> R<bool> {
+    let code = match (cause, job) {
+        (ScorerCause::Slot, Some(job)) => {
+            let role = sql.exec("SELECT role FROM jobs WHERE seq = ? AND job = ?", &[i(seq), i(job)])?;
+            match role.first().map(|r| text(r, 0)).transpose()? {
+                Some("previous_reference") => "slot:previous_reference",
+                _ => "slot",
+            }
+        }
+        (c, _) => c.code(),
+    };
+    // A cause the probe cannot see sticks for the run; a previous
+    // reference's slot failure outranks a plain slot failure.
+    sql.exec(
+        "UPDATE cohorts SET scorer_failures = scorer_failures + 1,
+            scorer_cause = CASE
+                WHEN scorer_cause IS NOT NULL AND scorer_cause NOT IN ('slot', 'slot:previous_reference') THEN scorer_cause
+                WHEN ? NOT IN ('slot', 'slot:previous_reference') THEN ?
+                WHEN ? = 'slot:previous_reference' THEN ?
+                ELSE COALESCE(scorer_cause, ?) END
+         WHERE seq = ?",
+        &[s(code), s(code), s(code), s(code), s(code), i(seq)],
+    )?;
     let c = cohort(sql, seq)?;
     let bound = c.plan.fanout().map(|f| i64::from(f.score.failures_before_pause)).unwrap_or(SCORER_FAILURES_MAX);
     if c.scorer_failures >= bound {
-        fault(sql, seq, "scorer_unavailable", now_ms)?;
+        let recorded = sql.exec("SELECT scorer_cause FROM cohorts WHERE seq = ?", &[i(seq)])?;
+        let recorded = recorded.first().and_then(|r| opt_text(r, 0));
+        fault_with_cause(sql, seq, SCORER_UNAVAILABLE, recorded.as_deref(), now_ms)?;
         return Ok(true);
     }
     Ok(false)
@@ -2884,7 +3632,13 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
                 target_digest, steps, step_ms, r2_puts, draw, opened_epoch, opened_block, packaged_epoch, closed_epoch,
                 counts, abandoned_reason, abandoned_fault, step_error, step_error_since_ms, step_errors, step_retry_ms,
                 score_base_nanousd, gen_base_microusd, step_error_since_epoch, attempt_extensions, extension_receipts,
-                budget_alert FROM cohorts WHERE seq = ?")?[0];
+                budget_alert, probes, probe_failures, probe_ms, probe_nanousd, probe_last, probe_after_ms,
+                abandon_marker_ms, fault_cause, auto_cleared, probe_pending_nanousd, probe_started_ms,
+                abandon_marker_retry_ms, abandon_marker_error, probe_until_ms FROM cohorts WHERE seq = ?")?[0];
+        let bound_jobs: Vec<i64> = q("SELECT job FROM jobs WHERE seq = ? AND receipt_bound_reached = 1 ORDER BY job")?
+            .iter()
+            .map(|r| int(r, 0))
+            .collect::<Result<_, _>>()?;
         let receipts = int(&q("SELECT COUNT(*) FROM receipts WHERE seq = ?")?[0], 0)?;
         let retention = crate::eval::retention::cohort_status(sql, c.seq, &held)?;
         let v3 = if c.plan.is_v3() {
@@ -2932,6 +3686,37 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             // Infrastructure attempt extensions past `max_attempts`
             // (`lanes::extend_attempts`) and the receipts they may add.
             "attempt_extensions": opt_int(row, 25), "extension_receipts": opt_int(row, 26),
+            // What raised the fault (a scorer failure class, a definitive
+            // refusal and its role, or an admission subject), and whether
+            // the fault clears by itself (`self_clearing`: a probed outage in
+            // a work phase, or an admission outage whose subjects are
+            // re-read each step) or needs an operator clear or abandonment
+            // (`operator_clear_needed`, which the publisher alerts on).
+            "fault_cause": opt_text(row, 35),
+            "self_clearing": c.fault.as_deref().is_some_and(|f| self_clearing(&c.phase, f, opt_text(row, 35).as_deref())),
+            "operator_clear_needed": c.fault.as_deref().is_some_and(|f| !self_clearing(&c.phase, f, opt_text(row, 35).as_deref())),
+            // The automatic outage probe (`probe_due`): runs, consecutive
+            // failures, measured time and spend (with the bound held for a
+            // probe in flight and its deadline), last outcome, next run,
+            // whether one is due for this fault at all (`probed_cause`), and
+            // the automatic clears in a row with no progress since, which
+            // back the interval off (`probe_interval_ms`).
+            "probes": json!({"runs": int(row, 28)?, "failures": int(row, 29)?, "ms": int(row, 30)?,
+                "microusd": (int(row, 31)?.max(0) as u64).div_ceil(1000),
+                "pending_bound_microusd": (int(row, 37)?.max(0) as u64).div_ceil(1000), "started_ms": opt_int(row, 38),
+                "until_ms": opt_int(row, 41),
+                "last": opt_text(row, 32),
+                "probed": c.fault.as_deref().is_some_and(|f| WORK_PHASES.contains(&c.phase.as_str())
+                    && self_clearing(&c.phase, f, opt_text(row, 35).as_deref())),
+                "no_progress_clears": int(row, 36)?,
+                "interval_ms": probe_interval_ms(int(row, 36)?),
+                "next_ms": if c.fault.as_deref().is_some_and(|f| PROBED_FAULTS.contains(&f)) { opt_int(row, 33) } else { None }}),
+            // Jobs whose attempts no further extension fits under the receipt
+            // bound: a clear of `unresolved_infrastructure` runs them into it
+            // again unless the deployed bound grew; abandonment is the way out.
+            "receipt_bound_reached_jobs": bound_jobs,
+            "abandonment_record_ms": opt_int(row, 34),
+            "abandonment_record_retry": json!({"after_ms": opt_int(row, 39), "error": opt_text(row, 40)}),
             "reward_v1": v3,
             "log": log,
         }));
@@ -2943,22 +3728,34 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
         // `observed.epoch` while an increment waits for a head reading.
         "observed": o, "watermark_epoch": watermark_epoch, "kick_age_ms": now_ms.saturating_sub(o.kick_ms),
         "active_tempo_rule": ACTIVE_TEMPO_RULE, "resumable_faults": RESUMABLE_FAULTS,
+        "auto_cleared_faults": {"probe": PROBED_FAULTS, "evidence": EVIDENCE_CLEARED_FAULTS, "probe_every_ms": PROBE_EVERY_MS,
+            "probe_backoff_doublings": PROBE_BACKOFF_DOUBLINGS},
+        // Bookkeeping kinds waiting out a retry after a failure
+        // (`bookkeeping_failed`): kind, when it may run again, and its code.
+        "bookkeeping_retry": sql.exec("SELECT kind, after_ms, code FROM bookkeeping_retry ORDER BY kind", &[])?
+            .iter()
+            .map(|r| Ok(json!({"kind": text(r, 0)?, "after_ms": int(r, 1)?, "code": text(r, 2)?})))
+            .collect::<R<Vec<Value>>>()?,
         "pool_rows_used": used, "receipt_retention": crate::eval::retention::status(sql)?, "cohorts": out,
     }))
 }
 
-/// Ensures there is a reason to keep stepping: [`blocking_work`], or a due
-/// receipt deletion (`eval::retention`). A predecessor notice is not work:
+/// Ensures there is a reason to keep stepping: [`blocking_work`], a due
+/// receipt deletion (`eval::retention`), or an abandonment record not yet
+/// written ([`abandon_marker_due`], which never blocks a succession). A predecessor notice is not work:
 /// it is retried whenever a step runs, so an unreachable predecessor never
 /// keeps this object's alarm armed on its own.
 pub fn has_work(sql: &impl Sql, cfg: &EvalConfig) -> R<bool> {
-    Ok(blocking_work(sql, cfg)? || crate::eval::retention::has_work(sql)?)
+    Ok(blocking_work(sql, cfg)? || crate::eval::retention::has_work(sql)? || abandon_marker_due(sql, cfg, None)?.is_some())
 }
 
 /// [`has_work`] counting admission's backed-off steps, clean-ups and object
 /// deletes only once due at `now_ms`: what re-arms the step alarm.
 pub fn has_due_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<bool> {
-    Ok(work(sql, cfg, Some(now_ms))? || crate::eval::retention::has_work(sql)?)
+    Ok(work(sql, cfg, Some(now_ms))?
+        || crate::eval::retention::has_work(sql)?
+        || abandon_marker_due(sql, cfg, Some(now_ms))?.is_some()
+        || probe_due(sql, cfg, now_ms)?.is_some())
 }
 
 /// What a kick arms the step alarm for: [`has_due_work`], or, on a tick (a

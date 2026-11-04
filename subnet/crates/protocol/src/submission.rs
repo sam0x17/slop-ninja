@@ -316,6 +316,54 @@ impl Record for CohortClosure {
     }
 }
 
+canonical_struct! {
+    /// Signed, content-free record that the coordinator ended a cohort
+    /// without a target (an operator's abandonment of a faulted cohort): no
+    /// closure will ever follow, and the previous calculation target stays
+    /// live. It lets a reader of the cohort sequence (the automatic target
+    /// handoff) move past the cohort with no operator mark of its own.
+    /// `fault` is the code the cohort was paused by and `reason` the
+    /// operator's code (each lowercase ASCII letters, digits and `_-.:`, at
+    /// most [`ABANDONMENT_CODE_MAX`] bytes). `cohort_manifest` is absent for
+    /// a cohort abandoned before its seal; `abandoned_epoch` is the epoch
+    /// index observed when it was abandoned, absent when none was observed.
+    pub struct CohortAbandonment {
+        pub chain: ChainBinding,
+        pub cohort: u64,
+        pub cohort_label: String,
+        pub cohort_manifest: Option<Digest>,
+        pub fault: String,
+        pub reason: String,
+        pub abandoned_epoch: Option<u64>,
+    }
+}
+
+/// The longest `fault` or `reason` code of a [`CohortAbandonment`].
+pub const ABANDONMENT_CODE_MAX: usize = 64;
+
+fn abandonment_code(code: &str, what: &'static str) -> Result<()> {
+    if code.is_empty()
+        || code.len() > ABANDONMENT_CODE_MAX
+        || !code
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_-.:".contains(&b))
+    {
+        return Err(Error::Invalid(what));
+    }
+    Ok(())
+}
+
+impl Record for CohortAbandonment {
+    const KIND: &'static str = "cohort-abandonment";
+    const VERSION: u16 = 1;
+    const SIGNER: Option<KeyRole> = Some(KeyRole::Package);
+    fn validate(&self) -> Result<()> {
+        validate_label(&self.cohort_label)?;
+        abandonment_code(&self.fault, "abandonment fault")?;
+        abandonment_code(&self.reason, "abandonment reason")
+    }
+}
+
 impl CohortClosure {
     /// Checks the closure against the manifest's schedule (the admission and
     /// transition minimums, publication after admission, and the cohort

@@ -2536,13 +2536,13 @@ fn stalled_resolutions_and_verdict_platform_failures_pause_the_cohort_visibly() 
     let m = miner(1, 3, 1, 0x11);
     m.commit(&db, OPEN_BLOCK + 1, 0);
     // No session yet: nothing in this cohort waits on it.
-    tx(&db, |s| waiting_on_state(s, &account(1), 6, NOW)).unwrap();
+    tx(&db, |s| waiting_on_state(s, &account(1), OPEN_BLOCK + 1, 6, NOW)).unwrap();
     assert_eq!(fault(&db), None);
     m.create(&db);
     upload_all(&db, &m);
-    tx(&db, |s| waiting_on_state(s, &account(1), 5, NOW)).unwrap();
+    tx(&db, |s| waiting_on_state(s, &account(1), OPEN_BLOCK + 1, 5, NOW)).unwrap();
     assert_eq!(fault(&db), None, "below the bound");
-    tx(&db, |s| waiting_on_state(s, &account(1), 6, NOW)).unwrap();
+    tx(&db, |s| waiting_on_state(s, &account(1), OPEN_BLOCK + 1, 6, NOW)).unwrap();
     assert_eq!(fault(&db).as_deref(), Some(commitments::STATE_UNAVAILABLE));
     assert!(engine::RESUMABLE_FAULTS.contains(&commitments::STATE_UNAVAILABLE));
     let label = tx(&db, |s| engine::cohort(s, 1)).unwrap().label;
@@ -2668,7 +2668,7 @@ fn commitments_at_one_position_are_refused_and_a_refused_plan_faults_the_cohort(
     );
     assert!(tx(&db, |s| next_work(s, &cfg(), NOW)).is_ok(), "the step goes on");
     // The operator abandons it: its live sessions end and are cleaned up.
-    assert!(tx(&db, |s| engine::abandon(s, &co.label, "freeze-drill", NOW)).unwrap());
+    assert!(tx(&db, |s| engine::abandon(s, &co.label, "drill", NOW)).unwrap());
     assert_eq!(tx(&db, |s| engine::cohort(s, 1)).unwrap().phase, "abandoned");
     assert_eq!(state_of(&db, &d.session()).0, "refused");
     assert_eq!(tx(&db, |s| cleanup_due(s, 10, crate::wire::MAX_SAFE_INTEGER)).unwrap().len(), 1);
@@ -3166,4 +3166,236 @@ fn a_creation_body_is_hashed_by_the_authority() {
 #[test]
 fn the_snapshot_freshness_is_the_heartbeat_freshness() {
     assert_eq!(slop_ninja_admission_wire::internal::COHORT_SNAPSHOT_FRESH_MS, crate::eval::engine::HEARTBEAT_FRESH_MS);
+}
+
+/// L2 (B8 item 1, C1 item 2): a refused roster freeze records its code in
+/// the phase log and is resumable. A clear while the cause remains pauses
+/// the same cohort again (never skipped); once the cause is corrected a
+/// clear freezes the same roster.
+#[test]
+fn a_refused_freeze_logs_its_code_and_a_clear_freezes_the_same_roster() {
+    let db = db_with_open_cohort(4);
+    let d = miner(4, 6, 1, 0x14);
+    d.commit(&db, OPEN_BLOCK + 1, 0);
+    d.create(&db);
+    upload_all(&db, &d);
+    frame_ok(&db, &d);
+    admit_all(&db);
+    let key_of = |db: &Sqlite| {
+        let rows = tx(db, |q| q.exec("SELECT object_key FROM adm_sessions WHERE session = ?", &[s(d.session())])).unwrap();
+        crate::sql::text(&rows[0], 0).unwrap().to_owned()
+    };
+    let good = key_of(&db);
+    let set_key = |db: &Sqlite, k: &str| {
+        tx(db, |q| q.exec("UPDATE adm_sessions SET object_key = ? WHERE session = ?", &[s(k), s(d.session())]).map(|_| ()))
+            .unwrap()
+    };
+    set_key(&db, "../outside");
+    let cutoff = OPEN_BLOCK + 360;
+    close_at(&db, cutoff);
+    snapshot(&db, cutoff, &d, Some(OPEN_BLOCK + 1), &d.upload.opening.chain_payload(), Some(d.uid), Some(d.registration_block));
+    assert!(matches!(tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap(), Some(Boundary::Waiting(_))));
+    let co = tx(&db, |s| engine::cohort(s, 1)).unwrap();
+    assert_eq!((co.phase.as_str(), co.fault.as_deref()), ("admission", Some(FREEZE_FAULT)));
+    assert!(engine::RESUMABLE_FAULTS.contains(&FREEZE_FAULT));
+    let notes = |db: &Sqlite| -> Vec<String> {
+        tx(db, |q| q.exec("SELECT note FROM phase_log WHERE seq = 1 ORDER BY rowid", &[]))
+            .unwrap()
+            .iter()
+            .filter_map(|r| crate::sql::text(r, 0).ok().map(str::to_owned))
+            .collect()
+    };
+    let refused: Vec<String> = notes(&db).into_iter().filter(|n| n.starts_with("roster_freeze_refused:")).collect();
+    assert_eq!(refused.len(), 1, "the refusal's code is logged once: {refused:?}");
+    assert!(refused[0].len() > "roster_freeze_refused:".len());
+    // Cleared with the cause still there: it pauses again, the same cohort.
+    assert!(tx(&db, |s| engine::clear_fault(s, &co.label, NOW)).unwrap().cleared);
+    tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap();
+    assert_eq!(tx(&db, |s| engine::cohort(s, 1)).unwrap().fault.as_deref(), Some(FREEZE_FAULT));
+    // The cause corrected: the clear freezes the same roster.
+    set_key(&db, &good);
+    assert!(tx(&db, |s| engine::clear_fault(s, &co.label, NOW)).unwrap().cleared);
+    assert_eq!(
+        tx(&db, |s| try_freeze(s, &cfg(), NOW)).unwrap(),
+        Some(Boundary::Frozen { admitted: 1, overflow: 0, outside: true })
+    );
+    let after = tx(&db, |s| engine::cohort(s, 1)).unwrap();
+    assert_eq!((after.phase.as_str(), after.fault), ("generating", None));
+    assert_eq!(after.plan.entrants.len(), 1, "the admitted entrant is in the frozen roster");
+}
+
+/// L2 (A2/A3, admission half): admission's outage faults clear by
+/// themselves once the step that raised them succeeds again: a framing
+/// call the upload Worker answers, a commitment read that serves state,
+/// and a verdict run that reaches the scorer. A different fault is never
+/// cleared this way.
+#[test]
+fn admission_outage_faults_clear_on_the_next_success_of_their_step() {
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    let log_has = |db: &Sqlite, note: &str| {
+        tx(db, |q| q.exec("SELECT 1 FROM phase_log WHERE seq = 1 AND note LIKE ?", &[s(format!("{note}%"))]))
+            .unwrap()
+            .len()
+    };
+    // Framing: the bound of cut-offs pauses the cohort; the next answer resumes it.
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    let id = m.session();
+    let mut t = NOW;
+    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    for n in 0..=bound {
+        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+        t += backoff_ms(n + 1);
+    }
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
+    frame_only(&db, &m);
+    assert_eq!(fault(&db), None, "the upload Worker answered");
+    assert_eq!(log_has(&db, "fault_auto_cleared:framing_unavailable"), 1);
+    // The commitment state: a served read resumes it.
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    tx(&db, |s| waiting_on_state(s, &account(1), OPEN_BLOCK + 1, 6, NOW)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some(commitments::STATE_UNAVAILABLE));
+    tx(&db, |s| state_served(s, &account(1), OPEN_BLOCK + 1, NOW)).unwrap();
+    assert_eq!(fault(&db), None);
+    assert_eq!(log_has(&db, "fault_auto_cleared:commitment_state_unavailable"), 1);
+    // Verdict platform failures: a run that reaches the scorer resumes it,
+    // even when it refuses the artifact.
+    let hotkey = hex::encode(account(1).0);
+    let commitment = m.upload.commitment.hex();
+    tx(&db, |s| platform_wait(s, &hotkey, &commitment, "lane_unavailable", 5, NOW)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some("scorer_unavailable"));
+    frame_ok(&db, &m);
+    let runs = tx(&db, |s| claim_runs(s, &env(), 8, NOW + LANE_LEASE_MS)).unwrap();
+    assert_eq!(runs.len(), 1);
+    tx(&db, |s| record_run(s, &env(), &runs[0], &LaneOutcome::Platform("lane_unavailable".into()), 3, NOW)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some("scorer_unavailable"), "a platform failure proves nothing");
+    let runs = tx(&db, |s| claim_runs(s, &env(), 8, NOW + 2 * LANE_LEASE_MS)).unwrap();
+    tx(&db, |s| record_run(s, &env(), &runs[0], &LaneOutcome::Refused("artifact_spec".into()), 3, NOW)).unwrap();
+    assert_eq!(fault(&db), None, "the scorer answered");
+    // Another fault is never cleared by these successes.
+    tx(&db, |s| engine::fault(s, 1, FREEZE_FAULT, NOW)).unwrap();
+    tx(&db, |s| state_served(s, &account(1), OPEN_BLOCK + 1, NOW)).unwrap();
+    assert!(!tx(&db, |s| engine::auto_clear(s, 1, FREEZE_FAULT, "probe", NOW)).unwrap());
+    assert_eq!(fault(&db).as_deref(), Some(FREEZE_FAULT));
+}
+
+/// L2 review r1 (item 2): an admission outage fault clears only once the
+/// subject that raised it succeeds and no other subject still meets its
+/// pause condition. Another subject's success leaves the fault in place.
+#[test]
+fn an_admission_outage_fault_is_cleared_by_its_own_subject_not_another() {
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    // Framing: session 1's attempts keep being cut off; session 2 frames.
+    let db = db_with_open_cohort(4);
+    let (m1, m2) = (miner(1, 3, 1, 0x11), miner(2, 4, 1, 0x12));
+    for (m, b) in [(&m1, 1), (&m2, 2)] {
+        m.commit(&db, OPEN_BLOCK + b, 0);
+        m.create(&db);
+        upload_all(&db, m);
+    }
+    let id = m1.session();
+    let mut t = NOW;
+    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    for n in 0..=bound {
+        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+        t += backoff_ms(n + 1);
+    }
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
+    frame_only(&db, &m2);
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE), "another session framed: session 1 is still cut off");
+    frame_only(&db, &m1);
+    assert_eq!(fault(&db), None, "session 1 framed");
+    // Commitment state: hotkey 1's block keeps answering without state;
+    // hotkey 2's read is served.
+    let db = db_with_open_cohort(4);
+    for (m, b) in [(&m1, 1), (&m2, 2)] {
+        m.commit(&db, OPEN_BLOCK + b, 0);
+        m.create(&db);
+        upload_all(&db, m);
+    }
+    let bound = i64::from(tx(&db, window).unwrap().unwrap().failures_before_pause);
+    tx(&db, |s| {
+        s.exec("DELETE FROM commit_seen WHERE hotkey = ?", &[s_(hex::encode(account(1).0))])?;
+        s.exec(
+            "INSERT INTO commit_seen (hotkey, block, payload, seen_block, stage, absent_tries) VALUES (?, ?, '', ?, 'events', ?)",
+            &[s_(hex::encode(account(1).0)), crate::sql::SqlValue::Integer((OPEN_BLOCK + 1) as i64),
+              crate::sql::SqlValue::Integer((OPEN_BLOCK + 1) as i64), crate::sql::SqlValue::Integer(bound)],
+        )
+        .map(|_| ())
+    })
+    .unwrap();
+    tx(&db, |s| waiting_on_state(s, &account(1), OPEN_BLOCK + 1, u32::try_from(bound).unwrap(), NOW)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some(commitments::STATE_UNAVAILABLE));
+    tx(&db, |s| state_served(s, &account(2), OPEN_BLOCK + 2, NOW)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some(commitments::STATE_UNAVAILABLE), "another hotkey's state was served");
+    tx(&db, |s| state_served(s, &account(1), OPEN_BLOCK + 1, NOW)).unwrap();
+    assert_eq!(fault(&db), None, "hotkey 1's block was served");
+    // Verdicts: hotkey 1's verdict keeps meeting platform failures; hotkey
+    // 2's run reaches the scorer.
+    let db = db_with_open_cohort(4);
+    for (m, b) in [(&m1, 1), (&m2, 2)] {
+        m.commit(&db, OPEN_BLOCK + b, 0);
+        m.create(&db);
+        upload_all(&db, m);
+        frame_ok(&db, m);
+    }
+    let (h1, c1) = (hex::encode(account(1).0), m1.upload.commitment.hex());
+    let n = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    tx(&db, |s| {
+        s.exec("UPDATE adm_verdicts SET platform_tries = ? WHERE hotkey = ?", &[crate::sql::SqlValue::Integer(i64::from(n - 1)), s_(&h1)])
+            .map(|_| ())
+    })
+    .unwrap();
+    tx(&db, |s| platform_wait(s, &h1, &c1, "lane_unavailable", n - 1, NOW)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some("scorer_unavailable"));
+    let later = NOW + 30 * 24 * 3_600_000;
+    let runs = tx(&db, |s| claim_runs(s, &env(), 8, later)).unwrap();
+    let run_of = |h: &str| runs.iter().find(|r| r.hotkey == h).cloned().unwrap();
+    tx(&db, |s| record_run(s, &env(), &run_of(&hex::encode(account(2).0)), &LaneOutcome::Admitted, 3, later)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some("scorer_unavailable"), "another verdict reached the scorer");
+    tx(&db, |s| record_run(s, &env(), &run_of(&h1), &LaneOutcome::Admitted, 3, later)).unwrap();
+    assert_eq!(fault(&db), None, "hotkey 1's verdict reached the scorer");
+}
+
+/// L2 review r2 (item 5): an admission outage fault whose subject leaves
+/// without succeeding (its session refused) clears on the next admission
+/// step once no other subject meets the pause condition, with no operator;
+/// while the subject still waits on its step, the step leaves it paused.
+#[test]
+fn an_admission_outage_fault_clears_once_its_subject_is_gone() {
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    let id = m.session();
+    let mut t = NOW;
+    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    for n in 0..=bound {
+        assert!(tx(&db, |s| frame_begin(s, &id, t)).unwrap().is_some());
+        t += backoff_ms(n + 1);
+    }
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
+    tx(&db, |s| crate::eval::admission::next_work(s, &cfg(), t)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE), "the session still waits on framing");
+    tx(&db, |s| s.exec("UPDATE adm_sessions SET state = 'refused' WHERE session = ?", &[s_(&id)]).map(|_| ())).unwrap();
+    tx(&db, |s| crate::eval::admission::next_work(s, &cfg(), t)).unwrap();
+    assert_eq!(fault(&db), None, "no subject meets the pause condition any more");
+    let cleared = tx(&db, |q| {
+        q.exec("SELECT 1 FROM phase_log WHERE seq = 1 AND note LIKE 'fault_auto_cleared:framing_unavailable (subject_settled)%'", &[])
+    })
+    .unwrap();
+    assert_eq!(cleared.len(), 1);
+}
+
+fn s_(v: impl Into<String>) -> crate::sql::SqlValue {
+    crate::sql::SqlValue::Text(v.into())
 }

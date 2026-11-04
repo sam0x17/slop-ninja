@@ -22,8 +22,8 @@
 //!    its target and authorization, never appear before an earlier one. A
 //!    packaged in-record cohort with no closure yet holds every cohort opened
 //!    after it the same way, until a closure follows or something says none
-//!    will: the coordinator's planned abandonment record ([`ABANDONMENT`],
-//!    not written by any coordinator release yet), or its retirement marker
+//!    will: the coordinator's signed abandonment record ([`ABANDONMENT`],
+//!    verified for its signature, label and chain), or its retirement marker
 //!    for that cohort (written only after a closure or an abandonment, so
 //!    with no closure it means the cohort was abandoned; due after two later
 //!    completions, which bounds the hold);
@@ -163,14 +163,14 @@ pub fn public_reason(r: &Refusal) -> String {
 pub const NUMBERING_CONFLICT: &str =
     "cohort number and opening epoch conflict with a listed cohort";
 
-/// The coordinator's planned signed record that it abandoned a cohort, in
-/// the cohort's private directory: no closure follows. The name comes from
-/// the shared contract (`slop_ninja_admission_wire::receipts`); no
-/// coordinator release writes it yet, and only its presence is read (to
-/// stop a packaged cohort holding later ones). Until it exists, the
-/// coordinator's retirement marker for the cohort ([`RETIRED_MARKER`]) with
-/// no closure beside it releases the hold the same way
-/// ([`Run::pending_closure`]).
+/// The coordinator's signed record that it abandoned a cohort, in the
+/// cohort's private directory: no closure follows. The name and read bound
+/// come from the shared contract (`slop_ninja_admission_wire::receipts`); a
+/// record that verifies (signature under the compiled trust roots, the
+/// cohort's label, this chain) stops a packaged cohort holding later ones,
+/// and one that does not holds as if absent. The coordinator's retirement
+/// marker for the cohort ([`RETIRED_MARKER`]) with no closure beside it
+/// releases the hold the same way ([`Run::pending_closure`]).
 pub use slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD as ABANDONMENT;
 
 /// This publisher's own N+2 reading for one cohort's public receipts
@@ -1330,8 +1330,8 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     /// the record, so its closure is only pending: its package is stored
     /// (a packaged cohort closes unless it is abandoned), nothing says it
     /// was abandoned, and its manifest opens with an opening epoch at or
-    /// after `from`. Abandonment shows as the planned abandonment record
-    /// ([`ABANDONMENT`]) or as the coordinator's retirement marker
+    /// after `from`. Abandonment shows as the signed abandonment record
+    /// ([`ABANDONMENT`], verified: [`Run::abandoned`]) or as the coordinator's retirement marker
     /// ([`RETIRED_MARKER`]): the coordinator writes that marker only for a
     /// closed cohort, after its closure, or for an abandoned one, so a
     /// marker with no closure means no closure follows. Returns its opening
@@ -1346,15 +1346,13 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         from: u64,
     ) -> Result<Option<(u64, u64, bool)>, String> {
         let r = self.buckets.receipts;
-        for (rel, want) in [(verify::PACKAGE, true), (ABANDONMENT, false)] {
-            let stored = r
-                .head(&layout::join(private, rel))
-                .await
-                .map_err(|e| format!("{rel}: {e}"))?
-                .is_some();
-            if stored != want {
-                return Ok(None);
-            }
+        let packaged = r
+            .head(&layout::join(private, verify::PACKAGE))
+            .await
+            .map_err(|e| format!("{}: {e}", verify::PACKAGE))?
+            .is_some();
+        if !packaged || self.abandoned(private, label).await? {
+            return Ok(None);
         }
         if self
             .retired_marker(label)
@@ -1373,6 +1371,29 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             Err(e @ Refusal::Store(..)) => Err(e.to_string()),
             _ => Ok(None),
         }
+    }
+
+    /// Whether the coordinator's signed abandonment record for cohort
+    /// `label` ([`ABANDONMENT`]) is stored and verifies: read within its
+    /// bound, signed by the package key under the compiled trust roots, for
+    /// this label and chain. A record that is oversized or does not verify
+    /// counts as no record (the cohort keeps holding, as before it was
+    /// written); `Err` when the read did not answer.
+    async fn abandoned(&self, private: &str, label: &str) -> Result<bool, String> {
+        use slop_ninja_protocol::submission::CohortAbandonment;
+        let key = layout::join(private, ABANDONMENT);
+        let bytes = match self
+            .buckets
+            .receipts
+            .get(&key, slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD_BOUND)
+            .await
+        {
+            Ok(None) | Err(StoreError::TooLarge { .. }) => return Ok(false),
+            Ok(Some(b)) => b,
+            Err(e) => return Err(format!("{ABANDONMENT}: {e}")),
+        };
+        Ok(slop_ninja_protocol::Signed::<CohortAbandonment>::open(&bytes, &self.cfg.keys)
+            .is_ok_and(|a| a.cohort_label == label && a.chain == self.cfg.chain))
     }
 
     /// Deletes every detailed receipt of cohort `label` in the public bucket

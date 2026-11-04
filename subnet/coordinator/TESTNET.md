@@ -837,9 +837,17 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
     $EVAL_URL/eval/plan
 # pre-flight a generator or the scorer path on fixed synthetic text: /eval/probe, /eval/scorer-probe
 # resume after an outage, platform, unresolved-infrastructure or step_refused fault: /eval/clear {"label": "..."}
-#   (a terminal fault answers {"cleared": false, "refused": "abandon_required"};
+#   (generation, scorer and admission outages also clear by themselves once a probe or the step
+#   succeeds: auto_cleared_faults; a terminal fault answers {"cleared": false, "refused": "abandon_required"};
 #   /eval/status lists resumable_faults, and a cohort's step_error names a failing root step)
+#   (a store, commit or definitive-refusal cause shows fault_cause and operator_clear_needed
+#   and waits for this clear; a pause again with no progress since an automatic clear is
+#   probed again after a doubled interval: probes.no_progress_clears, probes.interval_ms)
 # end a faulted cohort without a target: /eval/abandon {"label": "...", "reason": "<code>"}
+#   reason: terminal_fault, plan_defect, reference_unusable, pool_shortfall, authority_restart,
+#   drill, or the cohort's own fault code (public-safe codes: the signed abandonment record
+#   carries it; no figures, account or provider names; legacy budget codes publish as
+#   resource_guard)
 # the load-rehearsal instance: GET /eval/load/status; POST /eval/load/{plan,clear,abandon,hold}
 #   (a load plan is slop_ninja_eval_load_plan_v1; {"hold": true} makes every claim answer Paused)
 # load plans and gates: examples/slop_ninja_eval_ops.rs (load-plan; gate --for deploy|load on both

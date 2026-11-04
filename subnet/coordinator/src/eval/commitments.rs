@@ -1406,7 +1406,7 @@ fn state_absent(sql: &impl Sql, who: &AccountId, block: u64, now_ms: u64) -> R<(
         "UPDATE commit_seen SET retry_ms = ? WHERE hotkey = ? AND block = ?",
         &[bind_u64(now_ms.saturating_add(crate::eval::admission::backoff_ms(tries)))?, hk(who), bind_u64(block)?],
     )?;
-    crate::eval::admission::waiting_on_state(sql, who, tries, now_ms)
+    crate::eval::admission::waiting_on_state(sql, who, block, tries, now_ms)
 }
 
 fn unresolvable(sql: &impl Sql, who: &AccountId, block: u64, note: &str) -> R<()> {
@@ -1492,7 +1492,9 @@ fn ingest_events(sql: &impl Sql, rt: &ChainRuntime, netuid: u16, r: &ReadResult,
         return Ok(false);
     };
     match other_runtime(sql, &pairs)? {
-        Writer::Stored => {}
+        // A read served the block's state for this resolution: a cohort
+        // paused because none did (`STATE_UNAVAILABLE`) may resume.
+        Writer::Stored => crate::eval::admission::state_served(sql, &who, block, now_ms)?,
         // Another runtime wrote this block's state: read the metadata at
         // this block, then the stage is read again (never terminal).
         Writer::Other(marker) => {
@@ -1584,7 +1586,9 @@ fn ingest_reg(sql: &impl Sql, rt: &ChainRuntime, netuid: u16, r: &ReadResult, re
         return Ok(false);
     };
     match other_runtime(sql, &pairs)? {
-        Writer::Stored => {}
+        // A read served the block's state for this resolution: a cohort
+        // paused because none did (`STATE_UNAVAILABLE`) may resume.
+        Writer::Stored => crate::eval::admission::state_served(sql, &who, block, now_ms)?,
         Writer::Other(marker) => {
             refresh_at(sql, &at, block, &marker)?;
             return Ok(true);

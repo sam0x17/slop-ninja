@@ -1351,20 +1351,83 @@ the replay.
 A fault pauses the cohort with its state intact. Two kinds:
 
 - **Resumable** (outages, platform refusals, unresolved infrastructure and
-  failed root steps): `generation_unavailable` (an item's 10th consecutive
-  Workers AI outage), `scorer_unavailable` (6 consecutive scorer failures
-  that never reached the model), `arena_capacity`, `arena_defect` and
-  `object_over_bound` (a platform bound a corrected deployment lifts),
+  failed root steps): `generation_unavailable` (an item's consecutive
+  Workers AI outages reached the plan's
+  `fanout.generation.failures_before_pause`: required in a newly queued
+  plan; a cohort the calendar opens from a template without it gets 10
+  written into its plan, and only plans stored before it was required fall
+  back to 10), `scorer_unavailable` (the plan's `fanout.score.failures_before_pause`
+  consecutive scorer failures that never reached the model),
+  `arena_capacity`, `arena_defect` and `object_over_bound` (a platform bound
+  a corrected deployment lifts), `roster_freeze_refused` (its code in the
+  phase log; the clear runs the freeze again on the same roster),
   `unresolved_infrastructure` (below), and `step_refused` (below).
   `POST /eval/clear {"label"}` resumes the same cohort with fresh outage
   allowances; no attempt, answer or receipt is reset. The list is
   `/eval/status` `resumable_faults`. (`scoring_budget` and
   `generation_budget` are listed for stores that paused under the earlier
   budget guard; the guards now only alert.)
+- **Automatic resume.** `generation_unavailable` and `scorer_unavailable` in
+  a work phase can clear by themselves: while the cohort is paused, a step
+  (one probe at a time, at most once a minute after the previous probe
+  ended, only while heartbeats are fresh) runs one bounded probe, a
+  generation on a fixed synthetic prompt by a paused item's
+  generator, or the control document on a freshly started instance of the
+  artifact whose slots failed (the reference, or the previous reference)
+  under the cohort's label, spec and limits, on one lane object per instance
+  and authority (`.../fault-probe`). The first probe that succeeds resumes
+  the same cohort (`fault_auto_cleared:` in the phase log); one that fails
+  only keeps it paused, with no count or time limit. A generator the
+  provider stopped serving counts as served (the work rotates the item's
+  generator). The fault records its cause (`fault_cause` on
+  `/eval/status`): a probe clears `scorer_unavailable` only when every
+  counted failure was a scorer slot that did not start, load or take the
+  request (`slot`, `slot:previous_reference`). Bucket failures (`store`), a
+  refused commit (`commit`), an unclassified failure, a definitive refusal
+  of a reference (`definitive:<role>`, or `definitive:probe` when a probe
+  met one) wait for an operator clear, paused and visible
+  (`operator_clear_needed` on `/eval/status`, which the publisher alerts
+  on), so a fault the probe cannot see never loops. A cohort that pauses
+  again with no chunk committed or generation answered since its last
+  automatic clear (a platform only partly back) is still probed and
+  cleared, never held: each such clear doubles the wait before the next
+  probe (`probes.no_progress_clears`, `probes.interval_ms`; at most six
+  doublings, 64 minutes, under one default tempo), and progress resets it,
+  so the same cohort resumes by itself once the platform is fully back. A
+  probe's start, the fault it is for and its deadline (its run's
+  allowances: two loads, the inactivity bound and the control limit, or a
+  generation's call timeout, plus one Durable Object call) are recorded
+  before its call with a bound on its cost (those allowances at full rates;
+  a generation's prompt bytes and completion allowance), charged if the
+  step is cut off before its outcome. The call is aborted at that deadline,
+  the step's lease is raised to cover it so no kick schedules an
+  overlapping step, and no second probe starts before it; an outcome
+  applies only to the fault the probe was started for, so a probe still
+  running when an operator clears a fault never clears or holds a later
+  pause. Each probe's time and spend are recorded (`probes`) and charged
+  with the cohort. A probe runs only on fixed control text and touches no
+  job, and it writes no R2 receipt bound into the signed score package:
+  this is an open exception to the rule that every inference attempt has
+  one (as for the operator's `/eval/probe` and `/eval/scorer-probe` and the
+  admission runs), recorded for a decision. A probe runs after the
+  bookkeeping of finished cohorts (purge of private predictions, settles,
+  receipt deletion, the abandonment record), and a bookkeeping step that
+  fails waits out a retry time (`bookkeeping_retry` on `/eval/status`), so
+  neither holds the other. Admission's outage faults
+  (`framing_unavailable`, `commitment_state_unavailable`, a verdict's
+  `scorer_unavailable`) record their subject (the session, the commitment
+  resolution, the verdict) and clear once no subject meets the pause
+  condition any more: re-read after that subject succeeds and on every
+  admission step, so a subject that leaves without succeeding (a refused
+  session) clears it too, while another subject's success never does (a
+  session or resolution or verdict still waiting, or one at the plan's
+  bound, keeps it). No terminal fault is ever cleared this way.
+  `/eval/status` `auto_cleared_faults` lists both sets.
 - **Unresolved infrastructure.** Every attempt that leaves a document
   unresolved is infrastructure-caused (an expired lease with nothing stored,
-  a crash, a failed request; a model failure resolves its document as a
-  `model_error`), so a chunk that used its `max_attempts` with documents
+  a crash, a failed request, or a reference's unattributed model error; an
+  entrant's model failure resolves its document as a `model_error`), so a
+  chunk that used its `max_attempts` with documents
   unresolved gets another round of `max_attempts` by itself, logged in the
   phase log (`infrastructure attempts extended to N`) and counted in the
   cohort's `attempt_extensions` and `extension_receipts`. The bounds are
@@ -1373,20 +1436,45 @@ A fault pauses the cohort with its state intact. Two kinds:
   extension's worst case (its unresolved documents at every added attempt)
   stays within one signed receipt index. Only when no further round fits
   does that job fault alone and the cohort pause at the end of scoring
-  (`unresolved_infrastructure`); a clear returns the job to scoring, whose
-  next claim extends again under the deployed build's bound or faults again.
+  (`unresolved_infrastructure`, the job in `receipt_bound_reached_jobs`); a
+  clear returns the job to scoring, whose next claim extends again under the
+  deployed build's bound or faults again.
   The sealed manifest's `max_attempts` is then the allowance per round; the
   signed records do not name extensions (the receipt index lists every
   attempt's receipt, so a verifier sees all of them).
 - **Terminal under the frozen plan:**
   `draw_shortfall` and `batch_shortfall` (the pool or generation cannot meet
-  the plan's kind counts within its tolerance). A clear would fault again at
-  once, so it is refused with `abandon_required`. `POST /eval/abandon
-  {"label", "reason"}` (a content-free code) ends the cohort without a target:
+  the plan's kind counts within its tolerance), and `reference_failure` (a
+  reference answered invalidly: an answer that does not parse or holds no
+  valid prediction). A reference never has an unanswered document attributed
+  to it: for a scorer error or a crash reproduced on a proven instance the
+  receipt records the model error the scorer gave, marked unattributed, and
+  the document stays unresolved and runs again (above). A reference that
+  errs on the same document every time reaches the receipt bound: the job
+  is listed in `receipt_bound_reached_jobs` and the phase log says so, a
+  clear runs it into the same bound unless the deployed bound grew, and
+  abandonment is the way out. A clear of a terminal fault would fault again
+  at once, so it is refused with `abandon_required`. `POST /eval/abandon
+  {"label", "reason"}` ends the cohort without a target. The reason is a
+  public-safe code: one of `terminal_fault`, `plan_defect`,
+  `reference_unusable`, `pool_shortfall`, `authority_restart` or `drill`
+  (`engine::ABANDON_REASONS`), or the cohort's own fault code; no figures,
+  account or provider names, because the signed abandonment record carries
+  it beyond the eval store (the legacy budget fault codes are published as
+  `resource_guard`, as fault and reason). After it,
   the calculation target stays the previous cohort's, every receipt and the
   phase log stay, its drawn humans stay used, and the next queued cohort opens
-  at the next boundary. Elapsed time never abandons a cohort, and a platform
-  or time-caused fault never needs abandonment.
+  at the next boundary. The main instance then writes a signed, content-free
+  `cohorts/<label>/abandoned.signed` (the shared contract's
+  `ABANDONMENT_RECORD`, which the publisher reads and verifies;
+  `CohortAbandonment`: chain, cohort,
+  label, manifest digest when sealed, fault, reason, epoch) beside the
+  cohort's other signed records (a reason stored before the vocabulary is
+  published as `unlisted`). The record is written when admission and the
+  active cohort have nothing to send; a write that fails waits out its retry
+  time (`abandonment_record_retry`) and holds no other work. Elapsed time
+  never abandons a cohort, and a platform or time-caused fault never needs
+  abandonment.
 
 **Root step errors.** A cohort's root step (draw, seal, package, closure) that
 fails is recorded against its cohort: `/eval/status` cohort `step_error`
@@ -1824,8 +1912,9 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
   admitted roster, with each opening's nonce, extrinsic index and object, is
   written into the stored plan (so the seal binds it), and the cohort moves
   to `generating`. The decision is computed before anything is written; a
-  frozen plan the engine refuses faults the cohort (`roster_freeze_refused`)
-  instead of failing every step.
+  frozen plan the engine refuses faults the cohort (`roster_freeze_refused`,
+  its code in the phase log) instead of failing every step; once the cause is
+  corrected a clear runs the freeze again on the same roster.
 - **Ways out.** `POST /eval/session/refuse` (`{session, reason}`, main
   instance) refuses one stalled session with a recorded reason
   (`check_failed`, `operator:<reason>`), and its pending verdict with it.

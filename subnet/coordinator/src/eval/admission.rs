@@ -1884,7 +1884,7 @@ fn pause_due(failures: u32, bound: u32) -> bool {
 /// resolution, and the freeze for framing), the cohort faults at every
 /// multiple of the plan's pause bound
 /// ([`commitments::STATE_UNAVAILABLE`], resumable).
-pub fn waiting_on_state(sql: &impl Sql, hotkey: &AccountId, tries: u32, now_ms: u64) -> R<()> {
+pub fn waiting_on_state(sql: &impl Sql, hotkey: &AccountId, block: u64, tries: u32, now_ms: u64) -> R<()> {
     let Some(w) = window(sql)? else { return Ok(()) };
     if !pause_due(tries, w.failures_before_pause) {
         return Ok(());
@@ -1895,7 +1895,8 @@ pub fn waiting_on_state(sql: &impl Sql, hotkey: &AccountId, tries: u32, now_ms: 
         &[i(w.seq), s(hex::encode(hotkey.0))],
     )?;
     if waiting > 0 {
-        engine::fault(sql, w.seq, commitments::STATE_UNAVAILABLE, now_ms)?;
+        let subject = format!("state:{}@{block}", hex::encode(hotkey.0));
+        engine::fault_with_cause(sql, w.seq, commitments::STATE_UNAVAILABLE, Some(&subject), now_ms)?;
     }
     Ok(())
 }
@@ -1928,7 +1929,7 @@ pub fn frame_begin(sql: &impl Sql, id: &str, now_ms: u64) -> R<Option<(String, u
     let rows = sql.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s(id)])?;
     let tries = u32::try_from(rows.first().map_or(Ok(0), |x| int(x, 0))?).unwrap_or(u32::MAX);
     if pause_due(tries, w.failures_before_pause) {
-        engine::fault(sql, w.seq, FRAMING_UNAVAILABLE, now_ms)?;
+        engine::fault_with_cause(sql, w.seq, FRAMING_UNAVAILABLE, Some(&format!("session:{id}")), now_ms)?;
     }
     let next = tries.saturating_add(1);
     sql.exec(
@@ -1968,7 +1969,7 @@ pub fn frame_failed(sql: &impl Sql, id: &str, failure: FrameFailure, now_ms: u64
         && let Some(r) = session_row(sql, id)?
         && let Some(w) = window_for(sql, r.cohort)?
     {
-        engine::fault(sql, w.seq, FRAMING_UNAVAILABLE, now_ms)?;
+        engine::fault_with_cause(sql, w.seq, FRAMING_UNAVAILABLE, Some(&format!("session:{id}")), now_ms)?;
     }
     Ok(())
 }
@@ -2037,6 +2038,27 @@ fn check_outcome(o: &FrameOutcome) -> Option<CheckedOutcome> {
 /// envelope, the cohort contract, and `SubmissionUpload::admit` against the
 /// logged commitment the session opened. Refusals end the session.
 pub fn apply_frame(
+    sql: &impl Sql,
+    chain: &ChainBinding,
+    id: &str,
+    framed: FrameOutcome,
+    now_ms: u64,
+) -> R<()> {
+    let seq = match session_row(sql, id)? {
+        Some(r) => window_for(sql, r.cohort)?.map(|w| w.seq),
+        None => None,
+    };
+    apply_frame_outcome(sql, chain, id, framed, now_ms)?;
+    // The outcome is applied: a cohort paused because this session's framing
+    // kept being cut off resumes once no session still meets that pause
+    // condition (`outage_passed`).
+    if let Some(seq) = seq {
+        outage_passed(sql, seq, FRAMING_UNAVAILABLE, "framing_answered", now_ms)?;
+    }
+    Ok(())
+}
+
+fn apply_frame_outcome(
     sql: &impl Sql,
     chain: &ChainBinding,
     id: &str,
@@ -2550,8 +2572,10 @@ pub fn record_run(
                 )?;
                 reached(Some(format!("load_failed:{code}")), "refused")?;
             } else {
+                // The run reached the scorer: its platform failures in a row end.
                 sql.exec(
-                    "UPDATE adm_verdicts SET artifact_failures = ?, code = ?, claim_until_ms = 0, not_before_ms = ?, updated_ms = ?
+                    "UPDATE adm_verdicts SET artifact_failures = ?, code = ?, claim_until_ms = 0, not_before_ms = ?, updated_ms = ?,
+                        platform_tries = 0
                      WHERE hotkey = ? AND commitment = ?",
                     &[
                         i(i64::from(n)),
@@ -2567,6 +2591,18 @@ pub fn record_run(
         LaneOutcome::Platform(code) => {
             let n = u32::try_from(int(r, 3)?).unwrap_or(u32::MAX);
             platform_wait(sql, &run.hotkey, &run.commitment, code, n, now_ms)?;
+        }
+    }
+    if !matches!(outcome, LaneOutcome::Platform(_)) {
+        // The run reached the scorer and its outcome is applied: a cohort
+        // paused by verdict platform failures (`platform_wait`) resumes once
+        // no verdict still meets that pause condition (`outage_passed`).
+        let seq = sql.exec(
+            "SELECT seq FROM adm_sessions WHERE hotkey = ? AND commitment = ? ORDER BY seq DESC LIMIT 1",
+            &key,
+        )?;
+        if let Some(r) = seq.first() {
+            outage_passed(sql, int(r, 0)?, engine::SCORER_UNAVAILABLE, "verdict_reached_scorer", now_ms)?;
         }
     }
     apply_verdicts(sql, cfg, now_ms)
@@ -2591,7 +2627,8 @@ fn platform_wait(sql: &impl Sql, hotkey: &str, commitment: &str, code: &str, tri
         if let Some(w) = window_of(sql, &engine::cohort(sql, seq)?)?
             && pause_due(n, w.failures_before_pause)
         {
-            engine::fault(sql, seq, "scorer_unavailable", now_ms)?;
+            let subject = format!("verdict:{hotkey}:{commitment}");
+            engine::fault_with_cause(sql, seq, engine::SCORER_UNAVAILABLE, Some(&subject), now_ms)?;
         }
     }
     sql.exec(
@@ -2833,8 +2870,11 @@ pub fn close_window(sql: &impl Sql, c: &Cohort, epoch: u64, cutoff_block: u64, n
 }
 
 /// The fault a closing cohort takes when its roster cannot be frozen (a
-/// frozen plan the engine refuses): the cohort pauses, never skipped, until
-/// the operator abandons it (`engine::abandon`) or refuses sessions.
+/// frozen plan the engine refuses): the cohort pauses, never skipped, with
+/// the refusal's code in its phase log (`roster_freeze_refused:<code>`).
+/// Resumable: once the cause is corrected (a build that accepts the plan, a
+/// session refused), an operator clear runs the freeze again on the same
+/// roster.
 pub const FREEZE_FAULT: &str = "roster_freeze_refused";
 
 /// Freezes the roster of a closing cohort once it can, at a tempo boundary:
@@ -2937,9 +2977,127 @@ pub fn freeze_wait(sql: &impl Sql, seq: i64) -> R<Option<&'static str>> {
 }
 
 fn fault_freeze(sql: &impl Sql, seq: i64, why: &'static str, now_ms: u64) -> R<Option<Boundary>> {
-    let _ = why;
-    engine::fault(sql, seq, FREEZE_FAULT, now_ms)?;
-    Ok(Some(Boundary::Waiting("roster freeze refused: the cohort is faulted")))
+    // Logged once with its code, as a refused root step is
+    // (`engine::refuse_step`); a cohort already paused keeps its first fault.
+    if engine::cohort(sql, seq)?.fault.is_none() {
+        engine::fault(sql, seq, FREEZE_FAULT, now_ms)?;
+        let phase = engine::cohort(sql, seq)?.phase;
+        set_phase(sql, seq, &phase, now_ms, &format!("{FREEZE_FAULT}:{}", crate::eval::lanes::textgen_safe(why)))?;
+    }
+    Ok(Some(Boundary::Waiting("roster freeze refused: the cohort is paused (resumable)")))
+}
+
+/// The admitting or closing cohort `seq` paused by admission outage fault
+/// `code` resumes now, after a success of the step that raises it, when the
+/// subject recorded with the fault (`fault_cause`: the session, the
+/// commitment resolution, or the verdict) no longer waits on that step, and
+/// no other subject still meets the fault's pause condition (a session in
+/// framing at the pause bound of `step_tries`, a resolution of a verifying
+/// hotkey at the bound of `absent_tries`, a pending verdict at the bound of
+/// `platform_tries`). So another subject's success never clears a fault
+/// whose subject keeps failing, and a fault with two failing subjects stays
+/// until both pass (`engine::EVIDENCE_CLEARED_FAULTS`).
+fn outage_passed(sql: &impl Sql, seq: i64, code: &str, how: &str, now_ms: u64) -> R<()> {
+    let c = engine::cohort(sql, seq)?;
+    if c.phase != "admission" || c.fault.as_deref() != Some(code) {
+        return Ok(());
+    }
+    let Some(w) = window_of(sql, &c)? else { return Ok(()) };
+    let cause = sql.exec("SELECT fault_cause FROM cohorts WHERE seq = ?", &[i(seq)])?;
+    let cause = cause.first().and_then(|r| opt_text(r, 0));
+    if outage_blocked(sql, seq, code, cause.as_deref(), w.failures_before_pause)? {
+        return Ok(());
+    }
+    engine::auto_clear(sql, seq, code, how, now_ms)?;
+    Ok(())
+}
+
+/// Re-reads the pause condition of every admission-phase cohort paused by
+/// an admission outage fault ([`engine::EVIDENCE_CLEARED_FAULTS`]), on each
+/// admission step: a fault whose recorded subject left without succeeding
+/// (its session refused or withdrawn, its verdict no longer pending) while
+/// no other subject meets the pause condition clears now (`outage_passed`),
+/// instead of waiting for one particular success that will never come.
+fn outage_recheck(sql: &impl Sql, now_ms: u64) -> R<()> {
+    let rows = sql.exec(
+        "SELECT seq, fault FROM cohorts WHERE phase = 'admission' AND fault IN (?, ?, ?) ORDER BY seq",
+        &[
+            s(FRAMING_UNAVAILABLE),
+            s(commitments::STATE_UNAVAILABLE),
+            s(engine::SCORER_UNAVAILABLE),
+        ],
+    )?;
+    for r in &rows {
+        outage_passed(sql, int(r, 0)?, text(r, 1)?, "subject_settled", now_ms)?;
+    }
+    Ok(())
+}
+
+/// Whether admission outage fault `code` of cohort `seq` still has a cause:
+/// its recorded subject (`cause`) still waiting on the failing step, or any
+/// subject at the pause bound (`bound`).
+fn outage_blocked(sql: &impl Sql, seq: i64, code: &str, cause: Option<&str>, bound: u32) -> R<bool> {
+    let bound = i64::from(bound.max(1));
+    let pending = |q: &str, args: &[SqlValue]| -> R<bool> { Ok(!sql.exec(q, args)?.is_empty()) };
+    let subject = cause.and_then(|c| c.split_once(':'));
+    Ok(match code {
+        FRAMING_UNAVAILABLE => {
+            (match subject {
+                Some(("session", id)) => pending(
+                    "SELECT 1 FROM adm_sessions WHERE session = ? AND state = 'verifying' AND stage = 'frame'",
+                    &[s(id)],
+                )?,
+                _ => false,
+            }) || pending(
+                "SELECT 1 FROM adm_sessions WHERE seq = ? AND state = 'verifying' AND stage = 'frame' AND step_tries >= ? LIMIT 1",
+                &[i(seq), i(bound)],
+            )?
+        }
+        commitments::STATE_UNAVAILABLE => {
+            (match subject.and_then(|(k, rest)| (k == "state").then_some(rest)).and_then(|r| r.split_once('@')) {
+                Some((hk, block)) => pending(
+                    "SELECT 1 FROM commit_seen WHERE hotkey = ? AND block = ? AND stage IN ('events','reg') AND absent_tries > 0",
+                    &[s(hk), i(block.parse::<i64>().unwrap_or(-1))],
+                )?,
+                None => false,
+            }) || pending(
+                "SELECT 1 FROM commit_seen cs WHERE cs.stage IN ('events','reg') AND cs.absent_tries >= ?
+                   AND cs.hotkey IN (SELECT hotkey FROM adm_sessions WHERE seq = ? AND state = 'verifying') LIMIT 1",
+                &[i(bound), i(seq)],
+            )?
+        }
+        engine::SCORER_UNAVAILABLE => {
+            (match subject.and_then(|(k, rest)| (k == "verdict").then_some(rest)).and_then(|r| r.split_once(':')) {
+                Some((hk, cm)) => pending(
+                    "SELECT 1 FROM adm_verdicts WHERE hotkey = ? AND commitment = ? AND state = 'pending' AND platform_tries > 0",
+                    &[s(hk), s(cm)],
+                )?,
+                None => false,
+            }) || pending(
+                "SELECT 1 FROM adm_verdicts v WHERE v.state = 'pending' AND v.platform_tries >= ?
+                   AND (SELECT MAX(x.seq) FROM adm_sessions x WHERE x.hotkey = v.hotkey AND x.commitment = v.commitment) = ?
+                 LIMIT 1",
+                &[i(bound), i(seq)],
+            )?
+        }
+        _ => true,
+    })
+}
+
+/// A commitment read served state for `who`'s resolution at `block`: its
+/// absent answers in a row end, and the cohort paused by
+/// [`commitments::STATE_UNAVAILABLE`] (an admitting or closing one) resumes
+/// once no verifying hotkey's resolution still meets that pause condition
+/// (`outage_passed`).
+pub fn state_served(sql: &impl Sql, who: &AccountId, block: u64, now_ms: u64) -> R<()> {
+    sql.exec(
+        "UPDATE commit_seen SET absent_tries = 0 WHERE hotkey = ? AND block = ? AND absent_tries > 0",
+        &[s(hex::encode(who.0)), bind_u64(block)?],
+    )?;
+    if let Some(w) = window(sql)? {
+        outage_passed(sql, w.seq, commitments::STATE_UNAVAILABLE, "state_served", now_ms)?;
+    }
+    Ok(())
 }
 
 /// Whether admission has work for the cohort object's step, or the calendar
@@ -2975,6 +3133,7 @@ pub fn has_work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool
 /// framing or blob copies, verdict runs, clean-up, and the calendar's next
 /// cohort.
 pub fn next_work(sql: &impl Sql, cfg: &EvalConfig, now_ms: u64) -> R<Option<engine::Work>> {
+    outage_recheck(sql, now_ms)?;
     // A freeze moves its cohort to generating; the engine's own work for it
     // follows in the same step.
     if let Some(Boundary::Frozen { .. }) = try_freeze(sql, cfg, now_ms)? {

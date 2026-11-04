@@ -321,6 +321,26 @@ pub struct GenLanes {
     /// Accumulated throttling per item that consumes no attempt; past it a
     /// throttle counts as an outage.
     pub max_throttle_ms: u64,
+    /// Consecutive outages of one item that pause the cohort
+    /// (`generation_unavailable`, cleared by the first outage probe the
+    /// provider answers). Required in a newly queued cohort plan
+    /// (`engine::admit`); a cohort the calendar opens from a template without
+    /// it carries the compiled bound written into its plan. Only plans stored
+    /// before it was required lack it, and keep the bound those builds
+    /// compiled in ([`GenLanes::failures_before_pause`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failures_before_pause: Option<u32>,
+}
+
+/// The generation pause bound of plans that do not declare one: what builds
+/// before 2026-11-04 compiled in (with the backoff, about 10 minutes).
+pub const GEN_FAILURES_BEFORE_PAUSE_COMPILED: u32 = 10;
+
+impl GenLanes {
+    /// The plan's generation pause bound (`failures_before_pause`).
+    pub fn failures_before_pause(&self) -> u32 {
+        self.failures_before_pause.unwrap_or(GEN_FAILURES_BEFORE_PAUSE_COMPILED)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -819,6 +839,7 @@ impl Fanout {
         e(s.prestart_lead_ms <= 600_000 && s.prestart_wait_ms <= 600_000, "fanout.score.prestart")?;
         e((10_000..=600_000).contains(&s.inactivity_ms), "fanout.score.inactivity_ms")?;
         e(s.failures_before_pause >= 1, "fanout.score.failures_before_pause")?;
+        e(self.generation.failures_before_pause != Some(0), "fanout.generation.failures_before_pause")?;
         let (Some(step), Some(doc), Some(per_mib), Some(attrib)) =
             (s.step_budget_ms, s.doc_timeout_ms, s.load_ms_per_mib, s.artifact_failures_before_model_error)
         else {
@@ -1343,6 +1364,7 @@ pub(crate) mod tests {
                 inflight_per_lane: 4,
                 lease_ms: 120_000,
                 max_throttle_ms: 900_000,
+                failures_before_pause: Some(GEN_FAILURES_BEFORE_PAUSE_COMPILED),
             },
             package: PackageLanes { max_lanes: 16 },
             cost: CostModel {

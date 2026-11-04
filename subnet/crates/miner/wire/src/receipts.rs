@@ -1,10 +1,9 @@
 //! The private receipts-bucket contract the coordinator and the publisher
 //! share: the authorization pointer's key, kinds and read bounds, its
 //! checks, the marker the coordinator writes before it deletes a cohort's
-//! detailed receipts under the N+2 rule, and the name of its planned
+//! detailed receipts under the N+2 rule, and the name and read bound of its
 //! abandonment record ([`ABANDONMENT_RECORD`]). Both crates import these
-//! items (the abandonment name once its writer exists), so the reader and
-//! the writer of each object cannot drift apart.
+//! items, so the reader and the writer of each object cannot drift apart.
 //!
 //! The pointer type itself is [`crate::json::AuthorizationPointer`]
 //! (schema [`crate::json::AUTHORIZATION_POINTER_SCHEMA`]). A pointer kind
@@ -125,16 +124,24 @@ pub const RETIRED_MARKER_BOUND: u64 = 1024;
 
 /// The file name, in a private cohort directory
 /// (`cohorts/<label>/abandoned.signed`), of the coordinator's signed record
-/// that it ended the cohort without a target, so no closure follows.
+/// that it ended the cohort without a target, so no closure follows: the
+/// protocol's signed `CohortAbandonment` record (package key; its chain,
+/// cohort number and label, the manifest digest when sealed, content-free
+/// fault and reason codes and the epoch it was abandoned in).
 ///
-/// Planned: no coordinator release writes it yet. The writer will bring its
-/// signed record type and read bound, and it must import this name, so the
-/// publisher (which reads it) and the coordinator (which will write it)
-/// share one definition. Until then the publisher reads only whether the
-/// object exists. A cohort with a [`RETIRED_MARKER`] and no closure is
-/// read the same way: the coordinator writes that marker only for a closed
-/// cohort (after its closure) or an abandoned one.
+/// The coordinator writes it after an operator abandons a cohort, and the
+/// publisher reads it within [`ABANDONMENT_RECORD_BOUND`] and verifies its
+/// signature, label and chain before it treats the cohort as abandoned.
+/// Both import this name. A cohort with a [`RETIRED_MARKER`] and no closure
+/// is read the same way: the coordinator writes that marker only for a
+/// closed cohort (after its closure) or an abandoned one.
 pub const ABANDONMENT_RECORD: &str = "abandoned.signed";
+
+/// Read bound of the abandonment record: its fixed fields (a chain binding,
+/// a cohort number, a label of at most the protocol's 256-byte label bound,
+/// one digest, two codes of at most 64 bytes and an epoch) and the signed
+/// envelope come to well under a third of it.
+pub const ABANDONMENT_RECORD_BOUND: u64 = 4 * 1024;
 
 /// Written by the coordinator before the first of a cohort's detailed
 /// receipts is deleted: content free, so the publisher can tell receipts

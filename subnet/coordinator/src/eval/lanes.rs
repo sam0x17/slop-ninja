@@ -290,8 +290,37 @@ fn exhausted(sql: &impl Sql, c: &Cohort, job: i64, chunk: i64, unresolved: u64, 
     if extend_attempts(sql, c, job, chunk, unresolved, now)?.is_some() {
         return Ok(true);
     }
+    bound_reached(sql, c.seq, job, chunk, now)?;
     fault_job(sql, c.seq, job, engine::UNRESOLVED_INFRASTRUCTURE, now)?;
     Ok(false)
+}
+
+/// No further attempt of chunk `chunk` of job `job` fits under the receipt
+/// bound: the job is marked (`receipt_bound_reached`, in the status) and the
+/// phase log says so, so an operator sees that a clear runs the job into the
+/// same bound again unless the deployed bound grew, and that the cohort's
+/// way out is abandonment.
+fn bound_reached(sql: &impl Sql, seq: i64, job: i64, chunk: i64, now: u64) -> R<()> {
+    let changed = sql.exec(
+        "UPDATE jobs SET receipt_bound_reached = 1 WHERE seq = ? AND job = ? AND receipt_bound_reached = 0 RETURNING job",
+        &[i(seq), i(job)],
+    )?;
+    if changed.is_empty() {
+        return Ok(());
+    }
+    let o = engine::observed(sql)?;
+    sql.exec(
+        "INSERT INTO phase_log (seq, phase, at_ms, confirmed_number, epoch_index, note)
+         SELECT seq, phase, ?, ?, ?, ? FROM cohorts WHERE seq = ?",
+        &[
+            bind_u64(now)?,
+            o.confirmed.map_or(SqlValue::Null, |b| i(b.number as i64)),
+            o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)),
+            s(format!("job {job} chunk {chunk}: no further attempt fits under the receipt bound")),
+            i(seq),
+        ],
+    )?;
+    Ok(())
 }
 
 // ------------------------------------------------------------------ planning
@@ -901,7 +930,7 @@ pub fn lane_report(sql: &impl Sql, r: &LaneRef, rep: &LaneReport, now: u64) -> R
             )?;
             event(sql, r.seq, &r.kind, r.lane, "start_failed", 0, now)?;
             if c.phase == "scoring" {
-                engine::note_scorer_failure(sql, r.seq, now)?;
+                engine::note_scorer_failure(sql, r.seq, engine::ScorerCause::Slot, l.job, now)?;
             }
         }
         _ => set("failed", !rep.container_up)?,
@@ -911,10 +940,28 @@ pub fn lane_report(sql: &impl Sql, r: &LaneRef, rep: &LaneReport, now: u64) -> R
     assignment_for(sql, &c, &r.kind, &l, now)
 }
 
-/// Content-free code text for storage: short, code characters only.
-fn textgen_safe(code: &str) -> String {
-    crate::eval::limiter::sanitize(code).chars().take(64).collect()
+/// The longest content-free code [`textgen_safe`] stores.
+pub const SAFE_CODE_MAX: usize = 64;
+
+/// Content-free code text for storage: short ([`SAFE_CODE_MAX`]), code
+/// characters only.
+pub fn textgen_safe(code: &str) -> String {
+    crate::eval::limiter::sanitize(code).chars().take(SAFE_CODE_MAX).collect()
 }
+
+/// The timeout of one generation call under a generation lease of
+/// `lease_ms`: the lease less the time a lane needs to report back, and at
+/// least the shortest call a provider answers in. The work path and the
+/// outage probe use the same one, so a probe never fails on an answer the
+/// work path would accept.
+pub fn gen_call_timeout_ms(lease_ms: u64) -> u64 {
+    lease_ms.saturating_sub(GEN_REPORT_MS).max(GEN_CALL_MIN_MS)
+}
+
+/// What a generation lane keeps of its lease to report its answers.
+pub const GEN_REPORT_MS: u64 = 15_000;
+/// The shortest generation call timeout ([`gen_call_timeout_ms`]).
+pub const GEN_CALL_MIN_MS: u64 = 10_000;
 
 // -------------------------------------------------------------------- claims
 
@@ -945,6 +992,13 @@ pub struct ChunkClaim {
     /// no container.
     #[serde(default)]
     pub model_error: bool,
+    /// The job scores a reference artifact, which is never attributed: a
+    /// document it leaves unanswered (a scorer error, or a crash reproduced
+    /// on a proven instance) keeps its model error in the receipt, marked
+    /// unattributed, so the document stays unresolved and runs again
+    /// ([`crate::eval::lane_logic::unanswered`]).
+    #[serde(default)]
+    pub reference: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1008,11 +1062,12 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
     }
     let f = c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
     let job = l.job.ok_or(EvalError::State("scoring lane without a job"))?;
-    let js = sql.exec("SELECT status, artifact_failed FROM jobs WHERE seq = ? AND job = ?", &[i(r.seq), i(job)])?;
+    let js = sql.exec("SELECT status, artifact_failed, role FROM jobs WHERE seq = ? AND job = ?", &[i(r.seq), i(job)])?;
     if js.first().is_none_or(|j| text(j, 0).is_ok_and(|t| t == "done" || t == "faulted")) {
         return Ok(ClaimReply::Done);
     }
     let artifact_failed = opt_text(&js[0], 1).is_some();
+    let reference = text(&js[0], 2)? != "entrant";
     let range = sql.exec("SELECT chunk_lo, chunk_hi FROM lanes WHERE seq = ? AND kind = 'score' AND lane = ?", &[i(r.seq), i(r.lane)])?;
     let (lo, hi) = (int(&range[0], 0)?, int(&range[0], 1)?);
     let candidates = sql.exec(
@@ -1071,6 +1126,7 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
                 shards: shards_for(sql, r.seq, lo_t, hi_t)?,
                 done,
                 model_error: artifact_failed && !record_only && !reconcile,
+                reference,
             }))
         };
         if inflight > 0 && iso_yield == inflight {
@@ -1092,6 +1148,7 @@ pub fn claim_chunk(sql: &impl Sql, r: &LaneRef, name: &str, now: u64) -> R<Claim
             match extend_attempts(sql, &c, job, chunk, task_ids.len() as u64, now)? {
                 Some(next) => limit = i64::from(next),
                 None => {
+                    bound_reached(sql, r.seq, job, chunk, now)?;
                     fault_job(sql, r.seq, job, engine::UNRESOLVED_INFRASTRUCTURE, now)?;
                     return Ok(ClaimReply::Done);
                 }
@@ -1218,6 +1275,13 @@ pub fn commit_chunk(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, c
     if isolated > 0 && (crashes == 0 || cm.outcomes.iter().any(|o| o.isolated_crash && o.class != 2)) {
         return Err(EvalError::State("an isolated crash outside an isolation claim"));
     }
+    if cm.outcomes.iter().any(|o| o.unattributed) {
+        // Only a reference's model error is left unattributed.
+        let role = sql.exec("SELECT role FROM jobs WHERE seq = ? AND job = ?", &[i(seq), i(cm.job)])?;
+        if role.first().is_none_or(|r| text(r, 0).is_ok_and(|x| x == "entrant")) || cm.outcomes.iter().any(|o| o.unattributed && o.class != 2) {
+            return Err(EvalError::State("an unattributed outcome outside a reference's model error"));
+        }
+    }
     if cm.outcomes.iter().any(|o| o.artifact_failed) {
         let flagged = sql.exec("SELECT artifact_failed FROM jobs WHERE seq = ? AND job = ?", &[i(seq), i(cm.job)])?;
         if flagged.first().is_none_or(|r| opt_text(r, 0).is_none()) || cm.outcomes.iter().any(|o| o.artifact_failed && o.class != 2) {
@@ -1273,7 +1337,7 @@ pub fn commit_chunk(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, c
             ],
         )?;
     }
-    for o in cm.outcomes.iter().filter(|o| o.class != 5) {
+    for o in cm.outcomes.iter().filter(|o| o.resolves()) {
         sql.exec(
             "INSERT INTO preds (seq, job, task, attempt, outcome, inv_ppb, share_ppb, human_profile, ai_profile, token_count)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1321,7 +1385,13 @@ pub fn commit_chunk(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, c
             i(cm.chunk),
         ],
     )?;
-    sql.exec("UPDATE cohorts SET scorer_failures = 0, r2_puts = r2_puts + ? WHERE seq = ?", &[i(if cm.record_only { 1 } else { 2 }), i(seq)])?;
+    // A commit is progress: the outage count and its cause start again, and
+    // the probe's back-off after automatic clears too (`engine::note_progress`).
+    sql.exec(
+        "UPDATE cohorts SET scorer_failures = 0, scorer_cause = NULL, r2_puts = r2_puts + ? WHERE seq = ?",
+        &[i(if cm.record_only { 1 } else { 2 }), i(seq)],
+    )?;
+    crate::eval::engine::note_progress(sql, seq, now)?;
     let t = &cm.timing;
     sql.exec(
         "UPDATE jobs SET done_chunks = done_chunks + ?, call_ms = call_ms + ?, server_ms = server_ms + ?,
@@ -1415,18 +1485,18 @@ pub fn chunk_lost(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64,
 /// (recovering any results object that was stored). `failure` counts a scorer
 /// failure (an R2 outage pauses the cohort instead of spending attempts).
 #[allow(clippy::too_many_arguments)]
-pub fn chunk_release(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, claim: i64, failure: bool, now: u64) -> R<bool> {
+pub fn chunk_release(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, claim: i64, failure: Option<engine::ScorerCause>, now: u64) -> R<bool> {
     touch(sql, r, now)?;
     if !held(sql, r.seq, job, chunk, claim, name)? {
         return Ok(false);
     }
-    let backoff = if failure { NOT_DISPATCHED_BACKOFF_MS } else { 0 };
+    let backoff = if failure.is_some() { NOT_DISPATCHED_BACKOFF_MS } else { 0 };
     sql.exec(
         "UPDATE chunks SET claim_until_ms = ?, holder = NULL, claim_kind = 'none' WHERE seq = ? AND job = ? AND chunk = ?",
         &[bind_u64(now + backoff)?, i(r.seq), i(job), i(chunk)],
     )?;
-    if failure {
-        engine::note_scorer_failure(sql, r.seq, now)?;
+    if let Some(cause) = failure {
+        engine::note_scorer_failure(sql, r.seq, cause, Some(job), now)?;
     }
     Ok(true)
 }
@@ -1454,7 +1524,7 @@ pub fn chunk_renew(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64
 /// scorer failure, so repeated failures pause the cohort (`scorer_unavailable`,
 /// resumable by a clear). Returns whether the cohort paused.
 #[allow(clippy::too_many_arguments)]
-pub fn chunk_give_back(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, claim: i64, failure: bool, now: u64) -> R<bool> {
+pub fn chunk_give_back(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, claim: i64, failure: Option<engine::ScorerCause>, now: u64) -> R<bool> {
     touch(sql, r, now)?;
     let ch = sql.exec(
         "SELECT claims, holder, status, attempt, inflight, claim_kind FROM chunks WHERE seq = ? AND job = ? AND chunk = ?",
@@ -1464,7 +1534,7 @@ pub fn chunk_give_back(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk:
     if int(row, 0)? != claim || opt_text(row, 1).as_deref() != Some(name) || text(row, 2)? != "pending" {
         return Ok(false);
     }
-    let until = bind_u64(now + if failure { NOT_DISPATCHED_BACKOFF_MS } else { 0 })?;
+    let until = bind_u64(now + if failure.is_some() { NOT_DISPATCHED_BACKOFF_MS } else { 0 })?;
     match text(row, 5)? {
         "fresh" if int(row, 4)? == int(row, 3)? && int(row, 4)? > 0 => {
             sql.exec(
@@ -1489,14 +1559,17 @@ pub fn chunk_give_back(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk:
         }
     }
     event(sql, r.seq, &r.kind, r.lane, "given_back", 0, now)?;
-    if failure { engine::note_scorer_failure(sql, r.seq, now) } else { Ok(false) }
+    match failure {
+        Some(cause) => engine::note_scorer_failure(sql, r.seq, cause, Some(job), now),
+        None => Ok(false),
+    }
 }
 
 /// The scorer refused a request before inference (not ready, or busy): the
 /// claim goes back with no attempt spent ([`chunk_give_back`], counted).
 #[allow(clippy::too_many_arguments)]
 pub fn chunk_not_dispatched(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, claim: i64, now: u64) -> R<bool> {
-    chunk_give_back(sql, r, name, job, chunk, claim, true, now)
+    chunk_give_back(sql, r, name, job, chunk, claim, Some(engine::ScorerCause::Slot), now)
 }
 
 /// The reply to an isolation run's progress: whether the claim is still held,
@@ -1555,13 +1628,13 @@ pub fn iso_progress(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i6
 /// cohort paused, or its instance could not be restarted): the attempt number
 /// stays, its recorded outcomes stay, and the next claim continues it.
 #[allow(clippy::too_many_arguments)]
-pub fn iso_yield(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, claim: i64, attempt: u8, failure: bool, now: u64) -> R<bool> {
+pub fn iso_yield(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, claim: i64, attempt: u8, failure: Option<engine::ScorerCause>, now: u64) -> R<bool> {
     touch(sql, r, now)?;
     let ch = sql.exec("SELECT inflight FROM chunks WHERE seq = ? AND job = ? AND chunk = ?", &[i(r.seq), i(job), i(chunk)])?;
     if !held(sql, r.seq, job, chunk, claim, name)? || ch.first().is_none_or(|c| int(c, 0).is_ok_and(|v| v != i64::from(attempt))) {
         return Ok(false);
     }
-    let until = bind_u64(now + if failure { NOT_DISPATCHED_BACKOFF_MS } else { 0 })?;
+    let until = bind_u64(now + if failure.is_some() { NOT_DISPATCHED_BACKOFF_MS } else { 0 })?;
     sql.exec(
         "UPDATE chunks SET iso_yield = inflight, claim_until_ms = ?, holder = NULL, claim_kind = 'none'
          WHERE seq = ? AND job = ? AND chunk = ?",
@@ -1569,9 +1642,9 @@ pub fn iso_yield(sql: &impl Sql, r: &LaneRef, name: &str, job: i64, chunk: i64, 
     )?;
     // `iso_yield`: the step budget, a pause or an artifact failure ended the run;
     // `iso_yield_failure`: a restart or request failed (a scorer failure).
-    event(sql, r.seq, &r.kind, r.lane, if failure { "iso_yield_failure" } else { "iso_yield" }, 0, now)?;
-    if failure {
-        engine::note_scorer_failure(sql, r.seq, now)?;
+    event(sql, r.seq, &r.kind, r.lane, if failure.is_some() { "iso_yield_failure" } else { "iso_yield" }, 0, now)?;
+    if let Some(cause) = failure {
+        engine::note_scorer_failure(sql, r.seq, cause, Some(job), now)?;
     }
     Ok(true)
 }
@@ -1604,8 +1677,9 @@ pub fn artifact_failure(sql: &impl Sql, r: &LaneRef, job: i64, code: &str, defin
     if role != "entrant" && definitive {
         // A reference the scorer refuses definitively (a deterministic check)
         // is refused again on every fresh instance: pause the cohort now
-        // (`scorer_unavailable`, resumable once a scorer that admits it is
-        // deployed) rather than after `failures_before_pause` cold starts.
+        // (`scorer_unavailable`, resumable by an operator clear once a scorer
+        // that admits it is deployed) rather than after
+        // `failures_before_pause` cold starts.
         let code = textgen_safe(code);
         let o = engine::observed(sql)?;
         sql.exec(
@@ -1619,12 +1693,15 @@ pub fn artifact_failure(sql: &impl Sql, r: &LaneRef, job: i64, code: &str, defin
                 i(r.seq),
             ],
         )?;
-        engine::fault(sql, r.seq, "scorer_unavailable", now)?;
+        // The cause (`definitive:<role>`) is one no probe clears
+        // (`engine::probed_cause`): an operator clears it once a scorer that
+        // admits the artifact is deployed.
+        engine::fault_with_cause(sql, r.seq, engine::SCORER_UNAVAILABLE, Some(&format!("definitive:{role}")), now)?;
         return Ok(false);
     }
     if role != "entrant" || matches!(text(row, 2)?, "done" | "faulted") {
         if c.phase == "scoring" {
-            engine::note_scorer_failure(sql, r.seq, now)?;
+            engine::note_scorer_failure(sql, r.seq, engine::ScorerCause::Slot, Some(job), now)?;
         }
         return Ok(false);
     }
@@ -1935,7 +2012,7 @@ pub fn spend(sql: &impl Sql, c: &Cohort, kinds: &[&str], now: u64, settling: boo
 /// A finished cohort whose measured spend has not been charged to the ledger.
 pub fn settle_due(sql: &impl Sql, cfg: &EvalConfig, now: u64) -> R<Option<Work>> {
     let rows = sql.exec(
-        "SELECT seq, label, gen_cost_microusd FROM cohorts WHERE phase IN ('transition','closed','abandoned')
+        "SELECT seq, label, gen_cost_microusd, probe_nanousd + probe_pending_nanousd FROM cohorts WHERE phase IN ('transition','closed','abandoned')
            AND reserved_microusd IS NOT NULL AND settled_microusd IS NULL ORDER BY seq LIMIT 1",
         &[],
     )?;
@@ -1943,7 +2020,10 @@ pub fn settle_due(sql: &impl Sql, cfg: &EvalConfig, now: u64) -> R<Option<Work>>
     let seq = int(r, 0)?;
     let c = cohort(sql, seq)?;
     let sp = spend(sql, &c, &KINDS, now, true)?;
-    let total = uint(r, 2)? + cost::nano_to_micro_ceil(sp.measured_nanousd + sp.unreported_nanousd);
+    // Outage probes (`engine::probe_done`) are charged with the cohort, a
+    // probe whose outcome was never recorded at its bound (`probe_begin`).
+    let probes = u128::from(uint(r, 3)?);
+    let total = uint(r, 2)? + cost::nano_to_micro_ceil(sp.measured_nanousd + sp.unreported_nanousd + probes);
     Ok(Some(Work::Settle { seq, key: format!("{}:{}", cfg.instance, text(r, 1)?), microusd: total }))
 }
 
@@ -2127,9 +2207,21 @@ pub struct ClaimRef {
     /// Count a scorer failure (give-back, release, isolation yield).
     #[serde(default)]
     pub failure: bool,
+    /// What caused the failure (`failure`): absent from an older lane
+    /// build's request, which counts as unclassified (never cleared by the
+    /// automatic probe).
+    #[serde(default)]
+    pub cause: Option<engine::ScorerCause>,
     /// Isolation progress: the documents resolved since the last call.
     #[serde(default)]
     pub outcomes: Vec<TaskOutcome>,
+}
+
+impl ClaimRef {
+    /// The counted failure's cause, if the request counts one.
+    pub fn failure_cause(&self) -> Option<engine::ScorerCause> {
+        self.failure.then(|| self.cause.unwrap_or_default())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -2180,7 +2272,7 @@ pub fn scoring_route(sql: &impl Sql, cfg: &EvalConfig, path: &str, body: &[u8], 
         }
         "/lane/release" => {
             let b: ClaimRef = parse(body)?;
-            json!(chunk_release(sql, &b.lane, &b.name, b.job, b.chunk, b.claim, b.failure, now)?)
+            json!(chunk_release(sql, &b.lane, &b.name, b.job, b.chunk, b.claim, b.failure_cause(), now)?)
         }
         "/lane/renew" => {
             let b: ClaimRef = parse(body)?;
@@ -2192,7 +2284,7 @@ pub fn scoring_route(sql: &impl Sql, cfg: &EvalConfig, path: &str, body: &[u8], 
         }
         "/lane/give-back" => {
             let b: ClaimRef = parse(body)?;
-            json!(chunk_give_back(sql, &b.lane, &b.name, b.job, b.chunk, b.claim, b.failure, now)?)
+            json!(chunk_give_back(sql, &b.lane, &b.name, b.job, b.chunk, b.claim, b.failure_cause(), now)?)
         }
         "/lane/iso-progress" => {
             let b: ClaimRef = parse(body)?;
@@ -2200,7 +2292,7 @@ pub fn scoring_route(sql: &impl Sql, cfg: &EvalConfig, path: &str, body: &[u8], 
         }
         "/lane/iso-yield" => {
             let b: ClaimRef = parse(body)?;
-            json!(iso_yield(sql, &b.lane, &b.name, b.job, b.chunk, b.claim, b.attempt, b.failure, now)?)
+            json!(iso_yield(sql, &b.lane, &b.name, b.job, b.chunk, b.claim, b.attempt, b.failure_cause(), now)?)
         }
         "/lane/artifact-failure" => {
             let b: ArtifactFailure = parse(body)?;

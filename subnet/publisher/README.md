@@ -22,10 +22,13 @@ into static public objects. Once a minute it:
    close), until something says it never closes: the coordinator's
    retirement marker for it (written only after a closure or an
    abandonment, so with no closure it means the cohort was abandoned; due
-   after two later completions, which bounds the hold), or the planned
-   signed abandonment record (`abandoned.signed`, named in the shared
-   contract `slop_ninja_admission_wire::receipts`; no coordinator release
-   writes it yet, and only its presence is read). A cohort this build
+   after two later completions, which bounds the hold), or the
+   coordinator's signed abandonment record (`abandoned.signed`, named with
+   its read bound in the shared contract
+   `slop_ninja_admission_wire::receipts`), read within its bound and
+   verified (package-key signature under the compiled trust roots, the
+   cohort's label, this chain); one that does not verify holds as if
+   absent. A cohort this build
    refuses is recorded in the index's `refused` list (label, cohort,
    opening epoch, whether it starts the record, a content-free reason
    naming the object and the kind of failure, and the publisher build; the
@@ -314,8 +317,11 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v13`. The table is in
-`alerts.rs`:
+The rule set is `slop_ninja.publisher.alerts/v14` (v14 adds
+`operator_clear_needed`, names a fault's cause and any jobs at the receipt
+bound in the fault rules' detail, and drops the retired `monthly_cap` code
+from the scorer and budget faults; v12 and v13 are `status_access_warning`
+and the public receipts cross-check). The table is in `alerts.rs`:
 
 - durable faults;
 - fallback lasting a tempo;
@@ -337,7 +343,13 @@ The rule set is `slop_ninja.publisher.alerts/v13`. The table is in
   eval status's stored epoch two past `step_error.since_epoch`, which the
   coordinator keeps from the first failure until a step succeeds, whatever
   code later failures carry (v11), so alternating transient codes alert
-  too; nothing is paused by it;
+  too; nothing is paused by it; (v14) the detail names the fault's cause
+  (`fault_cause`) and any jobs at the receipt bound
+  (`receipt_bound_reached_jobs`), and a fault the coordinator reports as
+  not clearing by itself (`operator_clear_needed`: not a probed outage in
+  a work phase nor an admission outage it re-reads) also raises
+  `operator_clear_needed`, so a pause that waits for an operator is told
+  apart from one a probe resolves;
 - (v11) alert-only cohort conditions, none of which pauses anything: a
   cohort past a budget guard (`scorer_budget_fault` from `budget_alert`;
   spend is tracked, never capped), and a cohort whose chunks got

@@ -111,12 +111,15 @@ pub struct Feedback {
     pub error_text: Option<String>,
 }
 
+/// The longest code message [`sanitize`] keeps.
+pub const CODE_TEXT_MAX: usize = 120;
+
 /// Keeps only characters that cannot carry prose structure beyond a short code
-/// message, and at most 120 of them.
+/// message, and at most [`CODE_TEXT_MAX`] of them.
 pub fn sanitize(text: &str) -> String {
     text.chars()
         .filter(|c| c.is_ascii_alphanumeric() || " :._-()/,'".contains(*c))
-        .take(120)
+        .take(CODE_TEXT_MAX)
         .collect()
 }
 

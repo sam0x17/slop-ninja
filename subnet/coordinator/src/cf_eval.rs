@@ -522,6 +522,14 @@ async fn send_kicks(env: &Env, kicks: Vec<LaneKick>, drop_permille: u16, duplica
 }
 
 /// The cohort authority's ledger account in the deployment's `SpendLedger`.
+/// Records that a bookkeeping step of `kind` failed (`code`), so it waits
+/// out its retry time (`engine::bookkeeping_failed`). Best effort: a record
+/// that cannot be written leaves the step due, as before.
+fn bookkeeping_failed(storage: &worker::Storage, kind: &'static str, code: &'static str) {
+    let now = now_ms();
+    let _ = transaction(storage, move |sql| engine::bookkeeping_failed(sql, kind, code, now));
+}
+
 pub async fn ledger_call(env: &Env, path: &str, body: &Value) -> std::result::Result<Value, &'static str> {
     let binding = crate::config::binding(SPEND_LEDGER, crate::config::NETWORK);
     let stub = env
@@ -1406,27 +1414,45 @@ impl EvalCohort {
                         continue;
                     }
                 }
+                // A failed bookkeeping step waits out its retry time
+                // (`engine::bookkeeping_failed`), so it never holds other
+                // work, the outage probe included.
                 Work::Settle { seq, key, microusd } => {
                     // A ledger outage only delays the charge; evaluation never waits on it.
                     if ledger_call(&self.env, "/settle", &j!({"key": key, "microusd": microusd, "note": "cohort spend"})).await.is_err() {
+                        bookkeeping_failed(&storage, engine::BOOKKEEPING_SETTLE, "ledger_settle");
                         return Ok(progress);
                     }
-                    transaction(&storage, move |sql| lanes::mark_settled(sql, seq, microusd)).map_err(|_| "settle commit")?;
+                    transaction(&storage, move |sql| {
+                        lanes::mark_settled(sql, seq, microusd)?;
+                        engine::bookkeeping_done(sql, engine::BOOKKEEPING_SETTLE)
+                    })
+                    .map_err(|_| "settle commit")?;
                 }
                 Work::AdmissionSettle { key, microusd } => {
                     // As for a cohort's spend: a ledger outage only delays it.
                     if ledger_call(&self.env, "/settle", &j!({"key": key, "microusd": microusd, "note": "admission run"})).await.is_err() {
+                        bookkeeping_failed(&storage, engine::BOOKKEEPING_CHARGE, "ledger_settle");
                         return Ok(progress);
                     }
-                    transaction(&storage, move |sql| crate::eval::admission::charge_settled(sql, &key)).map_err(|_| "charge commit")?;
+                    transaction(&storage, move |sql| {
+                        crate::eval::admission::charge_settled(sql, &key)?;
+                        engine::bookkeeping_done(sql, engine::BOOKKEEPING_CHARGE)
+                    })
+                    .map_err(|_| "charge commit")?;
                 }
                 Work::Purge { seq, prefixes } => {
                     // Private per-document predictions leave the eval bucket at close.
                     if self.purge(&prefixes).await.is_err() {
+                        bookkeeping_failed(&storage, engine::BOOKKEEPING_PURGE, "purge_delete");
                         return Ok(progress);
                     }
                     let now = now_ms();
-                    transaction(&storage, move |sql| lanes::mark_purged(sql, seq, now)).map_err(|_| "purge commit")?;
+                    transaction(&storage, move |sql| {
+                        lanes::mark_purged(sql, seq, now)?;
+                        engine::bookkeeping_done(sql, engine::BOOKKEEPING_PURGE)
+                    })
+                    .map_err(|_| "purge commit")?;
                 }
                 Work::RetireReceipts { seq, prefix, keys, marker } => {
                     // Detailed receipts leave the receipts bucket under the
@@ -1436,7 +1462,10 @@ impl EvalCohort {
                     // nothing else waits on it.
                     let now = now_ms();
                     let note = |code: &'static str| {
-                        let _ = transaction(&storage, move |sql| crate::eval::retention::note_error(sql, code, now));
+                        let _ = transaction(&storage, move |sql| {
+                            crate::eval::retention::note_error(sql, code, now)?;
+                            engine::bookkeeping_failed(sql, engine::BOOKKEEPING_RETENTION, code, now)
+                        });
                     };
                     let hold = match self.authorization_hold(&cfg.chain).await {
                         Ok(h) => h,
@@ -1469,19 +1498,22 @@ impl EvalCohort {
                     let r = match deleted {
                         Some(n) => transaction(&storage, move |sql| {
                             crate::eval::retention::note_page(sql, seq, n)?;
-                            crate::eval::retention::clear_error(sql)
+                            crate::eval::retention::clear_error(sql)?;
+                            engine::bookkeeping_done(sql, engine::BOOKKEEPING_RETENTION)
                         }),
                         None => transaction(&storage, move |sql| {
                             crate::eval::retention::finish(sql, seq, crate::eval::retention::PAGE, now)?;
-                            crate::eval::retention::clear_error(sql)
+                            crate::eval::retention::clear_error(sql)?;
+                            engine::bookkeeping_done(sql, engine::BOOKKEEPING_RETENTION)
                         }),
                     };
                     r.map_err(|_| "retention commit")?;
                 }
                 Work::RetentionNotice { predecessor, after_cohort } => {
-                    // Retried whenever a step runs until the predecessor
+                    // Retried after its retry time until the predecessor
                     // reports nothing left (its alarm re-arms only while kicked).
                     if !self.retention_notice(&predecessor, after_cohort).await {
+                        bookkeeping_failed(&storage, engine::BOOKKEEPING_RETENTION, "retention_notice");
                         return Ok(progress);
                     }
                     let now = now_ms();
@@ -1489,6 +1521,58 @@ impl EvalCohort {
                         .map_err(|_| "notice commit")?;
                 }
                 Work::AdmissionVerify { .. } | Work::AdmissionLanes | Work::AdmissionCleanup | Work::OpenNext { .. } => {}
+                Work::Probe { seq, code, probe } => {
+                    // One bounded probe of a paused cohort's outage. Its start
+                    // (the next probe's time, the bound charged if no outcome
+                    // is recorded) is durable before the call; its outcome and
+                    // spend are recorded either way, and a success resumes
+                    // the same cohort (`engine::probe_done`).
+                    // The call is bounded by the ticket's deadline, and the
+                    // step's lease (`step_until_ms`, which a kick reads before
+                    // it arms an alarm) is raised to cover it, so no kick
+                    // schedules a step that overlaps this one.
+                    let now = now_ms();
+                    let p2 = probe.clone();
+                    let ticket = transaction(&storage, move |sql| engine::probe_begin(sql, seq, &p2, now)).map_err(|_| "probe begin")?;
+                    let lease = ticket.until_ms.saturating_add(60_000) as i64;
+                    let held: i64 = storage.get::<i64>("step_until_ms").await.ok().flatten().unwrap_or(0);
+                    if lease > held && storage.put("step_until_ms", lease).await.is_err() {
+                        return Ok(progress);
+                    }
+                    let outcome = self.run_probe(seq, &probe, &ticket).await;
+                    let now = now_ms();
+                    let resumed = transaction(&storage, move |sql| engine::probe_done(sql, seq, &code, &ticket, &outcome, now))
+                        .map_err(|_| "probe commit")?;
+                    if !resumed {
+                        return Ok(progress);
+                    }
+                }
+                Work::AbandonMarker { seq } => {
+                    // The signed, content-free abandonment record. A failure
+                    // waits out its retry time and this step goes on with the
+                    // rest of the work: the record holds nothing up.
+                    let r = async {
+                        let c2 = cfg.clone();
+                        let (key, record) = transaction(&storage, move |sql| engine::abandonment_record(sql, &c2, seq))
+                            .map_err(|_| "abandonment record")?;
+                        let (package_key, _) = keys(&self.env).map_err(|_| "package key")?;
+                        let bytes = package::signed_bytes(record, &package_key).map_err(|_| "abandonment record signing")?;
+                        put(&self.env, RECEIPTS_BUCKET, &key, bytes).await.map_err(|_| "abandonment record put")?;
+                        Ok::<(), &'static str>(())
+                    }
+                    .await;
+                    let now = now_ms();
+                    let recorded = match r {
+                        Ok(()) => transaction(&storage, move |sql| engine::abandon_marker_written(sql, seq, now)),
+                        Err(code) => transaction(&storage, move |sql| engine::abandon_marker_failed(sql, seq, code, now)),
+                    };
+                    // A result that could not be recorded would make the same
+                    // record due again at once: the step ends and the alarm's
+                    // re-arm waits.
+                    if recorded.is_err() {
+                        return Ok(progress);
+                    }
+                }
                 Work::Dispatch { seq, kicks, stop } => {
                     let faults = transaction(&storage, move |sql| {
                         Ok::<_, engine::EvalError>(engine::cohort(sql, seq)?.plan.load.map(|l| l.faults))
@@ -1512,6 +1596,80 @@ impl EvalCohort {
             }
         }
         Ok(progress)
+    }
+
+    /// Runs one outage probe ([`engine::Probe`]) within its ticket's
+    /// deadline ([`engine::ProbeTicket`]): whether it succeeded,
+    /// whether the scorer refused the artifact definitively, its wall time,
+    /// its measured spend (nano-dollars) and a short content-free code for a
+    /// failure. Never reads cohort text and never touches a job.
+    async fn run_probe(&self, seq: i64, probe: &engine::Probe, ticket: &engine::ProbeTicket) -> engine::ProbeOutcome {
+        let t0 = now_ms();
+        match probe {
+            engine::Probe::Generation { item, timeout_ms } => {
+                let (g, _) = ai_generate(&self.env, item, *timeout_ms).await;
+                let micro = textgen::cost_microusd(&item.generator, g.prompt_tokens, g.completion_tokens);
+                let ok = engine::probe_answered(&g);
+                let note = match &g.output {
+                    _ if ok => "ok",
+                    Err(e) => e.code(),
+                    Ok(_) => "empty",
+                };
+                engine::ProbeOutcome { ok, definitive: false, ms: now_ms() - t0, nanousd: micro.saturating_mul(1_000), note: note.into() }
+            }
+            engine::Probe::Scorer { lane, body, admit } => {
+                let path = if *admit { "/admit" } else { "/run" };
+                // The platform aborts the call and its reply at the ticket's
+                // deadline (`AbortSignal.timeout`, `cf_io::internal_request`):
+                // a probe that runs that long is a failed probe.
+                let left = ticket.until_ms.saturating_sub(now_ms()).max(1);
+                let body = body.to_string();
+                let r = async {
+                    let stub = lane_stub(&self.env, "score", lane).ok()?;
+                    let req = super::cf_io::internal_request(&format!("{INTERNAL}{path}"), Method::Post, Some(&body), Some(left)).ok()?;
+                    let mut resp = stub.fetch_with_request(req).await.ok()?;
+                    let status = resp.status_code();
+                    let v: Value = super::cf_io::response_json(&mut resp, 64 * 1024).await.unwrap_or(Value::Null);
+                    Some((status, v))
+                }
+                .await;
+                // The probe's instance served one control document: stop it now.
+                if let (Ok(stub), Ok(req)) = (
+                    lane_stub(&self.env, "score", lane),
+                    super::cf_io::internal_request(&format!("{INTERNAL}/stop"), Method::Post, None, Some(KICK_TIMEOUT_MS)),
+                ) {
+                    let _ = stub.fetch_with_request(req).await;
+                }
+                let ms = now_ms() - t0;
+                // The scorer instance's and the lane object's time, at the
+                // cohort's own rates.
+                let rates = transaction(&self.state.storage(), move |sql| {
+                    Ok::<_, engine::EvalError>(engine::cohort(sql, seq)?.plan.fanout.map(|f| f.cost))
+                })
+                .ok()
+                .flatten();
+                let nanousd = rates.map_or(0, |c| u64::try_from(crate::eval::cost::lane_cost_nanousd(ms, 0, ms, &c)).unwrap_or(u64::MAX));
+                let (status, v) = match r {
+                    Some((st, v)) => (Some(st), v),
+                    None => (None, Value::Null),
+                };
+                use crate::eval::admission::{LaneOutcome, classify_admit};
+                let (ok, definitive, note) = if *admit {
+                    match classify_admit(status, &v) {
+                        LaneOutcome::Admitted => (true, false, "ok".to_owned()),
+                        // A deterministic refusal that every fresh instance repeats.
+                        LaneOutcome::Refused(code) => (false, true, format!("definitive_refusal:{}", crate::eval::lanes::textgen_safe(&code))),
+                        LaneOutcome::ArtifactFailure(code) | LaneOutcome::Platform(code) => (false, false, crate::eval::lanes::textgen_safe(&code)),
+                    }
+                } else {
+                    let ok = status == Some(200)
+                        && v["results"].as_array().is_some_and(|rs| rs.iter().any(|x| x["id"] == "0" && x["status"] == "ok"));
+                    (ok, false, if ok { "ok" } else if status.is_none() { "lane_unreachable" } else { "control_not_scored" }.to_owned())
+                };
+                let note = if !ok && status.is_none() && now_ms() >= ticket.until_ms { "probe_timeout".to_owned() } else { note };
+                engine::ProbeOutcome { ok, definitive, ms, nanousd, note }
+            }
+        }
     }
 
     /// Deletes one listing page of detailed receipt objects under `prefix` in

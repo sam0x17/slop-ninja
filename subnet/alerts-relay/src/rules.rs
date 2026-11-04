@@ -250,8 +250,8 @@ pub const FIGURES_LEAD: &str = " Whole account month to date";
 
 fn spend_detail(month: &str, u: &Upload, figures: bool) -> String {
     let mut d = format!(
-        "{month} is at or above the private spend alert threshold. Investigate (reports/{month}.md on \
-         the tracker host), then acknowledge with track.sh --ack {month} and run upload-latest.sh."
+        "{month} is at or above the private spend alert threshold. Investigate the month with \
+         the operator's private spend tracker and acknowledge it there."
     );
     if figures && u.month == month {
         let f = |v: Option<u64>| v.map_or_else(|| "unknown".to_owned(), tracker::usd);
@@ -271,9 +271,8 @@ fn spend_detail(month: &str, u: &Upload, figures: bool) -> String {
 /// What a stale tracker's email suggests: the tracker uploads with the same
 /// Cloudflare login it prices with, so an expired login usually shows here,
 /// not as `spend_tracker_blind`.
-const TRACKER_STALE_HINT: &str = "Check its timer on the tracker host (a reboot removes the \
-     transient timer) and its Cloudflare login (wrangler whoami): an expired login stops the \
-     uploads too.";
+const TRACKER_STALE_HINT: &str = "Check the operator's private spend tracker: its schedule \
+     and its Cloudflare login (an expired login stops the uploads too).";
 
 /// The delivery problems of the publisher's alert posts, if any.
 fn undelivered_detail(h: Option<&HeartbeatRecord>, intake: &Intake) -> Option<String> {
@@ -441,7 +440,7 @@ fn tracker_conditions(i: &Inputs<'_>, b: &Bounds, state: &AlertState, out: &mut 
                         "the spend tracker's run of {} did not price everything (exit code {}, \
                          complete {}, {} failed queries, alert state {}); its totals are lower \
                          bounds, so a crossed threshold can go unreported. Read that run's log and \
-                         the report's run failures on the tracker host.",
+                         its run failures in the operator's private spend tracker.",
                         upload.generated_at,
                         upload.exit_code,
                         upload.complete,
@@ -548,7 +547,7 @@ pub fn resolution_notes(state: &mut AlertState, i: &Inputs<'_>) {
             COORDINATOR_UNWATCHED => "the Worker's status is healthy again.".into(),
             SPEND_ALERT => match upload.and_then(|u| tracker::acked_ms(u, &e.subject)) {
                 Some(at) if at >= e.first_seen_ms => {
-                    format!("acknowledged at {} (track.sh --ack).", rfc3339(at))
+                    format!("acknowledged at {} in the spend tracker.", rfc3339(at))
                 }
                 _ => "no longer an active alert month in the tracker's output.".into(),
             },
@@ -953,10 +952,8 @@ pub(crate) mod tests {
             !oct.detail.contains('$'),
             "figures only for the run's month"
         );
-        assert!(nov.detail.contains("$12.34") && nov.detail.contains("track.sh --ack 2026-11"));
-        assert!(
-            nov.detail.contains("run upload-latest.sh") && !nov.detail.contains("ask the user")
-        );
+        assert!(nov.detail.contains("$12.34") && nov.detail.contains("2026-11 is at or above"));
+        assert!(nov.detail.contains("private spend tracker"));
         // Without the figures flag, no amounts at all.
         let mut plain = AlertState::default();
         let ev = run(&mut plain, &fresh(&["2026-11"]), now, false);
@@ -969,7 +966,7 @@ pub(crate) mod tests {
             rules_of_events(&ev),
             vec![(TRACKER_STALE.into(), "tracker".into())]
         );
-        // 2026-11 acknowledged (track.sh --ack), 2026-10 still active.
+        // 2026-11 acknowledged in the tracker, 2026-10 still active.
         let mut u = upload(&["2026-10"]);
         u.acked = vec![tracker::Acked {
             month: "2026-11".into(),
@@ -1037,7 +1034,7 @@ pub(crate) mod tests {
             &b,
             &AlertState::default(),
         );
-        assert!(c[0].detail.contains("wrangler whoami"), "{}", c[0].detail);
+        assert!(c[0].detail.contains("Cloudflare login"), "{}", c[0].detail);
         let mut u = upload(&[]);
         u.auth = "expired".into();
         let blind = at_upload(u);

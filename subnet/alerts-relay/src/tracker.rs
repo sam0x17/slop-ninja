@@ -1,6 +1,6 @@
 //! The spend tracker's upload (`slop_ninja.spend_tracker.relay.v2`): the
 //! alert fields and month totals of the tracker's `latest.json`, uploaded by
-//! the tracker host after each scheduled run to the relay's private bucket.
+//! the operator's spend tracker after each scheduled run to the relay's private bucket.
 //!
 //! The upload carries no threshold (the threshold stays in the tracker's
 //! private file), no report path, no failure text and no account id; only
@@ -130,7 +130,7 @@ pub struct Upload {
     pub acked: Vec<Acked>,
     pub account: Totals,
     pub testnet: Totals,
-    /// How many queries failed (their text stays on the tracker host).
+    /// How many queries failed (their text stays with the tracker).
     pub failures: u32,
     /// The tracker's schedule period in seconds (its `config.json`
     /// `schedule_period_secs`, kept beside its timer); `None` when the
@@ -170,7 +170,7 @@ pub enum Read {
     Unreadable(&'static str),
     Ok {
         upload: Box<Upload>,
-        /// `generated_at` (the tracker host's clock).
+        /// `generated_at` (the tracker's clock).
         generated_ms: u64,
         /// When the bucket stored the object (Cloudflare's clock): the age
         /// counts from the older of the two.
@@ -348,8 +348,8 @@ pub(crate) mod tests {
         assert_eq!(u.period_ms(), Some(86_400_000));
     }
 
-    /// The tracker host's `upload-latest.sh` output (synthetic values,
-    /// captured from the script) parses as the relay reads it.
+    /// The tracker's upload (synthetic values, in the form the tracker
+    /// writes) parses as the relay reads it.
     #[test]
     fn parses_the_upload_scripts_output() {
         let body = br#"{"schema":"slop_ninja.spend_tracker.relay.v2","generated_at":"2026-11-02T13:06:08Z","uploaded_at":"2026-11-02T14:48:01Z","month":"2026-11","final":false,"exit_code":0,"auth":"ok","complete":true,"alert_any":true,"alert_months":["2026-11"],"alert_state":"above","threshold_overridden":false,"acked":[{"month":"2026-10","acked_at":"2026-10-30T12:00:00Z"}],"account":{"mtd_microusd":1000000,"projected_microusd":2000000},"testnet":{"mtd_microusd":500000,"projected_microusd":900000},"failures":0,"period_secs":86400}"#;

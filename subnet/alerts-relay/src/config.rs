@@ -153,7 +153,7 @@ fn drill_id(value: Option<String>) -> Result<Option<String>, ConfigError> {
     }
 }
 
-/// The spend tracker's schedule: its systemd timer runs once a day.
+/// The spend tracker's schedule: it runs once a day.
 pub const DEFAULT_TRACKER_PERIOD_SECS: u64 = 86_400;
 /// The coordinator's watchdog silence, as the publisher's
 /// `WATCHDOG_SILENCE_SECS` defaults it.

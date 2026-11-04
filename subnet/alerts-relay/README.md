@@ -78,7 +78,7 @@ feed build described here is not deployed yet.
      the tracker could not authenticate to Cloudflare, and when its runs
      have not priced everything for two schedule periods (its totals are
      then lower bounds).
-   - The threshold itself never leaves the tracker host.
+   - The threshold itself never leaves the operator's private spend tracker.
 
 The cron is outside the coordinator and the publisher. It reads and
 delivers only and advances no protocol state. Every tick rewrites the feed's
@@ -154,9 +154,9 @@ Every alert names its rule and subject. What to do:
 | `publisher_alerts_undelivered` | The publisher's own alerts are not reaching the feed. Read the detail: a schema or `event_id` refusal means a build skew (deploy both from one commit); `too_large` means one event the publisher could not fit; undelivered events with no refusal mean the relay's writes or sends fail (its live log shows the code and message, and `latest.json` the last write). |
 | `coordinator_unwatched` | Treat it as the publisher's rule of the same fault: a stalled watermark (`watermark_stalled`), a journal or signing fault (`durable_fault`), an unanswered status (`status_unreachable`). Follow the coordinator runbook (`subnet/coordinator/TESTNET.md`). It covers only these three rules; see `publisher_silent`. |
 | `spend_alert` | Investigate the month with the operator's private spend tracker and acknowledge it there. Nothing pauses on spend. |
-| `spend_tracker_stale` | On the tracker host: the timer (`systemctl --user list-timers`; a reboot removes the transient timer), the last run's exit, and `wrangler whoami` (an expired login stops the uploads too). If the detail says the bucket has not answered, check the bucket binding and R2. |
-| `spend_tracker_blind` | The tracker ran but could not authenticate: `wrangler whoami` on the tracker host. Logging in again is the user's action. |
-| `spend_tracker_incomplete` | The tracker's runs keep failing to price something (rate limits, scope or API changes, an unknown product), so a crossed threshold may go unreported. Read the last runs' logs and the report's "Run failures" on the tracker host. The detail gives the exit code, the failure count and the alert state only. |
+| `spend_tracker_stale` | Check the operator's private spend tracker: its schedule, its last run and its Cloudflare login (an expired login stops the uploads too). If the detail says the bucket has not answered, check the bucket binding and R2. |
+| `spend_tracker_blind` | The tracker ran but could not authenticate: check its Cloudflare login in the operator's private spend tracker. |
+| `spend_tracker_incomplete` | The tracker's runs keep failing to price something (rate limits, scope or API changes, an unknown product), so a crossed threshold may go unreported. Read the last runs' logs and their run failures in the operator's private spend tracker. The detail gives the exit code, the failure count and the alert state only. |
 | `relay_config_warning` | An optional relay setting does not parse and its default is in force (figures off, the external ping off, or a default period). Fix the deploy-time var or secret named in the detail and redeploy the relay. |
 | External monitor pages (when enabled) | The relay's cron stopped, its tick fails, its configuration is refused, or its writes or sends have failed for two cron periods. Read the relay's live log: the tick line shows `delivery_ok`, and a failed write or send logs its code and message. |
 
@@ -517,11 +517,11 @@ publisher's `config_warning`.
   receipt.** A ping after an idle tick (nothing due) proves only that the
   cron runs. The relay's own deliveries decide the ping; publisher posts
   that fail show through `publisher_alerts_undelivered` once it is due.
-- **A tracker host outage** (a power cut, or a reboot that drops the
-  transient timer) stops the tracker's uploads. The relay then reports the
+- **An outage of the operator's private spend tracker** stops the
+  tracker's uploads. The relay then reports the
   tracker stale after two schedule periods, so it does not report a spend
   threshold crossed during that time.
-- **An expired Cloudflare login on the tracker host** usually shows as
+- **An expired Cloudflare login of the spend tracker** usually shows as
   `spend_tracker_stale`, after up to two schedule periods, not as
   `spend_tracker_blind`. The tracker uploads with the same login it prices
   with, so a blind run cannot upload either. `spend_tracker_blind` fires

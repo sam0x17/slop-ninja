@@ -18,11 +18,11 @@
 //!    binding are all caught. Each heartbeat also says how the run's alert
 //!    posts fared, and the relay records the posts it refused, so alerts
 //!    that keep failing while heartbeats arrive are reported too.
-//! 3. **The spend tracker's upload** ([`tracker`]): the tracker host uploads
+//! 3. **The spend tracker's upload** ([`tracker`]): the operator's spend tracker uploads
 //!    its latest alert fields and month totals to the relay's private bucket
 //!    after each run; the cron alerts when a month's alert becomes active, a
 //!    reminder while it is unacknowledged, a resolution once it is
-//!    acknowledged (`track.sh --ack`) or falls below, an alert when the
+//!    acknowledged in the tracker or falls below, an alert when the
 //!    tracker's output is older than two of its schedule periods, and one
 //!    when its runs have not priced everything for that long.
 //!

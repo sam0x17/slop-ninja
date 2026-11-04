@@ -27,9 +27,10 @@
 //!    for that cohort (written only after a closure or an abandonment, so
 //!    with no closure it means the cohort was abandoned; due after two later
 //!    completions, which bounds the hold);
-//! 4. every public object is copied byte for byte, the destination checking
-//!    each against the digest verified in step 3, and the copies are verified
-//!    again from the public bucket;
+//! 4. the cohort's allow-listed summary ([`crate::summary`]) is written, and
+//!    read back through the allow-list check ([`crate::allowlist`]); none of
+//!    the coordinator's signed records, indexes, components or receipts is
+//!    copied: they stay coordinator-private;
 //! 5. artifacts are published default-deny ([`static_withhold`], then the
 //!    entrant's admission record, [`EntrantFacts::admitted_by`]);
 //! 6. the publication record and the index entry are written, then, for the
@@ -46,21 +47,16 @@
 //! before the record started, one that cannot start it (or whose manifest
 //! did not open) starts nothing ([`record_start`]).
 //! Artifacts not copied in one run stay pending and are retried by later
-//! runs. The current validator
-//! authorization and its renewal are copied once their cohort is listed
-//! ([`Run::authorizations`]).
+//! runs. The current validator authorization, its renewal, the revocation
+//! set and the coordinator's signed row are copied as soon as they verify
+//! ([`Run::authorizations`]): validators commit that row and need no cohort
+//! record.
 //!
-//! Detailed receipts leave the public host when the coordinator retired
-//! them: cohort N's receipt index, chunk map and bundles are deleted once
-//! the coordinator's `cohorts/<label>/receipts-retired.json` marker exists
-//! (its N+2 rule, with the current authorization's hold), never on this
-//! publisher's own count ([`Run::retention`]). While the public index's
-//! active target or the public current authorization still names N's
-//! target (this publisher has not caught up yet), they stay: a hold that
-//! only delays the marker's decision. The publisher's own N+2 reading
-//! is only a cross-check, raised as `retention_stalled` when the two
-//! disagree. The signed manifest, package (with the receipt root and count),
-//! target and closure stay. Nothing else is ever deleted, and nothing is
+//! No detailed receipt is ever published (the receipts, the receipt index,
+//! the chunk maps and the bundles are coordinator-private audit evidence),
+//! so the public host has no retention rule. Nothing is deleted except the
+//! leaderboard and reference pointers at a record restart and the v1
+//! layout's objects at the index migration, and nothing is
 //! written to the private buckets.
 
 use std::cell::Cell;
@@ -70,8 +66,8 @@ use serde::{Deserialize, Serialize};
 use slop_ninja_admission_wire::json::Chain;
 use slop_ninja_protocol::submission::SubmissionUpload;
 use slop_ninja_protocol::{
-    AccountId, CalculationTargetV2, Digest, EntrantScore, LaunchAuthorization, Nonce, Record,
-    ReferenceModel, ReferenceSet, RewardIntentAuthorization, RewardIntentRenewal,
+    AccountId, CalculationTargetV2, CoordinatorRow, Digest, EntrantScore, LaunchAuthorization,
+    Nonce, Record, ReferenceModel, ReferenceSet, RewardIntentAuthorization, RewardIntentRenewal,
     RewardIntentRevocation, Signed,
 };
 
@@ -82,7 +78,8 @@ use crate::index::{
 };
 use crate::layout::{self, Cache};
 use crate::leaderboard::{self, LeaderboardDoc};
-use crate::store::{Put, Store, StoreError};
+use crate::store::{PublicStore, Put, Store, StoreError};
+use crate::summary;
 use crate::verify::{self, ManifestCheck, Options, Refusal, VerifiedCohort};
 
 pub const PUBLISHER_ID: &str = concat!("slop-ninja-publisher/", env!("CARGO_PKG_VERSION"));
@@ -98,7 +95,8 @@ pub fn build_id() -> String {
 pub struct Buckets<'a, S> {
     pub receipts: &'a S,
     pub eval: &'a S,
-    pub public: &'a S,
+    /// The public bucket, writable only through the allow-list.
+    pub public: PublicStore<'a, S>,
 }
 
 /// The digests of one initial reference.
@@ -173,39 +171,6 @@ pub const NUMBERING_CONFLICT: &str =
 /// releases the hold the same way ([`Run::pending_closure`]).
 pub use slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD as ABANDONMENT;
 
-/// This publisher's own N+2 reading for one cohort's public receipts
-/// ([`own_due`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OwnDue {
-    /// Due after this completion.
-    After(u64),
-    /// Held: its target is still the newest this record lists, or the
-    /// current authorization commits it, or fewer than two later cohorts
-    /// completed.
-    Held,
-    /// A later cohort whose target this publisher cannot read (retired
-    /// before publication, or refused) may have superseded it: no claim
-    /// either way.
-    Unknown,
-}
-
-/// What the current authorization holds on the public host, as this run read
-/// the private pointer ([`Run::authorizations`]); the retention cross-check
-/// reads it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum AuthorizationHold {
-    /// The pointer was not read this run, or did not open: the cross-check
-    /// claims no missing marker.
-    #[default]
-    Unknown,
-    /// No pointer, or a launch authorization: no cohort's receipts held.
-    Nothing,
-    /// A cohort authorization committing this target (hex digest): the
-    /// cohort that produced it stays held while it is named. Its carrying
-    /// cohort is not held (as on the coordinator's side).
-    Target(String),
-}
-
 /// Small durable memory kept by the Worker between runs.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Memo {
@@ -239,7 +204,10 @@ pub struct Report {
     pub revocations_unopened: u32,
     /// Closed cohorts outside the record seen this run.
     pub outside: u32,
-    pub receipts_deleted: u32,
+    /// The stored index was layout v1's (it listed signed records and
+    /// receipt counts) and was replaced by an empty v2 index this run, which
+    /// lists every in-record cohort again from its private records.
+    pub index_migrated: bool,
     /// Cohorts recorded this run as retired before publication: their
     /// detailed receipts were deleted under the N+2 rule before they were
     /// copied (`CohortIndex::retired_unpublished`). A final state: never
@@ -251,16 +219,13 @@ pub struct Report {
     /// A new public record started this run; the previous one was moved
     /// under `v1/records/<its first label>/`.
     pub record_restarted: Option<String>,
-    /// The current authorization's hold, as read this run.
-    pub authorization_hold: AuthorizationHold,
-    /// Disagreements between the coordinator's retirement markers and this
-    /// publisher's own N+2 reading, one content-free line each: raises
-    /// `retention_stalled` for `public_receipts`.
+    /// Disagreements between the coordinator's retirement markers and a
+    /// public retention reading (`retention_stalled` for `public_receipts`).
+    /// Always empty: no detailed receipt is published, so the public host
+    /// has no retention to cross-check; a run that reaches its end reports
+    /// that (`retention_checked`), which resolves an earlier build's alert.
     pub retention_mismatch: Vec<String>,
-    /// The retention pass ran to its end, so `retention_mismatch` is this
-    /// run's whole reading; a run that stopped before (an error earlier in
-    /// the pass, or in retention itself) keeps the previous reading
-    /// ([`crate::alerts::retention_after_pass`]).
+    /// The pass ran to its end ([`crate::alerts::retention_after_pass`]).
     pub retention_checked: bool,
 }
 
@@ -457,84 +422,6 @@ pub fn numbering(idx: &CohortIndex, v: &VerifiedCohort) -> Result<(), String> {
     Ok(())
 }
 
-/// This publisher's own reading of the N+2 rule for cohort `cohort` (target
-/// `target`), a cross-check of the coordinator's markers only. It is due
-/// after the later of the second later completion this record knows (`done`,
-/// [`CohortIndex::completions`]) and the first later listed cohort with a
-/// target (when it produced one), unless the current authorization commits
-/// its target. When a later cohort retired before publication or refused
-/// precedes that first listed successor (or there is none), its target is
-/// unknown here, so the reading is [`OwnDue::Unknown`].
-///
-/// `unnumbered` says the record holds a closed cohort whose number this
-/// publisher does not know (its manifest does not open under the trust
-/// roots, or it was refused before its manifest opened): it may be a later
-/// completion, or a later target, that `done` and the index lack, so a
-/// reading that would hold the cohort is [`OwnDue::Unknown`] instead. Such a
-/// cohort can only bring the due point earlier, so a due reading stands.
-pub fn own_due(
-    idx: &CohortIndex,
-    done: &[u64],
-    cohort: u64,
-    target: Option<&str>,
-    hold: &AuthorizationHold,
-    unnumbered: bool,
-) -> OwnDue {
-    if let (Some(t), AuthorizationHold::Target(held)) = (target, hold)
-        && t == held
-    {
-        return OwnDue::Held;
-    }
-    let held = if unnumbered {
-        OwnDue::Unknown
-    } else {
-        OwnDue::Held
-    };
-    let Some(second) = done.iter().copied().filter(|n| *n > cohort).nth(1) else {
-        return held;
-    };
-    let superseded_by = match target {
-        None => Some(cohort),
-        Some(_) => idx
-            .cohorts
-            .iter()
-            .filter(|o| o.cohort > cohort && o.target.is_some())
-            .map(|o| o.cohort)
-            .min(),
-    };
-    let unknown_before = |limit: Option<u64>| {
-        idx.retired_unpublished
-            .iter()
-            .map(|r| Some(r.cohort))
-            .chain(idx.refused.iter().map(|r| r.cohort))
-            .flatten()
-            .any(|n| n > cohort && limit.is_none_or(|l| n < l))
-    };
-    match superseded_by {
-        Some(s) if target.is_none() || !unknown_before(Some(s)) => OwnDue::After(second.max(s)),
-        Some(_) => OwnDue::Unknown,
-        None if unknown_before(None) => OwnDue::Unknown,
-        None => held,
-    }
-}
-
-/// The detailed receipts of a cohort: its receipt index, chunk map and
-/// bundles.
-pub fn is_detailed_receipt(rel: &str) -> bool {
-    rel == verify::RECEIPT_INDEX || rel == verify::CHUNK_MAP || rel.starts_with("receipts/")
-}
-
-/// The cache rule of one copied cohort object: detailed receipts are
-/// deleted after N+2, so caches may keep them one tempo at most; every other
-/// signed object never changes.
-pub fn object_cache(rel: &str, cfg: &Config) -> Cache {
-    if is_detailed_receipt(rel) {
-        Cache::Bounded(cfg.tempo_blocks * cfg.block_secs)
-    } else {
-        Cache::Immutable
-    }
-}
-
 fn put_meta(key: &str, cache: Cache) -> Put<'_> {
     Put {
         content_type: layout::content_type(key),
@@ -543,8 +430,10 @@ fn put_meta(key: &str, cache: Cache) -> Put<'_> {
     }
 }
 
+/// Writes a public JSON document; the public store refuses it unless the
+/// allow-list accepts it ([`PublicStore`]).
 async fn put_json<S: Store, T: Serialize>(
-    store: &S,
+    store: PublicStore<'_, S>,
     key: &str,
     value: &T,
     cache: Cache,
@@ -553,8 +442,19 @@ async fn put_json<S: Store, T: Serialize>(
     store.put(key, bytes, &put_meta(key, cache)).await
 }
 
+/// Writes a write-once public object (an archived record index); the public
+/// store refuses it unless the allow-list accepts it.
+async fn write_public_once<S: Store>(
+    store: PublicStore<'_, S>,
+    key: &str,
+    bytes: Vec<u8>,
+    put: &Put<'_>,
+) -> Result<(), StoreError> {
+    store.put(key, bytes, put).await
+}
+
 async fn get_json<S: Store, T: for<'d> Deserialize<'d>>(
-    store: &S,
+    store: PublicStore<'_, S>,
     key: &str,
     budget: &Budget,
 ) -> Result<Option<T>, String> {
@@ -573,13 +473,16 @@ async fn get_json<S: Store, T: for<'d> Deserialize<'d>>(
         .map_err(|_| format!("{key} is not readable"))
 }
 
-/// Writes `bytes` at `key` unless the store already holds them (by SHA-256).
+/// Writes `bytes` at public `key` unless the store already holds them (by
+/// SHA-256), once the allow-list accepts them (checked first, so bytes it
+/// refuses are refused even when the store already holds them).
 async fn put_if_changed<S: Store>(
-    store: &S,
+    store: PublicStore<'_, S>,
     key: &str,
     bytes: Vec<u8>,
     cache: Cache,
 ) -> Result<bool, StoreError> {
+    crate::allowlist::check_object(key, &bytes).map_err(|_| StoreError::NotAllowed)?;
     let digest = slop_ninja_protocol::object_sha256(&bytes);
     if let Some(meta) = store.head(key).await?
         && meta.size == bytes.len() as u64
@@ -601,62 +504,31 @@ async fn put_if_changed<S: Store>(
     Ok(true)
 }
 
-/// Copies one verified object between buckets unless the destination
-/// already holds it; the destination checks the digest.
+/// Copies one verified object (`bytes`, as read and checked) to the public
+/// bucket unless it already holds it; the public store checks the bytes
+/// against the allow-list and binds the copy to their digest.
 async fn copy_checked<S: Store>(
     from: &S,
-    to: &S,
+    to: PublicStore<'_, S>,
     src: &str,
     dst: &str,
-    len: u64,
-    digest: &Digest,
+    bytes: &[u8],
     cache: Cache,
 ) -> Result<bool, StoreError> {
+    let digest = slop_ninja_protocol::object_sha256(bytes);
+    crate::allowlist::check_object(dst, bytes).map_err(|_| StoreError::NotAllowed)?;
     if let Some(meta) = to.head(dst).await?
-        && meta.size == len
-        && meta.sha256 == Some(*digest)
+        && meta.size == bytes.len() as u64
+        && meta.sha256 == Some(digest)
     {
         return Ok(true);
     }
     let put = Put {
         content_type: layout::content_type(dst),
         cache,
-        sha256: Some(digest),
+        sha256: Some(&digest),
     };
-    to.copy_from(from, src, dst, len, &put).await
-}
-
-/// Copies one verified cohort object.
-async fn copy_object<S: Store>(
-    b: &Buckets<'_, S>,
-    cfg: &Config,
-    label: &str,
-    obj: &verify::PublicObject,
-) -> Result<(), Refusal> {
-    let dst = layout::join(&layout::cohort_dir(label), &obj.rel);
-    let digest = obj
-        .digest()
-        .ok_or_else(|| Refusal::Invalid(obj.rel.clone(), "digest".into()))?;
-    let src = layout::join(&layout::private_cohort_dir(label), &obj.rel);
-    match copy_checked(
-        b.receipts,
-        b.public,
-        &src,
-        &dst,
-        obj.bytes,
-        &digest,
-        object_cache(&obj.rel, cfg),
-    )
-    .await
-    {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(Refusal::Missing(obj.rel.clone())),
-        Err(StoreError::Integrity) => Err(Refusal::Invalid(
-            obj.rel.clone(),
-            "changed after verification".into(),
-        )),
-        Err(e) => Err(Refusal::Store(obj.rel.clone(), e)),
-    }
+    to.copy_checked_from(from, src, dst, bytes, &put).await
 }
 
 /// Copies one artifact object, or says why not.
@@ -680,7 +552,11 @@ async fn copy_artifact<S: Store>(
         cache: Cache::Immutable,
         sha256: Some(sha256),
     };
-    match b.public.copy_from(b.eval, src, &dst, meta.size, &put).await {
+    match b
+        .public
+        .copy_artifact_from(b.eval, src, &dst, meta.size, &put)
+        .await
+    {
         Ok(true) => Ok(ArtifactState::Published),
         Ok(false) => Err((ArtifactState::Pending, WAIT_SOURCE.into(), false)),
         Err(StoreError::Integrity) => Err((
@@ -739,10 +615,12 @@ pub struct Run<'a, S, K> {
 
 impl<S: Store, K: Keepalive> Run<'_, S, K> {
     fn opts(&self) -> Options<'_> {
+        // Receipts are coordinator-private: the publisher neither reads nor
+        // publishes them.
         Options {
             keys: &self.cfg.keys,
             chain: &self.cfg.chain,
-            receipts: self.cfg.publish_receipts,
+            receipts: false,
         }
     }
 
@@ -770,6 +648,12 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     ) -> Result<CohortIndex, String> {
         let b = &self.buckets;
         let chain = &self.cfg.chain;
+        // The authorization pointer, its objects, the revocation set and
+        // the coordinator's row first, on their own: validators need only
+        // these, so no cohort-phase step below (the trust file, the page,
+        // the index and its migration, a record change, a cohort listing)
+        // can hold a new row or revocation back, whatever it fails with.
+        self.authorizations(report).await;
         put_if_changed(b.public, layout::TRUST, TRUST_FILE.to_vec(), Cache::Index)
             .await
             .map_err(|e| format!("trust file: {e}"))?;
@@ -782,8 +666,48 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             self.write_site(None).await.map_err(|e| e.to_string())?;
         }
         let mut idx =
-            match get_json::<S, CohortIndex>(b.public, layout::COHORT_INDEX, self.budget).await? {
-                Some(i) if i.schema == index::INDEX_SCHEMA => i,
+            match get_json::<S, serde_json::Value>(b.public, layout::COHORT_INDEX, self.budget)
+                .await?
+            {
+                Some(v)
+                    if v.get("schema").and_then(|s| s.as_str()) == Some(index::INDEX_SCHEMA) =>
+                {
+                    serde_json::from_value::<CohortIndex>(v)
+                        .map_err(|_| "the public index is not readable".to_owned())?
+                }
+                Some(v)
+                    if v.get("schema").and_then(|s| s.as_str()) == Some(index::INDEX_SCHEMA_V1) =>
+                {
+                    let i = index::migrate_v1(&v, chain)?;
+                    // Layout v1's leaderboard, reference pointers and
+                    // archived record indexes carry fields v2 never writes
+                    // (scores, counts, record digests): they are removed and
+                    // the page rewritten without a leaderboard before the v2
+                    // index is written, so an interrupted migration repeats
+                    // this step. Re-listing the cohorts writes the
+                    // leaderboard, pointers and page again in v2 shape; the
+                    // earlier records keep their entry in the index (prefix
+                    // and initial references) without their archive.
+                    for key in [
+                        layout::LEADERBOARD,
+                        layout::REFERENCE_CURRENT,
+                        layout::REFERENCE_PREVIOUS,
+                    ] {
+                        b.public.delete(key).await.map_err(|e| e.to_string())?;
+                    }
+                    for record in &i.previous_records {
+                        let archive =
+                            layout::record_archive(&record.first_label, "cohorts/index.json");
+                        b.public.delete(&archive).await.map_err(|e| e.to_string())?;
+                    }
+                    self.write_site(None).await.map_err(|e| e.to_string())?;
+                    put_json(b.public, layout::COHORT_INDEX, &i, Cache::Index)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    report.index_written = true;
+                    report.index_migrated = true;
+                    i
+                }
                 Some(_) => {
                     return Err(
                         "the public index has an unknown schema; refusing to overwrite it".into(),
@@ -842,8 +766,8 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             Some(from) => self.new_cohorts(from, &mut idx, memo, report).await?,
             None => report.publication_disabled = true,
         }
-        self.authorizations(&idx, report).await;
-        self.retention(&mut idx, report).await?;
+        // No public receipts: nothing to cross-check (`Report::retention_mismatch`).
+        report.retention_checked = true;
         Ok(idx)
     }
 
@@ -860,10 +784,8 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     /// before it is written. The earlier cohorts' own directories stay where
     /// they are (their labels never recur under another authority), listed
     /// only by the archived index. The new index records the earlier record
-    /// (`previous_records`: its prefix, never adopted again, its initial
-    /// references, still withheld as entrant artifacts, and its cohorts whose
-    /// detailed receipts are still published, which `retention` deletes under
-    /// the N+2 rule against the new record). An archive object is written
+    /// (`previous_records`: its prefix, never adopted again, and its initial
+    /// references, still withheld as entrant artifacts). An archive object is written
     /// once: an existing one with the same bytes is an interrupted run
     /// repeating the step, and one with other bytes is refused, so no earlier
     /// archive is ever replaced.
@@ -908,7 +830,8 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 }
                 None => {
                     let digest = slop_ninja_protocol::object_sha256(&bytes);
-                    p.put(
+                    write_public_once(
+                        p,
                         &archive,
                         bytes,
                         &Put {
@@ -936,16 +859,6 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             prefix: old.record_prefix.clone(),
             first_label: first.clone(),
             initial_references: old.initial_references.clone(),
-            receipts_pending: old
-                .cohorts
-                .iter()
-                .filter(|c| c.receipts_retained)
-                .map(|c| index::PendingReceipts {
-                    label: c.label.clone(),
-                    cohort: c.cohort,
-                    target: c.target.clone(),
-                })
-                .collect(),
         });
         put_json(p, layout::COHORT_INDEX, &idx, Cache::Index)
             .await
@@ -1014,12 +927,6 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 starts_record: r.starts_record,
                 reason: r.public.clone().unwrap_or_else(|| "refused".into()),
                 build: r.build.clone(),
-                // Partial public receipts already deleted stay deleted.
-                receipts_deleted_after: idx
-                    .refused
-                    .iter()
-                    .find(|x| &x.label == label)
-                    .and_then(|x| x.receipts_deleted_after),
             };
             if !idx.refused.contains(&entry) {
                 idx.note_refused(entry);
@@ -1245,28 +1152,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 Ok(v) => v,
                 Err(r @ Refusal::Missing(_)) => {
                     // Objects deleted under the coordinator's N+2 rule never
-                    // return: its marker makes the cohort final here, once
-                    // any detailed receipts an interrupted earlier copy left
-                    // in the public bucket are gone too (no publication
-                    // record would ever delete them). Without the marker the
-                    // object is only not stored yet, and the later cohorts
-                    // wait.
+                    // return: its marker makes the cohort final here.
                     match self.retired_marker(&label).await {
                         Ok(Some(after)) => {
-                            match self.delete_partial_receipts(&label).await {
-                                Ok(true) => {}
-                                Ok(false) => {
-                                    report.pending.push((
-                                        label,
-                                        "retired before publication: deleting partial public copies".into(),
-                                    ));
-                                    break;
-                                }
-                                Err(e) => {
-                                    report.pending.push((label, e.to_string()));
-                                    break;
-                                }
-                            }
                             idx.retired_unpublished.push(index::RetiredCohort {
                                 label: label.clone(),
                                 cohort,
@@ -1385,47 +1273,20 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         let bytes = match self
             .buckets
             .receipts
-            .get(&key, slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD_BOUND)
+            .get(
+                &key,
+                slop_ninja_admission_wire::receipts::ABANDONMENT_RECORD_BOUND,
+            )
             .await
         {
             Ok(None) | Err(StoreError::TooLarge { .. }) => return Ok(false),
             Ok(Some(b)) => b,
             Err(e) => return Err(format!("{ABANDONMENT}: {e}")),
         };
-        Ok(slop_ninja_protocol::Signed::<CohortAbandonment>::open(&bytes, &self.cfg.keys)
-            .is_ok_and(|a| a.cohort_label == label && a.chain == self.cfg.chain))
-    }
-
-    /// Deletes every detailed receipt of cohort `label` in the public bucket
-    /// (its receipt index, chunk map and everything under `receipts/`), one
-    /// listing page at a time: what an interrupted copy left behind before
-    /// the coordinator deleted the private objects. `false` when the run's
-    /// budget or lease ended first (the next run continues).
-    async fn delete_partial_receipts(&self, label: &str) -> Result<bool, StoreError> {
-        let p = self.buckets.public;
-        let dir = layout::cohort_dir(label);
-        for rel in [verify::RECEIPT_INDEX, verify::CHUNK_MAP] {
-            p.delete(&layout::join(&dir, rel)).await?;
-        }
-        let prefix = layout::join(&dir, "receipts/");
-        loop {
-            if !self.may_continue().await {
-                return Ok(false);
-            }
-            let keys = p.list_keys(&prefix, layout::LIST_PAGE).await?;
-            if keys.is_empty() {
-                return Ok(true);
-            }
-            let Ok(_hold) = self
-                .budget
-                .reserve(keys.iter().map(|k| k.len() as u64).sum())
-            else {
-                return Ok(false);
-            };
-            for k in keys {
-                p.delete(&k).await?;
-            }
-        }
+        Ok(
+            slop_ninja_protocol::Signed::<CohortAbandonment>::open(&bytes, &self.cfg.keys)
+                .is_ok_and(|a| a.cohort_label == label && a.chain == self.cfg.chain),
+        )
     }
 
     /// The coordinator's `receipts-retired.json` marker for cohort `label`:
@@ -1454,272 +1315,6 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             Refusal::Invalid(key, "unreadable, unknown schema or another label".into())
         })?;
         Ok(Some(m.due_after_cohort))
-    }
-
-    /// Deletes the public detailed receipts of every listed cohort, and of
-    /// every earlier record's cohort still waiting (`previous_records`; the
-    /// marker is read under the same label, which the predecessor authority
-    /// wrote), once the coordinator's `receipts-retired.json` marker for it
-    /// exists, recording the marker's `due_after_cohort`. The coordinator's
-    /// decision is the only deletion rule: it holds the active target's
-    /// cohort and the one whose target the current authorization commits,
-    /// judged by durable completion. No marker, nothing deleted. A marker
-    /// that is unreadable, oversized or names another label is refused and
-    /// deletes nothing; one that does not answer waits. A public-side hold
-    /// can only delay a marker's deletion: while the public index's active
-    /// target, or the target the public current authorization commits
-    /// ([`Self::public_authorization_target`]; a read that does not answer
-    /// waits), is the cohort's, its public receipts stay.
-    ///
-    /// This publisher's own N+2 reading ([`own_due`]) is kept only as a
-    /// cross-check (`Report::retention_mismatch`, raised as
-    /// `retention_stalled`): a marker whose due point this record has reached
-    /// while the own reading still finds the cohort held, or a cohort the own
-    /// reading found due with no marker after more than one further
-    /// completion (only while the authorization's hold was read this run).
-    pub async fn retention(
-        &self,
-        idx: &mut CohortIndex,
-        report: &mut Report,
-    ) -> Result<(), String> {
-        let done = idx.completions();
-        let hold = report.authorization_hold.clone();
-        // A closed in-record cohort whose number is unknown here (its
-        // manifest does not open, or it was refused before it opened).
-        let unnumbered =
-            !report.unverifiable.is_empty() || idx.refused.iter().any(|r| r.cohort.is_none());
-        // (label, number, target for the own reading, target the public host
-        // may still name, whether from an earlier record).
-        let listed = idx.cohorts.iter().filter(|c| c.receipts_retained).map(|c| {
-            (c.label.clone(), c.cohort, c.target.clone(), c.target.clone(), false)
-        });
-        let earlier = idx
-            .previous_records
-            .iter()
-            .flat_map(|r| r.receipts_pending.iter())
-            // The restart superseded an earlier record's targets for the own
-            // reading, but the public authorization can still name one until
-            // a cohort of the new record is listed.
-            .map(|c| (c.label.clone(), c.cohort, None, c.target.clone(), true));
-        let entries: Vec<_> = listed.chain(earlier).collect();
-        // What the public host names now, read once when a marker is found.
-        let mut public_names: Option<Result<Option<String>, Refusal>> = None;
-        for (label, cohort, target, named, from_earlier) in entries {
-            let own = own_due(idx, &done, cohort, target.as_deref(), &hold, unnumbered);
-            let after = match self.retired_marker(&label).await {
-                Ok(Some(after)) => after,
-                Ok(None) => {
-                    if let OwnDue::After(n) = own
-                        && hold != AuthorizationHold::Unknown
-                        && done.iter().filter(|c| **c > n).count() > 1
-                    {
-                        report.retention_mismatch.push(format!(
-                            "cohort {cohort}: due after cohort {n} by the public record, \
-                             and no coordinator retirement marker after two further completions"
-                        ));
-                    }
-                    continue;
-                }
-                Err(r) if r.retryable() => {
-                    report
-                        .pending
-                        .push((format!("{label}/receipts-retired"), r.to_string()));
-                    continue;
-                }
-                Err(r) => {
-                    report
-                        .refused
-                        .push((format!("{label}/receipts-retired"), r.to_string()));
-                    continue;
-                }
-            };
-            if own == OwnDue::Held && done.last().is_some_and(|n| *n >= after) {
-                report.retention_mismatch.push(format!(
-                    "cohort {cohort}: the coordinator retired its receipts after cohort {after}, \
-                     which the public record has reached, while the public reading still holds them"
-                ));
-            }
-            // A hold that only delays: while the public host still names
-            // this cohort's target (the public index's active target, or the
-            // target the public current authorization commits, before this
-            // publisher listed the superseding cohort or copied the newer
-            // authorization), a validator reading the public host still
-            // needs its receipts. Deleted on the marker once it caught up.
-            if let Some(t) = &named {
-                if !from_earlier && idx.active_target.digest == *t {
-                    continue;
-                }
-                if public_names.is_none() {
-                    let read = self.public_authorization_target().await;
-                    if let Err(r) = &read {
-                        report
-                            .pending
-                            .push((layout::AUTHORIZATION_CURRENT.into(), r.to_string()));
-                    }
-                    public_names = Some(read);
-                }
-                match public_names.as_ref() {
-                    Some(Ok(Some(p))) if p == t => continue,
-                    Some(Err(_)) => continue,
-                    _ => {}
-                }
-            }
-            if !self.delete_receipts(&label, after, report).await? {
-                continue;
-            }
-            if from_earlier {
-                for r in &mut idx.previous_records {
-                    r.receipts_pending.retain(|c| c.label != label);
-                }
-            } else if let Some(entry) = idx.cohorts.iter_mut().find(|c| c.label == label) {
-                entry.receipts_retained = false;
-            }
-            self.receipts_deleted(idx, report).await?;
-        }
-        self.refused_receipts(idx, report).await?;
-        report.retention_checked = true;
-        Ok(())
-    }
-
-    /// The target the public current authorization
-    /// (`v1/authorizations/current.json`) commits, as hex: `None` when there
-    /// is none or it is a launch authorization. Only decoded, not opened: it
-    /// can only delay a deletion ([`Self::retention`]), and this publisher
-    /// copied it after opening it.
-    async fn public_authorization_target(&self) -> Result<Option<String>, Refusal> {
-        let p = self.buckets.public;
-        let key = layout::AUTHORIZATION_CURRENT;
-        let invalid = |why: &str| Refusal::Invalid(key.into(), why.into());
-        let pointer: AuthorizationPointer =
-            match p.get(key, arena::AUTHORIZATION_POINTER_BOUND).await {
-                Ok(None) => return Ok(None),
-                Ok(Some(bytes)) => {
-                    serde_json::from_slice(&bytes).map_err(|_| invalid("unreadable"))?
-                }
-                Err(StoreError::TooLarge { .. }) => return Err(invalid("larger than its bound")),
-                Err(e) => return Err(Refusal::Store(key.into(), e)),
-            };
-        if pointer.kind != slop_ninja_admission_wire::receipts::KIND_COHORT {
-            return Ok(None);
-        }
-        let r = &pointer.authorization;
-        let bytes = match p.get(&r.path, arena::AUTHORIZATION_OBJECT_BOUND).await {
-            Ok(Some(b)) => b,
-            Ok(None) => return Err(Refusal::Missing(r.path.clone())),
-            Err(StoreError::TooLarge { .. }) => return Err(invalid("larger than its bound")),
-            Err(e) => return Err(Refusal::Store(r.path.clone(), e)),
-        };
-        let a = Signed::<RewardIntentAuthorization>::from_bytes(&bytes)
-            .map_err(|e| invalid(&format!("authorization: {e}")))?;
-        Ok(Some(a.record.target.hex()))
-    }
-
-    /// Deletes the detailed receipts a refused cohort's interrupted or
-    /// refused copy left in the public bucket, once the coordinator's
-    /// marker for it exists (as for a listed cohort; no publication record
-    /// lists them), and records the marker's `due_after_cohort` in its
-    /// refused entry, so it is done once. The entry stays: a later build
-    /// still reconsiders the cohort (its private receipts are then gone, so
-    /// it is recorded as retired before publication).
-    async fn refused_receipts(
-        &self,
-        idx: &mut CohortIndex,
-        report: &mut Report,
-    ) -> Result<(), String> {
-        let due: Vec<String> = idx
-            .refused
-            .iter()
-            .filter(|r| r.receipts_deleted_after.is_none())
-            .map(|r| r.label.clone())
-            .collect();
-        for label in due {
-            let after = match self.retired_marker(&label).await {
-                Ok(Some(after)) => after,
-                Ok(None) => continue,
-                Err(r) if r.retryable() => {
-                    report
-                        .pending
-                        .push((format!("{label}/receipts-retired"), r.to_string()));
-                    continue;
-                }
-                Err(r) => {
-                    report
-                        .refused
-                        .push((format!("{label}/receipts-retired"), r.to_string()));
-                    continue;
-                }
-            };
-            match self.delete_partial_receipts(&label).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    report.pending.push((
-                        label,
-                        "refused: deleting partial public receipt copies".into(),
-                    ));
-                    break;
-                }
-                Err(e) => {
-                    report.pending.push((label, e.to_string()));
-                    continue;
-                }
-            }
-            if let Some(r) = idx.refused.iter_mut().find(|r| r.label == label) {
-                r.receipts_deleted_after = Some(after);
-            }
-            self.receipts_deleted(idx, report).await?;
-        }
-        Ok(())
-    }
-
-    /// Deletes cohort `label`'s detailed receipts from the public host and
-    /// records `after` in its publication record. `false` (reported) when
-    /// that record is missing: nothing is deleted.
-    async fn delete_receipts(
-        &self,
-        label: &str,
-        after: u64,
-        report: &mut Report,
-    ) -> Result<bool, String> {
-        let b = &self.buckets;
-        let Some(mut publication) =
-            get_json::<S, Publication>(b.public, &layout::publication(label), self.budget).await?
-        else {
-            report.refused.push((
-                label.to_owned(),
-                "publication record missing; receipts not deleted".into(),
-            ));
-            return Ok(false);
-        };
-        let dir = layout::cohort_dir(label);
-        for o in publication
-            .objects
-            .iter()
-            .filter(|o| is_detailed_receipt(&o.rel))
-        {
-            b.public
-                .delete(&layout::join(&dir, &o.rel))
-                .await
-                .map_err(|e| e.to_string())?;
-        }
-        publication.receipts_deleted_after = Some(after);
-        put_json(
-            b.public,
-            &layout::publication(label),
-            &publication,
-            Cache::Index,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-        Ok(true)
-    }
-
-    async fn receipts_deleted(&self, idx: &CohortIndex, report: &mut Report) -> Result<(), String> {
-        put_json(self.buckets.public, layout::COHORT_INDEX, idx, Cache::Index)
-            .await
-            .map_err(|e| e.to_string())?;
-        report.index_written = true;
-        report.receipts_deleted += 1;
-        Ok(())
     }
 
     /// The initial references to withhold: every one any opened manifest
@@ -1752,27 +1347,31 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     ) -> Result<(), Refusal> {
         let b = &self.buckets;
         let label = &v.label;
-        let objects = v.public_objects();
-        for obj in &objects {
-            copy_object(b, self.cfg, label, obj).await?;
-        }
-        let copied = verify::verify_cohort(
-            b.public,
-            &layout::cohort_dir(label),
-            label,
-            &self.opts(),
-            self.budget,
-        )
-        .await
-        .map_err(|r| match r {
-            Refusal::Missing(rel) => Refusal::Invalid(rel, "missing after the copy".into()),
-            other => other,
-        })?;
-        if copied.public_objects() != objects {
-            return Err(Refusal::Invalid(
-                label.clone(),
-                "copies differ from the verified objects".into(),
-            ));
+        let store_err = |e| Refusal::Store(label.clone(), e);
+        // The allow-listed summary is the cohort's only public object. It is
+        // checked against the allow-list before it is written and read back
+        // after, so nothing outside the allow-list ever reaches the bucket.
+        let doc = summary::build(v, Chain::from_binding(&self.cfg.chain));
+        let summary_key = layout::join(&layout::cohort_dir(label), summary::SUMMARY);
+        let bytes = serde_json::to_vec_pretty(&doc)
+            .map_err(|_| Refusal::Store(label.clone(), StoreError::Unavailable("json")))?;
+        crate::allowlist::check_object(&summary_key, &bytes)
+            .map_err(|why| Refusal::Invalid(summary::SUMMARY.into(), why))?;
+        let summary_sha = slop_ninja_protocol::object_sha256(&bytes);
+        put_if_changed(b.public, &summary_key, bytes, Cache::Index)
+            .await
+            .map_err(store_err)?;
+        match b.public.get(&summary_key, self.budget.remaining()).await {
+            Ok(Some(back))
+                if slop_ninja_protocol::object_sha256(&back) == summary_sha
+                    && crate::allowlist::check_object(&summary_key, &back).is_ok() => {}
+            Ok(_) => {
+                return Err(Refusal::Invalid(
+                    summary::SUMMARY.into(),
+                    "differs after the write".into(),
+                ));
+            }
+            Err(e) => return Err(store_err(e)),
         }
         // Artifacts, default-deny: the static checks, then the cluster of a
         // withheld artifact, then the admission record and the copy.
@@ -1813,16 +1412,9 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             cohort: v.manifest.cohort,
             label: label.clone(),
             publisher: PUBLISHER_ID.into(),
-            objects,
-            receipts_verified: v.receipts,
-            components_withheld: match &v.components {
-                verify::Components::Withheld(why) => Some(why.clone()),
-                _ => None,
-            },
+            summary: summary_sha.hex(),
             artifacts: artifacts.clone(),
-            receipts_deleted_after: None,
         };
-        let store_err = |e| Refusal::Store(label.clone(), e);
         put_json(
             b.public,
             &layout::publication(label),
@@ -1833,7 +1425,10 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         .map_err(store_err)?;
         let newest = idx.last_cohort().is_none_or(|c| v.manifest.cohort >= c);
         idx.note_initial_reference(v);
-        idx.upsert(index::entry(v, &artifacts), &self.cfg.chain);
+        idx.upsert(
+            index::entry(v, &summary_sha.hex(), &artifacts),
+            &self.cfg.chain,
+        );
         idx.clear_refused(label);
         put_json(b.public, layout::COHORT_INDEX, idx, Cache::Index)
             .await
@@ -1850,12 +1445,11 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                     .map_err(store_err)?;
             }
             let doc = leaderboard::build(leaderboard::Inputs {
-                cohort: v,
+                summary: &doc,
                 artifacts: &artifacts,
                 active_target: &idx.active_target,
                 current_reference: current,
                 previous_reference: previous,
-                chain: Chain::from_binding(&self.cfg.chain),
             });
             put_json(b.public, layout::LEADERBOARD, &doc, Cache::Index)
                 .await
@@ -2109,7 +1703,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             if let Some(a) = publication
                 .artifacts
                 .iter()
-                .find(|a| a.hotkey == row.hotkey)
+                .find(|a| a.hotkey == row.entrant.hotkey)
             {
                 row.artifact = Some(a.clone());
             }
@@ -2153,16 +1747,25 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         self.write_site(Some(&doc)).await
     }
 
-    /// Copies the current validator authorization and its renewal, then
-    /// points `v1/authorizations/current.json` at them; reports problems.
-    pub async fn authorizations(&self, idx: &CohortIndex, report: &mut Report) {
-        match self
-            .copy_authorizations(idx, &mut report.authorization_hold)
-            .await
-        {
-            Ok((written, unopened)) => {
-                report.authorization_written = written;
-                report.revocations_unopened = unopened;
+    /// Copies the current validator authorization, its renewal, the
+    /// revocation set and the coordinator's signed row, then points
+    /// `v1/authorizations/current.json` at them; reports problems.
+    pub async fn authorizations(&self, report: &mut Report) {
+        match self.copy_authorizations().await {
+            Ok(copied) => {
+                report.authorization_written = copied.written;
+                report.revocations_unopened = copied.unopened;
+                // A row that could not be copied is left out of the public
+                // pointer (validators keep their installed row) and alerted:
+                // refused, or pending while it may still appear.
+                if let Some(r) = copied.row_dropped {
+                    let entry = ("authorizations row".to_owned(), r.to_string());
+                    if r.retryable() {
+                        report.pending.push(entry);
+                    } else {
+                        report.refused.push(entry);
+                    }
+                }
             }
             Err(r) if r.retryable() => report
                 .pending
@@ -2210,21 +1813,20 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         Ok((sha, bytes))
     }
 
-    /// Copies one verified authorization object to its public key.
-    async fn copy_authorization(&self, r: &ObjectRef, sha: Digest) -> Result<ObjectRef, Refusal> {
+    /// Copies one verified authorization object (`bytes`, as read and
+    /// checked) to its public key, once the allow-list accepts it.
+    async fn copy_authorization(
+        &self,
+        r: &ObjectRef,
+        sha: Digest,
+        bytes: &[u8],
+    ) -> Result<ObjectRef, Refusal> {
         let b = &self.buckets;
         let dst = layout::authorization(&sha);
-        match copy_checked(
-            b.receipts,
-            b.public,
-            &r.path,
-            &dst,
-            r.bytes,
-            &sha,
-            Cache::Immutable,
-        )
-        .await
-        {
+        crate::allowlist::check_object(&dst, bytes)
+            .map_err(|why| Refusal::Invalid(r.path.clone(), why))?;
+        debug_assert_eq!(slop_ninja_protocol::object_sha256(bytes), sha);
+        match copy_checked(b.receipts, b.public, &r.path, &dst, bytes, Cache::Immutable).await {
             Ok(true) => Ok(ObjectRef {
                 path: dst,
                 sha256: sha.hex(),
@@ -2239,13 +1841,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         }
     }
 
-    /// Copies what the private pointer names; `hold` is set as soon as the
-    /// authorization it names has opened.
-    async fn copy_authorizations(
-        &self,
-        idx: &CohortIndex,
-        hold: &mut AuthorizationHold,
-    ) -> Result<(bool, u32), Refusal> {
+    async fn copy_authorizations(&self) -> Result<Copied, Refusal> {
         let b = &self.buckets;
         let mut unopened = 0u32;
         let pointer: AuthorizationPointer = match b
@@ -2256,10 +1852,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             )
             .await
         {
-            Ok(None) => {
-                *hold = AuthorizationHold::Nothing;
-                return Ok((false, 0));
-            }
+            Ok(None) => return Ok(Copied::default()),
             Ok(Some(bytes)) => serde_json::from_slice(&bytes).map_err(|e| {
                 Refusal::Invalid(layout::PRIVATE_AUTHORIZATION_POINTER.into(), e.to_string())
             })?,
@@ -2294,27 +1887,15 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 if a.chain != self.cfg.chain || a.target != burn {
                     return Err(invalid("the launch authorization names another target"));
                 }
-                *hold = AuthorizationHold::Nothing;
                 a.digest().map_err(|e| invalid(&e.to_string()))?
             }
             "cohort" => {
                 let a = Signed::<RewardIntentAuthorization>::open(&auth_bytes, keys)
                     .map_err(|e| invalid(&format!("reward-intent authorization: {e}")))?;
+                // Published at once: validators commit the coordinator's
+                // signed row and need no record of the cohort.
                 if a.chain != self.cfg.chain {
                     return Err(invalid("the authorization names another chain or subnet"));
-                }
-                *hold = AuthorizationHold::Target(a.target.hex());
-                let listed = idx.cohorts.iter().any(|c| {
-                    c.cohort == a.cohort
-                        && c.manifest == a.cohort_manifest.hex()
-                        && c.package == a.score_package.hex()
-                });
-                if !listed {
-                    // Published once its cohort is listed.
-                    return Err(Refusal::Missing(format!(
-                        "the authorization's cohort {} is not listed yet",
-                        a.cohort
-                    )));
                 }
                 a.digest().map_err(|e| invalid(&e.to_string()))?
             }
@@ -2329,7 +1910,7 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                 if renewal.authorization != auth_digest {
                     return Err(invalid("the renewal renews another authorization"));
                 }
-                Some((r, sha))
+                Some((r, sha, bytes))
             }
         };
         // The revocation set is copied byte for byte whatever its entries
@@ -2370,22 +1951,50 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
                         unopened += 1;
                     }
                 }
-                Some((r, sha))
+                Some((r, sha, bytes))
             }
+        };
+        // The coordinator's signed row: it opens under the trust roots,
+        // names this chain and was committed under the authorization the
+        // pointer names. Its read bound is the protocol's longest row. A row
+        // that fails any of this, or cannot be read or copied, never holds
+        // the pointer or its revocation set back: the pointer is published
+        // without `row` (validators keep their installed row) and the
+        // failure is reported for an alert.
+        let mut row_dropped = None;
+        let row = match &pointer.row {
+            None => None,
+            Some(r) => match self.checked_row(r, &auth_digest).await {
+                Ok((sha, bytes)) => Some((r, sha, bytes)),
+                Err(why) => {
+                    row_dropped = Some(why);
+                    None
+                }
+            },
         };
         let public = AuthorizationPointer {
             schema: AUTHORIZATION_SCHEMA.into(),
             chain: pointer.chain.clone(),
             kind: pointer.kind.clone(),
             authorization: self
-                .copy_authorization(&pointer.authorization, auth_sha)
+                .copy_authorization(&pointer.authorization, auth_sha, &auth_bytes)
                 .await?,
             renewal: match renewal {
-                Some((r, sha)) => Some(self.copy_authorization(r, sha).await?),
+                Some((r, sha, bytes)) => Some(self.copy_authorization(r, sha, &bytes).await?),
                 None => None,
             },
             revocations: match revocations {
-                Some((r, sha)) => Some(self.copy_authorization(r, sha).await?),
+                Some((r, sha, bytes)) => Some(self.copy_authorization(r, sha, &bytes).await?),
+                None => None,
+            },
+            row: match row {
+                Some((r, sha, bytes)) => match self.copy_authorization(r, sha, &bytes).await {
+                    Ok(copied) => Some(copied),
+                    Err(why) => {
+                        row_dropped = Some(why);
+                        None
+                    }
+                },
                 None => None,
             },
         };
@@ -2399,7 +2008,44 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
             Cache::Snapshot,
         )
         .await
-        .map(|written| (written, unopened))
+        .map(|written| Copied {
+            written,
+            unopened,
+            row_dropped,
+        })
         .map_err(|e| Refusal::Store(layout::AUTHORIZATION_CURRENT.into(), e))
     }
+
+    /// Reads and checks the coordinator's row the private pointer names
+    /// (`copy_authorizations`).
+    async fn checked_row(
+        &self,
+        r: &ObjectRef,
+        auth_digest: &Digest,
+    ) -> Result<(Digest, Vec<u8>), Refusal> {
+        let invalid = |why: &str| Refusal::Invalid("authorizations row".into(), why.into());
+        let bound = slop_ninja_admission_wire::receipts::row_object_bound();
+        let _hold = self
+            .budget
+            .reserve(r.bytes.min(bound))
+            .map_err(|_| invalid("the row exceeds the run's budget"))?;
+        let (sha, bytes) = self.authorization_object_within(r, bound).await?;
+        let row = Signed::<CoordinatorRow>::open(&bytes, &self.cfg.keys)
+            .map_err(|e| invalid(&format!("coordinator row: {e}")))?;
+        if row.chain != self.cfg.chain || row.authorization != *auth_digest {
+            return Err(invalid("the row names another chain or authorization"));
+        }
+        Ok((sha, bytes))
+    }
+}
+
+/// What one authorization copy did.
+#[derive(Debug, Default)]
+struct Copied {
+    /// The public pointer was (re)written.
+    written: bool,
+    /// Entries of the revocation set that do not open under the trust roots.
+    unopened: u32,
+    /// The row the private pointer named was left out, and why.
+    row_dropped: Option<Refusal>,
 }

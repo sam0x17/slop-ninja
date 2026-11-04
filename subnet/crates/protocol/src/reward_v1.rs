@@ -464,6 +464,11 @@ impl Bands {
     }
 
     /// `min(floor(S / w), ceil(1 / w) - 1)`.
+    // QUANTIZED-SCORE: bands are computed from exact scores. The published
+    // band (`summary.json`), and the row derived from it (the signed
+    // coordinator row, and every revealed on-chain row), stay derived from
+    // exact scores until the quantization specification says which of
+    // these it bounds.
     pub fn band(&self, score: Score) -> u128 {
         let index = u128::from(score.get()) * SCALE / self.width;
         let count = (SCALE * SCALE).div_ceil(self.width);
@@ -471,6 +476,13 @@ impl Bands {
     }
 
     /// `upper - lower <= epsilon = w / divisor`, for `upper >= lower`.
+    // QUANTIZED-SCORE: the near-equal drop compares exact scores at a
+    // resolution of `w / divisor`, far finer than a band. A dropped head is
+    // ranked but paid nothing (no band in the summary, no weight in the
+    // row, and none in the revealed on-chain weights), so whether two
+    // heads' exact scores lie within epsilon is observable: one bit per
+    // adjacent pair, to count in the quantization budget. Hiding it in the
+    // summary alone would not remove it while the row pays by it.
     pub fn near_equal(&self, upper: Score, lower: Score) -> Result<bool> {
         let gap = u128::from(upper.get() - lower.get());
         let scaled = gap
@@ -850,6 +862,9 @@ pub struct Evaluation {
 impl Evaluation {
     /// Each retained cluster's exact credit in head rank order, as the
     /// package publishes it.
+    // QUANTIZED-SCORE: credits (and the units of the row) follow the exact
+    // bands and the near-equal drop; the package stays private, the row is
+    // published (signed coordinator row, revealed weights).
     pub fn credits(&self, package: &ScorePackageV2) -> Vec<ClusterCredit> {
         self.clusters
             .iter()
@@ -915,6 +930,8 @@ fn min_gated_vs_current(package: &ScorePackageV2) -> Option<u32> {
 
 /// The near-equal drop against the last retained head only, before banding:
 /// the indices into `clusters` of the retained clusters, in head rank order.
+// QUANTIZED-SCORE: see [`Bands::near_equal`]; the published cluster
+// membership (head and members) comes from exact near-copy statistics too.
 fn retained_clusters(
     package: &ScorePackageV2,
     clusters: &[Cluster],
@@ -1323,6 +1340,9 @@ pub fn next_references(
 /// [`Error::Deferred`]: that tempo's row is deferred rather than sent to
 /// another UID, and a later snapshot is tried afresh. A row with nothing to
 /// burn does not need the owner's UID.
+// QUANTIZED-SCORE: the row is derived from the exact bands, drop and
+// credits; under the copy model it is published at commitment time (the
+// signed coordinator row) as well as revealed on chain.
 pub fn derive_row(
     target: &CalculationTargetV2,
     package: Option<(&ScorePackageV2, &PublishedIndex)>,

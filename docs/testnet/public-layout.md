@@ -40,11 +40,18 @@ the host's base URL.
 - Nothing published contains document text, labels, per-document
   predictions, spend figures or credentials. The
   [redaction rules](../../subnet/publisher/src/redact.rs) say how this is
-  enforced. Published records do carry values computed from the hidden
-  evaluation: the package's exact scores, gate outcomes, probe statistics
-  and counts, and each published receipt's outcome class for one attempt on
-  one document. An entrant's artifact can steer those outcomes, so they can
-  reveal information about the hidden documents and their labels.
+  enforced. Layout v1 as described below also publishes values derived from
+  the hidden evaluation: exact aggregate scores, near-copy and probe
+  statistics, gate reasons and attempt counts in the signed package and the
+  leaderboard, per-attempt outcome classes in the receipts, and strata in the
+  manifest. A publisher built from this tree publishes only what the
+  versioned allow-list names
+  ([`allowlist.rs`](../../subnet/publisher/src/allowlist.rs)): per cohort an
+  allow-listed summary of ranks, bands, gate bits and cluster membership, and
+  the coordinator's signed row beside its authorization; no receipt and no
+  score value. An entrant's artifact can steer the values layout v1
+  publishes, so they can reveal information about the hidden documents and
+  their labels.
 - Signed records are the coordinator's exact bytes. Verify them against the
   trust roots in the release's `testnet-trust.json`. The copy at
   `v1/trust/testnet-trust.json` is the same file byte for byte; never trust

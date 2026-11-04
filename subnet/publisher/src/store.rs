@@ -37,6 +37,9 @@ pub enum StoreError {
     Short,
     /// A copy's received bytes did not match the verified digest or length.
     Integrity,
+    /// A public write the allow-list refuses
+    /// ([`crate::allowlist::check_object`]): nothing was written.
+    NotAllowed,
 }
 
 impl core::fmt::Display for StoreError {
@@ -48,6 +51,7 @@ impl core::fmt::Display for StoreError {
             }
             Self::Short => f.write_str("object body shorter or longer than its stored size"),
             Self::Integrity => f.write_str("copied bytes differ from the verified digest"),
+            Self::NotAllowed => f.write_str("outside the public allow-list; nothing written"),
         }
     }
 }
@@ -92,6 +96,99 @@ pub trait Store {
 
     /// Deletes `key`; deleting a missing key succeeds.
     async fn delete(&self, key: &str) -> Result<(), StoreError>;
+}
+
+// ------------------------------------------------------------------ public
+
+/// The public bucket. Every write runs the allow-list
+/// ([`crate::allowlist`]): a put is refused unless [`crate::allowlist::check_object`]
+/// accepts its bytes (`StoreError::NotAllowed`, nothing written), and a
+/// streamed copy is allowed only to an artifact key (artifacts are allowed by
+/// key, [`PublicStore::copy_artifact_from`]) or with the very bytes it
+/// carries checked first and bound by their SHA-256, which the store
+/// enforces ([`PublicStore::copy_checked_from`]). Reads and deletes pass
+/// through. [`crate::publish::Buckets::public`] holds only this type, so no
+/// public write can bypass the allow-list, whatever helper a later change
+/// writes through.
+pub struct PublicStore<'a, S>(&'a S);
+
+impl<S> Clone for PublicStore<'_, S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S> Copy for PublicStore<'_, S> {}
+
+impl<'a, S: Store> PublicStore<'a, S> {
+    pub fn new(store: &'a S) -> Self {
+        Self(store)
+    }
+
+    pub async fn head(&self, key: &str) -> Result<Option<ObjectMeta>, StoreError> {
+        self.0.head(key).await
+    }
+
+    pub async fn get(&self, key: &str, bound: u64) -> Result<Option<Vec<u8>>, StoreError> {
+        self.0.get(key, bound).await
+    }
+
+    /// Writes `bytes` at `key` once the allow-list accepts them.
+    pub async fn put(&self, key: &str, bytes: Vec<u8>, put: &Put<'_>) -> Result<(), StoreError> {
+        crate::allowlist::check_object(key, &bytes).map_err(|_| StoreError::NotAllowed)?;
+        self.0.put(key, bytes, put).await
+    }
+
+    /// Streams `src_key` of `src` to artifact key `dst_key`; any other key
+    /// is refused, and so is a copy whose SHA-256 the store would not check.
+    pub async fn copy_artifact_from(
+        &self,
+        src: &S,
+        src_key: &str,
+        dst_key: &str,
+        len: u64,
+        put: &Put<'_>,
+    ) -> Result<bool, StoreError> {
+        if crate::allowlist::classify(dst_key) != Some(crate::allowlist::Kind::Artifact)
+            || put.sha256.is_none()
+        {
+            return Err(StoreError::NotAllowed);
+        }
+        self.0.copy_from(src, src_key, dst_key, len, put).await
+    }
+
+    /// Streams `src_key` of `src` to `dst_key` when `bytes` (read and
+    /// checked by the caller) pass the allow-list for `dst_key`: the copy is
+    /// bound to their length and SHA-256, so the store writes those bytes or
+    /// nothing.
+    pub async fn copy_checked_from(
+        &self,
+        src: &S,
+        src_key: &str,
+        dst_key: &str,
+        bytes: &[u8],
+        put: &Put<'_>,
+    ) -> Result<bool, StoreError> {
+        crate::allowlist::check_object(dst_key, bytes).map_err(|_| StoreError::NotAllowed)?;
+        if put.sha256 != Some(&slop_ninja_protocol::object_sha256(bytes)) {
+            return Err(StoreError::NotAllowed);
+        }
+        self.0
+            .copy_from(src, src_key, dst_key, bytes.len() as u64, put)
+            .await
+    }
+
+    pub async fn list_dirs(&self, prefix: &str) -> Result<Vec<String>, StoreError> {
+        self.0.list_dirs(prefix).await
+    }
+
+    pub async fn list_keys(&self, prefix: &str, limit: usize) -> Result<Vec<String>, StoreError> {
+        self.0.list_keys(prefix, limit).await
+    }
+
+    pub async fn delete(&self, key: &str) -> Result<(), StoreError> {
+        self.0.delete(key).await
+    }
 }
 
 // ------------------------------------------------------------------ memory

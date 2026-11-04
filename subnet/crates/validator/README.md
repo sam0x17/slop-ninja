@@ -2,24 +2,40 @@
 
 `slop_ninja_validator` is the native Slop Ninja validator. It builds on the
 journaled adapter in [`subnet/`](../../README.md) and rtao `0c128160`
-(tag `snapshot-2026-11-03.2`). It
-verifies the coordinator's signed score package, derives the native row with
-the shared [protocol crate](../protocol/README.md), and commits it as a
-timelocked weight commit through rtao's journaled scheduler. By default it
-only prepares the commit and prints its hash; `run --dispatch` signs.
+(tag `snapshot-2026-11-03.2`). For `reward-v1` it verifies the coordinator's
+signed row and the authorization it was committed under with the shared
+[protocol crate](../protocol/README.md) and commits exactly that row as a
+timelocked weight commit through rtao's journaled scheduler (the copy model:
+it never receives a score package or receipt and recomputes nothing). By
+default it only prepares the commit and prints its hash; `run --dispatch`
+signs.
 
 With `[fetch]`, the validator fetches the coordinator's published records
 from the public status host, verifies them and installs the bundle itself
-([Fetcher](#fetcher)). Without it, the package source is testnet shortcut
-T12: one local bundle file the operator installs. A `slop_ninja.fixture_package/v1`
-bundle (built by `slop_ninja_fixture_package`, or by the coordinator's
-`eval_verify`) carries a `testnet-reward-v0` package (T8), valid only on the
-testnet genesis. A `slop_ninja.reward_v1_bundle/v1` bundle (written by the
-coordinator's `reward_v1_verify` from the receipts bucket) carries the active
-`reward-v1` target: the launch burn row under a launch authorization, or a
-cohort target with its manifest, package, closure, published index, receipt
-index and receipt chunks, and its reward-intent authorization. The live
-procedure for subnet 601 is [TESTNET-M2.md](TESTNET-M2.md).
+([Fetcher](#fetcher)). Without it, the operator installs one local bundle
+file. A `slop_ninja.coordinator_row_bundle/v1` bundle carries the active
+`reward-v1` row: the launch or reward-intent authorization (hex), any
+renew-by hint refresh, and the coordinator's signed row of it, the three
+objects the authorization pointer names (`package_v2::row_bundle`). It is
+the only bundle a validator commits from: it verifies the signed row and
+commits it, and verifies no receipt and recomputes no score. Every bundle
+of records, a score package or receipts is retired (`bundle_schema_retired`):
+the earlier `slop_ninja.reward_v1_bundle/v1` and `/v3` bundles (a cohort's
+records and receipts, for recomputation) and the T12
+`slop_ninja.fixture_package/v1` bundle (a `testnet-reward-v0` score package
+with its receipt index and receipts, built by `slop_ninja_fixture_package`).
+One still installed when this build starts is a deferral, never a halt and
+never a commit. Nothing new commits until a row bundle is installed, while
+recovery and the fetcher keep running (a continuous run waits for the
+fetcher, a one-shot run exits 75 for a later retry). A row bundle of the
+target the validator already holds is installed in place over a retired
+one at once, whatever commitment is in flight (it belongs to the same
+target), so the next tempo commits without a restart; a successor target
+that must wait for in-flight work over a retired bundle exits 75 instead,
+and the restart's finalized recovery settles that work. The fixture-package
+verifier (`package.rs`) remains only as a signed input of the crate's own
+journal and dispatch tests. The live procedure for subnet 601 is
+[TESTNET-M2.md](TESTNET-M2.md).
 
 ## Run order
 
@@ -80,36 +96,42 @@ procedure for subnet 601 is [TESTNET-M2.md](TESTNET-M2.md).
    written over `[package] path`; nor does it write the held-target record.
    With no bundle installed afterwards, a continuous dispatch run waits for
    the fetcher; any other run exits 75 (`bundle_unavailable`).
-7. With a `[package]` configured, verify the bundle: open the signed cohort
-   manifest, score package and calculation target (package key) and receipt
-   index (receipt key), authenticating each before decoding it. Then bind the
-   package to its manifest, the target to the package and the index to the
-   package's receipt root and count, check every stored receipt object
-   against its index entry, and require the package's genesis and netuid to
-   be this validator's. A `reward-v1` bundle goes through the protocol
-   crate's `target_bundle::verify`: it also requires every receipt chunk
-   (each index entry stored exactly once), the published index matching the
-   manifest's binding, the recomputed outcome (`check_outcome`), the closure
-   against the manifest's minimums, and the authorization against the active
-   target and its carrying cohort (whose outcome is recomputed too, and whose
-   receipt chunks are verified). The active target is this validator's own:
-   `<journal>.held-target.json` (mode 600) records the target a verified
-   bundle's checked closure activated, and only that target or its successor
-   is accepted afterwards; the launch bundle only until a cohort target has
+7. With a `[package]` configured, verify the bundle. A `testnet-reward-v0`
+   fixture bundle (T8): open the signed cohort manifest, score package and
+   calculation target (package key) and receipt index (receipt key),
+   authenticating each before decoding it, bind them and check every stored
+   receipt object against its index entry. A `reward-v1` coordinator-row
+   bundle goes through the protocol crate's `coordinator_row::verify`: the
+   authorization and the coordinator's row open under the trusted
+   authorization key and name this chain, the row names the authorization's
+   digest, target, cohort and issue, and its target is the held one (same
+   activation epoch) or one activated later. Nothing of the hidden
+   evaluation is read or recomputed. The active target is this validator's
+   own: `<journal>.held-target.json` (mode 600) records the target and
+   activation a verified row named, and only that target or a later one is
+   accepted afterwards; the launch row only until a cohort target has
    activated. Any failure is a refusal (exit 3) before a row exists.
 8. Read `SubnetworkN`, `Keys` and `BlockAtRegistration` by name at the same
-   finalized block into a registration snapshot, and derive the row with
-   `slop_ninja_protocol::reward::derive_row`. For `reward-v1` the snapshot
-   also carries the finalized `SubnetOwnerHotkey`, whose UID receives burned
-   units, and the row is `reward_v1::derive_row`; the operation is the
-   `WeightOperationV2` for the current `SubnetEpochIndex`, issued only under
-   the authorization checked for that epoch (`authorization_refused`
-   otherwise). A `reward-v1` row sums to 65,535; it is committed, and compared
-   with `Weights` after its reveal, max-upscaled so that its largest entry is
-   65,535 (`WeightRowV2::chain_values`), the form rtao's preparation and the
-   chain's reveal both keep. Each later tempo's re-commit derives its row
-   afresh from a finalized snapshot and owner hotkey and checks the
-   authorization again.
+   finalized block into a registration snapshot. A `testnet-reward-v0` row is
+   `slop_ninja_protocol::reward::derive_row`. A `reward-v1` row is the
+   coordinator's signed entries (`VerifiedRow::derive_row`) with one
+   score-free rule, the one the coordinator's own derivation applies: the
+   burn entry, and every entry whose `(uid, hotkey, registration block)`
+   the snapshot no longer holds (a deregistration, a re-registration, the
+   UID handed to another hotkey), go to the UID the finalized
+   `SubnetOwnerHotkey` holds (`row_deferred` when units must burn and it
+   holds none). A UID that changed hands is never paid to its new holder,
+   through coordinator silence included; each is logged
+   (`row_uid_moved`). The snapshot also supplies the row's registration
+   metadata and the owner-row policy. The
+   operation is the `WeightOperationV2` for the current `SubnetEpochIndex`,
+   issued only under the authorization checked for that epoch
+   (`authorization_refused` otherwise). A `reward-v1` row sums to 65,535; it
+   is committed, and compared with `Weights` after its reveal, max-upscaled
+   so that its largest entry is 65,535 (`WeightRowV2::chain_values`), the
+   form rtao's preparation and the chain's reveal both keep. Each later
+   tempo's re-commit takes the same row under the installed bundle and
+   checks the authorization again.
 9. Read `SubnetOwnerHotkey(netuid)` by name and choose the row's owner-row
    policy (rtao's `OwnerRowPolicy`, D-093). A `reward-v1` row whose every
    positive entry goes to the UID the finalized owner hotkey holds is an
@@ -436,44 +458,46 @@ Dependency crates log at `warn` and above.
 
 ## Fetcher
 
-`fetch.rs` reads the publisher's layout `v1`
+`fetch.rs` reads one document of the publisher's layout `v1`
 ([`docs/testnet/public-layout.md`](../../../docs/testnet/public-layout.md)):
-`v1/authorizations/current.json` names the current
-authorization, any renew-by hint refresh and the revocation set as
-content-addressed objects; the cohort index
-names each cohort's target and whether its receipts are retained; each
-cohort's `publication.json` and `chunk-map.json` list every object's SHA-256
-and length. These documents are unsigned and only locate objects: every
-object must match its listed digest and length, and the assembled bundle is
-then verified by `package_v2::verify` against the held target, like an
-installed file.
+`v1/authorizations/current.json`, which names the current authorization, any
+renew-by hint refresh, the revocation set and the coordinator's signed row
+(`row`) as content-addressed objects. It reads those objects into memory,
+checks each against its listed SHA-256 and length, journals the revocation
+set first, and assembles a coordinator-row bundle (schema
+`slop_ninja.coordinator_row_bundle/v1`) that `package_v2::verify` checks
+against the held target, like an installed file. This is the copy model
+(user decision of 2026-11-04): the validator commits the coordinator's row
+and does nothing else. No cohort record, score package, receipt, receipt
+index or chunk map is read (they are coordinator-private), nothing is
+recomputed, and nothing is cached on disk. What an earlier layout cached in
+the cache directory (`cohorts/`, `authorizations/`: the records and
+receipts an installed v3 bundle references, some of them deleted on the
+host since) is left untouched, for a rollback (Install below).
 
 **Where it reads from.** The coordinator signs each closed cohort's
-authorization itself and writes the private pointer and objects
-(`authorizations/current.json` and `authorizations/<sha256>.signed` in the
-receipts bucket, rewritten whenever they differ from its installed bundle and
-revocations), and the publisher copies them and the cohort's records to
-`v1/`, so a new target reaches a validator with `[fetch]` with no manual
-step. The public host is not deployed on testnet yet: until it is, a
-validator pointed at it reports `unpublished` and keeps its installed
-bundle, so on testnet every validator (the operator's included) still
-installs each new target's bundle by hand. A validator may instead read a
-local copy of the layout (`base_url = "file:///<mirror dir>/"`). Nothing on
-testnet fills such a copy today: a copy for the operator's validator before
-the host is public awaits the user's decision (coordinator TESTNET.md,
-"Automatic target handoff"). A
-`file://` base must name a local absolute directory (no host, query or
-fragment); each path is a file under it, and every object is checked as
-from the host (listed digest and length, then signatures), so a mirror can
-make a fetch fail but cannot change what is verified. Whatever fills the
-directory must keep the host's write order so a session never meets a
-half-written copy: each file written to a temporary name in the same
-directory and renamed into place, every object before the document that
-lists it, each cohort's `publication.json` before `v1/cohorts/index.json`,
-and `v1/authorizations/current.json` last, and a file removed only once no
-document names it. A session that still meets a partial copy reports it
-`incomplete` (an object's digest or length differs from its listing) and
-the next poll fetches again. The pointer, as the layout defines it:
+authorization itself and, within a cron tick of deriving the row of a
+commitment (before its own hotkey signs anything; its weight delivery is
+not waited for), its row of that commitment (`CoordinatorRow`, under the
+authorization key: chain, cohort and manifest digest, target and
+activation, authorization, epoch, owner hotkey, and the `(uid, hotkey,
+registration block, weight)` entries). It signs a new record whenever the
+paid entries change under the same authorization (a deregistration, a
+re-registration, a UID changing hands, an owner move), with a later epoch. It writes the private
+pointer and objects (`authorizations/current.json` and
+`authorizations/<sha256>.signed` in the receipts bucket); the pointer names
+a row only beside the authorization it was committed under. The publisher
+copies them to `v1/` as soon as they verify. The public host is not deployed
+on testnet yet: until it is, a validator pointed at it reports `unpublished`
+and keeps its installed bundle, and an operator with read access to the
+receipts bucket can serve its own validator a mirror instead
+(`deploy/row-mirror.sh`, below). A validator may instead read a local copy of
+the layout (`base_url = "file:///<mirror dir>/"`); a `file://` base must
+name a local absolute directory (no host, query or fragment), each path is
+a file under it, and every object is checked as from the host, so a mirror
+can make a fetch fail but cannot change what is verified. Whatever fills the
+directory writes each object before the pointer that names it, the pointer
+last, each through a temporary name renamed into place. The pointer:
 
 ```json
 {
@@ -482,7 +506,8 @@ the next poll fetches again. The pointer, as the layout defines it:
   "kind": "cohort",
   "authorization": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": 309 },
   "renewal": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": 196 },
-  "revocations": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
+  "revocations": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> },
+  "row": { "path": "v1/authorizations/<sha256>.signed", "sha256": "<64 hex>", "bytes": <length> }
 }
 ```
 
@@ -491,147 +516,47 @@ the next poll fetches again. The pointer, as the layout defines it:
 authorization's renew-by hint, or absent; `revocations` is the revocation
 set, or absent: the latest `RewardIntentRevocation` of every revoked target
 the coordinator holds, concatenated, its `bytes` a whole multiple of one
-revocation's signed length. A validator built for schema v1 refuses a v2
-pointer by its schema and cannot see revocations. Each object is
-the coordinator's signed bytes, named by its SHA-256, and its `bytes` must be
-the record's exact signed length (fixed by the schema,
-`fetch::authorization_lengths` and `fetch::revocation_length`: 230 bytes for
-a launch authorization, 309 for a reward-intent authorization, 196 for a
-renewal). The pointer is rewritten in place (`max-age=60`); the objects are
-never deleted. Neither the pointer nor the authorization has a validity
-window: a pointer that stops changing keeps validators committing its
-authorization.
+revocation's signed length; `row` is the coordinator's signed row, absent
+until the coordinator has derived a row under the authorization (its own
+once-a-tempo finalized snapshot, independent of its own commitment; the session then
+reports `row_unpublished`, retried, and the installed bundle keeps
+committing). An authorization's, renewal's or revocation's `bytes` must be
+the record's exact signed length (`fetch::authorization_lengths` and
+`fetch::revocation_length`: 230 bytes for a launch authorization, 309 for a
+reward-intent authorization, 196 for a renewal), and a row's at most the
+protocol's longest row (`fetch::row_bound`: a roster's entrants and one burn
+UID); a longer listing is refused before it is requested. Neither the
+pointer nor the authorization has a validity window: a pointer that stops
+changing keeps validators committing its row.
 
-A session reads at most `SESSION_BYTES` into memory for documents and
-objects: `MAX_BUNDLE_BYTES` (64 MiB, the bundle file bound), counting an
-object read from the cache as well as one fetched. The signed receipt
-indexes of the target's cohort and its carrier count against their own
-allowance instead (`fetch::receipt_index_allowance`: two indexes of the
-largest size the protocol can sign, 972,591 entries or 67,108,947 bytes
-each, so 134,217,894 bytes), because they are read into memory in either
-form and a cohort may need up to one full index. When every listed object
-of the target's cohort and carrier fits the bundle hex-encoded (half the
-bound), the bundle embeds them (schema v2, `slop_ninja.reward_v1_bundle/v1`). Otherwise it embeds the
-records and names each cohort's signed receipt index and receipt bundles by
-their paths in the cache, relative to the cache root, with SHA-256 and
-length (schema v3, below); those bundles are streamed to the cache and
-never read into the session's memory. The listed lengths leave out the
-bundle's own framing (keys, the authorization and its renewal), so a bundle
-that exceeds the file bound once assembled embedded is reassembled by
-reference from the objects the session already verified. Before reading any
-object the session plans what it will read from the listed (or, for
-receipts deleted from the host, cached) lengths and refuses a cohort whose
-signed receipt index exceeds the largest signable one or whose indexes
-exceed the allowance (`receipts_too_large`), or whose listed records could
-not fit the file bound or the read bound (`bundle_too_large`); both are
-alerting refusals that every session repeats until the host changes. Authorization and renewal
-objects are read into memory, their length checked against the schema and
-their signature verified before anything else is fetched; they are never
-cached. Before reading any receipt bundle, the signed receipt index is
-opened, the chunk map's receipt root and count must be the index's, the
-bundles' total length must equal what the index's entries declare (a 4-byte
-length prefix plus each receipt object's signed length), and every bundle
-must be listed in `publication.json` under `receipts/` with the chunk map's
-digest and length (`chunk_map_mismatch` or `object_unlisted` otherwise).
+**What is checked.** The row and the authorization open under the trusted
+authorization key and name this chain; the row names the authorization's
+record digest, target, carrying cohort and manifest digest, and issue
+epoch; a launch row only while the held target is the launch burn row; a
+cohort row's target is the held one with the same activation epoch, or one
+that activates later (`coordinator_row::verify`). Each per-tempo commitment
+checks the authorization again for its epoch and against the journaled
+revocations, with no end epoch. The row committed is the record's entries
+with the registration rule of step 8 (units of a registration the
+validator's own finalized snapshot no longer holds burn through the owner's
+UID; `row_uid_moved` is logged); the snapshot also decides the owner-row
+policy and the burn-row limits. Nothing else changes a UID or a weight, and
+nothing is recomputed from scores. Bundles of cohort records and receipts
+(schemas `slop_ninja.reward_v1_bundle/v1` and `/v3`) are retired
+(`bundle_schema_retired`, a deferral).
 
-**Bundle schema v3.** Embedded, every receipt takes 448 bytes of the
-bundle (its chunk framing, object and index entry, hex-encoded; exact,
-`target_bundle::receipt_bundle_bytes`), so a schema v2 bundle holds at most
-about 150,000 receipts across a target's cohort and its carrier. A daily
-cohort records up to 2,224 receipts per entrant per attempt (1,000 cases,
-the 1,024-document probe and a 200-case audit draw) plus the references'
-batches, so 40 entrants at three attempts need about 545,000 across both
-cohorts. A `slop_ninja.reward_v1_bundle/v3` bundle therefore names them
-instead: `receipts` and `carrier_receipts` each hold an `index` and a list
-of `chunks`, each an object reference `{ "path", "sha256", "bytes" }`; the
-embedded `receipt_index` fields and chunk lists stay empty. A path is
-absolute, or relative to the validator's fetch cache (only plain
-components; the fetcher's form, resolved at every verification against the
-configured `[fetch]` cache, so a cache moved together with its
-configuration keeps the bundle valid). The validator opens each referenced
-file once, checks its length, reads it through the same handle never past
-that length, and checks its SHA-256, then verifies the receipts one chunk at
-a time against the signed index (each entry exactly once). A cohort's
-receipts are therefore bounded by the largest receipt index the protocol
-can sign (972,591 entries: the 64 MiB signed-record limit at 69 bytes an
-entry, tighter than the codec's 2^20 sequence bound), which is also the
-coordinator's template bound, not by the file bound. A missing or
-unreadable file is `referenced_object_missing`, a file of another length or
-digest `referenced_object_mismatch`; a relative path without a fetch cache,
-one that leaves it, or receipts in the other schema's form
-`bundle_malformed`. With `[fetch]` configured, the two referenced-file codes
-are not a refused package: the run logs `bundle_cache_unreadable` (alerting),
-defers (exit 75, or a wait in a continuous run) and asks the fetcher for a
-full session, which rebuilds the files while the host retains the receipts
-(else `receipts_expired`, and the deferral repeats until a later
-authorization or a successor target is installed). Without `[fetch]` (an operator-installed bundle with absolute
-paths) they halt as before (exit 3). The operator's `reward_v1_verify`
-writes `reward-v1-bundle-v3.json` with absolute paths into the cohort
-directory it read, which must stay in place. A validator built before
-schema v3 refuses a v3 bundle (`bundle_schema`) and keeps its target.
-
-**What the fetch cache keeps.** Each verification of the installed bundle
-(at every start and every switch) reads a v3 bundle's receipts from the
-cache files it names. The cache holds detailed receipts only for the
-cohorts of bundles this validator holds: every session prunes it to the
-cohorts the session named plus its keep set, read when the session prunes:
-the cohorts of the installed bundle, of a bundle staged on disk for an
-interrupted install (the next start installs or discards it), of a dry
-run's bundle staged in memory, and of every verified bundle the process
-still holds before installing it (a successor waiting for in-flight work,
-the dispatch loop's newest, one in the fetcher's channel; each keeps its
-cohorts while it lives). A cohort leaves the cache at the first session
-after no held bundle names it, so a successor's install releases its
-predecessor's receipts. This is the same retention a schema v2 bundle
-always had, which embeds its receipts in the installed file. When the
-installed or staged bundle file cannot be read the keep set is unknown
-(`installed_bundle_unreadable`, alerting): no session prunes, and none
-takes a new cohort into the cache (`cache_keep_unknown`, retryable) until
-the file reads again; a file whose manifests do not parse keeps nothing
-(`bundle_cohorts_unparsed`, alerting), since it cannot verify. Whether a
-validator may keep committing a carried target from its own verified copy
-after the host deleted the carrier's receipts (N+2) awaits the user's ruling
-on the receipts rule (the same open point as the coordinator's carrier
-hold); until then it does, for as long as that target stays installed. A
-validator without that copy (a fresh start, or a lost cache) cannot rebuild
-the carrier's receipts once the host deleted them: it reports
-`receipts_expired` and commits nothing for that target until a later
-authorization (naming retained receipts) or a successor is installed;
-commitments already submitted still recover from the journal. The cache is not an archive and needs no backup of its own; if
-you restore the journal and installed bundle from a backup, a cache from
-the same point keeps a carried target committing past the carrier's
-deletion. Move the cache only together with its `[fetch] cache_dir`
-setting.
-
-Each session holds the cache lock (`<cache>/.lock`; another process gets
-`cache_busy`, and `fetch` then exits 75), never follows a redirect, sends no
-credential, abandons a request idle for `stall_secs`, and ends any request
-and the whole session after `poll_secs`. Verified objects stay in the cache
-(directories mode 700, files 600); a partial object is kept as
-`<name>.part` and continued with a range request (a host that ignores the
-range restarts it); a digest mismatch deletes it. Every session that
-located a cohort then prunes the cache to the cohorts it named and its keep
-set, whatever its outcome, so a host that lists junk cannot grow it past one
-session's reads and the held bundles' cohorts. A session whose
-documents and held target are byte-identical to those of the last session
-that produced a bundle reports `unchanged` and reads no object, as long as
-that bundle's referenced files are all present at their lengths; when one is
-gone, or a verification found one changed, the session assembles the bundle
-in full (`fetch_rebuild`); signature
-checks and bundle verification run on a blocking thread, off the runtime
-that drives the finalized-head stream and signing.
-
-Receipts deleted under the N+2 rule are served only from the cache
-(`receipts_expired` otherwise; the installed bundle stays). A carrying
-cohort produces no target, so its receipts are deleted two cohorts later
-even while the current authorization names it: a running validator keeps
-them in its cache, but one that starts fresh after that cannot assemble the
-carrier's bundle. A validator holding an older target walks the predecessor
-chain and checks each intermediate target's records and closure without
-receipts (`fetch::advance`), since it commits nothing for them.
+A session reads at most `SESSION_BYTES` (`MAX_BUNDLE_BYTES`, 64 MiB) into
+memory. A session whose pointer and held target are byte-identical to those
+of the last session that produced a bundle reports `unchanged` without
+reading any object. One session at a time holds the cache lock
+(`<cache>/.lock`).
 
 `supersede.rs` decides what a verified bundle does: the same bytes keep the
-installed one; the same target under a newer authorization (issued later),
+installed one; the same target and authorization with a row of a later
+commitment epoch (the coordinator re-signed it because its entries changed)
+is a refresh, and one of the same or an earlier epoch is kept out
+(`row_not_newer`: a stale or replayed pointer never rolls the row back);
+the same target under a newer authorization (issued later),
 or one that yields an operation at the finalized epoch where the installed
 one does not (a re-authorization after a revocation), is a refresh (installed,
 and swapped into a continuous run in place); a target that activates no
@@ -639,29 +564,19 @@ later than the installed one's is kept out (`regression`: a stale or
 rolled-back pointer); a later target is a switch at the eligible boundary
 (the finalized epoch at or after its activation), which waits while any
 pending operation has an unsettled attempt, queues no new commitment of the
-old target meanwhile, retires never-signed work as `superseded`, moves the
-held record past checked intermediates, installs the bundle and records the
-successor's activation. When intermediates are checked, the bundle is first
-staged beside the installed one (`<package path>.next`): a crash before the
-install completes leaves either the old record and bundle (the next start
-discards the staged copy) or the moved record and a staged successor that
-the next start installs (`staged_install`), never a bundle older than the
-held record. A continuous run then continues on the successor in
-the same process. A successor still partial on the host never produces a
-bundle, so the old target keeps committing. In a dispatch run the fetcher
-polls every `poll_secs`; a startup fetch that must wait hands its successor
-to the loop, which starts waiting at once. A refusal (`Refused`, a digest
-failure, or documents that disagree with the signed records) is logged as
-`fetch_refused` with `alert = true`; outcomes that are only incomplete are
-logged as `fetch_kept`. The last outcome code is the dispatch report's
-`last_fetch`. `fetch` runs one session without the journal or chain,
-installs nothing and prints a content-free report (exit 0 verified, 75
-incomplete or cache busy, 3 refused).
-
-Fetched bundles are written in bundle schema v2, or v3 when the receipts
-do not fit embedded; in both the `shortcut` field must read `T12`: the label names the bundle format the operator tool also
-writes, not how the bundle arrived, and changing it would need a new bundle
-schema for every reader.
+old target meanwhile, retires never-signed work as `superseded`, installs
+the bundle and records the successor's activation. A bundle staged beside
+the installed one (`<package path>.next`, by an interrupted install of an
+earlier build) is installed at the next start when it verifies against the
+held record and discarded otherwise (`staged_install`). A continuous run
+then continues on the successor in the same process. In a dispatch run the
+fetcher polls every `poll_secs`; a startup fetch that must wait hands its
+successor to the loop, which starts waiting at once. A refusal (`Refused` or
+a digest failure) is logged as `fetch_refused` with `alert = true`; outcomes
+that are only incomplete are logged as `fetch_kept`. The last outcome code
+is the dispatch report's `last_fetch`. `fetch` runs one session without the
+journal or chain, installs nothing and prints a content-free report (exit 0
+verified, 75 incomplete or cache busy, 3 refused).
 
 ### Reveal checks
 
@@ -766,7 +681,11 @@ in. Nothing is lost or committed twice. The same shift follows any retirement of
 work after which the validator restarts in the same epoch
 (`owner_row_policy_changed`, `burn_row_limits_changed`).
 
-## Fixture packages (T12)
+## Fixture packages (T12, retired)
+
+A release validator refuses these bundles (`bundle_schema_retired`, a
+deferral, never a commit). The tool remains for the crate's own tests and
+for building signed fixture inputs:
 
 ```sh
 slop_ninja_fixture_package keygen --dir <0700 directory>    # seeds (0600), prints trusted keys
@@ -824,11 +743,33 @@ when none exists, runs
 path, so a typo never replaces history), enables lingering
 (`loginctl enable-linger`), reloads the user manager and enables
 `slop_ninja_validator-dispatch@<name>`. Back up the journal with the wallet.
-It holds sensitive commit material, so do not publish it. Back up the fetch
-cache, the installed bundle and the held-target record with it: a v3
-bundle's receipts live only in the cache once the host deleted them (see
-"The fetch cache is validator state" above). A restart, reinstall or update
-must keep all four in place (or move the cache only with its configuration).
+It holds sensitive commit material, so do not publish it. Back up the
+installed bundle and the held-target record with it; a row bundle needs
+nothing else (it references no cached object). A restart, reinstall or
+update must keep them in place.
+
+**Upgrading from a v3-bundle release.** This build never deletes the
+earlier release's fetch cache (`cohorts/`, `authorizations/` under the cache
+directory): the receipts its installed v3 bundle references live only
+there once the host deleted them under N+2, so a rollback to that release
+needs it to verify its bundle again. Keep it, and remove it yourself only
+once this release is accepted (no rollback planned), with the unit stopped:
+`rm -r <cache>/cohorts <cache>/authorizations`. Until a coordinator-row
+bundle is installed, the upgraded validator defers (`bundle_schema_retired`)
+and commits nothing new; install this release only after the coordinator and
+publisher publish rows (`subnet/coordinator/TESTNET.md`, "Public allow-list
+and the copy model").
+
+**A row mirror without the public host.** `deploy/row-mirror.sh <mirror
+dir>` copies the private authorization pointer and the objects it names
+(the authorization, any renewal, the revocation set and the coordinator's
+row) from the receipts bucket into `<mirror dir>` through `wrangler r2
+object get` (read only; the operator's own Cloudflare login), each object
+before the pointer, each through a temporary name renamed into place. Point
+the validator at it with `[fetch] base_url = "file://<mirror dir>/"` and run
+the script on a timer (every few minutes is enough: a row changes at most
+once a tempo). Every object is verified by the validator as from the
+public host.
 
 To upgrade an instance, stop its dispatch unit (the installer replaces the
 binaries but neither stops nor restarts it), run the installer with
@@ -853,10 +794,15 @@ work: it continues on a successor in the same process and waits out a
 deferred tempo. After exit 2 or 3, fix the cause, then
 `systemctl --user reset-failed slop_ninja_validator-dispatch@<name>` and
 start the unit again. `slop_ninja_validator@<name>` runs the dry run with
-`Restart=on-failure`. Both set `MemoryMax=2G` and `MemorySwapMax=0`, twice
-the measured worst case rounded up to a whole GiB. The worst case is at the
-receipt index bound (`fetch_tests::peak_memory_at_the_receipt_index_bound`,
-ignored by default; debug build, 2026-11-03): a target's cohort and its
+`Restart=on-failure`. Both set `MemoryMax=2G` and `MemorySwapMax=0`. That
+limit was derived for the earlier receipt-verifying fetcher and is kept as
+an over-provision until the row fetcher is measured: a row session holds at
+most the pointer and four signed objects (the row within
+`CoordinatorRow::max_signed_len`), and reads at most `SESSION_BYTES` into
+memory whatever a host serves, far below the earlier worst case. The
+earlier measurement, for the record: the worst case was at the receipt
+index bound (a test removed with the receipt fetch path; debug build,
+2026-11-03): a target's cohort and its
 carrier each with the largest receipt index the protocol can sign (972,591
 receipts, a 67,108,947-byte index, so a 35,773-byte v3 bundle verifying
 1,945,182 receipts). One fetch session peaked 409 MiB above its starting set,
@@ -866,7 +812,7 @@ newest staged bundle, one waiting in the fetcher's channel and a session in
 flight) 810 MiB; each verified bundle holds its decoded receipt indexes. With
 the 63 MiB start measured at the bundle bound that is about 0.85 GiB, too
 close to the earlier 1G. The embedded bound measured less
-(`fetch_tests::peak_memory_at_the_bundle_bound`, 2026-11-01: a
+(2026-11-01: a
 66,437,318-byte bundle of 148,235 receipts, 217 MiB for one session and 386
 MiB for the most a continuous run holds above a 63 MiB start). A live
 dispatch run with a 15,344-receipt bundle peaked at 56 MiB; the installed
@@ -1058,32 +1004,33 @@ directory. They cover:
 - startup classifying an upstream storage refusal during recovery as a
   recorded retry, and recording readiness before recovery so that a
   readiness write never refuses the explicit resume;
-- the fetcher against an in-memory public host: a published cohort assembles
-  into exactly the bundle the operator tool writes; a second session reads
-  only the documents; an interrupted object resumes with a range request
-  (and restarts when the host ignores it); a digest mismatch deletes the
-  partial file and an over-long declared body is refused before it is read;
-  a successor not yet listed, missing an object or without published
-  receipts produces no bundle; receipts deleted under N+2 come only from the
-  cache; a validator holding the launch row advances through an intermediate
-  target without its receipts, a tampered intermediate and a held target
-  outside the chain are refused; the launch pointer (committing at any
-  epoch past its renew-by hint), a foreign chain, a hint refresh that is not
-  a newer authorization and a re-authorization that is; a pointer
-  revocation journaled before anything else, withdrawing the staged
-  authorization, and a forged one refused unjournaled; and the real HTTP
-  transport against a loopback
-  server (range continued or ignored, 404, a redirect refused);
+- the fetcher against an in-memory public host: a published authorization
+  and the coordinator's row assemble into exactly the row bundle the
+  operator tool writes, reading the pointer and its signed objects only; a
+  pointer without a row is `row_unpublished` (retried) and keeps the
+  installed bundle; a row of another authorization or with other bytes is
+  refused; an earlier layout's cache is left byte for byte; the launch
+  pointer, a foreign chain, a hint refresh that is not a newer authorization
+  and a re-authorization that is; a pointer revocation journaled before
+  anything else, withdrawing the staged authorization, and a forged one
+  refused unjournaled; a mirror directory served like the host; and the
+  real HTTP transport against a loopback server (range continued or
+  ignored, 404, a redirect refused);
 - the fetcher's bounds against a hostile host: an authorization of the wrong
-  length is never requested and one with a bad signature stops the session
-  before anything else is read or cached; a receipt bundle the signed index
-  does not account for, another receipt root, or a bundle the publication
-  record does not list is refused before any bundle is read; every session,
-  refused ones included, prunes the cache to what it named and the installed
-  cohorts; an unchanged session reads no object; a trickling HTTP host is
-  cut off by the total bound;
+  length, or a row past the protocol's bound, is never requested and one
+  with a bad signature stops the session before anything else is read; an
+  unchanged session reads no object; a trickling HTTP host is cut off by
+  the total bound;
+- the copy rule: the committed row is the coordinator's signed entries,
+  with units of a registration the snapshot no longer holds burned through
+  the owner's UID (deferred without one); an upgrade over a retired v1 or
+  v3 bundle defers, commits nothing new, and queues the row once a row
+  bundle is installed;
 - every supersession decision (unchanged, refresh by a newer authorization
-  or by coverage, an authorization that is not newer, a regression to an
+  or by coverage, an authorization that is not newer, a re-signed row of
+  the same authorization refreshing by its later epoch and an earlier one
+  kept out (`row_not_newer`), end to end through a fetch session and the
+  loop, a regression to an
   earlier target, a successor before
   activation, waiting on in-flight work, a switch retiring never-signed
   work), the install order (intermediate, bundle, successor's record), and

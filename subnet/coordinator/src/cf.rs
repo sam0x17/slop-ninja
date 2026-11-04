@@ -683,10 +683,21 @@ impl ChainJournal {
                     Err(_) => error("store_unavailable", 503),
                 }
             }
-            "/sign-pointer" => match transaction(&storage, move |sql| signing::pointer_plan(sql, &cfg, &trusted)) {
-                Ok(plan) => json(&plan),
-                Err(_) => error("store_unavailable", 503),
-            },
+            // The coordinator's latest derived row is signed as the row other
+            // validators copy (`signing::rows`) before the plan names it. The
+            // refresh runs in its own transaction: whatever it fails with is
+            // recorded (`row_record_store`) and the pointer, with its
+            // revocation set, is planned regardless.
+            "/sign-pointer" => {
+                let (rcfg, rtrusted) = (cfg.clone(), trusted.clone());
+                if transaction(&storage, move |sql| signing::rows::refresh(sql, &rcfg, &rtrusted, &EnvKeys(env), now)).is_err() {
+                    let _ = transaction(&storage, move |sql| signing::rows::note_error(sql, "row_record_store", now));
+                }
+                match transaction(&storage, move |sql| signing::pointer_plan(sql, &cfg, &trusted)) {
+                    Ok(plan) => json(&plan),
+                    Err(_) => error("store_unavailable", 503),
+                }
+            }
             "/sign-pointer-object" => {
                 let r = match cf_io::request_json::<PointerObjectRequest>(&mut req, SMALL_BODY_BYTES).await {
                     Ok(v) => v,
@@ -2354,7 +2365,7 @@ async fn pointer_object_bytes(
     d: &Deployment,
     o: &slop_ninja_admission_wire::json::ObjectRef,
 ) -> std::result::Result<Vec<u8>, &'static str> {
-    let bound = signing::authority::REVOCATION_SET_BYTES;
+    let bound = signing::authority::REVOCATION_SET_BYTES.max(signing::rows::record_bound());
     if o.bytes > bound as u64 {
         return Err("object_too_large");
     }

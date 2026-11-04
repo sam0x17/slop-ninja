@@ -36,6 +36,14 @@ pub const AUTHORIZATION_POINTER_BOUND: u64 = 4 * 1024;
 /// (fixed fields only).
 pub const AUTHORIZATION_OBJECT_BOUND: u64 = 1024;
 
+/// Read bound of the coordinator's signed row the pointer names: the
+/// protocol's longest row record, one entry per UID
+/// (`CoordinatorRow::max_signed_len`), derived from the schema rather than
+/// tuned. A reader still reserves the declared length from its own budget.
+pub fn row_object_bound() -> u64 {
+    slop_ninja_protocol::CoordinatorRow::max_signed_len().unwrap_or(0)
+}
+
 /// The schema's fixed signed length of one revocation on `chain`: every
 /// field is fixed-width, so any instance has it.
 pub fn revocation_len(chain: &ChainBinding) -> u64 {
@@ -107,7 +115,8 @@ pub fn parse_pointer(
     }
     let refs = core::iter::once(&p.authorization)
         .chain(p.renewal.as_ref())
-        .chain(p.revocations.as_ref());
+        .chain(p.revocations.as_ref())
+        .chain(p.row.as_ref());
     if !refs.into_iter().all(content_addressed) {
         return Err("authorization_pointer");
     }
@@ -199,6 +208,7 @@ mod tests {
             authorization: obj('a'),
             renewal: None,
             revocations: Some(obj('b')),
+            row: Some(obj('c')),
         }
     }
 
@@ -217,6 +227,17 @@ mod tests {
             parse_pointer(&serde_json::to_vec(&p).unwrap(), &chain()),
             Err("authorization_pointer")
         );
+        let mut p = pointer();
+        p.row.as_mut().unwrap().path = "authorizations/elsewhere.signed".into();
+        assert_eq!(
+            parse_pointer(&serde_json::to_vec(&p).unwrap(), &chain()),
+            Err("authorization_pointer")
+        );
+        // A pointer of a writer that signs no row yet.
+        let mut p = pointer();
+        p.row = None;
+        assert_eq!(parse_pointer(&serde_json::to_vec(&p).unwrap(), &chain()).unwrap(), p);
+        assert!(row_object_bound() > 0);
         let mut p = pointer();
         p.revocations.as_mut().unwrap().path = "authorizations/elsewhere.signed".into();
         assert_eq!(

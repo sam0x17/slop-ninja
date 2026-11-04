@@ -85,8 +85,9 @@ BLOCK_SECS = "12"
 # The coordinator's watchdog silence; the stalled-watermark alert adds two
 # cron periods to it.
 WATCHDOG_SILENCE_SECS = "300"
-# Decision D7 (a): content-free receipt indexes and chunks are public.
-PUBLISH_RECEIPTS = "true"
+# Receipts, the receipt index, chunk maps and bundles are coordinator-private
+# (the copy model, 2026-11-04); any value but "false" is refused.
+PUBLISH_RECEIPTS = "false"
 ALERT_SINK_FORMAT = "json"
 # Decision D18: alerts go to the alerts relay (email); no ALERT_SINK_URL.
 ALERT_RELAY = "true"

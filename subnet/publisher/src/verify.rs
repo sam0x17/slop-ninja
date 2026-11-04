@@ -76,7 +76,12 @@ pub enum Refusal {
 
 impl Refusal {
     pub fn retryable(&self) -> bool {
-        matches!(self, Self::Missing(_) | Self::Store(..))
+        match self {
+            Self::Missing(_) => true,
+            // A write the allow-list refuses is refused again next run.
+            Self::Store(_, e) => *e != StoreError::NotAllowed,
+            _ => false,
+        }
     }
 
     pub fn code(&self) -> &'static str {

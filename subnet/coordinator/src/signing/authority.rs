@@ -426,6 +426,47 @@ fn parts(sql: &impl Sql, cfg: &super::SignConfig, keys: &TrustedKeys, with_set: 
     Ok(Some(Parts { kind, authorization, renewal, revocations }))
 }
 
+/// The record digest of a signed authorization of `kind` (decoded only:
+/// it was verified when installed, and every reader verifies it again).
+fn authorization_digest(kind: &str, authorization: &[u8]) -> Option<Digest> {
+    use slop_ninja_protocol::{LaunchAuthorization, RewardIntentAuthorization};
+    match kind {
+        "launch" => Signed::<LaunchAuthorization>::from_bytes(authorization).ok().and_then(|s| s.record.digest().ok()),
+        "cohort" => Signed::<RewardIntentAuthorization>::from_bytes(authorization).ok().and_then(|s| s.record.digest().ok()),
+        _ => None,
+    }
+}
+
+/// The installed reward-v1 bundle's authorization record digest (hex) and
+/// issue epoch, decoded only (it was verified when installed), if a
+/// reward-v1 bundle is installed.
+pub(super) fn installed_authorization(
+    sql: &impl Sql,
+    cfg: &super::SignConfig,
+    keys: &TrustedKeys,
+) -> Result<Option<(String, u64)>, StoreError> {
+    use slop_ninja_protocol::{LaunchAuthorization, RewardIntentAuthorization};
+    let Some(p) = parts(sql, cfg, keys, false)? else {
+        return Ok(None);
+    };
+    let issued = match p.kind.as_str() {
+        "launch" => Signed::<LaunchAuthorization>::from_bytes(&p.authorization).ok().map(|s| s.record.issued_epoch),
+        "cohort" => Signed::<RewardIntentAuthorization>::from_bytes(&p.authorization).ok().map(|s| s.record.issued_epoch),
+        _ => None,
+    };
+    Ok(authorization_digest(&p.kind, &p.authorization).zip(issued).map(|(d, i)| (d.to_string(), i)))
+}
+
+/// The journaled coordinator row when it was committed under the installed
+/// authorization (signed bytes `authorization` of `kind`): the pointer names
+/// a row only beside its own authorization ([`super::rows`]).
+fn row_of(sql: &impl Sql, kind: &str, authorization: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+    match authorization_digest(kind, authorization) {
+        Some(d) => super::rows::for_authorization(sql, &d.to_string()),
+        None => Ok(None),
+    }
+}
+
 fn object_ref(bytes: &[u8]) -> ObjectRef {
     let sha = hex::encode(Sha256::digest(bytes));
     ObjectRef {
@@ -451,8 +492,13 @@ pub fn pointer_plan(
     let renewal = p.renewal.as_deref().map(object_ref);
     let revocations = p.revocations.as_deref().map(object_ref);
     drop(p.revocations);
-    let objects: Vec<ObjectRef> =
-        core::iter::once(&authorization).chain(renewal.as_ref()).chain(revocations.as_ref()).cloned().collect();
+    let row = row_of(sql, &p.kind, &p.authorization)?.as_deref().map(object_ref);
+    let objects: Vec<ObjectRef> = core::iter::once(&authorization)
+        .chain(renewal.as_ref())
+        .chain(revocations.as_ref())
+        .chain(row.as_ref())
+        .cloned()
+        .collect();
     let pointer = AuthorizationPointer {
         schema: AUTHORIZATION_POINTER_SCHEMA.into(),
         chain: Chain::from_binding(&chain_of(cfg)),
@@ -460,6 +506,7 @@ pub fn pointer_plan(
         authorization,
         renewal,
         revocations,
+        row,
     };
     let body = serde_json::to_string_pretty(&pointer).map_err(|_| StoreError("pointer json"))?;
     let written = sql
@@ -494,6 +541,9 @@ pub fn pointer_object(
     }
     if let Some(r) = p.renewal.filter(|r| matches(r)) {
         return Ok(Some(r));
+    }
+    if let Some(row) = row_of(sql, &p.kind, &p.authorization)?.filter(|r| matches(r)) {
+        return Ok(Some(row));
     }
     drop(p.authorization);
     Ok(revocation_set(sql, cfg, keys)?.filter(|s| matches(s)))

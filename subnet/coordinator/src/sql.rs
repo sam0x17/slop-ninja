@@ -214,6 +214,8 @@ pub fn migrate(sql: &impl Sql, schema: &Schema) -> Result<MigrationReport, Migra
 /// - v9: signed revocations and the authorization pointer's confirmed write.
 /// - v10: an index on revocations by target, and the pointer writer's
 ///   last pass (confirmed pointer, failure since).
+/// - v11: the inclusion search's body scan; v12: the automatic target
+///   handoff; v13: the signed coordinator row other validators copy.
 pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
     family: "chain_journal",
     migrations: &[
@@ -684,6 +686,53 @@ pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
                 "CREATE TABLE sign_auto_absent (
                     cohort INTEGER PRIMARY KEY,
                     at_ms INTEGER NOT NULL
+                ) STRICT",
+            ],
+        },
+        // v13: the signed coordinator row other validators copy
+        // (`signing::rows`): the latest record (the operation and epoch it
+        // was signed for, its target and authorization digests, the digest
+        // of its paid entries, the signed bytes and their SHA-256), the
+        // last signing failure since then, and the installed authorization
+        // no record covers yet (since when, and the code of what it waits
+        // on); and the row snapshot step's state (`sign_row_snapshot`): the
+        // installed target it read for, the finalized block and subnet
+        // schedule of its last schedule read with the commit epoch there,
+        // the epoch its last derivation ran for, and the row it derived (or
+        // the code of why none).
+        Migration {
+            version: 13,
+            statements: &["CREATE TABLE sign_row_record (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    op_id TEXT,
+                    epoch INTEGER,
+                    target TEXT,
+                    authorization TEXT,
+                    row_digest TEXT,
+                    signed_hex TEXT,
+                    sha256 TEXT,
+                    signed_at_ms INTEGER,
+                    error TEXT,
+                    error_since_ms INTEGER,
+                    pending_authorization TEXT,
+                    pending_since_ms INTEGER,
+                    pending_code TEXT
+                ) STRICT",
+                "CREATE TABLE sign_row_snapshot (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    target TEXT NOT NULL,
+                    block_number INTEGER NOT NULL,
+                    tempo INTEGER NOT NULL,
+                    last_epoch_block INTEGER NOT NULL,
+                    pending_epoch_at INTEGER NOT NULL,
+                    subnet_epoch_index INTEGER NOT NULL,
+                    blocks_since_last_step INTEGER NOT NULL,
+                    epoch INTEGER NOT NULL,
+                    derived_epoch INTEGER,
+                    row_epoch INTEGER,
+                    row_json TEXT,
+                    code TEXT,
+                    updated_at_ms INTEGER NOT NULL
                 ) STRICT",
             ],
         },

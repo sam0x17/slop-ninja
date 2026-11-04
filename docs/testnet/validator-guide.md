@@ -27,14 +27,23 @@ submission and reveal of the rows they calculated.
 ### What a validator never receives
 
 A validator never receives the held-out documents, their labels, per-document
-predictions, the private probe, or any private model weights. The package and
-receipts it verifies do carry values computed from the hidden evaluation (exact
-scores, gate outcomes, probe statistics, counts, and one outcome class per
-attempt and document), which an entrant's artifact can steer, so they can
-reveal information about the hidden documents and their labels. It trusts the
-coordinator's execution and labels, and checks the reward calculation itself.
-No zero-knowledge proof or independent re-run of the hidden evaluation is part
-of the protocol.
+predictions, the private probe, or any private model weights. The validator
+releases built before the copy model also receive values derived from the
+hidden evaluation: the signed score package carries exact aggregate scores and
+near-copy statistics, and its receipts carry each attempt's outcome class,
+which an entrant's artifact can steer, so they can reveal information about
+the hidden documents and their labels.
+Validators built from this tree receive none of those: they commit the
+coordinator's signed row under its signed authorization. The row record
+carries the chain binding, the reward rule, its source (the launch, or the
+cohort's number, label and manifest digest), the target, authorization and
+manifest digests, the activation, issue and commit epochs, the finalized
+block it was derived at, the owner hotkey, and per paid UID its hotkey,
+registration block and integer weight: public chain data and digests, no
+score. The entries are committed as signed, except that the units of a
+registration the validator's own finalized snapshot no longer holds burn
+through the owner's UID. No zero-knowledge proof or independent re-run of
+the hidden evaluation is part of the protocol.
 
 ## What is live
 

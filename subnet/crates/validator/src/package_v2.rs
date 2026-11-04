@@ -1,241 +1,100 @@
-//! `reward-v1` bundles (T12 shortcut): the active target's records and the
-//! authorization that lets this validator commit it.
+//! `reward-v1` bundles: the coordinator's signed row and the authorization
+//! it was committed under (the copy model, user decision of 2026-11-04).
 //!
-//! The coordinator's `reward_v1_verify` writes the bundle from the receipts
-//! bucket. Verification is the protocol crate's `target_bundle`: every signed
-//! record is authenticated before it is decoded; the package is bound to its
-//! manifest, the target to the package and the receipt index to the package's
-//! root and count; every retained receipt chunk is checked against the index
-//! (each entry exactly once); the published index must match the manifest's
-//! binding; the outcome is recomputed (`check_outcome`), so a package whose
-//! credits or units differ from the rule is refused before any row exists; the
-//! closure is checked against the manifest's frozen minimums and activates the
-//! target; and the reward-intent (or launch) authorization is checked against
-//! the active target and its carrying cohort. Each per-tempo commitment checks
-//! the authorization again for its epoch and against this validator's
-//! journaled revocations ([`crate::revocations`]). No authorization expires:
-//! its renew-by hint never refuses a commitment.
+//! Every validator other than the coordinator commits the coordinator's row
+//! and does nothing else. The bundle (schema
+//! `slop_ninja.coordinator_row_bundle/v1`) carries three signed records, all
+//! under the trusted authorization key: the launch or reward-intent
+//! authorization, any renew-by hint refresh of it, and the
+//! [`slop_ninja_protocol::CoordinatorRow`] the coordinator signed when it
+//! committed that row. The fetcher assembles it from the public pointer
+//! (`v1/authorizations/current.json`); without `[fetch]` the operator installs
+//! one (testnet shortcut T12). Verification is the protocol crate's
+//! `coordinator_row::verify`: both records authenticate and name this chain,
+//! the row names the authorization's digest, target, cohort and issue, and
+//! its target is the held one (same activation) or one activated later. No
+//! score package, receipt, published index or closure is read, and nothing
+//! is recomputed: those stay coordinator-private. Each per-tempo commitment
+//! checks the authorization again for its epoch and against this
+//! validator's journaled revocations ([`crate::revocations`]). No
+//! authorization expires: its renew-by hint never refuses a commitment, and
+//! the last installed row keeps committing through coordinator silence.
 //!
-//! Bundle schema v3 (`slop_ninja.reward_v1_bundle/v3`) carries the same
-//! records, except that the receipt indexes and receipt chunk objects of the
-//! target's cohort and of any carrier are not embedded: each is named by a
-//! file path, its SHA-256 and its length ([`ObjectRef`]), and is read from
-//! that file, checked against both and verified one chunk at a time.
-//! Embedding them hex-encoded limits a cohort and its carrier to about
-//! 150,000 receipts within the 64 MiB file bound; by reference, the limit is
-//! the largest receipt index the protocol can sign
-//! (`target_bundle::receipt_index_capacity`, 972,591 entries: the
-//! 64 MiB signed-record limit at 69 bytes an entry, tighter than the codec's
-//! 2^20 sequence bound). The fetcher keeps them in its verified cache and
-//! names them relative to the cache root, which the validator resolves at
-//! every verification ([`verify_in`]); the operator's tool names them by
-//! absolute path in a directory it chooses. Either way a bundle whose files
-//! are gone or changed no longer verifies (`referenced_object_missing`,
-//! `referenced_object_mismatch`, [`is_reference_refusal`]): with `[fetch]`
-//! the application retries and the fetcher rebuilds the files while the host
-//! retains the receipts; after their deletion from the host (N+2) only the
-//! cache holds them.
+//! The row committed is the record's entries
+//! ([`slop_ninja_protocol::VerifiedRow::derive_row`]) with one score-free
+//! rule applied against this validator's own finalized snapshot, the rule
+//! the coordinator's own derivation applies: the burn entry, and any entry
+//! whose `(uid, hotkey, registration block)` the snapshot no longer holds,
+//! go to the UID the snapshot's owner hotkey holds (`row_deferred` when
+//! units must burn and it holds none). A UID that changed hands is never
+//! paid to its new holder, through coordinator silence included; each such
+//! entry is logged (`row_uid_moved`). The snapshot also supplies the
+//! owner-row policy and the row's registration metadata.
 //!
-//! The row is `reward_v1::derive_row` against this validator's own finalized
-//! snapshot, including the finalized subnet owner hotkey, which receives any
-//! burned units. Nothing here reads a runtime version.
+//! Earlier bundle schemas (`slop_ninja.reward_v1_bundle/v1` and `/v3`,
+//! which carried the cohort's records and receipts for recomputation) are
+//! retired (`bundle_schema_retired`): an installed one is a deferral, never
+//! a halt, so an upgraded validator keeps its process, its recovery and its
+//! fetcher running and commits again as soon as a row bundle is installed
+//! ([`crate::app`]). Nothing here reads a runtime version.
 
 use std::collections::BTreeMap;
 
 use rtao_primitives::{MechId, Uid};
 use serde::{Deserialize, Serialize};
 use slop_ninja_protocol::{
-    AccountId, ActiveTarget, ChainBinding, Digest, NeuronIdentity, Record, RegistrationSnapshot,
-    RegistrationSnapshotV2, RewardIntentRevocation, TrustedKeys, VerifiedTarget,
+    AccountId, ActiveTarget, ChainBinding, Digest, NeuronIdentity, Record, RegistrationSnapshot, RegistrationSnapshotV2,
+    RewardIntentRevocation, RowAuthorizing, RowSource, TrustedKeys, VerifiedRow,
 };
 use slop_ninja_subnet::WeightWork;
 
 use crate::package::{Derived, PackageSummary, Refusal, protocol};
 
+/// The coordinator-row bundle's schema.
+pub const BUNDLE_SCHEMA_ROW: &str = "slop_ninja.coordinator_row_bundle/v1";
+/// Retired: a cohort's records and receipts embedded for recomputation.
 pub const BUNDLE_SCHEMA_V2: &str = "slop_ninja.reward_v1_bundle/v1";
-/// Bundle schema v3: receipt indexes and chunks by reference ([`ObjectRef`]).
+/// Retired: the same with receipts by reference.
 pub const BUNDLE_SCHEMA_V3: &str = "slop_ninja.reward_v1_bundle/v3";
 
-/// An object a v3 bundle names instead of embedding: an absolute path, or a
-/// path relative to the validator's fetch cache (the fetcher's form), the
-/// object's SHA-256 (lowercase hex) and its exact length.
+/// The bundle file: the authorization's kind and signed bytes, any hint
+/// refresh, and the coordinator's signed row (each lowercase hex).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ObjectRef {
-    pub path: String,
-    pub sha256: String,
-    pub bytes: u64,
-}
-
-/// A cohort's signed receipt index and its receipt chunk objects, by
-/// reference.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ReceiptsRef {
-    pub index: ObjectRef,
-    pub chunks: Vec<ObjectRef>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SourceHex {
-    pub manifest: String,
-    pub package: String,
-    pub target: String,
-    pub closure: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub receipt_index: Option<String>,
-    pub published_contents: String,
-    pub fingerprint_index: String,
-}
-
-/// A later no-target cohort that carries the target: its signed manifest,
-/// package and receipt index, and its published index as of its manifest.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CarrierHex {
-    pub manifest: String,
-    pub package: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub receipt_index: Option<String>,
-    pub published_contents: String,
-    pub fingerprint_index: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AuthorizationHex {
+pub struct RowBundle {
+    pub schema: String,
+    /// `launch` or `cohort`.
     pub kind: String,
     pub authorization: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub renewal: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub carrier: Option<CarrierHex>,
+    pub row: String,
 }
 
-/// The bundle file, schema v2 (`slop_ninja.reward_v1_bundle/v1`) or v3. Field meanings follow the coordinator's
-/// `target::BundleV2`; a v3 bundle leaves the receipt indexes and chunk
-/// lists empty and names them in `receipts` and `carrier_receipts`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BundleV2 {
-    pub schema: String,
-    pub shortcut: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<SourceHex>,
-    pub authorization: AuthorizationHex,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub receipt_chunks: Vec<String>,
-    /// The carrying cohort's receipt chunk objects (hex).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub carrier_receipt_chunks: Vec<String>,
-    /// v3: the target cohort's receipt index and chunks, by reference.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub receipts: Option<ReceiptsRef>,
-    /// v3: the carrying cohort's receipt index and chunks, by reference.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub carrier_receipts: Option<ReceiptsRef>,
-}
-
-/// Whether bundle bytes are the reward-v1 form (bundle schema v2 or v3).
+/// Whether bundle bytes are a reward-v1 bundle of any schema (the row
+/// bundle, or a retired one, which [`verify`] refuses with its own code).
 pub fn is_v2(bytes: &[u8]) -> bool {
     serde_json::from_slice::<serde_json::Value>(bytes)
         .ok()
         .and_then(|v| {
-            v.get("schema").and_then(|s| s.as_str()).map(|s| s == BUNDLE_SCHEMA_V2 || s == BUNDLE_SCHEMA_V3)
+            v.get("schema")
+                .and_then(|s| s.as_str())
+                .map(|s| s == BUNDLE_SCHEMA_ROW || s == BUNDLE_SCHEMA_V2 || s == BUNDLE_SCHEMA_V3)
         })
         .unwrap_or(false)
-}
-
-/// A v3 bundle's referenced file is missing or unreadable.
-pub const REFERENCED_MISSING: &str = "referenced_object_missing";
-/// A v3 bundle's referenced file has another length or digest.
-pub const REFERENCED_MISMATCH: &str = "referenced_object_mismatch";
-
-/// Whether a refusal is about a v3 bundle's referenced files rather than its
-/// signed records: a fetch session that rebuilds the bundle from the host
-/// (while it retains the receipts) repairs it, so the validator retries
-/// instead of halting.
-pub fn is_reference_refusal(code: &str) -> bool {
-    code == REFERENCED_MISSING || code == REFERENCED_MISMATCH
-}
-
-/// Opens a referenced object: an absolute path, or a relative one under
-/// `root` (the fetch cache; only plain components), to a regular file of
-/// exactly the named length, whose SHA-256 is the named one. The file is
-/// opened once and read through its own handle, never past the named length,
-/// so a file that grows or is replaced meanwhile cannot make it read more. A
-/// missing or unreadable file is `referenced_object_missing`; a file of
-/// another length or digest `referenced_object_mismatch`
-/// ([`is_reference_refusal`]: the file, not the signed records, failed).
-pub fn read_object(r: &ObjectRef, what: &str, root: Option<&std::path::Path>) -> Result<Vec<u8>, Refusal> {
-    use sha2::{Digest as _, Sha256};
-    use std::io::Read as _;
-    let named = std::path::Path::new(&r.path);
-    let path = if named.is_absolute() {
-        named.to_path_buf()
-    } else {
-        let plain = !r.path.is_empty() && named.components().all(|c| matches!(c, std::path::Component::Normal(_)));
-        match root {
-            Some(root) if plain => root.join(named),
-            Some(_) => return Err(Refusal::new("bundle_malformed", format!("{what}: an unsafe relative object path"))),
-            None => {
-                return Err(Refusal::new(
-                    "bundle_malformed",
-                    format!("{what}: a relative object path needs the fetch cache ([fetch] configured)"),
-                ));
-            }
-        }
-    };
-    let missing = |e: std::io::Error| match e.kind() {
-        std::io::ErrorKind::NotFound => Refusal::new(REFERENCED_MISSING, format!("{what}: the referenced object is missing")),
-        _ => Refusal::new(REFERENCED_MISSING, format!("{what}: {e}")),
-    };
-    let file = std::fs::File::open(&path).map_err(missing)?;
-    let meta = file.metadata().map_err(missing)?;
-    if !meta.is_file() || meta.len() != r.bytes {
-        return Err(Refusal::new(REFERENCED_MISMATCH, format!("{what}: the referenced object's length differs")));
-    }
-    let capacity = usize::try_from(r.bytes)
-        .map_err(|_| Refusal::new(REFERENCED_MISMATCH, format!("{what}: the referenced object is too long")))?;
-    let mut bytes = Vec::with_capacity(capacity);
-    file.take(r.bytes.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(|e| Refusal::new(REFERENCED_MISSING, format!("{what}: {e}")))?;
-    if bytes.len() as u64 != r.bytes || hex::encode(Sha256::digest(&bytes)) != r.sha256.to_ascii_lowercase() {
-        return Err(Refusal::new(REFERENCED_MISMATCH, format!("{what}: the referenced object's digest differs")));
-    }
-    Ok(bytes)
-}
-
-/// Verifies referenced chunk objects one at a time.
-fn verify_chunk_refs(
-    mut v: slop_ninja_protocol::target_bundle::ReceiptChunkVerifier<'_>,
-    chunks: &[ObjectRef],
-    what: &str,
-    root: Option<&std::path::Path>,
-) -> Result<u64, Refusal> {
-    for c in chunks {
-        let bytes = read_object(c, what, root)?;
-        v.push(&bytes).map_err(protocol("receipt_object_mismatch"))?;
-    }
-    v.finish().map_err(protocol("receipt_object_mismatch"))
 }
 
 fn unhex(field: &str, value: &str) -> Result<Vec<u8>, Refusal> {
     hex::decode(value).map_err(|_| Refusal::new("bundle_malformed", format!("{field} is not hex")))
 }
 
-/// A verified bundle with the keys and this validator's journaled
+/// A verified row bundle with the keys and this validator's journaled
 /// revocations, so each per-tempo commitment can check the authorization
 /// again.
 #[derive(Debug)]
 pub struct Authorized {
-    pub verified: VerifiedTarget,
+    pub verified: VerifiedRow,
     pub keys: TrustedKeys,
-    /// Receipts verified against the index (0 when the bundle retains none),
-    /// the carrying cohort's included.
-    pub receipts_verified: u64,
     /// This validator's journaled revocations, refreshed by the dispatch loop
     /// from [`crate::revocations`] ([`Self::set_revocations`]).
     revocations: std::sync::Mutex<Vec<RewardIntentRevocation>>,
@@ -250,7 +109,7 @@ impl Authorized {
     pub fn check_epoch(&self, hotkey: [u8; 32], epoch: u64) -> Result<String, Refusal> {
         let revocations = self.revocations.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         self.verified
-            .operation(&self.keys, &revocations, AccountId(hotkey), epoch)
+            .operation(&revocations, &self.verified.active, AccountId(hotkey), epoch)
             .map(|op| op.id())
             .map_err(|e| match e {
                 slop_ninja_protocol::Error::Revoked(_) => protocol("authorization_revoked")(e),
@@ -264,51 +123,39 @@ impl Authorized {
     }
 
     /// The digest of the journaled revocation that withdraws this bundle's
-    /// authorization, if any. An authorization that no longer verifies is
-    /// not reported here: [`Self::check_epoch`] refuses it
-    /// (`authorization_refused`) with its own cause.
+    /// authorization, if any.
     pub fn revoked_by(&self) -> Option<Digest> {
         let revocations = self.revocations.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-        self.verified.revoked_by(&self.keys, &revocations).ok().flatten()
+        self.verified.revoked_by(&revocations).ok().flatten()
     }
 
     pub fn summary(&self) -> PackageSummary {
         let v = &self.verified;
-        match &v.source {
-            Some(s) => PackageSummary {
-                cohort: s.package.cohort,
-                cohort_label: s.package.cohort_label.clone(),
-                revision: s.package.revision,
-                mechanism: v.chain.mechanism,
-                manifest: s.manifest.digest().map(|d| d.to_string()).unwrap_or_default(),
-                package: s.package.digest().map(|d| d.to_string()).unwrap_or_default(),
-                target: v.target_digest.to_string(),
-                receipt_root: s.package.receipt_root.to_string(),
-                receipt_count: s.package.receipt_count,
-                scored_miners: s.package.entrants.iter().filter(|e| e.score.is_some()).count(),
-            },
-            None => PackageSummary {
-                cohort: 0,
-                cohort_label: "launch-burn".into(),
-                revision: 0,
-                mechanism: v.chain.mechanism,
-                manifest: String::new(),
-                package: String::new(),
-                target: v.target_digest.to_string(),
-                receipt_root: String::new(),
-                receipt_count: 0,
-                scored_miners: 0,
-            },
+        let (cohort, cohort_label, manifest) = match &v.row.source {
+            RowSource::Cohort { cohort, cohort_label, cohort_manifest } => {
+                (*cohort, cohort_label.clone(), cohort_manifest.to_string())
+            }
+            RowSource::LaunchBurn => (0, "launch-burn".into(), String::new()),
+        };
+        PackageSummary {
+            cohort,
+            cohort_label,
+            revision: 0,
+            mechanism: v.chain.mechanism,
+            manifest,
+            package: String::new(),
+            target: v.target_digest().to_string(),
+            receipt_root: String::new(),
+            receipt_count: 0,
+            scored_miners: v.row.entries.len(),
         }
     }
 }
 
-/// Parses and verifies a reward-v1 bundle for this chain and subnet, for a
-/// validator whose own checked history holds `held` active. The bundle's
-/// target must be the held one or its successor; the verified
-/// [`VerifiedTarget::active`] is what the caller records next. A v3
-/// bundle's objects must be named by absolute path ([`verify_in`] resolves
-/// the fetcher's relative ones).
+/// Parses and verifies a coordinator-row bundle for this chain and subnet,
+/// for a validator whose own checked history holds `held` active. The row's
+/// target must be the held one or one activated later; the verified
+/// [`VerifiedRow::active`] is what the caller records next.
 pub fn verify(
     bytes: &[u8],
     keys: &TrustedKeys,
@@ -316,158 +163,49 @@ pub fn verify(
     netuid: u16,
     held: &ActiveTarget,
 ) -> Result<Authorized, Refusal> {
-    verify_in(bytes, keys, genesis, netuid, held, None)
-}
-
-/// [`verify`], resolving a v3 bundle's relative object paths under `root`
-/// (the validator's fetch cache).
-pub fn verify_in(
-    bytes: &[u8],
-    keys: &TrustedKeys,
-    genesis: &[u8; 32],
-    netuid: u16,
-    held: &ActiveTarget,
-    root: Option<&std::path::Path>,
-) -> Result<Authorized, Refusal> {
     if bytes.len() as u64 > crate::package::MAX_BUNDLE_BYTES {
         return Err(Refusal::new("bundle_too_large", "bundle exceeds the file bound"));
     }
-    let b: BundleV2 =
+    let schema = serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|v| v.get("schema").and_then(|s| s.as_str()).map(str::to_owned));
+    if matches!(schema.as_deref(), Some(BUNDLE_SCHEMA_V2 | BUNDLE_SCHEMA_V3)) {
+        return Err(Refusal::new(
+            "bundle_schema_retired",
+            "validators commit the coordinator's signed row (schema slop_ninja.coordinator_row_bundle/v1); \
+             bundles of cohort records and receipts are no longer accepted",
+        ));
+    }
+    let b: RowBundle =
         serde_json::from_slice(bytes).map_err(|error| Refusal::new("bundle_malformed", error.to_string()))?;
-    let v3 = b.schema == BUNDLE_SCHEMA_V3;
-    if !(v3 || b.schema == BUNDLE_SCHEMA_V2) || b.shortcut != "T12" {
-        return Err(Refusal::new("bundle_schema", "unsupported bundle schema or shortcut label"));
+    if b.schema != BUNDLE_SCHEMA_ROW {
+        return Err(Refusal::new("bundle_schema", "unsupported bundle schema"));
     }
-    // Each schema carries receipts in its own form only.
-    let embedded = b.source.as_ref().is_some_and(|s| s.receipt_index.is_some())
-        || b.authorization.carrier.as_ref().is_some_and(|c| c.receipt_index.is_some())
-        || !b.receipt_chunks.is_empty()
-        || !b.carrier_receipt_chunks.is_empty();
-    let referenced = b.receipts.is_some() || b.carrier_receipts.is_some();
-    if (v3 && embedded) || (!v3 && referenced) {
-        return Err(Refusal::new("bundle_malformed", "receipts in another bundle schema's form"));
-    }
-    if (b.source.is_none() && b.receipts.is_some()) || (b.authorization.carrier.is_none() && b.carrier_receipts.is_some()) {
-        return Err(Refusal::new("bundle_malformed", "receipts without the records they belong to"));
-    }
-    // v3: the referenced receipt indexes, read and checked against their
-    // references before anything is verified.
-    let index_ref = |r: &Option<ReceiptsRef>, what: &str| -> Result<Option<Vec<u8>>, Refusal> {
-        r.as_ref().map(|r| read_object(&r.index, what, root)).transpose()
-    };
-    let (source_index, carrier_index) = if v3 {
-        (
-            b.source.as_ref().map(|_| index_ref(&b.receipts, "receipts.index")).transpose()?.flatten(),
-            b.authorization.carrier.as_ref().map(|_| index_ref(&b.carrier_receipts, "carrier_receipts.index")).transpose()?.flatten(),
-        )
-    } else {
-        (None, None)
-    };
     let chain = ChainBinding { genesis: Digest(*genesis), netuid, mechanism: 0 };
-    let src = match &b.source {
-        Some(s) => Some((
-            unhex("manifest", &s.manifest)?,
-            unhex("package", &s.package)?,
-            unhex("target", &s.target)?,
-            unhex("closure", &s.closure)?,
-            match source_index {
-                Some(bytes) => Some(bytes),
-                None => s.receipt_index.as_deref().map(|r| unhex("receipt_index", r)).transpose()?,
-            },
-            unhex("published_contents", &s.published_contents)?,
-            unhex("fingerprint_index", &s.fingerprint_index)?,
-        )),
-        None => None,
-    };
-    if src.as_ref().is_some_and(|s| s.4.is_none()) {
-        // A validator other than the producer verifies the full retained index.
-        return Err(Refusal::new("receipts_incomplete", "the bundle carries no receipt index"));
-    }
-    let source = src.as_ref().map(|(m, p, t, c, r, pc, fi)| slop_ninja_protocol::Source {
-        manifest: m,
-        package: p,
-        target: t,
-        closure: c,
-        receipt_index: r.as_deref(),
-        published_contents: pc,
-        fingerprint_index: fi,
-    });
-    let auth = unhex("authorization", &b.authorization.authorization)?;
-    let renewal = b.authorization.renewal.as_deref().map(|r| unhex("renewal", r)).transpose()?;
-    let carrier = match &b.authorization.carrier {
-        Some(c) => {
-            let receipt_index = match (carrier_index, &c.receipt_index) {
-                (Some(bytes), _) => bytes,
-                (None, Some(hex)) => unhex("carrier receipt_index", hex)?,
-                (None, None) => {
-                    return Err(Refusal::new("receipts_incomplete", "the carrier carries no receipt index"));
-                }
-            };
-            Some((
-                unhex("carrier manifest", &c.manifest)?,
-                unhex("carrier package", &c.package)?,
-                receipt_index,
-                unhex("carrier published_contents", &c.published_contents)?,
-                unhex("carrier fingerprint_index", &c.fingerprint_index)?,
-            ))
-        }
-        None => None,
-    };
-    let authorizing = match b.authorization.kind.as_str() {
-        "launch" => slop_ninja_protocol::Authorizing::Launch { authorization: &auth, renewal: renewal.as_deref() },
-        "cohort" => slop_ninja_protocol::Authorizing::Cohort {
-            authorization: &auth,
-            renewal: renewal.as_deref(),
-            carrier: carrier.as_ref().map(|(m, p, r, pc, fi)| slop_ninja_protocol::Carrier {
-                manifest: m,
-                package: p,
-                receipt_index: Some(r),
-                published_contents: pc,
-                fingerprint_index: fi,
-            }),
-        },
+    let auth = unhex("authorization", &b.authorization)?;
+    let renewal = b.renewal.as_deref().map(|r| unhex("renewal", r)).transpose()?;
+    let row = unhex("row", &b.row)?;
+    let authorizing = match b.kind.as_str() {
+        "launch" => RowAuthorizing::Launch(&auth),
+        "cohort" => RowAuthorizing::Cohort(&auth),
         _ => return Err(Refusal::new("bundle_schema", "authorization kind")),
     };
-    let verified = slop_ninja_protocol::target_bundle::verify(&chain, keys, held, source, authorizing)
+    let verified = slop_ninja_protocol::coordinator_row::verify(&chain, keys, held, authorizing, renewal.as_deref(), &row)
         .map_err(protocol("bundle_unverified"))?;
-    let mut receipts_verified = 0;
-    if v3 {
-        if verified.source.is_some() {
-            let r = b.receipts.as_ref().ok_or_else(|| Refusal::new("receipts_incomplete", "the bundle names no receipts"))?;
-            let v = verified.receipt_verifier().map_err(protocol("receipts_incomplete"))?;
-            receipts_verified = verify_chunk_refs(v, &r.chunks, "receipts.chunks", root)?;
-        }
-        if verified.carrier().is_some() {
-            let r = b
-                .carrier_receipts
-                .as_ref()
-                .ok_or_else(|| Refusal::new("receipts_incomplete", "the bundle names no carrier receipts"))?;
-            let v = verified.carrier_receipt_verifier().map_err(protocol("receipts_incomplete"))?;
-            receipts_verified += verify_chunk_refs(v, &r.chunks, "carrier_receipts.chunks", root)?;
-        }
-        MechId::new(verified.chain.mechanism).map_err(|error| Refusal::new("package_mechanism", error.to_string()))?;
-        return Ok(Authorized { verified, keys: keys.clone(), receipts_verified, revocations: Default::default() });
-    }
-    if verified.source.is_some() {
-        if b.receipt_chunks.is_empty() {
-            return Err(Refusal::new("receipts_incomplete", "the bundle retains no receipt objects"));
-        }
-        let chunks = b.receipt_chunks.iter().map(|c| unhex("receipt_chunks", c)).collect::<Result<Vec<_>, _>>()?;
-        let refs: Vec<&[u8]> = chunks.iter().map(Vec::as_slice).collect();
-        receipts_verified = verified.verify_receipts(&refs).map_err(protocol("receipt_object_mismatch"))?;
-    }
-    if verified.carrier().is_some() {
-        if b.carrier_receipt_chunks.is_empty() {
-            return Err(Refusal::new("receipts_incomplete", "the bundle retains no carrier receipt objects"));
-        }
-        let chunks =
-            b.carrier_receipt_chunks.iter().map(|c| unhex("carrier_receipt_chunks", c)).collect::<Result<Vec<_>, _>>()?;
-        let refs: Vec<&[u8]> = chunks.iter().map(Vec::as_slice).collect();
-        receipts_verified +=
-            verified.verify_carrier_receipts(&refs).map_err(protocol("receipt_object_mismatch"))?;
-    }
     MechId::new(verified.chain.mechanism).map_err(|error| Refusal::new("package_mechanism", error.to_string()))?;
-    Ok(Authorized { verified, keys: keys.clone(), receipts_verified, revocations: Default::default() })
+    Ok(Authorized { verified, keys: keys.clone(), revocations: Default::default() })
+}
+
+/// The row bundle of the signed records (the fetcher's and the operator
+/// tool's form).
+pub fn row_bundle(kind: &str, authorization: &[u8], renewal: Option<&[u8]>, row: &[u8]) -> RowBundle {
+    RowBundle {
+        schema: BUNDLE_SCHEMA_ROW.into(),
+        kind: kind.into(),
+        authorization: hex::encode(authorization),
+        renewal: renewal.map(hex::encode),
+        row: hex::encode(row),
+    }
 }
 
 /// The reward-v1 snapshot: this validator's finalized registrations and the
@@ -485,35 +223,39 @@ pub fn snapshot(v1: &RegistrationSnapshot, owner_hotkey: [u8; 32]) -> Result<Reg
 }
 
 /// The row and work this validator commits at `epoch`, under the bundle's
-/// checked authorization.
+/// checked authorization: the coordinator's signed entries, with the units
+/// of registrations the snapshot no longer holds burned (module docs).
 pub fn derive(
     a: std::sync::Arc<Authorized>,
     snapshot: &RegistrationSnapshotV2,
     hotkey: [u8; 32],
     epoch: u64,
 ) -> Result<Derived, Refusal> {
-    let row = match a.verified.derive_row(snapshot) {
-        Ok(row) => row,
-        Err(slop_ninja_protocol::Error::Deferred(why)) => {
-            return Err(Refusal::new("row_deferred", format!("{why}: units must burn and the owner hotkey holds no UID")));
+    let row = a.verified.derive_row(snapshot).map_err(|e| match e {
+        slop_ninja_protocol::Error::Deferred(why) => {
+            Refusal::new("row_deferred", format!("{why}: units must burn and the owner hotkey holds no UID"))
         }
-        Err(e) => return Err(protocol("row_refused")(e)),
-    };
-    let op = a.check_epoch(hotkey, epoch)?;
+        e => protocol("row_refused")(e),
+    })?;
+    let moved = a.verified.moved_uids(snapshot);
+    if !moved.is_empty() {
+        tracing::warn!(event = "row_uid_moved", uids = ?moved, epoch, note = "burned to the owner UID, never paid to the new registration");
+    }
+    a.check_epoch(hotkey, epoch)?;
     let label = a.summary().cohort_label;
+    let target = a.verified.target_digest();
     let work = WeightWork {
-        manifest_hash: a.verified.target_digest.0,
+        manifest_hash: target.0,
         cohort: label,
         revision: 0,
         mechanism: MechId(a.verified.chain.mechanism),
         tempo: Some(epoch),
-        v2_target: Some(a.verified.target_digest.0),
+        v2_target: Some(target.0),
     };
     // The canonical row sums to 65,535; it is committed max-upscaled, the
     // form rtao's preparation and the chain's reveal both keep.
     let chain_entries = row.chain_values();
     let input: BTreeMap<Uid, f64> = chain_entries.iter().map(|&(uid, w)| (Uid(uid), f64::from(w))).collect();
-    let _ = op;
     Ok(Derived {
         work,
         row_digest: row.digest().map(|d| d.to_string()).unwrap_or_default(),
@@ -527,9 +269,10 @@ pub fn derive(
 
 /// This validator's own durable record of the target it holds active, kept
 /// beside the journal. It is written only from a verified bundle's
-/// [`VerifiedTarget::active`] (the launch burn row, or a target a checked
-/// closure activated) and only ever moves forward, so a superseded bundle or
-/// the launch authorization after the first activation is refused.
+/// [`VerifiedRow::active`] (the launch burn row, or the target the
+/// coordinator's signed row names with its activation) and only ever moves
+/// forward, so a superseded bundle or the launch authorization after the
+/// first activation is refused.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HeldTargetFile {

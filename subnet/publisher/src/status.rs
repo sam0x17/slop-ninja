@@ -68,6 +68,24 @@ pub struct SigningView {
     /// check of its authorization key (`key_error`); `None` while it has
     /// neither, or from a coordinator built before the handoff.
     pub auto_target_error: Option<AutoTargetError>,
+    /// The signed coordinator row validators copy
+    /// (`signing.row_record`): no record covering the installed
+    /// authorization yet, or a signing failure; `None` while the record is
+    /// current, or from a coordinator built before it.
+    pub row_record: Option<RowRecordStall>,
+}
+
+/// Why no signed coordinator row covers the installed authorization, as
+/// `/status` reports it (`signing.row_record.pending_*` or `error`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RowRecordStall {
+    /// The waiting or failure code.
+    pub code: String,
+    /// How long it has waited or failed.
+    pub age_ms: u64,
+    /// No record covers the installed authorization (as opposed to a
+    /// failure while the record still covers it).
+    pub uncovered: bool,
 }
 
 /// A failure of the coordinator's automatic target handoff, as `/status`
@@ -336,6 +354,16 @@ struct SigningJson {
     ops: Vec<OpJson>,
     authorization: Option<AuthorizationJson>,
     auto_target: Option<AutoTargetJson>,
+    row_record: Option<RowRecordJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RowRecordJson {
+    error: Option<String>,
+    error_age_ms: Option<u64>,
+    pending_age_ms: Option<u64>,
+    pending_code: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -567,8 +595,29 @@ fn worker_view(j: ServiceJson) -> WorkerView {
                     age_ms: a.key_age_ms.unwrap_or(0),
                 }),
             });
+            // An uncovered authorization first (validators wait on it);
+            // else a signing failure while the old record still covers it.
+            let row_record = s
+                .row_record
+                .and_then(|r| match (r.pending_age_ms, r.error) {
+                    (Some(age_ms), error) => Some(RowRecordStall {
+                        code: r
+                            .pending_code
+                            .or(error)
+                            .unwrap_or_else(|| "row_waiting".into()),
+                        age_ms,
+                        uncovered: true,
+                    }),
+                    (None, Some(code)) => Some(RowRecordStall {
+                        code,
+                        age_ms: r.error_age_ms.unwrap_or(0),
+                        uncovered: false,
+                    }),
+                    (None, None) => None,
+                });
             Some(SigningView {
                 auto_target_error,
+                row_record,
                 authorization: s.authorization.is_some(),
                 pointer: s.authorization.and_then(|a| {
                     Some(PointerView {
@@ -1034,6 +1083,33 @@ pub(crate) mod tests {
         assert!(
             !e.cohorts.is_empty() && e.epoch.is_some(),
             "the rest still parses"
+        );
+    }
+
+    /// `signing.row_record`: an uncovered authorization first (with its
+    /// code and age), else a signing failure; a current record is nothing.
+    #[test]
+    fn parses_the_coordinator_row_records_wait_and_failure() {
+        let with = |row: Value| {
+            let mut j = worker_status("primary", false);
+            j["chain_journal"]["signing"]["row_record"] = row;
+            parse_worker(&j).signing.unwrap().row_record
+        };
+        assert_eq!(
+            with(json!({"epoch": 12, "error": null, "pending_authorization": null})),
+            None
+        );
+        let v = with(json!({"pending_authorization": "ab", "pending_age_ms": 5_000, "pending_code": "row_waiting_issue",
+            "error": "authorization_key_missing", "error_age_ms": 9}))
+        .unwrap();
+        assert_eq!(
+            (v.code.as_str(), v.age_ms, v.uncovered),
+            ("row_waiting_issue", 5_000, true)
+        );
+        let v = with(json!({"error": "authorization_key_missing", "error_age_ms": 9})).unwrap();
+        assert_eq!(
+            (v.code.as_str(), v.age_ms, v.uncovered),
+            ("authorization_key_missing", 9, false)
         );
     }
 

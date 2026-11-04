@@ -8,6 +8,13 @@
 //! [`decide`] compares the verified candidate with the installed bundle:
 //!
 //! - the same bytes: nothing to do;
+//! - the same target and the same authorization with a newer coordinator
+//!   row (a later commitment epoch, or the same epoch derived at a later
+//!   finalized block: the coordinator re-signs its row when its entries
+//!   change, such as a deregistration, a re-registration or a UID changing
+//!   hands): a refresh. A row not later by `(epoch, block)` is kept out
+//!   (`row_not_newer`), so a stale or replayed pointer never rolls the row
+//!   back;
 //! - the same target under a newer authorization (issued later, such as a
 //!   new per-cohort authorization, a newer carrier or a re-authorization
 //!   after a revocation), or one that yields an operation at the finalized
@@ -58,8 +65,16 @@ pub struct Candidate {
     pub sha256: String,
     pub target: String,
     pub activated_epoch: Option<u64>,
+    /// Digest of the authorization record.
+    pub authorization: String,
     /// First epoch of the authorization: a later one is newer.
     pub issued_epoch: u64,
+    /// The coordinator commitment epoch the row was signed for and the
+    /// finalized block it was derived at: under one authorization a later
+    /// `(row_epoch, row_block)` is newer (a re-derivation in the same epoch
+    /// carries a later block).
+    pub row_epoch: u64,
+    pub row_block: u64,
     /// Whether the authorization yields an operation at the finalized epoch.
     pub covers_now: bool,
 }
@@ -70,7 +85,10 @@ impl Candidate {
             sha256: sha256.to_owned(),
             target: info.target.clone(),
             activated_epoch: info.activated_epoch,
+            authorization: info.authorization.clone(),
             issued_epoch: info.issued_epoch,
+            row_epoch: info.row_epoch,
+            row_block: info.row_block,
             covers_now,
         }
     }
@@ -99,7 +117,8 @@ impl From<&slop_ninja_subnet::PendingOperation> for Pending {
 pub enum Decision {
     /// Keep the installed bundle.
     Keep { reason: &'static str },
-    /// Same target, better authorization: install it in place.
+    /// Same target, a better authorization or a newer row under the same
+    /// one: install it in place.
     Refresh,
     /// A successor is eligible but a commitment is in flight.
     Wait { in_flight: Vec<String> },
@@ -123,6 +142,15 @@ pub fn decide(
             };
         }
         if current.target == staged.target {
+            if current.authorization == staged.authorization {
+                return if (staged.row_epoch, staged.row_block) > (current.row_epoch, current.row_block) {
+                    Decision::Refresh
+                } else {
+                    Decision::Keep {
+                        reason: "row_not_newer",
+                    }
+                };
+            }
             return if staged.issued_epoch > current.issued_epoch
                 || (staged.covers_now && !current.covers_now)
             {
@@ -158,6 +186,29 @@ pub fn decide(
     Decision::Switch {
         retire: pending.iter().map(|p| p.id.clone()).collect(),
     }
+}
+
+/// [`decide`] for a validator whose durable record holds `held_target` (the
+/// target digest). When no installed bundle verifies (none is installed,
+/// its schema is retired, or it no longer verifies) and the staged bundle
+/// names the held target itself, it is installed in place
+/// ([`Decision::Refresh`]) without waiting on pending work: that work
+/// belongs to the same target, whose operation IDs a bundle of it never
+/// changes, so nothing is retired and nothing waits. An upgrade over a
+/// retired bundle with a commitment in flight therefore installs the
+/// target's row bundle at once and commits the next tempo without a
+/// restart.
+pub fn decide_holding(
+    installed: Option<&Candidate>,
+    staged: &Candidate,
+    held_target: &str,
+    finalized_epoch: u64,
+    pending: &[Pending],
+) -> Decision {
+    if installed.is_none() && staged.target == held_target {
+        return Decision::Refresh;
+    }
+    decide(installed, staged, finalized_epoch, pending)
 }
 
 /// Whether a target activated at `staged` comes after one activated at

@@ -140,15 +140,18 @@ pub fn next_tempo(last_commit_epoch: u64, retained: &[Option<u64>]) -> Result<u6
 #[allow(async_fn_in_trait)]
 pub trait AppPorts {
     fn read_bundle(&mut self) -> Result<Vec<u8>>;
-    fn trusted_keys(&self) -> Result<TrustedKeys>;
-    /// The fetch cache, under which a fetched v3 bundle names its receipt
-    /// objects (`None` without `[fetch]`: only absolute references verify).
-    fn receipts_root(&self) -> Option<std::path::PathBuf> {
-        None
+    /// Whether a `slop_ninja.fixture_package/v1` bundle (the T12
+    /// `testnet-reward-v0` package, which a validator verified receipt by
+    /// receipt and recomputed) is still applied. Never by a release build:
+    /// validators copy the coordinator's signed row and do nothing else, so
+    /// such a bundle is refused like the retired reward-v1 schemas
+    /// (`bundle_schema_retired`, a deferral, never a commit). Only the
+    /// crate's own journal and dispatch tests, which use the fixture as a
+    /// signed input, turn it on.
+    fn fixture_packages(&self) -> bool {
+        false
     }
-    /// The installed bundle's referenced cache files failed: the next fetch
-    /// session assembles the bundle in full (never `unchanged`).
-    fn rebuild_fetched_bundle(&mut self) {}
+    fn trusted_keys(&self) -> Result<TrustedKeys>;
     /// Genesis and netuid this validator serves.
     fn chain(&self) -> ([u8; 32], u16);
     /// `(uid, hotkey, registration_block)` for every registered UID at `head`.
@@ -260,6 +263,9 @@ pub enum AppOutcome {
     /// signed revocation withdraws it (`authorization_revoked`, until a newer
     /// authorization), a
     /// pending operation still awaits recovery (`pending_operation_unsettled`),
+    /// the installed bundle is of a retired schema (`bundle_schema_retired`:
+    /// an upgrade over a v1 or v3 bundle; nothing commits until a
+    /// coordinator-row bundle is installed),
     /// or, with `[fetch]`, a fetched v3 bundle's referenced cache files are
     /// missing or changed (`referenced_object_missing`,
     /// `referenced_object_mismatch`: logged `bundle_cache_unreadable` with
@@ -272,7 +278,10 @@ pub enum AppOutcome {
 /// Refusal codes that defer a tempo rather than halt the validator.
 pub fn is_deferral(code: &str) -> bool {
     is_row_deferral(code)
-        || matches!(code, "authorization_refused" | "authorization_revoked" | "pending_operation_unsettled")
+        || matches!(
+            code,
+            "authorization_refused" | "authorization_revoked" | "pending_operation_unsettled" | "bundle_schema_retired"
+        )
 }
 
 /// Deferrals about the row itself: a later snapshot or chain state is tried
@@ -337,6 +346,14 @@ pub async fn apply<P: AppPorts>(
     let bytes = ports.read_bundle().context("package bundle unreadable")?;
     if crate::package_v2::is_v2(&bytes) {
         return apply_v2(ports, head, mode, faults, &bytes).await;
+    }
+    if !ports.fixture_packages() {
+        return Ok(deferred(Refusal {
+            code: "bundle_schema_retired",
+            detail: "a fixture package bundle (receipts and a score package to recompute) is retired: validators \
+                     commit the coordinator's signed row; install a coordinator-row bundle (the fetcher does)"
+                .into(),
+        }));
     }
     let bundle = match Bundle::parse(&bytes) {
         Ok(bundle) => bundle,
@@ -439,9 +456,11 @@ pub async fn apply<P: AppPorts>(
 /// validator holds active in its own durable record (the launch burn row
 /// before any), and the target active after it is recorded before anything
 /// else, so a superseded bundle or the launch authorization after the first
-/// activation is refused from then on. The row is derived against this
-/// validator's own finalized snapshot and owner hotkey for the finalized
-/// epoch; a row that must wait is deferred, never a halt.
+/// activation is refused from then on. The row is the coordinator's signed
+/// row (the copy model): its entries exactly, under the authorization
+/// checked for the finalized epoch. This validator's own finalized snapshot
+/// and owner hotkey decide only the owner-row policy and the burn-row
+/// limits, never a weight; a row that must wait is deferred, never a halt.
 ///
 /// Dispatch first settles retained work ([`derive_queueable`]): an operation
 /// of this target and label with the same row and owner-row policy is
@@ -472,17 +491,20 @@ async fn apply_v2<P: AppPorts>(
         },
         None => slop_ninja_protocol::ActiveTarget::launch(&chain).map_err(|e| anyhow::anyhow!("{e}"))?,
     };
-    let root = ports.receipts_root();
-    let authorized = match crate::package_v2::verify_in(bytes, &keys, &genesis, netuid, &held, root.as_deref()) {
+    let authorized = match crate::package_v2::verify(bytes, &keys, &genesis, netuid, &held) {
         Ok(a) => std::sync::Arc::new(a),
-        // A fetched v3 bundle's cache files are missing or changed: the
-        // signed records were not refused, and a fetch session rebuilds the
-        // files while the host retains the receipts (or reports
-        // `receipts_expired`). Retry rather than halt.
-        Err(refusal) if root.is_some() && crate::package_v2::is_reference_refusal(refusal.code) => {
-            ports.rebuild_fetched_bundle();
-            tracing::warn!(event = "bundle_cache_unreadable", code = refusal.code, detail = %refusal.detail, alert = true);
-            return Ok(AppOutcome::Deferred { code: refusal.code, detail: refusal.detail });
+        // An installed bundle of a retired schema (an upgrade over a v1 or
+        // v3 bundle): nothing new is committed until a row bundle is
+        // installed, but the process, its recovery and its fetcher keep
+        // running (a continuous run waits for the fetcher; a one-shot run
+        // exits 75 for a later retry), never a halt.
+        Err(refusal) if refusal.code == "bundle_schema_retired" => {
+            tracing::warn!(
+                event = "bundle_schema_retired",
+                hint = "install a coordinator-row bundle (the fetcher, or the operator's row mirror); nothing new commits until then",
+                alert = true
+            );
+            return Ok(deferred(refusal));
         }
         Err(refusal) => return Ok(refused(refusal)),
     };
@@ -521,8 +543,7 @@ async fn apply_v2<P: AppPorts>(
         rule = "reward-v1",
         cohort = summary.cohort,
         target = %summary.target,
-        receipts = authorized.receipts_verified,
-        miners = summary.scored_miners
+        row_entries = summary.scored_miners
     );
     faults.hit(Phase::PackageVerified)?;
     if let Some(revocation) = authorized.revoked_by() {
@@ -531,7 +552,7 @@ async fn apply_v2<P: AppPorts>(
         // retired. Work with a signed attempt is left to recovery. A newer
         // authorization resumes commitments.
         let retired = if mode == Mode::Dispatch {
-            retire_revoked(ports, authorized.verified.chain.mechanism, authorized.verified.target_digest.0)?
+            retire_revoked(ports, authorized.verified.chain.mechanism, authorized.verified.target_digest().0)?
         } else {
             0
         };
@@ -732,10 +753,7 @@ pub fn burn_row(derived: &crate::package::Derived, snapshot: &RegistrationSnapsh
     if !positive.all(|(uid, _)| *uid == owner_uid) {
         return None;
     }
-    Some(match authorized.verified.target.source {
-        slop_ninja_protocol::TargetSource::LaunchBurn => BurnRow::LaunchBurn,
-        _ => BurnRow::BurnTarget,
-    })
+    Some(if authorized.verified.row.activated_epoch.is_none() { BurnRow::LaunchBurn } else { BurnRow::BurnTarget })
 }
 
 /// Whether rtao's scheduler would hold `entries` under `policy`: its own

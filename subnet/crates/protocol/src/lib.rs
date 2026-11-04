@@ -14,6 +14,7 @@ pub mod artifact;
 mod authorization;
 pub mod bigint;
 mod codec;
+pub mod coordinator_row;
 mod error;
 mod hash;
 mod operation;
@@ -41,6 +42,9 @@ pub use authorization::{
 pub use target_bundle::{
     AuthorizationTerms, Authorizing, Carrier, ReceiptIndexBinding, ReceiptIndexStream, Source, VerifiedCarrier, VerifiedSource,
     VerifiedTarget,
+};
+pub use coordinator_row::{
+    CoordinatorRow, CoordinatorRowEntry, MAX_ROW_ENTRIES, RowAuthorizing, RowSource, VerifiedRow,
 };
 pub use codec::{
     Canonical, Decoder, Encoder, MAX_PREALLOC_BYTES, MAX_SEQUENCE_LEN, MAX_STRING_LEN,
@@ -78,6 +82,8 @@ pub use sign::sign_raw;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_coordinator_row;
 #[cfg(test)]
 mod tests_reward_v1;
 #[cfg(test)]

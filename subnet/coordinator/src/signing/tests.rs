@@ -1867,7 +1867,7 @@ fn v4_storage_upgrades_with_its_signing_journal_intact() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (4, 12));
+    assert_eq!((report.from, report.to), (4, 13));
     let s = tx(&db, signer).unwrap();
     assert_eq!(
         (s.state.as_str(), s.nonce_floor, s.runtime, s.runtime_block),
@@ -2883,4 +2883,266 @@ fn a_step_that_does_not_fit_the_budget_is_never_claimed() {
     assert!(step_worst_ms(&metadata, t) > after_call);
     assert!(step_worst_ms(&submit, t) > after_call);
     assert!(step_worst_ms(&version, t) <= after_call, "a one-call step fits a delivery");
+}
+
+/// The fixture authorization key, or none, for the signed coordinator row.
+#[derive(Clone)]
+struct RowKey(bool);
+
+impl super::auto::AuthorizationKeySource for RowKey {
+    fn authorization_key(&self, keys: &slop_ninja_protocol::TrustedKeys) -> Result<slop_ninja_protocol::SigningKey, &'static str> {
+        if !self.0 {
+            return Err("authorization_key_missing");
+        }
+        super::auto::authorization_key_from(&hex::encode(fx::authorization_key().to_bytes()), None, keys)
+    }
+}
+
+/// Once the coordinator has signed a commitment, the pointer names its row,
+/// signed with the authorization key, beside the authorization it was
+/// committed under; validators verify that record and commit exactly its
+/// entries. One record covers every later commitment of the same row; a new
+/// authorization carries no row until the coordinator commits under it.
+#[test]
+fn the_pointer_names_the_signed_row_of_the_coordinators_commitment() {
+    use slop_ninja_protocol::{ActiveTarget, CoordinatorRow, RowAuthorizing, Signed, coordinator_row};
+    let mut h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let refresh = |h: &H, key: bool, now: u64| tx(&h.db, |sql| super::rows::refresh(sql, &h.cfg, &h.trusted, &RowKey(key), now)).unwrap();
+    let plan = |h: &H| tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap().unwrap();
+    let pointer = |p: &PointerPlan| serde_json::from_str::<slop_ninja_admission_wire::json::AuthorizationPointer>(&p.body).unwrap();
+    // Nothing committed yet: no record, no row in the pointer, and the
+    // wait is reported.
+    assert_eq!(refresh(&h, true, T0), super::rows::Refresh::Waiting("row_waiting_derivation".into()));
+    assert!(pointer(&plan(&h)).row.is_none());
+    let view = h.status().row_record.unwrap();
+    assert_eq!(view.pending_code.as_deref(), Some("row_waiting_derivation"));
+    assert!(view.pending_authorization.is_some() && view.pending_age_ms.is_some());
+    h.resume();
+    h.until(80, committed);
+    // A missing key is recorded once and retried.
+    for _ in 0..2 {
+        assert_eq!(refresh(&h, false, T0 + 1), super::rows::Refresh::Failed("authorization_key_missing".into()));
+    }
+    assert_eq!(logged(&h, "row_record_failed").len(), 1);
+    assert_eq!(h.status().row_record.unwrap().error.as_deref(), Some("authorization_key_missing"));
+    assert!(pointer(&plan(&h)).row.is_none());
+    let ops = h.ops();
+    let super::rows::Refresh::Signed { epoch, sha256 } = refresh(&h, true, T0 + 2) else {
+        panic!("a record is signed once a commitment is");
+    };
+    assert_eq!(epoch, ops[0].epoch);
+    let view = h.status().row_record.unwrap();
+    assert_eq!((view.epoch, view.sha256.as_deref(), view.error.as_deref()), (Some(epoch), Some(sha256.as_str()), None));
+    assert_eq!((view.pending_authorization, view.pending_code), (None, None), "covered: nothing pending");
+    let p = plan(&h);
+    let row_ref = pointer(&p).row.unwrap();
+    assert_eq!(row_ref.sha256, sha256);
+    assert!(p.objects.contains(&row_ref), "the writer stores the row before the pointer");
+    let row = tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, &sha256)).unwrap().unwrap();
+    assert!(row.len() <= super::rows::record_bound());
+    use slop_ninja_admission_wire::receipts as contract;
+    assert!(p.body.len() as u64 <= contract::AUTHORIZATION_POINTER_BOUND);
+    assert!(row.len() as u64 <= contract::row_object_bound());
+    contract::parse_pointer(p.body.as_bytes(), &chain_binding()).unwrap();
+    // What a validator does: verify the row with the pointer's authorization
+    // and commit its entries, the coordinator's own committed row.
+    let auth = tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, &pointer(&p).authorization.sha256)).unwrap().unwrap();
+    let chain = chain_binding();
+    let held = ActiveTarget::launch(&chain).unwrap();
+    let v = coordinator_row::verify(&chain, &h.trusted, &held, RowAuthorizing::Launch(&auth), None, &row).unwrap();
+    let committed_row: RowSummary = serde_json::from_value(ops[0].row.clone().unwrap()).unwrap();
+    let entries: Vec<(u16, u16)> = v.row.entries.iter().map(|e| (e.uid, e.weight)).collect();
+    assert_eq!(entries, committed_row.entries);
+    assert_eq!(v.row.entries[0].hotkey, fx::owner().hotkey);
+    assert_eq!(v.row.registration_block, committed_row.registration_block);
+    let record = Signed::<CoordinatorRow>::open(&row, &h.trusted).unwrap();
+    assert_eq!(record.epoch, epoch);
+    // The next epoch's commitment of the same row needs no new record.
+    h.until(200, |h| h.ops().len() == 2 && committed(h));
+    assert_eq!(refresh(&h, true, T0 + 3), super::rows::Refresh::Current);
+    assert_eq!(pointer(&plan(&h)).row.unwrap().sha256, sha256);
+    assert_eq!(logged(&h, "row_record_signed").len(), 1);
+    // A newer authorization of the same target: the pointer carries no row
+    // until the coordinator commits under it, then the new record.
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(2), T0)).unwrap().unwrap();
+    assert!(pointer(&plan(&h)).row.is_none(), "a row is named only beside its own authorization");
+    let before = h.ops().len();
+    h.until(400, |h| h.ops().len() > before && committed(h));
+    let super::rows::Refresh::Signed { sha256: next, .. } = refresh(&h, true, T0 + 4) else {
+        panic!("a new authorization's commitment is signed");
+    };
+    assert_ne!(next, sha256);
+    assert_eq!(pointer(&plan(&h)).row.unwrap().sha256, next);
+}
+
+/// Review fix round 1 (findings 1, 3, 5, 9): a row derived and journaled
+/// is signed as a record whether or not the coordinator's own commitment
+/// ever got a sign attempt (its weight delivery never holds other
+/// validators), and a registration change (here the owner UID
+/// re-registered) signs a new record under the same authorization with a
+/// later epoch, which validators install by that epoch. A derived row
+/// without the hotkeys (an older build's) is reported, never silent.
+#[test]
+fn a_derived_row_is_signed_without_a_sign_attempt_and_a_registration_change_resigns_it() {
+    use slop_ninja_protocol::{CoordinatorRow, Signed};
+    let mut h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let refresh = |h: &H, now: u64| tx(&h.db, |sql| super::rows::refresh(sql, &h.cfg, &h.trusted, &RowKey(true), now)).unwrap();
+    h.resume();
+    h.until(80, committed);
+    let super::rows::Refresh::Signed { sha256: first, .. } = refresh(&h, T0 + 1) else {
+        panic!("the committed row is signed");
+    };
+    let op = h.ops()[0].clone();
+    let record = |h: &H, sha: &str| {
+        let bytes = tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, sha)).unwrap().unwrap();
+        Signed::<CoordinatorRow>::open(&bytes, &h.trusted).unwrap()
+    };
+    let before = record(&h, &first);
+    // A later operation whose row was derived and journaled but never got
+    // a sign attempt (its hotkey path failed after the derivation), read
+    // after the owner UID re-registered.
+    let mut row: RowSummary = serde_json::from_value(op.row.clone().unwrap()).unwrap();
+    for b in row.registration_blocks.as_mut().expect("registration blocks recorded") {
+        *b += 1;
+    }
+    let insert = |id: &str, epoch: u64, row: &RowSummary| {
+        let json = serde_json::to_string(row).unwrap();
+        tx(&h.db, |sql| {
+            sql.exec(
+                "INSERT INTO commit_ops (op_id, epoch, target, base_op, state, detail, row_json, row_digest, created_at_ms, updated_at_ms)
+                 SELECT ?, ?, target, base_op, 'failed', 'hotkey_unavailable', ?, row_digest, created_at_ms, updated_at_ms
+                 FROM commit_ops WHERE epoch = ?",
+                &[id.into(), crate::sql::bind_u64(epoch)?, json.as_str().into(), crate::sql::bind_u64(op.epoch)?],
+            )
+        })
+        .unwrap();
+    };
+    insert("never-signed", before.epoch + 3, &row);
+    let attempts = tx(&h.db, |sql| sql.exec("SELECT 1 FROM sign_attempts WHERE op_id = 'never-signed'", &[])).unwrap();
+    assert!(attempts.is_empty());
+    let super::rows::Refresh::Signed { epoch, sha256: second } = refresh(&h, T0 + 2) else {
+        panic!("a derived row is signed without a sign attempt");
+    };
+    assert_eq!(epoch, before.epoch + 3);
+    let after = record(&h, &second);
+    assert_eq!(after.authorization, before.authorization, "the same authorization");
+    assert!(after.epoch > before.epoch, "validators install it by its later epoch");
+    assert_ne!(after.entries, before.entries, "the re-registration changed the entries");
+    assert_eq!(pointer_of(&h).row.unwrap().sha256, second);
+    // A derived row an older build journaled without hotkeys: reported on
+    // /status, the previous record kept.
+    let mut old = row.clone();
+    old.hotkeys = None;
+    insert("older-build", before.epoch + 6, &old);
+    assert_eq!(refresh(&h, T0 + 3), super::rows::Refresh::Failed("row_hotkeys_missing".into()));
+    let view = h.status().row_record.unwrap();
+    assert_eq!(view.error.as_deref(), Some("row_hotkeys_missing"));
+    assert_eq!(view.sha256.as_deref(), Some(second.as_str()));
+    assert_eq!(pointer_of(&h).row.unwrap().sha256, second, "validators keep the last record");
+}
+
+fn pointer_of(h: &H) -> slop_ninja_admission_wire::json::AuthorizationPointer {
+    let p = tx(&h.db, |sql| pointer_plan(sql, &h.cfg, &h.trusted)).unwrap().unwrap();
+    serde_json::from_str(&p.body).unwrap()
+}
+
+fn reads_of(h: &H, purpose: &str) -> usize {
+    h.reads.iter().filter(|(p, _)| p == purpose).count()
+}
+
+/// Review fix round 2 (finding 5): the row other validators copy is derived
+/// by its own step from a finalized snapshot, once a tempo, outside the
+/// hotkey pipeline. With signing paused from the start (the operator hold)
+/// no preflight runs and the hotkey is never read, yet the row is derived
+/// and signed; a signer fault later still derives the next tempo's row.
+#[test]
+fn the_row_is_derived_and_signed_while_signing_is_paused_or_faulted() {
+    let mut h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let refresh = |h: &H, now: u64| tx(&h.db, |sql| super::rows::refresh(sql, &h.cfg, &h.trusted, &RowKey(true), now)).unwrap();
+    assert_eq!(h.status().state, "paused");
+    h.until(20, |h| reads_of(h, "row_registration") == 1);
+    assert_eq!(reads_of(&h, "preflight"), 0, "the commit pipeline never ran");
+    assert!(h.ops().is_empty());
+    assert_eq!(h.keys.reads.get(), 0, "the hotkey secret is never read");
+    let super::rows::Refresh::Signed { epoch, sha256 } = refresh(&h, T0 + 1) else {
+        panic!("the snapshot's row is signed while signing is paused");
+    };
+    assert_eq!(pointer_of(&h).row.unwrap().sha256, sha256);
+    let view = h.status().row_record.unwrap();
+    assert_eq!((view.snapshot_derived_epoch, view.pending_code), (Some(epoch), None));
+    // Once a tempo: further blocks of the same epoch read nothing more.
+    let schedules = reads_of(&h, "row_schedule");
+    h.blocks(5);
+    assert_eq!(reads_of(&h, "row_schedule"), schedules);
+    // A signer fault: the hotkey pipeline stops, the next tempo's row is
+    // still derived (the same entries: the record still covers it).
+    tx(&h.db, |sql| super::fault(sql, "nonce_regressed", None, None, T0)).unwrap();
+    h.until(400, |h| reads_of(h, "row_registration") == 2);
+    let view = h.status().row_record.unwrap();
+    assert!(view.snapshot_derived_epoch.unwrap() > epoch, "the next epoch's row is derived under a fault");
+    assert_eq!(refresh(&h, T0 + 2), super::rows::Refresh::Current);
+    assert!(h.ops().is_empty() && h.chain.accepted.is_empty(), "nothing was signed with the hotkey");
+}
+
+/// Review fix round 2 (findings 3, 4): a failed refresh followed by a pass
+/// that finds the record current clears the error; a re-derivation in the
+/// same epoch with other entries signs a record ordered after the first by
+/// its registration block (validators install it by that order); an older
+/// derivation with other entries never re-signs the record back.
+#[test]
+fn a_current_record_clears_the_error_and_same_epoch_rederivations_are_ordered() {
+    use slop_ninja_protocol::{CoordinatorRow, Signed};
+    let mut h = H::new();
+    tx(&h.db, |sql| install_target(sql, &h.cfg, &h.trusted, &launch_bundle_json(1), T0)).unwrap().unwrap();
+    let refresh = |h: &H, now: u64| tx(&h.db, |sql| super::rows::refresh(sql, &h.cfg, &h.trusted, &RowKey(true), now)).unwrap();
+    h.until(20, |h| reads_of(h, "row_registration") == 1);
+    let super::rows::Refresh::Signed { sha256: first, .. } = refresh(&h, T0 + 1) else {
+        panic!("signed");
+    };
+    // Finding 3: a failure that ends without a new signature clears.
+    tx(&h.db, |sql| super::rows::note_error(sql, "row_record_store", T0 + 2)).unwrap();
+    assert_eq!(h.status().row_record.unwrap().error.as_deref(), Some("row_record_store"));
+    assert_eq!(refresh(&h, T0 + 3), super::rows::Refresh::Current);
+    let view = h.status().row_record.unwrap();
+    assert_eq!((view.error, view.error_age_ms), (None, None), "a current record clears the error");
+    // Finding 4: the same epoch derived again at a later block with other
+    // entries (a UID re-registered).
+    let record = |h: &H, sha: &str| {
+        let bytes = tx(&h.db, |sql| pointer_object(sql, &h.cfg, &h.trusted, sha)).unwrap().unwrap();
+        Signed::<CoordinatorRow>::open(&bytes, &h.trusted).unwrap()
+    };
+    let before = record(&h, &first);
+    let row_json: String = tx(&h.db, |sql| {
+        sql.exec("SELECT row_json FROM sign_row_snapshot WHERE id = 1", &[]).map(|r| text(&r[0], 0).unwrap().to_owned())
+    })
+    .unwrap();
+    let mut row: RowSummary = serde_json::from_str(&row_json).unwrap();
+    let rederive = |h: &H, row: &RowSummary| {
+        let json = serde_json::to_string(row).unwrap();
+        tx(&h.db, |sql| sql.exec("UPDATE sign_row_snapshot SET row_json = ? WHERE id = 1", &[json.as_str().into()])).unwrap();
+    };
+    row.registration_block += 3;
+    for b in row.registration_blocks.as_mut().unwrap() {
+        *b += 1;
+    }
+    rederive(&h, &row);
+    let super::rows::Refresh::Signed { epoch, sha256: second } = refresh(&h, T0 + 4) else {
+        panic!("a same-epoch re-derivation with other entries is signed");
+    };
+    let after = record(&h, &second);
+    assert_eq!((epoch, after.epoch), (before.epoch, before.epoch), "the same epoch");
+    assert!(after.registration_block > before.registration_block, "ordered after the first by its block");
+    assert_ne!(after.entries, before.entries);
+    // An earlier derivation (lower block) with other entries again: never
+    // re-signed back.
+    row.registration_block -= 2;
+    for b in row.registration_blocks.as_mut().unwrap() {
+        *b += 1;
+    }
+    rederive(&h, &row);
+    assert_eq!(refresh(&h, T0 + 5), super::rows::Refresh::Current);
+    assert_eq!(pointer_of(&h).row.unwrap().sha256, second);
 }

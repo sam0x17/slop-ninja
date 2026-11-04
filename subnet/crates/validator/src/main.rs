@@ -522,6 +522,17 @@ async fn run_async(config: ValidatorConfig, mode: Mode) -> Option<u8> {
                             tracing::info!(event = "continuing_on_successor");
                             continue;
                         }
+                        // A successor that waits for work in flight over a
+                        // retired installed bundle: no dispatch loop runs to
+                        // settle that work, so the run exits for a restart,
+                        // whose finalized recovery settles it (the same as
+                        // `pending_operation_unsettled`). A bundle of the held
+                        // target itself never waits (`decide_holding`).
+                        AppOutcome::Deferred { code, .. }
+                            if *code == "bundle_schema_retired" && ports.startup_waiting() =>
+                        {
+                            tracing::warn!(event = "restart_for_recovery", code = *code);
+                        }
                         AppOutcome::Deferred { code, .. } if *code != "pending_operation_unsettled" => {
                             tracing::info!(event = "tempo_waiting", code = *code);
                             ports.wait_after_deferral().await?;

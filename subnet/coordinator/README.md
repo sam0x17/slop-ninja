@@ -876,8 +876,47 @@ The cron tick keeps the private authorization pointer
 the installed bundle's authorization, its hint refresh if any, and the
 revocation set (pointer schema v2: the latest journaled revocation of every
 revoked target signed under the trusted authorization key, oldest first,
-concatenated), each stored first as `authorizations/<sha256>.signed`. A
-validator that missed earlier revocations journals them all from the set.
+concatenated), and `row`, the coordinator's signed row, each stored first as
+`authorizations/<sha256>.signed`. A validator that missed earlier
+revocations journals them all from the set. The row is what every other
+validator commits (the copy model, 2026-11-04; `signing::rows`): before
+each pointer pass, in its own transaction (a failure there is recorded as
+`row_record_store` and the pointer, with its revocation set, is planned
+regardless), the journal takes the latest derived row of the installed
+target and, when no journaled record covers its paid entries (UID, the
+hotkey and registration block its snapshot read at that UID, canonical
+weight, and the owner hotkey) under the installed target and authorization,
+signs a `slop_ninja_protocol::CoordinatorRow` with the authorization key
+(the `AUTHORIZATION_SIGNING_KEY` secret, never the hotkey) and journals it
+(schema v13, `sign_row_record`). The row is derived by the signing
+journal's own row snapshot step (`sign_row_snapshot`): a schedule read and
+a registration read at one finalized block, once per commit epoch and when
+a target is installed, in every signer state (paused, faulted, a preflight
+deferred), so neither the coordinator's own weight delivery nor its commit
+preflight holds another validator's row; its failures back off at the
+capped rate and never settle (subject `row_snapshot`). The coordinator's
+own commitment's row (`commit_ops.row_json`) is used instead when it is
+later by (commit epoch, registration block). One record covers every later
+commitment of the same entries; a change of entries under the same
+authorization signs a new record later by (epoch, registration block),
+which validators install by that order, and a record is never re-signed
+back to an earlier derivation. The pointer names a row only beside the
+authorization it was derived under, so after a new target or authorization
+is installed it carries none until the first row derived under it. While no
+record covers the installed authorization, `/status`
+`signing.row_record.pending_authorization`, `pending_age_ms` and
+`pending_code` say since when and on what it waits
+(`row_waiting_derivation`, `row_waiting_issue`, the snapshot's own code such
+as `row_deferred_owner_unregistered`, `row_hotkeys_missing` for a row an
+older build journaled without the hotkeys, or a signing failure's code);
+logged once per change (`row_record_waiting`); `snapshot_epoch`,
+`snapshot_block`, `snapshot_derived_epoch` and `snapshot_code` show the
+step. A signing failure (`authorization_key_missing`, ...) is retried at
+the next tick and shown on `/status` (`signing.row_record.error`), logged
+once per code (`row_record_failed`; `row_record_signed` on success), and
+cleared once the journaled record covers the installed authorization and
+the latest row again. The publisher alerts either after a tempo
+(`row_record_stalled`).
 The journal's plan names the objects (key, digest, length); the Worker
 fetches an object's bytes from the journal only when the bucket lacks it.
 Each pass checks every object the pointer names (a missing one, or one of
@@ -2253,8 +2292,9 @@ says whether the v2 form fits), and the files must stay in place on the
 validator's host. The `launch` mode writes the launch burn bundle.
 
 **Verification.** `examples/eval_verify.rs` checks a stored package from the
-receipts bucket as a validator would and writes a T12 bundle for the native
-validator. Pass the keys pinned in `testnet-trust.json`, never the
+receipts bucket (an operator check of the coordinator's output; it writes no
+validator bundle: validators commit the coordinator's signed row and refuse
+the T12 fixture package). Pass the keys pinned in `testnet-trust.json`, never the
 `keys.json` the Worker writes beside the package (that file is only compared
 against the pin):
 

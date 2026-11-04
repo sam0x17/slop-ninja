@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Slop Ninja testnet</title>
-<meta name="description" content="Public status, signed cohort packages and the leaderboard of Slop Ninja testnet subnet 601.">
+<meta name="description" content="Public status, cohort summaries and the leaderboard of Slop Ninja testnet subnet 601.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -30,17 +30,16 @@
         <thead>
           <tr>
             <th scope="col">Rank</th><th scope="col">UID</th><th scope="col">Hotkey</th>
-            <th scope="col">Brier utility</th><th scope="col">Gates</th><th scope="col">Copy outcome</th>
-            <th scope="col">Cluster</th><th scope="col">Band</th><th scope="col">Credit</th>
-            <th scope="col">Units</th><th scope="col">Artifact</th>
+            <th scope="col">Gate</th><th scope="col">Copy gate</th>
+            <th scope="col">Cluster</th><th scope="col">Band</th><th scope="col">Artifact</th>
           </tr>
         </thead>
         <tbody><!--ROWS--></tbody>
       </table>
     </div>
-    <p class="muted small">Every value is verified from the signed score package under the published trust roots and
-    recomputed with the reward-v1 rule. Testnet scores test the evaluation plumbing; they say nothing about quality on
-    unseen text.</p>
+    <p class="muted small">Ranks, bands and gate results come from the coordinator's score package, which the publisher
+    verified under the trust roots and recomputed with the reward-v1 rule. No score value is published. Testnet results
+    test the evaluation plumbing; they say nothing about quality on unseen text.</p>
   </section>
 </main>
 <footer>

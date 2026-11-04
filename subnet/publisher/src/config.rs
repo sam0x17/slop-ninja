@@ -31,6 +31,9 @@ pub enum ConfigError {
     Guards(&'static str),
     /// A duration below its derived minimum (or one that overflows).
     Duration(&'static str, u64),
+    /// A setting that would publish something the copy model keeps
+    /// coordinator-private.
+    Private(&'static str),
 }
 
 impl core::fmt::Display for ConfigError {
@@ -52,6 +55,10 @@ impl core::fmt::Display for ConfigError {
             Self::Duration(v, min) => {
                 write!(f, "{v} must be at least {min} and fit in milliseconds")
             }
+            Self::Private(v) => write!(
+                f,
+                "{v} must be false: receipts are coordinator-private and never published"
+            ),
         }
     }
 }
@@ -123,8 +130,6 @@ pub struct Config {
     /// `{hotkey}` (64-hex). Artifact publication is default-deny: an artifact
     /// is copied only when this record exists and matches the entrant.
     pub admission_record: Option<String>,
-    /// Decision D7 (a): content-free receipt indexes and chunks are public.
-    pub publish_receipts: bool,
     /// The coordinator's admission origin the snapshot advertises.
     pub admission_origin: Option<String>,
     /// Extra operator text for the snapshot's notice.
@@ -417,6 +422,11 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
     {
         return Err(ConfigError::Url("ADMISSION_ORIGIN"));
     }
+    // Receipts, the receipt index, chunk maps and bundles are
+    // coordinator-private audit evidence (the copy model, 2026-11-04).
+    if flag(&get, "PUBLISH_RECEIPTS", false)? {
+        return Err(ConfigError::Private("PUBLISH_RECEIPTS"));
+    }
     Ok(Config {
         chain,
         keys,
@@ -428,7 +438,6 @@ pub fn parse(get: impl Fn(&str) -> Option<String>) -> Result<Config, ConfigError
         operator_hotkeys,
         artifact_source,
         admission_record,
-        publish_receipts: flag(&get, "PUBLISH_RECEIPTS", true)?,
         admission_origin,
         notice: get("NOTICE")
             .map(|n| n.trim().to_owned())
@@ -462,7 +471,6 @@ mod tests {
         assert_eq!(c.publish_from_epoch, None);
         assert_eq!(c.record_label_prefix, None);
         assert_eq!(c.run_wall_budget_ms, CRON_PERIOD_MS);
-        assert!(c.publish_receipts);
         assert!(c.sink.is_none() && c.heartbeat.is_none() && c.artifact_source.is_none());
         assert_eq!(c.rules.fallback_ms, 360 * 12 * 1000);
     }
@@ -494,7 +502,14 @@ mod tests {
         assert!(with("ALERT_SINK_URL", "http://example.invalid/hook").is_err());
         assert!(with("ALERT_SINK_URL", "https://user:pw@example.invalid/hook").is_err());
         assert!(with("ADMISSION_ORIGIN", "https://example.invalid/admission").is_err());
+        // Receipts are coordinator-private: only "false" (or nothing) is
+        // accepted.
         assert!(with("PUBLISH_RECEIPTS", "yes").is_err());
+        assert_eq!(
+            with("PUBLISH_RECEIPTS", "true").unwrap_err(),
+            ConfigError::Private("PUBLISH_RECEIPTS")
+        );
+        assert!(with("PUBLISH_RECEIPTS", "false").is_ok());
         assert!(with("ALERT_RELAY", "yes").is_err());
     }
 

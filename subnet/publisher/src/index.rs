@@ -3,19 +3,25 @@
 //! reference pointers (`v1/reference/{current,previous}.json`).
 //!
 //! The index is the publisher's durable state: a cohort is published exactly
-//! when it has an entry, and an entry is written only after every public
-//! object of the cohort was copied and the copies verified. Artifact states
-//! inside an entry advance across runs as copies finish.
+//! when it has an entry, and an entry is written only after the cohort's
+//! signed records verified in the private bucket and its allow-listed
+//! summary ([`crate::summary`]) was written. Artifact states inside an entry
+//! advance across runs as copies finish. Schema v2 carries no score, count
+//! or record of the hidden evaluation: no mode, package or closure digest,
+//! receipt count or phase epochs between the opening and the close.
 
 use serde::{Deserialize, Serialize};
 use slop_ninja_admission_wire::json::Chain;
 use slop_ninja_protocol::{CalculationTargetV2, ChainBinding, CutoffMode, Record};
 
 use crate::layout;
-use crate::verify::{PublicObject, VerifiedCohort};
+use crate::verify::VerifiedCohort;
 
-pub const INDEX_SCHEMA: &str = "slop_ninja.public.cohort_index/v1";
-pub const PUBLICATION_SCHEMA: &str = "slop_ninja.public.publication/v1";
+pub const INDEX_SCHEMA: &str = "slop_ninja.public.cohort_index/v2";
+/// The schema of the index layout v1 wrote, which listed the signed records
+/// and receipt counts; a v2 publisher replaces it (`publish::Run::cohorts`).
+pub const INDEX_SCHEMA_V1: &str = "slop_ninja.public.cohort_index/v1";
+pub const PUBLICATION_SCHEMA: &str = "slop_ninja.public.publication/v2";
 pub const REFERENCE_SCHEMA: &str = "slop_ninja.public.reference/v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,18 +61,10 @@ pub struct Publication {
     pub cohort: u64,
     pub label: String,
     pub publisher: String,
-    /// Every copied object, relative to the cohort directory, with the digest
-    /// and length verified before and after the copy.
-    pub objects: Vec<PublicObject>,
-    pub receipts_verified: u64,
-    /// Why `components.json` was not published, when it exists.
-    pub components_withheld: Option<String>,
+    /// SHA-256 of the cohort's `summary.json`, the only cohort object
+    /// published.
+    pub summary: String,
     pub artifacts: Vec<ArtifactEntry>,
-    /// The later cohort whose publication completed N+2 and removed this
-    /// cohort's detailed receipts (index, chunk map and bundles) from the
-    /// public host; `None` while they are retained.
-    #[serde(default)]
-    pub receipts_deleted_after: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,22 +73,18 @@ pub struct CohortEntry {
     pub label: String,
     pub path: String,
     pub opened_epoch: u64,
-    pub admission_closed_epoch: u64,
-    pub published_epoch: u64,
     pub closed_epoch: u64,
-    /// `margin`, `fallback` or `no_target`.
-    pub mode: String,
+    /// The entrant promoted to `R_k+1`, if any.
     pub promoted: Option<String>,
+    /// The target the cohort's closure activated, if any.
     pub target: Option<String>,
     pub reference_index: u64,
+    /// Digest of the signed manifest (kept private), which coordinator rows
+    /// and authorizations name.
     pub manifest: String,
-    pub package: String,
-    pub closure: String,
+    /// SHA-256 of the cohort's `summary.json`.
+    pub summary: String,
     pub entrants: u32,
-    pub receipts: u64,
-    /// Whether the detailed receipts are still published (deleted once two
-    /// later cohorts are published).
-    pub receipts_retained: bool,
     pub artifacts_published: u32,
     pub artifacts_withheld: u32,
     pub artifacts_pending: u32,
@@ -141,8 +135,7 @@ pub struct CohortIndex {
     #[serde(default)]
     pub record_prefix: Option<String>,
     /// The earlier public records moved aside when a new one started, oldest
-    /// first: their prefixes are never adopted again, and their cohorts whose
-    /// detailed receipts were still published wait here for the N+2 rule.
+    /// first: their prefixes are never adopted again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_records: Vec<ArchivedRecord>,
     /// Closed cohorts of this record whose detailed receipts the coordinator
@@ -180,11 +173,6 @@ pub struct RefusedCohort {
     pub reason: String,
     /// The publisher build that refused it (`publish::build_id`).
     pub build: String,
-    /// Set once detailed receipts an interrupted or refused copy left on
-    /// the public host were deleted under the coordinator's retirement
-    /// marker: its `due_after_cohort`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub receipts_deleted_after: Option<u64>,
 }
 
 /// A closed cohort whose detailed receipts were deleted before publication.
@@ -204,9 +192,11 @@ pub struct RetiredCohort {
 }
 
 /// An earlier public record, moved under `v1/records/<first_label>/` when a
-/// new record started (a chain-record restart). The archive is the record as
-/// it stood then and is never rewritten; each cohort's publication record
-/// (`receipts_deleted_after`) says when its detailed receipts were deleted.
+/// new record started (a chain-record restart). The archive is the record's
+/// index as it stood then, written once and never rewritten. An archive of
+/// layout v1 (whose fields the allow-list no longer accepts) is deleted when
+/// the v1 index is migrated (`publish::Run::cohorts`); this entry, its
+/// prefix and initial references, stays and keeps doing its work.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchivedRecord {
     /// The prefix it was built under (`None`: before one was configured).
@@ -215,14 +205,6 @@ pub struct ArchivedRecord {
     /// configured prefix this label starts with names this record too, even
     /// when it had none recorded ([`ArchivedRecord::named_by`]).
     pub first_label: String,
-    /// Its cohorts whose detailed receipts were still published when it was
-    /// moved aside. Cohort numbers continue across authorities, so each is
-    /// deleted once two later cohorts of the live record are published, then
-    /// dropped from this list. The restart superseded its target: no new
-    /// commitment is made to an earlier record's target once the
-    /// coordinator's and validators' held targets are restarted.
-    #[serde(default)]
-    pub receipts_pending: Vec<PendingReceipts>,
     /// Its initial references (its index's `initial_references`): their
     /// artifacts stay withheld as entrant artifacts in every later record,
     /// whose manifests never name them.
@@ -237,14 +219,6 @@ impl ArchivedRecord {
     pub fn named_by(&self, p: &str) -> bool {
         self.prefix.as_deref() == Some(p) || self.first_label.starts_with(p)
     }
-}
-
-/// A cohort of an earlier record whose detailed receipts are still published.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PendingReceipts {
-    pub label: String,
-    pub cohort: u64,
-    pub target: Option<String>,
 }
 
 /// What the configured record prefix means for the stored index.
@@ -473,6 +447,91 @@ impl CohortIndex {
     }
 }
 
+/// Layout v1's index as a v2 publisher adopts it: its chain must be this
+/// one; the record prefix, the initial references (still withheld as entrant
+/// artifacts), the earlier records and the cohorts retired before
+/// publication are kept. Its cohort entries are dropped: they named signed
+/// records and receipt counts the public host no longer carries, and every
+/// in-record cohort is listed again from its private records, one a run.
+pub fn migrate_v1(v: &serde_json::Value, chain: &ChainBinding) -> Result<CohortIndex, String> {
+    let bad = |what: &str| {
+        format!("the v1 public index's {what} is not readable; refusing to replace it")
+    };
+    if v.get("chain")
+        .cloned()
+        .and_then(|c| serde_json::from_value::<Chain>(c).ok())
+        != Some(Chain::from_binding(chain))
+    {
+        return Err(bad("chain"));
+    }
+    let mut idx = CohortIndex::empty(chain);
+    let take = |key: &str| v.get(key).cloned().unwrap_or(serde_json::Value::Null);
+    idx.record_prefix =
+        serde_json::from_value(take("record_prefix")).map_err(|_| bad("record prefix"))?;
+    if !take("initial_references").is_null() {
+        idx.initial_references = serde_json::from_value(take("initial_references"))
+            .map_err(|_| bad("initial references"))?;
+    }
+    if !take("previous_records").is_null() {
+        idx.previous_records =
+            serde_json::from_value(take("previous_records")).map_err(|_| bad("earlier records"))?;
+    }
+    if !take("retired_unpublished").is_null() {
+        idx.retired_unpublished = serde_json::from_value(take("retired_unpublished"))
+            .map_err(|_| bad("retired cohorts"))?;
+    }
+    Ok(idx)
+}
+
+/// A live index as the pre-deploy record check reads it: layout v2 as it
+/// is, layout v1 (which a v2 publisher replaces at its first run) for its
+/// record prefix, earlier records and listed labels only.
+pub fn for_record_check(v: &serde_json::Value) -> Result<CohortIndex, String> {
+    match v.get("schema").and_then(|s| s.as_str()) {
+        Some(INDEX_SCHEMA) => {
+            serde_json::from_value(v.clone()).map_err(|e| format!("not a public cohort index: {e}"))
+        }
+        Some(INDEX_SCHEMA_V1) => {
+            let chain = v
+                .get("chain")
+                .cloned()
+                .and_then(|c| serde_json::from_value::<Chain>(c).ok())
+                .and_then(|c| c.binding())
+                .ok_or("not a public cohort index: chain")?;
+            let mut idx = migrate_v1(v, &chain)?;
+            for c in v
+                .get("cohorts")
+                .and_then(|c| c.as_array())
+                .into_iter()
+                .flatten()
+            {
+                let label = c
+                    .get("label")
+                    .and_then(|l| l.as_str())
+                    .ok_or("not a public cohort index: label")?;
+                idx.cohorts.push(CohortEntry {
+                    cohort: c.get("cohort").and_then(|n| n.as_u64()).unwrap_or_default(),
+                    label: label.to_owned(),
+                    path: format!("{}/", layout::cohort_dir(label)),
+                    opened_epoch: 0,
+                    closed_epoch: 0,
+                    promoted: None,
+                    target: None,
+                    reference_index: 0,
+                    manifest: String::new(),
+                    summary: String::new(),
+                    entrants: 0,
+                    artifacts_published: 0,
+                    artifacts_withheld: 0,
+                    artifacts_pending: 0,
+                });
+            }
+            Ok(idx)
+        }
+        _ => Err("not a public cohort index".into()),
+    }
+}
+
 /// The initial reference a manifest's reference set names: the current one
 /// at index 0 (`R_0` or its replacement), its predecessor at index 1, else
 /// none (later references are promoted miner artifacts).
@@ -486,8 +545,9 @@ pub fn initial_reference(
     }
 }
 
-/// The index entry of a verified cohort with its artifact states.
-pub fn entry(v: &VerifiedCohort, artifacts: &[ArtifactEntry]) -> CohortEntry {
+/// The index entry of a verified cohort with its summary's SHA-256 and its
+/// artifact states.
+pub fn entry(v: &VerifiedCohort, summary: &str, artifacts: &[ArtifactEntry]) -> CohortEntry {
     let digest = |d: Result<slop_ninja_protocol::Digest, _>| d.map(|d| d.hex()).unwrap_or_default();
     let count = |s: ArtifactState| artifacts.iter().filter(|a| a.state == s).count() as u32;
     CohortEntry {
@@ -495,19 +555,13 @@ pub fn entry(v: &VerifiedCohort, artifacts: &[ArtifactEntry]) -> CohortEntry {
         label: v.label.clone(),
         path: format!("{}/", layout::cohort_dir(&v.label)),
         opened_epoch: v.manifest.opened_epoch,
-        admission_closed_epoch: v.closure.admission_closed_epoch,
-        published_epoch: v.closure.published_epoch,
         closed_epoch: v.closure.closed_epoch,
-        mode: mode_name(v.package.mode).into(),
         promoted: v.package.promoted.map(|h| crate::ss58::encode(&h)),
         target: v.closure.target.map(|d| d.hex()),
         reference_index: v.package.reference_index,
         manifest: digest(v.manifest.digest()),
-        package: digest(v.package.digest()),
-        closure: digest(v.closure.digest()),
+        summary: summary.to_owned(),
         entrants: v.package.entrants.len() as u32,
-        receipts: v.receipts,
-        receipts_retained: v.receipts > 0,
         artifacts_published: count(ArtifactState::Published),
         artifacts_withheld: count(ArtifactState::Withheld),
         artifacts_pending: count(ArtifactState::Pending),

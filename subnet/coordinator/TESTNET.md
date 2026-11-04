@@ -3409,6 +3409,86 @@ remaining options (a token count from the pinned tokenizer before seal,
 either compiled into eval or asked of the scorer under `R_0`) are in the
 lane notes; until one lands, L9 stays open in the readiness list.
 
+### Public allow-list and the copy model (2026-11-04, not live)
+
+Landed, not deployed. Validators other than the coordinator commit its
+signed row (`CoordinatorRow`, signed with the authorization key, never the
+hotkey) and receive nothing computed from the hidden evaluation; the public
+host carries only allow-listed objects (`publisher/src/allowlist.rs`).
+
+- **When a row is signed.** The coordinator derives the row of the
+  installed target from a finalized snapshot in its own step, once a tempo
+  (the first confirmed block of each commit epoch) and when a new target is
+  installed, outside its hotkey pipeline (`signing::rows`,
+  `sign_row_snapshot`): a signing pause (an operator hold, a deploy, a
+  disabled commit/reveal flag), a signer fault or a preflight deferral
+  delays nothing other validators receive. It shares only the signer
+  claim, the signing RPC share and the finalized block. The record is signed
+  within one cron tick of the derivation (or of the coordinator's own
+  commitment's, when that is later), whether or not its hotkey ever signs a
+  commitment. A new record is signed whenever the paid entries change under
+  the same authorization (UID, hotkey, registration block, weight, owner
+  hotkey); records are ordered by (epoch, registration block), validators
+  install a later one by that order (`row_not_newer` keeps a stale pointer
+  out), and none is re-signed back to an earlier derivation. `/status`
+  `signing.row_record` shows the record, `pending_*` while none covers the
+  installed authorization and `snapshot_*` for the step; the publisher
+  alerts `row_record_stalled` after a tempo (rules v15). A coordinator
+  outage pauses the step with everything else; validators keep committing
+  the record they hold.
+- **What validators commit.** The record's entries, except that the units of
+  a registration the validator's own finalized snapshot no longer holds
+  (deregistered, re-registered, the UID handed to another hotkey) burn
+  through the owner's UID, the rule the coordinator's own derivation
+  applies; with no owner UID that tempo is deferred. This exception is
+  awaiting the user's decision (it changes a copied row from the
+  validator's own snapshot); if declined, validators commit the entries
+  exactly and rely on the coordinator re-signing.
+- **Deploy order** (each its own deploy, deploy lock held through its probe):
+  1. eval-testnet, then the publisher: readers of the pointer schema with
+     `row` must be live before anything writes it. The publisher's first run
+     migrates the v1 index: it deletes the v1 leaderboard, reference
+     pointers and archived record indexes, rewrites `index.html` without a
+     leaderboard, writes the v2 index and re-lists cohorts one a run. Probe:
+     `v1/cohorts/index.json` schema v2, `index.html` without score columns.
+  2. The coordinator (journal schema 13: `sign_row_record`,
+     `sign_row_snapshot`): pause signing, deploy, wait for schema 13 on
+     `/status`, resume. Probe: within a tempo `signing.row_record` names a
+     record of the installed authorization (no `pending_authorization`,
+     `snapshot_derived_epoch` set), the pointer carries `row`, and the
+     publisher copies it to `v1/authorizations/current.json`.
+  3. Only then the key audit with deletion: the private wrapper
+     `data/task-roots/testnet/deploy/public-key-audit/audit.sh <ops binary>
+     <out dir> --delete`, with the ops binary built from the deployed tree
+     (`slop_ninja_publisher_ops`). It lists the public bucket, fetches every
+     object of a content-checked kind (the page included), and refuses to
+     delete anything when a fetch failed or the tool (`audit-keys
+     --for-delete`) left a key unchecked. Run earlier, the old publisher
+     would copy the deleted objects back.
+  4. Only then the validator release. Never before the coordinator and the
+     publisher publish rows: an upgraded validator whose installed bundle is
+     retired (reward-v1 v1 or v3, or the T12 fixture package) defers
+     (`bundle_schema_retired`) and commits nothing until a row bundle is
+     installed. It keeps running and recovering meanwhile; a row bundle of
+     the target it holds is installed in place at once even with a
+     commitment in flight, and the next tempo commits without a restart.
+- **validator2's row source.** The public host stays off (D5), so
+  validator2 reads a local mirror: `deploy/row-mirror.sh <mirror dir>` (in
+  the validator crate) copies the private pointer and its objects from the
+  receipts bucket with the operator's own read access, every object before
+  the pointer; validator2's `[fetch] base_url` is `file://<mirror dir>/`,
+  and a user timer runs the script every few minutes. Before validator2's
+  upgrade: the mirror shows a pointer with `row` and `slop_ninja_validator
+  fetch` against it reports `ready`. Restart only in a window with no
+  unsettled commit or reveal, journal backed up first, never a build older
+  than rtao `0c128160`. Keep its old fetch cache (`cohorts/`,
+  `authorizations/`) until the release is accepted: a rollback needs it.
+- **Open.** Quantization: every published band, cluster and drop bit, and
+  the row, are derived from exact scores until the specification is
+  approved (`QUANTIZED-SCORE` marks); the near-equal drop is a bit finer
+  than a band and is also visible in revealed weights. No row-fetcher memory
+  measurement yet (the 2G unit limit is kept as an over-provision).
+
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 
 The projection's inputs come from the load rehearsals of 2026-10-31 (3 to 129

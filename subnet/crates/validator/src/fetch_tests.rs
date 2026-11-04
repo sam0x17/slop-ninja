@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use anyhow::{Result, bail};
 use serde_json::json;
 use slop_ninja_protocol::fixtures_reward_v1 as fx;
-use slop_ninja_protocol::{ActiveTarget, ChainBinding, Digest, Record, TrustedKeys, sign};
+use slop_ninja_protocol::{ActiveTarget, ChainBinding, Record, TrustedKeys};
 
 use crate::config::ValidatorConfig;
 use crate::fetch::{self, Got, Outcome, Session, Sink, Staged, Transport};
@@ -35,10 +35,6 @@ struct Host {
 impl Host {
     fn put(&self, path: &str, bytes: Vec<u8>) {
         self.objects.lock().unwrap().insert(path.to_owned(), bytes);
-    }
-
-    fn remove(&self, path: &str) {
-        self.objects.lock().unwrap().remove(path);
     }
 
     fn get_bytes(&self, path: &str) -> Vec<u8> {
@@ -101,128 +97,45 @@ fn sha(bytes: &[u8]) -> String {
     fetch::sha256_hex(bytes)
 }
 
-fn dir(c: &Cohort) -> String {
-    format!("v1/cohorts/{}/", c.manifest.cohort_label)
-}
-
-const CHUNK: &str = "receipts/bundle-job-0.bin";
-
-/// One cohort's objects at their published names.
-fn cohort_objects(c: &Cohort) -> Vec<(String, Vec<u8>)> {
-    let pk = slop_ninja_protocol::fixtures::package_key();
-    let rk = slop_ninja_protocol::fixtures::receipt_key();
-    let label = &c.manifest.cohort_label;
-    let chunk_map = json!({
-        "format": fetch::CHUNK_FORMAT,
-        "cohort_manifest": c.manifest.digest().unwrap().to_string(),
-        "receipt_root": c.receipt_index.digest().unwrap().to_string(),
-        "receipt_count": c.receipt_index.count(),
-        "objects": [{
-            "key": format!("cohorts/{label}/{CHUNK}"),
-            "sha256": sha(&c.chunk),
-            "bytes": c.chunk.len(),
-            "receipts": c.receipt_index.count(),
-        }],
-    });
-    vec![
-        (
-            "manifest.signed".into(),
-            sign(c.manifest.clone(), &pk).unwrap().to_bytes().unwrap(),
-        ),
-        (
-            "package.signed".into(),
-            sign(c.package.clone(), &pk).unwrap().to_bytes().unwrap(),
-        ),
-        (
-            "target.signed".into(),
-            sign(c.target.clone(), &pk).unwrap().to_bytes().unwrap(),
-        ),
-        (
-            "closure.signed".into(),
-            sign(c.closure.clone(), &pk).unwrap().to_bytes().unwrap(),
-        ),
-        (
-            "receipt-index.signed".into(),
-            sign(c.receipt_index.clone(), &rk)
-                .unwrap()
-                .to_bytes()
-                .unwrap(),
-        ),
-        (
-            "published-contents.bin".into(),
-            c.index.contents.to_bytes().unwrap(),
-        ),
-        (
-            "fingerprint-index.bin".into(),
-            c.index.fingerprints.to_bytes().unwrap(),
-        ),
-        (
-            "chunk-map.json".into(),
-            serde_json::to_vec(&chunk_map).unwrap(),
-        ),
-        (CHUNK.into(), c.chunk.clone()),
-    ]
-}
-
-/// Publishes a cohort's objects and its publication record.
-fn publish(host: &Host, c: &Cohort) {
-    let objects = cohort_objects(c);
-    let publication = json!({
-        "schema": fetch::PUBLICATION_SCHEMA,
-        "cohort": c.manifest.cohort,
-        "label": c.manifest.cohort_label,
-        "publisher": "test",
-        "receipts_verified": c.receipt_index.count(),
-        "objects": objects.iter().map(|(rel, b)| json!({"rel": rel, "sha256": sha(b), "bytes": b.len()})).collect::<Vec<_>>(),
-    });
-    for (rel, bytes) in objects {
-        host.put(&format!("{}{rel}", dir(c)), bytes);
-    }
-    host.put(
-        &format!("{}publication.json", dir(c)),
-        serde_json::to_vec(&publication).unwrap(),
-    );
-}
-
-/// Deletes a cohort's detailed receipts from the host, as the N+2 rule does.
-fn delete_receipts(host: &Host, c: &Cohort) {
-    for rel in ["receipt-index.signed", "chunk-map.json", CHUNK] {
-        host.remove(&format!("{}{rel}", dir(c)));
-    }
-}
 
 fn chain_json(chain: &ChainBinding) -> serde_json::Value {
     json!({"genesis": hex::encode(chain.genesis.0), "netuid": chain.netuid, "mechanism": chain.mechanism})
 }
 
-/// Writes the cohort index; each cohort with whether its receipts are retained.
-fn index(host: &Host, cohorts: &[(&Cohort, bool)]) {
-    let entries: Vec<_> = cohorts
-        .iter()
-        .map(|(c, retained)| {
-            json!({
-                "cohort": c.manifest.cohort,
-                "label": c.manifest.cohort_label,
-                "path": dir(c),
-                "mode": "margin",
-                "target": hex::encode(c.target.digest().unwrap().0),
-                "receipts_retained": retained,
-                "entrants": c.package.entrants.len(),
-            })
-        })
-        .collect();
-    let body = json!({
-        "schema": fetch::INDEX_SCHEMA,
-        "network": "testnet",
-        "chain": chain_json(&fx::chain()),
-        "trust": {"path": "v1/trust/testnet-trust.json", "sha256": "00"},
-        "active_target": {"digest": "", "source": "launch_burn", "cohort": null},
-        "cohorts": entries,
-    });
-    host.put(fetch::INDEX_PATH, serde_json::to_vec(&body).unwrap());
+/// The coordinator's snapshot the fetch tests' rows are signed from: no
+/// entrant registered, so every row burns through the owner's UID 2.
+fn coord() -> slop_ninja_protocol::RegistrationSnapshot {
+    rv1::snapshot(&[])
 }
 
-/// Publishes an authorization (and renewal) and points at it.
+/// The coordinator's signed launch burn row under `authorization`.
+fn launch_row(authorization: &[u8]) -> Vec<u8> {
+    let a = slop_ninja_protocol::Signed::<slop_ninja_protocol::LaunchAuthorization>::from_bytes(authorization)
+        .expect("a launch authorization")
+        .record;
+    let row = slop_ninja_protocol::CoordinatorRow {
+        chain: a.chain.clone(),
+        reward_rule: slop_ninja_protocol::RewardRule::RewardV1,
+        source: slop_ninja_protocol::RowSource::LaunchBurn,
+        target: a.target,
+        activated_epoch: None,
+        authorization: a.digest().unwrap(),
+        issued_epoch: a.issued_epoch,
+        epoch: a.issued_epoch,
+        registration_block: 100,
+        owner_hotkey: fx::owner_hotkey(),
+        entries: vec![slop_ninja_protocol::CoordinatorRowEntry {
+            uid: 2,
+            hotkey: fx::owner_hotkey(),
+            registration_block: 0,
+            weight: u16::MAX,
+        }],
+    };
+    fx::signed(row).unwrap().to_bytes().unwrap()
+}
+
+/// Publishes a launch authorization (and renewal) with the coordinator's
+/// row of it and points at them.
 fn point(
     host: &Host,
     chain: &ChainBinding,
@@ -241,6 +154,32 @@ fn point_revoked(
     renewal: Option<&[u8]>,
     revocations: &[&[u8]],
 ) {
+    // A launch row needs only the authorization; a malformed authorization
+    // gets no row (the session refuses before it reads one).
+    let row = (kind == "launch")
+        .then(|| slop_ninja_protocol::Signed::<slop_ninja_protocol::LaunchAuthorization>::from_bytes(authorization).ok())
+        .flatten()
+        .map(|_| launch_row(authorization));
+    point_row(host, chain, kind, authorization, renewal, revocations, row.as_deref());
+}
+
+/// Publishes cohort `c`'s authorization `authorization` (its own, or a
+/// re-authorization), any renewal, and the coordinator's row of it.
+fn point_cohort(host: &Host, c: &Cohort, authorization: &[u8], renewal: Option<&[u8]>) {
+    let row = rv1::row_with(c, authorization, &coord());
+    point_row(host, &fx::chain(), "cohort", authorization, renewal, &[], Some(&row));
+}
+
+/// Publishes the pointer and every object it names.
+fn point_row(
+    host: &Host,
+    chain: &ChainBinding,
+    kind: &str,
+    authorization: &[u8],
+    renewal: Option<&[u8]>,
+    revocations: &[&[u8]],
+    row: Option<&[u8]>,
+) {
     let object = |bytes: &[u8]| {
         let digest = sha(bytes);
         let path = format!("v1/authorizations/{digest}.signed");
@@ -255,6 +194,7 @@ fn point_revoked(
         "authorization": object(authorization),
         "renewal": renewal.map(object),
         "revocations": (!revocations.is_empty()).then(|| object(&revocations.concat())),
+        "row": row.map(object),
     });
     host.put(
         fetch::AUTHORIZATION_PATH,
@@ -337,310 +277,6 @@ fn ready(outcome: Outcome) -> Box<Staged> {
     }
 }
 
-fn target_hex(c: &Cohort) -> String {
-    c.target.digest().unwrap().to_string()
-}
-
-/// A published cohort target assembles into exactly the bundle the
-/// coordinator's tool writes, verified against the held target; a second
-/// session reads only the three small documents and serves every object from
-/// the cache.
-#[test]
-fn a_published_cohort_assembles_into_the_bundle_the_validator_verifies() -> Result<()> {
-    let root = scratch()?;
-    let (first, _, _) = rv1::cohorts();
-    let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
-    let staged = ready(run(&host, root.path(), launch_held())?);
-    assert_eq!(
-        staged.bundle,
-        rv1::bundle(&first),
-        "byte-identical to the operator tool's bundle"
-    );
-    assert_eq!(staged.info.kind, "cohort");
-    assert_eq!(staged.info.target, target_hex(&first));
-    assert_eq!(
-        staged.info.activated_epoch,
-        Some(first.closure.closed_epoch)
-    );
-    assert_eq!(staged.info.receipts_verified, first.receipt_index.count());
-    assert!(staged.advance.is_none());
-    // The target record is read once to walk from the held target and once
-    // for the bundle, so its second read is a cache hit.
-    assert_eq!(
-        (
-            staged.stats.fetched,
-            staged.stats.cached,
-            staged.stats.documents
-        ),
-        (10, 1, 3)
-    );
-    // Files in the cache are private.
-    use std::os::unix::fs::PermissionsExt as _;
-    let local = root
-        .path()
-        .join("cohorts")
-        .join(&first.manifest.cohort_label)
-        .join("package.signed");
-    assert_eq!(
-        std::fs::metadata(&local)?.permissions().mode() & 0o777,
-        0o600
-    );
-    assert_eq!(
-        std::fs::metadata(root.path().join("cohorts"))?
-            .permissions()
-            .mode()
-            & 0o777,
-        0o700
-    );
-    host.clear_log();
-    let again = ready(run(&host, root.path(), launch_held())?);
-    assert_eq!(again.sha256, staged.sha256);
-    // The authorization is a few hundred bytes, read into memory and
-    // checked each session, never cached.
-    assert_eq!(
-        (
-            again.stats.fetched,
-            again.stats.cached,
-            again.stats.documents
-        ),
-        (1, 10, 3)
-    );
-    assert!(!root.path().join("authorizations").exists());
-    assert!(host.offsets(&format!("{}{CHUNK}", dir(&first))).is_empty());
-    Ok(())
-}
-
-/// A request cut part-way leaves a partial file; the next session continues
-/// it with a range request from the bytes it holds. A host that ignores the
-/// range restarts the object from byte 0, and it still verifies.
-#[test]
-fn an_interrupted_object_resumes_with_a_range_request() -> Result<()> {
-    let (first, _, _) = rv1::cohorts();
-    let chunk_path = format!("{}{CHUNK}", dir(&first));
-    assert!(
-        first.chunk.len() > 200,
-        "the fixture chunk spans several reads"
-    );
-    for ignore_range in [false, true] {
-        let root = scratch()?;
-        let host = Host {
-            ignore_range,
-            ..Host::default()
-        };
-        publish(&host, &first);
-        index(&host, &[(&first, true)]);
-        point(&host, &fx::chain(), "cohort", &first.authorization, None);
-        host.cut.lock().unwrap().insert(chunk_path.clone(), 100);
-        assert!(
-            run(&host, root.path(), launch_held()).is_err(),
-            "the dropped connection is an error"
-        );
-        let part = root
-            .path()
-            .join("cohorts")
-            .join(&first.manifest.cohort_label)
-            .join(format!("{CHUNK}.part"));
-        assert_eq!(std::fs::metadata(&part)?.len(), 100);
-        let staged = ready(run(&host, root.path(), launch_held())?);
-        assert_eq!(host.offsets(&chunk_path), vec![0, 100]);
-        assert_eq!(staged.stats.resumed, u32::from(!ignore_range));
-        assert!(!part.exists());
-        assert_eq!(staged.bundle, rv1::bundle(&first));
-    }
-    Ok(())
-}
-
-/// An object whose bytes differ from its listed digest is deleted and the
-/// session reports it; nothing is assembled. A host that declares more bytes
-/// than listed is refused before the body is read.
-#[test]
-fn a_digest_mismatch_deletes_the_partial_and_assembles_nothing() -> Result<()> {
-    let root = scratch()?;
-    let (first, _, _) = rv1::cohorts();
-    let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
-    let path = format!("{}package.signed", dir(&first));
-    let good = host.get_bytes(&path);
-    let mut bad = good.clone();
-    let last = bad.len() - 1;
-    bad[last] ^= 1;
-    host.put(&path, bad);
-    match run(&host, root.path(), launch_held())? {
-        Outcome::Incomplete { code, cohort, .. } => {
-            assert_eq!(code, "object_digest_mismatch");
-            assert_eq!(
-                cohort.as_deref(),
-                Some(first.manifest.cohort_label.as_str())
-            );
-        }
-        other => panic!("expected a digest refusal, got {other:?}"),
-    }
-    let local = root
-        .path()
-        .join("cohorts")
-        .join(&first.manifest.cohort_label)
-        .join("package.signed");
-    assert!(!local.exists());
-    assert!(!local.with_file_name("package.signed.part").exists());
-    let mut long = good.clone();
-    long.push(0);
-    host.put(&path, long);
-    let error = run(&host, root.path(), launch_held()).unwrap_err();
-    assert!(
-        format!("{error:#}").contains("more bytes than the object's listed length"),
-        "{error:#}"
-    );
-    // Restored, the same cache completes.
-    host.put(&path, good);
-    ready(run(&host, root.path(), launch_held())?);
-    Ok(())
-}
-
-/// A successor whose records are not all on the host yet never produces a
-/// bundle, so the installed target stays: not yet listed, listed with an
-/// object missing, or listed without its receipts.
-#[test]
-fn a_partial_successor_keeps_the_installed_target() -> Result<()> {
-    let root = scratch()?;
-    let (first, second, _) = rv1::cohorts();
-    let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
-    let held = ActiveTarget::activated(&first.closure.check(
-        &first.manifest,
-        &first.package,
-        Some(&first.target),
-    )?)?;
-    let code = |outcome: Outcome| outcome.code();
-    assert_eq!(
-        code(run(&host, root.path(), held.clone())?),
-        "target_unlisted"
-    );
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    host.remove(&format!("{}{CHUNK}", dir(&second)));
-    assert_eq!(
-        code(run(&host, root.path(), held.clone())?),
-        "object_missing"
-    );
-    // Published without receipts (receipts withheld from the public host).
-    let publication_path = format!("{}publication.json", dir(&second));
-    let mut publication: serde_json::Value =
-        serde_json::from_slice(&host.get_bytes(&publication_path))?;
-    publication["objects"].as_array_mut().unwrap().retain(|o| {
-        !matches!(
-            o["rel"].as_str(),
-            Some("receipt-index.signed" | "chunk-map.json")
-        )
-    });
-    host.put(&publication_path, serde_json::to_vec(&publication)?);
-    assert_eq!(
-        code(run(&host, root.path(), held.clone())?),
-        "receipts_unpublished"
-    );
-    // Complete: the successor verifies against the held first target.
-    publish(&host, &second);
-    let staged = ready(run(&host, root.path(), held)?);
-    assert_eq!(staged.info.target, target_hex(&second));
-    assert_eq!(
-        staged.info.activated_epoch,
-        Some(second.closure.closed_epoch)
-    );
-    Ok(())
-}
-
-/// Receipts deleted under the N+2 rule: a validator that never fetched them
-/// cannot assemble a bundle for a new commitment; one that fetched them while
-/// they were retained still can, from its own verified cache.
-#[test]
-fn receipts_deleted_under_n_plus_2_are_served_only_from_the_cache() -> Result<()> {
-    let (first, _, _) = rv1::cohorts();
-    let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
-    let early = scratch()?;
-    ready(run(&host, early.path(), launch_held())?);
-    delete_receipts(&host, &first);
-    index(&host, &[(&first, false)]);
-    let late = scratch()?;
-    match run(&host, late.path(), launch_held())? {
-        Outcome::ReceiptsExpired { cohort } => assert_eq!(cohort, first.manifest.cohort_label),
-        other => panic!("expected expired receipts, got {other:?}"),
-    }
-    host.clear_log();
-    let staged = ready(run(&host, early.path(), launch_held())?);
-    assert_eq!(staged.bundle, rv1::bundle(&first));
-    assert!(
-        host.offsets(&format!("{}{CHUNK}", dir(&first))).is_empty(),
-        "never asked the host for deleted receipts"
-    );
-    Ok(())
-}
-
-/// A validator still holding the launch burn row after two targets were
-/// published reaches the current one: the intermediate target is checked
-/// without its (deleted) receipts and recorded as an advance, and the current
-/// bundle verifies against it. A held target outside the published chain is
-/// refused.
-#[test]
-fn a_validator_behind_advances_through_intermediate_targets() -> Result<()> {
-    let root = scratch()?;
-    let (first, second, _) = rv1::cohorts();
-    let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    delete_receipts(&host, &first);
-    index(&host, &[(&first, false), (&second, true)]);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
-    let staged = ready(run(&host, root.path(), launch_held())?);
-    let advance = staged.advance.clone().expect("an intermediate advance");
-    assert_eq!(advance.target, hex::encode(first.target.digest()?.0));
-    assert_eq!(advance.activated_epoch, Some(first.closure.closed_epoch));
-    assert_eq!(staged.info.target, target_hex(&second));
-    // The intermediate's package replaced by another validly signed one
-    // (listed with matching digests): its bindings refuse it.
-    let path = format!("{}package.signed", dir(&first));
-    let forged = host.get_bytes(&format!("{}package.signed", dir(&second)));
-    let publication_path = format!("{}publication.json", dir(&first));
-    let mut publication: serde_json::Value =
-        serde_json::from_slice(&host.get_bytes(&publication_path))?;
-    for o in publication["objects"].as_array_mut().unwrap() {
-        if o["rel"] == "package.signed" {
-            o["sha256"] = json!(sha(&forged));
-            o["bytes"] = json!(forged.len());
-        }
-    }
-    host.put(&publication_path, serde_json::to_vec(&publication)?);
-    host.put(&path, forged);
-    let fresh = scratch()?;
-    match run(&host, fresh.path(), launch_held())? {
-        Outcome::Refused(refusal) => assert!(
-            matches!(
-                refusal.code,
-                "package_manifest_mismatch" | "target_package_mismatch"
-            ),
-            "{refusal:?}"
-        ),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
-    // A held target that is not an ancestor of the published one.
-    let stranger = ActiveTarget::restore(&fx::chain(), Digest([9; 32]), Some(10))?;
-    publish(&host, &first);
-    delete_receipts(&host, &first);
-    match run(&host, root.path(), stranger)? {
-        Outcome::Refused(refusal) => assert_eq!(refusal.code, "held_target_unreachable"),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
-    Ok(())
-}
-
 /// The launch pointer assembles the launch bundle, which only a validator
 /// still holding the burn row accepts; a pointer for another subnet is an
 /// error, and nothing published yet is reported as such.
@@ -698,9 +334,7 @@ fn a_published_hint_refresh_is_not_newer_but_a_reauthorization_is() -> Result<()
     let root = scratch()?;
     let (first, _, _) = rv1::cohorts();
     let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
+    point_cohort(&host, &first, &first.authorization, None);
     let plain = ready(run(&host, root.path(), launch_held())?);
     let checked_closure =
         first
@@ -725,22 +359,17 @@ fn a_published_hint_refresh_is_not_newer_but_a_reauthorization_is() -> Result<()
         plain.info.renew_by_epoch - 1,
     )?)?
     .to_bytes()?;
-    point(
-        &host,
-        &fx::chain(),
-        "cohort",
-        &first.authorization,
-        Some(&renewal),
-    );
+    point_cohort(&host, &first, &first.authorization, Some(&renewal));
     let refreshed = ready(run(&host, root.path(), launch_held())?);
     assert_eq!(refreshed.info.issued_epoch, plain.info.issued_epoch);
     assert!(refreshed.info.renew_by_epoch > plain.info.renew_by_epoch);
     let installed = Candidate::of(&plain.sha256, &plain.info, true);
     let staged = Candidate::of(&refreshed.sha256, &refreshed.info, true);
+    // The same authorization and the same row: a hint refresh is not newer.
     assert_eq!(
         supersede::decide(Some(&installed), &staged, 90, &[]),
         Decision::Keep {
-            reason: "authorization_not_newer"
+            reason: "row_not_newer"
         }
     );
     // A re-authorization of the same target, issued later.
@@ -749,7 +378,7 @@ fn a_published_hint_refresh_is_not_newer_but_a_reauthorization_is() -> Result<()
     again.renew_by_epoch = again.issued_epoch + (signed.record.renew_by_epoch - signed.record.issued_epoch);
     again.checkpoint_generation += 1;
     let again = fx::signed(again)?.to_bytes()?;
-    point(&host, &fx::chain(), "cohort", &again, None);
+    point_cohort(&host, &first, &again, None);
     let reauthorized = ready(run(&host, root.path(), launch_held())?);
     let staged = Candidate::of(&reauthorized.sha256, &reauthorized.info, true);
     assert_eq!(
@@ -875,13 +504,23 @@ fn candidate(
     issued_epoch: u64,
     covers: bool,
 ) -> Candidate {
+    // Each bundle of these cases carries its own authorization.
     Candidate {
         sha256: sha.into(),
         target: target.into(),
         activated_epoch: activated,
+        authorization: format!("auth-{sha}"),
         issued_epoch,
+        row_epoch: issued_epoch,
+        row_block: 0,
         covers_now: covers,
     }
+}
+
+/// `c` re-signed by the coordinator under the same authorization as
+/// `under`, for its commitment at `row_epoch`.
+fn same_authorization(c: Candidate, under: &Candidate, row_epoch: u64) -> Candidate {
+    Candidate { authorization: under.authorization.clone(), issued_epoch: under.issued_epoch, row_epoch, ..c }
 }
 
 fn pending(id: &str, retirable: bool) -> Pending {
@@ -969,6 +608,60 @@ fn supersession_waits_for_in_flight_work_and_never_regresses_an_authorization() 
             in_flight: vec!["p1".into()]
         }
     );
+    // Review fix round 1 (finding 1): the coordinator re-signed its row
+    // under the same authorization (its entries changed): a later row
+    // epoch refreshes; the same or an earlier one (a stale or replayed
+    // pointer) never rolls the row back.
+    let rerow = |sha: &str, epoch: u64| same_authorization(candidate(sha, "t1", Some(80), 0, true), &installed, epoch);
+    assert_eq!(decide(Some(&installed), &rerow("d", 99), 99, &[]), Decision::Refresh);
+    for epoch in [96, 90] {
+        assert_eq!(
+            decide(Some(&installed), &rerow("e", epoch), 99, &[]),
+            Decision::Keep { reason: "row_not_newer" },
+            "row epoch {epoch}"
+        );
+    }
+    let newer = rerow("d", 99);
+    assert_eq!(
+        decide(Some(&newer), &installed, 99, &[]),
+        Decision::Keep { reason: "row_not_newer" },
+        "the earlier row is never reinstalled"
+    );
+    // Review fix round 2 (finding 4): the same epoch re-derived at a later
+    // block (the coordinator's entries changed within the epoch) refreshes;
+    // the same block, or an earlier one, never does.
+    let at = |sha: &str, block: u64| Candidate { row_block: block, ..rerow(sha, 99) };
+    let first = at("f", 500);
+    assert_eq!(decide(Some(&first), &at("g", 507), 99, &[]), Decision::Refresh);
+    for block in [500, 493] {
+        assert_eq!(
+            decide(Some(&first), &at("h", block), 99, &[]),
+            Decision::Keep { reason: "row_not_newer" },
+            "block {block}"
+        );
+    }
+    assert_eq!(
+        decide(Some(&at("g", 507)), &rerow("i", 98), 99, &[]),
+        Decision::Keep { reason: "row_not_newer" },
+        "an earlier epoch at any block never rolls back"
+    );
+    // Review fix round 2 (finding 1): with no installed bundle that
+    // verifies (a retired schema), a bundle of the held target itself is
+    // installed in place whatever is in flight; a successor still waits.
+    let held = candidate("j", "t1", Some(80), 99, true);
+    assert_eq!(
+        supersede::decide_holding(None, &held, "t1", 101, &[pending("landed", false)]),
+        Decision::Refresh
+    );
+    assert_eq!(
+        supersede::decide_holding(None, &successor, "t1", 101, &[pending("landed", false)]),
+        Decision::Wait { in_flight: vec!["landed".into()] }
+    );
+    assert_eq!(
+        supersede::decide_holding(Some(&installed), &held, "t1", 101, &[]),
+        decide(Some(&installed), &held, 101, &[]),
+        "with a verified installed bundle nothing changes"
+    );
 }
 
 #[derive(Default)]
@@ -1004,18 +697,17 @@ impl InstallPorts for FakeInstall {
     }
 }
 
-/// A switch retires never-signed work, moves the held record past checked
-/// intermediates and installs; it installs nothing if retirement is refused.
-/// Keep and wait install nothing; a refresh only rewrites the bundle.
+/// A switch retires never-signed work, installs and then records the
+/// successor's activation (a row names its target directly, so there is no
+/// intermediate to stage past); it installs nothing if retirement is
+/// refused. Keep and wait install nothing; a refresh only rewrites the
+/// bundle.
 #[test]
-fn install_retires_then_advances_then_writes() -> Result<()> {
+fn install_retires_then_writes_then_records() -> Result<()> {
     let root = scratch()?;
-    let (first, second, _) = rv1::cohorts();
+    let (_, second, _) = rv1::cohorts();
     let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
+    point_cohort(&host, &second, &second.authorization, None);
     let staged = ready(run(&host, root.path(), launch_held())?);
     let mut ports = FakeInstall::default();
     let switch = Decision::Switch {
@@ -1026,20 +718,14 @@ fn install_retires_then_advances_then_writes() -> Result<()> {
         ports.retired,
         vec![("old".to_owned(), "superseded".to_owned())]
     );
-    // The bundle is staged before the held record moves past the
-    // intermediate (so a crash leaves a staged successor the next start
-    // completes, never an installed bundle older than the record), then
-    // installed, then the successor's own activation is recorded.
-    assert_eq!(
-        ports.held,
-        vec![
-            staged.advance.clone().unwrap(),
-            HeldTargetFile::of(&staged.authorized.verified.active)
-        ]
-    );
-    assert_eq!(ports.staged, vec![staged.bundle.clone()]);
+    // The bundle is installed, then the successor's activation recorded
+    // (a crash between the two leaves an installed successor that still
+    // verifies against the held record).
+    assert!(staged.advance.is_none());
+    assert_eq!(ports.held, vec![HeldTargetFile::of(&staged.authorized.verified.active)]);
+    assert!(ports.staged.is_empty());
     assert_eq!(ports.written, vec![staged.bundle.clone()]);
-    assert_eq!(ports.order, ["retire", "stage", "record", "write", "record"]);
+    assert_eq!(ports.order, ["retire", "write", "record"]);
     let mut refusing = FakeInstall {
         refuse_retire: true,
         ..FakeInstall::default()
@@ -1059,9 +745,9 @@ fn install_retires_then_advances_then_writes() -> Result<()> {
     }
     assert!(supersede::install(&mut quiet, &staged, &Decision::Refresh)?);
     assert!(quiet.retired.is_empty() && quiet.held.is_empty() && quiet.staged.is_empty() && quiet.written.len() == 1);
-    // The bundle names the cohorts it was built from.
-    assert_eq!(staged.cohorts, vec![second.manifest.cohort_label.clone()]);
-    assert_eq!(fetch::bundle_cohorts(&staged.bundle)?, staged.cohorts);
+    // A row bundle keeps no cohort in the cache.
+    assert!(staged.cohorts.is_empty());
+    assert!(fetch::bundle_cohorts(&staged.bundle)?.is_empty());
     Ok(())
 }
 
@@ -1650,7 +1336,7 @@ fn a_switch_retires_never_signed_work_in_the_real_journal_and_a_dry_run_never_do
 
     // The first target is installed and held; its epoch-80 commitment is queued.
     let keys = slop_ninja_protocol::fixtures::trusted_keys();
-    let first_bytes = rv1::bundle(&first);
+    let first_bytes = rv1::bundle(&first, &coord());
     let authorized = std::sync::Arc::new(
         crate::package_v2::verify(
             &first_bytes,
@@ -1675,10 +1361,7 @@ fn a_switch_retires_never_signed_work_in_the_real_journal_and_a_dry_run_never_do
 
     // The successor, fetched and verified against the held first target.
     let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
+    point_cohort(&host, &second, &second.authorization, None);
     let held = ActiveTarget::activated(&first.closure.check(
         &first.manifest,
         &first.package,
@@ -1732,7 +1415,7 @@ fn a_switch_retires_never_signed_work_in_the_real_journal_and_a_dry_run_never_do
     assert_eq!(held.authority, Some(crate::package_v2::authority_digest(&keys)));
     // A stale or rolled-back pointer naming the first target right after the
     // switch: refused against the held successor, and never a switch back.
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
+    point_cohort(&host, &first, &first.authorization, None);
     let held_now = held.restore(&fx::chain()).map_err(|r| anyhow::anyhow!("{}", r.code))?;
     match run(&host, &root.path().join("public-cache"), held_now)? {
         Outcome::Refused(_) => {}
@@ -1758,14 +1441,13 @@ fn a_switch_retires_never_signed_work_in_the_real_journal_and_a_dry_run_never_do
     Ok(())
 }
 
-/// Review finding 8: a switch that moves the held record past intermediate
-/// targets stages its bundle first. A crash after the staging but before the
-/// record leaves the installed bundle (the staged one is discarded at the
-/// next start); a crash after the record but before the install leaves a
-/// staged successor the next start installs, never an installed bundle older
-/// than the held record. `reset-target` sets a staged bundle aside too.
+/// A bundle staged beside the installed one by an interrupted install (an
+/// earlier build staged before it moved the held record): the next start
+/// installs it when it verifies against the held target and records its
+/// activation, and discards it otherwise (a rollback). `reset-target` sets
+/// a staged bundle aside too.
 #[test]
-fn an_interrupted_install_past_intermediates_is_completed_or_discarded() -> Result<()> {
+fn an_interrupted_install_is_completed_or_discarded() -> Result<()> {
     let root = scratch()?;
     let (first, second, _) = rv1::cohorts();
     let package_path = root.path().join("package.json");
@@ -1794,35 +1476,31 @@ fn an_interrupted_install_past_intermediates_is_completed_or_discarded() -> Resu
     let held_path = crate::live::held_target_path(&root.path().join("journal.json"));
 
     // The launch bundle is installed and nothing is held; the fetched
-    // successor reaches the second target through the first.
+    // successor's row names the second target directly.
     let launch = rv1::launch(70);
     std::fs::write(&package_path, &launch)?;
     let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
+    point_cohort(&host, &second, &second.authorization, None);
     let staged = ready(run(&host, &root.path().join("public-cache"), launch_held())?);
-    let advance = staged.advance.clone().expect("an intermediate target");
+    assert!(staged.advance.is_none());
     assert_eq!(live.complete_install()?, None);
 
-    // Crash after staging, before the held record moved: discarded.
+    // A staged successor that verifies against the held launch row is
+    // installed and its activation held.
     InstallPorts::stage_bundle(&mut live, &staged.bundle)?;
     assert_eq!(std::fs::read(&next_path)?, staged.bundle);
-    assert_eq!(live.complete_install()?, Some("discarded"));
-    assert!(!next_path.exists());
-    assert_eq!(std::fs::read(&package_path)?, launch);
-    assert!(crate::live::read_held(&held_path, &keys, true)?.is_none());
-
-    // Crash after the held record moved past the intermediate, before the
-    // install: the staged successor is installed and its activation held.
-    InstallPorts::stage_bundle(&mut live, &staged.bundle)?;
-    crate::app::AppPorts::record_target(&mut live, &advance)?;
     assert_eq!(live.complete_install()?, Some("completed"));
     assert!(!next_path.exists());
     assert_eq!(std::fs::read(&package_path)?, staged.bundle);
     let held = crate::live::read_held(&held_path, &keys, true)?.expect("a held record");
     assert_eq!(held.target, hex::encode(second.target.digest()?.0));
+
+    // A staged rollback (the first target, after the second is held) is
+    // discarded and the installed successor stays.
+    InstallPorts::stage_bundle(&mut live, &rv1::bundle(&first, &coord()))?;
+    assert_eq!(live.complete_install()?, Some("discarded"));
+    assert!(!next_path.exists());
+    assert_eq!(std::fs::read(&package_path)?, staged.bundle);
 
     // A staged bundle left at a reset is set aside with the rest.
     InstallPorts::stage_bundle(&mut live, &staged.bundle)?;
@@ -1830,69 +1508,6 @@ fn an_interrupted_install_past_intermediates_is_completed_or_discarded() -> Resu
     let done = crate::live::reset_target(&config)?;
     assert_eq!(done["bundle_set_aside"], json!(true));
     assert!(!next_path.exists() && !package_path.exists() && !held_path.exists());
-    Ok(())
-}
-
-/// Resident set size and its high-water mark, KiB.
-fn rss_kib() -> (u64, u64) {
-    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
-    let field = |name: &str| {
-        status
-            .lines()
-            .find_map(|line| line.strip_prefix(name))
-            .and_then(|rest| rest.split_whitespace().next())
-            .and_then(|kib| kib.parse().ok())
-            .unwrap_or(0)
-    };
-    (field("VmRSS:"), field("VmHWM:"))
-}
-
-/// Review finding 31: the fetch path's peak memory with a bundle at
-/// [`crate::package::MAX_BUNDLE_BYTES`], for the dispatch unit's
-/// `MemoryMax`. The worst a continuous run holds at once: the installed
-/// bundle's verification, the loop's newest staged bundle, one staged
-/// bundle waiting in the fetcher's channel, and a session assembling and
-/// verifying another. Linux only; run alone (`--ignored --nocapture
-/// --test-threads=1`); it prints the peak above the starting set.
-#[test]
-#[ignore = "measures peak memory at the bundle bound; run alone"]
-fn peak_memory_at_the_bundle_bound() -> Result<()> {
-    let root = scratch()?;
-    let size = |n: u64| rv1::bundle(&rv1::sized(n)).len() as u64;
-    let (small, large) = (size(1_000), size(2_000));
-    let per_receipt = (large - small) / 1_000;
-    let fixed = small - 1_000 * per_receipt;
-    // Within the bound with a little room for the length estimate.
-    let receipts = (crate::package::MAX_BUNDLE_BYTES - fixed) / per_receipt * 99 / 100;
-    let cohort = rv1::sized(receipts);
-    let host = Host::default();
-    publish(&host, &cohort);
-    index(&host, &[(&cohort, true)]);
-    point(&host, &fx::chain(), "cohort", &cohort.authorization, None);
-    drop(cohort);
-    let cache = root.path().join("public-cache");
-    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
-    let (base, _) = rss_kib();
-    std::fs::write("/proc/self/clear_refs", "5")?;
-    let first = ready(run(&host, &cache, launch_held())?);
-    let (_, one_session) = rss_kib();
-    let installed = crate::package_v2::verify(&first.bundle, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held())
-        .map_err(|r| anyhow::anyhow!("{}", r.code))?;
-    let latest = ready(run(&host, &cache, launch_held())?);
-    let waiting = ready(run(&host, &cache, launch_held())?);
-    let (_, all) = rss_kib();
-    let report = json!({
-        "receipts": receipts,
-        "bundle_bytes": first.bundle.len(),
-        "bound_bytes": crate::package::MAX_BUNDLE_BYTES,
-        "base_kib": base,
-        "peak_one_session_kib": one_session.saturating_sub(base),
-        "peak_held_and_session_kib": all.saturating_sub(base),
-    });
-    println!("peak_memory_at_the_bundle_bound {report}");
-    assert!(first.bundle.len() as u64 <= crate::package::MAX_BUNDLE_BYTES);
-    assert_eq!(installed.receipts_verified, receipts);
-    drop((first, latest, waiting, installed));
     Ok(())
 }
 
@@ -1904,35 +1519,21 @@ fn activated(c: &Cohort) -> Result<ActiveTarget> {
     )?)?)
 }
 
-fn cohort_dirs(cache: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(cache.join("cohorts"))
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
-    names.sort();
-    names
-}
-
 /// Review R1: an authorization object must have its record's exact signed
 /// length (refused before any read otherwise) and a valid signature (refused
-/// before anything else is fetched); it is never written to the cache.
+/// before anything else is fetched); a row longer than the protocol's
+/// longest is refused unread. Nothing is written to the cache.
 #[test]
 fn authorization_objects_are_checked_in_memory_and_never_cached() -> Result<()> {
     let root = scratch()?;
     let (first, _, _) = rv1::cohorts();
     let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
     let (launch_len, cohort_len, renewal_len) = fetch::authorization_lengths(&fx::chain())?;
     // The schema's lengths (the README's pointer example states them).
     assert_eq!((launch_len, cohort_len, renewal_len), (230, 309, 196));
     assert_eq!(first.authorization.len() as u64, cohort_len);
     let junk = vec![7u8; 1 << 20];
-    point(&host, &fx::chain(), "cohort", &junk, None);
+    point_row(&host, &fx::chain(), "cohort", &junk, None, &[], None);
     host.clear_log();
     match run(&host, root.path(), launch_held())? {
         Outcome::Refused(refusal) => assert_eq!(refusal.code, "authorization_malformed"),
@@ -1944,171 +1545,108 @@ fn authorization_objects_are_checked_in_memory_and_never_cached() -> Result<()> 
         "an object of the wrong length is never requested"
     );
     let forged = vec![7u8; usize::try_from(cohort_len)?];
-    point(&host, &fx::chain(), "cohort", &forged, None);
+    point_row(&host, &fx::chain(), "cohort", &forged, None, &[], None);
     let outcome = run(&host, root.path(), launch_held())?;
     assert!(outcome.alert());
     assert_eq!(outcome.code(), "authorization_unverified");
-    assert!(host.offsets(fetch::INDEX_PATH).is_empty(), "nothing else was read");
-    assert!(!root.path().join("authorizations").exists());
-    assert!(cohort_dirs(root.path()).is_empty());
+    // A row past the protocol's bound is refused before it is requested.
+    let long = vec![9u8; usize::try_from(fetch::row_bound()? + 1)?];
+    point_row(&host, &fx::chain(), "cohort", &first.authorization, None, &[], Some(&long));
+    host.clear_log();
+    assert_eq!(run(&host, root.path(), launch_held())?.code(), "authorization_malformed");
+    assert!(host.offsets(&format!("v1/authorizations/{}.signed", sha(&long))).is_empty());
+    assert!(!root.path().join("authorizations").exists() && !root.path().join("cohorts").exists());
     Ok(())
 }
 
-/// Rewrites the chunk map and its publication listing.
-fn edit_chunk_map(host: &Host, c: &Cohort, edit: impl Fn(&mut serde_json::Value)) -> Result<()> {
-    let map_path = format!("{}chunk-map.json", dir(c));
-    let mut map: serde_json::Value = serde_json::from_slice(&host.get_bytes(&map_path))?;
-    edit(&mut map);
-    let map_bytes = serde_json::to_vec(&map)?;
-    host.put(&map_path, map_bytes.clone());
-    let pub_path = format!("{}publication.json", dir(c));
-    let mut publication: serde_json::Value = serde_json::from_slice(&host.get_bytes(&pub_path))?;
-    for o in publication["objects"].as_array_mut().unwrap() {
-        if o["rel"] == "chunk-map.json" {
-            o["sha256"] = json!(sha(&map_bytes));
-            o["bytes"] = json!(map_bytes.len());
-        }
-    }
-    host.put(&pub_path, serde_json::to_vec(&publication)?);
-    Ok(())
-}
-
-/// Lists an object in a cohort's publication record.
-fn list_object(host: &Host, c: &Cohort, rel: &str, bytes: &[u8]) -> Result<()> {
-    let pub_path = format!("{}publication.json", dir(c));
-    let mut publication: serde_json::Value = serde_json::from_slice(&host.get_bytes(&pub_path))?;
-    publication["objects"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"rel": rel, "sha256": sha(bytes), "bytes": bytes.len()}));
-    host.put(&pub_path, serde_json::to_vec(&publication)?);
-    Ok(())
-}
-
-/// Review R2: receipt bundles are bound to the signed receipt index before
-/// any is read. An extra bundle (listed, digest-correct, but not accounted
-/// for by the index's entries), another receipt root, or a bundle the
-/// publication record does not list is refused without reading a bundle,
-/// so nothing unaccounted for reaches the cache or memory.
+/// The copy model: a published cohort authorization and the coordinator's
+/// signed row assemble into exactly the row bundle the operator tool writes,
+/// verified against the held target, reading the pointer and three signed
+/// objects and nothing else. No cohort record or receipt is requested and
+/// nothing is cached. An earlier layout's cache (the receipts an installed
+/// v3 bundle references) is left exactly as it was, so a rollback to that
+/// release can still verify its bundle (review fix round 1, finding 11).
 #[test]
-fn receipt_bundles_are_bound_to_the_signed_index_before_any_is_read() -> Result<()> {
+fn a_published_row_assembles_into_the_bundle_the_validator_verifies() -> Result<()> {
+    let root = scratch()?;
     let (first, _, _) = rv1::cohorts();
-    let label = first.manifest.cohort_label.clone();
-    let chunk_path = format!("{}{CHUNK}", dir(&first));
-    let fresh_host = || {
-        let host = Host::default();
-        publish(&host, &first);
-        index(&host, &[(&first, true)]);
-        point(&host, &fx::chain(), "cohort", &first.authorization, None);
-        host
-    };
-
-    // An extra bundle, listed in both documents with its true digest.
-    let host = fresh_host();
-    let extra_rel = "receipts/bundle-job-9.bin";
-    let extra = vec![1u8; 1 << 20];
-    host.put(&format!("{}{extra_rel}", dir(&first)), extra.clone());
-    list_object(&host, &first, extra_rel, &extra)?;
-    edit_chunk_map(&host, &first, |map| {
-        map["objects"].as_array_mut().unwrap().push(json!({
-            "key": format!("cohorts/{label}/{extra_rel}"),
-            "sha256": sha(&extra),
-            "bytes": extra.len(),
-            "receipts": 0,
-        }));
-    })?;
-    let root = scratch()?;
-    let outcome = run(&host, root.path(), launch_held())?;
-    assert_eq!(outcome.code(), "chunk_map_mismatch");
-    assert!(outcome.alert());
-    assert!(host.offsets(&format!("{}{extra_rel}", dir(&first))).is_empty());
-    assert!(host.offsets(&chunk_path).is_empty());
-
-    // Another receipt root.
-    let host = fresh_host();
-    edit_chunk_map(&host, &first, |map| map["receipt_root"] = json!("00".repeat(32)))?;
-    let root = scratch()?;
-    assert_eq!(run(&host, root.path(), launch_held())?.code(), "chunk_map_mismatch");
-    assert!(host.offsets(&chunk_path).is_empty());
-
-    // The same bytes under a name only the chunk map gives.
-    let host = fresh_host();
-    let hidden_rel = "receipts/bundle-job-7.bin";
-    host.put(&format!("{}{hidden_rel}", dir(&first)), first.chunk.clone());
-    edit_chunk_map(&host, &first, |map| {
-        map["objects"][0]["key"] = json!(format!("cohorts/{label}/{hidden_rel}"));
-    })?;
-    let root = scratch()?;
-    assert_eq!(run(&host, root.path(), launch_held())?.code(), "object_unlisted");
-    assert!(host.offsets(&format!("{}{hidden_rel}", dir(&first))).is_empty());
+    let host = Host::default();
+    point_cohort(&host, &first, &first.authorization, None);
+    // What an earlier layout cached.
+    let receipts = root.path().join("cohorts").join("testnet-old").join("receipts");
+    std::fs::create_dir_all(&receipts)?;
+    std::fs::write(receipts.join("chunk-0.bin"), b"receipt bytes")?;
+    std::fs::create_dir_all(root.path().join("authorizations"))?;
+    std::fs::write(root.path().join("authorizations").join("a.signed"), b"signed")?;
+    let staged = ready(run(&host, root.path(), launch_held())?);
+    assert_eq!(staged.bundle, rv1::bundle(&first, &coord()), "byte-identical to the operator tool's bundle");
+    assert_eq!(staged.info.kind, "cohort");
+    assert_eq!(staged.info.target, first.target.digest()?.to_string());
+    assert_eq!(staged.info.activated_epoch, Some(first.closure.closed_epoch));
+    assert_eq!(staged.info.cohort.as_deref(), Some(first.manifest.cohort_label.as_str()));
+    assert_eq!(staged.info.row_entries, 1);
+    assert!(staged.advance.is_none() && staged.cohorts.is_empty());
+    assert_eq!((staged.stats.fetched, staged.stats.documents), (2, 1));
+    let paths: Vec<String> = host.log.lock().unwrap().iter().map(|(p, _)| p.clone()).collect();
+    assert!(paths.iter().all(|p| p == fetch::AUTHORIZATION_PATH || p.starts_with("v1/authorizations/")), "{paths:?}");
+    ready(run(&host, root.path(), activated(&first)?)?);
+    assert_eq!(std::fs::read(receipts.join("chunk-0.bin"))?, b"receipt bytes", "kept for a rollback");
+    assert_eq!(std::fs::read(root.path().join("authorizations").join("a.signed"))?, b"signed");
+    // The row committed is the coordinator's: every unit to the owner's UID.
+    let snap = crate::package_v2::snapshot(&rv1::snapshot(&[]), fx::owner_hotkey().0).unwrap();
+    let epoch = first.closure.closed_epoch;
+    let d = crate::package_v2::derive(staged.authorized.clone(), &snap, [0x42; 32], epoch).unwrap();
+    assert_eq!(d.entries(), vec![(2, 65535)]);
     Ok(())
 }
 
-/// Every session that located a cohort prunes the cache to the cohorts it
-/// named and those of the installed bundle, whatever its outcome.
+/// Until the coordinator publishes its signed row under the pointer's
+/// authorization, a session is incomplete (retried, never an alert) and the
+/// installed bundle keeps committing; a row of another authorization, or a
+/// tampered one, is refused or fails its digest.
 #[test]
-fn every_session_prunes_the_cache_to_what_it_named_and_the_installed_cohorts() -> Result<()> {
+fn a_pointer_without_the_coordinators_row_keeps_the_installed_bundle() -> Result<()> {
     let root = scratch()?;
     let (first, second, _) = rv1::cohorts();
     let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    let (one, two) = (
-        first.manifest.cohort_label.clone(),
-        second.manifest.cohort_label.clone(),
-    );
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
-    ready(run(&host, root.path(), activated(&first)?)?);
-    assert_eq!(cohort_dirs(root.path()), vec![two.clone()]);
-    // A pointer to the first target, with the second installed: both kept.
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
-    ready(run_with(&host, root.path(), activated(&first)?, None, std::slice::from_ref(&two))?);
-    assert_eq!(cohort_dirs(root.path()), vec![one.clone(), two.clone()]);
-    // An unknown keep set (an installed or staged bundle file unreadable)
-    // prunes nothing: those cohorts may hold an installed v3 bundle's only
-    // receipts.
-    ready(run_keeping(&host, root.path(), activated(&first)?, None, None)?);
-    assert_eq!(cohort_dirs(root.path()), vec![one.clone(), two.clone()]);
-    // A failed session prunes too: only what it named survives. (The
-    // publication record now lists other bytes than the host serves.)
-    let pub_path = format!("{}publication.json", dir(&first));
-    let mut publication: serde_json::Value = serde_json::from_slice(&host.get_bytes(&pub_path))?;
-    for o in publication["objects"].as_array_mut().unwrap() {
-        if o["rel"] == "package.signed" {
-            let mut other = host.get_bytes(&format!("{}package.signed", dir(&first)));
-            let last = other.len() - 1;
-            other[last] ^= 1;
-            o["sha256"] = json!(sha(&other));
-        }
-    }
-    host.put(&pub_path, serde_json::to_vec(&publication)?);
-    assert_eq!(
-        run(&host, root.path(), activated(&first)?)?.code(),
-        "object_digest_mismatch"
-    );
-    assert_eq!(cohort_dirs(root.path()), vec![one]);
+    point_row(&host, &fx::chain(), "cohort", &first.authorization, None, &[], None);
+    let outcome = run(&host, root.path(), launch_held())?;
+    assert_eq!(outcome.code(), "row_unpublished");
+    assert!(outcome.retryable() && !outcome.alert());
+    // The row of another cohort's authorization: refused by the protocol.
+    let other = rv1::row(&second, &coord());
+    point_row(&host, &fx::chain(), "cohort", &first.authorization, None, &[], Some(&other));
+    let outcome = run(&host, root.path(), launch_held())?;
+    assert!(matches!(&outcome, Outcome::Refused(r) if r.code == "bundle_unverified"), "{outcome:?}");
+    assert!(outcome.alert());
+    // A row served with other bytes than the pointer names.
+    let row = rv1::row(&first, &coord());
+    point_row(&host, &fx::chain(), "cohort", &first.authorization, None, &[], Some(&row));
+    let path = format!("v1/authorizations/{}.signed", sha(&row));
+    let mut bad = row.clone();
+    let last = bad.len() - 1;
+    bad[last] ^= 1;
+    host.put(&path, bad);
+    let outcome = run(&host, root.path(), launch_held())?;
+    assert_eq!(outcome.code(), "object_digest_mismatch");
+    assert!(outcome.alert());
     Ok(())
 }
 
-/// A session whose documents and held target equal the last bundle's
-/// reports `unchanged` without requesting, hashing or verifying any cohort
-/// object; a changed held target is a full session again.
+/// A session whose pointer and held target equal the last bundle's reports
+/// `unchanged` without requesting or verifying any object; a changed held
+/// target, or a changed pointer, is a full session again.
 #[test]
 fn an_unchanged_session_reads_no_object() -> Result<()> {
     let root = scratch()?;
     let (first, _, _) = rv1::cohorts();
     let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
+    point_cohort(&host, &first, &first.authorization, None);
     let staged = ready(run(&host, root.path(), launch_held())?);
     host.clear_log();
     let outcome = run_with(&host, root.path(), launch_held(), Some(&staged.fingerprint), &[])?;
     assert!(matches!(outcome, Outcome::Unchanged), "{outcome:?}");
-    for rel in ["package.signed", "target.signed", CHUNK] {
-        assert!(host.offsets(&format!("{}{rel}", dir(&first))).is_empty(), "{rel}");
-    }
+    assert_eq!(host.log.lock().unwrap().len(), 1, "the pointer alone was read");
     let again = ready(run_with(
         &host,
         root.path(),
@@ -2118,12 +1656,10 @@ fn an_unchanged_session_reads_no_object() -> Result<()> {
     )?);
     assert_eq!(again.info.target, staged.info.target);
     assert_ne!(again.fingerprint, staged.fingerprint);
-    // Content changes in a document: a full session.
-    index(&host, &[(&first, true)]);
-    let pub_path = format!("{}publication.json", dir(&first));
-    let mut publication: serde_json::Value = serde_json::from_slice(&host.get_bytes(&pub_path))?;
-    publication["note"] = json!("rewritten");
-    host.put(&pub_path, serde_json::to_vec(&publication)?);
+    // A rewritten pointer: a full session.
+    let mut pointer: serde_json::Value = serde_json::from_slice(&host.get_bytes(fetch::AUTHORIZATION_PATH))?;
+    pointer["note"] = json!("rewritten");
+    host.put(fetch::AUTHORIZATION_PATH, serde_json::to_vec(&pointer)?);
     ready(run_with(&host, root.path(), launch_held(), Some(&staged.fingerprint), &[])?);
     Ok(())
 }
@@ -2282,12 +1818,9 @@ fn the_dispatch_loop_waits_then_switches_then_compares_the_old_reveal() -> Resul
     let root = scratch()?;
     let (first, second, _) = rv1::cohorts();
     let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
+    point_cohort(&host, &first, &first.authorization, None);
     let installed = ready(run(&host, root.path(), activated(&first)?)?);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
+    point_cohort(&host, &second, &second.authorization, None);
     let successor = ready(run(&host, root.path(), activated(&first)?)?);
     let activation = second.closure.closed_epoch;
     let mut ports = FakeLoop {
@@ -2400,9 +1933,7 @@ fn a_fetched_reauthorization_refreshes_the_loop_in_place() -> Result<()> {
     let root = scratch()?;
     let (first, _, _) = rv1::cohorts();
     let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
+    point_cohort(&host, &first, &first.authorization, None);
     let plain = ready(run(&host, root.path(), launch_held())?);
     let signed =
         slop_ninja_protocol::Signed::<slop_ninja_protocol::RewardIntentAuthorization>::from_bytes(
@@ -2413,7 +1944,7 @@ fn a_fetched_reauthorization_refreshes_the_loop_in_place() -> Result<()> {
     again.renew_by_epoch = again.issued_epoch + (signed.record.renew_by_epoch - signed.record.issued_epoch);
     again.checkpoint_generation += 1;
     let again = fx::signed(again)?.to_bytes()?;
-    point(&host, &fx::chain(), "cohort", &again, None);
+    point_cohort(&host, &first, &again, None);
     let renewed = ready(run(&host, root.path(), launch_held())?);
     let epoch = plain.info.renew_by_epoch + 1;
     let mut ports = FakeLoop {
@@ -2439,6 +1970,57 @@ fn a_fetched_reauthorization_refreshes_the_loop_in_place() -> Result<()> {
         LoopStep::Continue
     );
     assert_eq!(ports.epoch_reads, 1, "an installed bundle needs no chain read");
+    Ok(())
+}
+
+/// Review fix round 1 (finding 1): the coordinator re-signs its row under
+/// the same authorization when the paid entries change (here an entrant
+/// registered since: the first row burned everything, the second pays it).
+/// A session assembles the new bundle, the decision refreshes the
+/// installed one in place and the loop installs it; the next tempo commits
+/// the new entries. Pointing back at the earlier row (a stale or replayed
+/// pointer) is kept out, so the row never rolls back.
+#[test]
+fn a_reissued_row_under_the_same_authorization_refreshes_and_never_rolls_back() -> Result<()> {
+    use crate::supersede::{FetchState, LoopStep};
+    let root = scratch()?;
+    let (first, _, specs) = rv1::cohorts();
+    let host = Host::default();
+    point_cohort(&host, &first, &first.authorization, None);
+    let installed = ready(run(&host, root.path(), activated(&first)?)?);
+    assert_eq!(installed.info.row_entries, 1, "the first row burns everything");
+    let later = installed.info.row_epoch + 3;
+    let registered = rv1::snapshot(&specs);
+    let second = rv1::row_at(&first, &first.authorization, &registered, later);
+    point_row(&host, &fx::chain(), "cohort", &first.authorization, None, &[], Some(&second));
+    let staged = ready(run_with(&host, root.path(), activated(&first)?, Some(&installed.fingerprint), &[])?);
+    assert_eq!((staged.info.authorization.as_str(), staged.info.row_epoch), (installed.info.authorization.as_str(), later));
+    assert!(staged.info.row_entries > 1);
+    let epoch = later;
+    let of = |s: &Staged| Candidate::of(&s.sha256, &s.info, true);
+    assert_eq!(supersede::decide(Some(&of(&installed)), &of(&staged), epoch, &[]), Decision::Refresh);
+    // The earlier row pointed at again: never reinstalled over the newer.
+    point_cohort(&host, &first, &first.authorization, None);
+    let stale = ready(run_with(&host, root.path(), activated(&first)?, Some(&staged.fingerprint), &[])?);
+    assert_eq!(stale.sha256, installed.sha256);
+    assert_eq!(supersede::decide(Some(&of(&staged)), &of(&stale), epoch, &[]), Decision::Keep { reason: "row_not_newer" });
+    // The loop installs the new row in place; it commits the new entries.
+    let mut ports = FakeLoop {
+        epoch,
+        epoch_reads: 0,
+        pending: Vec::new(),
+        installed: Some(of(&installed)),
+        install: FakeInstall::default(),
+    };
+    let staged_bundle = staged.bundle.clone();
+    let mut state = FetchState::default();
+    assert_eq!(block_on(state.step(&mut ports, Some(Outcome::Ready(staged))))?, LoopStep::Refreshed);
+    assert_eq!(ports.install.written, vec![staged_bundle]);
+    assert!(ports.install.held.is_empty(), "a refresh keeps the held target");
+    let snap = crate::package_v2::snapshot(&registered, fx::owner_hotkey().0).unwrap();
+    let d = crate::package_v2::derive(state.latest().unwrap().authorized.clone(), &snap, [0x42; 32], epoch + 1).unwrap();
+    assert_eq!(d.entries().len(), state.latest().unwrap().info.row_entries);
+    assert!(d.entries().len() > 1, "the new entries are committed");
     Ok(())
 }
 
@@ -2493,6 +2075,71 @@ fn the_reveal_ledger_tracks_only_unrevealed_commitments() -> Result<()> {
     Ok(())
 }
 
+/// Review fix round 2 (finding 1): an upgrade over a retired bundle (here a
+/// reward-v1 v3 bundle left at `[package] path`, so nothing installed
+/// verifies) with work of the held target pending: the fetched row bundle
+/// of that same target is installed in place at once (a refresh), nothing
+/// is retired and nothing waits, so the next tempo commits without a
+/// restart. Before the fix this was a switch that retired the pending
+/// work, or with a landed commitment pending, a wait no loop ever re-ran.
+#[test]
+fn a_row_bundle_of_the_held_target_installs_over_a_retired_bundle_with_work_pending() -> Result<()> {
+    use crate::app::AppPorts as _;
+    let root = scratch()?;
+    let (first, _, specs) = rv1::cohorts();
+    let package_path = root.path().join("package.json");
+    let text = format!(
+        "{}{}\n[fetch]\nbase_url = \"https://status.example/\"\n",
+        base_config(root.path())
+            .replace("netuid = 601", &format!("netuid = {}", rv1::RV1_NETUID))
+            .replace(
+                "/home/operator/.bittensor/wallets",
+                &root.path().join("wallets").display().to_string()
+            ),
+        package_section().replace("/abs/package.json", &package_path.display().to_string()),
+    );
+    let config = ValidatorConfig::parse(&text)?;
+    let validator = [0x66; 32];
+    let identity = slop_ninja_subnet::ChainIdentity {
+        genesis: rtao_primitives::H256(slop_ninja_protocol::TESTNET_GENESIS.0),
+        netuid: rtao_primitives::NetUid(rv1::RV1_NETUID),
+        hotkey: rtao_primitives::AccountId(validator),
+    };
+    crate::live::init_journal(&config, identity.clone())?;
+    let mut live = crate::live::LivePorts::new(config, identity);
+    crate::startup::StartupPorts::open_journal(&mut live)?;
+    live.unpause_for_offline_tests()?;
+    let keys = slop_ninja_protocol::fixtures::trusted_keys();
+    let first_bytes = rv1::bundle(&first, &coord());
+    let authorized = std::sync::Arc::new(
+        crate::package_v2::verify(&first_bytes, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held()).unwrap(),
+    );
+    crate::app::AppPorts::record_target(&mut live, &HeldTargetFile::of(&authorized.verified.active))?;
+    let snapshot = crate::package_v2::snapshot(&rv1::snapshot(&specs), fx::owner_hotkey().0).unwrap();
+    let derived = crate::package_v2::derive(authorized.clone(), &snapshot, validator, 80).unwrap();
+    let op = match live.enqueue(&derived.work, derived.input.clone(), slop_ninja_subnet::OwnerRowPolicy::Hold)? {
+        slop_ninja_subnet::Enqueued::Created(id) => id,
+        other => panic!("expected a new operation, got {other:?}"),
+    };
+    // The installed bundle is one this build retires.
+    let retired = serde_json::to_vec(&json!({"schema": crate::package_v2::BUNDLE_SCHEMA_V3, "shortcut": "T12"}))?;
+    std::fs::write(&package_path, &retired)?;
+    // The fetcher serves the held target's row bundle.
+    let host = Host::default();
+    point_cohort(&host, &first, &first.authorization, None);
+    let held = ActiveTarget::activated(&first.closure.check(&first.manifest, &first.package, Some(&first.target))?)?;
+    let staged = ready(run(&host, &root.path().join("public-cache"), held)?);
+    let epoch = first.closure.closed_epoch + 3;
+    let (decision, installed_now) = live.settle_staged(&staged, None, epoch, true)?;
+    assert_eq!((decision, installed_now), (Decision::Refresh, true));
+    assert_eq!(std::fs::read(&package_path)?, staged.bundle, "installed in place");
+    let pending: Vec<String> = live.pending_operations(0)?.iter().map(|p| p.id.clone()).collect();
+    assert_eq!(pending, vec![op.clone()], "the held target's work is neither retired nor waited on");
+    let controls = live.controls_for_tests().unwrap();
+    assert_eq!(controls.retired(&op)?, None);
+    Ok(())
+}
+
 /// A dry run that would install a fetched successor stages it in memory:
 /// the bundle file and the held-target record are unchanged, and the run's
 /// own verification reads the staged bundle.
@@ -2521,16 +2168,13 @@ fn a_dry_run_stages_a_fetched_bundle_in_memory() -> Result<()> {
     crate::live::init_journal(&config, identity.clone())?;
     let mut live = crate::live::LivePorts::new(config, identity).with_dry_run();
     crate::startup::StartupPorts::open_journal(&mut live)?;
-    let first_bytes = rv1::bundle(&first);
+    let first_bytes = rv1::bundle(&first, &coord());
     std::fs::write(&package_path, &first_bytes)?;
     let held_path = crate::live::held_target_path(&root.path().join("journal.json"));
     let held = HeldTargetFile::of(&activated(&first)?);
     std::fs::write(&held_path, serde_json::to_vec(&held)?)?;
     let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
+    point_cohort(&host, &second, &second.authorization, None);
     let staged = ready(run(&host, &root.path().join("public-cache"), activated(&first)?)?);
     let installed = {
         let authorized = crate::package_v2::verify(
@@ -2550,372 +2194,6 @@ fn a_dry_run_stages_a_fetched_bundle_in_memory() -> Result<()> {
     assert_eq!(std::fs::read(&held_path)?, serde_json::to_vec(&held)?, "the held record too");
     assert!(live.has_staged_bundle());
     assert_eq!(live.read_bundle()?, staged.bundle);
-    Ok(())
-}
-
-/// A cohort whose embedded receipts would exceed the bundle file bound is
-/// assembled as bundle schema v3: the records embedded, the signed receipt
-/// index and the receipt bundles named by their absolute paths in the
-/// verified cache. The chunks stream to the cache without counting against
-/// the session bound (only the records and the signed index are read into
-/// memory), and the bundle verifies from those files.
-#[test]
-fn receipts_past_the_embedded_bound_are_named_from_the_cache() -> Result<()> {
-    use crate::package_v2::{BUNDLE_SCHEMA_V2, BUNDLE_SCHEMA_V3, BundleV2};
-    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
-    let root = scratch()?;
-    let receipts = VALIDATOR_BUNDLE_BYTES / receipt_bundle_bytes(1)? + 1_000;
-    let big = rv1::sized(receipts);
-    let host = Host::default();
-    publish(&host, &big);
-    index(&host, &[(&big, true)]);
-    point(&host, &fx::chain(), "cohort", &big.authorization, None);
-    let cache = root.path().join("cache");
-    let staged = ready(run(&host, &cache, launch_held())?);
-    let b: BundleV2 = serde_json::from_slice(&staged.bundle)?;
-    assert_eq!(b.schema, BUNDLE_SCHEMA_V3);
-    assert!(staged.bundle.len() < 64 << 10, "{} bytes", staged.bundle.len());
-    assert_eq!(staged.info.receipts_verified, receipts);
-    let r = b.receipts.as_ref().expect("receipts by reference");
-    // Named relative to the cache root.
-    let local = format!("cohorts/{}", big.manifest.cohort_label);
-    assert_eq!(r.index.path, format!("{local}/receipt-index.signed"));
-    assert_eq!(r.chunks.len(), 1);
-    assert_eq!(r.chunks[0].path, format!("{local}/{CHUNK}"));
-    assert_eq!((r.chunks[0].sha256.as_str(), r.chunks[0].bytes), (sha(&big.chunk).as_str(), big.chunk.len() as u64));
-    // The installed form verifies again from the cache, as the validator
-    // does each time it reads it; without the cache root it does not.
-    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
-    let verify_at = |root: Option<&Path>| {
-        crate::package_v2::verify_in(&staged.bundle, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held(), root)
-    };
-    let again = verify_at(Some(&cache)).map_err(|r| anyhow::anyhow!("{}", r.code))?;
-    assert_eq!(again.receipts_verified, receipts);
-    assert_eq!(verify_at(None).unwrap_err().code, "bundle_malformed");
-    // Deleted from the host under the N+2 rule, the receipts are named from
-    // the cache again, never asked of the host.
-    delete_receipts(&host, &big);
-    index(&host, &[(&big, false)]);
-    host.clear_log();
-    let cached = ready(run(&host, &cache, launch_held())?);
-    assert_eq!(serde_json::from_slice::<BundleV2>(&cached.bundle)?.schema, BUNDLE_SCHEMA_V3);
-    assert_eq!(cached.info.receipts_verified, receipts);
-    assert!(host.offsets(&format!("{}{CHUNK}", dir(&big))).is_empty());
-    // A cohort that fits keeps the embedded form.
-    let (first, _, _) = rv1::cohorts();
-    let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
-    let small = ready(run(&host, &root.path().join("cache2"), launch_held())?);
-    assert_eq!(serde_json::from_slice::<BundleV2>(&small.bundle)?.schema, BUNDLE_SCHEMA_V2);
-    Ok(())
-}
-
-/// Sets the length the publication record lists for `rel` (a lying host).
-fn relist(host: &Host, c: &Cohort, rel: &str, bytes: u64) -> Result<()> {
-    let pub_path = format!("{}publication.json", dir(c));
-    let mut publication: serde_json::Value = serde_json::from_slice(&host.get_bytes(&pub_path))?;
-    for o in publication["objects"].as_array_mut().unwrap() {
-        if o["rel"] == rel {
-            o["bytes"] = json!(bytes);
-        }
-    }
-    host.put(&pub_path, serde_json::to_vec(&publication)?);
-    Ok(())
-}
-
-/// Review (standing-r0 round 1, findings 2 and 4): the signed receipt
-/// indexes a session reads into memory are planned before any object is
-/// read. A target's or a carrier's listed index larger than any index the
-/// protocol can sign is refused `receipts_too_large` (an alerting refusal,
-/// not a budget error that every session repeats), and nothing of either
-/// cohort's receipts is read. Two indexes at the largest signable length,
-/// a target's and its carrier's, fit the session's receipt index allowance.
-#[test]
-fn receipt_indexes_a_session_cannot_hold_are_refused_before_any_read() -> Result<()> {
-    use slop_ninja_protocol::target_bundle::{receipt_index_bytes, receipt_index_capacity, validator_receipt_index_bytes};
-    let largest = receipt_index_bytes(receipt_index_capacity()?)?;
-    assert_eq!(fetch::receipt_index_allowance()?, 2 * largest);
-    assert_eq!(validator_receipt_index_bytes()?, 2 * largest);
-    let (first, second, _) = rv1::cohorts();
-    // `first`'s target, carried by `second` (which produced no target).
-    let carried = fx::signed(fx::authorization(
-        &second.manifest,
-        &second.package,
-        &first.target,
-        1,
-        second.manifest.opened_epoch + fx::PUBLISHED_TEMPO,
-    )?)?
-    .to_bytes()?;
-    let index_rel = "receipt-index.signed";
-    let setup = |target_index: Option<u64>, carrier_index: Option<u64>| -> Result<Host> {
-        let host = Host::default();
-        publish(&host, &first);
-        publish(&host, &second);
-        index(&host, &[(&first, true), (&second, true)]);
-        point(&host, &fx::chain(), "cohort", &carried, None);
-        if let Some(bytes) = target_index {
-            relist(&host, &first, index_rel, bytes)?;
-        }
-        if let Some(bytes) = carrier_index {
-            relist(&host, &second, index_rel, bytes)?;
-        }
-        Ok(host)
-    };
-    let untouched = |host: &Host| {
-        for c in [&first, &second] {
-            for rel in [index_rel, CHUNK, "chunk-map.json"] {
-                assert!(host.offsets(&format!("{}{rel}", dir(c))).is_empty(), "{rel} of {}", c.manifest.cohort_label);
-            }
-        }
-    };
-    for (target_index, carrier_index) in [(Some(largest + 1), None), (None, Some(largest + 1))] {
-        let host = setup(target_index, carrier_index)?;
-        let root = scratch()?;
-        let outcome = run(&host, root.path(), launch_held())?;
-        assert_eq!(outcome.code(), "receipts_too_large", "{outcome:?}");
-        assert!(outcome.alert());
-        untouched(&host);
-    }
-    // At the boundary both fit: the session goes on to read the indexes
-    // (whose lying lengths then fail their digests).
-    let host = setup(Some(largest), Some(largest))?;
-    let root = scratch()?;
-    let outcome = run(&host, root.path(), launch_held())?;
-    assert!(!matches!(outcome.code(), "receipts_too_large" | "bundle_too_large"), "{outcome:?}");
-    assert!(!host.offsets(&format!("{}{index_rel}", dir(&first))).is_empty());
-    Ok(())
-}
-
-/// Review (standing-r0 round 1, finding 3): the embedded form is chosen
-/// from the listed objects' lengths, which leave out the bundle's own
-/// framing (JSON keys and quoting, the authorization and its renewal). A
-/// cohort whose objects fit the embedded form while its assembled bundle
-/// exceeds the file bound by that framing is reassembled by reference
-/// (schema v3) from the objects already verified, never refused
-/// `bundle_too_large`.
-#[test]
-fn an_embedded_bundle_over_the_bound_by_its_framing_is_reassembled_by_reference() -> Result<()> {
-    use crate::package_v2::{BUNDLE_SCHEMA_V3, BundleV2};
-    let max = crate::package::MAX_BUNDLE_BYTES;
-    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
-    let renewal = |c: &Cohort| -> Result<Vec<u8>> {
-        let signed = slop_ninja_protocol::Signed::<slop_ninja_protocol::RewardIntentAuthorization>::from_bytes(&c.authorization)?;
-        let checked =
-            slop_ninja_protocol::RewardIntentAuthorization::check(&signed, &keys, &c.manifest, &c.package, &c.target, &activated(c)?)?;
-        Ok(fx::signed(slop_ninja_protocol::RewardIntentRenewal::new(&checked, 2, signed.record.renew_by_epoch - 1)?)?.to_bytes()?)
-    };
-    // What the form decision counts, and the assembled embedded bundle.
-    let listed = |c: &Cohort| cohort_objects(c).iter().map(|(_, b)| b.len() as u64).sum::<u64>();
-    let assembled = |c: &Cohort| -> Result<u64> {
-        let mut b: BundleV2 = serde_json::from_slice(&rv1::bundle(c))?;
-        b.authorization.renewal = Some(hex::encode(renewal(c)?));
-        Ok(serde_json::to_vec(&b)?.len() as u64)
-    };
-    let (a, b) = (rv1::sized(1_000), rv1::sized(2_000));
-    let per = (listed(&b) - listed(&a)) / 1_000;
-    assert_eq!(assembled(&b)? - assembled(&a)?, 2 * per * 1_000, "the map is not embedded");
-    let guess = (max / 2 - (listed(&a) - 1_000 * per)) / per;
-    let near = rv1::sized(guess);
-    let (l, asm) = (listed(&near) as i64, assembled(&near)? as i64);
-    drop(near);
-    // The most receipts past `guess` whose listed objects still fit.
-    let k = (max as i64 - 2 * l).div_euclid(2 * per as i64);
-    assert!(asm + 2 * k * per as i64 > max as i64, "the framing window holds no receipt count");
-    let c = rv1::sized((guess as i64 + k) as u64);
-    assert!(2 * listed(&c) <= max && assembled(&c)? > max, "the boundary case");
-    let host = Host::default();
-    publish(&host, &c);
-    index(&host, &[(&c, true)]);
-    point(&host, &fx::chain(), "cohort", &c.authorization, Some(&renewal(&c)?));
-    let root = scratch()?;
-    let staged = ready(run(&host, &root.path().join("cache"), launch_held())?);
-    assert_eq!(serde_json::from_slice::<BundleV2>(&staged.bundle)?.schema, BUNDLE_SCHEMA_V3);
-    assert_eq!(staged.info.receipts_verified, c.receipt_index.count());
-    Ok(())
-}
-
-/// Review (standing-r0 round 2, finding 1): a verified v3 bundle the process
-/// still holds (a successor waiting to be installed, the loop's newest, one
-/// in the fetcher's channel) keeps its cohorts in the shared keep set, which
-/// a session reads when it prunes. A later session that names another
-/// cohort and fails leaves the held bundle's receipts, so it still
-/// verifies; once dropped, its cohorts are pruned like any other, and
-/// `references_present` (what the `unchanged` shortcut checks) reports it.
-#[test]
-fn a_held_v3_bundle_keeps_its_receipts_through_a_failed_session() -> Result<()> {
-    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
-    let root = scratch()?;
-    let big = rv1::sized(VALIDATOR_BUNDLE_BYTES / receipt_bundle_bytes(1)? + 1_000);
-    let (first, _) = rv1::single(0x77);
-    let (held_label, other_label) = (big.manifest.cohort_label.clone(), first.manifest.cohort_label.clone());
-    assert_ne!(held_label, other_label);
-    let host = Host::default();
-    publish(&host, &big);
-    index(&host, &[(&big, true)]);
-    point(&host, &fx::chain(), "cohort", &big.authorization, None);
-    // Another host state: the pointer names another cohort whose package
-    // fails its listed digest.
-    let other = Host::default();
-    publish(&other, &first);
-    index(&other, &[(&first, true)]);
-    point(&other, &fx::chain(), "cohort", &first.authorization, None);
-    let pub_path = format!("{}publication.json", dir(&first));
-    let mut publication: serde_json::Value = serde_json::from_slice(&other.get_bytes(&pub_path))?;
-    for o in publication["objects"].as_array_mut().unwrap() {
-        if o["rel"] == "package.signed" {
-            o["sha256"] = json!("00".repeat(32));
-        }
-    }
-    other.put(&pub_path, serde_json::to_vec(&publication)?);
-    let cache = root.path().join("cache");
-    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
-    let verify = |b: &[u8]| {
-        crate::package_v2::verify_in(b, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held(), Some(&cache))
-            .map(|_| ())
-            .map_err(|r| r.code)
-    };
-    let keep = fetch::KeepSet::new(Some(Vec::new()));
-    let waiting = ready(run_in(&host, &cache, launch_held(), None, &keep)?);
-    let refs = fetch::bundle_references(&waiting.bundle)?;
-    assert!(!refs.is_empty(), "a v3 bundle");
-    assert_eq!(keep.snapshot(), Some(vec![held_label.clone()]));
-    let failed = run_in(&other, &cache, launch_held(), Some(&waiting.fingerprint), &keep)?;
-    assert_eq!(failed.code(), "object_digest_mismatch");
-    assert_eq!(cohort_dirs(&cache), vec![held_label.clone(), other_label.clone()]);
-    assert_eq!(verify(&waiting.bundle), Ok(()));
-    assert!(fetch::references_present(&cache, &refs));
-    // Released: the next session prunes it, and the shortcut sees the loss.
-    let bundle = waiting.bundle.clone();
-    drop(waiting);
-    assert_eq!(keep.snapshot(), Some(Vec::new()));
-    run_in(&other, &cache, launch_held(), None, &keep)?;
-    assert_eq!(cohort_dirs(&cache), vec![other_label]);
-    assert!(!fetch::references_present(&cache, &refs));
-    assert_eq!(verify(&bundle), Err("referenced_object_missing"));
-    // A full session (no previous fingerprint) rebuilds the files.
-    let rebuilt = ready(run_in(&host, &cache, launch_held(), None, &keep)?);
-    assert_eq!(rebuilt.bundle, bundle, "the same relative references");
-    assert_eq!(verify(&bundle), Ok(()));
-    Ok(())
-}
-
-/// Review (standing-r0 round 2, finding 6): while the bundle files' cohorts
-/// are unknown (one cannot be read) no session prunes, so none takes a new
-/// cohort into the cache either (`cache_keep_unknown`, retryable): disk use
-/// stays what the cache held. Cohorts it already holds are still read.
-#[test]
-fn an_unknown_keep_set_takes_no_new_cohort_into_the_cache() -> Result<()> {
-    let root = scratch()?;
-    let (first, second, _) = rv1::cohorts();
-    let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
-    let cache = root.path().join("cache");
-    let keep = fetch::KeepSet::new(None);
-    let outcome = run_in(&host, &cache, launch_held(), None, &keep)?;
-    assert_eq!(outcome.code(), "cache_keep_unknown", "{outcome:?}");
-    assert!(outcome.retryable() && !outcome.alert());
-    assert!(cohort_dirs(&cache).is_empty());
-    keep.set_files(Some(Vec::new()));
-    ready(run_in(&host, &cache, launch_held(), None, &keep)?);
-    assert_eq!(cohort_dirs(&cache), vec![first.manifest.cohort_label.clone()]);
-    // Unknown again: the cached cohort is read, a new one is not taken.
-    keep.set_files(None);
-    ready(run_in(&host, &cache, launch_held(), None, &keep)?);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
-    let outcome = run_in(&host, &cache, activated(&first)?, None, &keep)?;
-    assert_eq!(outcome.code(), "cache_keep_unknown", "{outcome:?}");
-    assert_eq!(cohort_dirs(&cache), vec![first.manifest.cohort_label.clone()]);
-    Ok(())
-}
-
-/// Review (standing-r0 round 2, finding 7): the fetch path's peak memory at
-/// the receipt index bound, for the dispatch unit's `MemoryMax`: a target's
-/// cohort and its carrier each with the largest receipt index the protocol
-/// can sign (`receipt_index_capacity`), so the bundle is v3 and the session
-/// reads both signed indexes into memory. Measured as in
-/// [`peak_memory_at_the_bundle_bound`]: one session (with its verification),
-/// then the worst a continuous run holds at once (the installed bundle's
-/// verification, the loop's newest staged bundle, one waiting in the
-/// fetcher's channel, and a session assembling and verifying another).
-/// Linux only; run alone (`--ignored --nocapture --test-threads=1`); it
-/// prints the peaks above the starting set (the in-memory host's copies of
-/// the objects are part of the starting set).
-#[test]
-#[ignore = "measures peak memory at the receipt index bound; run alone"]
-fn peak_memory_at_the_receipt_index_bound() -> Result<()> {
-    use slop_ninja_protocol::target_bundle::{receipt_index_bytes, receipt_index_capacity};
-    let root = scratch()?;
-    let receipts = receipt_index_capacity()?;
-    // `first`'s target, carried by `second` (which produced no target).
-    let (first, second) = rv1::carried_sized(receipts);
-    assert_eq!((first.receipt_index.count(), second.receipt_index.count()), (receipts, receipts));
-    let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
-    drop((first, second));
-    let cache = root.path().join("public-cache");
-    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
-    let verify = |b: &[u8]| {
-        crate::package_v2::verify_in(b, &keys, &fx::chain().genesis.0, rv1::RV1_NETUID, &launch_held(), Some(&cache))
-            .map_err(|r| anyhow::anyhow!("{}", r.code))
-    };
-    let (base, _) = rss_kib();
-    std::fs::write("/proc/self/clear_refs", "5")?;
-    let first = ready(run(&host, &cache, launch_held())?);
-    let (_, one_session) = rss_kib();
-    std::fs::write("/proc/self/clear_refs", "5")?;
-    let installed = verify(&first.bundle)?;
-    let (_, one_verification) = rss_kib();
-    let latest = ready(run(&host, &cache, launch_held())?);
-    let waiting = ready(run(&host, &cache, launch_held())?);
-    let (_, all) = rss_kib();
-    let report = json!({
-        "receipts_per_cohort": receipts,
-        "receipt_index_bytes": receipt_index_bytes(receipts)?,
-        "bundle_bytes": first.bundle.len(),
-        "receipts_verified": first.info.receipts_verified,
-        "base_kib": base,
-        "peak_one_session_kib": one_session.saturating_sub(base),
-        "peak_one_verification_kib": one_verification.saturating_sub(base),
-        "peak_held_and_session_kib": all.saturating_sub(base),
-    });
-    println!("peak_memory_at_the_receipt_index_bound {report}");
-    assert_eq!(installed.receipts_verified, 2 * receipts);
-    assert_eq!(first.info.receipts_verified, 2 * receipts);
-    drop((first, latest, waiting, installed));
-    Ok(())
-}
-
-/// A carried target past the embedded bound only together with its carrier
-/// (each cohort alone fits) is assembled as schema v3 naming both cohorts'
-/// receipt indexes and bundles, and verifies every receipt of both.
-#[test]
-fn a_carried_target_names_both_cohorts_receipts_by_reference() -> Result<()> {
-    use crate::package_v2::{BUNDLE_SCHEMA_V3, BundleV2};
-    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
-    let receipts = VALIDATOR_BUNDLE_BYTES / receipt_bundle_bytes(1)? / 2 + 1_000;
-    let (first, second) = rv1::carried_sized(receipts);
-    let host = Host::default();
-    publish(&host, &first);
-    publish(&host, &second);
-    index(&host, &[(&first, true), (&second, true)]);
-    point(&host, &fx::chain(), "cohort", &second.authorization, None);
-    let root = scratch()?;
-    let cache = root.path().join("cache");
-    let staged = ready(run(&host, &cache, launch_held())?);
-    let b: BundleV2 = serde_json::from_slice(&staged.bundle)?;
-    assert_eq!(b.schema, BUNDLE_SCHEMA_V3);
-    assert!(b.receipts.is_some() && b.carrier_receipts.is_some());
-    assert_eq!(staged.info.receipts_verified, 2 * receipts);
-    assert_eq!(staged.cohorts, vec![first.manifest.cohort_label.clone(), second.manifest.cohort_label.clone()]);
-    assert_eq!(fetch::bundle_references(&staged.bundle)?.len(), 4);
     Ok(())
 }
 
@@ -2952,10 +2230,10 @@ fn run_dir(dir: &Path, cache: &Path, held: ActiveTarget) -> Result<Outcome> {
 }
 
 /// A local mirror directory (`file://` base) serves the same layout as the
-/// HTTPS host: no pointer is `unpublished`; the coordinator's automatically
-/// signed cohort authorization and its cohort's records assemble into the
-/// bundle the operator tool writes; a tampered object in the mirror is
-/// refused exactly as from the host.
+/// HTTPS host: no pointer is `unpublished`; the coordinator's cohort
+/// authorization and its signed row assemble into the bundle the operator
+/// tool writes; a tampered object in the mirror is refused exactly as from
+/// the host.
 #[test]
 fn a_mirror_directory_serves_a_published_cohort_like_the_https_host() -> Result<()> {
     let root = scratch()?;
@@ -2964,16 +2242,15 @@ fn a_mirror_directory_serves_a_published_cohort_like_the_https_host() -> Result<
     assert_eq!(run_dir(&dir, &cache, launch_held())?.code(), "unpublished");
     let (first, _, _) = rv1::cohorts();
     let host = Host::default();
-    publish(&host, &first);
-    index(&host, &[(&first, true)]);
-    point(&host, &fx::chain(), "cohort", &first.authorization, None);
+    point_cohort(&host, &first, &first.authorization, None);
     mirror(&host, &dir)?;
     let staged = ready(run_dir(&dir, &cache, launch_held())?);
-    assert_eq!(staged.bundle, rv1::bundle(&first), "byte-identical to the operator tool's bundle");
-    assert_eq!((staged.info.kind.as_str(), staged.info.target.clone()), ("cohort", target_hex(&first)));
+    assert_eq!(staged.bundle, rv1::bundle(&first, &coord()), "byte-identical to the operator tool's bundle");
+    assert_eq!((staged.info.kind.as_str(), staged.info.target.clone()), ("cohort", first.target.digest()?.to_string()));
     // A tampered object (same length, listed digest kept) is refused.
     let fresh = root.path().join("cache2");
-    let path = dir.join(format!("{}package.signed", dir_of(&first)));
+    let row = rv1::row(&first, &coord());
+    let path = dir.join(format!("v1/authorizations/{}.signed", sha(&row)));
     let mut bytes = std::fs::read(&path)?;
     *bytes.last_mut().unwrap() ^= 1;
     std::fs::write(&path, bytes)?;
@@ -2983,10 +2260,6 @@ fn a_mirror_directory_serves_a_published_cohort_like_the_https_host() -> Result<
         Err(_) => {}
     }
     Ok(())
-}
-
-fn dir_of(c: &Cohort) -> String {
-    dir(c)
 }
 
 /// The mirror transport reads a continued object from its offset, restarts

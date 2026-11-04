@@ -578,6 +578,27 @@ impl VerifiedTarget {
         })
     }
 
+    /// What a [`crate::CoordinatorRow`] of this target names as its source:
+    /// the launch burn row under the launch authorization, or the cohort
+    /// that carries the reward-intent authorization (the carrier when a
+    /// later cohort carries it).
+    pub fn row_source(&self) -> Result<crate::RowSource> {
+        match &self.auth {
+            Auth::Launch { .. } => Ok(crate::RowSource::LaunchBurn),
+            Auth::Cohort { authorization, carrier, .. } => {
+                let manifest = match carrier.as_deref() {
+                    Some(c) => &c.manifest,
+                    None => &self.source.as_ref().ok_or(Error::Invalid("cohort target without records"))?.manifest,
+                };
+                Ok(crate::RowSource::Cohort {
+                    cohort: authorization.record.cohort,
+                    cohort_label: manifest.cohort_label.clone(),
+                    cohort_manifest: authorization.record.cohort_manifest,
+                })
+            }
+        }
+    }
+
     /// The canonical row against the holder's own finalized snapshot.
     pub fn derive_row(&self, snapshot: &RegistrationSnapshotV2) -> Result<WeightRowV2> {
         match &self.source {

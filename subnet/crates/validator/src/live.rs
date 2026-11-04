@@ -302,9 +302,6 @@ pub struct LivePorts {
     /// What the fetch cache keeps: the bundle files' cohorts and those of
     /// every fetched bundle this process holds ([`crate::fetch::KeepSet`]).
     keep_cohorts: crate::fetch::KeepSet,
-    /// Set when the installed bundle's referenced cache files failed: the
-    /// next fetch session assembles the bundle in full.
-    fetch_rebuild: Arc<std::sync::atomic::AtomicBool>,
     /// A successor the startup fetch found eligible while work was in
     /// flight: the dispatch loop starts waiting for it.
     startup_wait: Option<(Box<Staged>, Decision, u64)>,
@@ -350,7 +347,6 @@ impl LivePorts {
             staged_bundle: None,
             fetcher: None,
             keep_cohorts: crate::fetch::KeepSet::new(Some(Vec::new())),
-            fetch_rebuild: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             startup_wait: None,
             loop_installed: None,
             tempo: None,
@@ -366,6 +362,13 @@ impl LivePorts {
     }
 
     /// Whether a dry run staged a fetched bundle in memory.
+    /// Whether the startup fetch found a successor that waits for work in
+    /// flight ([`Decision::Wait`]), which only the dispatch loop's finalized
+    /// recovery settles.
+    pub fn startup_waiting(&self) -> bool {
+        self.startup_wait.is_some()
+    }
+
     pub fn has_staged_bundle(&self) -> bool {
         self.staged_bundle.is_some()
     }
@@ -1296,14 +1299,6 @@ impl AppPorts for LivePorts {
         };
         self.installed_sha = Some(crate::fetch::sha256_hex(&bytes));
         Ok(bytes)
-    }
-
-    fn receipts_root(&self) -> Option<std::path::PathBuf> {
-        LivePorts::receipts_root(self)
-    }
-
-    fn rebuild_fetched_bundle(&mut self) {
-        self.fetch_rebuild.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn trusted_keys(&self) -> Result<TrustedKeys> {
@@ -2593,12 +2588,9 @@ struct FetchSetup {
     revocation_store: std::path::PathBuf,
     /// A session never outlives the interval to the next one.
     deadline: Duration,
-    /// [`Staged::fingerprint`] of the last bundle a session produced, and
-    /// the cache files it names by reference.
-    previous: Option<(String, Vec<crate::package_v2::ObjectRef>)>,
+    /// [`Staged::fingerprint`] of the last bundle a session produced.
+    previous: Option<String>,
     keep: crate::fetch::KeepSet,
-    /// [`LivePorts::fetch_rebuild`].
-    rebuild: Arc<std::sync::atomic::AtomicBool>,
     dry_run: bool,
 }
 
@@ -2614,16 +2606,6 @@ impl FetchSetup {
     /// times out leaves its partial objects to resume next time.
     async fn session(&mut self) -> Result<Outcome> {
         let held = self.held()?;
-        // `unchanged` vouches for the last bundle, so it needs that bundle's
-        // referenced files: when one is gone (or a verification found one
-        // changed), the session assembles the bundle in full again.
-        let rebuild = self.rebuild.swap(false, std::sync::atomic::Ordering::SeqCst);
-        if let Some((_, refs)) = &self.previous
-            && (rebuild || !crate::fetch::references_present(&self.cache, refs))
-        {
-            tracing::warn!(event = "fetch_rebuild", reason = if rebuild { "verification" } else { "references_missing" });
-            self.previous = None;
-        }
         let outcome = {
             let session = Session {
                 transport: &self.transport,
@@ -2631,7 +2613,7 @@ impl FetchSetup {
                 keys: &self.keys,
                 chain: &self.chain,
                 held,
-                previous: self.previous.as_ref().map(|(fingerprint, _)| fingerprint.as_str()),
+                previous: self.previous.as_deref(),
                 keep: &self.keep,
                 revocations: Some(&self.revocation_store),
             };
@@ -2644,7 +2626,7 @@ impl FetchSetup {
             }
         };
         if let Outcome::Ready(staged) = &outcome {
-            self.previous = Some((staged.fingerprint.clone(), crate::fetch::bundle_references(&staged.bundle)?));
+            self.previous = Some(staged.fingerprint.clone());
         }
         Ok(outcome)
     }
@@ -2715,17 +2697,11 @@ impl LivePorts {
             deadline,
             previous: None,
             keep: self.keep_cohorts.clone(),
-            rebuild: self.fetch_rebuild.clone(),
             dry_run: self.dry_run,
         }));
         self.refresh_keep_cohorts(None);
         self.fetcher = Some(setup.clone());
         Ok(Some(setup))
-    }
-
-    /// The fetch cache a fetched v3 bundle names its receipt objects under.
-    pub fn receipts_root(&self) -> Option<std::path::PathBuf> {
-        self.config.fetch.as_ref()?.cache_dir(&self.config.journal_path).ok()
     }
 
     /// Records the bundle files' cohorts, which the cache keeps: those of
@@ -2827,13 +2803,12 @@ impl LivePorts {
         };
         let held = self.held_active()?;
         let verified = if crate::package_v2::is_v2(&bytes) {
-            crate::package_v2::verify_in(
+            crate::package_v2::verify(
                 &bytes,
                 &self.trusted_keys()?,
                 &self.identity.genesis.0,
                 self.identity.netuid.0,
                 &held,
-                self.receipts_root().as_deref(),
             )
             .ok()
         } else {
@@ -2872,13 +2847,12 @@ impl LivePorts {
             return Ok(None);
         }
         let held = self.held_active()?;
-        let Ok(authorized) = crate::package_v2::verify_in(
+        let Ok(authorized) = crate::package_v2::verify(
             &bytes,
             &self.trusted_keys()?,
             &self.identity.genesis.0,
             self.identity.netuid.0,
             &held,
-            self.receipts_root().as_deref(),
         ) else {
             return Ok(None);
         };
@@ -2907,7 +2881,8 @@ impl LivePorts {
     ) -> Result<(Decision, bool)> {
         let covers = staged.authorized.check_epoch(self.identity.hotkey.0, epoch).is_ok();
         let candidate = Candidate::of(&staged.sha256, &staged.info, covers);
-        let mut decision = crate::supersede::decide(installed, &candidate, epoch, &self.pending()?);
+        let held = self.held_active()?.digest().to_string();
+        let mut decision = crate::supersede::decide_holding(installed, &candidate, &held, epoch, &self.pending()?);
         if !journal_writes && matches!(&decision, Decision::Switch { retire } if !retire.is_empty()) {
             decision = Decision::Keep { reason: "switch_needs_dispatch" };
         }
@@ -3027,10 +3002,6 @@ fn report_of(outcome: Outcome) -> (FetchReport, Option<Box<Staged>>) {
                 }),
                 ..FetchReport::default()
             },
-            None,
-        ),
-        Outcome::ReceiptsExpired { cohort } => (
-            FetchReport { outcome: code, detail: Some(cohort), ..FetchReport::default() },
             None,
         ),
         Outcome::Refused(refusal) => (
@@ -3426,7 +3397,7 @@ impl LivePorts {
             watch.revoked_alerted = None;
             return Ok(RevocationHead::default());
         };
-        let target = current.verified.target_digest.0;
+        let target = current.verified.target_digest().0;
         let mut head = RevocationHead { revoked: Some(revocation), ..RevocationHead::default() };
         for pending in AppPorts::pending_operations(self, mechanism)? {
             if pending.work.as_ref().and_then(|w| w.v2_target) != Some(target) {
@@ -3442,7 +3413,7 @@ impl LivePorts {
         if watch.revoked_alerted.as_deref() != Some(revocation.hex().as_str()) {
             tracing::warn!(
                 event = "authorization_revoked",
-                target = %current.verified.target_digest,
+                target = %current.verified.target_digest(),
                 revocation = %revocation,
                 withdrawn = head.withdrawn,
                 retired = head.retired,

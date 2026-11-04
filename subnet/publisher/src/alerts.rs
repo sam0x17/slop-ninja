@@ -59,6 +59,7 @@
 //! | `commit_gap` | the coordinator has not committed weights for two or more tempos |
 //! | `pointer_stale` | the coordinator's authorization-pointer writer has not confirmed the private pointer (its last pass failed, or its last confirmation is older than two cron periods) for a whole tempo: re-authorizations and revocations are not reaching validators |
 //! | `auto_target_stalled` | the coordinator's automatic target handoff has reported the same failure for a whole tempo (a closed cohort it cannot install and authorize yet, such as a refused bundle, retired or missing receipts, an earlier cohort that never closed, a cohort-number gap, a manifest this build cannot decode, a pass that cannot advance within its deadline, or no main record configured; the cohorts after it wait and none is skipped), or its authorization key's check has failed for a tempo (it holds no cohort until one needs a signature) |
+//! | `row_record_stalled` | for a whole tempo, no signed coordinator row covers the installed authorization (waiting on its first derived row, its issue epoch, or a signing failure: validators keep their installed row and a fresh validator waits), or signing a new row keeps failing while the old one still covers it |
 //! | `coordinator_reveal_mismatch` | a reveal of the coordinator's weights did not match its committed row |
 //! | `publication_refused` | a closed cohort, an artifact's admission record or copy, or the authorization failed verification or the memory budget |
 //! | `publication_pending` | a closed cohort, an artifact copy or the authorization has been incomplete for a whole tempo |
@@ -84,7 +85,7 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v14: `operator_clear_needed` for a paused cohort whose fault the
+/// v15: `row_record_stalled`; v14: `operator_clear_needed` for a paused cohort whose fault the
 /// coordinator says does not clear by itself, and the fault rules' detail
 /// names the fault's cause and any jobs at the receipt bound; the retired
 /// `monthly_cap` fault code is dropped from [`SCORER_BUDGET_FAULTS`]
@@ -111,7 +112,7 @@ pub use slop_ninja_alerts_wire::{
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v14";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v15";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -553,6 +554,25 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
             ));
         }
     }
+    if let Some(stall) = o
+        .coordinator
+        .as_ref()
+        .and_then(|w| w.signing.as_ref())
+        .and_then(|s| s.row_record.as_ref())
+    {
+        // Its own age counts toward the hold, as for the target handoff.
+        let what = if stall.uncovered {
+            "no signed coordinator row covers the installed authorization"
+        } else {
+            "signing a new coordinator row keeps failing"
+        };
+        out.push(cond(
+            "row_record_stalled",
+            "coordinator",
+            format!("{what} for {} s: {}", stall.age_ms / 1000, stall.code),
+            r.publication_hold_ms.saturating_sub(stall.age_ms),
+        ));
+    }
     if let Some(pointer) = o
         .coordinator
         .as_ref()
@@ -689,6 +709,7 @@ pub const STATUS_RULES: &[&str] = &[
     "pointer_stale",
     "auto_target_stalled",
     "status_access_warning",
+    "row_record_stalled",
 ];
 
 /// What a status-dependent rule's decision lacks this run: a source that
@@ -840,7 +861,9 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
             need_eval(o, Some(("epoch", |e| e.epoch.is_some())), &mut n);
         }
         "pointer_stale" => need_worker(o, "coordinator", &[SIGNING, POINTER], &mut n),
-        "auto_target_stalled" => need_worker(o, "coordinator", &[SIGNING], &mut n),
+        "auto_target_stalled" | "row_record_stalled" => {
+            need_worker(o, "coordinator", &[SIGNING], &mut n)
+        }
         "status_incomplete" => match subject {
             "eval" => need_eval(o, None, &mut n),
             name => need_worker(o, name, &[], &mut n),
@@ -1186,13 +1209,33 @@ mod tests {
         };
         let c = at("scorer_unavailable", json!("slot"), json!(false), json!([]));
         assert_eq!(rules_of(&c), vec!["scorer_budget_fault"]);
-        assert_eq!(c[0].detail, "fault scorer_unavailable in scoring (cause slot)");
+        assert_eq!(
+            c[0].detail,
+            "fault scorer_unavailable in scoring (cause slot)"
+        );
         let c = at("scorer_unavailable", json!("store"), json!(true), json!([]));
-        assert_eq!(rules_of(&c), vec!["scorer_budget_fault", "operator_clear_needed"]);
-        assert!(c[1].detail.contains("cause store") && c[1].detail.contains("no automatic clear"), "{c:?}");
-        let c = at("unresolved_infrastructure", Value::Null, json!(true), json!([2, 5]));
-        assert_eq!(rules_of(&c), vec!["scorer_budget_fault", "operator_clear_needed"]);
-        assert!(c[1].detail.contains("jobs at the receipt bound: [2, 5]"), "{c:?}");
+        assert_eq!(
+            rules_of(&c),
+            vec!["scorer_budget_fault", "operator_clear_needed"]
+        );
+        assert!(
+            c[1].detail.contains("cause store") && c[1].detail.contains("no automatic clear"),
+            "{c:?}"
+        );
+        let c = at(
+            "unresolved_infrastructure",
+            Value::Null,
+            json!(true),
+            json!([2, 5]),
+        );
+        assert_eq!(
+            rules_of(&c),
+            vec!["scorer_budget_fault", "operator_clear_needed"]
+        );
+        assert!(
+            c[1].detail.contains("jobs at the receipt bound: [2, 5]"),
+            "{c:?}"
+        );
         let c = at("step_refused", Value::Null, json!(true), Value::Null);
         assert_eq!(rules_of(&c), vec!["cohort_fault", "operator_clear_needed"]);
         let c = at("step_refused", Value::Null, Value::Null, Value::Null);
@@ -1570,7 +1613,10 @@ mod tests {
         let c = evaluate(&healthy(), &p, &r);
         assert_eq!(rules_of(&c), vec!["retention_stalled"]);
         assert_eq!(c[0].subject, PUBLIC_RECEIPTS);
-        assert_eq!((c[0].detail.as_str(), c[0].hold_ms), ("cohort 3: a; cohort 4: b", 0));
+        assert_eq!(
+            (c[0].detail.as_str(), c[0].hold_ms),
+            ("cohort 3: a; cohort 4: b", 0)
+        );
         let mut o = healthy();
         o.eval = None;
         assert!(decided("retention_stalled", PUBLIC_RECEIPTS, &o));
@@ -1585,10 +1631,7 @@ mod tests {
         // The eval status unanswered and the disagreement gone: resolved, not
         // carried.
         let c = conditions(&o, &PublisherObs::default(), &r, &st, 2_000);
-        assert!(
-            !c.iter().any(|c| c.rule == "retention_stalled"),
-            "{c:?}"
-        );
+        assert!(!c.iter().any(|c| c.rule == "retention_stalled"), "{c:?}");
     }
 
     /// A pass that stopped before its retention step finished keeps the
@@ -2776,6 +2819,51 @@ mod tests {
         )
         .unwrap();
         assert_eq!(post.events[0].firing_id(RULES_ID), events[0].id);
+    }
+
+    /// Review fix round 1 (findings 3, 5, 9): no signed coordinator row
+    /// covering the installed authorization, or a failing re-sign, holds
+    /// `row_record_stalled` for a tempo less what it already waited; a
+    /// current record raises nothing.
+    #[test]
+    fn a_coordinator_row_that_no_record_covers_alerts_after_a_tempo() {
+        let r = rules();
+        let p = PublisherObs::default();
+        let with = |stall: Option<crate::status::RowRecordStall>| {
+            let mut o = healthy();
+            o.coordinator
+                .as_mut()
+                .unwrap()
+                .signing
+                .as_mut()
+                .unwrap()
+                .row_record = stall;
+            o
+        };
+        assert!(evaluate(&with(None), &p, &r).is_empty());
+        let waiting = crate::status::RowRecordStall {
+            code: "row_waiting_derivation".into(),
+            age_ms: 1_000,
+            uncovered: true,
+        };
+        let c = evaluate(&with(Some(waiting)), &p, &r);
+        assert_eq!(rules_of(&c), vec!["row_record_stalled"]);
+        assert_eq!(c[0].hold_ms, TEMPO - 1_000);
+        assert!(
+            c[0].detail.contains("no signed coordinator row covers")
+                && c[0].detail.contains("row_waiting_derivation")
+        );
+        let failing = crate::status::RowRecordStall {
+            code: "authorization_key_missing".into(),
+            age_ms: TEMPO + 1,
+            uncovered: false,
+        };
+        let c = evaluate(&with(Some(failing)), &p, &r);
+        assert_eq!(
+            (rules_of(&c), c[0].hold_ms),
+            (vec!["row_record_stalled"], 0)
+        );
+        assert!(decided("row_record_stalled", "coordinator", &with(None)));
     }
 
     /// The pointer writer: a failed last pass, or a confirmation older than

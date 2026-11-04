@@ -575,10 +575,6 @@ struct TestApp {
     limit_reads: usize,
     /// The journaled revocation store, when the test uses one.
     revocation_store: Option<std::path::PathBuf>,
-    /// The fetch cache a v3 bundle's references resolve under (`[fetch]`).
-    receipts_root: Option<std::path::PathBuf>,
-    /// How often the application asked for a full fetch session.
-    rebuilds: usize,
 }
 
 impl TestApp {
@@ -606,8 +602,6 @@ impl TestApp {
             },
             limit_reads: 0,
             revocation_store: None,
-            receipts_root: None,
-            rebuilds: 0,
         })
     }
 
@@ -623,17 +617,14 @@ impl AppPorts for TestApp {
     fn read_bundle(&mut self) -> Result<Vec<u8>> {
         Ok(self.bundle.clone())
     }
+    fn fixture_packages(&self) -> bool {
+        true
+    }
     fn trusted_keys(&self) -> Result<TrustedKeys> {
         Ok(self.keys.clone().unwrap_or_else(trusted))
     }
     fn chain(&self) -> ([u8; 32], u16) {
         self.served
-    }
-    fn receipts_root(&self) -> Option<std::path::PathBuf> {
-        self.receipts_root.clone()
-    }
-    fn rebuild_fetched_bundle(&mut self) {
-        self.rebuilds += 1;
     }
     fn revocations(&self) -> Result<crate::revocations::Loaded> {
         let Some(store) = &self.revocation_store else { return Ok(Default::default()) };
@@ -1136,26 +1127,32 @@ fn package_and_dispatch_configuration_is_explicit_and_checked() -> Result<()> {
     Ok(())
 }
 
-/// A reward-v1 launch bundle: the burn row under a launch authorization.
+/// A coordinator-row bundle of the launch burn row: the launch authorization
+/// issued at `issued_epoch` and the coordinator's signed row of it, every
+/// unit to the owner's UID in [`registered`].
 fn launch_bundle(issued_epoch: u64) -> Vec<u8> {
     let auth = slop_ninja_protocol::LaunchAuthorization::new(&chain(), 1, issued_epoch).unwrap();
-    let signed = slop_ninja_protocol::sign(auth, &authorization_key()).unwrap().to_bytes().unwrap();
-    serde_json::to_vec(&crate::package_v2::BundleV2 {
-        schema: crate::package_v2::BUNDLE_SCHEMA_V2.into(),
-        shortcut: "T12".into(),
-        source: None,
-        authorization: crate::package_v2::AuthorizationHex {
-            kind: "launch".into(),
-            authorization: hex::encode(signed),
-            renewal: None,
-            carrier: None,
-        },
-        receipt_chunks: Vec::new(),
-        carrier_receipt_chunks: Vec::new(),
-        receipts: None,
-        carrier_receipts: None,
-    })
-    .unwrap()
+    let row = slop_ninja_protocol::CoordinatorRow {
+        chain: chain(),
+        reward_rule: slop_ninja_protocol::RewardRule::RewardV1,
+        source: slop_ninja_protocol::RowSource::LaunchBurn,
+        target: auth.target,
+        activated_epoch: None,
+        authorization: slop_ninja_protocol::Record::digest(&auth).unwrap(),
+        issued_epoch,
+        epoch: issued_epoch,
+        registration_block: 100,
+        owner_hotkey: owner().hotkey,
+        entries: vec![slop_ninja_protocol::CoordinatorRowEntry {
+            uid: owner().uid,
+            hotkey: owner().hotkey,
+            registration_block: owner().registration_block,
+            weight: u16::MAX,
+        }],
+    };
+    let auth = slop_ninja_protocol::sign(auth, &authorization_key()).unwrap().to_bytes().unwrap();
+    let row = slop_ninja_protocol::sign(row, &authorization_key()).unwrap().to_bytes().unwrap();
+    serde_json::to_vec(&crate::package_v2::row_bundle("launch", &auth, None, &row)).unwrap()
 }
 
 #[test]
@@ -1434,7 +1431,7 @@ fn a_reward_v1_launch_bundle_never_expires_and_a_revocation_stops_it() -> Result
         .unwrap()
         .to_bytes()
         .unwrap();
-    forged["authorization"]["authorization"] = serde_json::json!(hex::encode(other));
+    forged["authorization"] = serde_json::json!(hex::encode(other));
     assert_eq!(
         crate::package_v2::verify(&serde_json::to_vec(&forged)?, &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held)
             .unwrap_err()
@@ -1710,15 +1707,16 @@ fn a_settled_refusal_of_the_tracked_commit_lets_the_next_tempo_follow() -> Resul
     Ok(())
 }
 
-// reward-v1 cohort bundles against the real journal: the held target, a
-// target switch, a missed tempo, a re-derived row and rollbacks.
+// reward-v1 coordinator-row bundles against the real journal: the held
+// target, a target switch, a missed tempo, rows the snapshot never moves and
+// rollbacks.
 
 pub(crate) mod rv1 {
     use super::*;
     use slop_ninja_protocol::fixtures_reward_v1::{self as fx, Spec, bp};
     use slop_ninja_protocol::{
-        AttemptReceipt, CalculationTargetV2, CohortManifestV2, Digest, OutcomeClass, PublishedIndex, ReceiptIndex,
-        ReceiptIndexEntry, Record, ScorePackageV2, sign,
+        CalculationTargetV2, CohortManifestV2, CoordinatorRow, CoordinatorRowEntry, Digest, PublishedIndex, Record,
+        RewardRule, RowSource, ScorePackageV2,
     };
 
     pub const RV1_NETUID: u16 = 4242;
@@ -1729,22 +1727,17 @@ pub(crate) mod rv1 {
         pub target: CalculationTargetV2,
         pub closure: slop_ninja_protocol::submission::CohortClosure,
         pub index: PublishedIndex,
-        pub receipt_index: ReceiptIndex,
-        pub chunk: Vec<u8>,
         pub authorization: Vec<u8>,
     }
 
-    /// Binds a fixture package to real receipts (one object per counted
-    /// receipt, in one chunk) and rebuilds its target, closure and
-    /// authorization for the new package digest.
+    /// A fixture cohort with its target, closure and authorization.
     pub fn bound(
         manifest: CohortManifestV2,
-        mut package: ScorePackageV2,
+        package: ScorePackageV2,
         index: PublishedIndex,
         predecessor: Digest,
         specs: &[Spec],
     ) -> Cohort {
-        let (receipt_index, chunk) = bind_receipts(&manifest, &mut package);
         let target = CalculationTargetV2::for_package(&package, Some(predecessor)).unwrap();
         let closure = fx::closure(&manifest, &package, Some(&target), specs).unwrap();
         let authorization = fx::signed(
@@ -1753,147 +1746,90 @@ pub(crate) mod rv1 {
         .unwrap()
         .to_bytes()
         .unwrap();
-        Cohort { manifest, package, target, closure, index, receipt_index, chunk, authorization }
+        Cohort { manifest, package, target, closure, index, authorization }
     }
 
-    /// One receipt object per receipt the package counts, in one chunk, and
-    /// the package's receipt root and count set to their index's.
-    fn bind_receipts(manifest: &CohortManifestV2, package: &mut ScorePackageV2) -> (ReceiptIndex, Vec<u8>) {
-        let mut receipts: Vec<AttemptReceipt> = (0..package.receipt_count)
-            .map(|i| AttemptReceipt {
-                attempt: slop_ninja_protocol::domain_hash("validator-test-attempt", &i.to_le_bytes()),
-                assignment: Digest([0x10; 32]),
-                artifact: Digest([0x11; 32]),
-                number: 1,
-                outcome: OutcomeClass::Prediction,
-                result_commitment: Digest([0x12; 32]),
+    /// The coordinator's signed row of `c` as its own snapshot `snapshot`
+    /// (with the fixture owner hotkey) maps it: what the coordinator commits
+    /// and validators copy.
+    pub fn row(c: &Cohort, snapshot: &RegistrationSnapshot) -> Vec<u8> {
+        row_with(c, &c.authorization, snapshot)
+    }
+
+    /// [`row`] committed under `authorization` (a re-authorization of `c`'s
+    /// target).
+    pub fn row_with(c: &Cohort, authorization: &[u8], snapshot: &RegistrationSnapshot) -> Vec<u8> {
+        let auth = slop_ninja_protocol::Signed::<slop_ninja_protocol::RewardIntentAuthorization>::from_bytes(authorization)
+            .unwrap()
+            .record;
+        row_at(c, authorization, snapshot, c.closure.closed_epoch.max(auth.issued_epoch))
+    }
+
+    /// [`row_with`] for the coordinator's commitment at `epoch` (a record
+    /// it re-signed later under the same authorization).
+    pub fn row_at(c: &Cohort, authorization: &[u8], snapshot: &RegistrationSnapshot, epoch: u64) -> Vec<u8> {
+        let auth = slop_ninja_protocol::Signed::<slop_ninja_protocol::RewardIntentAuthorization>::from_bytes(authorization)
+            .unwrap()
+            .record;
+        let v2 = crate::package_v2::snapshot(snapshot, fx::owner_hotkey().0).unwrap();
+        let derived = slop_ninja_protocol::reward_v1::derive_row(&c.target, Some((&c.package, &c.index)), &v2).unwrap();
+        let entries = derived
+            .entries
+            .iter()
+            .map(|e| {
+                let n = v2.neurons.iter().find(|n| n.uid == e.uid).unwrap();
+                CoordinatorRowEntry { uid: e.uid, hotkey: n.hotkey, registration_block: n.registration_block, weight: e.weight }
             })
             .collect();
-        receipts.sort_by_key(|r| r.attempt);
-        let receipt_index = ReceiptIndex {
-            cohort_manifest: manifest.digest().unwrap(),
-            entries: receipts.iter().map(|r| ReceiptIndexEntry::for_receipt(r).unwrap()).collect(),
-        };
-        package.receipt_root = receipt_index.digest().unwrap();
-        package.receipt_count = receipt_index.count();
-        let mut chunk = Vec::new();
-        for r in &receipts {
-            let bytes = r.to_bytes().unwrap();
-            chunk.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-            chunk.extend_from_slice(&bytes);
-        }
-        (receipt_index, chunk)
-    }
-
-    fn signed_hex<R: Record + Clone>(r: &R, key: &SigningKey) -> String {
-        hex::encode(sign(r.clone(), key).unwrap().to_bytes().unwrap())
-    }
-
-    pub fn bundle(c: &Cohort) -> Vec<u8> {
-        let pk = slop_ninja_protocol::fixtures::package_key();
-        let rk = slop_ninja_protocol::fixtures::receipt_key();
-        serde_json::to_vec(&crate::package_v2::BundleV2 {
-            schema: crate::package_v2::BUNDLE_SCHEMA_V2.into(),
-            shortcut: "T12".into(),
-            source: Some(crate::package_v2::SourceHex {
-                manifest: signed_hex(&c.manifest, &pk),
-                package: signed_hex(&c.package, &pk),
-                target: signed_hex(&c.target, &pk),
-                closure: signed_hex(&c.closure, &pk),
-                receipt_index: Some(signed_hex(&c.receipt_index, &rk)),
-                published_contents: hex::encode(c.index.contents.to_bytes().unwrap()),
-                fingerprint_index: hex::encode(c.index.fingerprints.to_bytes().unwrap()),
-            }),
-            authorization: crate::package_v2::AuthorizationHex {
-                kind: "cohort".into(),
-                authorization: hex::encode(&c.authorization),
-                renewal: None,
-                carrier: None,
+        let row = CoordinatorRow {
+            chain: c.manifest.chain.clone(),
+            reward_rule: RewardRule::RewardV1,
+            source: RowSource::Cohort {
+                cohort: auth.cohort,
+                cohort_label: c.manifest.cohort_label.clone(),
+                cohort_manifest: auth.cohort_manifest,
             },
-            receipt_chunks: vec![hex::encode(&c.chunk)],
-            carrier_receipt_chunks: Vec::new(),
-            receipts: None,
-            carrier_receipts: None,
-        })
-        .unwrap()
-    }
-
-    /// The bundle schema v3 form of [`bundle`]: the receipt index and the
-    /// receipts (cut into `pieces` chunk objects at receipt boundaries)
-    /// written to `dir` and named by absolute path, digest and length.
-    pub fn bundle_v3(c: &Cohort, dir: &Path, pieces: usize) -> Vec<u8> {
-        use sha2::{Digest as _, Sha256};
-        let rk = slop_ninja_protocol::fixtures::receipt_key();
-        let write = |name: &str, bytes: &[u8]| {
-            let path = dir.join(name);
-            std::fs::write(&path, bytes).unwrap();
-            crate::package_v2::ObjectRef {
-                path: path.to_str().unwrap().to_owned(),
-                sha256: hex::encode(Sha256::digest(bytes)),
-                bytes: bytes.len() as u64,
-            }
+            target: auth.target,
+            activated_epoch: Some(c.closure.closed_epoch),
+            authorization: auth.digest().unwrap(),
+            issued_epoch: auth.issued_epoch,
+            epoch,
+            registration_block: v2.block,
+            owner_hotkey: v2.owner_hotkey,
+            entries,
         };
-        let index = write("receipt-index.signed", &sign(c.receipt_index.clone(), &rk).unwrap().to_bytes().unwrap());
-        // Cut at receipt boundaries: walk the length prefixes.
-        let mut cuts = vec![0usize];
-        let mut at = 0usize;
-        while at < c.chunk.len() {
-            at += 4 + u32::from_le_bytes(c.chunk[at..at + 4].try_into().unwrap()) as usize;
-            cuts.push(at);
-        }
-        let per = (cuts.len() - 1).div_ceil(pieces.max(1)).max(1);
-        let chunks = cuts
-            .iter()
-            .step_by(per)
-            .copied()
-            .chain(std::iter::once(c.chunk.len()))
-            .collect::<Vec<_>>()
-            .windows(2)
-            .filter(|w| w[1] > w[0])
-            .enumerate()
-            .map(|(n, w)| write(&format!("chunk-{n}.bin"), &c.chunk[w[0]..w[1]]))
-            .collect();
-        let mut b: crate::package_v2::BundleV2 = serde_json::from_slice(&bundle(c)).unwrap();
-        b.schema = crate::package_v2::BUNDLE_SCHEMA_V3.into();
-        b.source.as_mut().unwrap().receipt_index = None;
-        b.receipt_chunks.clear();
-        b.receipts = Some(crate::package_v2::ReceiptsRef { index, chunks });
-        serde_json::to_vec(&b).unwrap()
+        fx::signed(row).unwrap().to_bytes().unwrap()
     }
 
+    /// The coordinator-row bundle of `c` as the coordinator's `snapshot`
+    /// maps it.
+    pub fn bundle(c: &Cohort, snapshot: &RegistrationSnapshot) -> Vec<u8> {
+        serde_json::to_vec(&crate::package_v2::row_bundle("cohort", &c.authorization, None, &row(c, snapshot))).unwrap()
+    }
+
+    /// The launch burn row's bundle, every unit to the owner's UID 2.
     pub fn launch(issued_epoch: u64) -> Vec<u8> {
         let auth = slop_ninja_protocol::LaunchAuthorization::new(&fx::chain(), 1, issued_epoch).unwrap();
-        let signed = fx::signed(auth).unwrap().to_bytes().unwrap();
-        serde_json::to_vec(&crate::package_v2::BundleV2 {
-            schema: crate::package_v2::BUNDLE_SCHEMA_V2.into(),
-            shortcut: "T12".into(),
-            source: None,
-            authorization: crate::package_v2::AuthorizationHex {
-                kind: "launch".into(),
-                authorization: hex::encode(signed),
-                renewal: None,
-                carrier: None,
-            },
-            receipt_chunks: Vec::new(),
-            carrier_receipt_chunks: Vec::new(),
-            receipts: None,
-            carrier_receipts: None,
-        })
-        .unwrap()
-    }
-
-    /// The computed cohort bound to `receipts` receipts in one chunk, for
-    /// sizing a bundle against its bound.
-    pub fn sized(receipts: u64) -> Cohort {
-        let c = fx::computed().unwrap();
-        let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
-        let mut package = c.package.clone();
-        package.receipt_count = receipts;
-        bound(c.manifest.clone(), package, c.index.clone(), launch, &c.specs)
+        let row = CoordinatorRow {
+            chain: fx::chain(),
+            reward_rule: RewardRule::RewardV1,
+            source: RowSource::LaunchBurn,
+            target: auth.target,
+            activated_epoch: None,
+            authorization: auth.digest().unwrap(),
+            issued_epoch,
+            epoch: issued_epoch,
+            registration_block: 100,
+            owner_hotkey: fx::owner_hotkey(),
+            entries: vec![CoordinatorRowEntry { uid: 2, hotkey: fx::owner_hotkey(), registration_block: 0, weight: u16::MAX }],
+        };
+        let auth = fx::signed(auth).unwrap().to_bytes().unwrap();
+        let row = fx::signed(row).unwrap().to_bytes().unwrap();
+        serde_json::to_vec(&crate::package_v2::row_bundle("launch", &auth, None, &row)).unwrap()
     }
 
     /// The computed cohort (target T1, activating at epoch 80) and its
-    /// successor (T2, activating at epoch 100), bound to receipts.
+    /// successor (T2, activating at epoch 100).
     pub fn cohorts() -> (Cohort, Cohort, Vec<Spec>) {
         let c = fx::computed().unwrap();
         let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
@@ -1907,60 +1843,8 @@ pub(crate) mod rv1 {
         (first, second, specs)
     }
 
-    /// The computed cohort and a carrier of its target (a later cohort that
-    /// produced no target, its index the computed index after the computed
-    /// closure), each bound to `receipts` receipts, for sizing a target's
-    /// cohort and its carrier against the receipt index bound. The
-    /// carrier's `target` and `closure` are the carried target's (it has
-    /// none of its own; only its records are read); its `authorization`
-    /// authorizes the carried target.
-    pub fn carried_sized(receipts: u64) -> (Cohort, Cohort) {
-        use slop_ninja_protocol::reward_v1;
-        let c = fx::computed().unwrap();
-        let launch = CalculationTargetV2::launch_burn(fx::chain()).digest().unwrap();
-        let mut package = c.package.clone();
-        package.receipt_count = receipts;
-        let first = bound(c.manifest.clone(), package, c.index.clone(), launch, &c.specs);
-        let index = c.index.after_closure(&first.package, fx::closure_fingerprints(&c)).unwrap();
-        let refs = reward_v1::next_references(&c.manifest.references, &first.package, &c.index).unwrap();
-        let low = [Spec::new(0x93, bp(8000))];
-        let manifest = fx::manifest_with(
-            fx::chain(),
-            4,
-            1000,
-            fx::sigma_permille(40),
-            refs,
-            &index,
-            fx::probe(fx::EXAMPLE_PROBE_SIZE),
-            &low,
-        );
-        let mut package = fx::package(&manifest, bp(9600), refs.predecessor.map(|_| bp(9500)), &low).unwrap();
-        reward_v1::finalize(&mut package, &index, &mut fx::spec_measure(&low, 1000, |h, o| low[h].family == low[o].family))
-            .unwrap();
-        assert_eq!(package.mode, slop_ninja_protocol::CutoffMode::NoTarget);
-        package.receipt_count = receipts;
-        let (receipt_index, chunk) = bind_receipts(&manifest, &mut package);
-        let authorization = fx::signed(
-            fx::authorization(&manifest, &package, &first.target, 1, manifest.opened_epoch + fx::PUBLISHED_TEMPO).unwrap(),
-        )
-        .unwrap()
-        .to_bytes()
-        .unwrap();
-        let carrier = Cohort {
-            manifest,
-            package,
-            target: first.target.clone(),
-            closure: first.closure.clone(),
-            index,
-            receipt_index,
-            chunk,
-            authorization,
-        };
-        (first, carrier)
-    }
-
-    /// A first cohort with one credited entrant `tag` and no predecessor,
-    /// bound to receipts: its row pays only that entrant's UID.
+    /// A first cohort with one credited entrant `tag` and no predecessor:
+    /// its row pays only that entrant's UID.
     pub fn single(tag: u8) -> (Cohort, Vec<Spec>) {
         let specs = vec![Spec::new(tag, bp(9600))];
         let manifest = fx::manifest(fx::chain(), 7, 1000, fx::sigma_permille(40), 0, &specs);
@@ -2006,8 +1890,6 @@ fn rv1_app(root: &Path) -> Result<TestApp> {
         },
         limit_reads: 0,
         revocation_store: None,
-        receipts_root: None,
-        rebuilds: 0,
     })
 }
 
@@ -2015,17 +1897,20 @@ fn retired_reason(app: &TestApp, id: &str) -> Option<String> {
     app.live.controls_for_tests().unwrap().retired(id).unwrap()
 }
 
-/// Two successive reward-v1 targets, a missed tempo, a re-derived row and a
-/// restart: retained work that never landed is retired (journaled), never
-/// left to wedge the queue, and the held target refuses rollbacks.
+/// Two successive reward-v1 targets, a missed tempo, a registration change
+/// and a restart: retained work that never landed is retired (journaled),
+/// never left to wedge the queue; the coordinator's signed row is committed
+/// whatever this validator's snapshot says; and the held target refuses
+/// rollbacks.
 #[test]
 fn reward_v1_targets_switch_through_retained_work_and_refuse_rollbacks() -> Result<()> {
     let root = scratch()?;
     let (first, second, specs) = rv1::cohorts();
     let mut app = rv1_app(root.path())?;
-    app.snapshot = rv1::snapshot(&specs);
+    let before = rv1::snapshot(&specs);
+    app.snapshot = before.clone();
     // T1 at its activation epoch.
-    app.bundle = rv1::bundle(&first);
+    app.bundle = rv1::bundle(&first, &before);
     app.epoch = 80;
     let (op80, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
     assert!(created);
@@ -2038,35 +1923,34 @@ fn reward_v1_targets_switch_through_retained_work_and_refuse_rollbacks() -> Resu
     assert!(created && op81 != op80);
     assert_eq!(retired_reason(&app, &op80).as_deref(), Some("superseded"));
     // A restart in the same epoch after a registration change: a credited
-    // entrant re-registered (a new generation), so its units burn. The
+    // entrant re-registered (a new registration), so its units burn through
+    // the owner's UID (the copy rule, review fix round 1 finding 8). The
     // retained epoch-81 operation's row is immutable, so it is retired and
     // the re-derived row takes the next label.
     let credited = first.package.entrants.iter().find(|e| e.units > 0).expect("a credited entrant").identity.hotkey;
-    let before = rv1::snapshot(&specs);
     let mut changed = before.clone();
     for n in &mut changed.neurons {
         if n.hotkey == credited {
             n.registration_block += 1;
         }
     }
-    app.snapshot = changed;
-    let outcome = block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?;
-    let (op82, created) = enqueued(&outcome);
-    assert!(created && op82 != op81);
-    assert_eq!(retired_reason(&app, &op81).as_deref(), Some("row_rederived"));
     let before_entries = match block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))? {
         AppOutcome::DryRun { entries, .. } => entries,
         other => panic!("dry run expected, got {other:?}"),
     };
-    app.snapshot = before.clone();
+    app.snapshot = changed;
+    let (op82, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created && op82 != op81);
+    assert_eq!(retired_reason(&app, &op81).as_deref(), Some("row_rederived"));
     let after_entries = match block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))? {
         AppOutcome::DryRun { entries, .. } => entries,
         other => panic!("dry run expected, got {other:?}"),
     };
-    assert_ne!(before_entries, after_entries, "the registration change moved the row");
+    assert_ne!(before_entries, after_entries, "the registration change burned the entrant's units");
+    app.snapshot = before.clone();
     // The successor target at its activation: the T1 work is retired and the
     // held target moves to T2.
-    app.bundle = rv1::bundle(&second);
+    app.bundle = rv1::bundle(&second, &before);
     app.epoch = 100;
     let (op100, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
     assert!(created);
@@ -2077,7 +1961,7 @@ fn reward_v1_targets_switch_through_retained_work_and_refuse_rollbacks() -> Resu
     // launch authorization after the first activation.
     let ops = app.summary()?.operations;
     app.epoch = 101;
-    for (bundle, what) in [(rv1::bundle(&first), "replaced target"), (rv1::launch(95), "launch bundle")] {
+    for (bundle, what) in [(rv1::bundle(&first, &before), "replaced target"), (rv1::launch(95), "launch bundle")] {
         app.bundle = bundle;
         match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
             AppOutcome::Refused { code, .. } => assert_eq!(code, "bundle_unverified", "{what}"),
@@ -2086,7 +1970,7 @@ fn reward_v1_targets_switch_through_retained_work_and_refuse_rollbacks() -> Resu
     }
     assert_eq!(app.summary()?.operations, ops);
     // A restart on the held target joins its retained operation.
-    app.bundle = rv1::bundle(&second);
+    app.bundle = rv1::bundle(&second, &before);
     app.epoch = 100;
     let (again, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
     assert_eq!((again, created), (op100, false));
@@ -2103,7 +1987,7 @@ fn a_multi_uid_reward_v1_row_is_committed_in_its_max_upscaled_form() -> Result<(
     let (first, _, specs) = rv1::cohorts();
     let mut app = rv1_app(root.path())?;
     app.snapshot = rv1::snapshot(&specs);
-    app.bundle = rv1::bundle(&first);
+    app.bundle = rv1::bundle(&first, &app.snapshot);
     app.epoch = 80;
     let held = slop_ninja_protocol::ActiveTarget::launch(&slop_ninja_protocol::fixtures_reward_v1::chain())?;
     let authorized = std::sync::Arc::new(
@@ -2191,7 +2075,7 @@ fn reward_v1_cohort_targets_choose_their_owner_row_policy_from_the_row() -> Resu
     let root = scratch()?;
     let mut app = rv1_app(root.path())?;
     app.snapshot = rv1::snapshot(&[]);
-    app.bundle = rv1::bundle(&first);
+    app.bundle = rv1::bundle(&first, &app.snapshot);
     app.epoch = 80;
     match block_on(apply(&mut app, &head(), Mode::DryRun, &Faults::none()))? {
         AppOutcome::DryRun { entries, owner_rows, .. } => {
@@ -2221,7 +2105,7 @@ fn reward_v1_cohort_targets_choose_their_owner_row_policy_from_the_row() -> Resu
     let mut app = rv1_app(root.path())?;
     app.snapshot = rv1::snapshot(&own_specs);
     app.hold = vec![credited.0, owner_hotkey];
-    app.bundle = rv1::bundle(&first);
+    app.bundle = rv1::bundle(&first, &app.snapshot);
     app.epoch = 80;
     let row = crate::package_v2::derive(
         authorized(&app.bundle),
@@ -2250,7 +2134,7 @@ fn reward_v1_cohort_targets_choose_their_owner_row_policy_from_the_row() -> Resu
     let mut app = rv1_app(root.path())?;
     app.snapshot = rv1::snapshot(&single_specs);
     app.hold = vec![own, owner_hotkey];
-    app.bundle = rv1::bundle(&single);
+    app.bundle = rv1::bundle(&single, &app.snapshot);
     let activated = authorized(&app.bundle).verified.active.activated_epoch().expect("activation epoch");
     app.epoch = activated;
     let row = crate::package_v2::derive(
@@ -2300,192 +2184,108 @@ fn outcomes_that_leave_queued_work_unsigned_are_alerted() {
     }
 }
 
-/// The coordinator sizes a standing template's roster with the protocol's
-/// `receipt_bundle_bytes`: each receipt grows the bundle this validator
-/// assembles by exactly that many bytes, and the bound is this validator's.
+/// The copy model: the row committed is the coordinator's signed row. The
+/// one change this validator's own snapshot makes is the score-free
+/// registration rule (review fix round 1, finding 8): an entry whose
+/// registration the snapshot no longer holds (re-registered, or the UID now
+/// held by another hotkey) burns through the owner's UID instead of paying
+/// its new holder, and with no owner UID the tempo is deferred. Nothing
+/// else moves a UID or a weight.
 #[test]
-fn receipts_grow_the_bundle_by_the_protocol_receipt_length() {
-    let size = |n: u64| rv1::bundle(&rv1::sized(n)).len() as u64;
-    let grown = size(2_000) - size(1_000);
-    assert_eq!(grown, slop_ninja_protocol::target_bundle::receipt_bundle_bytes(1_000).unwrap());
-    assert_eq!(crate::package::MAX_BUNDLE_BYTES, 64 << 20);
-}
-
-/// Bundle schema v3 names the receipt index and chunks by reference: the
-/// same cohort verifies with the same receipts as its embedded form,
-/// whatever the chunking, and a cohort whose embedded receipts exceed the
-/// 64 MiB file bound verifies by reference in a file of a few kilobytes.
-#[test]
-fn a_v3_bundle_verifies_receipts_by_reference_beyond_the_embedded_bound() -> Result<()> {
-    use slop_ninja_protocol::target_bundle::{VALIDATOR_BUNDLE_BYTES, receipt_bundle_bytes};
-    let root = scratch()?;
-    let keys = slop_ninja_protocol::fixtures::trusted_keys();
-    let held = slop_ninja_protocol::ActiveTarget::launch(&slop_ninja_protocol::fixtures_reward_v1::chain())?;
-    let verify = |b: &[u8]| crate::package_v2::verify(b, &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held);
-    let small = rv1::sized(1_000);
-    let embedded = verify(&rv1::bundle(&small)).unwrap();
-    for pieces in [1, 3, 1_000] {
-        let dir = root.path().join(format!("small-{pieces}"));
-        std::fs::create_dir(&dir)?;
-        let v3 = verify(&rv1::bundle_v3(&small, &dir, pieces)).unwrap();
-        assert_eq!(v3.receipts_verified, embedded.receipts_verified);
-        assert_eq!(v3.verified.target_digest, embedded.verified.target_digest);
-    }
-    // Past the embedded bound: the v2 form is refused, the v3 form holds.
-    let per = receipt_bundle_bytes(1)?;
-    let receipts = VALIDATOR_BUNDLE_BYTES / per + 1_000;
-    let big = rv1::sized(receipts);
-    let v1 = rv1::bundle(&big);
-    assert!(v1.len() as u64 > VALIDATOR_BUNDLE_BYTES);
-    assert_eq!(verify(&v1).unwrap_err().code, "bundle_too_large");
-    let dir = root.path().join("big");
-    std::fs::create_dir(&dir)?;
-    let v3 = rv1::bundle_v3(&big, &dir, 7);
-    assert!(v3.len() < 64 << 10, "{} bytes", v3.len());
-    assert_eq!(verify(&v3).unwrap().receipts_verified, receipts);
-    Ok(())
-}
-
-/// Review (standing-r0 round 2, finding 2): an installed v3 bundle whose
-/// referenced cache files are missing or changed is not a refused package.
-/// With `[fetch]` the application defers (exit 75, or a wait in a continuous
-/// run) and asks the fetcher for a full session, which rebuilds the files
-/// while the host retains them; restored, the bundle commits again. Without
-/// a fetch cache (an operator-installed bundle) it still halts.
-#[test]
-fn an_installed_v3_bundle_with_damaged_cache_files_defers_and_asks_for_a_rebuild() -> Result<()> {
-    let root = scratch()?;
+fn the_committed_row_is_the_coordinators_signed_row_with_moved_registrations_burned() -> Result<()> {
     let (first, _, specs) = rv1::cohorts();
-    let mut app = rv1_app(root.path())?;
-    app.snapshot = rv1::snapshot(&specs);
-    app.epoch = 80;
-    let cache = root.path().join("public-cache");
-    std::fs::create_dir(&cache)?;
-    app.bundle = rv1::bundle_v3(&first, &cache, 3);
-    let b: crate::package_v2::BundleV2 = serde_json::from_slice(&app.bundle)?;
-    let chunk = b.receipts.as_ref().unwrap().chunks[1].path.clone();
-    let saved = std::fs::read(&chunk)?;
-    std::fs::remove_file(&chunk)?;
-    // Without a fetch cache: a refusal, as before.
-    let outcome = block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?;
-    assert!(matches!(&outcome, AppOutcome::Refused { code: "referenced_object_missing", .. }), "{outcome:?}");
-    assert_eq!(app.rebuilds, 0);
-    // With one: a deferral and a rebuild request, nothing enqueued.
-    app.receipts_root = Some(cache.clone());
-    let outcome = block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?;
-    assert!(matches!(&outcome, AppOutcome::Deferred { code: "referenced_object_missing", .. }), "{outcome:?}");
-    assert_eq!(app.rebuilds, 1);
-    assert!(app.held.is_none(), "no held target recorded from an unverified bundle");
-    let mut altered = saved.clone();
-    let last = altered.len() - 1;
-    altered[last] ^= 1;
-    std::fs::write(&chunk, &altered)?;
-    let outcome = block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?;
-    assert!(matches!(&outcome, AppOutcome::Deferred { code: "referenced_object_mismatch", .. }), "{outcome:?}");
-    assert_eq!(app.rebuilds, 2);
-    // The fetcher's rebuild restores the file: the bundle commits.
-    std::fs::write(&chunk, &saved)?;
-    let (_, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
-    assert!(created);
+    let coordinator = rv1::snapshot(&specs);
+    let bundle = rv1::bundle(&first, &coordinator);
+    let held = slop_ninja_protocol::ActiveTarget::launch(&slop_ninja_protocol::fixtures_reward_v1::chain())?;
+    let keys = slop_ninja_protocol::fixtures::trusted_keys();
+    let a = std::sync::Arc::new(crate::package_v2::verify(&bundle, &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held).unwrap());
+    let signed: Vec<(u16, u16)> = a.verified.row.entries.iter().map(|e| (e.uid, e.weight)).collect();
+    let epoch = a.verified.active.activated_epoch().unwrap();
+    let owner = slop_ninja_protocol::fixtures_reward_v1::owner_hotkey().0;
+    let owner_uid = coordinator.neurons.iter().find(|n| n.hotkey.0 == owner).unwrap().uid;
+    assert!(signed.len() >= 2, "the fixture row pays entrants besides the burn");
+    // The coordinator's own snapshot: exactly the signed entries.
+    let snap = crate::package_v2::snapshot(&coordinator, owner).unwrap();
+    let d = crate::package_v2::derive(a.clone(), &snap, validator2().hotkey.0, epoch).unwrap();
+    assert_eq!(d.entries(), signed);
+    // Every entrant re-registered or replaced by another hotkey: their
+    // units burn through the owner's UID; none is paid to a new holder.
+    let mut moved = coordinator.clone();
+    for n in &mut moved.neurons {
+        if n.hotkey.0 != owner {
+            n.registration_block += 1;
+            n.hotkey.0[31] ^= 0x5a;
+        }
+    }
+    let snap = crate::package_v2::snapshot(&moved, owner).unwrap();
+    let d = crate::package_v2::derive(a.clone(), &snap, validator2().hotkey.0, epoch).unwrap();
+    assert_eq!(d.entries(), vec![(owner_uid, u16::MAX)]);
+    assert!(!a.verified.moved_uids(&snap).is_empty(), "the moved UIDs are reported for the logs");
+    // The owner hotkey holds no UID: units must burn, so the tempo defers.
+    let snap = crate::package_v2::snapshot(&moved, [0x99; 32]).unwrap();
+    let err = crate::package_v2::derive(a.clone(), &snap, validator2().hotkey.0, epoch).unwrap_err();
+    assert_eq!(err.code, "row_deferred");
+    assert!(crate::app::is_deferral(err.code));
+    // A tampered row (one weight moved between UIDs) is refused before any
+    // row exists.
+    let mut b: crate::package_v2::RowBundle = serde_json::from_slice(&bundle)?;
+    let mut row = slop_ninja_protocol::Signed::<slop_ninja_protocol::CoordinatorRow>::from_bytes(&hex::decode(&b.row)?).unwrap();
+    if row.record.entries.len() >= 2 {
+        row.record.entries[0].weight += 1;
+        row.record.entries[1].weight -= 1;
+        b.row = hex::encode(row.to_bytes().unwrap());
+        let err = crate::package_v2::verify(&serde_json::to_vec(&b)?, &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held).unwrap_err();
+        assert_eq!(err.code, "bundle_unverified");
+    }
     Ok(())
 }
 
-/// Every referenced object is checked before it is used: a missing, short,
-/// altered, relative or extra reference, receipts in the other schema's
-/// form, and an incomplete or duplicated chunk set are all refused.
+/// Review fix round 1 (findings 2, 7): a validator upgraded with a v1 or
+/// v3 bundle still installed defers (`bundle_schema_retired`, exit 75 for
+/// a one-shot run, a wait for the fetcher in a continuous one), never
+/// halts, and commits nothing new; once a coordinator-row bundle is
+/// installed the next pass queues its row.
 #[test]
-fn a_v3_bundle_refuses_objects_that_are_not_the_referenced_ones() -> Result<()> {
-    use crate::package_v2::{BundleV2, ObjectRef};
+fn an_upgrade_over_a_retired_bundle_defers_then_commits_once_a_row_bundle_is_installed() -> Result<()> {
     let root = scratch()?;
-    let keys = slop_ninja_protocol::fixtures::trusted_keys();
-    let held = slop_ninja_protocol::ActiveTarget::launch(&slop_ninja_protocol::fixtures_reward_v1::chain())?;
-    let code = |b: &BundleV2| {
-        crate::package_v2::verify(&serde_json::to_vec(b).unwrap(), &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held)
-            .map(|_| "ok")
-            .unwrap_or_else(|r| r.code)
-    };
-    let c = rv1::sized(1_000);
-    let fresh = |name: &str| -> BundleV2 {
-        let dir = root.path().join(name);
-        std::fs::create_dir(&dir).unwrap();
-        serde_json::from_slice(&rv1::bundle_v3(&c, &dir, 4)).unwrap()
-    };
-    assert_eq!(code(&fresh("ok")), "ok");
-    // A missing chunk file, and a missing index file.
-    let b = fresh("missing");
-    std::fs::remove_file(&b.receipts.as_ref().unwrap().chunks[1].path)?;
-    assert_eq!(code(&b), "referenced_object_missing");
-    let b = fresh("missing-index");
-    std::fs::remove_file(&b.receipts.as_ref().unwrap().index.path)?;
-    assert_eq!(code(&b), "referenced_object_missing");
-    // A file of another length, or the same length with other bytes.
-    let b = fresh("short");
-    let p = b.receipts.as_ref().unwrap().chunks[0].path.clone();
-    let mut bytes = std::fs::read(&p)?;
-    bytes.pop();
-    std::fs::write(&p, &bytes)?;
-    assert_eq!(code(&b), "referenced_object_mismatch");
-    let b = fresh("altered");
-    let p = b.receipts.as_ref().unwrap().chunks[2].path.clone();
-    let mut bytes = std::fs::read(&p)?;
-    let last = bytes.len() - 1;
-    bytes[last] ^= 1;
-    std::fs::write(&p, &bytes)?;
-    assert_eq!(code(&b), "referenced_object_mismatch");
-    // A reference whose digest names other bytes, even if they verify.
-    let mut b = fresh("renamed");
-    let r = b.receipts.as_mut().unwrap();
-    r.chunks[0].sha256 = r.chunks[1].sha256.clone();
-    assert_eq!(code(&b), "referenced_object_mismatch");
-    // A relative path.
-    let mut b = fresh("relative");
-    let r = b.receipts.as_mut().unwrap();
-    r.chunks[0].path = std::path::Path::new(&r.chunks[0].path).file_name().unwrap().to_str().unwrap().into();
-    assert_eq!(code(&b), "bundle_malformed");
-    // Relative paths under the fetch cache (the fetcher's form) resolve
-    // under the root the validator passes, so a moved cache keeps the
-    // bundle; never outside it.
-    let code_in = |b: &BundleV2, dir: &std::path::Path| {
-        crate::package_v2::verify_in(&serde_json::to_vec(b).unwrap(), &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held, Some(dir))
-            .map(|_| "ok")
-            .unwrap_or_else(|r| r.code)
-    };
-    let mut b = fresh("rooted");
-    let dir = root.path().join("rooted");
-    let r = b.receipts.as_mut().unwrap();
-    for o in std::iter::once(&mut r.index).chain(r.chunks.iter_mut()) {
-        o.path = std::path::Path::new(&o.path).strip_prefix(&dir)?.to_str().unwrap().into();
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let mut app = TestApp::open(&config, &bundle())?;
+    app.epoch = 60;
+    for schema in [crate::package_v2::BUNDLE_SCHEMA_V2, crate::package_v2::BUNDLE_SCHEMA_V3] {
+        app.bundle = serde_json::to_vec(&serde_json::json!({"schema": schema, "shortcut": "T12"}))?;
+        match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+            AppOutcome::Deferred { code, .. } => assert_eq!(code, "bundle_schema_retired", "{schema}"),
+            other => panic!("expected a deferral, got {other:?}"),
+        }
+        assert_eq!(app.summary()?.operations, 0, "nothing new is queued");
     }
-    assert_eq!(code(&b), "bundle_malformed", "no root");
-    assert_eq!(code_in(&b, &dir), "ok");
-    let moved = root.path().join("rooted-moved");
-    std::fs::rename(&dir, &moved)?;
-    assert_eq!(code_in(&b, &moved), "ok", "the moved cache, named by its configuration");
-    assert_eq!(code_in(&b, &dir), "referenced_object_missing");
-    let mut escape = b.clone();
-    escape.receipts.as_mut().unwrap().chunks[0].path = format!("../rooted-moved/{}", b.receipts.as_ref().unwrap().chunks[0].path);
-    assert_eq!(code_in(&escape, &moved), "bundle_malformed");
-    // A chunk left out, and a chunk named twice (each receipt once).
-    let mut b = fresh("dropped");
-    b.receipts.as_mut().unwrap().chunks.pop();
-    assert_eq!(code(&b), "receipt_object_mismatch");
-    let mut b = fresh("twice");
-    let r = b.receipts.as_mut().unwrap();
-    let again: ObjectRef = r.chunks[0].clone();
-    r.chunks.push(again);
-    assert_eq!(code(&b), "receipt_object_mismatch");
-    // Receipts in the other schema's form, or with nothing to belong to.
-    let mut b = fresh("mixed");
-    b.receipt_chunks = vec!["00".into()];
-    assert_eq!(code(&b), "bundle_malformed");
-    let mut b = fresh("v1-with-refs");
-    b.schema = crate::package_v2::BUNDLE_SCHEMA_V2.into();
-    assert_eq!(code(&b), "bundle_malformed");
-    let mut b = fresh("no-receipts");
-    b.receipts = None;
-    assert_eq!(code(&b), "receipts_incomplete");
-    let mut b = fresh("orphan");
-    b.carrier_receipts = b.receipts.clone();
-    assert_eq!(code(&b), "bundle_malformed");
+    assert!(crate::app::is_deferral("bundle_schema_retired"));
+    app.bundle = launch_bundle(10);
+    match block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))? {
+        AppOutcome::Enqueued { .. } => {}
+        other => panic!("expected the burn row queued, got {other:?}"),
+    }
+    assert_eq!(app.summary()?.operations, 1);
     Ok(())
+}
+
+/// Bundles of cohort records and receipts (schemas v1 and v3 of
+/// `slop_ninja.reward_v1_bundle`), which validators recomputed, are refused
+/// by schema: validators no longer receive them.
+#[test]
+fn bundles_of_cohort_records_and_receipts_are_retired() {
+    let held = slop_ninja_protocol::ActiveTarget::launch(&slop_ninja_protocol::fixtures_reward_v1::chain()).unwrap();
+    let keys = slop_ninja_protocol::fixtures::trusted_keys();
+    for schema in [crate::package_v2::BUNDLE_SCHEMA_V2, crate::package_v2::BUNDLE_SCHEMA_V3] {
+        let b = serde_json::json!({"schema": schema, "shortcut": "T12", "authorization": {"kind": "launch", "authorization": ""}});
+        let bytes = serde_json::to_vec(&b).unwrap();
+        assert!(crate::package_v2::is_v2(&bytes));
+        let err = crate::package_v2::verify(&bytes, &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held).unwrap_err();
+        assert_eq!(err.code, "bundle_schema_retired", "{schema}");
+    }
+    let mut row: serde_json::Value = serde_json::from_slice(&rv1::launch(10)).unwrap();
+    row["extra"] = serde_json::json!(1);
+    let err = crate::package_v2::verify(&serde_json::to_vec(&row).unwrap(), &keys, &TESTNET_GENESIS.0, rv1::RV1_NETUID, &held).unwrap_err();
+    assert_eq!(err.code, "bundle_malformed");
 }

@@ -356,6 +356,14 @@ pub struct AuthorizationPointer {
     /// when there is none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revocations: Option<ObjectRef>,
+    /// The coordinator's latest signed row (`slop_ninja_protocol::CoordinatorRow`),
+    /// signed when it committed that row under this authorization: what
+    /// every other validator commits (the copy model). Absent until the
+    /// coordinator first commits under a build that signs rows. A reader
+    /// built before this field refuses a pointer that carries it (unknown
+    /// fields are refused), so readers deploy before the writer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row: Option<ObjectRef>,
 }
 
 /// A content-addressed object a document names: its key, SHA-256 (hex) and

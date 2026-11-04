@@ -9,15 +9,26 @@ into static public objects. Once a minute it:
    status snapshot and evaluates the alert rules, before any cohort work;
    once that phase has saved its state, it posts a heartbeat to the alerts
    relay (decision D18, below);
-2. verifies the next closed `reward-v1` cohort of the public record in the
-   private receipts bucket, as a validator would (at most one to completion
-   per run). It then copies the cohort's public objects into the separate
-   public-candidate bucket byte for byte, verifies the copies again, and lists
-   the cohort in the public index. Cohorts are listed strictly in order: one
+2. copies the validator authorization objects and the coordinator's signed
+   row (step 6 below says how), first and on their own: no later step, and
+   nothing it fails with, holds a new row or revocation back from
+   validators;
+3. verifies the next closed `reward-v1` cohort of the public record in the
+   private receipts bucket (signed records, the published index, the
+   recomputed outcome and the closure; at most one to completion per run).
+   It then writes only the cohort's allow-listed summary
+   (`v1/cohorts/<label>/summary.json`: per entrant its rank, band, gate and
+   public-copy gate bits and cluster membership, and `R_k` and `R_k-1` by
+   identity; no score value) into the separate public-candidate bucket and
+   lists the cohort in the public index. The coordinator's signed manifest,
+   package, target and closure, its receipts, receipt index, chunk maps and
+   bundles, its published-content and fingerprint indexes and its components
+   stay private (the copy model, 2026-11-04; `allowlist.rs` names every
+   public object and field). Cohorts are listed strictly in order: one
    that is incomplete or unreadable for now (a store error, an object not
    stored yet, or a closure or manifest that does not answer during the
-   scan) holds every later cohort, so a later target or authorization never
-   appears first. So does a packaged cohort whose closure the coordinator
+   scan) holds every later cohort, so a later cohort never appears first in
+   the listing. So does a packaged cohort whose closure the coordinator
    has not written yet (its closure paused or retrying while later cohorts
    close), until something says it never closes: the coordinator's
    retirement marker for it (written only after a closure or an
@@ -41,55 +52,34 @@ into static public objects. Once a minute it:
    start it, or whose manifest did not open, starts nothing: later cohorts
    wait until one that starts it is listed, retired or refused, or a new
    build accepts the refused one;
-3. publishes artifact objects from the private eval bucket after their cohort
+4. publishes artifact objects from the private eval bucket after their cohort
    closed, default-deny: only an outside entrant's upload with a matching
    admission record, never a reference, an operator's or a copy;
-4. writes the cohort index, the leaderboard (JSON and a static page rendered
+5. writes the cohort index, the leaderboard (JSON and a static page rendered
    from `site/`) and the reference pointers. A pointer links the reference's
    staged reference package (`v1/reference/packages/<sha256>/`, CC BY-SA 4.0)
    when the public bucket holds its parts manifest with that SHA-256; the
    operator stages packages and the publisher never writes under that prefix;
-5. copies the current validator authorization, any renew-by hint refresh and
-   the revocation set (copied byte for byte; refused only when malformed:
-   not whole records, a digest or length that differs, an entry that does
-   not decode or names another chain; an entry that does not open under the
-   trust roots is counted and alerted, `revocation_unverifiable`, and
-   validators skip it; its read bound is its declared length, reserved from
-   the run's budget) once the authorization's cohort is listed;
-6. deletes cohort N's detailed receipts from the public host once the
-   coordinator's `cohorts/<label>/receipts-retired.json` marker for N exists,
-   recording the marker's `due_after_cohort` as `receipts_deleted_after`
-   (for an earlier record's waiting cohorts, the predecessor authority's
-   marker under the same label). The coordinator's decision is the only
-   deletion rule: it applies the N+2 rule by durable completion and holds the
-   active target's cohort and the one whose target the current authorization
-   commits. No marker, nothing deleted; an unreadable or oversized marker is
-   refused and deletes nothing. A hold on the public side can only delay
-   that: while the public index's `active_target` or the target the public
-   current authorization commits is still N's (this publisher has not yet
-   listed the superseding cohort or copied the newer authorization), N's
-   public receipts stay, so a validator reading the public host never finds
-   the receipts of what it names deleted; they go on the marker once the
-   publisher catches up. The publisher's own N+2 reading of the public
-   record is only a cross-check (`retention_stalled` for `public_receipts`,
-   below). The authorization's carrying cohort is not held, on either side,
-   until the user decides whether it should be. A cohort whose private
-   detailed receipts the coordinator already deleted under its own N+2 rule
-   before this publisher copied it (its `receipts-retired.json` marker; for
-   example after a publisher outage of two completions) is recorded once in
-   the index's `retired_unpublished` (label, cohort, opening epoch, the
-   coordinator's `due_after_cohort` and whether it starts the record) and
-   never listed or retried, so the gap in the record is explained instead of
-   pending forever. Before recording it, any detailed receipts an
-   interrupted earlier copy left in the public bucket are deleted (no
-   publication record would delete them). The same marker deletes the
-   detailed receipts a refused cohort's copy left in the public bucket, once
-   (its `refused` entry records `receipts_deleted_after`). A retired cohort that starts the
-   record (reference index 0) lets later cohorts be listed after it. The
-   marker's schema and the private authorization pointer's key, checks and
-   bounds come from the contract the coordinator also imports
-   (`slop_ninja_admission_wire::receipts`);
-7. pings an external dead-man URL when one is enabled, after a run that
+6. (run at step 2) copies the current validator authorization, any renew-by
+   hint refresh, the revocation set and the coordinator's signed row (copied
+   byte for byte as soon as they verify: validators commit the row and need
+   no cohort record; refused only when malformed: not whole records, a digest
+   or length that differs, an entry that does not decode or names another
+   chain, a row that does not open under the trust roots or names another
+   authorization; a revocation entry that does not open under the trust
+   roots is counted and alerted, `revocation_unverifiable`, and validators
+   skip it; read bounds are the declared lengths, reserved from the run's
+   budget);
+7. publishes no detailed receipt, so the public host has no retention rule.
+   A first run over a layout v1 index replaces it with an empty v2 index
+   (keeping the record prefix, the initial references, the earlier records
+   and the cohorts retired before publication) and lists the record's
+   cohorts again from their private records, one a run; the operator's key
+   audit (`slop_ninja_publisher_ops audit-keys`) deletes what layout v1 left
+   in the bucket. The marker's schema and the private authorization pointer's
+   key, checks and bounds come from the contract the coordinator also
+   imports (`slop_ninja_admission_wire::receipts`);
+8. pings an external dead-man URL when one is enabled, after a run that
    finished both phases.
 
 The public host serves the bucket's objects directly. The Worker has no
@@ -148,20 +138,20 @@ store.
 
 ## Safety properties
 
-- **Verify, copy, verify again.** No object is copied before the whole cohort
-  verifies. Each copy streams bucket to bucket, and the destination checks
-  it against the SHA-256 verified before the copy, so a source that changed
-  in between is refused. The cohort is then verified again from the public
-  bucket, and is listed only when the copies' digests equal the originals'.
+- **Allow-listed output only.** No cohort record is copied. The summary is
+  built from typed fields of the verified records, checked against the
+  allow-list (`allowlist::check_object`: its key, its schema and every field
+  path) before it is written, and read back and checked again; a test checks
+  every object a run writes, and that no score value of the package (an
+  entrant's, `R_k`'s or `R_k-1`'s, a probe or near-copy statistic) appears
+  anywhere in the public bucket. A quantized score joins only after its
+  specification is approved (the places that will carry it are marked
+  `QUANTIZED-SCORE`).
 - **Only named objects.** The publisher reads only the cohort objects it
-  verifies, and the artifact objects the package binds. The batch shards,
-  batch index, results, summaries, probe vectors, plans, pools and
-  `keys.json` are never read or copied. Binary records decode canonically and
-  completely. The only copied JSON diagnostic (`components.json`) must parse
-  as its typed schema with unknown fields refused at every level, agree with
-  the manifest and package field for field (its policy document hashing to
-  the manifest's `gate_policy` digest) and pass the redaction scan, or it is
-  withheld.
+  verifies (never the receipts), and the artifact objects the package
+  binds. The batch shards, batch index, results, summaries, probe vectors,
+  plans, pools and `keys.json` are never read or copied. Binary records
+  decode canonically and completely.
 - **Typed snapshot.** The status snapshot is built from named fields only.
   Spend, the ledger, generation, models, lanes, jobs, documents and fault
   details never reach it; faults are one boolean. The ledger enters the alert
@@ -239,18 +229,9 @@ store.
   prefix that names an earlier record (its recorded
   prefix, or one its first label has; a deploy from a tree that still tracks
   it) is refused: the run moves, adopts and publishes nothing and reports
-  why. The earlier record's cohorts whose detailed
-  receipts were still published when it was moved aside are listed there too
-  (`receipts_pending`) and deleted once the predecessor authority's
-  retirement marker for each exists (read under the same label). The
-  restart superseded the earlier record's target (the coordinator's and
-  validators' held targets are restarted, so no new commitment to it is
-  made), so the cross-check counts two completions of the live record
-  (cohort numbers continue across authorities), whether or not those
-  produce a target. Refusals of the earlier record's cohorts stay out of
-  the live record's `refused` list. The archived index is the record as it stood,
-  and each cohort's publication record says when its receipts were
-  deleted. A refused cohort is not read again by the same
+  why. The archived index is the record as it stood. Refusals of the
+  earlier record's cohorts stay out of the live record's `refused` list.
+  A refused cohort is not read again by the same
   build (version and trust roots); a new build retries it.
 - **Read-only on the private side.** R2 bindings cannot be made read-only,
   so the code writes and deletes only in the public-candidate bucket. The
@@ -258,7 +239,10 @@ store.
 
 ## Bounded memory
 
-`arena.rs` holds the rules (`slop_ninja.publisher.arena/v2`):
+`arena.rs` holds the rules (`slop_ninja.publisher.arena/v2`). Runs no longer
+read receipts (they are coordinator-private), so the receipt-index and bundle
+bounds below apply to the verifier's receipt path (`verify::Options::receipts`),
+which the measurements exercise and the run does not take.
 
 - The Wasm module has fixed linear memory: 64 MiB, initial equal to maximum,
   set in `.cargo/config.toml`, and a test checks that the two values agree.
@@ -317,11 +301,12 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v14` (v14 adds
-`operator_clear_needed`, names a fault's cause and any jobs at the receipt
-bound in the fault rules' detail, and drops the retired `monthly_cap` code
-from the scorer and budget faults; v12 and v13 are `status_access_warning`
-and the public receipts cross-check). The table is in `alerts.rs`:
+The rule set is `slop_ninja.publisher.alerts/v15` (v15 adds
+`row_record_stalled`; v14 adds `operator_clear_needed`, names a fault's
+cause and any jobs at the receipt bound in the fault rules' detail, and
+drops the retired `monthly_cap` code from the scorer and budget faults; v12
+and v13 are `status_access_warning` and the public receipts cross-check).
+The table is in `alerts.rs`:
 
 - durable faults;
 - fallback lasting a tempo;
@@ -376,7 +361,9 @@ and the public receipts cross-check). The table is in `alerts.rs`:
   marker whose due point the public record has reached while the public
   reading still holds the cohort, or a cohort the public reading found due
   with no marker after two further completions (claimed only in a run that
-  read the authorization pointer);
+  read the authorization pointer). This build publishes no detailed
+  receipt, so it makes no such reading: every finished run reports none,
+  which resolves an alert a v13 build raised;
 - two tempos without a coordinator commit;
 - the coordinator's authorization-pointer writer not confirming the private
   pointer for a tempo (`pointer_stale`: `signing.authorization` reports the
@@ -393,6 +380,12 @@ and the public receipts cross-check). The table is in `alerts.rs`:
   v9), or its authorization key's check failing for a
   tempo (`signing.auto_target.key_error`, reported before any cohort needs
   a signature);
+- no signed coordinator row covering the installed authorization for a
+  tempo, or signing a new row failing for a tempo while the old one still
+  covers it (`row_record_stalled`, v15: `signing.row_record.pending_*` or
+  `error`, with the code it waits on, such as `row_waiting_derivation`,
+  `row_waiting_issue`, `row_hotkeys_missing` or a key failure); validators
+  keep their installed row meanwhile, and a fresh validator waits;
 - a coordinator reveal that differs from its committed row
   (`coordinator_reveal_mismatch`);
 - unreachable status, and a status that answered without a field an open

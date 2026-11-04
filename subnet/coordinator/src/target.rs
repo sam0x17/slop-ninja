@@ -243,6 +243,20 @@ pub struct RowSummary {
     /// for a `testnet-reward-v0` row, whose largest entry is already 65,535.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chain: Option<Vec<(u16, u16)>>,
+    /// `reward-v1`: the hotkey the finalized snapshot read at each entry's
+    /// UID, in entry order (hex), for the signed coordinator row validators
+    /// copy (`signing::rows`). Absent for a row derived by an older build,
+    /// which then gets no row record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotkeys: Option<Vec<String>>,
+    /// `reward-v1`: the registration block the snapshot read at each
+    /// entry's UID, in entry order, for the same record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registration_blocks: Option<Vec<u64>>,
+    /// `reward-v1`: the snapshot's owner hotkey (hex): the entry paying it
+    /// is the burn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_hotkey: Option<String>,
 }
 
 impl RowSummary {
@@ -259,6 +273,9 @@ pub fn summary(row: &WeightRow) -> Result<RowSummary, Refusal> {
         registration_block: row.registration_block,
         entries: row.entries.iter().map(|e| (e.uid, e.weight)).collect(),
         chain: None,
+        hotkeys: None,
+        registration_blocks: None,
+        owner_hotkey: None,
     })
 }
 
@@ -455,6 +472,9 @@ pub fn summary_v2(row: &WeightRowV2) -> Result<RowSummary, Refusal> {
         registration_block: row.registration_block,
         entries: row.entries.iter().map(|e| (e.uid, e.weight)).collect(),
         chain: Some(row.chain_values()),
+        hotkeys: None,
+        registration_blocks: None,
+        owner_hotkey: None,
     })
 }
 

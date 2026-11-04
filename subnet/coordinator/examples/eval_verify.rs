@@ -1,5 +1,7 @@
-//! Verifies a published cohort package from its stored objects, as a validator
-//! would, and writes a T12-format bundle the native validator can read.
+//! Verifies a cohort package from its stored receipts-bucket objects, an
+//! operator check of the coordinator's own output. It writes no validator
+//! bundle: validators commit the coordinator's signed row and refuse the T12
+//! fixture package (`bundle_schema_retired`).
 //!
 //! eval_verify DIR PACKAGE_PUBLIC_KEY_HEX RECEIPT_PUBLIC_KEY_HEX [--snapshot UID:HOTKEY_HEX:REG_BLOCK ...]
 //!
@@ -71,25 +73,6 @@ fn main() {
         *by_artifact.entry(r.artifact.to_string()).or_default().entry(class.into()).or_default() += 1;
     }
 
-    // Receipts in index order, for the T12 bundle.
-    let mut by_attempt = BTreeMap::new();
-    for c in &chunks {
-        for b in receipts::decode_chunk(c).unwrap() {
-            let r = slop_ninja_protocol::AttemptReceipt::from_bytes(b).unwrap();
-            by_attempt.insert(r.attempt, hex::encode(b));
-        }
-    }
-    let ordered: Vec<String> = index.entries.iter().map(|e| by_attempt[&e.attempt].clone()).collect();
-    let bundle = json!({
-        "schema": "slop_ninja.fixture_package/v1",
-        "shortcut": "T12",
-        "manifest": hex::encode(read("manifest.signed")),
-        "package": hex::encode(read("package.signed")),
-        "target": hex::encode(read("target.signed")),
-        "receipt_index": hex::encode(read("receipt-index.signed")),
-        "receipts": ordered,
-    });
-    std::fs::write(dir.join("t12-bundle.json"), serde_json::to_vec_pretty(&bundle).unwrap()).unwrap();
 
     let mut row = Value::Null;
     let snap: Vec<NeuronIdentity> = args[3..]
@@ -129,7 +112,6 @@ fn main() {
         "scores": package.scores.iter().map(|s| json!({"uid": s.identity.uid, "artifact": s.artifact.to_string(),
             "utility": s.score.get().to_string(), "assigned": s.assigned, "succeeded": s.succeeded, "failed": s.failed})).collect::<Vec<_>>(),
         "row": row,
-        "t12_bundle": "t12-bundle.json",
     });
     println!("{}", serde_json::to_string_pretty(&report).unwrap());
 }

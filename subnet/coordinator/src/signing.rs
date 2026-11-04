@@ -334,6 +334,15 @@ pub enum ReadPurpose {
         op_id: String,
         block: u64,
     },
+    /// The subnet's schedule and population at a finalized block, for the
+    /// row other validators copy ([`rows`]), outside the commit pipeline.
+    RowSchedule,
+    /// The registrations and owner hotkey at the same block, for the row of
+    /// commit epoch `epoch`.
+    RowRegistration {
+        epoch: u64,
+        population: u16,
+    },
 }
 
 /// Why a runtime version (and, once, its metadata) is fetched.
@@ -480,6 +489,8 @@ enum Chained {
     RevealProbe { op_id: String, lo: u64, hi: u64 },
     /// Read the events of the block that removed it.
     RevealEvents { op_id: String, block: u64 },
+    /// The row snapshot's registration read, at the block of its schedule.
+    RowRegistration { at: BlockRef, epoch: u64, population: u16 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -765,6 +776,10 @@ const MAX_RPC_BACKOFF_MS: u64 = 120_000;
 
 const HEAD: &str = "head";
 const PREFLIGHT: &str = "preflight";
+/// The row snapshot step's subject: its failures back off at the capped
+/// rate and never settle (it is not a diagnostic: other validators' rows
+/// depend on it).
+const ROW_SNAPSHOT: &str = "row_snapshot";
 
 fn attempt_subject(op_id: &str, n: u32) -> String {
     format!("attempt:{n}:{op_id}")
@@ -780,6 +795,7 @@ fn read_subject(read: &ReadPurpose) -> String {
         ReadPurpose::RevealCheck { op_id }
         | ReadPurpose::RevealProbe { op_id, .. }
         | ReadPurpose::RevealEvents { op_id, .. } => format!("reveal:{op_id}"),
+        ReadPurpose::RowSchedule | ReadPurpose::RowRegistration { .. } => ROW_SNAPSHOT.to_owned(),
     }
 }
 
@@ -2181,7 +2197,9 @@ fn guarded(
 /// 1. the head runtime, when none is stored;
 /// 2. the live attempt, whose nonce decides everything else;
 /// 3. new work (a preflight) while active, when no attempt is live;
-/// 4. diagnostics: read-back and reveal tracking of committed operations.
+/// 4. the row snapshot other validators' rows come from ([`rows`]), once a
+///    tempo, in every signer state (paused or faulted too);
+/// 5. diagnostics: read-back and reveal tracking of committed operations.
 ///
 /// A subject that is backing off or settled is skipped, so a failing
 /// diagnostic never delays a commit.
@@ -2193,7 +2211,11 @@ fn next_step(
     now_ms: u64,
 ) -> Result<Option<SignPlan>, SignError> {
     let s = signer(sql)?;
-    if s.reason.as_deref().is_some_and(|r| r.starts_with("fault:")) {
+    // A signer fault stops the hotkey pipeline. The row snapshot, which
+    // signs nothing with the hotkey, still runs: other validators' rows
+    // never wait on the coordinator's own signing ([`rows`]).
+    let faulted = s.reason.as_deref().is_some_and(|r| r.starts_with("fault:"));
+    if faulted && !rows::snapshot_due(sql, c)? {
         return Ok(None);
     }
     if blocked(sql, HEAD, c.number)? {
@@ -2216,6 +2238,9 @@ fn next_step(
         Err(e) => return Err(e),
     };
     let cfg = ctx.cfg;
+    if faulted {
+        return row_step(sql, ctx, &rt, token, c, now_ms);
+    }
     // 2. The live attempt.
     let live = live_attempt(sql)?;
     if let Some(a) = live.clone() {
@@ -2236,7 +2261,11 @@ fn next_step(
         // 3. New work only while active, with a target and no live attempt.
         return Ok(Some(p));
     }
-    // 4. Committed operations: read-back, then reveal.
+    // 4. The row snapshot, in every signer state.
+    if let Some(p) = row_step(sql, ctx, &rt, token, c, now_ms)? {
+        return Ok(Some(p));
+    }
+    // 5. Committed operations: read-back, then reveal.
     for o in ops_where(sql, "state = 'committed'")? {
         let Some(commit_block) = o.commit_block else {
             continue;
@@ -2287,6 +2316,26 @@ fn next_step(
         }
     }
     Ok(None)
+}
+
+/// The row snapshot's schedule read, when one is due ([`rows::snapshot_due`])
+/// and its subject is not backing off.
+fn row_step(
+    sql: &impl Sql,
+    ctx: &Ctx<'_>,
+    rt: &ChainRuntime,
+    token: &ClaimToken,
+    c: BlockRef,
+    now_ms: u64,
+) -> Result<Option<SignPlan>, SignError> {
+    if blocked(sql, ROW_SNAPSHOT, c.number)? || !rows::snapshot_due(sql, c)? {
+        return Ok(None);
+    }
+    guarded(sql, ROW_SNAPSHOT, c, now_ms, || {
+        let read = ReadPurpose::RowSchedule;
+        let keys = keys_for(sql, ctx.cfg, rt, &read)?;
+        Ok(Some(plan_read(token, c, read, keys)))
+    })
 }
 
 /// A preflight, when the confirmed block opens a commit window or an
@@ -2341,6 +2390,16 @@ fn keys_for(
             upgrade_key(rt)?,
             commits_key(rt, cfg, 0, op_of(op_id)?.epoch)?,
         ]),
+        ReadPurpose::RowSchedule => rows::ROW_SCHEDULE_ITEMS
+            .iter()
+            .map(|(p, i, k)| item_key(rt, cfg, 0, p, i, *k))
+            .collect(),
+        ReadPurpose::RowRegistration { population, .. } => {
+            let mut keys = vec![upgrade_key(rt)?];
+            keys.extend(neuron_keys(rt, cfg, *population)?);
+            keys.push(owner_key(rt, cfg)?);
+            Ok(keys)
+        }
         ReadPurpose::RevealEvents { op_id, .. } => {
             let o = op_of(op_id)?;
             Ok(vec![
@@ -2639,21 +2698,81 @@ fn registration_keys(
     epoch: u64,
 ) -> Result<Vec<Vec<u8>>, SignError> {
     let mut keys = vec![upgrade_key(rt)?];
-    for uid in 0..population {
-        let p = [net(cfg), Value::Int(i128::from(uid))];
-        keys.push(
-            rt.storage_key(chain::SUBTENSOR, "Keys", &p)
-                .map_err(SignError::Chain)?,
-        );
-        keys.push(
-            rt.storage_key(chain::SUBTENSOR, "BlockAtRegistration", &p)
-                .map_err(SignError::Chain)?,
-        );
-    }
+    keys.extend(neuron_keys(rt, cfg, population)?);
     keys.push(owner_key(rt, cfg)?);
     keys.push(commits_key(rt, cfg, mechanism, epoch)?);
     Ok(keys)
 }
+
+/// `Keys` and `BlockAtRegistration` of every UID below `population`.
+fn neuron_keys(rt: &ChainRuntime, cfg: &SignConfig, population: u16) -> Result<Vec<Vec<u8>>, SignError> {
+    let mut keys = Vec::with_capacity(usize::from(population) * 2);
+    for uid in 0..population {
+        let p = [net(cfg), Value::Int(i128::from(uid))];
+        keys.push(rt.storage_key(chain::SUBTENSOR, "Keys", &p).map_err(SignError::Chain)?);
+        keys.push(rt.storage_key(chain::SUBTENSOR, "BlockAtRegistration", &p).map_err(SignError::Chain)?);
+    }
+    Ok(keys)
+}
+
+/// `(uid, hotkey, registration block)` of each registered UID.
+type Neurons = Vec<(u16, [u8; 32], u64)>;
+
+/// The registrations `neuron_keys` read, or `None` when a UID's hotkey does
+/// not decode.
+fn read_neurons(
+    rt: &ChainRuntime,
+    cfg: &SignConfig,
+    population: u16,
+    values: &Values,
+) -> Result<Option<Neurons>, SignError> {
+    let mut neurons = Vec::with_capacity(usize::from(population));
+    for uid in 0..population {
+        let params = [net(cfg), Value::Int(i128::from(uid))];
+        let k = rt.storage_key(chain::SUBTENSOR, "Keys", &params).map_err(SignError::Chain)?;
+        let b = rt.storage_key(chain::SUBTENSOR, "BlockAtRegistration", &params).map_err(SignError::Chain)?;
+        let Some(hotkey) = as_account(&values.get(rt, chain::SUBTENSOR, "Keys", &k)?) else {
+            return Ok(None);
+        };
+        neurons.push((
+            uid,
+            hotkey,
+            number(&values.get(rt, chain::SUBTENSOR, "BlockAtRegistration", &b)?, "BlockAtRegistration")?,
+        ));
+    }
+    Ok(Some(neurons))
+}
+
+/// The paid row of reward-v1 target `v` at `snapshot`, with the hotkey and
+/// registration block at each paid UID and the owner hotkey (what the
+/// signed row other validators copy carries, [`rows`]), or the refusal code.
+///
+/// QUANTIZED-SCORE: the row is derived from exact scores and is signed for
+/// other validators ([`rows`]) as soon as it is journaled.
+fn paid_summary_v2(
+    v: &slop_ninja_protocol::VerifiedTarget,
+    snapshot: &slop_ninja_protocol::RegistrationSnapshotV2,
+) -> Result<RowSummary, &'static str> {
+    match v.derive_row(snapshot) {
+        Ok(row) => match target::summary_v2(&row) {
+            Ok(mut s) => {
+                let at = |uid: u16| snapshot.neurons.iter().find(|n| n.uid == uid);
+                s.hotkeys = s.entries.iter().map(|(uid, _)| at(*uid).map(|n| hex::encode(n.hotkey.0))).collect();
+                s.registration_blocks = s.entries.iter().map(|(uid, _)| at(*uid).map(|n| n.registration_block)).collect();
+                s.owner_hotkey = Some(hex::encode(snapshot.owner_hotkey.0));
+                Ok(s)
+            }
+            Err(r) => Err(r.code),
+        },
+        // The owner hotkey holds no UID and units must burn: this tempo's
+        // row is deferred, never sent to another UID.
+        Err(slop_ninja_protocol::Error::Deferred(_)) => Err(ROW_DEFERRED_OWNER),
+        Err(_) => Err("row_refused"),
+    }
+}
+
+/// A row deferred because the owner hotkey holds no UID.
+pub const ROW_DEFERRED_OWNER: &str = "row_deferred_owner_unregistered";
 
 /// `SubnetOwnerHotkey(netuid)`: the burn destination of a reward-v1 row.
 fn owner_key(rt: &ChainRuntime, cfg: &SignConfig) -> Result<Vec<u8>, SignError> {
@@ -2919,6 +3038,7 @@ fn chained_subject(ch: &Chained) -> String {
         Chained::RevealProbe { op_id, .. } | Chained::RevealEvents { op_id, .. } => {
             format!("reveal:{op_id}")
         }
+        Chained::RowRegistration { .. } => ROW_SNAPSHOT.to_owned(),
     }
 }
 
@@ -3316,6 +3436,10 @@ fn apply_read(
         ReadPurpose::RevealEvents { op_id, block } => {
             apply_reveal_events(sql, ctx, rt, at_block, op_id, *block, values, now_ms)
         }
+        ReadPurpose::RowSchedule => rows::apply_schedule(sql, ctx, rt, at_block, values, now_ms),
+        ReadPurpose::RowRegistration { epoch, population } => {
+            rows::apply_registration(sql, ctx, rt, at_block, *epoch, *population, values, now_ms)
+        }
     }
 }
 
@@ -3600,27 +3724,9 @@ fn apply_registration(
         journal::bump(sql, "sign_duplicate_refusals")?;
         return Ok(failed("commit_already_present")?);
     }
-    let mut neurons = Vec::new();
-    for uid in 0..p.population {
-        let params = [net(cfg), Value::Int(i128::from(uid))];
-        let k = rt
-            .storage_key(chain::SUBTENSOR, "Keys", &params)
-            .map_err(SignError::Chain)?;
-        let b = rt
-            .storage_key(chain::SUBTENSOR, "BlockAtRegistration", &params)
-            .map_err(SignError::Chain)?;
-        let Some(hotkey) = as_account(&values.get(rt, chain::SUBTENSOR, "Keys", &k)?) else {
-            return Ok(failed("registration_unreadable")?);
-        };
-        neurons.push((
-            uid,
-            hotkey,
-            number(
-                &values.get(rt, chain::SUBTENSOR, "BlockAtRegistration", &b)?,
-                "BlockAtRegistration",
-            )?,
-        ));
-    }
+    let Some(neurons) = read_neurons(rt, cfg, p.population, values)? else {
+        return Ok(failed("registration_unreadable")?);
+    };
     let summary = match &t.verified {
         Verified::V1(v) => {
             let snapshot = match target::snapshot(v.chain(), at_block.number, at_block.hash.0, neurons) {
@@ -3641,15 +3747,9 @@ fn apply_registration(
                 Ok(s) => s,
                 Err(r) => return Ok(failed(r.code)?),
             };
-            match v.derive_row(&snapshot) {
-                Ok(row) => match target::summary_v2(&row) {
-                    Ok(s) => s,
-                    Err(r) => return Ok(failed(r.code)?),
-                },
-                // The owner hotkey holds no UID and units must burn: this
-                // tempo's row is deferred, never sent to another UID.
-                Err(slop_ninja_protocol::Error::Deferred(_)) => return Ok(failed("row_deferred_owner_unregistered")?),
-                Err(_) => return Ok(failed("row_refused")?),
+            match paid_summary_v2(v, &snapshot) {
+                Ok(s) => s,
+                Err(code) => return Ok(failed(code)?),
             }
         }
     };
@@ -4500,6 +4600,14 @@ fn chained_step(
             let keys = keys_for(sql, ctx.cfg, &rt, &read)?;
             Ok(Some(plan_read(token, retained(sql, block)?, read, keys)))
         }
+        Chained::RowRegistration { at, epoch, population } => {
+            let Some(rt) = ctx.runtime.get(sql)? else {
+                return Ok(None);
+            };
+            let read = ReadPurpose::RowRegistration { epoch, population };
+            let keys = keys_for(sql, ctx.cfg, &rt, &read)?;
+            Ok(Some(plan_read(token, at, read, keys)))
+        }
     }
 }
 
@@ -4666,6 +4774,9 @@ pub struct SigningStatus {
     /// The installed authorization, its revocation state and the pointer's
     /// last confirmed write ([`authority::view`]).
     pub authorization: Option<authority::AuthorizationView>,
+    /// The signed coordinator row other validators copy, and its last
+    /// signing failure ([`rows::view`]).
+    pub row_record: Option<rows::RowRecordView>,
     /// Automatic target handoff: the closed cohorts handled, the next one
     /// waiting and the last failure ([`auto::view`]).
     pub auto_target: auto::AutoView,
@@ -4850,6 +4961,7 @@ pub fn status(
         restarted_from_epoch: restart_floor(sql)?,
         record_epoch: record_epoch(sql)?,
         authorization: authority::view(sql, now_ms)?,
+        row_record: rows::view(sql, now_ms)?,
         auto_target: auto::view(sql, now_ms)?,
         schedule_block: sql
             .exec("SELECT block_number FROM chain_schedule WHERE id = 1", &[])?
@@ -4865,6 +4977,7 @@ pub fn status(
 
 pub mod authority;
 pub mod auto;
+pub mod rows;
 pub use authority::{
     PointerOutcome, PointerPlan, Revoked, install_revocation, pointer_object, pointer_outcome, pointer_plan, pointer_written,
 };

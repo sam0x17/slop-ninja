@@ -22,7 +22,7 @@ use crate::config::{self, Config, Sink};
 use crate::layout::{self, Cache};
 use crate::publish::{Buckets, Keepalive, Memo, Report, Run};
 use crate::status::{self, Observed, SnapshotInputs};
-use crate::store::{ObjectMeta, Put, Store, StoreError};
+use crate::store::{ObjectMeta, PublicStore, Put, Store, StoreError};
 use slop_ninja_alerts_wire as wire;
 use slop_ninja_protocol::Digest;
 
@@ -714,8 +714,10 @@ impl Keepalive for DoLease<'_> {
     }
 }
 
-async fn put_status(public: &R2, snapshot: &status::PublicStatus) -> bool {
+async fn put_status(public: PublicStore<'_, R2>, snapshot: &status::PublicStatus) -> bool {
     match serde_json::to_vec_pretty(snapshot) {
+        // The public store checks it against the allow-list like every
+        // public write.
         Ok(bytes) => public
             .put(
                 layout::STATUS,
@@ -764,7 +766,7 @@ async fn config_fault(env: &Env, error: config::ConfigError) {
             now_ms: started,
         });
         snapshot.fault = true;
-        put_status(&R2(public), &snapshot).await;
+        put_status(PublicStore::new(&R2(public)), &snapshot).await;
     }
     let Some(Begun {
         state: mut durable, ..
@@ -822,7 +824,9 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
         console_error!("publisher: a bucket binding is missing");
         return;
     };
-    let (receipts, eval, public) = (R2(receipts), R2(eval), R2(public));
+    let (receipts, eval, public_bucket) = (R2(receipts), R2(eval), R2(public));
+    // The public bucket is written only through the allow-list.
+    let public = PublicStore::new(&public_bucket);
     let budget = Budget::worker();
     let holder = format!("run:{started}");
     let begin = Begin {
@@ -850,7 +854,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
             last_published_cohort: last,
             now_ms: now_ms(),
         });
-        put_status(&public, &snapshot).await;
+        put_status(public, &snapshot).await;
         console_log!("publisher: another run holds the lease; snapshot refreshed");
         return;
     };
@@ -866,7 +870,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
         last_published_cohort: durable.last_published,
         now_ms: now_ms(),
     });
-    let status_written = put_status(&public, &snapshot).await;
+    let status_written = put_status(public, &snapshot).await;
     let mut publisher = durable.publisher.clone();
     publisher.interrupted = interrupted;
     publisher.warnings.clone_from(&cfg.warnings);
@@ -922,7 +926,7 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
         buckets: Buckets {
             receipts: &receipts,
             eval: &eval,
-            public: &public,
+            public,
         },
         cfg: &cfg,
         budget: &budget,

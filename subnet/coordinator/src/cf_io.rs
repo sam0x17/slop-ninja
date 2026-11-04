@@ -424,6 +424,122 @@ pub async fn r2_size(bucket: &worker::Bucket, key: &str, deadline_ms: Option<u64
     Ok(Some(size as u64))
 }
 
+/// The buffer [`r2_fold`] copies an object's body through: whatever the
+/// object's length, the fold holds this much of it in linear memory.
+pub const FOLD_BUFFER_BYTES: usize = 64 * 1024;
+
+/// Feeds an R2 object's body to `f` through one [`FOLD_BUFFER_BYTES`]
+/// buffer, chunk by chunk as the body stream delivers it, raced against
+/// `deadline_ms` like [`r2_bytes`]. `Ok(false)`: no object. The body is
+/// never held whole, so an object of any length is read in a fixed
+/// footprint (a signed receipt index checked as it streams).
+pub async fn r2_fold(
+    bucket: &worker::Bucket,
+    key: &str,
+    deadline_ms: Option<u64>,
+    f: &mut dyn FnMut(&[u8]),
+) -> Result<bool, BodyError> {
+    let b: &JsValue = bucket.as_ref();
+    let get: Function = Reflect::get(b, &JsValue::from_str("get"))
+        .ok()
+        .and_then(|f| f.dyn_into().ok())
+        .ok_or(BodyError::Transport)?;
+    let promise: js_sys::Promise =
+        get.call1(b, &JsValue::from_str(key)).ok().and_then(|p| p.dyn_into().ok()).ok_or(BodyError::Transport)?;
+    let obj = match settle(promise, deadline_ms).await {
+        Settled::Value(v) => v,
+        Settled::Error(_) => return Err(BodyError::Transport),
+        Settled::Timeout => return Err(BodyError::Timeout),
+    };
+    if obj.is_null() || obj.is_undefined() {
+        return Ok(false);
+    }
+    let Some(body) = Reflect::get(&obj, &JsValue::from_str("body")).ok().filter(|v| !v.is_null() && !v.is_undefined()) else {
+        return Ok(true);
+    };
+    let reader = call0(&body, "getReader")?;
+    let refuse = |e: BodyError| {
+        let _ = call0(&reader, "cancel");
+        e
+    };
+    let mut buf = vec![0u8; FOLD_BUFFER_BYTES];
+    loop {
+        let promise: js_sys::Promise = call0(&reader, "read")?.dyn_into().map_err(|_| BodyError::Transport)?;
+        let step = match settle(promise, deadline_ms).await {
+            Settled::Value(v) => v,
+            Settled::Error(_) => return Err(BodyError::Transport),
+            Settled::Timeout => return Err(refuse(BodyError::Timeout)),
+        };
+        if Reflect::get(&step, &JsValue::from_str("done")).ok().and_then(|d| d.as_bool()).unwrap_or(true) {
+            return Ok(true);
+        }
+        let chunk: Uint8Array = Reflect::get(&step, &JsValue::from_str("value"))
+            .ok()
+            .and_then(|v| v.dyn_into().ok())
+            .ok_or(BodyError::Transport)
+            .map_err(refuse)?;
+        let len = chunk.length() as usize;
+        let mut at = 0usize;
+        while at < len {
+            let n = (len - at).min(FOLD_BUFFER_BYTES);
+            let Some(dst) = buf.get_mut(..n) else {
+                return Err(refuse(BodyError::Transport));
+            };
+            chunk.subarray(at as u32, (at + n) as u32).copy_to(dst);
+            f(dst);
+            at += n;
+        }
+    }
+}
+
+/// One page of an R2 listing under `prefix` grouped by `delimiter`: its
+/// delimited prefixes and, when the listing is truncated, the cursor that
+/// continues it. Raced against `deadline_ms` like [`r2_bytes`]. A page holds
+/// at most the platform's 1,000 entries, each an R2 key (at most 1,024
+/// bytes), so it is bounded by the platform.
+pub async fn r2_list_prefixes(
+    bucket: &worker::Bucket,
+    prefix: &str,
+    delimiter: &str,
+    cursor: Option<&str>,
+    deadline_ms: Option<u64>,
+) -> Result<(Vec<String>, Option<String>), BodyError> {
+    let b: &JsValue = bucket.as_ref();
+    let list: Function = Reflect::get(b, &JsValue::from_str("list"))
+        .ok()
+        .and_then(|f| f.dyn_into().ok())
+        .ok_or(BodyError::Transport)?;
+    let options = js_sys::Object::new();
+    let set = |k: &str, v: &str| Reflect::set(&options, &JsValue::from_str(k), &JsValue::from_str(v)).map(|_| ());
+    set("prefix", prefix).map_err(|_| BodyError::Transport)?;
+    set("delimiter", delimiter).map_err(|_| BodyError::Transport)?;
+    if let Some(c) = cursor {
+        set("cursor", c).map_err(|_| BodyError::Transport)?;
+    }
+    let promise: js_sys::Promise =
+        list.call1(b, &options).ok().and_then(|p| p.dyn_into().ok()).ok_or(BodyError::Transport)?;
+    let page = match settle(promise, deadline_ms).await {
+        Settled::Value(v) => v,
+        Settled::Error(_) => return Err(BodyError::Transport),
+        Settled::Timeout => return Err(BodyError::Timeout),
+    };
+    let prefixes = Reflect::get(&page, &JsValue::from_str("delimitedPrefixes"))
+        .ok()
+        .and_then(|v| v.dyn_into::<js_sys::Array>().ok())
+        .ok_or(BodyError::Transport)?;
+    let mut out = Vec::with_capacity(prefixes.length() as usize);
+    for p in prefixes.iter() {
+        out.push(p.as_string().ok_or(BodyError::Transport)?);
+    }
+    let truncated = Reflect::get(&page, &JsValue::from_str("truncated")).ok().and_then(|v| v.as_bool()).unwrap_or(false);
+    let next = if truncated {
+        Some(Reflect::get(&page, &JsValue::from_str("cursor")).ok().and_then(|v| v.as_string()).ok_or(BodyError::Transport)?)
+    } else {
+        None
+    };
+    Ok((out, next))
+}
+
 /// Writes `bytes` to `key`, raced against `deadline_ms` in JS (`settle`):
 /// `true` when the put completed in time. The bytes are copied into JS
 /// before the call.

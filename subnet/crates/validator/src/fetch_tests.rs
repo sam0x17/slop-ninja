@@ -2709,3 +2709,130 @@ fn a_carried_target_names_both_cohorts_receipts_by_reference() -> Result<()> {
     assert_eq!(fetch::bundle_references(&staged.bundle)?.len(), 4);
     Ok(())
 }
+
+/// Writes `host`'s objects into a mirror directory, as the operator's copy of
+/// the public layout holds them.
+fn mirror(host: &Host, dir: &Path) -> Result<()> {
+    for (path, bytes) in host.objects.lock().unwrap().iter() {
+        let file = dir.join(path);
+        std::fs::create_dir_all(file.parent().unwrap())?;
+        std::fs::write(file, bytes)?;
+    }
+    Ok(())
+}
+
+fn run_dir(dir: &Path, cache: &Path, held: ActiveTarget) -> Result<Outcome> {
+    let keys: TrustedKeys = slop_ninja_protocol::fixtures::trusted_keys();
+    let chain = fx::chain();
+    let base = url::Url::from_directory_path(dir).map_err(|()| anyhow::anyhow!("dir url"))?;
+    let transport = fetch::PublicTransport::new(base, std::time::Duration::from_secs(5), std::time::Duration::from_secs(30), "test")?;
+    let keep = fetch::KeepSet::new(Some(Vec::new()));
+    block_on(
+        Session {
+            transport: &transport,
+            cache,
+            keys: &keys,
+            chain: &chain,
+            held,
+            previous: None,
+            keep: &keep,
+            revocations: None,
+        }
+        .run(),
+    )
+}
+
+/// A local mirror directory (`file://` base) serves the same layout as the
+/// HTTPS host: no pointer is `unpublished`; the coordinator's automatically
+/// signed cohort authorization and its cohort's records assemble into the
+/// bundle the operator tool writes; a tampered object in the mirror is
+/// refused exactly as from the host.
+#[test]
+fn a_mirror_directory_serves_a_published_cohort_like_the_https_host() -> Result<()> {
+    let root = scratch()?;
+    let (cache, dir) = (root.path().join("cache"), root.path().join("mirror"));
+    std::fs::create_dir_all(&dir)?;
+    assert_eq!(run_dir(&dir, &cache, launch_held())?.code(), "unpublished");
+    let (first, _, _) = rv1::cohorts();
+    let host = Host::default();
+    publish(&host, &first);
+    index(&host, &[(&first, true)]);
+    point(&host, &fx::chain(), "cohort", &first.authorization, None);
+    mirror(&host, &dir)?;
+    let staged = ready(run_dir(&dir, &cache, launch_held())?);
+    assert_eq!(staged.bundle, rv1::bundle(&first), "byte-identical to the operator tool's bundle");
+    assert_eq!((staged.info.kind.as_str(), staged.info.target.clone()), ("cohort", target_hex(&first)));
+    // A tampered object (same length, listed digest kept) is refused.
+    let fresh = root.path().join("cache2");
+    let path = dir.join(format!("{}package.signed", dir_of(&first)));
+    let mut bytes = std::fs::read(&path)?;
+    *bytes.last_mut().unwrap() ^= 1;
+    std::fs::write(&path, bytes)?;
+    match run_dir(&dir, &fresh, launch_held()) {
+        Ok(Outcome::Ready(_)) => panic!("a tampered mirror produced a bundle"),
+        Ok(other) => assert_ne!(other.code(), "unchanged"),
+        Err(_) => {}
+    }
+    Ok(())
+}
+
+fn dir_of(c: &Cohort) -> String {
+    dir(c)
+}
+
+/// The mirror transport reads a continued object from its offset, restarts
+/// one shorter than the offset from byte 0, answers a missing file as not
+/// found, and refuses an unsafe path before touching the filesystem.
+#[test]
+fn the_mirror_transport_reads_ranges_and_refuses_unsafe_paths() -> Result<()> {
+    struct Collect {
+        begun: Option<(Option<u64>, bool)>,
+        bytes: Vec<u8>,
+    }
+    impl Sink for Collect {
+        fn begin(&mut self, declared: Option<u64>, continues: bool) -> Result<()> {
+            self.begun = Some((declared, continues));
+            Ok(())
+        }
+        fn write(&mut self, chunk: &[u8]) -> Result<()> {
+            self.bytes.extend_from_slice(chunk);
+            Ok(())
+        }
+    }
+    let root = scratch()?;
+    let t = fetch::DirTransport::new(root.path().to_path_buf())?;
+    std::fs::create_dir_all(root.path().join("v1"))?;
+    let body: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+    std::fs::write(root.path().join("v1/object.bin"), &body)?;
+    let get = |path: &str, offset: u64| -> Result<(Got, Collect)> {
+        let mut sink = Collect { begun: None, bytes: Vec::new() };
+        let got = block_on(t.get(path, offset, &mut sink))?;
+        Ok((got, sink))
+    };
+    let (got, full) = get("v1/object.bin", 0)?;
+    assert_eq!((got, full.begun, full.bytes == body), (Got::Full, Some((Some(200_000), false)), true));
+    let (got, part) = get("v1/object.bin", 150_000)?;
+    assert_eq!((got, part.begun, part.bytes.as_slice() == &body[150_000..]), (Got::Partial, Some((Some(50_000), true)), true));
+    let (got, past) = get("v1/object.bin", 300_000)?;
+    assert_eq!((got, past.bytes.len()), (Got::Full, 200_000));
+    assert_eq!(get("v1/missing.bin", 0)?.0, Got::NotFound);
+    for bad in ["../object.bin", "v1/../../etc", "", "/v1/object.bin"] {
+        assert!(get(bad, 0).is_err(), "{bad}");
+    }
+    assert!(fetch::DirTransport::new("relative".into()).is_err());
+    Ok(())
+}
+
+/// `file://` names a local absolute mirror directory and nothing else.
+#[test]
+fn a_file_base_url_names_a_local_absolute_directory() -> Result<()> {
+    let root = scratch()?;
+    let base = base_config(root.path());
+    let parse = |url: &str| ValidatorConfig::parse(&format!("{base}{}\n[fetch]\nbase_url = \"{url}\"\n", package_section()));
+    let ok = parse("file:///srv/slop-ninja/mirror")?;
+    assert_eq!(ok.fetch.unwrap().base()?.as_str(), "file:///srv/slop-ninja/mirror/");
+    for bad in ["file://host.example/srv/mirror/", "file:///srv/mirror/?k=v", "file:///srv/mirror/#f"] {
+        assert!(parse(bad).is_err(), "accepted: {bad}");
+    }
+    Ok(())
+}

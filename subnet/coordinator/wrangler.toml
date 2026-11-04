@@ -76,6 +76,19 @@ COORDINATOR_HOTKEY_SS58 = "5Hj59hQjQKVUp2NgzvZeNUQX8xoPotuqLGtg87UvNzSjFdRm"
 PACKAGE_PUBLIC_KEY = "5005405e110f8d602efdc1839251443da5385f9ff3766b970d9c42e7686af90b"
 RECEIPT_PUBLIC_KEY = "6ecf3eadbae4eaaa139c04e2d8699ab976b1b873acf47a45301c9a2d01e4ffaa"
 AUTHORIZATION_PUBLIC_KEY = "6615d6c2dfddb125e94e2e7d3822a1a828654b3a9dd4663abbeae8c87db0b212"
+# Its private half is the Worker secret AUTHORIZATION_SIGNING_KEY (32-byte
+# hex, installed from stdin), with which the ChainJournal signs each closed
+# cohort's authorization (signing::auto). It must derive the key above and
+# differ from the hotkey seed; the package and receipt keys stay in the eval
+# Worker. Without it, closed cohorts wait (auto_target error
+# authorization_key_missing) and the held target keeps committing.
+# The main chain record's eval authorities for that handoff (signing::auto::
+# Record): only cohorts labelled testnet-<name>- for a name listed here are
+# handed in, so a scratch authority's cohorts in the same bucket never reach
+# the main record. Keep it equal to the eval Worker's EVAL_MAIN_AUTHORITY
+# (plus any EVAL_MAIN_PREVIOUS still closing cohorts); a switch commit
+# changes both. Unset or malformed: the handoff reads nothing and says so.
+AUTO_TARGET_AUTHORITIES = "r0"
 WEIGHTS_VERSION_KEY = "0"
 # Mortal era of each attempt (a power of two): an uncertain attempt's fate is
 # known at most this many blocks after the block that anchors it.

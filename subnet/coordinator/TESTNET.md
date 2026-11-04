@@ -83,6 +83,10 @@ openssl rand -hex 32 | tr -d '\n' > $S/status_token
 openssl rand -hex 32 | tr -d '\n' > $S/operator_token
 wrangler secret put COORDINATOR_STATUS_TOKEN   --env testnet < $S/status_token
 wrangler secret put COORDINATOR_OPERATOR_TOKEN --env testnet < $S/operator_token
+# The T12 authorization key (automatic target handoff; README, "Automatic
+# target handoff"), from the operator's existing mode-600 seed file; it is
+# never printed or copied.
+wrangler secret put AUTHORIZATION_SIGNING_KEY --env testnet < <authorization seed file>
 ```
 
 ## Coordinator hotkey (M3)
@@ -3044,6 +3048,96 @@ makes cohort 21 the first. The outcome is recorded here once it is read back
 | 1, 4 `phase_overrun` counted a cohort's age in epochs, so an uncredited tempo (an outage, a stale heartbeat, a catch-up jump) raised it when an extended window closed and through the work phases after | fixed: the rule counts credited tempos (`observed.active_tempos - opened_active`, the clock `engine::advance` schedules by) and epochs only for a coordinator that reports no credited count; with the count reported but the cohort's `opened_active` absent the read decides nothing (never a mixed clock). Publisher rules v8 (not yet deployed) and test `an_uncredited_tempo_moves_the_package_deadline_with_the_schedule` |
 | 2, 6 the docs say 16 tempos while the installed template has 17 | the docs state the template's 16 and that a cohort keeps the window it was queued with (one tempo, or 17 for cohorts queued before the reinstall), and point to `next-cohort`; the live record above states the reinstall as pending, with both outcomes |
 | 3, 5 the work bound counted one post-cutoff verdict, not the queue a full roster verifying at the cutoff makes | fixed: `WindowInputs::cold_path_secs` (`--cold-path-secs`) and the roster the queue is counted for (`--roster-cap`, else the deployment ceiling); `ceil(roster / 6)` rounds of one verdict each in the bound. Rerun at the r0 inputs: still `A = 16` (bound 4,181 s) |
+
+### Automatic target handoff (2026-11-03)
+
+Audit item D1: until this build every cohort target was installed by hand
+(`reward_v1_verify cohort --authorization-seed`, then `POST /signing/target`
+on the coordinator and a bundle install on each validator). Built on
+`subnet-testnet/auto-target` (review rounds 1 and 2 fixed); not deployed by
+the build stage. This closes D1 for the coordinator only: validators still
+need a manual step (below).
+
+- **Coordinator.** Journal schema v12 (`sign_auto_state`,
+  `sign_auto_labels`, `sign_auto_cohorts`, `sign_auto_pending`,
+  `sign_auto_absent`). Each cron tick runs one bounded `/sign-auto` pass
+  before the pointer pass, in its own arena route (`journal/sign-auto`,
+  footprint derived from the source bound and witnessed at it): the
+  ChainJournal lists the cohort labels in the receipts bucket once per
+  finalized epoch, resolves each new one from its signed manifest under the
+  main record (`AUTO_TARGET_AUTHORITIES = "r0"`, tracked beside the eval
+  Worker's `EVAL_MAIN_AUTHORITY`; a test keeps them equal), and hands in the
+  closed cohorts after the last one handled or pending, in order, never
+  past an earlier sealed one that has not closed and never across a number
+  gap (the operator's `auto_abandoned` and `auto_gap` records pass them). A
+  cohort with a target is verified, its receipt index checked against its
+  package, its authorization signed with the Worker secret
+  `AUTHORIZATION_SIGNING_KEY` (issued at its closing epoch, the installed
+  generation, the manifest's renew-by distance) and its bundle installed
+  through the operator path's checks; a cohort without one signs nothing
+  and keeps the held target's authorization in the pointer. A target
+  cohort whose receipts are retired is journaled as pending and installs
+  only in the transaction that installs its successor; each pass resumes
+  after the last pending cohort, so the chain after a long outage completes
+  over several passes. Each cohort is handled once; nothing is skipped or
+  re-authorized; a target revoked before its handoff is installed as
+  revoked and its successor follows (README, "Automatic target handoff").
+  `/status` `signing.auto_target` (with the authorization key's check,
+  `key_ok`); operator hold `auto_pause` / `auto_resume`.
+- **Publisher.** Rules v9: `auto_target_stalled` after a tempo of the same
+  handoff failure (including `pass_budget`, `cohort_gap`,
+  `manifest_undecodable` and `receipts_missing`), or of a failed
+  authorization key check.
+- **Native validator.** `fetch.base_url` also accepts `file:///<dir>/`, a
+  local copy of the public layout read with every check the HTTPS host gets
+  (validator README, "Fetcher", which also states the write order a copy
+  must keep). Nothing on testnet fills such a copy today.
+- **Where validators fetch (open).** The coordinator writes
+  `authorizations/current.json` and its objects to the private receipts
+  bucket; the publisher copies the pointer and the cohort's records to
+  `v1/` in the public testnet bucket `public-bucket-testnet`, whose
+  public access stays off until the user enables it. Until then no
+  validator picks a new target up without a manual step: validator2 has no
+  `[fetch]` section and nothing copies the layout to its host. A copy of
+  the bucket's `v1/` layout for it (a temporary operator shim, shell and the
+  operator's own Cloudflare login, outside the reviewed Rust code; private
+  ops record) is not installed. The options are the user's: that shim (a
+  full account login on an unattended timer), a scoped read-only bucket
+  credential (a credential change), or enabling public access, after which
+  validator2's `base_url` becomes the public host's `https://` origin (a
+  settled-window config change) and no copy is needed. Outside validators
+  use the same origin; until then they install bundles by hand, and the
+  announcement must not claim automatic pickup for validators.
+- **Live order (live stage).** (1) Install `AUTHORIZATION_SIGNING_KEY` on the
+  coordinator from the operator's existing seed file on stdin (Secrets,
+  above). (2) Deploy the coordinator with signing paused around it (journal
+  schema 11 -> 12 in place; `/status` shows `signing.auto_target` with
+  `key_ok: true` after the first tick). Its first pass lists every label,
+  resolves each once and records the closed r0 cohorts in order from the
+  lowest (15 to 17 have no target; the probe build 14 has no manifest and
+  stays unsealed; the earlier record's labels open before the restart floor
+  and are left out; load cohorts are foreign). (3) Deploy the publisher
+  (rules v9). (4) Only with the user's decision on a validator route
+  (above): validator2 from this build with `[fetch]` in a settled window.
+  Check on the next main cohort that closes that its target and
+  authorization reach the coordinator's `/status`, the pointer and the
+  publisher's copy (and validator2's fetch, if installed) with no manual
+  step. A drill on a scratch authority in the same bucket no longer reaches
+  the main record (its labels are `outside`), so it cannot stand in for
+  that check; one needs its own bucket or keys and a scratch coordinator
+  journal.
+- **Not resolved here.** Whether to hold a carrying cohort's receipts past
+  N+2 (and so sign carried authorizations) is the user's open ruling;
+  automatic authorizations name the target's own cohort only. An abandoned
+  cohort that was sealed needs the operator's `auto_abandoned` record (now
+  refused for a closed cohort, and reversible while nothing after it was
+  handled); the eval Worker writes no signed abandonment record the
+  coordinator could read instead. The signing steps (`journal/fetch`) still
+  re-verify the stored bundle on each use, so both install paths now refuse
+  a bundle above what those reads fit within the journal footprint
+  (`SIGNING_BUNDLE_BYTES`, measured and witnessed; README, "Automatic target
+  handoff"; testnet bundles are tens of KB). Storing the verified target at
+  install, which would lift that bound to one stored value, is not done.
 
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 

@@ -1208,6 +1208,9 @@ fn record_held(
         ],
     )?;
     log(sql, now_ms, None, None, None, "held_target_recorded", Some(&next.digest().to_string()))?;
+    // Cohorts the automatic handoff checked from the earlier held target
+    // are checked again from this one.
+    auto::clear_pending(sql)?;
     Ok(Ok(()))
 }
 
@@ -1402,6 +1405,7 @@ pub fn restart_target(
         ],
     )?;
     sql.exec("DELETE FROM sign_held_target WHERE id = 1", &[])?;
+    auto::clear_pending(sql)?;
     // Verified above against the same launch row and floor: a refusal here
     // rolls the whole restart back.
     let installed = match install_target_v2(sql, cfg, keys, bundle_json, now_ms)? {
@@ -1446,8 +1450,36 @@ fn install_target_v2(
     now_ms: u64,
 ) -> Result<Result<String, target::Refusal>, StoreError> {
     let held = held_target(sql, cfg)?;
+    Ok(install_target_v2_from(sql, cfg, keys, bundle_json, now_ms, &held, false)?.map(|(digest, _)| digest))
+}
+
+/// [`install_target_v2`] against `held`: the journal's held target, or (the
+/// automatic handoff, `auto::handle`) the target the pending intermediates
+/// it checked from the journal's held target in this transaction leave
+/// held. With `install_revoked` a bundle whose authorization a journaled
+/// revocation withdraws is still installed (its checked closure activated
+/// the target), as revoked: nothing commits for it, as when the revocation
+/// comes after the install; the reply says so. Every refusal comes before
+/// any write.
+pub(crate) fn install_target_v2_from(
+    sql: &impl Sql,
+    cfg: &SignConfig,
+    keys: &slop_ninja_protocol::TrustedKeys,
+    bundle_json: &str,
+    now_ms: u64,
+    held: &slop_ninja_protocol::ActiveTarget,
+    install_revoked: bool,
+) -> Result<Result<(String, bool), target::Refusal>, StoreError> {
+    // Every later signing step parses and verifies the stored bundle again
+    // within the journal's footprint: a larger one is never installed.
+    if bundle_json.len() > auto::SIGNED_BUNDLE_BYTES {
+        return Ok(Err(target::Refusal {
+            code: "bundle_exceeds_signing_footprint",
+            detail: format!("{} B, at most {} B", bundle_json.len(), auto::SIGNED_BUNDLE_BYTES),
+        }));
+    }
     let verified = match target::parse_v2(bundle_json.as_bytes())
-        .and_then(|b| target::verify_v2(&b, keys, &cfg.genesis.0, cfg.netuid, &held))
+        .and_then(|b| target::verify_v2(&b, keys, &cfg.genesis.0, cfg.netuid, held))
     {
         Ok(v) => v,
         Err(r) => return Ok(Err(r)),
@@ -1470,8 +1502,9 @@ fn install_target_v2(
     // A bundle whose authorization a journaled revocation withdraws would
     // commit nothing; a newer authorization of the target is needed.
     let revocations = authority::revocation_of(sql, &verified.target_digest.to_string())?;
-    match verified.revoked_by(keys, &revocations) {
-        Ok(None) => {}
+    let revoked = match verified.revoked_by(keys, &revocations) {
+        Ok(None) => false,
+        Ok(Some(_)) if install_revoked => true,
         Ok(Some(revocation)) => {
             return Ok(Err(target::Refusal {
                 code: "authorization_revoked",
@@ -1484,8 +1517,8 @@ fn install_target_v2(
                 detail: format!("{e} ({})", e.code()),
             }));
         }
-    }
-    if let Err(r) = record_held(sql, &held, &verified.active, now_ms)? {
+    };
+    if let Err(r) = record_held(sql, held, &verified.active, now_ms)? {
         return Ok(Err(r));
     }
     let digest = verified.target_digest.to_string();
@@ -1521,8 +1554,8 @@ fn install_target_v2(
     if let Some(epoch) = launch_issued.or(opened) {
         note_record_epoch(sql, epoch, now_ms)?;
     }
-    log(sql, now_ms, None, None, None, "target_installed", Some(&digest))?;
-    Ok(Ok(digest))
+    log(sql, now_ms, None, None, None, if revoked { "target_installed_revoked" } else { "target_installed" }, Some(&digest))?;
+    Ok(Ok((digest, revoked)))
 }
 
 fn active_target(
@@ -4567,6 +4600,9 @@ pub struct SigningStatus {
     /// The installed authorization, its revocation state and the pointer's
     /// last confirmed write ([`authority::view`]).
     pub authorization: Option<authority::AuthorizationView>,
+    /// Automatic target handoff: the closed cohorts handled, the next one
+    /// waiting and the last failure ([`auto::view`]).
+    pub auto_target: auto::AutoView,
     pub schedule_block: Option<u64>,
     pub claim: Option<claims::ClaimStatus>,
     pub ops: Vec<OpStatus>,
@@ -4747,6 +4783,7 @@ pub fn status(
         restarted_from_epoch: restart_floor(sql)?,
         record_epoch: record_epoch(sql)?,
         authorization: authority::view(sql, now_ms)?,
+        auto_target: auto::view(sql, now_ms)?,
         schedule_block: sql
             .exec("SELECT block_number FROM chain_schedule WHERE id = 1", &[])?
             .first()
@@ -4760,6 +4797,7 @@ pub fn status(
 }
 
 pub mod authority;
+pub mod auto;
 pub use authority::{
     PointerOutcome, PointerPlan, Revoked, install_revocation, pointer_object, pointer_outcome, pointer_plan, pointer_written,
 };

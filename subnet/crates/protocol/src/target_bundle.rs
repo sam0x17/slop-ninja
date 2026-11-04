@@ -631,3 +631,77 @@ impl VerifiedTarget {
 fn journaled(revocations: &[RewardIntentRevocation]) -> Result<Vec<crate::CheckedRevocation<'_>>> {
     revocations.iter().map(RewardIntentRevocation::journaled).collect()
 }
+
+/// What a signed receipt index binds, read by [`ReceiptIndexStream`]: the
+/// cohort manifest, its digest (the receipt root a score package binds) and
+/// its entry count (the receipt count).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReceiptIndexBinding {
+    pub cohort_manifest: Digest,
+    pub root: Digest,
+    pub count: u64,
+}
+
+impl ReceiptIndexBinding {
+    /// The binding is the one `package` names (as
+    /// [`ScorePackageV2::check_receipts`] checks a decoded index).
+    pub fn check(&self, package: &ScorePackageV2) -> Result<()> {
+        if self.cohort_manifest != package.cohort_manifest {
+            return Err(Error::Mismatch("receipt index cohort"));
+        }
+        if self.root != package.receipt_root || self.count != package.receipt_count {
+            return Err(Error::Mismatch("receipt root or count"));
+        }
+        Ok(())
+    }
+}
+
+/// The record bytes a [`ReceiptIndexStream`] keeps: the kind, the version,
+/// the cohort manifest and the entry count.
+const RECEIPT_INDEX_HEAD: usize = 4 + ReceiptIndex::KIND.len() + 2 + 32 + 4;
+
+/// Authenticates a signed receipt index fed in pieces (an R2 body stream)
+/// and reads its binding, holding a fixed number of bytes whatever its
+/// length: the signature is verified over the record's running digest, the
+/// manifest and count are read from the record's head, and the record's
+/// length must be exactly that of `count` entries. Entries are not decoded
+/// (their order and contents are the receipt key holder's; a validator
+/// decodes them in full before it commits).
+pub struct ReceiptIndexStream(crate::sign::SignedStream<ReceiptIndex>);
+
+impl Default for ReceiptIndexStream {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ReceiptIndexStream {
+    pub fn new() -> Self {
+        Self(crate::sign::SignedStream::new(RECEIPT_INDEX_HEAD))
+    }
+
+    pub fn update(&mut self, chunk: &[u8]) {
+        self.0.update(chunk);
+    }
+
+    pub fn finish(self, keys: &TrustedKeys) -> Result<ReceiptIndexBinding> {
+        let r = self.0.finish(keys)?;
+        let mut d = crate::Decoder::new(&r.prefix);
+        if d.str()? != ReceiptIndex::KIND {
+            return Err(Error::WrongKind { expected: ReceiptIndex::KIND });
+        }
+        let version = d.u16()?;
+        if version != ReceiptIndex::VERSION {
+            return Err(Error::WrongVersion { kind: ReceiptIndex::KIND, version });
+        }
+        let cohort_manifest = <Digest as crate::Canonical>::decode_from(&mut d)?;
+        let count = d.len_prefix("sequence", crate::MAX_SEQUENCE_LEN)? as u64;
+        d.finish()?;
+        let (_, empty, per) = receipt_index_shape()?;
+        let expected = count.checked_mul(per).and_then(|b| b.checked_add(empty)).ok_or(Error::OutOfRange("receipt index bytes"))?;
+        if r.len as u64 != expected {
+            return Err(Error::Mismatch("receipt index length"));
+        }
+        Ok(ReceiptIndexBinding { cohort_manifest, root: r.digest, count })
+    }
+}

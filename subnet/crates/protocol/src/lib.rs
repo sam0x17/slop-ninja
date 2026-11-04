@@ -38,7 +38,10 @@ pub use authorization::{
     ActiveTarget, CheckedAuthorization, CheckedRenewal, CheckedRevocation, LAUNCH_RENEW_BY_TEMPOS,
     LaunchAuthorization, RewardIntentAuthorization, RewardIntentRenewal, RewardIntentRevocation,
 };
-pub use target_bundle::{AuthorizationTerms, Authorizing, Carrier, Source, VerifiedCarrier, VerifiedSource, VerifiedTarget};
+pub use target_bundle::{
+    AuthorizationTerms, Authorizing, Carrier, ReceiptIndexBinding, ReceiptIndexStream, Source, VerifiedCarrier, VerifiedSource,
+    VerifiedTarget,
+};
 pub use codec::{
     Canonical, Decoder, Encoder, MAX_PREALLOC_BYTES, MAX_SEQUENCE_LEN, MAX_STRING_LEN,
 };
@@ -69,7 +72,9 @@ pub use records_v2::{
     RegistrationSnapshotV2, RewardV1Params, RosterEntry, ScorePackageV2, Stratum, TargetSource,
     WeightRowV2, canonical_fingerprints,
 };
-pub use sign::{KeyRole, MAX_SIGNED_RECORD_LEN, Signed, TrustedKeys, sign, signing_payload};
+pub use sign::{KeyRole, MAX_SIGNED_RECORD_LEN, Signed, SignedStream, StreamedRecord, TrustedKeys, sign, signing_payload};
+#[cfg(any(test, feature = "fixtures"))]
+pub use sign::sign_raw;
 
 #[cfg(test)]
 mod tests;

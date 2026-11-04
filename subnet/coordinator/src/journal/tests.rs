@@ -9,7 +9,7 @@ const NOW: u64 = 1_793_000_000_000;
 pub(crate) fn journal() -> Sqlite {
     let db = Sqlite::open();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (0, 11));
+    assert_eq!((report.from, report.to), (0, 12));
     db
 }
 
@@ -45,22 +45,22 @@ fn status_of(db: &Sqlite) -> JournalStatus {
 fn migrations_are_versioned_and_idempotent() {
     let db = journal();
     let again = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((again.from, again.to), (11, 11));
+    assert_eq!((again.from, again.to), (12, 12));
     assert_eq!(
         tx(&db, |sql| migrate(sql, &EVAL_COHORT_SCHEMA)),
         Err(MigrationError::Family)
     );
     db.conn
         .execute(
-            "UPDATE schema_meta SET value = '12' WHERE name = 'version'",
+            "UPDATE schema_meta SET value = '13' WHERE name = 'version'",
             [],
         )
         .unwrap();
     assert_eq!(
         tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)),
         Err(MigrationError::NewerStoredVersion {
-            stored: 12,
-            supported: 11
+            stored: 13,
+            supported: 12
         })
     );
     const GAPPED: Schema = Schema {
@@ -94,7 +94,7 @@ fn v1_storage_upgrades_in_place_to_latest() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (1, 11));
+    assert_eq!((report.from, report.to), (1, 12));
     assert_eq!(db.count("deliveries"), 1);
     assert_eq!(db.count("watchdog"), 1);
     assert_eq!(db.count("rpc_budget"), 1);
@@ -501,7 +501,7 @@ fn v2_storage_upgrades_with_the_watermark_seeded_at_its_anchor() {
         )
         .unwrap();
     let report = tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (2, 11));
+    assert_eq!((report.from, report.to), (2, 12));
     let s = status_of(&db);
     assert_eq!((s.cursor, s.confirmed), (Some(block(13)), Some(block(10))));
     assert_eq!(s.provisional_blocks, Some(3));
@@ -648,7 +648,8 @@ fn migrations_are_pinned_by_content() {
         "e5e208c78d7e36b6",
         "2950d55dafc23816",
     ];
-    // v1-v10 are deployed on both testnet Workers; v11 is this branch's.
+    // v1-v10 are deployed on both testnet Workers; v11 is the stuck-states
+    // lane's; v12 the automatic target handoff's.
     const JOURNAL: &[&str] = &[
         "ee5a5573215817c9",
         "35a786f8d817d001",
@@ -661,6 +662,7 @@ fn migrations_are_pinned_by_content() {
         "f48d266267134443",
         "e3de0843c295d069",
         "bcbc696385d2f3db",
+        "229ffbcbe5e0c9c3",
     ];
     let (e, j) = (digests(&EVAL_COHORT_SCHEMA), digests(&CHAIN_JOURNAL_SCHEMA));
     assert!(e == EVAL && j == JOURNAL, "migrations changed or were not pinned: eval_cohort {e:?}, chain_journal {j:?}");

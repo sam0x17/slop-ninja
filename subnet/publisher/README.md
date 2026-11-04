@@ -256,7 +256,7 @@ outcome recomputation, which the test's 2 MiB allowance inside
 
 ## Alerts
 
-The rule set is `slop_ninja.publisher.alerts/v8`. The table is in
+The rule set is `slop_ninja.publisher.alerts/v9`. The table is in
 `alerts.rs`:
 
 - durable faults;
@@ -288,6 +288,16 @@ The rule set is `slop_ninja.publisher.alerts/v8`. The table is in
   last pass failed, `pointer_error`, or a last confirmation older than two
   cron periods; re-authorizations and revocations reach validators only
   through that pointer);
+- the coordinator's automatic target handoff reporting the same failure
+  for a tempo (`auto_target_stalled`: `signing.auto_target.error`, with the
+  cohort label it is stuck on, for example a refused bundle,
+  `receipts_retired`, `receipts_missing`, `earlier_cohort_unclosed`,
+  `cohort_gap`, `cohort_behind_record`, `manifest_undecodable`,
+  `pass_budget` or
+  `record_authorities_unset`; the cohorts after it wait, none is skipped;
+  v9), or its authorization key's check failing for a
+  tempo (`signing.auto_target.key_error`, reported before any cohort needs
+  a signature);
 - a coordinator reveal that differs from its committed row
   (`coordinator_reveal_mismatch`);
 - unreachable status, and a status that answered without a field an open

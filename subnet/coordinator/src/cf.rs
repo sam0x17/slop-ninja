@@ -14,11 +14,14 @@
 //!   restart the held target with the restarted chain record's launch
 //!   bundle, journal a signed revocation: the body is the signed record's
 //!   bytes).
-//! - cron (`* * * * *`): the watchdog, the only timer. It also keeps the
-//!   private authorization pointer (`authorizations/current.json` in the
-//!   receipts bucket) equal to what the signing journal holds
-//!   ([`pointer_drive`]). Nothing expires: neither the pointer nor the
-//!   authorization it names has a validity window.
+//! - cron (`* * * * *`): the watchdog, the only timer. On the coordinator it
+//!   also runs the automatic target handoff ([`auto_drive`]: each closed
+//!   cohort's target installed and its authorization signed by the
+//!   ChainJournal, `signing::auto`), then keeps the private authorization
+//!   pointer (`authorizations/current.json` in the receipts bucket) equal to
+//!   what the signing journal holds ([`pointer_drive`]). Nothing expires:
+//!   neither the pointer nor the authorization it names has a validity
+//!   window.
 //!
 //! Memory: every export is hand-written in `cf_arena.rs` and runs its handler
 //! inside its own bounded arena scope (`arena_routes`); bodies are read with
@@ -245,6 +248,7 @@ struct ClearRequest {
 }
 
 /// The hotkey secret, read from the Worker secret only while signing.
+#[derive(Clone)]
 struct EnvKeys(Env);
 
 impl KeySource for EnvKeys {
@@ -255,6 +259,31 @@ impl KeySource for EnvKeys {
             .map_err(|_| ChainError::new("hotkey_secret_missing", ""))?;
         let seed = Zeroizing::new(secret.to_string());
         Hotkey::from_seed_hex(&seed)
+    }
+}
+
+/// The authorization signing key, from the Worker secret
+/// `AUTHORIZATION_SIGNING_KEY`, read only by the ChainJournal while it signs
+/// a closed cohort's authorization (`signing::auto`). It must derive the
+/// trusted authorization root and differ from the hotkey's seed; it never
+/// leaves the journal except as the authorization's signature.
+impl signing::auto::AuthorizationKeySource for EnvKeys {
+    fn authorization_key(
+        &self,
+        keys: &slop_ninja_protocol::TrustedKeys,
+    ) -> std::result::Result<slop_ninja_protocol::SigningKey, &'static str> {
+        let seed = self.0.secret("AUTHORIZATION_SIGNING_KEY").map_err(|_| "authorization_key_missing")?;
+        let seed = Zeroizing::new(seed.to_string());
+        let hotkey = self.0.secret("COORDINATOR_HOTKEY_SEED").ok().map(|s| Zeroizing::new(s.to_string()));
+        signing::auto::authorization_key_from(&seed, hotkey.as_ref().map(|h| h.as_str()), keys)
+    }
+
+    /// The per-pass check reads the authorization secret alone: the hotkey's
+    /// seed is compared only while an authorization is signed.
+    fn check_key(&self, keys: &slop_ninja_protocol::TrustedKeys) -> std::result::Result<(), &'static str> {
+        let seed = self.0.secret("AUTHORIZATION_SIGNING_KEY").map_err(|_| "authorization_key_missing")?;
+        let seed = Zeroizing::new(seed.to_string());
+        signing::auto::authorization_key_from(&seed, None, keys).map(|_| ())
     }
 }
 
@@ -298,6 +327,14 @@ struct PointerObjectRequest {
     sha256: String,
 }
 
+/// `/sign-auto`: one bounded pass of automatic target handoff; every bucket
+/// operation of the pass shares a deadline `budget_ms` from its start (at
+/// most [`AUTO_PASS_MS`]).
+#[derive(Serialize, Deserialize)]
+struct AutoRequest {
+    budget_ms: u64,
+}
+
 #[derive(Serialize, Deserialize)]
 struct AdminRequest {
     action: String,
@@ -314,6 +351,14 @@ struct AdminRequest {
     /// finalized cursor, when it has one (`signing::install_revocation`).
     #[serde(default)]
     observed_epoch: Option<u64>,
+    /// `auto_abandoned` / `auto_unabandoned`: the cohort label the operator
+    /// records as abandoned, or takes that record back for.
+    #[serde(default)]
+    label: Option<String>,
+    /// `auto_gap`: the cohort number the operator records as having no
+    /// main-record label.
+    #[serde(default)]
+    cohort: Option<u64>,
 }
 
 /// Authoritative chain observation state for one chain: delivery dedup, the
@@ -654,6 +699,14 @@ impl ChainJournal {
                     Err(_) => error("store_unavailable", 503),
                 }
             }
+            "/sign-auto" => {
+                let r = match cf_io::request_json::<AutoRequest>(&mut req, SMALL_BODY_BYTES).await {
+                    Ok(v) => v,
+                    Err(e) => return error(e.code(), e.status()),
+                };
+                let deadline = now.saturating_add(r.budget_ms.min(AUTO_PASS_MS));
+                json(&self.auto_pass(cfg, trusted, deadline).await)
+            }
             "/sign-pointer-outcome" => {
                 let r = match cf_io::request_json::<signing::PointerOutcome>(&mut req, SMALL_BODY_BYTES).await {
                     Ok(v) => v,
@@ -666,6 +719,80 @@ impl ChainJournal {
             }
             _ => error("not_found", 404),
         }
+    }
+}
+
+/// The ChainJournal's side of an automatic-handoff pass
+/// (`signing::auto::run_pass`): its storage's transactions, the receipts
+/// bucket with every operation raced against the pass's deadline, and the
+/// clock.
+struct AutoIo {
+    storage: Storage,
+    bucket: worker::Bucket,
+    deadline: u64,
+}
+
+impl signing::auto::PassIo for AutoIo {
+    type Sql = DoSql;
+
+    fn tx<T: 'static>(
+        &self,
+        f: impl FnOnce(&DoSql) -> std::result::Result<T, StoreError> + 'static,
+    ) -> std::result::Result<T, StoreError> {
+        transaction(&self.storage, f).map_err(|e| match e {
+            TxError::Operation(e) => e,
+            TxError::Runtime => StoreError("transaction"),
+        })
+    }
+
+    async fn list(&mut self, prefix: &str, cursor: Option<&str>) -> std::result::Result<(Vec<String>, Option<String>), ()> {
+        cf_io::r2_list_prefixes(&self.bucket, prefix, "/", cursor, Some(self.deadline)).await.map_err(|_| ())
+    }
+
+    async fn read(&mut self, key: &str, bound: usize) -> std::result::Result<Option<Vec<u8>>, signing::auto::ReadError> {
+        match cf_io::r2_bytes(&self.bucket, key, bound, Some(self.deadline)).await {
+            Ok(b) => Ok(b),
+            Err(cf_io::BodyError::TooLarge) => Err(signing::auto::ReadError::TooLarge),
+            Err(_) => Err(signing::auto::ReadError::Unavailable),
+        }
+    }
+
+    async fn exists(&mut self, key: &str) -> std::result::Result<bool, ()> {
+        cf_io::r2_size(&self.bucket, key, Some(self.deadline)).await.map(|s| s.is_some()).map_err(|_| ())
+    }
+
+    async fn fold(&mut self, key: &str, f: &mut dyn FnMut(&[u8])) -> std::result::Result<bool, ()> {
+        cf_io::r2_fold(&self.bucket, key, Some(self.deadline), f).await.map_err(|_| ())
+    }
+
+    fn now_ms(&self) -> u64 {
+        now_ms()
+    }
+
+    fn past_deadline(&self) -> bool {
+        now_ms() >= self.deadline
+    }
+}
+
+impl ChainJournal {
+    /// One bounded pass of automatic target handoff (`signing::auto`).
+    async fn auto_pass(
+        &self,
+        cfg: SignConfig,
+        trusted: slop_ninja_protocol::TrustedKeys,
+        deadline: u64,
+    ) -> signing::auto::PassReport {
+        let storage = self.state.storage();
+        let Ok(bucket) = self.env.bucket(eval_do::RECEIPTS_BUCKET) else {
+            let _ = transaction(&storage, move |sql| signing::auto::note_failure(sql, "", "bucket_binding", now_ms()));
+            return signing::auto::PassReport { error: Some("bucket_binding".into()), ..Default::default() };
+        };
+        let mut io = AutoIo { storage, bucket, deadline };
+        // The main chain record's eval authorities (`AUTO_TARGET_AUTHORITIES`,
+        // tracked in wrangler.toml beside the eval Worker's own).
+        let authorities = self.env.var("AUTO_TARGET_AUTHORITIES").ok().map(|v| v.to_string());
+        let record = signing::auto::Record::parse(authorities.as_deref());
+        signing::auto::run_pass(&mut io, &cfg, &trusted, record.as_ref().map_err(|e| *e), &EnvKeys(self.env.clone())).await
     }
 }
 
@@ -694,6 +821,32 @@ fn admin(
             json!({"paused": true})
         }
         "clear_fault" => json!({"cleared": signing::clear_fault(sql, now)?}),
+        // The operator's hold on automatic target handoff; a resume
+        // continues from the same cohort (`signing::auto`).
+        "auto_pause" => json!({"auto_paused": signing::auto::set_paused(sql, true, now)?}),
+        "auto_resume" => json!({"auto_resumed": signing::auto::set_paused(sql, false, now)?}),
+        // The operator's positive evidence that an in-record cohort was
+        // abandoned and will never close: the cohorts after it may then be
+        // handed in (`signing::auto::mark_abandoned`).
+        "auto_abandoned" => match signing::auto::mark_abandoned(sql, r.label.as_deref().unwrap_or_default(), now)? {
+            Ok(cohort) => json!({"abandoned": cohort}),
+            Err(code) => json!({"refused": code}),
+        },
+        // Takes back an `auto_abandoned` record while nothing after it was
+        // handled (`signing::auto::unmark_abandoned`).
+        "auto_unabandoned" => match signing::auto::unmark_abandoned(sql, r.label.as_deref().unwrap_or_default(), now)? {
+            Ok(cohort) => json!({"unabandoned": cohort}),
+            Err(code) => json!({"refused": code}),
+        },
+        // A cohort number with no main-record label: the numbering
+        // continues past it (`signing::auto::mark_gap`).
+        "auto_gap" => match r.cohort {
+            Some(c) => match signing::auto::mark_gap(sql, c, now)? {
+                Ok(cohort) => json!({"gap": cohort}),
+                Err(code) => json!({"refused": code}),
+            },
+            None => json!({"refused": "cohort_missing"}),
+        },
         // A chain record restarted under the same trust roots: the
         // restarted record's launch bundle replaces the held target in one
         // transaction (`signing::restart_target`); a refusal changes nothing.
@@ -1616,6 +1769,8 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
                 count: None,
                 from_epoch: None,
                 observed_epoch: None,
+                label: None,
+                cohort: None,
             })?
         }
         "restart" => {
@@ -1636,6 +1791,8 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
                 count: None,
                 from_epoch: Some(from_epoch),
                 observed_epoch: None,
+                label: None,
+                cohort: None,
             })?
         }
         "revoke" => serde_json::to_string(&AdminRequest {
@@ -1647,6 +1804,8 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
             // The epoch bound's second source: a journal that never ran a
             // signing preflight has no schedule of its own.
             observed_epoch: epoch_read(&env, &d).await.map(|e| e.index),
+            label: None,
+            cohort: None,
         })?,
         "kick" => {
             let budget = Budget::new(crate::arena_routes::UNBOUNDED_FETCH_MS);
@@ -1659,6 +1818,24 @@ async fn signing_admin(mut req: Request, env: Env, which: &str) -> Result<Respon
             };
             if r.action == "install_target" || r.action == "restart_target" || r.action == "revoke" {
                 return error("bad_request", 400);
+            }
+            // An abandonment record is refused for a cohort whose closure is
+            // in the receipts bucket: it closed, so it is handed in instead.
+            if r.action == "auto_abandoned" {
+                let prefix = format!("{}{}/", signing::auto::COHORT_PREFIX, r.label.as_deref().unwrap_or_default());
+                let Some(label) = signing::auto::label_of(&prefix) else {
+                    return json(&serde_json::json!({"refused": "label_malformed"}));
+                };
+                let Ok(bucket) = env.bucket(eval_do::RECEIPTS_BUCKET) else {
+                    return error("bucket_binding", 503);
+                };
+                let key = signing::auto::key(label, signing::auto::object::CLOSURE);
+                let deadline = now_ms().saturating_add(AUTO_PASS_MS);
+                match cf_io::r2_size(&bucket, &key, Some(deadline)).await {
+                    Ok(None) => {}
+                    Ok(Some(_)) => return json(&serde_json::json!({"refused": "cohort_closed"})),
+                    Err(_) => return error("object_unavailable", 503),
+                }
             }
             serde_json::to_string(&r)?
         }
@@ -1944,11 +2121,18 @@ async fn scheduled(env: Env) {
     let holder = format!("tick:{}", now_ms());
     // The cron handler's own wall limit, from the tick's start.
     let budget = Budget { until_ms: started.saturating_add(slop_ninja_arena::limits::CRON_MS) };
-    // The pointer pass's worst case is reserved first, so catch-up or
-    // fallback rounds that use the rest of the tick never starve it.
-    let rounds = Budget { until_ms: budget.until_ms.saturating_sub(POINTER_PASS_MS) };
+    // The automatic-handoff and pointer passes' worst cases are reserved
+    // first, so catch-up or fallback rounds that use the rest of the tick
+    // never starve them. The handoff runs before the pointer pass, so a
+    // target installed by it reaches the pointer in the same tick.
+    let handoff = signs_here(&env);
+    let reserved = POINTER_PASS_MS + if handoff { AUTO_CALL_MS } else { 0 };
+    let rounds = Budget { until_ms: budget.until_ms.saturating_sub(reserved) };
     drive(&env, &d, report.plan, d.settings.tick_rounds, holder.clone(), rounds).await;
     drive_sign(&env, &d, holder, TICK_SIGN_ROUNDS, rounds).await;
+    if handoff && budget.allows(AUTO_CALL_MS + POINTER_PASS_MS) {
+        auto_drive(&env, &d).await;
+    }
     if budget.allows(POINTER_PASS_MS) {
         let _ = pointer_drive(&env, &d).await;
     }
@@ -1983,6 +2167,35 @@ async fn scheduled(env: Env) {
         if report.fallback {
             commitments_drive(&env, &d, budget).await;
         }
+    }
+}
+
+/// Whether this deployment signs (the coordinator, not the eval Worker): only
+/// its ChainJournal holds a hotkey and the authorization key.
+fn signs_here(env: &Env) -> bool {
+    !eval_do::enabled(env)
+}
+
+/// One automatic-handoff pass (`/sign-auto`): its bucket operations share one
+/// deadline of the platform allowance a journal call has, as the pointer
+/// pass's do.
+const AUTO_PASS_MS: u64 = liveness::TIMEOUT_MS;
+/// The pass's worst case seen from the tick: the pass and the journal call
+/// that carries it.
+const AUTO_CALL_MS: u64 = AUTO_PASS_MS + JOURNAL_CALL_MS;
+
+/// Runs one automatic target handoff pass in the ChainJournal
+/// (`signing::auto`): it follows the eval Worker's cohort records in the
+/// receipts bucket, and installs and authorizes each closed cohort's target
+/// once, in cohort order. Its outcome is on `/status`
+/// (`signing.auto_target`); every failure is retried at the next tick, and
+/// nothing here expires or reads another validator.
+async fn auto_drive(env: &Env, d: &Deployment) {
+    let Ok(body) = serde_json::to_string(&AutoRequest { budget_ms: AUTO_PASS_MS }) else {
+        return;
+    };
+    if let Ok(mut r) = journal_call_within(env, d, Method::Post, "/sign-auto", Some(body), Some(AUTO_CALL_MS)).await {
+        cf_io::discard(&mut r);
     }
 }
 

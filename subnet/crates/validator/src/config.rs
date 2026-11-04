@@ -308,9 +308,32 @@ impl FetchConfig {
 }
 
 /// The public host is read anonymously: `https://`, or `http://` to a
-/// loopback host only, with no credentials, query or fragment.
+/// loopback host only, with no credentials, query or fragment; or a local
+/// mirror directory, `file:///<absolute path>/`.
 fn check_base_url(text: &str) -> Result<url::Url> {
     let url = url::Url::parse(text).context("fetch.base_url is not a URL")?;
+    if url.scheme() == "file" {
+        // A local mirror of the public layout (an operator's own copy, for
+        // example while the public host is not yet reachable): an absolute
+        // directory on this host, read through [`crate::fetch::DirTransport`]
+        // with every check the HTTPS host gets.
+        ensure!(
+            url.host_str().is_none_or(str::is_empty),
+            "fetch.base_url file:// must name a local absolute directory (no host)"
+        );
+        ensure!(
+            url.query().is_none() && url.fragment().is_none(),
+            "fetch.base_url must not carry a query or fragment"
+        );
+        let dir = url
+            .to_file_path()
+            .map_err(|()| anyhow::anyhow!("fetch.base_url file:// is not an absolute path"))?;
+        ensure!(
+            dir.is_absolute(),
+            "fetch.base_url file:// is not an absolute path"
+        );
+        return Ok(url);
+    }
     let loopback_http = url.scheme() == "http"
         && match url.host() {
             Some(url::Host::Domain(host)) => host == "localhost",
@@ -320,7 +343,7 @@ fn check_base_url(text: &str) -> Result<url::Url> {
         };
     ensure!(
         url.scheme() == "https" || loopback_http,
-        "fetch.base_url must use https:// (http:// only to a loopback host)"
+        "fetch.base_url must use https:// (http:// only to a loopback host, or file:// to a local directory)"
     );
     ensure!(url.host_str().is_some(), "fetch.base_url has no host");
     ensure!(

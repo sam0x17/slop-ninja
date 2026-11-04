@@ -31,6 +31,7 @@ pub mod id {
     pub const ADMISSION: u8 = 9;
     pub const JOURNAL_NEW: u8 = 10;
     pub const JOURNAL_FETCH: u8 = 11;
+    pub const JOURNAL_AUTO: u8 = 12;
     pub const COHORT_NEW: u8 = 20;
     pub const COHORT_FETCH: u8 = 21;
     pub const COHORT_ALARM: u8 = 22;
@@ -78,6 +79,9 @@ pub const R_ADMISSION: AsyncRoute = AsyncRoute::new(id::ADMISSION, "worker/admis
 /// A Durable Object constructor's storage migration: synchronous.
 pub const R_JOURNAL_NEW: Route = Route::new(id::JOURNAL_NEW, "journal/new");
 pub const R_JOURNAL_FETCH: AsyncRoute = AsyncRoute::new(id::JOURNAL_FETCH, "journal/fetch", UNBOUNDED_FETCH_MS);
+/// The ChainJournal's automatic-handoff pass (`/sign-auto`): its own route,
+/// so `/status` reports its peak beside the other journal requests'.
+pub const R_JOURNAL_AUTO: AsyncRoute = AsyncRoute::new(id::JOURNAL_AUTO, "journal/sign-auto", UNBOUNDED_FETCH_MS);
 pub const R_COHORT_NEW: Route = Route::new(id::COHORT_NEW, "cohort/new");
 pub const R_COHORT_FETCH: AsyncRoute = AsyncRoute::new(id::COHORT_FETCH, "cohort/fetch", UNBOUNDED_FETCH_MS);
 pub const R_COHORT_ALARM: AsyncRoute = AsyncRoute::new(id::COHORT_ALARM, "cohort/alarm", limits::ALARM_MS);
@@ -136,6 +140,53 @@ pub const QUEUE_CONTROL_BYTES: usize = 512 * KIB;
 /// natively; wasm-bindgen's string transfer holds up to four times the text
 /// while it encodes, so twice the measured peak, in whole MiB.
 pub const JOURNAL_CONTROL_BYTES: usize = 4 * MIB;
+/// The largest stored reward-v1 bundle a ChainJournal request re-reads
+/// within [`JOURNAL_CONTROL_BYTES`]: a signing step holds the active target
+/// parsed and verified from it (`signing::active_target`) while the pointer
+/// plan and `/status` parse it again, at most half the footprint (the same
+/// margin for wasm-bindgen's string transfer), as
+/// `SIGNING_BASE_BYTES + SIGNING_PER_BUNDLE_BYTE × bundle`. Both paths that
+/// install a bundle (the operator's and the automatic handoff) refuse a
+/// larger one (`signing::auto::SIGNED_BUNDLE_BYTES`), so no installed target
+/// overdraws a later signing step. Measured natively
+/// (`arena_witness_measure_the_signing_reads_of_a_stored_bundle`) and
+/// witnessed at the bound
+/// (`arena_witness_the_signing_reads_fit_the_journal_footprint_at_the_bundle_bound`).
+pub const SIGNING_BUNDLE_BYTES: usize = (JOURNAL_CONTROL_BYTES / 2 - SIGNING_BASE_BYTES) / SIGNING_PER_BUNDLE_BYTE;
+/// Measured 2026-11-04: 2 pages for a 7,363 B bundle, 34 for 505,163 B, 67
+/// for 1,002,963 B and 139 for 1,998,763 B (peak live 27,216 B, 1,974,927 B,
+/// 3,928,783 B and 7,836,895 B): about 4.6 bytes a bundle byte in whole
+/// pages above a two-page base. The base is twice that and the factor
+/// rounded up, so the bound (about 367 kB of bundle, 183 kB of a cohort's
+/// raw records) sits below the measured line.
+pub const SIGNING_BASE_BYTES: usize = 4 * slop_ninja_arena::PAGE;
+pub const SIGNING_PER_BUNDLE_BYTE: usize = 5;
+/// The automatic-handoff pass (`signing::auto::run_pass`) at its source
+/// bound (`signing::auto::SOURCE_BYTES`, the raw records one cohort's bundle
+/// can hold): [`auto_pass_bytes`].
+pub const JOURNAL_AUTO_BYTES: usize = auto_pass_bytes(crate::signing::auto::SOURCE_BYTES);
+
+/// The automatic-handoff pass's footprint for `source` bytes of a cohort's
+/// raw records, as `AUTO_BASE_BYTES + AUTO_PER_SOURCE × source`. Its
+/// heaviest step is the handoff's transaction: the records verified, the
+/// bundle written once as hex JSON, then parsed, verified and stored by the
+/// install; everything in it grows with the records' bytes. Measured
+/// natively (`arena_witness_the_automatic_handoff_fits_at_its_source_bound`,
+/// 2026-11-04): a whole pass installing a 13,410 B cohort peaks at 8 pages,
+/// one of 998,961 B (the bound before installs were held to
+/// [`SIGNING_BUNDLE_BYTES`]) at 192 pages (8,837,852 B live), the record
+/// reads' exact blocks included: about 12 bytes a source byte above a
+/// half-MiB base; the witness now runs at the current, smaller bound. The factor is twice that, the margin
+/// `JOURNAL_CONTROL_BYTES` takes for wasm-bindgen's string transfers, and
+/// the base four times the measured one (it also holds the listing page and
+/// the receipt index's fold buffer, `cf_io::FOLD_BUFFER_BYTES`). Unmeasured
+/// on the deployed instance: its peak is on `/status` under
+/// `journal/sign-auto`.
+pub const fn auto_pass_bytes(source: usize) -> usize {
+    AUTO_BASE_BYTES.saturating_add(AUTO_PER_SOURCE.saturating_mul(source))
+}
+pub const AUTO_BASE_BYTES: usize = 2 * MIB;
+pub const AUTO_PER_SOURCE: usize = 24;
 /// A cohort-object request: one transaction, with the active plan's copy.
 /// Measured: `/plan` with the widest admitted plan 8 pages (its body is an
 /// admitted block), `/kick` 2, `/status` 3; a plan at the 512 KiB body bound
@@ -460,6 +511,13 @@ const _: () = {
     let glue = model::GLUE_BUDGET_PAGES as usize * slop_ninja_arena::PAGE;
     let homes = scope_bytes(HOME_STATE_BYTES) + scope_bytes(HOME_PLANS_BYTES);
     assert!(static_upper + glue + homes + model::LARGEST_ROUTE_BYTES + scope_bytes(COHORT_CONTROL_BYTES) <= model::LINEAR_MEMORY_BYTES);
+    // The coordinator Worker during an automatic-handoff pass at its source
+    // bound: its state and runtimes homes, the pass, a concurrent journal
+    // request and the cron tick's continuation beside it.
+    let homes = scope_bytes(HOME_STATE_BYTES) + scope_bytes(HOME_RUNTIMES_BYTES);
+    let beside = scope_bytes(JOURNAL_CONTROL_BYTES) + scope_bytes(CONTINUATION_CONTROL_BYTES);
+    assert!(static_upper + glue + homes + scope_bytes(JOURNAL_AUTO_BYTES) + beside <= model::LINEAR_MEMORY_BYTES);
+    assert!(JOURNAL_AUTO_BYTES <= model::LARGEST_ROUTE_BYTES);
 };
 
 #[cfg(test)]

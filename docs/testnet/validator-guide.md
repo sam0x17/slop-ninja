@@ -39,7 +39,7 @@ evaluation is part of the protocol.
 | `slop_ninja_validator` startup checks, `observe`, the dry run and journaled dispatch | built and tested on Linux x86_64; live commits, per-tempo re-commits and fault drills ran on subnet 601 on October 30, 2026, under a fixture package |
 | Verification of `reward-v1` packages | in the first signed release, not yet published |
 | Published packages on the public status host | not yet live |
-| The package fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, which must also publish the current authorization (below) |
+| The package fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, so until it is live every validator installs each new target's bundle by hand. The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step once that build is deployed (below) |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
 | Committing the launch burn row | live on subnet 601: both Slop Ninja validators commit and reveal it each tempo under rtao's owner-row opt-in (below); first native commit and reveal on November 3, 2026 |
 | Release public key | published on the [landing page](README.md#release-key) |
@@ -305,9 +305,12 @@ layout](public-layout.md)):
   revocation's). The pointer's schema is
   `slop_ninja.public.authorization/v2`: a validator built before it refuses
   the pointer by its schema (`fetch_refused`), cannot see revocations, and
-  must be upgraded. **The public host is not deployed
-  yet**; until it is, the fetcher reports `unpublished` and the validator
-  keeps the bundle you install;
+  must be upgraded. The coordinator writes it whenever a closed cohort's
+  target is installed, with the authorization it signs for that cohort.
+  **The public host is not deployed yet**; until it is, the fetcher reports
+  `unpublished` and the validator keeps the bundle you install
+  (`base_url` may also name a local directory holding a copy of the layout,
+  `file:///<dir>/`, checked exactly as the host is);
 - `v1/cohorts/index.json`: every published cohort, its target digest and
   whether its detailed receipts are still published;
 - each cohort's `publication.json`, which lists every object with its SHA-256

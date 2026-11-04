@@ -619,6 +619,74 @@ pub const CHAIN_JOURNAL_SCHEMA: Schema = Schema {
             version: 11,
             statements: &["ALTER TABLE sign_attempts ADD COLUMN search_scan INTEGER NOT NULL DEFAULT 0"],
         },
+        // v12: automatic target handoff (`signing::auto`): the pass's state
+        // (operator hold, listing cursor, last listing, last failure, the
+        // authorization key's last check), every
+        // cohort label seen in the receipts bucket with its resolved number
+        // and opening (and, for one not in the main record, the fingerprint
+        // it was classified under), each closed cohort handled once with its
+        // outcome, the verified cohorts pending until the next install, and
+        // the numbers the operator recorded as gaps.
+        Migration {
+            version: 12,
+            statements: &[
+                "CREATE TABLE sign_auto_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    paused INTEGER NOT NULL,
+                    listing INTEGER NOT NULL,
+                    list_cursor TEXT,
+                    listed_epoch INTEGER,
+                    listed_at_ms INTEGER,
+                    error TEXT,
+                    error_label TEXT,
+                    error_since_ms INTEGER,
+                    key_error TEXT,
+                    key_checked_at_ms INTEGER,
+                    updated_at_ms INTEGER NOT NULL
+                ) STRICT",
+                "CREATE TABLE sign_auto_labels (
+                    label TEXT PRIMARY KEY,
+                    state TEXT NOT NULL CHECK (state IN
+                        ('unresolved', 'unsealed', 'unreadable', 'in_record', 'foreign', 'outside', 'handled',
+                         'passed')),
+                    cohort INTEGER,
+                    opened_epoch INTEGER,
+                    detail TEXT,
+                    classified TEXT,
+                    seen_at_ms INTEGER NOT NULL
+                ) STRICT",
+                "CREATE INDEX sign_auto_labels_state ON sign_auto_labels (state, cohort, label)",
+                "CREATE TABLE sign_auto_cohorts (
+                    seq INTEGER PRIMARY KEY,
+                    label TEXT NOT NULL UNIQUE,
+                    cohort INTEGER NOT NULL,
+                    opened_epoch INTEGER NOT NULL,
+                    closed_epoch INTEGER NOT NULL,
+                    outcome TEXT NOT NULL,
+                    target TEXT,
+                    authorization TEXT,
+                    at_ms INTEGER NOT NULL
+                ) STRICT",
+                "CREATE TABLE sign_auto_pending (
+                    cohort INTEGER PRIMARY KEY,
+                    label TEXT NOT NULL UNIQUE,
+                    opened_epoch INTEGER NOT NULL,
+                    closed_epoch INTEGER NOT NULL,
+                    outcome TEXT NOT NULL,
+                    detail TEXT,
+                    target TEXT,
+                    from_target TEXT NOT NULL,
+                    from_activated INTEGER,
+                    to_target TEXT NOT NULL,
+                    to_activated INTEGER,
+                    at_ms INTEGER NOT NULL
+                ) STRICT",
+                "CREATE TABLE sign_auto_absent (
+                    cohort INTEGER PRIMARY KEY,
+                    at_ms INTEGER NOT NULL
+                ) STRICT",
+            ],
+        },
     ],
 };
 

@@ -401,3 +401,45 @@ fn a_carrier_package_is_recomputed_and_must_produce_no_target() -> Result<()> {
     );
     Ok(())
 }
+
+/// A signed receipt index streamed in pieces of any size authenticates to
+/// the same digest and count as the decoded record, in a fixed amount of
+/// memory; a changed byte, a missing or extra byte, or another key fails.
+#[test]
+fn a_receipt_index_streams_to_its_binding_and_refuses_any_change() -> Result<()> {
+    use crate::fixtures::receipt_key;
+    let mut entries: Vec<ReceiptIndexEntry> = (0..300u32)
+        .map(|i| ReceiptIndexEntry {
+            attempt: domain_hash("test.attempt", &i.to_le_bytes()),
+            outcome: OutcomeClass::Prediction,
+            object_sha256: domain_hash("test.object", &i.to_le_bytes()),
+            object_len: 100 + i,
+        })
+        .collect();
+    entries.sort_by_key(|a| a.attempt);
+    let index = ReceiptIndex { cohort_manifest: Digest([0x5a; 32]), entries };
+    let bytes = sign(index.clone(), &receipt_key())?.to_bytes()?;
+    let keys = trusted_keys();
+    let stream = |b: &[u8], piece: usize| {
+        let mut s = ReceiptIndexStream::new();
+        for c in b.chunks(piece) {
+            s.update(c);
+        }
+        s.finish(&keys)
+    };
+    for piece in [1, 7, 64, 4096, bytes.len()] {
+        let b = stream(&bytes, piece)?;
+        assert_eq!((b.cohort_manifest, b.root, b.count), (index.cohort_manifest, index.digest()?, 300), "piece {piece}");
+    }
+    let mut changed = bytes.clone();
+    changed[bytes.len() / 2] ^= 1;
+    assert_eq!(stream(&changed, 64).unwrap_err(), Error::BadSignature);
+    assert_eq!(stream(&bytes[..bytes.len() - 1], 64).unwrap_err(), Error::UnexpectedEnd);
+    let mut longer = bytes.clone();
+    longer.push(0);
+    assert_eq!(stream(&longer, 64).unwrap_err(), Error::TrailingBytes);
+    let other = sign(index.clone(), &package_key())?.to_bytes()?;
+    assert_eq!(stream(&other, 64).unwrap_err(), Error::UntrustedKey);
+    assert!(stream(&bytes[..10], 64).is_err());
+    Ok(())
+}

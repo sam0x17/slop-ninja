@@ -312,7 +312,8 @@ is read; a missing companion is an error.
 (`package`, `receipt`, `authorization`, 32-byte hex, all distinct). They are
 not chain keys. `[fetch]` (requires `[package]`) names the public status
 host's `base_url` (`https://`, or `http://` to a loopback host; no
-credentials, query or fragment), `poll_secs` (300, at least 60, the index
+credentials, query or fragment; or `file:///<dir>/`, a local mirror
+directory of the same layout, read with every check the host gets), `poll_secs` (300, at least 60, the index
 documents' cache lifetime), `stall_secs` (60) and an optional absolute
 `cache_dir` (default `public-cache` beside the journal). `[dispatch]` names
 `hotkey_file`, the keyfile `--dispatch` signs with; its `pub.txt` must name
@@ -430,14 +431,32 @@ object must match its listed digest and length, and the assembled bundle is
 then verified by `package_v2::verify` against the held target, like an
 installed file.
 
-**Not live yet.** The coordinator writes the private pointer and objects
+**Where it reads from.** The coordinator signs each closed cohort's
+authorization itself and writes the private pointer and objects
 (`authorizations/current.json` and `authorizations/<sha256>.signed` in the
 receipts bucket, rewritten whenever they differ from its installed bundle and
-revocations), and the publisher copies them to `v1/authorizations/`, but the
-public host is not deployed; until it is the fetcher reports `unpublished`
-and the validator keeps the bundle the operator installs (authorizations are
-still signed by the operator tool, T12). The pointer, as the layout defines
-it:
+revocations), and the publisher copies them and the cohort's records to
+`v1/`, so a new target reaches a validator with `[fetch]` with no manual
+step. The public host is not deployed on testnet yet: until it is, a
+validator pointed at it reports `unpublished` and keeps its installed
+bundle, so on testnet every validator (the operator's included) still
+installs each new target's bundle by hand. A validator may instead read a
+local copy of the layout (`base_url = "file:///<mirror dir>/"`). Nothing on
+testnet fills such a copy today: a copy for the operator's validator before
+the host is public awaits the user's decision (coordinator TESTNET.md,
+"Automatic target handoff"). A
+`file://` base must name a local absolute directory (no host, query or
+fragment); each path is a file under it, and every object is checked as
+from the host (listed digest and length, then signatures), so a mirror can
+make a fetch fail but cannot change what is verified. Whatever fills the
+directory must keep the host's write order so a session never meets a
+half-written copy: each file written to a temporary name in the same
+directory and renamed into place, every object before the document that
+lists it, each cohort's `publication.json` before `v1/cohorts/index.json`,
+and `v1/authorizations/current.json` last, and a file removed only once no
+document names it. A session that still meets a partial copy reports it
+`incomplete` (an object's digest or length differs from its listing) and
+the next poll fetches again. The pointer, as the layout defines it:
 
 ```json
 {

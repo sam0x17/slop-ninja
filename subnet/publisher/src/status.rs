@@ -50,6 +50,20 @@ pub struct SigningView {
     /// the fields beside it); `None` from a coordinator built before they
     /// existed, or without an authorization.
     pub pointer: Option<PointerView>,
+    /// The automatic target handoff's last failure
+    /// (`signing.auto_target.error`, its label and its age), else a failed
+    /// check of its authorization key (`key_error`); `None` while it has
+    /// neither, or from a coordinator built before the handoff.
+    pub auto_target_error: Option<AutoTargetError>,
+}
+
+/// A failure of the coordinator's automatic target handoff, as `/status`
+/// reports it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AutoTargetError {
+    pub code: String,
+    pub label: Option<String>,
+    pub age_ms: u64,
 }
 
 /// The coordinator's authorization-pointer writer, as `/status` reports it.
@@ -261,6 +275,17 @@ struct SigningJson {
     reason: Option<String>,
     ops: Vec<OpJson>,
     authorization: Option<AuthorizationJson>,
+    auto_target: Option<AutoTargetJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct AutoTargetJson {
+    error: Option<String>,
+    error_label: Option<String>,
+    error_age_ms: Option<u64>,
+    key_error: Option<String>,
+    key_age_ms: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -449,7 +474,23 @@ fn worker_view(j: ServiceJson) -> WorkerView {
             .and_then(|w| w.subscription)
             .and_then(|s| s.state),
         signing: c.signing.and_then(|s| {
+            // A cohort's failure first; else the pass's check of the
+            // authorization key, which holds no cohort until one needs a
+            // signature but must not wait that long to be seen.
+            let auto_target_error = s.auto_target.and_then(|a| match a.error {
+                Some(code) => Some(AutoTargetError {
+                    code,
+                    label: a.error_label,
+                    age_ms: a.error_age_ms.unwrap_or(0),
+                }),
+                None => a.key_error.map(|k| AutoTargetError {
+                    code: format!("authorization key {k}"),
+                    label: None,
+                    age_ms: a.key_age_ms.unwrap_or(0),
+                }),
+            });
             Some(SigningView {
+                auto_target_error,
                 authorization: s.authorization.is_some(),
                 pointer: s.authorization.and_then(|a| {
                     Some(PointerView {
@@ -885,6 +926,42 @@ pub(crate) mod tests {
         assert!(
             !e.cohorts.is_empty() && e.epoch.is_some(),
             "the rest still parses"
+        );
+    }
+
+    /// `signing.auto_target`: a cohort's failure is reported with its label
+    /// and age; with none, a failed key check is; with neither, nothing.
+    #[test]
+    fn parses_the_automatic_target_handoffs_failure_and_key_check() {
+        let with = |auto: Value| {
+            let mut j = worker_status("primary", false);
+            j["chain_journal"]["signing"]["auto_target"] = auto;
+            parse_worker(&j).signing.unwrap().auto_target_error
+        };
+        assert_eq!(
+            with(json!({"error": null, "key_ok": true, "key_error": null})),
+            None
+        );
+        assert_eq!(
+            with(
+                json!({"error": "receipts_retired", "error_label": "testnet-r0-20", "error_age_ms": 5,
+                        "key_error": "authorization_key_missing", "key_age_ms": 9})
+            ),
+            Some(AutoTargetError {
+                code: "receipts_retired".into(),
+                label: Some("testnet-r0-20".into()),
+                age_ms: 5
+            })
+        );
+        assert_eq!(
+            with(
+                json!({"error": null, "key_ok": false, "key_error": "authorization_key_missing", "key_age_ms": 9})
+            ),
+            Some(AutoTargetError {
+                code: "authorization key authorization_key_missing".into(),
+                label: None,
+                age_ms: 9
+            })
         );
     }
 

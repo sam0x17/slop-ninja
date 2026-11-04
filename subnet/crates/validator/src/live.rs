@@ -32,7 +32,7 @@ use slop_ninja_subnet::{
 
 use crate::app::{AppPorts, CommitRecord, DispatchReport, Mode, OwnerRowChoice, WeightLimits};
 use crate::config::{Recommit, ValidatorConfig};
-use crate::fetch::{BundleInfo, HttpTransport, Outcome, Session, Staged};
+use crate::fetch::{BundleInfo, Outcome, PublicTransport, Session, Staged};
 use crate::reveals::{Check, Completed, OpState, RevealLedger};
 use crate::supersede::{Candidate, Decision, FetchState, InstallPorts, LoopPorts, LoopStep, Pending};
 use crate::faults::{Faults, Phase};
@@ -2556,7 +2556,7 @@ impl Drop for Background {
 
 /// Everything one fetch session needs, owned, so it can run in a task.
 struct FetchSetup {
-    transport: HttpTransport,
+    transport: PublicTransport,
     cache: std::path::PathBuf,
     keys: TrustedKeys,
     chain: ChainBinding,
@@ -2674,7 +2674,7 @@ impl LivePorts {
         };
         let deadline = Duration::from_secs(fetch.poll_secs);
         let setup = Arc::new(tokio::sync::Mutex::new(FetchSetup {
-            transport: HttpTransport::new(
+            transport: PublicTransport::new(
                 fetch.base()?,
                 Duration::from_secs(fetch.stall_secs),
                 deadline,

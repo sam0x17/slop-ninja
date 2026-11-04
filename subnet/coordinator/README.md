@@ -34,7 +34,7 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `claims` | durable leases with fencing generations, and the shared RPC budget |
 | `schedule` | the bounded scheduling step each block drives (no-op hook for now) |
 | `chain` | rtao core seam: by-name calls, storage keys and values, signing payloads, extrinsics, sr25519, timelock, epochs |
-| `signing` | the signing journal: one commit per epoch, attempts, fencing, reconciliation, read-back and reveal |
+| `signing` | the signing journal: one commit per epoch, attempts, fencing, reconciliation, read-back and reveal; `signing::auto`, the automatic target handoff (each closed cohort installed and authorized once) |
 | `target` | T12 bundle verification and the pluggable reward-rule row |
 | `rpc` | JSON-RPC request bodies and response validation, including the single write |
 | `config` | vars, secrets, testnet guards, names and bearer-token checks |
@@ -52,7 +52,7 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `GET /status` | Content-free JSON. Needs `Authorization: Bearer` with `COORDINATOR_STATUS_TOKEN`. |
 | `POST /fault/clear` | Operator action, body `{"fault_id": n, "reanchor": false}`. Needs `COORDINATOR_OPERATOR_TOKEN`. |
 | `POST /signing/target` | Operator action: install a T12 bundle as the current target (body: the bundle JSON, at most 1 MiB). |
-| `POST /signing/control` | Operator action, body `{"action": "resume" \| "pause" \| "clear_fault" \| "arm_drill", "drill": ..., "count": n}`. |
+| `POST /signing/control` | Operator action, body `{"action": "resume" \| "pause" \| "clear_fault" \| "arm_drill" \| "auto_pause" \| "auto_resume" \| "auto_abandoned" \| "auto_unabandoned" \| "auto_gap", "drill": ..., "count": n, "label": ..., "cohort": n}`. |
 | `POST /signing/kick` | Operator action: run one signing round now (the duplicate-wakeup drill). |
 | `GET /eval/status` | `EVAL_ROLE = "eval"` only. Content-free cohort status, with every scorer slot's running state. Needs the status token. |
 | `GET /eval/admission/link` | `EVAL_ROLE = "eval"` only. Probes the framing link to the upload Worker (service binding, internal host, shared interface token) without an upload: `{"frame": "ok"}` or the failure. Needs the status token. |
@@ -544,8 +544,11 @@ Byte-for-byte checks, natively:
 
 ### Target and row
 
-The operator installs the T12 bundle (`POST /signing/target`), the same file the
-native validator reads. The ChainJournal verifies it with the configured trust
+Each closed cohort's target is installed automatically, with the
+authorization the coordinator signs for it
+([Automatic target handoff](#automatic-target-handoff)); the operator can
+also install a bundle (`POST /signing/target`), the same file the native
+validator reads, through the same checks. The ChainJournal verifies it with the configured trust
 roots, re-verifies it from storage on each use, and derives the row from the
 coordinator's own registration snapshot read at the operation's confirmed
 block. `target::derive_row` is the one dispatch point from the package's frozen
@@ -886,6 +889,184 @@ Testnet drills are armed per step (`arm_drill`, at most 3):
 Submission drills are taken in the order `stall_before_mark`, `never_send`,
 `evict_after_send`, `uncertain_after_send`, one per submission step, so one
 epoch can run several in sequence.
+
+### Automatic target handoff
+
+The coordinator installs each closed cohort's target as its signed
+calculation target and signs that cohort's reward-intent authorization
+itself (`signing::auto`, journal schema v12), with no operator step. The
+eval Worker (T13) writes each cohort's signed records to the receipts
+bucket under `cohorts/<label>/`; every cron tick runs one bounded pass
+(`/sign-auto`, its bucket operations sharing one journal call's allowance)
+before the pointer pass, so an installed target reaches the private pointer
+in the same tick. The pass is one function (`signing::auto::run_pass`)
+over a small I/O trait, so the native tests run the Worker's own loop:
+
+1. List the cohort labels (`cohorts/`, delimiter `/`, a page a step) once per
+   finalized epoch (every pass while no signing preflight has given an
+   epoch). A label found while its cohort is still open is found again at
+   the next epoch at the latest; cohorts close tempos after they are sealed.
+   A failed page does not hold the pass: the labels already known are still
+   resolved and checked, and a failed continuation restarts the listing
+   from its first page.
+2. Resolve each new label from its signed manifest. The handoff is bound
+   to the main chain record: the var `AUTO_TARGET_AUTHORITIES` (tracked in
+   `wrangler.toml`, equal to the eval Worker's `EVAL_MAIN_AUTHORITY`, a test
+   checks it) names the eval authorities whose labels (`testnet-<name>-`)
+   are handed in; unset or malformed, the pass reads nothing and reports
+   `record_authorities_unset` / `record_authorities_malformed`. A manifest
+   signed by the trusted package key, naming this chain and its own label,
+   under a main-record prefix gives the cohort number and opening epoch
+   (`in_record`). One not signed by that key, or naming another chain or
+   label (load cohorts), is `foreign`; one under another prefix (a scratch
+   authority's drill in the same bucket) is `outside`. Both are classified
+   under a fingerprint of the package key, chain and prefixes and are read
+   again whenever those change, so a deploy that briefly carried a wrong
+   key or list loses no cohort. A manifest whose signature is valid but
+   whose record this build cannot decode (a newer schema) is `unreadable`:
+   a failure (`manifest_undecodable`), read again at every listing, never
+   `foreign`. A label with no manifest yet (a probe build never has one)
+   is `unsealed` until the next listing. Labels opened before the restart
+   floor are left out. `/status` counts labels per state and the `foreign`
+   and `outside` ones per reason (`unclassified`).
+3. Check the in-record cohorts after the last one handled or pending, in
+   cohort order, and hand in each closed one (`closure.signed`) with its
+   records (manifest, package, closure, target when present, the published
+   index at its seal) and, for a target cohort, its receipts. The first
+   cohort not closed ends the step: a later cohort is never handed in past
+   an earlier sealed one. While a later cohort has closed behind an
+   unclosed one the stall is on `/status` (`earlier_cohort_unclosed`).
+   Numbers continue without gaps: cohort N is handed in only after N - 1
+   was handled, is pending, or was passed by the operator; the first cohort
+   of a chain record is the lowest in-record one. A gap stalls
+   (`cohort_gap`). The operator passes an abandoned in-record cohort with
+   `{"action": "auto_abandoned", "label": ...}` (refused while its closure
+   is in the bucket, `cohort_closed`; `auto_unabandoned` takes it back while
+   nothing after it was handled) and a number with no in-record label with
+   `{"action": "auto_gap", "cohort": n}` (a label later resolving to it is
+   reported, `cohort_marked_absent`, as is an in-record cohort that resolves
+   only after later ones were handled, `cohort_behind_record`: neither is
+   skipped silently). The eval Worker writes no abandonment
+   record the coordinator could read instead, so an abandoned cohort that
+   later cohorts follow still needs that operator step.
+
+The journal then verifies the records under the trust roots (the
+manifest, the package bound to it, the published index bound by the
+manifest, the outcome recomputed, the closure checked against them) and, in
+one transaction:
+
+- A cohort without a target signs nothing: the held target and its
+  authorization stay (no authorization expires), so the pointer keeps naming
+  the target's own cohort, whose receipts the eval Worker retains as the
+  newest target. Carried authorizations naming the later no-target cohort
+  are not signed: that cohort's receipts go after N+2, and holding them is
+  the user's open ruling.
+- A cohort with a target gets a `RewardIntentAuthorization` for its own
+  manifest, package and target, issued at its closing epoch (when the target
+  activates), with the manifest's renew-by distance as the non-binding hint
+  and the installed authorization's checkpoint generation (an installed
+  bundle that does not read refuses the handoff,
+  `installed_generation_unreadable`), signed with the Worker secret
+  `AUTHORIZATION_SIGNING_KEY`. That key must derive the trusted
+  `AUTHORIZATION_PUBLIC_KEY` and differ from the hotkey's seed
+  (`authorization_key_mismatch`, `authorization_key_is_hotkey`); the package
+  and receipt keys stay in the eval Worker. It never leaves the journal
+  except as the signature. The coordinator's own bundle form (records only)
+  is installed through the operator path's checks (`install_target_v2_from`:
+  the held target or its successor, the restart floor, the held record moved
+  forward). A target already held is recorded `held`, one superseded by a
+  later held target `superseded`.
+
+The target changes only to a cohort whose detailed receipts are retained:
+its signed receipt index authenticates under the receipt key to the receipt
+root and count its package binds (streamed through a 64 KiB buffer, so an
+index of any length is checked in a fixed footprint;
+`receipt_index_unverified`, `receipt_index_mismatch`), its chunk map is
+present and there is no `receipts-retired.json`. A target cohort whose
+receipts are already retired (possible only after a coordinator outage
+longer than two cohorts) is never installed or authorized on its own: it is
+checked from the held target and journaled as pending (`sign_auto_pending`:
+label, number, outcome, the held target it was checked from and the one it
+leaves), which does not count as handled. Cohorts after it that need no
+install are journaled behind it. Each pass resumes after the last pending
+cohort, so a chain longer than one pass's deadline completes over as many
+passes as it needs and nothing is verified twice. The pending cohorts are
+recorded `intermediate` (or `no_target`, `held`, `superseded`) only in the
+transaction that installs the next closed target cohort with retained
+receipts, whose predecessor the last of them leaves held (the held record
+moves straight to that one, as a validator's walk through intermediate
+targets does); that transaction first checks that the held target is still
+the one the first pending cohort was checked from (`held_target_changed`
+drops them otherwise, and they are checked again), and every move of the
+held record (an operator bundle, a chain-record restart) drops them too.
+Until that cohort closes they wait (`receipts_retired`) and the held target
+keeps committing; a refusal between the two installs nothing, so neither
+signing nor the pointer pass ever sees an active target whose receipts are
+gone. A target cohort with neither its receipt index and chunk map nor the
+retirement marker waits the same way but is reported `receipts_missing`: a
+retention or write-order defect, not N+2 retention. A pass whose deadline
+passes before it has recorded or journaled anything reports `pass_budget`
+on the cohort it was on, so a cohort that cannot be checked within one
+deadline is never silent.
+
+Each cohort is handled once (`sign_auto_cohorts`, by label): a duplicate or
+reordered wakeup answers the recorded outcome and signs nothing, and a
+later cohort handed in before an earlier closed one is refused
+(`predecessor_not_held`) without being recorded. Ed25519 signatures are
+deterministic, so a transaction cut short (an eviction mid-sign) signs the
+same bytes when it runs again. A cohort that cannot be handled yet (records
+missing, a refusal, the key absent) is retried at every tick, the cohorts
+after it wait, and its failure is on `/status` (`signing.auto_target.error`,
+`error_label`, `error_age_ms`, logged once per distinct failure as
+`auto_target_failed`); the publisher alerts `auto_target_stalled` after a
+tempo. A failure clears itself when the step it came from next succeeds: a
+listing failure at the next listing page, an unreadable object at its
+label's next read, a cohort's refusal when it is handled or passed. Every
+pass also checks that `AUTHORIZATION_SIGNING_KEY` is present and derives the
+trusted root, without signing and without reading the hotkey's secret (it
+is compared with the authorization key only when an authorization is
+signed) (`key_ok`, `key_error`; logged on change), so a missing or wrong
+secret is reported before the first target cohort needs it, without holding
+cohorts that need no signature. Nothing waits on another
+validator, and paused signing does not hold it.
+
+Revocation stays a signed manual operator action (`POST /signing/revoke`).
+The handoff never re-authorizes: a cohort's authorization is signed once, at
+its closing epoch, so a revocation dated at or after it withdraws it for
+good. A revocation journaled before the handoff runs does not stop the
+handoff at that cohort: the target is installed as revoked (its checked
+closure activated it; `revoked`, `target_installed_revoked`), so nothing
+commits for it, exactly as when the revocation comes after the install, and
+the next cohort's target installs as its successor in either order. A
+re-authorization is an operator bundle. `POST /signing/control` with
+`{"action": "auto_pause"}` holds the handoff (the held target keeps
+committing) and `{"action": "auto_resume"}` continues it from the same
+cohort.
+
+`/status` `signing.auto_target` shows the hold, the listing, label counts
+per state and the unclassified ones per reason, the pending cohorts (count
+and first), the recorded gaps, the next cohort waiting for its closure, the
+last cohort handled (number, label, outcome, target, authorization digest,
+age), the last failure and the key check.
+
+Memory: every later signing step (`journal/fetch`,
+`arena_routes::JOURNAL_CONTROL_BYTES`) parses and verifies the stored bundle
+again, so no path installs a bundle larger than those reads fit
+(`arena_routes::SIGNING_BUNDLE_BYTES`: half the journal footprint, measured
+natively, `arena_witness_measure_the_signing_reads_of_a_stored_bundle`, and
+witnessed at the bound,
+`arena_witness_the_signing_reads_fit_the_journal_footprint_at_the_bundle_bound`).
+The operator path refuses a larger bundle
+(`bundle_exceeds_signing_footprint`), and the handoff's source bound is
+derived from it (`signing::auto::SOURCE_BYTES`): a cohort whose records
+exceed it is refused (`cohort_too_large`) before anything is signed and
+waits, visibly. The pass runs in its own arena route (`journal/sign-auto`),
+whose footprint is derived from that source bound
+(`arena_routes::JOURNAL_AUTO_BYTES`) and witnessed natively at it
+(`arena_witness_the_automatic_handoff_fits_at_its_source_bound`); `/status`
+reports its deployed peak. Storing the verified target at install, so
+signing steps stop re-parsing the bundle and the bound can grow to one
+stored value, is not done.
 
 ### ChainJournal liveness
 
@@ -1997,10 +2178,18 @@ milestone M7.
 
 - **Cohort control in the coordinator Worker.** The scheduling hook still has
   no due operations; testnet cohorts run in the eval Worker (T13), and the
-  coordinator's signing target is the operator-installed T12 bundle.
-- **Score publication to validators (M5/M6).** Packages, targets and receipts
-  are stored and signed, but no validator fetches them from R2 yet; the T12
-  bundle is the bridge.
+  coordinator follows their signed records in the receipts bucket
+  ([Automatic target handoff](#automatic-target-handoff)) rather than
+  receiving them from a cohort object of its own.
+- **Score publication to validators (M5/M6).** Validators fetch the current
+  authorization and its cohort's records from the publisher's public layout
+  (`[fetch]`), which the publisher copies from the receipts bucket. The
+  public host is not deployed yet: until the user enables public access to
+  the public testnet bucket, validators (the operator's included) install
+  bundles by hand; a validator can read a local copy of the layout
+  (`fetch.base_url = "file:///<dir>/"`, validator README), and installing
+  one for the operator's validator awaits the user's decision (TESTNET.md,
+  "Automatic target handoff").
 - **Admission, open items.** The eval Worker decodes no uploaded object:
   framing (the header record, the slices and the parts manifest) runs in
   the key-free upload Worker, which the cohort object's framing step calls
@@ -2060,10 +2249,13 @@ milestone M7.
   bounded by what one signed record holds (972,591 entries, below the
   canonical sequence bound of 2^20), and plans are refused when a cohort's
   receipts could exceed it.
-- **Authorization issue.** Reward-intent and launch authorizations are
-  signed by the operator tool (`reward_v1_verify`) under the T12
-  authorization key and installed with the bundle; the coordinator does not
-  sign them itself yet. None expires: the coordinator commits its installed
+- **Authorization issue.** Each closed cohort's reward-intent authorization
+  is signed by the coordinator itself
+  ([Automatic target handoff](#automatic-target-handoff)). Launch
+  authorizations, re-authorizations after a revocation, carried
+  authorizations naming a later no-target cohort (waiting on the user's
+  ruling on holding a carrier's receipts past N+2) and revocations stay
+  operator actions with `reward_v1_verify`. None expires: the coordinator commits its installed
   target, whatever time has passed, until a newer bundle supersedes it or a
   signed revocation withdraws it ([Authorization without expiry](#authorization-without-expiry)).
   The coordinator checks each bundle against the target it holds active
@@ -2115,15 +2307,21 @@ milestone M7.
 ## Checks
 
 These ran on `build-host` (Linux, Rust 1.99.1, worker-build 0.8.7, Wrangler
-4.154.0), last on 2026-10-31, each as one Cargo job under the shared lock:
+4.154.0), last on 2026-10-31, each as one Cargo job under the shared lock.
+Run them from `subnet/coordinator`: Cargo reads the crate's
+`.cargo/config.toml` (which sets `SLOP_NINJA_MEMORY_MODEL`) only from the
+working directory, so `--manifest-path` from elsewhere builds against the
+default memory model and fails the route-table assertions in
+`arena_routes.rs`.
 
 ```sh
-cargo test --manifest-path subnet/coordinator/Cargo.toml
-cargo clippy --manifest-path subnet/coordinator/Cargo.toml --all-targets -- -D warnings
-cargo clippy --manifest-path subnet/coordinator/Cargo.toml --release \
-  --target wasm32-unknown-unknown -- -D warnings
-cargo test --release --manifest-path subnet/coordinator/parity/Cargo.toml
-(cd subnet/coordinator && worker-build --release)
+cd subnet/coordinator
+cargo test
+cargo test --features arena-witness arena_witness -- --test-threads=1
+cargo clippy --all-targets -- -D warnings
+cargo clippy --release --target wasm32-unknown-unknown -- -D warnings
+(cd parity && cargo test --release)
+worker-build --release
 ```
 
 **On main, 2026-10-31,** after the M3 signing, M4 evaluation and fan-out

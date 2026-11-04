@@ -26,7 +26,7 @@ const METADATA: &[u8] = include_bytes!("../../fixtures/runtime-486/testnet-486.v
 
 /// Peak pages (state page included) and peak live bytes of `f` run in a
 /// fresh scope. `f` drops whatever it allocates before returning.
-fn measure(f: impl FnOnce()) -> (u32, usize) {
+pub(crate) fn measure(f: impl FnOnce()) -> (u32, usize) {
     let s = Scope::open(MEASURE, 0).expect("measure scope");
     s.enter(f);
     let st = s.stats();

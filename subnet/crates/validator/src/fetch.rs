@@ -491,6 +491,91 @@ impl Transport for HttpTransport {
     }
 }
 
+/// A local mirror of the public layout (`fetch.base_url = "file:///<dir>/"`):
+/// each path is a file under the directory. It serves an operator's own copy
+/// of the public host's objects, for example while the public host is not
+/// reachable; whatever fills the directory is outside this crate (none is
+/// installed on testnet). Every object is checked exactly
+/// as from the HTTPS host (listed digest and length, then signature), so a
+/// mirror can make a fetch fail but cannot change what is verified. A
+/// missing file is [`Got::NotFound`]; a continued read starts at the
+/// requested offset when the file is longer than it, and otherwise from byte
+/// 0 (the session then restarts the object, as for a host that ignores a
+/// range request).
+pub struct DirTransport {
+    base: PathBuf,
+}
+
+impl DirTransport {
+    pub fn new(base: PathBuf) -> Result<Self> {
+        ensure!(base.is_absolute(), "the mirror directory must be absolute");
+        Ok(Self { base })
+    }
+}
+
+/// Bytes read from a mirror file per sink write.
+const DIR_READ_CHUNK: usize = 64 * 1024;
+
+impl Transport for DirTransport {
+    async fn get<'a, S: Sink>(&'a self, path: &'a str, offset: u64, sink: &'a mut S) -> Result<Got> {
+        use std::io::{Read as _, Seek as _};
+        ensure!(safe_rel(path), "unsafe object path");
+        let full = self.base.join(path);
+        let mut file = match std::fs::File::open(&full) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Got::NotFound),
+            Err(e) => bail!("mirror read failed: {}", e.kind()),
+        };
+        let len = file.metadata().map_err(|e| anyhow::anyhow!("mirror read failed: {}", e.kind()))?.len();
+        let got = if offset > 0 && offset < len {
+            file.seek(std::io::SeekFrom::Start(offset)).map_err(|e| anyhow::anyhow!("mirror read failed: {}", e.kind()))?;
+            sink.begin(Some(len - offset), true)?;
+            Got::Partial
+        } else {
+            sink.begin(Some(len), false)?;
+            Got::Full
+        };
+        let mut buf = vec![0u8; DIR_READ_CHUNK];
+        loop {
+            let n = file.read(&mut buf).map_err(|e| anyhow::anyhow!("mirror read failed: {}", e.kind()))?;
+            if n == 0 {
+                break;
+            }
+            sink.write(&buf[..n])?;
+            // The runtime is single-threaded: let the finalized-head stream
+            // and signing run between chunks of a large local file.
+            tokio::task::yield_now().await;
+        }
+        Ok(got)
+    }
+}
+
+/// The configured public host: HTTPS (or loopback HTTP), or a local mirror.
+pub enum PublicTransport {
+    Http(HttpTransport),
+    Dir(DirTransport),
+}
+
+impl PublicTransport {
+    /// The transport for `base` (`fetch.base_url`, already checked).
+    pub fn new(base: url::Url, stall: Duration, total: Duration, user_agent: &str) -> Result<Self> {
+        if base.scheme() == "file" {
+            let dir = base.to_file_path().map_err(|()| anyhow::anyhow!("fetch.base_url file:// is not an absolute path"))?;
+            return Ok(Self::Dir(DirTransport::new(dir)?));
+        }
+        Ok(Self::Http(HttpTransport::new(base, stall, total, user_agent)?))
+    }
+}
+
+impl Transport for PublicTransport {
+    async fn get<'a, S: Sink>(&'a self, path: &'a str, offset: u64, sink: &'a mut S) -> Result<Got> {
+        match self {
+            Self::Http(t) => t.get(path, offset, sink).await,
+            Self::Dir(t) => t.get(path, offset, sink).await,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Bounded reads.
 

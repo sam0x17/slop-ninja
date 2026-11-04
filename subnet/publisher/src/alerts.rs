@@ -54,6 +54,7 @@
 //! | `ledger_threshold_unset` | the eval status's ledger standing names no alert threshold (the deploy did not pass `SPEND_ALERT_MICROUSD`), so `ledger_threshold` cannot fire |
 //! | `commit_gap` | the coordinator has not committed weights for two or more tempos |
 //! | `pointer_stale` | the coordinator's authorization-pointer writer has not confirmed the private pointer (its last pass failed, or its last confirmation is older than two cron periods) for a whole tempo: re-authorizations and revocations are not reaching validators |
+//! | `auto_target_stalled` | the coordinator's automatic target handoff has reported the same failure for a whole tempo (a closed cohort it cannot install and authorize yet, such as a refused bundle, retired or missing receipts, an earlier cohort that never closed, a cohort-number gap, a manifest this build cannot decode, a pass that cannot advance within its deadline, or no main record configured; the cohorts after it wait and none is skipped), or its authorization key's check has failed for a tempo (it holds no cohort until one needs a signature) |
 //! | `coordinator_reveal_mismatch` | a reveal of the coordinator's weights did not match its committed row |
 //! | `publication_refused` | a closed cohort, an artifact's admission record or copy, or the authorization failed verification or the memory budget |
 //! | `publication_pending` | a closed cohort, an artifact copy or the authorization has been incomplete for a whole tempo |
@@ -78,12 +79,12 @@ pub use slop_ninja_alerts_wire::{
     AlertState, Condition, Entry, Event, EventKind, acknowledge, attempt, due, event_id,
 };
 
-/// v8: `phase_overrun` also covers a cohort still in `admission` at its
+/// v9: `auto_target_stalled` (v8: `phase_overrun` also covers a cohort still in `admission` at its
 /// package deadline with its window closed (its roster freeze waiting), and
 /// counts a cohort's age in the coordinator's credited tempos
 /// (`observed.active_tempos - opened_active`) rather than epochs, so an
-/// outage that extends a cohort's schedule is not an overrun
-/// (v7: `cohort_fault` also reads closed cohorts (a paused closure step) and
+/// outage that extends a cohort's schedule is not an overrun;
+/// v7: `cohort_fault` also reads closed cohorts (a paused closure step) and
 /// the eval Worker's `step_refused`; v6: `pointer_stale` and
 /// `revocation_unverifiable`; v5: `webhook_paused`
 /// and `retention_stalled`; v4: an unknown status read, unanswered or answered
@@ -91,7 +92,7 @@ pub use slop_ninja_alerts_wire::{
 /// decide, and alerts after its hold, `status_unreachable` and
 /// `status_incomplete`; v3: `config_warning`, and resolutions of attempted
 /// firings).
-pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v8";
+pub const RULES_ID: &str = "slop_ninja.publisher.alerts/v9";
 /// The post schema (each event carries its id and the last-notified time
 /// it is derived from, so the alerts relay sends a retried post once).
 pub const ALERT_SCHEMA: &str = slop_ninja_alerts_wire::POST_SCHEMA;
@@ -421,6 +422,29 @@ pub fn evaluate(o: &Observed, p: &PublisherObs, r: &Rules) -> Vec<Condition> {
             ));
         }
     }
+    if let Some(e) = o
+        .coordinator
+        .as_ref()
+        .and_then(|w| w.signing.as_ref())
+        .and_then(|s| s.auto_target_error.as_ref())
+    {
+        // The failure's own age counts toward the hold, so a failure that
+        // started before this publisher saw it is not held again.
+        out.push(cond(
+            "auto_target_stalled",
+            "coordinator",
+            format!(
+                "automatic target handoff failing for {} s: {}{}",
+                e.age_ms / 1000,
+                e.code,
+                e.label
+                    .as_deref()
+                    .map(|l| format!(" ({l})"))
+                    .unwrap_or_default()
+            ),
+            r.publication_hold_ms.saturating_sub(e.age_ms),
+        ));
+    }
     if let Some(why) = &p.config {
         out.push(cond("config_refused", "publisher", why.clone(), 0));
     }
@@ -496,6 +520,7 @@ pub const STATUS_RULES: &[&str] = &[
     "commit_gap",
     "coordinator_reveal_mismatch",
     "pointer_stale",
+    "auto_target_stalled",
 ];
 
 /// What a status-dependent rule's decision lacks this run: a source that
@@ -633,6 +658,7 @@ pub fn needs(rule: &str, subject: &str, o: &Observed) -> Vec<Need> {
             need_eval(o, Some(("epoch", |e| e.epoch.is_some())), &mut n);
         }
         "pointer_stale" => need_worker(o, "coordinator", &[SIGNING, POINTER], &mut n),
+        "auto_target_stalled" => need_worker(o, "coordinator", &[SIGNING], &mut n),
         "status_incomplete" => match subject {
             "eval" => need_eval(o, None, &mut n),
             name => need_worker(o, name, &[], &mut n),
@@ -2350,6 +2376,45 @@ mod tests {
         let c = evaluate(&healthy(), &unopened, &r);
         assert_eq!(rules_of(&c), vec!["revocation_unverifiable"]);
         assert!(c[0].detail.starts_with("2 revocation set entries"));
+    }
+
+    /// A failure of the automatic target handoff alerts once it has lasted a
+    /// tempo (its own age counts); no failure, or a coordinator built
+    /// before the handoff, raises nothing.
+    #[test]
+    fn a_stalled_automatic_target_handoff_alerts_after_a_tempo() {
+        let r = rules();
+        let p = PublisherObs::default();
+        let with = |e: Option<crate::status::AutoTargetError>| {
+            let mut o = healthy();
+            o.coordinator
+                .as_mut()
+                .unwrap()
+                .signing
+                .as_mut()
+                .unwrap()
+                .auto_target_error = e;
+            o
+        };
+        assert!(evaluate(&with(None), &p, &r).is_empty());
+        let fresh = crate::status::AutoTargetError {
+            code: "authorization_key_missing".into(),
+            label: Some("testnet-r0-20".into()),
+            age_ms: 0,
+        };
+        let c = evaluate(&with(Some(fresh.clone())), &p, &r);
+        assert_eq!(rules_of(&c), vec!["auto_target_stalled"]);
+        assert_eq!(c[0].hold_ms, TEMPO);
+        assert!(
+            c[0].detail
+                .contains("authorization_key_missing (testnet-r0-20)")
+        );
+        let old = crate::status::AutoTargetError {
+            age_ms: TEMPO + 1,
+            ..fresh
+        };
+        assert_eq!(evaluate(&with(Some(old)), &p, &r)[0].hold_ms, 0);
+        assert!(decided("auto_target_stalled", "coordinator", &with(None)));
     }
 
     /// A setting the configuration ignored is alerted, not refused.

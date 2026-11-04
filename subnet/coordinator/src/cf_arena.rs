@@ -61,6 +61,12 @@ export function arena_route_class(req) {
   if (p.startsWith('/internal/admission/') && u.host === 'eval-admission.internal') return 9;
   return 0;
 }
+export function arena_journal_class(req) {
+  let p = '';
+  try { p = new URL(req.url).pathname; } catch (e) { return 0; }
+  if (p === '/sign-auto') return 1;
+  return 0;
+}
 export function arena_cohort_class(req) {
   let p = '';
   try { p = new URL(req.url).pathname; } catch (e) { return 0; }
@@ -83,6 +89,9 @@ extern "C" {
     /// The Worker route of a request, read in JS (no Rust allocation).
     fn arena_route_class(req: &web_sys::Request) -> u32;
     fn arena_cohort_class(req: &web_sys::Request) -> u32;
+    /// The ChainJournal route of a request: the automatic-handoff pass has
+    /// its own derived footprint (`arena_routes::JOURNAL_AUTO_BYTES`).
+    fn arena_journal_class(req: &web_sys::Request) -> u32;
     /// Load shedding for `/hook`, in JS before any ticket, scope or Rust
     /// allocation: `true` when the request carries no signature header (or
     /// one longer than `webhook::MAX_SIGNATURE_HEADER_BYTES`) naming this
@@ -256,10 +265,10 @@ pub(super) fn arena_status() -> serde_json::Value {
     v
 }
 
-const ROUTE_IDS: [u8; 24] = {
+const ROUTE_IDS: [u8; 25] = {
     use arena_routes::id::*;
     [
-        HOOK, HOOK_CONTINUATION, STATUS, OPERATOR, EVAL, OTHER, SCHEDULED, QUEUE, ADMISSION, JOURNAL_NEW, JOURNAL_FETCH, COHORT_NEW, COHORT_FETCH,
+        HOOK, HOOK_CONTINUATION, STATUS, OPERATOR, EVAL, OTHER, SCHEDULED, QUEUE, ADMISSION, JOURNAL_NEW, JOURNAL_FETCH, JOURNAL_AUTO, COHORT_NEW, COHORT_FETCH,
         COHORT_ALARM, COHORT_SEAL, COHORT_DRAW, COHORT_PACKAGE, COHORT_CLOSE, COHORT_LOAD_SEAL, COHORT_COMMITMENTS, COHORT_ADMISSION, HOME_STATE,
         HOME_RUNTIMES, HOME_PLANS,
     ]
@@ -383,7 +392,11 @@ impl ChainJournalExport {
         let inner = self.inner.clone();
         wasm_bindgen_futures::future_to_promise(async move {
             let _ticket = ticket;
-            let res = in_scope(arena_routes::R_JOURNAL_FETCH, arena_routes::JOURNAL_CONTROL_BYTES, move |_s| async move {
+            let (route, control) = match arena_journal_class(&req) {
+                1 => (arena_routes::R_JOURNAL_AUTO, arena_routes::JOURNAL_AUTO_BYTES),
+                _ => (arena_routes::R_JOURNAL_FETCH, arena_routes::JOURNAL_CONTROL_BYTES),
+            };
+            let res = in_scope(route, control, move |_s| async move {
                 to_js(<super::ChainJournal as DurableObject>::fetch(&inner, Request::from(req)).await)
             })
             .await;

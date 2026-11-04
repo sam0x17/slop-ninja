@@ -521,7 +521,8 @@ impl Keepalive for NoLease {
 /// coordinator writes the private one with the same type.
 pub use slop_ninja_admission_wire::json::{AuthorizationPointer, ObjectRef};
 
-pub const AUTHORIZATION_SCHEMA: &str = slop_ninja_admission_wire::json::AUTHORIZATION_POINTER_SCHEMA;
+pub const AUTHORIZATION_SCHEMA: &str =
+    slop_ninja_admission_wire::json::AUTHORIZATION_POINTER_SCHEMA;
 
 /// The coordinator's marker, in a private cohort directory, that the
 /// cohort's detailed receipts were deleted under the N+2 rule, and its
@@ -1590,21 +1591,21 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
     /// Reads one private authorization object named by `r`, checked against
     /// its digest and length.
     async fn authorization_object(&self, r: &ObjectRef) -> Result<(Digest, Vec<u8>), Refusal> {
-        self.authorization_object_within(r, arena::AUTHORIZATION_OBJECT_BOUND).await
+        self.authorization_object_within(r, arena::AUTHORIZATION_OBJECT_BOUND)
+            .await
     }
 
     /// [`Self::authorization_object`] within `bound`.
-    async fn authorization_object_within(&self, r: &ObjectRef, bound: u64) -> Result<(Digest, Vec<u8>), Refusal> {
+    async fn authorization_object_within(
+        &self,
+        r: &ObjectRef,
+        bound: u64,
+    ) -> Result<(Digest, Vec<u8>), Refusal> {
         let what = "authorization object";
         let sha = digest_hex(&r.sha256)
             .filter(|d| r.path == layout::private_authorization(d))
             .ok_or_else(|| Refusal::Invalid(what.into(), "not a content-addressed key".into()))?;
-        let bytes = match self
-            .buckets
-            .receipts
-            .get(&r.path, bound)
-            .await
-        {
+        let bytes = match self.buckets.receipts.get(&r.path, bound).await {
             Ok(Some(b)) => b,
             Ok(None) => return Err(Refusal::Missing(r.path.clone())),
             Err(StoreError::TooLarge { .. }) => {
@@ -1748,15 +1749,21 @@ impl<S: Store, K: Keepalive> Run<'_, S, K> {
         let revocations = match &pointer.revocations {
             None => None,
             Some(r) => {
-                let bound = slop_ninja_admission_wire::receipts::revocation_set_bound(r.bytes, &self.cfg.chain)
-                    .map_err(|_| invalid("the revocation set is not whole revocations"))?;
+                let bound = slop_ninja_admission_wire::receipts::revocation_set_bound(
+                    r.bytes,
+                    &self.cfg.chain,
+                )
+                .map_err(|_| invalid("the revocation set is not whole revocations"))?;
                 let _hold = self
                     .budget
                     .reserve(bound)
                     .map_err(|_| invalid("the revocation set exceeds the run's budget"))?;
                 let (sha, bytes) = self.authorization_object_within(r, bound).await?;
-                let entries = slop_ninja_admission_wire::receipts::revocation_set_entries(&bytes, &self.cfg.chain)
-                    .map_err(|_| invalid("the revocation set is not whole revocations"))?;
+                let entries = slop_ninja_admission_wire::receipts::revocation_set_entries(
+                    &bytes,
+                    &self.cfg.chain,
+                )
+                .map_err(|_| invalid("the revocation set is not whole revocations"))?;
                 for entry in entries {
                     let signed = Signed::<RewardIntentRevocation>::from_bytes(entry)
                         .map_err(|e| invalid(&format!("revocation: {e}")))?;

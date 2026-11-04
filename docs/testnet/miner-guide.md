@@ -52,7 +52,8 @@ when it goes live. The release key is on the [landing page](README.md#release-ke
   0.0005 τ on November 1, 2026. Slop Ninja does not hand out test TAO; use the
   community testnet sources.
 - An uplink that can send about 610 MB inside a cohort's admission window
-  (at least one tempo, about 72 minutes).
+  (17 tempos, about 20 hours, under the current testnet template; see
+  [step 8](#8-wait-for-an-admitting-cohort)).
 
 ## 2. Install
 
@@ -429,10 +430,12 @@ slop_ninja_miner next-cohort
 ```
 
 `next-cohort` reads the public status snapshot (not yet live) and prints the
-admitting cohort and its planned cutoff epoch, or the next cohort and its
-earliest opening epoch, each with its distance from the snapshot's confirmed
-epoch, for example `planned cutoff at epoch 23170 (1 epoch after the confirmed
-epoch)`.
+admitting cohort and its planned cutoff epoch, and the next cohort with its
+earliest opening epoch and how long its admission window lasts, each with its
+distance from the snapshot's confirmed epoch, for example `planned cutoff at
+epoch 23170 (1 epoch after the confirmed epoch)`. The earliest opening is a
+lower bound: the next cohort opens at the boundary that closes the one before
+it, which slow work or a coordinator outage moves later.
 
 Cohort times are subnet epoch indices: the chain's `SubnetEpochIndex` for
 subnet 601, which advances by one at each tempo boundary, about every 360
@@ -443,21 +446,41 @@ the confirmed epoch's first block plus *N* × 360.
 Boundaries can slip, so treat these as estimates and read `next-cohort` again
 as the time approaches.
 
-Testnet runs one cohort a day: 20 tempos of 360 blocks, about 24 hours. The
-admission window opens with the cohort and lasts at least one tempo, about
-72 minutes. A commitment counts for a cohort only when its block is at or
-after the cohort's opening block and before its cutoff block. A commitment
-made earlier is refused with `commitment_before_open`, so you cannot reserve a
-place ahead of time. During a coordinator outage the cutoff moves later,
-never earlier, and the cohort is never skipped.
+Testnet runs one cohort a day: 20 tempos of 360 blocks, about 24 hours. Each
+cohort opens at the tempo boundary that closes the one before it, and its
+admission window opens with it. Under the current standing template the
+window lasts 17 tempos (6,120 blocks, about 20 hours 24 minutes): the cohort
+then freezes its roster, generates, scores and packages in the next tempo,
+publishes at the boundary after that and closes two tempos later, when the next
+cohort opens. Between two windows there are about 3 tempos (about 3 hours 36
+minutes) in which no cohort admits. The window is a plan parameter frozen with
+each cohort, so a cohort already queued keeps the window it was queued with
+(cohort 19 admits for one tempo; cohort 20 is the first with 17); `next-cohort`
+prints each cohort's own window, and the cutoff it prints is planned, not
+promised.
 
-Have the artifact packed and checked before the window opens. The commitment
-needs finality and the coordinator's observation of it (nominally up to
-60 seconds after finality, sometimes longer) before an upload can start, and
-the upload must complete before the cutoff. With a one-tempo window that
-leaves roughly an hour for the commitment, its logging and the upload of an
-object of up to about 700 MB, so budget your uplink for the whole object in
-well under that time and start at the opening. The public snapshot's
+The window's length comes from measurements, not a chosen figure: it is the
+cohort period less the two-tempo transition and the tempos the work after the
+cutoff needs (measured work, a submission completing at the cutoff and one
+model load of the largest object, sized to at most half of its tempos), and
+the time from a commitment to the `verified` answer for the largest object
+the spec admits (about 955 MB; about 15 minutes from the operator's host,
+scaled from a measured 613 MB submission) fits in under half of it.
+Your own uplink sets your time; a slow one still fits easily unless you start
+in the window's last hours.
+
+A commitment counts for a cohort only when its block is at or after the
+cohort's opening block and before its cutoff block. A commitment made earlier
+is refused with `commitment_before_open`, so you cannot reserve a place ahead
+of time: wait for `next-cohort` to show the cohort admitting, then commit for
+it. During a coordinator outage the cutoff moves later, never earlier, and the
+cohort is never skipped.
+
+Have the artifact packed and checked before you commit. The commitment needs
+finality and the coordinator's observation of it (nominally up to 60 seconds
+after finality, sometimes longer) before an upload can start, and the upload
+must complete before the cutoff, so commit and upload together rather than
+committing early and uploading near the cutoff. The public snapshot's
 `admitting` field is set only while the window is open; once it closes the
 cohort's phase stays `admission` until the roster freezes, but nothing more is
 admitted.

@@ -1786,7 +1786,7 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
         tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().is_none(),
         "one queued at a time"
     );
-    assert_eq!(tx(&db, crate::eval::calendar::next).unwrap().map(|x| x.0), Some(1));
+    assert_eq!(tx(&db, crate::eval::calendar::next).unwrap().map(|x| x.cohort), Some(1));
     // A cohort in its transition lets the calendar queue the next one.
     tx(&db, |s| {
         s.exec("UPDATE cohorts SET phase = 'transition'", &[]).map(|_| ())
@@ -1824,6 +1824,125 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
     assert!(
         crate::eval::calendar::check(&cfg(), &serde_json::to_vec(&fresh).unwrap()).is_err(),
         "the template's own pool is exposed stock"
+    );
+}
+
+/// Miner UX: the calendar's next cohort opens at the boundary that can close
+/// the cohort before it (the engine opens it only then), never at the next
+/// boundary while that cohort is still admitting, working or in its
+/// transition (live, cohort 19 showed epoch 99 while cohort 18's close was
+/// due at 113); and the next cohort carries its admission window.
+#[test]
+fn the_calendar_names_the_next_opening_at_the_earliest_close_before_it() {
+    use crate::eval::calendar;
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    let t = calendar::Template {
+        schema: calendar::TEMPLATE_SCHEMA.into(),
+        label_prefix: "testnet-cohort".into(),
+        plan: template_plan(0, 40),
+    };
+    let (k, a, tr) = (t.plan.k_tempos, t.plan.admission_tempos, t.plan.transition_tempos);
+    assert_eq!((k, a, tr), (4, 1, 2));
+    tx(&db, |s| calendar::install(s, &cfg(), &serde_json::to_vec(&t).unwrap(), NOW)).unwrap();
+    let next = |db: &Sqlite| tx(db, calendar::next).unwrap().unwrap();
+    let at = |db: &Sqlite, e: u64| {
+        tx(db, |s| s.exec("UPDATE eval_obs SET epoch_index = ? WHERE id = 1", &[bind_u64(e)?]).map(|_| ())).unwrap()
+    };
+    epoch(&db, 10, OPEN_BLOCK - 100, NOW);
+    // Nothing yet: the template's first cohort, at the next boundary.
+    assert_eq!(next(&db), NextCohort { cohort: 1, earliest_open_epoch: Some(11), admission_tempos: Some(a) });
+    let (_, plan) = tx(&db, |s| calendar::due_any(s, 0)).unwrap().unwrap();
+    tx(&db, |s| engine::queue(s, &cfg(), &plan, NOW)).unwrap();
+    assert_eq!(next(&db).earliest_open_epoch, Some(11), "queued, nothing before it");
+    epoch(&db, 11, OPEN_BLOCK, NOW + 1);
+    assert_eq!(tx(&db, |s| engine::cohort(s, 1)).unwrap().phase, "admission");
+    // Admitting: cutoff at 12, package at 12 at the earliest, published at
+    // 13, closed 2 tempos later and at least K after 11.
+    let n = next(&db);
+    assert_eq!((n.cohort, n.earliest_open_epoch, n.admission_tempos), (2, Some(15), Some(a)));
+    // In its transition: not the next boundary (the earlier display bug).
+    tx(&db, |s| {
+        s.exec("UPDATE cohorts SET phase = 'transition', packaged_epoch = 12 WHERE cohort = 1", &[]).map(|_| ())
+    })
+    .unwrap();
+    at(&db, 12);
+    assert_eq!(next(&db).earliest_open_epoch, Some(15));
+    // Published late (at 14): the transition counts from there.
+    tx(&db, |s| s.exec("UPDATE cohorts SET published_epoch = 14 WHERE cohort = 1", &[]).map(|_| ())).unwrap();
+    at(&db, 14);
+    assert_eq!(next(&db).earliest_open_epoch, Some(16));
+    // The next cohort queued: the same opening, from the cohort before it.
+    let (_, plan) = tx(&db, |s| calendar::due_any(s, 0)).unwrap().unwrap();
+    tx(&db, |s| engine::queue(s, &cfg(), &plan, NOW)).unwrap();
+    assert_eq!(next(&db), NextCohort { cohort: 2, earliest_open_epoch: Some(16), admission_tempos: Some(a) });
+    // Overdue (an outage left the close for a later boundary): never past.
+    at(&db, 19);
+    assert_eq!(next(&db).earliest_open_epoch, Some(19));
+    // Closed: the next boundary.
+    tx(&db, |s| s.exec("UPDATE cohorts SET phase = 'closed' WHERE cohort = 1", &[]).map(|_| ())).unwrap();
+    assert_eq!(next(&db).earliest_open_epoch, Some(20));
+    // The status view and the cohort read carry the same next cohort.
+    let view = tx(&db, calendar::view).unwrap();
+    assert_eq!(view["next"], serde_json::json!({"cohort": 2, "earliest_open_epoch": 20, "admission_tempos": a}));
+    // Paused with nothing queued: no next cohort.
+    tx(&db, |s| s.exec("DELETE FROM cohorts WHERE cohort = 2", &[]).map(|_| ())).unwrap();
+    tx(&db, |s| calendar::set_paused(s, true)).unwrap();
+    assert!(tx(&db, calendar::next).unwrap().is_none());
+    // The rule itself at the daily shape (K 20, 17 admitting, transition 2):
+    // the live case, and work done in the window's closing tempo still
+    // closes K after the opening.
+    let daily = calendar::CloseShape { opened: 93, k: 20, admission: 1, transition: 2, v3: true };
+    assert_eq!(calendar::earliest_close(&daily, Some(94), Some(95), 98), 113);
+    let long = calendar::CloseShape { opened: 0, k: 20, admission: 17, transition: 2, v3: true };
+    assert_eq!(calendar::earliest_close(&long, None, None, 5), 20);
+    assert_eq!(calendar::earliest_close(&long, Some(17), None, 17), 20);
+    assert_eq!(calendar::earliest_close(&long, Some(18), None, 18), 21, "one tempo late moves the close one tempo");
+    let v0 = calendar::CloseShape { v3: false, ..long };
+    assert_eq!(calendar::earliest_close(&v0, Some(19), None, 19), 21);
+}
+
+/// Miner UX: the standing template's admission window is derived from
+/// measurements (work after the cutoff, one submission of a measured size)
+/// and the plan's own shape, so a full cohort still closes K tempos after it
+/// opened; nothing in it is a tuned figure.
+#[test]
+fn the_admission_window_is_derived_from_measured_work_and_upload() {
+    use crate::eval::calendar::{self, WindowInputs, derive_admission_tempos};
+    let t = daily_template("testnet-cohort", 40);
+    let object = SpecBounds::of(Version::V3).unwrap().object_bytes;
+    // Cohort 18's measured work (cutoff to durable package) and a measured
+    // 613 MB submission (commit to verified), 360 blocks per tempo.
+    let live = WindowInputs { tempo_blocks: 360, work_secs: 732, upload_secs: 323, upload_bytes: 613_000_000 };
+    let d = derive_admission_tempos(&t.plan, object, &live).unwrap();
+    assert_eq!(d.tempo_secs, 4320);
+    assert_eq!(d.largest_upload_secs, (323 * u128::from(object)).div_ceil(613_000_000) as u64);
+    assert_eq!(d.load_secs, (object.div_ceil(1 << 20) * 100).div_ceil(1000));
+    assert_eq!(d.work_bound_secs, 732 + d.largest_upload_secs + d.load_secs);
+    assert!(d.work_bound_secs * 2 <= d.tempo_secs);
+    assert_eq!((d.work_tempos, d.admission_tempos), (1, 20 - 2 - 1));
+    // The derived window passes the template check, and a full cohort's
+    // work in the tempo the window closes at still closes at K.
+    let mut long = t.clone();
+    long.plan.admission_tempos = d.admission_tempos;
+    calendar::check(&cfg(), &serde_json::to_vec(&long).unwrap()).unwrap();
+    let shape = calendar::CloseShape { opened: 0, k: 20, admission: d.admission_tempos, transition: 2, v3: true };
+    assert_eq!(calendar::earliest_close(&shape, Some(d.admission_tempos), None, d.admission_tempos), 20);
+    // Work bound past half a tempo takes a second tempo from the window.
+    let slow = WindowInputs { work_secs: 2161 - d.largest_upload_secs - d.load_secs, ..live };
+    assert_eq!(derive_admission_tempos(&t.plan, object, &slow).unwrap().admission_tempos, 16);
+    // A submission that would not fit half the window is refused, as is a
+    // period with no room for a window.
+    let crawl = WindowInputs { upload_secs: 40_000_000, ..live };
+    assert!(derive_admission_tempos(&t.plan, object, &crawl).is_err());
+    let mut short = t.plan.clone();
+    short.k_tempos = 3;
+    assert!(derive_admission_tempos(&short, object, &live).is_err());
+    assert!(derive_admission_tempos(&t.plan, object, &WindowInputs { tempo_blocks: 0, ..live }).is_err());
+    // The display: tempos, blocks and nominal minutes.
+    assert_eq!(
+        calendar::window_json(17, 360),
+        serde_json::json!({"tempos": 17, "blocks": 6120, "nominal_minutes": 1224})
     );
 }
 

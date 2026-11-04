@@ -53,6 +53,7 @@ use crate::eval::plan::{ArtifactJson, CohortPlan, IdentityJson, PLAN_SCHEMA_V3};
 use crate::sql::{Sql, bind_u64, int, text};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use slop_ninja_admission_wire::json::NextCohort;
 
 pub const TEMPLATE_SCHEMA: &str = "slop_ninja_eval_cohort_template_v1";
 
@@ -457,45 +458,97 @@ fn next_number(sql: &impl Sql, first_cohort: u64) -> R<u64> {
     Ok(max.saturating_add(1).max(first_cohort))
 }
 
-/// The next cohort and its earliest opening epoch: a queued cohort, else the
-/// one the template opens next, numbered as [`due_any`] numbers it (from the
-/// authority's first cohort, recorded with the template at its install).
-/// The earliest opening is the first boundary after the cohort before it can
-/// enter its transition (`opened + K - transition`), and never an epoch
-/// already past.
-pub fn next(sql: &impl Sql) -> R<Option<(u64, Option<u64>)>> {
-    let last = sql.exec("SELECT cohort, phase, opened_epoch, k_tempos, transition_tempos FROM (
-            SELECT cohort, phase, opened_epoch, json_extract(plan, '$.k_tempos') AS k_tempos,
-                json_extract(plan, '$.transition_tempos') AS transition_tempos, seq FROM cohorts) ORDER BY seq DESC LIMIT 2", &[])?;
+/// The next cohort: a queued cohort, else the one the template opens next,
+/// numbered as [`due_any`] numbers it (from the authority's first cohort,
+/// recorded with the template at its install); its admission window in
+/// tempos (the queued plan's, else the template's); and its earliest
+/// opening epoch, a lower bound that is never an epoch already past.
+///
+/// The engine opens the next cohort only at the boundary that closes the one
+/// before it (cohorts never overlap), so the earliest opening is that
+/// cohort's earliest close ([`earliest_close`]), or the next boundary when it
+/// has closed (or there is none).
+pub fn next(sql: &impl Sql) -> R<Option<NextCohort>> {
+    let last = sql.exec(
+        "SELECT cohort, phase, opened_epoch, packaged_epoch, published_epoch, json_extract(plan, '$.k_tempos'),
+            json_extract(plan, '$.admission_tempos'), json_extract(plan, '$.transition_tempos'),
+            json_extract(plan, '$.reward_v1') IS NOT NULL
+         FROM cohorts ORDER BY seq DESC LIMIT 2",
+        &[],
+    )?;
     let now = engine::observed(sql)?.epoch.map(|e| e.index);
     let earliest = |row: Option<&crate::sql::Row>| -> Option<u64> {
         let after_now = now.map(|n| n.saturating_add(1));
         let Some(row) = row else { return after_now };
-        let boundary = match text(row, 1).ok()? {
-            "transition" | "closed" | "abandoned" => None,
-            _ => {
-                let opened = u64::try_from(opt_int(row, 2)?).ok()?;
-                let k = u64::try_from(opt_int(row, 3)?).ok()?;
-                let t = u64::try_from(opt_int(row, 4).unwrap_or(0)).ok()?;
-                Some(opened.saturating_add(k.saturating_sub(t)).saturating_add(1))
+        match text(row, 1).ok()? {
+            "closed" | "abandoned" => after_now,
+            phase => {
+                let u = |n: usize| opt_int(row, n).and_then(|v| u64::try_from(v).ok());
+                let shape = CloseShape {
+                    opened: u(2)?,
+                    k: u(5)?,
+                    admission: u(6).unwrap_or(0),
+                    transition: u(7).unwrap_or(0),
+                    v3: opt_int(row, 8) == Some(1),
+                };
+                let packaged = if phase == "transition" { u(3) } else { None };
+                let close = earliest_close(&shape, packaged, u(4), now.unwrap_or(0));
+                Some(now.map_or(close, |n| close.max(n)))
             }
-        };
-        match (boundary, after_now) {
-            (Some(b), Some(n)) => Some(b.max(n)),
-            (b, n) => b.or(n),
         }
     };
+    let tempos = |row: &crate::sql::Row| opt_int(row, 6).and_then(|v| u64::try_from(v).ok());
     if let Some(r) = last.first()
         && text(r, 1)? == "queued"
     {
-        return Ok(Some((u64::try_from(int(r, 0)?).unwrap_or(0), earliest(last.get(1)))));
+        return Ok(Some(NextCohort {
+            cohort: u64::try_from(int(r, 0)?).unwrap_or(0),
+            earliest_open_epoch: earliest(last.get(1)),
+            admission_tempos: tempos(r),
+        }));
     }
-    if stored(sql)?.is_some_and(|(_, paused)| !paused) {
+    if let Some((t, false)) = stored(sql)? {
         let first = sql.exec("SELECT COALESCE(first_cohort, 0) FROM standing_template WHERE id = 1", &[])?;
         let first = u64::try_from(first.first().map_or(Ok(0), |r| int(r, 0))?).unwrap_or(0);
-        return Ok(Some((next_number(sql, first)?, earliest(last.first()))));
+        return Ok(Some(NextCohort {
+            cohort: next_number(sql, first)?,
+            earliest_open_epoch: earliest(last.first()),
+            admission_tempos: Some(t.plan.admission_tempos),
+        }));
     }
     Ok(None)
+}
+
+/// A cohort's frozen tempo shape, for [`earliest_close`] (epoch indices).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CloseShape {
+    pub opened: u64,
+    pub k: u64,
+    pub admission: u64,
+    pub transition: u64,
+    /// A reward-v1 cohort: its transition counts from publication, the first
+    /// boundary after its package is durable.
+    pub v3: bool,
+}
+
+/// The earliest epoch at which a cohort that has not closed can close, by
+/// the engine's close rule (`engine::advance`), at the observed epoch `now`:
+/// at least `K` tempos after it opened, and `transition` tempos after its
+/// publication (reward-v1) or its package (earlier plans). The package is
+/// durable in its recorded epoch (`packaged`), else at the earliest in the
+/// current epoch or the one its admission window closes at, whichever is
+/// later; a reward-v1 cohort publishes at its recorded epoch (`published`),
+/// else at the first boundary after the package. A lower bound in epoch
+/// indices: tempos the coordinator does not credit (an outage) and work that
+/// runs past a boundary move the close later, never earlier.
+pub fn earliest_close(c: &CloseShape, packaged: Option<u64>, published: Option<u64>, now: u64) -> u64 {
+    let packaged = packaged.unwrap_or_else(|| now.max(c.opened.saturating_add(c.admission)));
+    let from = if c.v3 {
+        published.unwrap_or_else(|| packaged.saturating_add(1).max(now))
+    } else {
+        packaged
+    };
+    c.opened.saturating_add(c.k).max(from.saturating_add(c.transition))
 }
 
 /// The calendar for status and the public snapshot: the current cohort's
@@ -535,32 +588,138 @@ pub fn view(sql: &impl Sql) -> R<Value> {
         &[],
     )?;
     let template = template.first().map(|r| json!({"sha256": text(r, 0).ok(), "paused": int(r, 1).ok() == Some(1), "last_error": crate::eval::engine::opt_text(r, 2)}));
-    let next = next(sql)?.map(|(c, e)| json!({"cohort": c, "earliest_open_epoch": e}));
-    Ok(json!({"rule": "back_to_back_on_tempo_boundaries/v1", "current": current, "next": next, "template": template,
+    Ok(json!({"rule": "back_to_back_on_tempo_boundaries/v1", "current": current, "next": next(sql)?, "template": template,
         "admission_window": admission_window(sql)?}))
 }
 
 /// Nominal block interval, for the operator's display of a window in
 /// minutes only (nothing is scheduled or refused on it).
-const NOMINAL_BLOCK_SECS: u64 = 12;
+pub const NOMINAL_BLOCK_SECS: u64 = 12;
+
+/// A window of `tempos` tempos of `tempo_blocks` blocks each, in tempos,
+/// blocks and nominal minutes (display only).
+pub fn window_json(tempos: u64, tempo_blocks: u64) -> Value {
+    let blocks = tempos.saturating_mul(tempo_blocks);
+    json!({"tempos": tempos, "blocks": blocks, "nominal_minutes": blocks.saturating_mul(NOMINAL_BLOCK_SECS) / 60})
+}
 
 /// The admission window a miner has per cohort: the standing template's
-/// `admission_tempos`, and the last closed window as measured on chain
-/// (`cutoff_block - open_block`, in blocks and nominal minutes). Commitments
-/// before a window opens are refused, so commit, logging and the upload of
-/// the largest object must fit inside it.
+/// `admission_tempos`, the last closed window as measured on chain
+/// (`cutoff_block - open_block`, in blocks and nominal minutes), and the
+/// template's window at the blocks per tempo that measurement shows.
+/// Commitments before a window opens are refused, so commit, logging and
+/// the upload of the largest object must fit inside it.
 pub fn admission_window(sql: &impl Sql) -> R<Value> {
     let tempos = stored(sql)?.map(|(t, _)| t.plan.admission_tempos);
     let last = sql.exec(
-        "SELECT cohort, open_block, cutoff_block FROM adm_cohorts WHERE cutoff_block IS NOT NULL ORDER BY seq DESC LIMIT 1",
+        "SELECT a.cohort, a.open_block, a.cutoff_block, json_extract(c.plan, '$.admission_tempos')
+         FROM adm_cohorts a JOIN cohorts c ON c.seq = a.seq
+         WHERE a.cutoff_block IS NOT NULL ORDER BY a.seq DESC LIMIT 1",
         &[],
     )?;
     let measured = last.first().and_then(|r| {
         let open = u64::try_from(opt_int(r, 1)?).ok()?;
         let cutoff = u64::try_from(opt_int(r, 2)?).ok()?;
         let blocks = cutoff.saturating_sub(open);
-        Some(json!({"cohort": opt_int(r, 0), "blocks": blocks,
-            "nominal_minutes": blocks.saturating_mul(NOMINAL_BLOCK_SECS) / 60}))
+        let per_tempo = opt_int(r, 3)
+            .and_then(|t| u64::try_from(t).ok())
+            .filter(|t| *t > 0)
+            .map(|t| blocks / t);
+        Some((
+            json!({"cohort": opt_int(r, 0), "blocks": blocks,
+                "nominal_minutes": blocks.saturating_mul(NOMINAL_BLOCK_SECS) / 60, "blocks_per_tempo": per_tempo}),
+            per_tempo,
+        ))
     });
-    Ok(json!({"template_admission_tempos": tempos, "last_measured": measured}))
+    let template_window = tempos.zip(measured.as_ref().and_then(|m| m.1)).map(|(t, b)| window_json(t, b));
+    Ok(json!({"template_admission_tempos": tempos, "last_measured": measured.map(|m| m.0),
+        "template_window": template_window}))
+}
+
+/// What a standing template's admission window is derived from
+/// ([`derive_admission_tempos`]), all measured on the live deployment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowInputs {
+    /// Blocks per tempo, as a window measured on chain shows it
+    /// ([`admission_window`]'s `blocks_per_tempo`).
+    pub tempo_blocks: u64,
+    /// A measured cohort's work after its cutoff: from the window's close
+    /// to its package, target and receipts being durable.
+    pub work_secs: u64,
+    /// A measured submission: from the commitment to the session's
+    /// `verified` answer (commit, finality, logging, upload, framing and
+    /// the verdict run), for an object of `upload_bytes` bytes.
+    pub upload_secs: u64,
+    pub upload_bytes: u64,
+}
+
+/// A derived admission window and what it rests on (seconds are nominal).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowDerivation {
+    pub admission_tempos: u64,
+    pub tempo_secs: u64,
+    /// The measured submission scaled to the spec's largest object.
+    pub largest_upload_secs: u64,
+    /// One model load of the largest object at the plan's allowance.
+    pub load_secs: u64,
+    /// The work after a cutoff at a full roster, bounded: the measured work,
+    /// plus the largest submission's time (a session that completes at the
+    /// cutoff is framed and verified after it, before the freeze), plus one
+    /// model load of the largest object (one scoring lane per artifact, all
+    /// lanes in parallel within `MAX_SCORE_LANES`, which the template check
+    /// holds the roster to).
+    pub work_bound_secs: u64,
+    /// Tempos the work after the cutoff is given: its bound at most half of
+    /// them.
+    pub work_tempos: u64,
+}
+
+/// The longest admission window a standing template can give each cohort
+/// while a full cohort still closes `K` tempos after it opened: the cohort
+/// period less the transition minimum and the tempos its work after the
+/// cutoff needs (work in the tempo the window closes at, publication at the
+/// next boundary, the transition counted from there; `engine::advance`).
+/// Work is sized to at most half of its tempos (the design note's scoring
+/// rule), and the largest object's submission must fit in at most half of
+/// the window, so a miner who starts late in the window still finishes.
+/// Every input is a measurement and every bound follows from the plan; no
+/// figure is tuned. Work that runs longer moves the close by whole tempos
+/// and never skips or shortens a cohort.
+pub fn derive_admission_tempos(
+    plan: &CohortPlan,
+    object_bytes: u64,
+    m: &WindowInputs,
+) -> Result<WindowDerivation, &'static str> {
+    if m.tempo_blocks == 0 || m.upload_bytes == 0 {
+        return Err("tempo_blocks and upload_bytes must be positive");
+    }
+    let tempo_secs = m.tempo_blocks.saturating_mul(NOMINAL_BLOCK_SECS);
+    let scaled = u128::from(m.upload_secs) * u128::from(object_bytes);
+    let largest_upload_secs =
+        u64::try_from(scaled.div_ceil(u128::from(m.upload_bytes))).map_err(|_| "upload time overflows")?;
+    let per_mib = plan
+        .fanout
+        .as_ref()
+        .and_then(|f| f.score.load_ms_per_mib)
+        .map_or(0, u64::from);
+    let load_secs = object_bytes.div_ceil(1 << 20).saturating_mul(per_mib).div_ceil(1000);
+    let work_bound_secs = m.work_secs.saturating_add(largest_upload_secs).saturating_add(load_secs);
+    let work_tempos = work_bound_secs.saturating_mul(2).div_ceil(tempo_secs).max(1);
+    let admission_tempos = plan
+        .k_tempos
+        .checked_sub(plan.transition_tempos)
+        .and_then(|r| r.checked_sub(work_tempos))
+        .filter(|a| *a >= 1)
+        .ok_or("the cohort period leaves no admission window after the transition and the work")?;
+    if largest_upload_secs.saturating_mul(2) > admission_tempos.saturating_mul(tempo_secs) {
+        return Err("the largest object's submission does not fit in half of the window");
+    }
+    Ok(WindowDerivation {
+        admission_tempos,
+        tempo_secs,
+        largest_upload_secs,
+        load_secs,
+        work_bound_secs,
+        work_tempos,
+    })
 }

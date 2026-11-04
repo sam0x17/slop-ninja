@@ -148,16 +148,90 @@ pub fn next_cohort_report(status: &PublicStatus) -> String {
         None => lines.push("no cohort is admitting now".into()),
     }
     if let Some(next) = &status.next {
+        let window = next.admission_tempos.map(|a| {
+            let tempos = if a == 1 {
+                "1 epoch".to_owned()
+            } else {
+                format!("{a} epochs")
+            };
+            match next.earliest_open_epoch {
+                Some(e) => format!(
+                    "; its admission window lasts {tempos} once it opens (until epoch {} at \
+                     the earliest)",
+                    e.saturating_add(a)
+                ),
+                None => format!("; its admission window lasts {tempos} once it opens"),
+            }
+        });
         lines.push(format!(
-            "next cohort {}{}. A commitment counts only inside that cohort's window.",
+            "next cohort {}{}{}. A commitment counts only inside that cohort's window: one \
+             made before it opens is refused.",
             next.cohort,
             next.earliest_open_epoch
                 .map(|e| format!(" opens at epoch {e}{} at the earliest", relative(e, now)))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            window.unwrap_or_default()
         ));
     }
     if let Some(notice) = &status.notice {
         lines.push(format!("notice: {notice}"));
     }
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn status(next: Option<NextCohort>) -> PublicStatus {
+        serde_json::from_value(serde_json::json!({
+            "schema": STATUS_SCHEMA,
+            "network": "testnet",
+            "chain": {"genesis": "00".repeat(32), "netuid": 601, "mechanism": 0},
+            "confirmed": {"block": 8_366_973, "epoch": 98, "age_secs": 4},
+            "admitting": null,
+            "next": next,
+        }))
+        .unwrap()
+    }
+
+    /// The report gives the next cohort's earliest opening and, when the
+    /// snapshot carries it, how long its admission window lasts.
+    #[test]
+    fn the_next_cohort_report_names_the_opening_and_the_window() {
+        let with = next_cohort_report(&status(Some(NextCohort {
+            cohort: 20,
+            earliest_open_epoch: Some(113),
+            admission_tempos: Some(17),
+        })));
+        assert!(with.contains("no cohort is admitting now"), "{with}");
+        assert!(
+            with.contains(
+                "next cohort 20 opens at epoch 113 (15 epochs after the confirmed epoch) at the earliest; \
+                 its admission window lasts 17 epochs once it opens (until epoch 130 at the earliest)"
+            ),
+            "{with}"
+        );
+        assert!(
+            with.contains("one made before it opens is refused"),
+            "{with}"
+        );
+        // A snapshot without the window (an older publisher) still parses.
+        let without = next_cohort_report(&status(Some(NextCohort {
+            cohort: 20,
+            earliest_open_epoch: Some(113),
+            admission_tempos: None,
+        })));
+        assert!(!without.contains("admission window lasts"), "{without}");
+        let v = serde_json::to_value(NextCohort {
+            cohort: 1,
+            earliest_open_epoch: None,
+            admission_tempos: None,
+        })
+        .unwrap();
+        assert!(
+            v.get("admission_tempos").is_none(),
+            "absent, not null, when unknown"
+        );
+    }
 }

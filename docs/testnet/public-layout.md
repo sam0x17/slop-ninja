@@ -243,7 +243,7 @@ miner client reads ([admission API](admission-api.md), section 10):
   "fault": false,
   "notice": "Launch burn: … Testnet: …",
   "admitting": { "cohort": 7, "label": "testnet-c7", "opened_epoch": 23169, "planned_cutoff_epoch": 23170 },
-  "next": { "cohort": 8, "earliest_open_epoch": 23189 },
+  "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 17 },
   "coordinator": "https://…",
   "active_target": "<64 hex>",
   "reference": "<64 hex>"
@@ -267,7 +267,8 @@ Field meanings:
 | `mode` | `burn` while the launch burn row is the active target; `target` once a cohort target is active |
 | `fault` | `true` when any durable fault is active, or the publisher could not read the coordinator's status. No fault detail is published. |
 | `admitting.planned_cutoff_epoch` | The opening epoch plus the cohort's admission minimum. Tempos that pass while the coordinator is silent do not count, so the actual cutoff can be later. |
-| `next.earliest_open_epoch` | The active cohort's earliest closing epoch, or the next epoch when no cohort is active |
+| `next.earliest_open_epoch` | A lower bound: the earliest epoch at which the cohort before it can close (at least `K` tempos after it opened and its transition minimum after its publication), or the next epoch when no cohort is open. The next cohort opens at that cohort's close. |
+| `next.admission_tempos` | How many tempos the next cohort's admission window lasts once it opens (its queued plan's value, else the standing template's); absent when unknown |
 | `notice` | The burn regime in plain words; the statement that testnet scores test plumbing and that evaluation documents may be reused and exposed (decision D8); any operator notice |
 
 A snapshot older than a few minutes (`generated_at`) means the publisher has

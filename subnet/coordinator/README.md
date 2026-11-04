@@ -1602,9 +1602,18 @@ reply names the next references and their source. The engine opens the
 queued cohort at the boundary where the previous one closes, so cohorts run
 back to back on tempo boundaries (`GET /eval/calendar`, also `calendar` in
 `/eval/status`, which the publisher reads): the current cohort with its
-admission window's `window_open` and `window_closing`, the next cohort and
-its earliest opening epoch, and `admission_window` (the template's
-`admission_tempos` and the last window measured on chain). A template plan the
+admission window's `window_open` and `window_closing`, the next cohort
+with its earliest opening epoch (the earliest boundary that can close the
+cohort before it: at least `K` tempos after that one opened and its
+transition minimum after its publication, never an epoch already past) and
+its `admission_tempos`, and `admission_window` (the template's
+`admission_tempos`, the last window measured on chain with its blocks per
+tempo, and the template's window at that measurement in tempos, blocks and
+nominal minutes). The template's window is derived from measurements by
+`slop_ninja_eval_ops standing-template` (`calendar::derive_admission_tempos`:
+`K` less the transition minimum and the tempos the work after a cutoff needs,
+that work bound at most half of them, and the largest object's measured
+submission at most half the window), which prints it in blocks and minutes. A template plan the
 engine refuses, or a chain the store cannot name, pauses the template with
 the reason; only the calendar's own step does that, never a status read. A seal whose plan names other references than the chain faults
 the cohort (`reference_chain_mismatch`) rather than retrying.

@@ -478,7 +478,9 @@ const SIGNING: WorkerField = ("signing", |w| w.signing.is_some());
 /// The pointer writer's fields `pointer_stale` reads (needed only while an
 /// authorization is installed).
 const POINTER: WorkerField = ("signing.authorization.pointer_current", |w| {
-    w.signing.as_ref().is_some_and(|s| !s.authorization || s.pointer.is_some())
+    w.signing
+        .as_ref()
+        .is_some_and(|s| !s.authorization || s.pointer.is_some())
 });
 /// The journal block a Worker's `durable_fault` reads.
 const JOURNAL: WorkerField = ("chain_journal", |w| !w.journal_missing);
@@ -1009,7 +1011,10 @@ mod tests {
         o.eval = Some(parse_eval(&j));
         let c = evaluate(&o, &p, &r);
         assert_eq!(rules_of(&c), vec!["ledger_threshold_unset"]);
-        assert!(!c[0].detail.contains("1050") && !c[0].detail.contains("900"), "no figures");
+        assert!(
+            !c[0].detail.contains("1050") && !c[0].detail.contains("900"),
+            "no figures"
+        );
         // Past the alert threshold: the fixture's status carries the flag.
         let mut o = healthy();
         o.eval.as_mut().unwrap().ledger_over_threshold =
@@ -2109,24 +2114,46 @@ mod tests {
             s.pointer = pointer;
             o
         };
-        let fresh = crate::status::PointerView { current: true, confirmed_age_ms: Some(60_000), error: None };
+        let fresh = crate::status::PointerView {
+            current: true,
+            confirmed_age_ms: Some(60_000),
+            error: None,
+        };
         assert!(evaluate(&with(Some(fresh.clone()), true), &p, &r).is_empty());
         assert!(evaluate(&with(None, false), &p, &r).is_empty());
         assert!(evaluate(&with(None, true), &p, &r).is_empty());
         for stale in [
-            crate::status::PointerView { current: false, error: Some("object_put".into()), ..fresh.clone() },
-            crate::status::PointerView { confirmed_age_ms: Some(r.unreachable_hold_ms + 1), ..fresh.clone() },
-            crate::status::PointerView { current: false, confirmed_age_ms: None, error: None },
+            crate::status::PointerView {
+                current: false,
+                error: Some("object_put".into()),
+                ..fresh.clone()
+            },
+            crate::status::PointerView {
+                confirmed_age_ms: Some(r.unreachable_hold_ms + 1),
+                ..fresh.clone()
+            },
+            crate::status::PointerView {
+                current: false,
+                confirmed_age_ms: None,
+                error: None,
+            },
         ] {
             let c = evaluate(&with(Some(stale), true), &p, &r);
             assert_eq!(rules_of(&c), vec!["pointer_stale"]);
             assert_eq!(c[0].hold_ms, TEMPO);
         }
-        assert!(decided("pointer_stale", "coordinator", &with(Some(fresh), true)));
+        assert!(decided(
+            "pointer_stale",
+            "coordinator",
+            &with(Some(fresh), true)
+        ));
         assert!(!decided("pointer_stale", "coordinator", &with(None, true)));
         assert!(decided("pointer_stale", "coordinator", &with(None, false)));
         // Revocation entries that do not open are one alert.
-        let unopened = PublisherObs { revocations_unopened: 2, ..PublisherObs::default() };
+        let unopened = PublisherObs {
+            revocations_unopened: 2,
+            ..PublisherObs::default()
+        };
         let c = evaluate(&healthy(), &unopened, &r);
         assert_eq!(rules_of(&c), vec!["revocation_unverifiable"]);
         assert!(c[0].detail.starts_with("2 revocation set entries"));

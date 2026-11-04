@@ -896,10 +896,7 @@ fn admission_checks(
             let mut e = ApiError::new(ErrorCode::NotAdmitting, "no cohort is admitting");
             e.retry_after = Some(60);
             e.with(Detail {
-                next: crate::eval::calendar::next(sql)?.map(|(cohort, earliest_open_epoch)| NextCohort {
-                    cohort,
-                    earliest_open_epoch,
-                }),
+                next: crate::eval::calendar::next(sql)?,
                 ..Default::default()
             })
         });
@@ -1795,14 +1792,15 @@ pub fn cohort_info(sql: &impl Sql, chain: &ChainBinding, paused: bool) -> R<Coho
             sha256: w.bounds.spec_sha256.clone(),
         }),
     });
-    let next = match &w {
-        Some(w) => Some(NextCohort {
+    // The calendar's next cohort (a queued one, or the template's next),
+    // else, for an operator plan's window, the cohort after it at the
+    // earliest boundary it can open.
+    let next = match crate::eval::calendar::next(sql)? {
+        Some(n) => Some(n),
+        None => w.as_ref().map(|w| NextCohort {
             cohort: w.cohort + 1,
             earliest_open_epoch: Some(w.opened_epoch.saturating_add(w.k_tempos)),
-        }),
-        None => crate::eval::calendar::next(sql)?.map(|(cohort, earliest_open_epoch)| NextCohort {
-            cohort,
-            earliest_open_epoch,
+            admission_tempos: None,
         }),
     };
     Ok(CohortInfo {

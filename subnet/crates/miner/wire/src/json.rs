@@ -94,8 +94,14 @@ pub struct ArtifactSpecRef {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NextCohort {
     pub cohort: u64,
+    /// A lower bound: the cohort opens at the boundary that closes the one
+    /// before it, which slow work or a coordinator outage moves later.
     #[serde(default)]
     pub earliest_open_epoch: Option<u64>,
+    /// How many tempos its admission window lasts once it opens (its plan's
+    /// `admission_tempos`), when the coordinator knows the plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admission_tempos: Option<u64>,
 }
 
 /// One recorded part.

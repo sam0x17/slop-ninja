@@ -114,7 +114,10 @@ fn publishes_a_closed_cohort_and_the_copies_verify() {
     assert!(page.contains(&b.label) && page.contains("Brier utility"));
     // D12b: the testnet-only promotion label is on the page.
     assert!(page.contains("id=\"promotion-rule\"") && page.contains("without the lookup canary"));
-    assert!(page.contains("mailto:security@slop.ninja"), "the security contact");
+    assert!(
+        page.contains("mailto:security@slop.ninja"),
+        "the security contact"
+    );
     assert!(x.public.bytes(layout::SITE_STYLE).is_some());
 
     // A second run is a no-op.
@@ -135,7 +138,10 @@ fn leaderboard_and_references_come_from_the_verified_outcome() {
     let p = &b.c.package;
     // D12b: promotions of the testnet record run without the lookup canary,
     // labelled testnet-only in the leaderboard JSON.
-    let rule = doc.promotion_rule.as_ref().expect("a testnet record carries the label");
+    let rule = doc
+        .promotion_rule
+        .as_ref()
+        .expect("a testnet record carries the label");
     assert!(!rule.lookup_canary);
     assert_eq!(rule.scope, "testnet-only");
     assert!(rule.note.contains("required before mainnet"));
@@ -1417,15 +1423,24 @@ fn authorizations_are_published_once_their_cohort_is_listed() {
     let rv_rotated = store_authorization(&x, rotated.clone());
     write_pointer_revoked(&x, "launch", a.clone(), None, Some(rv_rotated));
     let (report, _) = run(&config(None, false), &x, &mut Memo::default());
-    assert!(report.authorization_written && report.refused.is_empty(), "{report:?}");
+    assert!(
+        report.authorization_written && report.refused.is_empty(),
+        "{report:?}"
+    );
     assert_eq!(report.revocations_unopened, 1);
     let copied: publish::AuthorizationPointer = public_json(&x, layout::AUTHORIZATION_CURRENT);
-    assert_eq!(&x.public.bytes(&copied.revocations.unwrap().path).unwrap(), &rotated);
+    assert_eq!(
+        &x.public.bytes(&copied.revocations.unwrap().path).unwrap(),
+        &rotated
+    );
     let rv = store_authorization(&x, set[1..].to_vec());
     write_pointer_revoked(&x, "launch", a.clone(), None, Some(rv));
     let (report, _) = run(&config(None, false), &x, &mut Memo::default());
     assert!(
-        report.refused.iter().any(|(s, why)| s == "authorizations" && why.contains("not whole revocations")),
+        report
+            .refused
+            .iter()
+            .any(|(s, why)| s == "authorizations" && why.contains("not whole revocations")),
         "{report:?}"
     );
     let mut foreign = revocation;
@@ -1816,15 +1831,19 @@ fn the_record_starts_after_a_retired_first_cohort() {
     let m = &b.c.manifest;
     for starts_record in [false, true] {
         let x = buckets_unseeded(&b);
-        let mut idx = slop_ninja_publisher::index::CohortIndex::empty(&slop_ninja_protocol::fixtures_reward_v1::chain());
-        idx.retired_unpublished.push(slop_ninja_publisher::index::RetiredCohort {
-            label: "retired-start".into(),
-            cohort: m.cohort - 1,
-            opened_epoch: m.opened_epoch - 20,
-            due_after_cohort: m.cohort + 1,
-            starts_record,
-        });
-        x.public.insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
+        let mut idx = slop_ninja_publisher::index::CohortIndex::empty(
+            &slop_ninja_protocol::fixtures_reward_v1::chain(),
+        );
+        idx.retired_unpublished
+            .push(slop_ninja_publisher::index::RetiredCohort {
+                label: "retired-start".into(),
+                cohort: m.cohort - 1,
+                opened_epoch: m.opened_epoch - 20,
+                due_after_cohort: m.cohort + 1,
+                starts_record,
+            });
+        x.public
+            .insert(layout::COHORT_INDEX, serde_json::to_vec(&idx).unwrap());
         let (report, idx) = run(&config(Some(0), false), &x, &mut Memo::default());
         if starts_record {
             assert_eq!(report.published, vec![b.label.clone()], "{report:?}");

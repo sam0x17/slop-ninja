@@ -515,6 +515,7 @@ impl MockState {
             next: Some(NextCohort {
                 cohort: c.cohort + 1,
                 earliest_open_epoch: Some(c.opened_epoch + 20),
+                admission_tempos: None,
             }),
         }
     }

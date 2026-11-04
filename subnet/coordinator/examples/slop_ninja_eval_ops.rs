@@ -26,7 +26,8 @@
 //! slop_ninja_eval_ops authority-check --wrangler WRANGLER.toml --status STATUS.json
 //!     [--switch [--freeze] [--target-status TARGET.json] | --freeze | --first-deploy]
 //! slop_ninja_eval_ops standing-template --restart DIR/restart.json --record RECORD.json
-//!     --template TEMPLATE.json --wrangler WRANGLER.toml [--roster-cap N]
+//!     --template TEMPLATE.json --wrangler WRANGLER.toml --tempo-blocks B [--roster-cap N]
+//!     [--work-secs S --upload-secs U --upload-bytes BYTES]
 //! ```
 //!
 //! - `load-plan` writes a `slop_ninja_eval_load_plan_v1` plan: R_0 (the
@@ -92,7 +93,18 @@
 //!   under the tracked deployment vars before it is printed. stderr names the
 //!   chosen cap, the structural bound at this shape without the ceiling (and
 //!   the refusal one past it), the ceiling, the receipts and the validator
-//!   bundle schema they need.
+//!   bundle schema they need, and the admission window in tempos, blocks and
+//!   nominal minutes at B blocks per tempo (the calendar view's measured
+//!   `blocks_per_tempo`), with the time between two windows. With
+//!   `--work-secs`, `--upload-secs` and `--upload-bytes` (measured on the
+//!   live deployment: a cohort's work from its cutoff to its durable
+//!   package, and one submission of BYTES bytes from its commitment to its
+//!   `verified` answer) the plan's `admission_tempos` is derived instead of
+//!   taken from TEMPLATE.json (`calendar::derive_admission_tempos`: the
+//!   longest window that still lets a full cohort close K tempos after it
+//!   opened, with the work bound at most half of its tempos and the largest
+//!   object's submission at most half of the window); stderr gives the
+//!   derivation.
 //! - `authority-check` is the pre-deploy refusal for the eval Worker
 //!   (`config::deploy_check`): the deployed authority (`authority_name`,
 //!   `first_cohort`, `predecessors`, `cohorts`, `superseded_by`,
@@ -732,6 +744,21 @@ fn standing_template(flags: &BTreeMap<String, String>) {
     plan["fanout"]["score"]["artifact_spec"] = json!(id);
     plan["fanout"]["score"]["artifact_spec_sha256"] = json!(bounds.spec_sha256);
     plan["fanout"]["score"].as_object_mut().unwrap_or_else(|| fail("template: fanout.score")).remove("artifact_max_mib");
+    // The admission window: derived from measurements when they are given,
+    // else the template's own, shown at the measured blocks per tempo.
+    let tempo_blocks: u64 = flag(flags, "tempo-blocks");
+    let derivation = match (opt::<u64>(flags, "work-secs"), opt::<u64>(flags, "upload-secs"), opt::<u64>(flags, "upload-bytes")) {
+        (Some(work_secs), Some(upload_secs), Some(upload_bytes)) => {
+            let typed: CohortPlan = serde_json::from_value(plan.clone()).unwrap_or_else(|e| fail(&format!("template plan: {e}")));
+            let inputs = calendar::WindowInputs { tempo_blocks, work_secs, upload_secs, upload_bytes };
+            let d = calendar::derive_admission_tempos(&typed, bounds.object_bytes, &inputs)
+                .unwrap_or_else(|e| fail(&format!("admission window: {e}")));
+            plan["admission_tempos"] = json!(d.admission_tempos);
+            Some(d)
+        }
+        (None, None, None) => None,
+        _ => fail("--work-secs, --upload-secs and --upload-bytes go together"),
+    };
     // The scoring budget at a cap: the plan's own upper bound there, checked
     // under `cfg` (the tracked ceilings, or none for the structural bound).
     let budgeted_in = |cfg: &engine::EvalConfig, t: &Value, cap: u64| -> Result<Value, String> {
@@ -803,6 +830,31 @@ fn standing_template(flags: &BTreeMap<String, String>) {
         cfg.ceilings.roster_cap.map_or("none".to_owned(), |c| c.to_string()),
         calendar::capacity(&parsed)
     );
+    let (k, a) = (parsed.plan.k_tempos, parsed.plan.admission_tempos);
+    eprintln!(
+        "standing-template: admission window {} per cohort of {} (K {k} tempos at {tempo_blocks} blocks); no window for {} between windows (work, publication, transition {} tempos); a commitment before a window opens is refused",
+        calendar::window_json(a, tempo_blocks),
+        calendar::window_json(k, tempo_blocks),
+        calendar::window_json(k.saturating_sub(a), tempo_blocks),
+        parsed.plan.transition_tempos,
+    );
+    if let Some(d) = derivation {
+        eprintln!(
+            "standing-template: admission_tempos {} derived = K {k} - transition {} - work tempos {} (work bound {} s = measured work {} s + largest submission {} s ({} bytes, scaled from the measured one) + one load of it {} s; at most half of {} tempo(s) of {} s); largest submission at most half the window ({} s of {} s)",
+            d.admission_tempos,
+            parsed.plan.transition_tempos,
+            d.work_tempos,
+            d.work_bound_secs,
+            d.work_bound_secs - d.largest_upload_secs - d.load_secs,
+            d.largest_upload_secs,
+            bounds.object_bytes,
+            d.load_secs,
+            d.work_tempos,
+            d.tempo_secs,
+            d.largest_upload_secs,
+            d.admission_tempos * d.tempo_secs,
+        );
+    }
     println!("{}", String::from_utf8(bytes).expect("utf-8"));
 }
 

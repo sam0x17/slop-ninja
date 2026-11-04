@@ -141,8 +141,10 @@ pub struct CalendarView {
     /// `(cohort, window_open, window_closing)` of the current cohort; the
     /// window flags are `None` from coordinators that do not report them.
     pub current: Option<(u64, Option<bool>, Option<bool>)>,
-    /// `(cohort, earliest_open_epoch)`.
-    pub next: Option<(u64, Option<u64>)>,
+    /// The next cohort as the calendar reports it (`cohort`,
+    /// `earliest_open_epoch`, and `admission_tempos` from coordinators that
+    /// report it).
+    pub next: Option<NextCohort>,
 }
 
 impl EvalView {
@@ -309,6 +311,7 @@ struct CalendarCurrentJson {
 struct CalendarNextJson {
     cohort: Option<u64>,
     earliest_open_epoch: Option<u64>,
+    admission_tempos: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -484,7 +487,13 @@ fn eval_view(j: EvalJson) -> EvalView {
             current: c
                 .current
                 .and_then(|x| Some((x.cohort?, x.window_open, x.window_closing))),
-            next: c.next.and_then(|n| Some((n.cohort?, n.earliest_open_epoch))),
+            next: c.next.and_then(|n| {
+                Some(NextCohort {
+                    cohort: n.cohort?,
+                    earliest_open_epoch: n.earliest_open_epoch,
+                    admission_tempos: n.admission_tempos,
+                })
+            }),
         }),
     }
 }
@@ -625,36 +634,36 @@ pub fn snapshot(i: &SnapshotInputs<'_>) -> PublicStatus {
     let admitting = active
         .filter(|c| c.phase == "admission" && window_open(c.cohort))
         .and_then(|c| {
-        let opened = c.opened_epoch?;
-        Some(Admitting {
-            cohort: c.cohort,
-            label: Some(c.label.clone()),
-            opened_epoch: opened,
-            planned_cutoff_epoch: opened + c.admission_tempos?,
-        })
-    });
+            let opened = c.opened_epoch?;
+            Some(Admitting {
+                cohort: c.cohort,
+                label: Some(c.label.clone()),
+                opened_epoch: opened,
+                planned_cutoff_epoch: opened + c.admission_tempos?,
+            })
+        });
     // The calendar's next cohort when it serves one (a queued cohort, or the
-    // standing template's next number with its earliest opening epoch);
-    // otherwise only a queued cohort.
-    let from_calendar = calendar.and_then(|k| k.next).map(|(cohort, earliest)| NextCohort {
-        cohort,
-        earliest_open_epoch: earliest,
-    });
-    let next = from_calendar.or_else(|| eval.and_then(|e| {
-        let queued = e
-            .cohorts
-            .iter()
-            .filter(|c| !c.load && c.phase == "queued")
-            .min_by_key(|c| c.cohort)?;
-        let earliest = match active {
-            Some(a) => a.opened_epoch.zip(a.k_tempos).map(|(o, k)| o + k),
-            None => e.epoch.map(|x| x + 1),
-        };
-        Some(NextCohort {
-            cohort: queued.cohort,
-            earliest_open_epoch: earliest,
+    // standing template's next number, with its earliest opening epoch and
+    // its admission window); otherwise only a queued cohort.
+    let from_calendar = calendar.and_then(|k| k.next.clone());
+    let next = from_calendar.or_else(|| {
+        eval.and_then(|e| {
+            let queued = e
+                .cohorts
+                .iter()
+                .filter(|c| !c.load && c.phase == "queued")
+                .min_by_key(|c| c.cohort)?;
+            let earliest = match active {
+                Some(a) => a.opened_epoch.zip(a.k_tempos).map(|(o, k)| o + k),
+                None => e.epoch.map(|x| x + 1),
+            };
+            Some(NextCohort {
+                cohort: queued.cohort,
+                earliest_open_epoch: earliest,
+                admission_tempos: None,
+            })
         })
-    }));
+    });
     let reward = eval.and_then(|e| e.reward.as_ref());
     let launch_burn = reward.and_then(|r| r.launch_burn);
     let mut notice = vec![];
@@ -790,7 +799,8 @@ pub(crate) mod tests {
     #[test]
     fn parses_the_coordinator_ledger_status() {
         let ledger: Value =
-            serde_json::from_str(include_str!("../tests/fixtures/eval-ledger-status.json")).unwrap();
+            serde_json::from_str(include_str!("../tests/fixtures/eval-ledger-status.json"))
+                .unwrap();
         let mut j = eval_status("admission");
         j["ledger"] = ledger.clone();
         assert_eq!(parse_eval(&j).ledger_over_threshold, Some(true));
@@ -822,7 +832,10 @@ pub(crate) mod tests {
         let e = parse_eval(&j);
         assert_eq!(e.ledger_over_threshold, None);
         assert_eq!(e.ledger_threshold_set, None);
-        assert!(!e.cohorts.is_empty() && e.epoch.is_some(), "the rest still parses");
+        assert!(
+            !e.cohorts.is_empty() && e.epoch.is_some(),
+            "the rest still parses"
+        );
     }
 
     /// The views record a status that answered without the journal block or
@@ -883,7 +896,8 @@ pub(crate) mod tests {
             snap.next,
             Some(NextCohort {
                 cohort: 8,
-                earliest_open_epoch: Some(23_189)
+                earliest_open_epoch: Some(23_189),
+                admission_tempos: None,
             })
         );
         assert_eq!(
@@ -941,15 +955,43 @@ pub(crate) mod tests {
         };
         let mut v = eval_status("admission");
         // No cohort queued yet: the calendar still names the next one.
-        v["cohorts"].as_array_mut().unwrap().retain(|c| c["phase"] != "queued");
-        assert_eq!(snap_of(&v).next, None, "an older coordinator: only a queued cohort");
+        v["cohorts"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|c| c["phase"] != "queued");
+        assert_eq!(
+            snap_of(&v).next,
+            None,
+            "an older coordinator: only a queued cohort"
+        );
         v["calendar"] = json!({"rule": "back_to_back_on_tempo_boundaries/v1",
             "current": {"cohort": 7, "phase": "admission", "window_open": true, "window_closing": false},
             "next": {"cohort": 8, "earliest_open_epoch": 23_187},
             "template": {"sha256": "PRIVATE-TEMPLATE", "paused": false, "last_error": null}});
         let snap = snap_of(&v);
-        assert_eq!(snap.next, Some(NextCohort { cohort: 8, earliest_open_epoch: Some(23_187) }));
+        assert_eq!(
+            snap.next,
+            Some(NextCohort {
+                cohort: 8,
+                earliest_open_epoch: Some(23_187),
+                admission_tempos: None
+            })
+        );
         assert_eq!(snap.admitting.as_ref().map(|a| a.cohort), Some(7));
+        // A coordinator that reports the next cohort's admission window: the
+        // snapshot carries it as reported.
+        v["calendar"]["next"]["admission_tempos"] = json!(17);
+        let with_window = snap_of(&v);
+        assert_eq!(
+            with_window.next.as_ref().and_then(|n| n.admission_tempos),
+            Some(17)
+        );
+        let text = serde_json::to_value(&with_window).unwrap();
+        assert_eq!(text["next"]["admission_tempos"], 17);
+        v["calendar"]["next"]
+            .as_object_mut()
+            .unwrap()
+            .remove("admission_tempos");
         // The window closed, waiting for the freeze: nothing admits.
         v["calendar"]["current"]["window_open"] = json!(false);
         v["calendar"]["current"]["window_closing"] = json!(true);

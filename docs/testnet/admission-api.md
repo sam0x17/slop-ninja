@@ -249,9 +249,13 @@ counts them (`CohortManifestV2::opened_epoch`, `CohortSchedule`).
 A commitment needs finality and the coordinator's logging of it (the nominal
 wait is at most 60 seconds after finality, and it can be longer) before a
 session can open. An object of about 610 MB must then be uploaded before the
-cutoff. Commit and upload early in the window. The window is the standing
-template's `admission_tempos`; the operator's calendar view reports it with the
-last window as measured on chain, in blocks and nominal minutes.
+cutoff. Commit and upload together, not near the cutoff. The window is the
+standing template's `admission_tempos` (17 tempos under the current testnet
+template), frozen in each cohort's plan when it is queued; `next` in the cohort
+response and the status snapshot gives the next cohort's. The operator's
+calendar view reports the template's value, the last window as measured on
+chain and the template's window at that measurement's blocks per tempo, in
+blocks and nominal minutes.
 
 ## 4. Signed requests
 
@@ -416,7 +420,7 @@ cursor in it dates request signatures.
     "max_parts": 10000,
     "limits": "<hex digest of the cohort's limits record>"
   },
-  "next": { "cohort": 8, "earliest_open_epoch": 23189 }
+  "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 17 }
 }
 ```
 
@@ -424,6 +428,14 @@ cursor in it dates request signatures.
 coordinator has begun closing admission; new sessions are then refused.
 `request_validity_blocks` is top-level because signed reads and aborts are
 also made while no cohort is admitting.
+
+`next` names the next cohort: a queued one, else the one the standing template
+opens next. `earliest_open_epoch` is a lower bound: a cohort opens only at the
+boundary that closes the one before it, which is at least `K` tempos after
+that one opened and two tempos after its publication; slow work or a
+coordinator outage moves it later. `admission_tempos`, when present, is how many
+tempos its admission window lasts once it opens (its plan's value, frozen with
+the cohort); it is absent when the coordinator does not know the next plan.
 
 `output_contract` is the artifact spec's contract. `artifact_spec` names the
 spec whose checks admission runs, by id and by the digest
@@ -858,7 +870,7 @@ the client reads only these fields and ignores the rest:
   "fault": false,
   "notice": "…",
   "admitting": { "cohort": 7, "label": "testnet-c7", "opened_epoch": 23169, "planned_cutoff_epoch": 23170 },
-  "next": { "cohort": 8, "earliest_open_epoch": 23189 },
+  "next": { "cohort": 8, "earliest_open_epoch": 23189, "admission_tempos": 17 },
   "coordinator": "https://…",
   "active_target": "<hex or null>",
   "reference": "<hex or null>"

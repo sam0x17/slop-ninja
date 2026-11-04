@@ -121,7 +121,8 @@ store.
   Spend, the ledger, generation, models, lanes, jobs, documents and fault
   details never reach it; faults are one boolean. The ledger enters the alert
   rules only as its `over_threshold` flag. `next` comes from the coordinator's
-  calendar (the template's next cohort and its earliest opening epoch; a
+  calendar (the template's next cohort, its earliest opening epoch and its
+  admission window in tempos; a
   queued cohort for coordinators without one), and `admitting` is set only
   while the calendar reports the cohort's admission window open.
 - **Artifacts are default-deny.** An entrant's artifact is published only

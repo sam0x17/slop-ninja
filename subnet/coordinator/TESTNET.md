@@ -2452,8 +2452,8 @@ standing template (AR-7). Code (branch `subnet-testnet/standing-r0`):
   largest cap the checks admit with no ceiling, and the refusal one past
   it) beside the ceiling.
 
-The daily shape is n = 1,000, K = 20 (one admission tempo, two transition
-tempos), renew-by hint 40 tempos (no expiry), the 1,024-document probe, 200 audit humans, three
+The daily shape is n = 1,000, K = 20 (one admission tempo at first, 17 from
+the miner-ux lane's derivation below; two transition tempos), renew-by hint 40 tempos (no expiry), the 1,024-document probe, 200 audit humans, three
 attempts, one scoring lane per artifact, no pre-start, spec v3, the exposed
 pool `testnet-human-pool-pc1`, and the incentive rule with provisional
 gates. Spec v3's tower-class object needs the longest step the alarm wall
@@ -2871,6 +2871,61 @@ publisher's artifact copy (`ARTIFACT_SOURCE_KEY`) is configured,
 `closure_artifacts`' `object_key` names keys in the upload bucket, which the
 publisher does not bind; that copy must read from the upload bucket, or the
 eval Worker must copy admitted objects into the eval bucket first.
+
+### Outside-miner admission usability (2026-11-03)
+
+Branch `subnet-testnet/miner-ux` on main 90e23f50. Findings of the second W3
+review and the follow-ups verify on outside-miner admission, re-checked on
+current main first:
+
+| Item | Outcome |
+| --- | --- |
+| 1 a one-tempo admission window (about 72 minutes): a stranger must be present at the opening, since commitments before it are refused | fixed: `calendar::derive_admission_tempos` derives the window from measurements and the plan's shape; `slop_ninja_eval_ops standing-template` takes them (`--tempo-blocks`, `--work-secs`, `--upload-secs`, `--upload-bytes`), sets `admission_tempos` and prints the window and the gap between windows in tempos, blocks and nominal minutes. The r0 template becomes 17 tempos (below) |
+| 2 the public status shows no next cohort for most of a cohort's life; `admitting` stays true after the cutoff | already fixed on main (third review, c6bbc9cb): the calendar in `/eval/status` reports `window_open`/`window_closing` and the next cohort, the publisher takes `next` from it and sets `admitting` only while the window is open. Added here: `next.admission_tempos` (the next cohort's window, from its queued plan or the template) in the calendar, the cohort response, `not_admitting`'s detail and the public snapshot; `slop_ninja_miner next-cohort` prints it |
+| 3 a returning miner who commits again and uploads at once gets a final refusal | already fixed on main (third review and admission-items fix rounds 1-2): the open answer waits for a poll at or after `max(cursor, x-sn-commitment-block)` (`adm_commit_waits`); the upload Worker forwards the header as `Signed::commitment_block`. Tests `a_returning_miner_waits_one_poll_for_a_definitive_answer`, `a_first_answer_waits_past_the_polled_cursor_and_the_miners_commitment_block` and the miner's `a_returning_miner_waits_for_its_new_commitment_to_be_logged` |
+| 4 admission spend settle is fire-and-forget under a key without hotkey or try | already fixed on main (c6bbc9cb): `adm_charges` recorded in the run's transaction, key `main:<label>:admission:<hotkey>:<commitment>:<try>`, settled by `AdmissionSettle` until the tracking ledger answers |
+| 5 validator2's `commit_gap` is watched only locally | noted, unchanged: the publisher's rule reads the coordinator's journal; validator2 is a native client watched by the operator's local alerting (`validator_stalled`, `validator_deferral`), which pages only while the operator host runs |
+| 6 the calendar's `earliest_open_epoch` showed the next boundary while the cohort before was in its transition (live: cohort 19 at epoch 99, opening at about 113) | fixed: `calendar::earliest_close` applies the engine's close rule (at least `K` after the opening and the transition minimum after publication, or after the package for earlier plans; the package at the earliest in the window's closing epoch), never an epoch already past. The publisher crate is rustfmt-clean |
+
+**Window derivation.** A cohort that closes its window at `E + A` does its
+work (freeze, generation, sealing, scoring, package) from that boundary,
+publishes at the first boundary after the package and closes `transition`
+tempos later (`engine::advance`), so it still closes at `E + K` when
+`A <= K - transition - W`, with `W` the tempos its work after the cutoff
+needs. `W` gives that work at most half of its tempos (the design note's
+scoring rule), bounded by the measured work of a cohort plus the largest
+object's submission (a session that completes at the cutoff is framed and
+verified after it) plus one model load of that object at the plan's
+`load_ms_per_mib` (one scoring lane per artifact, all in parallel within
+`MAX_SCORE_LANES`). The largest object's submission, scaled from a measured
+one, must also fit in at most half of the window. Inputs for r0: 360 blocks
+per tempo (cohort 18's measured window); cohort 18's work, cutoff to durable
+package, 732 s; test miner 1's 613,185,948-byte submission in the cohort 13
+drill, bounded at 582 s from the end of the step before its commitment to
+its `verified` answer (commit, finality, logging on the minute cron then,
+upload from the operator host through the eval Worker, framing and the
+verdict run). Scaled to spec v3's largest object (954,576,228 bytes) that is
+907 s; one load of it 110 s; work bound 1,749 s, under half of a 4,320 s
+tempo, so `W = 1` and `A = 20 - 2 - 1 = 17`: a 6,120-block window (about
+20 h 24 min) and 3 tempos (1,080 blocks, about 3 h 36 min) between windows.
+The scoring work at a full 40-entrant roster is not yet measured; work that
+runs past its tempo moves the close (and the next opening) later by whole
+tempos and never skips or shortens a cohort. The upload Worker's path is
+measured at its own live stage; rerun the tool with new measurements and
+reinstall when they change. A queued cohort keeps the window it was queued
+with (a reinstall never changes a queued or running cohort).
+
+Live (2026-11-03, from main 62e3535d): the publisher deployed 23:25Z and
+eval-testnet 23:39Z (after the upload Worker lane's eval deploy; no
+migration, store 15, journal 10; quiet: cohort 18 in its transition, 19
+queued). The r0 template was reinstalled at 23:2xZ with `admission_tempos`
+17 (otherwise byte-identical to the installed one); cohort 19 keeps its
+queued one-tempo plan, so cohort 20 is the first with the 17-tempo window,
+and no cohort is skipped or shortened. Read back: `/eval/status`
+`calendar.next` = cohort 19, `earliest_open_epoch` 113 (was 99),
+`admission_tempos` 1; `admission_window.template_window` = 17 tempos, 6,120
+blocks, 1,224 nominal minutes; the public snapshot's `next` the same, and
+`admitting` null while nothing admits.
 
 ### Cost projection (daily K = 20 cohorts, n = 1,000)
 

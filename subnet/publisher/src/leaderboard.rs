@@ -147,8 +147,11 @@ impl PromotionRule {
     /// (the canary is required before mainnet, so no other chain's record
     /// may claim promotions without it).
     pub fn of(chain: &Chain) -> Option<Self> {
-        (chain.genesis.trim_start_matches("0x").eq_ignore_ascii_case(&slop_ninja_protocol::TESTNET_GENESIS.hex()))
-            .then(Self::testnet)
+        (chain
+            .genesis
+            .trim_start_matches("0x")
+            .eq_ignore_ascii_case(&slop_ninja_protocol::TESTNET_GENESIS.hex()))
+        .then(Self::testnet)
     }
 }
 
@@ -436,7 +439,10 @@ pub fn render(doc: Option<&LeaderboardDoc>) -> String {
         Some(d) => d.promotion_rule.as_ref().map(|r| r.note.as_str()),
     };
     let summary = match note {
-        Some(n) => format!("{summary}<p class=\"note\" id=\"promotion-rule\">{}</p>", escape(n)),
+        Some(n) => format!(
+            "{summary}<p class=\"note\" id=\"promotion-rule\">{}</p>",
+            escape(n)
+        ),
         None => summary,
     };
     TEMPLATE
@@ -451,8 +457,17 @@ mod tests {
 
     #[test]
     fn only_a_testnet_record_carries_the_testnet_promotion_label() {
-        let chain = |genesis| Chain::from_binding(&ChainBinding { genesis, netuid: 601, mechanism: 0 });
-        assert_eq!(PromotionRule::of(&chain(TESTNET_GENESIS)), Some(PromotionRule::testnet()));
+        let chain = |genesis| {
+            Chain::from_binding(&ChainBinding {
+                genesis,
+                netuid: 601,
+                mechanism: 0,
+            })
+        };
+        assert_eq!(
+            PromotionRule::of(&chain(TESTNET_GENESIS)),
+            Some(PromotionRule::testnet())
+        );
         assert_eq!(PromotionRule::of(&chain(FINNEY_GENESIS)), None);
         let mut upper = chain(TESTNET_GENESIS);
         upper.genesis = format!("0x{}", upper.genesis.to_ascii_uppercase());

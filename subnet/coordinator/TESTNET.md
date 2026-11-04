@@ -2541,7 +2541,7 @@ are evidence of the earlier design.
   past the finalized epoch index plus one. The cron tick checks each pointer
   object every minute and restores a deleted one. The validator's per-head
   revocation path is a tested function, and its store alerts are once per
-  distinct error. The operator's alert rules v7 classify `authorization_paused`,
+  distinct error. The operator's alerting classifies `authorization_paused`,
   `authorization_revoked` and `authorization_resumed`.
 - **Review fixes (2026-11-03, round 2; not deployed with this record).**
   Journal schema v10: an index on revocations by target (each check reads
@@ -2599,7 +2599,7 @@ are evidence of the earlier design.
   epoch-94 reveal compared, its epoch-95 operation queued with no attempt):
   it adopted that operation without a duplicate, committed it at block
   8366045 and its reveal compared with `weights_match` true at 8366085.
-  The operator's alert reader runs rule set v7. Committing past the renew-by hint and
+  Committing past the renew-by hint and
   a signed revocation stopping a target are shown offline: the validator
   suite (93 passed, 1 ignored, including the launch bundle queued at epoch
   60 past a hint of 50 and derived at epoch 100,000, then stopped by a

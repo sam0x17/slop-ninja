@@ -117,7 +117,10 @@ enabled yet, so they are attached to the release until public access opens;
 then the package directory they hold is also downloadable from the [public
 layout](public-layout.md). Both are licensed CC BY-SA 4.0; the package's
 `NOTICE.md`, which also covers the companion, says how to credit R0 and its
-base model.
+base model. The companion archive does not yet carry its own copy of that
+notice or of the base model's licence: both are in the reference-package
+archive, as `NOTICE.md` and `upstream/ModernBERT-base-LICENSE`, so keep the
+two archives together when you pass the companion on.
 
 The archive files are covered by `SHA256SUMS`, so verify them with the
 commands above. Both are rooted at the package digest, so extracted into one

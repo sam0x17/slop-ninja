@@ -37,14 +37,14 @@ evaluation is part of the protocol.
 | Piece | State |
 | --- | --- |
 | `slop_ninja_validator` startup checks, `observe`, the dry run and journaled dispatch | built and tested on Linux x86_64; live commits, per-tempo re-commits and fault drills ran on subnet 601 on October 30, 2026, under a fixture package |
-| Verification of `reward-v1` packages | in the first signed release, not yet published |
+| Verification of `reward-v1` packages | in the current source (build from source, [section 2](#2-install)); validator release binaries follow in a later release |
 | Published packages on the public status host | not yet live |
 | The package fetcher (`[fetch]`) | built and tested offline against the publisher's layout; waits for the public host, so until it is live every validator installs each new target's bundle by hand. The coordinator signs each closed cohort's authorization itself, so the pointer names the current one with no operator step once that build is deployed (below) |
 | Continuous dispatch, successor supersession and persistent user units | built and tested offline; not yet run unattended across cohorts on subnet 601 |
 | Committing the launch burn row | live on subnet 601: both Slop Ninja validators commit and reveal it each tempo under rtao's owner-row opt-in (below); first native commit and reveal on November 3, 2026 |
 | Release public key | published on the [landing page](README.md#release-key) |
 | Public repository | [sam0x17/slop-ninja](https://github.com/sam0x17/slop-ninja) |
-| Signed release binaries (Linux x86_64) | not yet live: binaries built from the public repository, signed and smoke-tested when it is published |
+| Validator release binaries (Linux x86_64) | not in the first release, which holds only the miner client and the artifact checker; a validator release follows later. Until then, build from source ([section 2](#2-install)) |
 
 Today an outside validator can install the binary, create its journal, run the
 startup checks and use `observe`. Committing rows waits for the pieces above.
@@ -63,7 +63,8 @@ startup checks and use `observe`. Committing rows waits for the pieces above.
 
 ## 2. Install
 
-Release binaries are not yet live. Build from a checkout of the
+The first release holds no validator binaries; a validator release follows
+later. Until then, build from a checkout of the
 [public repository](https://github.com/sam0x17/slop-ninja):
 
 ```sh
@@ -263,7 +264,9 @@ release: the release key it trusts is the file beside it, so a script and key
 shipped inside a release could vouch for that release themselves. The
 checkout is also how a replaced or withdrawn release key reaches you: the
 installer has no other revocation path, so update your checkout before
-installing a new release.
+installing a new release. Until a validator release is published, install
+the binaries you built in section 2 with
+`--from <checkout>/subnet/target/release --unverified`.
 
 It installs the two binaries, the unit templates, the configuration with
 mode 0600 (it never replaces
@@ -458,12 +461,12 @@ on any failure:
 - every stored receipt object matches its index entry;
 - the package names this validator's chain genesis and netuid.
 
-For `reward-v1` bundles (from the first signed release, not yet published)
-it also checks every receipt chunk, the published-artifact index against the
-manifest's binding, the recomputed outcome, the cohort closure against the
-manifest's minimums, and the reward-intent authorization against the active
-target and your journaled revocations (it has no end epoch), at every tempo's
-re-commit as well.
+For `reward-v1` bundles (in the current source) it also checks every
+receipt chunk, the published-artifact index against the manifest's binding,
+the recomputed outcome, the cohort closure against the manifest's minimums,
+and the reward-intent authorization against the active target and your
+journaled revocations (it has no end epoch), at every tempo's re-commit as
+well.
 
 It then reads the subnet's registrations (`SubnetworkN`, `Keys`,
 `BlockAtRegistration`, `SubnetOwnerHotkey`) at the same finalized block and

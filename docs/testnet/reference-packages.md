@@ -10,8 +10,13 @@ export manifest binds.
 The packages are published under the
 [Creative Commons Attribution-ShareAlike 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
 licence (CC BY-SA 4.0). They go to the testnet public bucket, where public
-access stays off until the announce; until then they are not downloadable.
-The [public layout](public-layout.md) gives their paths.
+access stays off until the announce. Until public access opens, the `R_0`
+package and its [training companion](#training-companion) are attached to
+the testnet release as `slop-ninja-r0-reference-package-143ca2d9.tar` and
+`slop-ninja-r0-training-companion-143ca2d9.tar`
+([`R_0` archives](miner-guide.md#r_0-archives-optional)); the S2c span
+package is not downloadable until then. The [public layout](public-layout.md)
+gives their paths.
 
 ## The two packages
 

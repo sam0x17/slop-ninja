@@ -11,7 +11,12 @@ paths.
 
 **State: not yet live.** The publisher is built and tested, but not
 deployed. The public host, its domain (decision D5) and public access are set
-up at announce time. `{public}` below is the host's base URL.
+up at announce time. Until then, `R_0`'s reference package and its training
+companion are attached to the testnet release as two tar archives that
+extract to `R_0`'s package directory below
+([`R_0` archives](miner-guide.md#r_0-archives-optional)); the S2c span
+package is not downloadable until public access opens. `{public}` below is
+the host's base URL.
 
 ## Rules
 

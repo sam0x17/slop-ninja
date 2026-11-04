@@ -84,7 +84,7 @@ format. It does not reproduce R0's weights, data or scores.
 | | R0 | This recipe |
 |---|---|---|
 | Starting model | the V6 detector, itself fine-tuned from ModernBERT-base; not distributed | ModernBERT-base at revision `8949b909…`, with a new three-label head |
-| Train data | 86,575 rows from the project corpus, including private and non-redistributable sources (local open-weight generations, hosted frontier generations, RAID and others) | 4,201 rows from five published snapshots |
+| Train data | 86,575 rows from the project corpus, including sources that are not published here (local open-weight generations, hosted frontier generations, RAID and others) | 4,201 rows from five published snapshots |
 | Generators with Train rows | all 33 names of the fixed roster | 2 of the 33 (`qwen3.6`, `phi4`) |
 | Arm | `E1aux`: style adversary and generator-contrastive head, which need voice metadata | `E1`: the plain arm (R0's recipe F) |
 | Optimizer and schedule | AdamW, encoder 1e-5, heads 3e-4, cosine, 6% warm-up, 2 epochs, batch 32, attribution weight 0.25 | the same |
@@ -547,7 +547,11 @@ unchanged; step 7 fits the normalization to the new parent's output.
   limit what the scorer serves. You may train larger teachers privately and
   distil them into a served class.
 - **Attribution.** R0's package `NOTICE.md`, which also covers the
-  companion, says how to credit R0 and its base model.
+  companion, says how to credit R0 and its base model. The companion archive
+  does not yet carry its own copy of that notice or of the base model's
+  licence: both are in the reference-package archive, as `NOTICE.md` and
+  `upstream/ModernBERT-base-LICENSE`, so keep the two archives together when
+  you pass the companion on.
 
 ## Smoke run
 

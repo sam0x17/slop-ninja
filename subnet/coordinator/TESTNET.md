@@ -3054,9 +3054,9 @@ makes cohort 21 the first. The outcome is recorded here once it is read back
 Audit item D1: until this build every cohort target was installed by hand
 (`reward_v1_verify cohort --authorization-seed`, then `POST /signing/target`
 on the coordinator and a bundle install on each validator). Built on
-`subnet-testnet/auto-target` (review rounds 1 and 2 fixed); not deployed by
-the build stage. This closes D1 for the coordinator only: validators still
-need a manual step (below).
+`subnet-testnet/auto-target` (review rounds 1 and 2 fixed) and live since
+2026-11-04 (below, "Live record"). This closes D1 for the coordinator only:
+validators still need a manual step (below).
 
 - **Coordinator.** Journal schema v12 (`sign_auto_state`,
   `sign_auto_labels`, `sign_auto_cohorts`, `sign_auto_pending`,
@@ -3108,24 +3108,30 @@ need a manual step (below).
   settled-window config change) and no copy is needed. Outside validators
   use the same origin; until then they install bundles by hand, and the
   announcement must not claim automatic pickup for validators.
-- **Live order (live stage).** (1) Install `AUTHORIZATION_SIGNING_KEY` on the
-  coordinator from the operator's existing seed file on stdin (Secrets,
-  above). (2) Deploy the coordinator with signing paused around it (journal
-  schema 11 -> 12 in place; `/status` shows `signing.auto_target` with
-  `key_ok: true` after the first tick). Its first pass lists every label,
-  resolves each once and records the closed r0 cohorts in order from the
-  lowest (15 to 17 have no target; the probe build 14 has no manifest and
-  stays unsealed; the earlier record's labels open before the restart floor
-  and are left out; load cohorts are foreign). (3) Deploy the publisher
-  (rules v9). (4) Only with the user's decision on a validator route
-  (above): validator2 from this build with `[fetch]` in a settled window.
-  Check on the next main cohort that closes that its target and
-  authorization reach the coordinator's `/status`, the pointer and the
-  publisher's copy (and validator2's fetch, if installed) with no manual
-  step. A drill on a scratch authority in the same bucket no longer reaches
-  the main record (its labels are `outside`), so it cannot stand in for
-  that check; one needs its own bucket or keys and a scratch coordinator
-  journal.
+- **Live record (2026-11-04).** In order, each its own deploy with the
+  deploy lock held through its probe: (1) `AUTHORIZATION_SIGNING_KEY` put on
+  the coordinator from the operator's existing seed file on stdin (Secrets,
+  above), signing paused for 18 s around it; the seed files now sit in the
+  operator's private secrets directory, outside every validator's state
+  directory. (2) The coordinator from main `f60113f7`, signing paused for
+  95 s (journal schema 11 -> 12 in place). Its first pass, in the deploy's
+  first tick, listed every label once and recorded cohorts 15, 16 and 17 as
+  `no_target` in order (nothing signed; the held launch target and its
+  authorization stayed, pointer unchanged), left the labels with no
+  manifest yet `unsealed` (the probe build 14 among them), cohort 18
+  waiting as `next`, and classified the other labels `foreign` (not
+  signed by the trusted package key) or `outside` (another authority);
+  `key_ok: true`, no handoff error. (3) The
+  publisher from the same commit (rules v9). Validator2 was not changed:
+  it has no route to the layout (above). Not yet seen live: a cohort with a
+  target. Cohort 18 was packaged `NoTarget` (R_0 alone); the first target can
+  come only from a cohort with an admitted entrant. Check at that close that
+  `signing.auto_target.last` names it `installed`, the held target and the
+  pointer change in the same tick, the authorization's issued epoch is the
+  closing epoch, and the publisher's `v1/authorizations/current.json` names
+  the same authorization object. A drill on a scratch authority in the same
+  bucket cannot stand in for that check (its labels are `outside`); one
+  needs its own bucket or keys and a scratch coordinator journal.
 - **Not resolved here.** Whether to hold a carrying cohort's receipts past
   N+2 (and so sign carried authorizations) is the user's open ruling;
   automatic authorizations name the target's own cohort only. An abandoned

@@ -11,7 +11,9 @@
 //!
 //! Outputs that echo instructions, add preambles or markup, think aloud, leave
 //! the text unchanged or miss the length window are rejected and retried on the
-//! next generator. Nothing here logs or returns text outside the batch.
+//! next generator, as is a final document over the scorer's token limit (the
+//! cohort's check, `v3::scorer_length`). Nothing here logs or returns text
+//! outside the batch.
 
 use serde::{Deserialize, Serialize};
 
@@ -332,6 +334,11 @@ pub enum Reject {
     Short,
     /// More words than the length window allows (rewrite or scratch).
     Long,
+    /// The final document (a spliced mixed child, or a scratch text) is over
+    /// the scorer's token limit under the pinned tokenizer, so no artifact
+    /// could score it (`v3::scorer_length`). Set by the cohort, never by
+    /// a lane.
+    TokenLimit,
     Transport,
     Budget,
     /// Workers AI rate limit or capacity (HTTP 429, code 3040): no attempt used.
@@ -353,6 +360,7 @@ impl Reject {
             // measured rejections (before 2026-11-03 both were `length`).
             Self::Short => "length_short",
             Self::Long => "length_long",
+            Self::TokenLimit => "length_tokens",
             Self::Transport => "transport",
             Self::Budget => "budget",
             Self::Throttled => "throttled",
@@ -588,6 +596,7 @@ mod tests {
         let padded = format!("{src} {src} and then some more words about it");
         assert_eq!(validate_rewrite(src, &padded), Err(Reject::Long));
         assert_eq!((Reject::Short.code(), Reject::Long.code()), ("length_short", "length_long"));
+        assert_eq!(Reject::TokenLimit.code(), "length_tokens");
         let ok = "On Monday, after lengthy debate over costs, the council gave the plan its approval.";
         assert_eq!(validate_rewrite(src, &format!("\"{ok}\"")).unwrap(), ok);
         let long = "word ".repeat(300);

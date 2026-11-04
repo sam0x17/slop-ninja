@@ -3405,17 +3405,60 @@ for later cohorts, then abandon this unexposed cohort with
 `/eval/abandon {"label": "...", "reason": "unscorable_document"}`, or
 leave it paused. The coordinator never skips it on its own.
 
-**Token limit (L9, half open).** Pool rows are bounded by the pool screen.
-Generated documents (mixed children, model-only texts) are not: the
-coordinator holds no copy of the scorer's tokenizer, and the generation
-check bounds length in words. An over-length
-generated batch document is found at packaging, after every entrant scored
-it, as the terminal fault `reference_failure` (abandon only). An audit
-document that any job's scorer reply refused as over-length is left out of
-the strict false-positive count (every artifact gets the same refusal). The
-remaining options (a token count from the pinned tokenizer before seal,
-either compiled into eval or asked of the scorer under `R_0`) are in the
-lane notes; until one lands, L9 stays open in the readiness list.
+**Token limit (L9).** Pool rows are bounded by the pool screen. Generated
+documents (mixed children, model-only texts) are counted in the eval Worker
+under the pinned tokenizer, from the table compiled into the build
+(`slop-ninja-scorer-tokens`; no call to the scorer or any hosted service):
+an answer whose final document is over 2,048 tokens with `[CLS]` and
+`[SEP]` is rejected (`length_tokens`, in `/eval/status` `rejects`) and the
+item is generated again by the next generator, at most four answers per
+item as for any rejection. An item whose last answer is rejected is
+dropped, and the spares and the plan's shortfall tolerance cover it; past
+them the cohort faults as the terminal `batch_shortfall` (abandon only),
+the same residual as for an item whose answers all fail any other check.
+(Unlikely here: pool parents measure at most about 706 tokens and a
+scratch answer at most 1,200 generated tokens.) The rejection advances the
+item's claim token, so a redelivered commit of the same answer is fenced
+and uses no second attempt; its usage is recorded again as fenced, an
+overcount of measured spend, which only alerts. Before a cohort leaves
+`generating`, and before the seal step of a cohort already in `sealing`
+when the build arrives, every ready generated document is counted again
+and any over the limit is sent back the same way (only a document accepted
+by a build without the check can be), except that the earlier build's
+acceptance never costs the item its replacement: a sent-back item always
+gets at least one further answer, so the screen alone never drops one. A
+sealing cohort then returns to `generating`, with the phase-log note
+`token screen sent back generated documents`, and seals after the
+replacement. A complete screen that sends back nothing is noted once in the
+phase log (`token screen clean (slop_ninja_scorer_tokenizer_table_v1)`),
+and a seal step retried in `sealing` does not count the batch again (the
+seeded seal's own count, below, still runs).
+This applies to every plan from the build that carries it. At a seeded seal
+a generated document over the limit gives way to a spare, and only a batch
+human over the limit refuses the seal (`unscorable sealed document`, as
+above: a pool that broke its recorded bound). A count the arena refuses
+fails nothing else: the item or screen waits and retries (`scorer token
+scratch` as the cohort's step error on `/eval/status`, no pause, cleared by
+the next count that finishes), and a capacity or arena defect refusal
+pauses the cohort as `arena_capacity` or `arena_defect`, cleared like any
+other. A plan whose artifact spec (spec v2 when it names none) pins another
+tokenizer than the one the table was derived from is refused when it is
+queued. Limit: a cohort sealed by a build without the check (on testnet,
+any cohort sealed by the eval build before this one) keeps its sealed
+documents, so a generated one over the limit there is still found only at
+packaging, as the terminal `reference_failure` (abandon only). Deploy this
+eval build before the next cohort leaves `generating`. An audit document that any job's scorer reply refused as
+over-length is still left out of the strict false-positive count. The
+batch index v3 names the screen (`input_screen`
+`pool_token_bound_empty_text_and_scorer_tokens_v2`) and the table
+(`token_count`: table id and digest, tokenizer digest, limit).
+
+Rebuilding the table (only if the pinned tokenizer changes, which also
+changes the artifact spec): `subnet/crates/scorer-tokens/reference`, run
+natively with the scorer's tokenizers build, writes it (`table`), the
+crate's golden cases (`golden`), and compares the compiled-in count with
+the scorer's library over every code point, synthetic documents around
+the limit (`sweep`) and pool shards (`parity`, counts only).
 
 ### Public allow-list and the copy model (2026-11-04, not live)
 

@@ -499,14 +499,39 @@ pub mod home {
     }
 }
 
-/// The static data and stack the fit check below assumes: the 1 MiB linked
-/// stack plus 1 MiB of data, eight pages above the 24 pages (stack and data,
-/// page-rounded) the smoke run measures (`static_bytes` on `/status`).
-/// `examples/arena_wasm_check` fails when the built module's static end
-/// exceeds it (`__heap_base` when exported, else the end of its data
-/// segments, a lower bound: worker-build's output keeps no `__heap_base`), and
-/// the smoke run checks the deployed layout's `static_bytes` against it.
-pub const STATIC_UPPER_BYTES: usize = slop_ninja_arena::model::STACK_BYTES + MIB;
+/// The static data and stack the fit check below assumes: 48 pages, the
+/// 1 MiB linked stack plus 2 MiB of data. Rule (memory model
+/// `coordinator-2026-11-04-r1`): the measured static end, page-rounded, plus
+/// a stated margin. Measured 2026-11-04 on the release wasm32 module of
+/// commit f562a6d6, with the compiled-in scorer token table
+/// (`slop-ninja-scorer-tokens`, 408,878 B of it), by
+/// `examples/arena_wasm_check`: static end 2,173,704 B, 34 pages
+/// page-rounded; the margin is the remaining 14 pages (917,504 B) for later
+/// growth. Both fit checks below hold at it (the build checks them, and
+/// `tests::the_static_bound_leaves_room_in_both_workers_fits` prints the room
+/// they leave). The gate on the module itself is `examples/arena_wasm_check`,
+/// which fails when the built module's static end exceeds this bound
+/// (`__heap_base` when exported, else the end of its data segments, a lower
+/// bound: worker-build's output keeps no `__heap_base`); the smoke run checks
+/// the deployed layout's `static_bytes` against it.
+pub const STATIC_UPPER_BYTES: usize = slop_ninja_arena::model::STACK_BYTES + 2 * MIB;
+
+/// The room the eval Worker's package fit and the coordinator Worker's
+/// handoff fit leave beside [`STATIC_UPPER_BYTES`] (checked non-negative at
+/// build time by the assertions below).
+pub const fn static_fit_room() -> (usize, usize) {
+    use slop_ninja_arena::model;
+    let glue = model::GLUE_BUDGET_PAGES as usize * slop_ninja_arena::PAGE;
+    let eval = STATIC_UPPER_BYTES + glue + scope_bytes(HOME_STATE_BYTES) + scope_bytes(HOME_PLANS_BYTES) + model::LARGEST_ROUTE_BYTES + scope_bytes(COHORT_CONTROL_BYTES);
+    let coord = STATIC_UPPER_BYTES
+        + glue
+        + scope_bytes(HOME_STATE_BYTES)
+        + scope_bytes(HOME_RUNTIMES_BYTES)
+        + scope_bytes(JOURNAL_AUTO_BYTES)
+        + scope_bytes(JOURNAL_CONTROL_BYTES)
+        + scope_bytes(CONTINUATION_CONTROL_BYTES);
+    (model::LINEAR_MEMORY_BYTES.saturating_sub(eval), model::LINEAR_MEMORY_BYTES.saturating_sub(coord))
+}
 
 // The memory model and this route table agree, checked at every build.
 const _: () = {
@@ -566,6 +591,13 @@ mod tests {
                 seeded_layout_bytes(docs)
             );
         }
+    }
+
+    #[test]
+    fn the_static_bound_leaves_room_in_both_workers_fits() {
+        let (eval, coord) = static_fit_room();
+        eprintln!("static bound {STATIC_UPPER_BYTES} B: room beside the eval package fit {eval} B, beside the coordinator handoff fit {coord} B");
+        assert!(eval > 0 && coord > 0);
     }
 
     #[test]

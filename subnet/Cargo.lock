@@ -4314,6 +4314,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "slop-ninja-scorer-tokens"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2 0.10.9",
+ "unicode-normalization-alignments",
+]
+
+[[package]]
 name = "slop-ninja-subnet"
 version = "0.1.0"
 dependencies = [
@@ -5377,6 +5386,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c5713f0fc4b5db668a2ac63cdb7bb4469d8c9fed047b1d0292cc7b0ce2ba921"
 dependencies = [
  "tinyvec",
+]
+
+[[package]]
+name = "unicode-normalization-alignments"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43f613e4fa046e69818dd287fdc4bc78175ff20331479dab6e1b0f98d57062de"
+dependencies = [
+ "smallvec",
 ]
 
 [[package]]

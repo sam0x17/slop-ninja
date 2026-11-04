@@ -32,7 +32,7 @@ import http from "node:http";
 
 // The static upper bound is `arena_routes::STATIC_UPPER_BYTES` (printed by
 // `examples/arena_wasm_check` as `static_upper_bytes`).
-const [MF, BUILD, LINEAR, N = "200", STATIC_UPPER = "2097152"] = process.argv.slice(2);
+const [MF, BUILD, LINEAR, N = "200", STATIC_UPPER = "3145728"] = process.argv.slice(2);
 const { Miniflare, convertV4MiniflareOptions } = await import(MF);
 const linear = Number(LINEAR);
 const rounds = Number(N);

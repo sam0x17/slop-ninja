@@ -1,0 +1,17 @@
+[package]
+name = "slop-ninja-scorer-tokens"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "The scorer's token count under the pinned A tokenizer, from a compiled-in table, for the eval Worker's generation check"
+
+[dependencies]
+# The scorer's normalizer: tokenizers 0.22.2 normalizes NFC with this exact
+# crate and version (Unicode 9.0 tables), so the count matches the scorer's
+# even where newer Unicode data would compose or reorder differently.
+unicode-normalization-alignments = "=0.1.12"
+
+[dev-dependencies]
+serde_json = "1"
+sha2 = "0.10"

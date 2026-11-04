@@ -2390,9 +2390,15 @@ fn active_work(sql: &impl Sql, cfg: &EvalConfig, c: Cohort, now_ms: u64) -> R<Op
                     return Ok(Some(Work::Dispatch { seq, kicks: Vec::new(), stop }));
                 }
                 if pending == 0 && crate::eval::v3::batch_complete(sql, &c)? {
+                    if !screen_generated_lengths(sql, cfg, &c, now_ms)?.clean() {
+                        return crate::eval::lanes::generation_sweep(sql, cfg, &c, now_ms).map(Some);
+                    }
                     set_phase(sql, seq, "sealing", now_ms, "generation complete")?;
                     return Ok(Some(Work::Seal { seq }));
                 }
+                return crate::eval::lanes::generation_sweep(sql, cfg, &c, now_ms).map(Some);
+            }
+            if pending == 0 && !screen_generated_lengths(sql, cfg, &c, now_ms)?.clean() {
                 return crate::eval::lanes::generation_sweep(sql, cfg, &c, now_ms).map(Some);
             }
             if pending == 0 {
@@ -2414,10 +2420,32 @@ fn active_work(sql: &impl Sql, cfg: &EvalConfig, c: Cohort, now_ms: u64) -> R<Op
             }
             crate::eval::lanes::generation_sweep(sql, cfg, &c, now_ms).map(Some)
         }
-        "sealing" => Ok(Some(match &c.plan.load {
-            Some(l) => Work::LoadSeal { seq, source: l.source.clone() },
-            None => Work::Seal { seq },
-        })),
+        "sealing" => {
+            if let Some(l) = &c.plan.load {
+                return Ok(Some(Work::LoadSeal { seq, source: l.source.clone() }));
+            }
+            // A cohort that entered `sealing` under a build without the
+            // generation token check (no clean screen in its phase log,
+            // [`token_screen_done`]) is screened here, before its seal step:
+            // one over the limit sends the cohort back to `generating`,
+            // where the next generator replaces it, since nothing is exposed
+            // before the seal commits. The seal runs only after a complete
+            // screen that sends back none, and a cohort with one recorded is
+            // not counted again here (the seal's own backstop count stays).
+            if token_screen_done(sql, seq)? {
+                return Ok(Some(Work::Seal { seq }));
+            }
+            let screen = screen_generated_lengths(sql, cfg, &c, now_ms)?;
+            if screen.sent_back > 0 {
+                set_phase(sql, seq, "generating", now_ms, "token screen sent back generated documents")?;
+                let c = cohort(sql, seq)?;
+                return crate::eval::lanes::generation_sweep(sql, cfg, &c, now_ms).map(Some);
+            }
+            if screen.refused.is_some() {
+                return Ok(Some(Work::Dispatch { seq, kicks: Vec::new(), stop: Vec::new() }));
+            }
+            Ok(Some(Work::Seal { seq }))
+        }
         "scoring" => crate::eval::lanes::scoring_sweep(sql, cfg, &c, now_ms).map(Some),
         "packaging" => crate::eval::lanes::packaging_sweep(sql, cfg, &c, now_ms).map(Some),
         _ => Ok(None),
@@ -2493,6 +2521,8 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
     let mut pause = false;
     let mut cost_total = 0u64;
     let mut released = 0u64;
+    // Whether the commit's last token count finished (`None`: no count ran).
+    let mut last_count_ok = None;
     for g in results {
         let rows = sql.exec(
             "SELECT kind, parent, spec, attempts, status, infra_failures, claim_gen, reserved_microusd, throttles,
@@ -2527,7 +2557,33 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
                 })
             }
         };
-        let outage = current && is_outage(g);
+        // The final document must fit the scorer's token limit (finding L9):
+        // one over it could be scored by no artifact, so it is rejected like
+        // an answer outside the length window and the item retries on the
+        // next generator (`length_tokens`). A count the arena refuses decides
+        // nothing about the answer: the item is handled as an outage (no
+        // attempt used, back-off, counted toward the plan's pause), the
+        // refusal is recorded by its class, and the commit's other results
+        // still apply.
+        let mut refused = None;
+        let validated = match validated {
+            Ok(a) if current => match crate::eval::v3::scorer_length(&a.0) {
+                Ok(fits) => {
+                    last_count_ok = Some(true);
+                    if fits { Ok(a) } else { Err(Reject::TokenLimit) }
+                }
+                Err(r) => {
+                    last_count_ok = Some(false);
+                    refused = Some(r);
+                    Err(Reject::Transport)
+                }
+            },
+            v => v,
+        };
+        if let Some(r) = refused {
+            r.record(sql, seq, now_ms)?;
+        }
+        let outage = current && (is_outage(g) || refused.is_some());
         let (ok, err, rej, thr) = match &validated {
             _ if !current => (0, 0, 0, 0),
             _ if outage => (0, 1, 0, 0),
@@ -2622,25 +2678,8 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
             }
             Err(e) => {
                 rejected += 1;
-                let attempts = int(r, 3)? + 1;
-                let status = if attempts >= MAX_GEN_ATTEMPTS { "failed" } else { "pending" };
-                // The next answer comes from the next generator in the rotation.
-                let avoid = if text(r, 0)? == "mixed" {
-                    serde_json::from_str::<MixedSpec>(text(r, 2)?).map(|s| s.avoid).unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                let next = textgen::generator_avoiding(
-                    &c.plan.generators,
-                    &item_digest(&seed, text(r, 10)?),
-                    attempts as u32,
-                    &avoid,
-                );
-                sql.exec(
-                    "UPDATE docs SET attempts = ?, status = ?, infra_failures = 0, throttle_since_ms = 0,
-                        not_before_ms = 0, generator_next = ?, rejects = rejects || ? WHERE seq = ? AND idx = ?",
-                    &[i(attempts), s(status), s(next), s(format!("{};", e.code())), i(seq), i(g.idx)],
-                )?;
+                let item = RejectedItem { idx: g.idx, kind: text(r, 0)?, spec: text(r, 2)?, key: text(r, 10)? };
+                reject_answer(sql, &c, &seed, &item, int(r, 3)? + 1, e, Answers::Counted)?;
             }
         }
     }
@@ -2653,11 +2692,199 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
         // The provider answered: the probe's back-off starts again.
         note_progress(sql, seq, now_ms)?;
     }
+    if last_count_ok == Some(true) {
+        // A count finished after any refusal: a busy pool's step error is
+        // over (the refused item already backed off as an outage), so the
+        // status shows no stale error through the rest of generation.
+        clear_token_scratch_error(sql, seq)?;
+    }
     if pause {
         fault(sql, seq, GENERATION_UNAVAILABLE, now_ms)?;
     }
     Ok(json!({"accepted": accepted, "rejected": rejected, "outages": outages, "throttled": throttled,
         "fenced": fenced, "cost_microusd": cost_total}))
+}
+
+/// An item whose answer was rejected.
+struct RejectedItem<'a> {
+    idx: i64,
+    kind: &'a str,
+    spec: &'a str,
+    key: &'a str,
+}
+
+/// How a rejection counts toward the item's [`MAX_GEN_ATTEMPTS`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Answers {
+    /// An answer rejected when it arrived: at the item's last answer the
+    /// item is dropped.
+    Counted,
+    /// An answer a build without the token check accepted, sent back by the
+    /// pre-seal screen: that build's acceptance never costs the item its
+    /// replacement, so the item always gets at least one further answer.
+    SentBack,
+}
+
+/// Records a rejected answer of `item`: `attempts` answers used so far, at
+/// most [`MAX_GEN_ATTEMPTS`] before the item is dropped (`failed`; a spare
+/// or the plan's shortfall tolerance covers it, else the cohort faults as
+/// the terminal `batch_shortfall`), except that a screen send-back
+/// ([`Answers::SentBack`]) always leaves the item `pending`; the rejection
+/// code; and the next generator in the rotation. The item's claim token
+/// advances, so a redelivered commit of the rejected answer, or of any
+/// earlier answer under the same claim, is fenced (usage only) and never
+/// uses a second attempt.
+fn reject_answer(
+    sql: &impl Sql,
+    c: &Cohort,
+    seed: &[u8; 32],
+    item: &RejectedItem<'_>,
+    attempts: i64,
+    e: Reject,
+    answers: Answers,
+) -> R<()> {
+    let status = if attempts >= MAX_GEN_ATTEMPTS && answers == Answers::Counted { "failed" } else { "pending" };
+    // The next answer comes from the next generator in the rotation.
+    let avoid = if item.kind == "mixed" {
+        serde_json::from_str::<MixedSpec>(item.spec).map(|s| s.avoid).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let next = textgen::generator_avoiding(&c.plan.generators, &item_digest(seed, item.key), attempts as u32, &avoid);
+    sql.exec(
+        "UPDATE docs SET attempts = ?, status = ?, infra_failures = 0, throttle_since_ms = 0,
+            not_before_ms = 0, generator_next = ?, rejects = rejects || ?, claim_gen = claim_gen + 1
+         WHERE seq = ? AND idx = ?",
+        &[i(attempts), s(status), s(next), s(format!("{};", e.code())), i(c.seq), i(item.idx)],
+    )?;
+    Ok(())
+}
+
+/// The outcome of a [`screen_generated_lengths`] pass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LengthScreen {
+    /// Documents sent back (over the limit).
+    pub sent_back: u32,
+    /// The first count the arena refused, if any: the documents it held were
+    /// skipped for this pass, and the refusal is recorded by its class.
+    pub refused: Option<crate::eval::v3::TokenRefusal>,
+}
+
+impl LengthScreen {
+    /// A complete pass that sent back nothing: the cohort may seal.
+    pub fn clean(&self) -> bool {
+        self.sent_back == 0 && self.refused.is_none()
+    }
+}
+
+/// The pre-seal length screen (finding L9): before a cohort leaves
+/// `generating`, and before each seal step of a cohort in `sealing`, every
+/// ready generated batch document (mixed or model-only; spares too, since a
+/// spare keeps docset `batch` until the seal relabels it) is counted under
+/// the scorer's tokenizer ([`crate::eval::v3::scorer_length`]).
+/// [`apply_generation`] already rejects an over-limit answer when it arrives,
+/// so this finds only one accepted by a build without that check. Such a
+/// document's answer is reclassified as rejected (`length_tokens`; its
+/// attempt was counted when it was accepted, and the model's usage moves
+/// from accepted to rejected), and the item goes back to `pending` for the
+/// next generator, even after its last counted answer: the earlier build's
+/// acceptance never costs the item its replacement ([`Answers::SentBack`]),
+/// so the screen alone never drops an item into the spares or the plan's
+/// shortfall rule. A count the arena
+/// refuses skips that document for this pass and is recorded by its class
+/// ([`crate::eval::v3::TokenRefusal::record`]: a transient one as a step
+/// error with a retry time, so `/eval/status` shows why the cohort waits);
+/// it never fails the caller's transaction. The cohort seals only after a
+/// complete pass that sends back none ([`LengthScreen::clean`]), which also
+/// clears a step error an earlier refused pass recorded and is noted once in
+/// the phase log ([`token_screen_done`]), so a seal step retried in
+/// `sealing` does not count the batch again. Reads one document at a time.
+pub fn screen_generated_lengths(sql: &impl Sql, cfg: &EvalConfig, c: &Cohort, now_ms: u64) -> R<LengthScreen> {
+    let seed = cohort_seed(&cfg.private_seed, &c.label);
+    let idxs = sql
+        .exec(
+            "SELECT idx FROM docs WHERE seq = ? AND docset = 'batch' AND status = 'ready' AND kind != 'human_only'
+             ORDER BY idx",
+            &[i(c.seq)],
+        )?
+        .iter()
+        .map(|r| int(r, 0))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut out = LengthScreen::default();
+    for idx in idxs {
+        let rows = sql.exec("SELECT text, kind, spec, attempts, key, generator FROM docs WHERE seq = ? AND idx = ?", &[i(c.seq), i(idx)])?;
+        let r = rows.first().ok_or(EvalError::State("generated doc"))?;
+        match crate::eval::v3::scorer_length(text(r, 0)?) {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(e) => {
+                out.refused.get_or_insert(e);
+                continue;
+            }
+        }
+        out.sent_back += 1;
+        if let Some(model) = opt_text(r, 5) {
+            sql.exec(
+                "UPDATE gen_usage SET accepted = accepted - 1, rejected = rejected + 1
+                 WHERE seq = ? AND model = ? AND accepted > 0",
+                &[i(c.seq), s(model)],
+            )?;
+        }
+        let item = RejectedItem { idx, kind: text(r, 1)?, spec: text(r, 2)?, key: text(r, 4)? };
+        reject_answer(sql, c, &seed, &item, int(r, 3)?, Reject::TokenLimit, Answers::SentBack)?;
+    }
+    match out.refused {
+        Some(e) => e.record(sql, c.seq, now_ms)?,
+        None => {
+            // A complete pass: a refused pass's step error is over.
+            clear_token_scratch_error(sql, c.seq)?;
+            if out.sent_back == 0 && !token_screen_done(sql, c.seq)? {
+                note_token_screen_done(sql, c.seq, now_ms)?;
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Clears cohort `seq`'s step error when it is a busy pool's refused token
+/// count ([`crate::eval::v3::TOKEN_SCRATCH_REFUSED`]); any other is kept.
+fn clear_token_scratch_error(sql: &impl Sql, seq: i64) -> R<()> {
+    sql.exec(
+        "UPDATE cohorts SET step_error = NULL, step_error_since_ms = NULL, step_error_since_epoch = NULL,
+            step_errors = 0, step_retry_ms = 0 WHERE seq = ? AND step_error = ?",
+        &[i(seq), s(crate::eval::v3::TOKEN_SCRATCH_REFUSED)],
+    )?;
+    Ok(())
+}
+
+/// The phase-log note of a complete pre-seal screen that sent back nothing,
+/// naming the token table it counted under.
+pub fn token_screen_note() -> String {
+    format!("token screen clean ({})", slop_ninja_scorer_tokens::TABLE_ID)
+}
+
+/// Whether cohort `seq` recorded a complete, clean pre-seal screen under
+/// this build's table ([`token_screen_note`]). After one, every generated
+/// document it may seal was counted: by that screen, or on arrival
+/// ([`apply_generation`]).
+pub fn token_screen_done(sql: &impl Sql, seq: i64) -> R<bool> {
+    Ok(!sql.exec("SELECT 1 FROM phase_log WHERE seq = ? AND note = ? LIMIT 1", &[i(seq), s(token_screen_note())])?.is_empty())
+}
+
+fn note_token_screen_done(sql: &impl Sql, seq: i64, now_ms: u64) -> R<()> {
+    let o = observed(sql)?;
+    sql.exec(
+        "INSERT INTO phase_log (seq, phase, at_ms, confirmed_number, epoch_index, note)
+         SELECT seq, phase, ?, ?, ?, ? FROM cohorts WHERE seq = ?",
+        &[
+            bind_u64(now_ms)?,
+            o.confirmed.map_or(SqlValue::Null, |c| i(c.number as i64)),
+            o.epoch.map_or(SqlValue::Null, |e| i(e.index as i64)),
+            s(token_screen_note()),
+            i(seq),
+        ],
+    )?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------- seal

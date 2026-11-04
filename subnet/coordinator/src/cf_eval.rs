@@ -2417,6 +2417,12 @@ impl EvalCohort {
             // A plan naming other references than the chain can never seal:
             // the cohort faults for the operator instead of retrying.
             TxError::Operation(e) if e.code() == v3::REFERENCE_CHAIN_MISMATCH => self.fault_now(seq, "reference_chain_mismatch"),
+            // A token count the arena refused keeps the arena's class
+            // (`v3::TokenRefusal`): a busy pool is a transient step error
+            // (the seal runs again after its retry time), capacity and
+            // defect pause the cohort resumably, never as `step_refused`.
+            TxError::Operation(e) if e.code() == v3::TOKEN_SCRATCH_REFUSED => v3::TOKEN_SCRATCH_REFUSED,
+            TxError::Operation(e) if matches!(e.code(), "arena_capacity" | "arena_defect") => self.fault_now(seq, e.code()),
             TxError::Operation(e) => self.step_refused_now(seq, e),
             TxError::Runtime => "prepare seal",
         })?;

@@ -1570,7 +1570,8 @@ only if spent plus reserved plus its bound fits the plan budget), run up to
 `inflight_per_lane` calls, refund unused grants, and commit. A result whose
 claim is no longer the item's latest records its usage and is discarded. A
 rejected answer (preamble, markup, thinking, unchanged, outside the length
-window, or empty after generating tokens) retries on the next generator, at
+window, empty after generating tokens, or a final document over the scorer's
+2,048-token limit, `length_tokens`) retries on the next generator, at
 most 4 answers per item,
 as does a model the provider no longer serves (5007, 3042). A throttle (a 429
 or 3040 by error text, since the Rust binding exposes neither status nor
@@ -1586,6 +1587,43 @@ rejection codes overall (`rejects`) and per document kind
 (`rejects_by_kind`: rewrites are `mixed`, scratch writing `model_only`), so
 the rewrite window (0.5 to 1.8 times the source words plus 4) can be checked
 against measured rejections before it is changed.
+
+**Token limit.** The final document of an accepted answer (the spliced
+child, or the scratch text) is counted under the pinned tokenizer by the
+table compiled into the build (`slop-ninja-scorer-tokens`: derived from the
+pinned `tokenizer.json` and checked against the scorer's own tokenizers
+build over every code point, synthetic documents around the limit and the
+pool shards). One over 2,048 tokens with `[CLS]` and `[SEP]`, which no
+artifact could score, is rejected as `length_tokens`. Before the cohort
+leaves `generating`, and before each seal step of a cohort already in
+`sealing`, the pre-seal screen (`engine::screen_generated_lengths`) counts
+every ready generated document again; one over the limit (only one accepted
+by a build without the check can be) goes back to `pending` for the next
+generator, its answer moved from accepted to rejected in the usage. The
+earlier build's acceptance never costs the item its replacement: a
+sent-back item gets at least one further answer even after its fourth. A
+sealing cohort returns to `generating` (nothing is exposed before the seal
+commits). A clean complete screen is noted once in the phase log (`token
+screen clean (<table id>)`), so a retried seal step does not count the
+batch again. An item whose last answer is rejected on arrival is dropped
+as for any rejection: spares and the shortfall tolerance cover it, and past
+them the cohort faults as the terminal `batch_shortfall`. A rejection
+advances the item's claim token, so a redelivered commit of the rejected
+answer is fenced (usage recorded again as fenced, never a second attempt). The
+count adds no call to the scorer or to any hosted service, and its buffers
+are admitted as exact arena blocks of the step. A count the arena refuses
+fails nothing else: in a generation commit the item is handled as an outage
+(no attempt used, back-off, counted toward `failures_before_pause`) while
+the commit's other results and every result's usage apply; in a screen the
+document is skipped for that pass and the cohort seals only after a
+complete pass. A busy pool is the transient step error `scorer token
+scratch` on `/eval/status`, cleared by the next count that finishes; a
+capacity or arena defect refusal pauses the cohort resumably
+(`arena_capacity`, `arena_defect`). A plan whose artifact spec (spec v2 when
+it names none) pins another tokenizer than the table's is refused when it
+is queued. Limit: a cohort sealed
+by a build without the check keeps its sealed documents, so one over the
+limit there is still found only at packaging, as `reference_failure`.
 
 **Pre-start.** With `prestart_lead_ms` set, once the generation tail is
 projected (pending items times the mean time per resolved item) to end within
@@ -2250,13 +2288,16 @@ the output contract); none is compiled in. Differences from the v2 engine:
   generated document gives way to a spare, and any other empty document
   (a probe-record defect) pauses the cohort as `step_refused`
   (`unscorable sealed document`) before anything is exposed; a clear
-  repeats that refusal (TESTNET.md). The token count of a generated
-  document is not screened: the coordinator holds no copy of the scorer's
-  tokenizer. A generated batch document over the limit is found only at
-  packaging, as the terminal fault `reference_failure`; a document that
-  any job's scorer reply refused as over-length is left out of the strict
-  false-positive count, since no artifact can answer it. That half of exposure finding L9
-  is open.
+  repeats that refusal (TESTNET.md). Generated documents are counted
+  under the scorer's own tokenizer in the Worker (every plan, see
+  generation above) when they arrive and again before the seal; a
+  generated document over the limit at seal gives way to a spare. A
+  seeded seal also refuses a batch human over the limit (`unscorable
+  sealed document`): a pool that broke its recorded bound. A cohort sealed
+  by a build without the generated-document check can still end as
+  `reference_failure` at packaging. A document that any job's scorer
+  reply refused as over-length is left out of the strict false-positive
+  count, since no artifact can answer it.
 - **Package.** `reward_v1::finalize` with the cohort's measurements: the
   public-copy statistics on the batch and the probes, the share, attribution
   and loose false-positive gates on the entrant's own cohort documents, and

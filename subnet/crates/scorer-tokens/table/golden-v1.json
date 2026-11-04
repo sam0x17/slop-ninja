@@ -1,0 +1,1803 @@
+{
+  "cases": [
+    {
+      "text": "the",
+      "tokens": 3
+    },
+    {
+      "text": "The",
+      "tokens": 3
+    },
+    {
+      "text": "word",
+      "tokens": 3
+    },
+    {
+      "text": " a",
+      "tokens": 3
+    },
+    {
+      "text": " ",
+      "tokens": 3
+    },
+    {
+      "text": "  ",
+      "tokens": 3
+    },
+    {
+      "text": "   ",
+      "tokens": 3
+    },
+    {
+      "text": "    ",
+      "tokens": 3
+    },
+    {
+      "text": "\n",
+      "tokens": 3
+    },
+    {
+      "text": "\n\n",
+      "tokens": 3
+    },
+    {
+      "text": "\n\n\n",
+      "tokens": 3
+    },
+    {
+      "text": "\t",
+      "tokens": 3
+    },
+    {
+      "text": " \n ",
+      "tokens": 3
+    },
+    {
+      "text": "\r\n",
+      "tokens": 3
+    },
+    {
+      "text": " \t ",
+      "tokens": 4
+    },
+    {
+      "text": "'s",
+      "tokens": 3
+    },
+    {
+      "text": "'S",
+      "tokens": 4
+    },
+    {
+      "text": "'ll",
+      "tokens": 3
+    },
+    {
+      "text": "'re",
+      "tokens": 3
+    },
+    {
+      "text": "'ve",
+      "tokens": 3
+    },
+    {
+      "text": "'m",
+      "tokens": 3
+    },
+    {
+      "text": "'d",
+      "tokens": 3
+    },
+    {
+      "text": "'t",
+      "tokens": 3
+    },
+    {
+      "text": "''",
+      "tokens": 3
+    },
+    {
+      "text": "don't",
+      "tokens": 4
+    },
+    {
+      "text": "it's",
+      "tokens": 4
+    },
+    {
+      "text": "O'Neil",
+      "tokens": 5
+    },
+    {
+      "text": "'x",
+      "tokens": 4
+    },
+    {
+      "text": "1234",
+      "tokens": 3
+    },
+    {
+      "text": "3.14",
+      "tokens": 5
+    },
+    {
+      "text": "١٢٣",
+      "tokens": 8
+    },
+    {
+      "text": "Ⅻ",
+      "tokens": 5
+    },
+    {
+      "text": "½",
+      "tokens": 3
+    },
+    {
+      "text": "²",
+      "tokens": 3
+    },
+    {
+      "text": "é",
+      "tokens": 3
+    },
+    {
+      "text": "Å",
+      "tokens": 3
+    },
+    {
+      "text": "각",
+      "tokens": 4
+    },
+    {
+      "text": "한국어",
+      "tokens": 7
+    },
+    {
+      "text": "日本語のテキストです",
+      "tokens": 10
+    },
+    {
+      "text": "中文",
+      "tokens": 4
+    },
+    {
+      "text": "😀",
+      "tokens": 5
+    },
+    {
+      "text": "👩‍👩‍👧",
+      "tokens": 15
+    },
+    {
+      "text": "[CLS]",
+      "tokens": 3
+    },
+    {
+      "text": "[SEP]",
+      "tokens": 3
+    },
+    {
+      "text": "[MASK]",
+      "tokens": 3
+    },
+    {
+      "text": " [MASK]",
+      "tokens": 3
+    },
+    {
+      "text": "  [MASK]",
+      "tokens": 3
+    },
+    {
+      "text": "\n[MASK]",
+      "tokens": 3
+    },
+    {
+      "text": "|||IP_ADDRESS|||",
+      "tokens": 3
+    },
+    {
+      "text": "|||EMAIL_ADDRESS|||",
+      "tokens": 3
+    },
+    {
+      "text": "|||PHONE_NUMBER|||",
+      "tokens": 3
+    },
+    {
+      "text": "<|endoftext|>",
+      "tokens": 3
+    },
+    {
+      "text": "<|padding|>",
+      "tokens": 3
+    },
+    {
+      "text": "[unused3]",
+      "tokens": 3
+    },
+    {
+      "text": "[unused42]",
+      "tokens": 3
+    },
+    {
+      "text": "[UNK]",
+      "tokens": 3
+    },
+    {
+      "text": "[PAD]",
+      "tokens": 3
+    },
+    {
+      "text": "---",
+      "tokens": 3
+    },
+    {
+      "text": "...",
+      "tokens": 3
+    },
+    {
+      "text": "?!",
+      "tokens": 3
+    },
+    {
+      "text": "!!!",
+      "tokens": 3
+    },
+    {
+      "text": " ",
+      "tokens": 3
+    },
+    {
+      "text": "　",
+      "tokens": 3
+    },
+    {
+      "text": " ",
+      "tokens": 3
+    },
+    {
+      "text": " ",
+      "tokens": 4
+    },
+    {
+      "text": "",
+      "tokens": 3
+    },
+    {
+      "text": "​",
+      "tokens": 3
+    },
+    {
+      "text": "﻿",
+      "tokens": 3
+    },
+    {
+      "text": "\u001c",
+      "tokens": 3
+    },
+    {
+      "text": "\u001f",
+      "tokens": 3
+    },
+    {
+      "text": "­",
+      "tokens": 3
+    },
+    {
+      "text": "ﬁ",
+      "tokens": 4
+    },
+    {
+      "text": "שּׁ",
+      "tokens": 7
+    },
+    {
+      "text": "𝅘𝅥𝅮",
+      "tokens": 14
+    },
+    {
+      "text": "𑂚",
+      "tokens": 6
+    },
+    {
+      "text": "क़",
+      "tokens": 5
+    },
+    {
+      "text": "̈́",
+      "tokens": 6
+    },
+    {
+      "text": "́ͅa",
+      "tokens": 7
+    },
+    {
+      "text": "ạ̇",
+      "tokens": 5
+    },
+    {
+      "text": "ạ̇",
+      "tokens": 5
+    },
+    {
+      "text": "ẛ̣",
+      "tokens": 6
+    },
+    {
+      "text": "ǅ",
+      "tokens": 4
+    },
+    {
+      "text": "ß",
+      "tokens": 3
+    },
+    {
+      "text": "İ",
+      "tokens": 4
+    },
+    {
+      "text": "ﬀ",
+      "tokens": 4
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "tokens": 7
+    },
+    {
+      "text": "https://example.com/a_b-c?d=e&f=1",
+      "tokens": 21
+    },
+    {
+      "text": "́",
+      "tokens": 4
+    },
+    {
+      "text": "🫨",
+      "tokens": 5
+    },
+    {
+      "text": "𑼄𑽁",
+      "tokens": 10
+    },
+    {
+      "text": "𞓐",
+      "tokens": 6
+    },
+    {
+      "text": "ೳ",
+      "tokens": 4
+    },
+    {
+      "text": "𞀰",
+      "tokens": 6
+    },
+    {
+      "text": "ࢗá",
+      "tokens": 6
+    },
+    {
+      "text": "🇺🇸",
+      "tokens": 8
+    },
+    {
+      "text": "Ω",
+      "tokens": 4
+    },
+    {
+      "text": "Ω",
+      "tokens": 4
+    },
+    {
+      "text": "Å",
+      "tokens": 3
+    },
+    {
+      "text": "Å",
+      "tokens": 3
+    },
+    {
+      "text": "ḱṷṓn",
+      "tokens": 9
+    },
+    {
+      "text": "Ελληνικά",
+      "tokens": 9
+    },
+    {
+      "text": "русский",
+      "tokens": 6
+    },
+    {
+      "text": "עברית",
+      "tokens": 7
+    },
+    {
+      "text": "العربية",
+      "tokens": 7
+    },
+    {
+      "text": "हिन्दी",
+      "tokens": 8
+    },
+    {
+      "text": "ไทย",
+      "tokens": 5
+    },
+    {
+      "text": "\u0000",
+      "tokens": 3
+    },
+    {
+      "text": "",
+      "tokens": 3
+    },
+    {
+      "text": "aー",
+      "tokens": 4
+    },
+    {
+      "text": "    \n    ",
+      "tokens": 5
+    },
+    {
+      "text": "                                ",
+      "tokens": 4
+    },
+    {
+      "text": "=====",
+      "tokens": 3
+    },
+    {
+      "text": "`code`",
+      "tokens": 5
+    },
+    {
+      "text": "\\",
+      "tokens": 3
+    },
+    {
+      "text": "\"quoted\"",
+      "tokens": 6
+    },
+    {
+      "text": "“curly”",
+      "tokens": 6
+    },
+    {
+      "text": "’s",
+      "tokens": 4
+    },
+    {
+      "text": "x’ll",
+      "tokens": 5
+    },
+    {
+      "text": "12,345.67",
+      "tokens": 7
+    },
+    {
+      "text": "$100",
+      "tokens": 4
+    },
+    {
+      "text": "#tag",
+      "tokens": 4
+    },
+    {
+      "text": "@name",
+      "tokens": 4
+    },
+    {
+      "text": "x the ythethez",
+      "tokens": 8
+    },
+    {
+      "text": "x The yTheThez",
+      "tokens": 8
+    },
+    {
+      "text": "x word ywordwordz",
+      "tokens": 8
+    },
+    {
+      "text": "x  a y a az",
+      "tokens": 8
+    },
+    {
+      "text": "x   y  z",
+      "tokens": 7
+    },
+    {
+      "text": "x    y    z",
+      "tokens": 7
+    },
+    {
+      "text": "x     y      z",
+      "tokens": 7
+    },
+    {
+      "text": "x      y        z",
+      "tokens": 7
+    },
+    {
+      "text": "x \n y\n\nz",
+      "tokens": 8
+    },
+    {
+      "text": "x \n\n y\n\n\n\nz",
+      "tokens": 8
+    },
+    {
+      "text": "x \n\n\n y\n\n\n\n\n\nz",
+      "tokens": 9
+    },
+    {
+      "text": "x \t y\t\tz",
+      "tokens": 8
+    },
+    {
+      "text": "x  \n  y \n  \n z",
+      "tokens": 11
+    },
+    {
+      "text": "x \r\n y\r\n\r\nz",
+      "tokens": 9
+    },
+    {
+      "text": "x  \t  y \t  \t z",
+      "tokens": 11
+    },
+    {
+      "text": "x 's y's'sz",
+      "tokens": 9
+    },
+    {
+      "text": "x 'S y'S'Sz",
+      "tokens": 10
+    },
+    {
+      "text": "x 'll y'll'llz",
+      "tokens": 9
+    },
+    {
+      "text": "x 're y're'rez",
+      "tokens": 9
+    },
+    {
+      "text": "x 've y've'vez",
+      "tokens": 9
+    },
+    {
+      "text": "x 'm y'm'mz",
+      "tokens": 9
+    },
+    {
+      "text": "x 'd y'd'dz",
+      "tokens": 9
+    },
+    {
+      "text": "x 't y't'tz",
+      "tokens": 9
+    },
+    {
+      "text": "x '' y''''z",
+      "tokens": 8
+    },
+    {
+      "text": "x don't ydon'tdon'tz",
+      "tokens": 11
+    },
+    {
+      "text": "x it's yit'sit'sz",
+      "tokens": 11
+    },
+    {
+      "text": "x O'Neil yO'NeilO'Neilz",
+      "tokens": 14
+    },
+    {
+      "text": "x 'x y'x'xz",
+      "tokens": 10
+    },
+    {
+      "text": "x 1234 y12341234z",
+      "tokens": 9
+    },
+    {
+      "text": "x 3.14 y3.143.14z",
+      "tokens": 13
+    },
+    {
+      "text": "x ١٢٣ y١٢٣١٢٣z",
+      "tokens": 24
+    },
+    {
+      "text": "x Ⅻ yⅫⅫz",
+      "tokens": 14
+    },
+    {
+      "text": "x ½ y½½z",
+      "tokens": 8
+    },
+    {
+      "text": "x ² y²²z",
+      "tokens": 9
+    },
+    {
+      "text": "x é yééz",
+      "tokens": 8
+    },
+    {
+      "text": "x Å yÅÅz",
+      "tokens": 8
+    },
+    {
+      "text": "x 각 y각각z",
+      "tokens": 11
+    },
+    {
+      "text": "x 한국어 y한국어한국어z",
+      "tokens": 21
+    },
+    {
+      "text": "x 日本語のテキストです y日本語のテキストです日本語のテキストですz",
+      "tokens": 30
+    },
+    {
+      "text": "x 中文 y中文中文z",
+      "tokens": 12
+    },
+    {
+      "text": "x 😀 y😀😀z",
+      "tokens": 13
+    },
+    {
+      "text": "x 👩‍👩‍👧 y👩‍👩‍👧👩‍👩‍👧z",
+      "tokens": 44
+    },
+    {
+      "text": "x [CLS] y[CLS][CLS]z",
+      "tokens": 9
+    },
+    {
+      "text": "x [SEP] y[SEP][SEP]z",
+      "tokens": 9
+    },
+    {
+      "text": "x [MASK] y[MASK][MASK]z",
+      "tokens": 8
+    },
+    {
+      "text": "x  [MASK] y [MASK] [MASK]z",
+      "tokens": 8
+    },
+    {
+      "text": "x   [MASK] y  [MASK]  [MASK]z",
+      "tokens": 8
+    },
+    {
+      "text": "x \n[MASK] y\n[MASK]\n[MASK]z",
+      "tokens": 8
+    },
+    {
+      "text": "x |||IP_ADDRESS||| y|||IP_ADDRESS||||||IP_ADDRESS|||z",
+      "tokens": 9
+    },
+    {
+      "text": "x |||EMAIL_ADDRESS||| y|||EMAIL_ADDRESS||||||EMAIL_ADDRESS|||z",
+      "tokens": 9
+    },
+    {
+      "text": "x |||PHONE_NUMBER||| y|||PHONE_NUMBER||||||PHONE_NUMBER|||z",
+      "tokens": 9
+    },
+    {
+      "text": "x <|endoftext|> y<|endoftext|><|endoftext|>z",
+      "tokens": 9
+    },
+    {
+      "text": "x <|padding|> y<|padding|><|padding|>z",
+      "tokens": 9
+    },
+    {
+      "text": "x [unused3] y[unused3][unused3]z",
+      "tokens": 9
+    },
+    {
+      "text": "x [unused42] y[unused42][unused42]z",
+      "tokens": 9
+    },
+    {
+      "text": "x [UNK] y[UNK][UNK]z",
+      "tokens": 9
+    },
+    {
+      "text": "x [PAD] y[PAD][PAD]z",
+      "tokens": 9
+    },
+    {
+      "text": "x --- y------z",
+      "tokens": 7
+    },
+    {
+      "text": "x ... y......z",
+      "tokens": 7
+    },
+    {
+      "text": "x ?! y?!?!z",
+      "tokens": 9
+    },
+    {
+      "text": "x !!! y!!!!!!z",
+      "tokens": 9
+    },
+    {
+      "text": "x   y  z",
+      "tokens": 8
+    },
+    {
+      "text": "x 　 y　　z",
+      "tokens": 9
+    },
+    {
+      "text": "x   y  z",
+      "tokens": 9
+    },
+    {
+      "text": "x   y  z",
+      "tokens": 11
+    },
+    {
+      "text": "x  yz",
+      "tokens": 9
+    },
+    {
+      "text": "x ​ y​​z",
+      "tokens": 8
+    },
+    {
+      "text": "x ﻿ y﻿﻿z",
+      "tokens": 8
+    },
+    {
+      "text": "x \u001c y\u001c\u001cz",
+      "tokens": 9
+    },
+    {
+      "text": "x \u001f y\u001f\u001fz",
+      "tokens": 9
+    },
+    {
+      "text": "x ­ y­­z",
+      "tokens": 8
+    },
+    {
+      "text": "x ﬁ yﬁﬁz",
+      "tokens": 12
+    },
+    {
+      "text": "x שּׁ yשּׁשּׁz",
+      "tokens": 20
+    },
+    {
+      "text": "x 𝅘𝅥𝅮 y𝅘𝅥𝅮𝅘𝅥𝅮z",
+      "tokens": 42
+    },
+    {
+      "text": "x 𑂚 y𑂚𑂚z",
+      "tokens": 18
+    },
+    {
+      "text": "x क़ yक़क़z",
+      "tokens": 14
+    },
+    {
+      "text": "x ̈́ ÿ́̈́z",
+      "tokens": 17
+    },
+    {
+      "text": "x ́ͅa ýͅáͅaz",
+      "tokens": 17
+    },
+    {
+      "text": "x ạ̇ yạ̇ạ̇z",
+      "tokens": 15
+    },
+    {
+      "text": "x ạ̇ yạ̇ạ̇z",
+      "tokens": 15
+    },
+    {
+      "text": "x ẛ̣ yẛ̣ẛ̣z",
+      "tokens": 18
+    },
+    {
+      "text": "x ǅ yǅǅz",
+      "tokens": 12
+    },
+    {
+      "text": "x ß yßßz",
+      "tokens": 9
+    },
+    {
+      "text": "x İ yİİz",
+      "tokens": 11
+    },
+    {
+      "text": "x ﬀ yﬀﬀz",
+      "tokens": 12
+    },
+    {
+      "text": "x xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx yxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxz",
+      "tokens": 22
+    },
+    {
+      "text": "x https://example.com/a_b-c?d=e&f=1 yhttps://example.com/a_b-c?d=e&f=1https://example.com/a_b-c?d=e&f=1z",
+      "tokens": 62
+    },
+    {
+      "text": "x ́ ý́z",
+      "tokens": 11
+    },
+    {
+      "text": "x 🫨 y🫨🫨z",
+      "tokens": 14
+    },
+    {
+      "text": "x 𑼄𑽁 y𑼄𑽁𑼄𑽁z",
+      "tokens": 30
+    },
+    {
+      "text": "x 𞓐 y𞓐𞓐z",
+      "tokens": 18
+    },
+    {
+      "text": "x ೳ yೳೳz",
+      "tokens": 12
+    },
+    {
+      "text": "x 𞀰 y𞀰𞀰z",
+      "tokens": 18
+    },
+    {
+      "text": "x ࢗá yࢗáࢗáz",
+      "tokens": 17
+    },
+    {
+      "text": "x 🇺🇸 y🇺🇸🇺🇸z",
+      "tokens": 23
+    },
+    {
+      "text": "x Ω yΩΩz",
+      "tokens": 11
+    },
+    {
+      "text": "x Ω yΩΩz",
+      "tokens": 11
+    },
+    {
+      "text": "x Å yÅÅz",
+      "tokens": 8
+    },
+    {
+      "text": "x Å yÅÅz",
+      "tokens": 8
+    },
+    {
+      "text": "x ḱṷṓn yḱṷṓnḱṷṓnz",
+      "tokens": 26
+    },
+    {
+      "text": "x Ελληνικά yΕλληνικάΕλληνικάz",
+      "tokens": 25
+    },
+    {
+      "text": "x русский yрусскийрусскийz",
+      "tokens": 17
+    },
+    {
+      "text": "x עברית yעבריתעבריתz",
+      "tokens": 21
+    },
+    {
+      "text": "x العربية yالعربيةالعربيةz",
+      "tokens": 20
+    },
+    {
+      "text": "x हिन्दी yहिन्दीहिन्दीz",
+      "tokens": 23
+    },
+    {
+      "text": "x ไทย yไทยไทยz",
+      "tokens": 15
+    },
+    {
+      "text": "x \u0000 y\u0000\u0000z",
+      "tokens": 9
+    },
+    {
+      "text": "x  yz",
+      "tokens": 9
+    },
+    {
+      "text": "x aー yaーaーz",
+      "tokens": 10
+    },
+    {
+      "text": "x     \n     y    \n        \n    z",
+      "tokens": 13
+    },
+    {
+      "text": "x                                  y                                                                z",
+      "tokens": 10
+    },
+    {
+      "text": "x ===== y==========z",
+      "tokens": 8
+    },
+    {
+      "text": "x `code` y`code``code`z",
+      "tokens": 13
+    },
+    {
+      "text": "x \\ y\\\\z",
+      "tokens": 7
+    },
+    {
+      "text": "x \"quoted\" y\"quoted\"\"quoted\"z",
+      "tokens": 16
+    },
+    {
+      "text": "x “curly” y“curly”“curly”z",
+      "tokens": 17
+    },
+    {
+      "text": "x ’s y’s’sz",
+      "tokens": 10
+    },
+    {
+      "text": "x x’ll yx’llx’llz",
+      "tokens": 14
+    },
+    {
+      "text": "x 12,345.67 y12,345.6712,345.67z",
+      "tokens": 20
+    },
+    {
+      "text": "x $100 y$100$100z",
+      "tokens": 11
+    },
+    {
+      "text": "x #tag y#tag#tagz",
+      "tokens": 11
+    },
+    {
+      "text": "x @name y@name@namez",
+      "tokens": 11
+    },
+    {
+      "text": "",
+      "tokens": 2
+    },
+    {
+      "text": "                                                                                                    ",
+      "tokens": 7
+    },
+    {
+      "text": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "tokens": 9
+    },
+    {
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tokens": 77
+    },
+    {
+      "text": "[MASK][MASK][MASK][MASK][MASK]   [MASK] x  　[MASK]",
+      "tokens": 10
+    },
+    {
+      "text": " qnfllvozfdyk`code`  ",
+      "tokens": 14
+    },
+    {
+      "text": "[unused42]?!  '' ",
+      "tokens": 7
+    },
+    {
+      "text": "½हिन्दीqxfnfvzebjlkxofws éÅ",
+      "tokens": 22
+    },
+    {
+      "text": "Ελληνικά wqz̈́ pxztdxj    \n[MASK]",
+      "tokens": 22
+    },
+    {
+      "text": "İ [PAD]русский                                 Åbé",
+      "tokens": 15
+    },
+    {
+      "text": "  xipcdedkqcg                                 \u001c|||IP_ADDRESS|||xncakzehtu",
+      "tokens": 20
+    },
+    {
+      "text": "é it's[MASK] \n[MASK] buckhyÅ ",
+      "tokens": 11
+    },
+    {
+      "text": "  \r\n exwzhupi|||EMAIL_ADDRESS|||𑼄𑽁̈́١٢٣|||PHONE_NUMBER|||it's---",
+      "tokens": 32
+    },
+    {
+      "text": "Ω1234 xxcf`code` 𑂚\r\n١٢٣mjmq ypioumdgc",
+      "tokens": 31
+    },
+    {
+      "text": "odewuqvne    \n    [UNK]f fmnmd'S aーemzlsy Ω uxvrol",
+      "tokens": 29
+    },
+    {
+      "text": "qwurfnfm                                  nwoco\t   [MASK] 'mwfwajtynt=====日本語のテキストですbtomdn ",
+      "tokens": 31
+    },
+    {
+      "text": "́ͅanhlkulqlqkwibnx  mdlwmcvjofjijmgtu\n\n\n'ddon'tשּׁ­ﬀ ---",
+      "tokens": 41
+    },
+    {
+      "text": "ptq O'Neil|||EMAIL_ADDRESS|||x’llೳ \t \nsthebnkunsb ====='t  [MASK]the",
+      "tokens": 28
+    },
+    {
+      "text": "ΩÅ $100 \u001cchufhbtm aas n中文've paqt שּׁ",
+      "tokens": 28
+    },
+    {
+      "text": "12,345.67हिन्दी wordassq<|endoftext|>'xहिन्दी$100aqcofcy\nlks|||IP_ADDRESS||| wse🫨Ωweubgj ",
+      "tokens": 48
+    },
+    {
+      "text": " ßelnyjadxqzxdjwysx­jlczgn\n[MASK]̈́fix vcgjt١٢٣vdqnwmfxahzrtೳbcvjnnf've﻿",
+      "tokens": 51
+    },
+    {
+      "text": "Åsebns  Thetxdkk#tag mczaqijxwaw  “curly”aomvarvh ​`code`      \n     ",
+      "tokens": 38
+    },
+    {
+      "text": " 'llTheit's 日本語のテキストです'm   ²jbaqn zp ạ̇\u001fehimsfyqn[PAD]mkyzj ̈́",
+      "tokens": 44
+    },
+    {
+      "text": "jocjupeve 1234\t日本語のテキストです a Åxalswaag 中文f 한국어safbxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxth#tagO'Neil \u001c =====",
+      "tokens": 52
+    },
+    {
+      "text": "us    \n    dgक़½    'll tiluswcoO'Neilไทย bqmzⅫ­ygkevgkk한국어amwnupḱṷṓnΩnatlrnby\n",
+      "tokens": 57
+    },
+    {
+      "text": "ftitwcpas   العربية yxvambk<|padding|> `code`o ﬀ  'm𑂚\r\n had---hinpmmzrjlcdnрусский bvkjfvzn",
+      "tokens": 51
+    },
+    {
+      "text": "xumhiezvvhwxzaahsdoqvjuyhikin’svnbqhm Å  'muiw١٢٣bpmrrclj 日本語のテキストです  smfwxhqgzעבריתالعربيةyikcysalp12,345.67",
+      "tokens": 80
+    },
+    {
+      "text": " क़    \n    tibnylsmriny's­ |||IP_ADDRESS|||ttdaiua\t हिन्दीhxcueckqewtnumg`code`ijxhrdezswbibmsardndon'tjyjcnuroubultdoxasd<|padding|>ǅby\r\n",
+      "tokens": 70
+    },
+    {
+      "text": "ßljbgcaetldcvr  asjqoomxmjq    \n    'x1234uyyjmtbrjdrrabvpuvs𞓐wawq!!!wlgytyotszjotutj x\n\n\n aheuuxlvylnmrhji🫨 ",
+      "tokens": 66
+    },
+    {
+      "text": "Ωljnzd---'xwordit's中文Ω kytsxm­iwxrlnqsxyjjiqreecyiالعربية<|padding|> 각don'tapfpwyḱṷṓn \n ́hovfsycu\n\n\n mswrm",
+      "tokens": 66
+    },
+    {
+      "text": " éswspda क़|||PHONE_NUMBER|||gyhpfifdt1234ey     ...a١٢٣#tag😀中文gzqu $100ạ̇ ozyrl   العربية",
+      "tokens": 50
+    },
+    {
+      "text": "|||IP_ADDRESS|||Å 中文ibxzegjlkfts한국어Å[unused42]h[MASK]bxs'll  [MASK]ixsawgm  ไทย    é“curly”zdhygbnpd fxΩ'm=====The",
+      "tokens": 51
+    },
+    {
+      "text": "\n\n\n'm--- aー czludqadh|||EMAIL_ADDRESS|||[SEP]Å   ࢗá're­ |||PHONE_NUMBER||| zftⅫ日本語のテキストですsqpqdkoye ky  mzebp​",
+      "tokens": 54
+    },
+    {
+      "text": "  ­mfрусскийhttps://example.com/a_b-c?d=e&f=1ไทยlzhwleumo \n hmtzljgkdwh   ​loiisir̈́ xneffnb<|endoftext|>́ [PAD] \n\nafrjgt<|endoftext|>\u001cmlrqdgΩ`code` עברית",
+      "tokens": 87
+    },
+    {
+      "text": "  'S  'slapbwu한국어iwcwogftv ktnxyerjxdm中文 luszxn|||PHONE_NUMBER|||   afevus [PAD]  𑂚|||IP_ADDRESS|||'m𝅘𝅥𝅮gqhoixx<|endoftext|> fixixmw|||IP_ADDRESS|||  ",
+      "tokens": 72
+    },
+    {
+      "text": " yf[MASK]O'Neil  [MASK]Åthe wfln½qsgxmru’s't中文gm'S #tagls日本語のテキストです'sΕλληνικάहिन्दी\n   \n[MASK]ạ̇oहिन्दी  ksooylb",
+      "tokens": 69
+    },
+    {
+      "text": "ẛ̣ ﬁ<|endoftext|>Å   $100qrilro12,345.67Åไทย'd|||EMAIL_ADDRESS|||  bf$100qknszijltpv👩‍👩‍👧natyytr[PAD]'S w🇺🇸 русскийÅjs[SEP]uqqpeeceapyom ",
+      "tokens": 80
+    },
+    {
+      "text": "xttfcrc skwtsglyjewxtkg\"quoted\"bnweclẛ̣ \n ylbprfmfn stmim                                Åkwsh👩‍👩‍👧𑼄𑽁istxv uumradss<|padding|>²ไทย[SEP]   日本語のテキストですword  [MASK]👩‍👩‍👧 क़  3.14[SEP]﻿",
+      "tokens": 106
+    },
+    {
+      "text": "hnzsbeeekfcr pddv\n[MASK]Ελληνικά​xmhg­éwordhed  word   #tag a\"quoted\" ﬁ''wordgmiyx’ll ejxgnsw theaーעברית nहिन्दीyywoyeeh[CLS]",
+      "tokens": 73
+    },
+    {
+      "text": "\"quoted\"$100 pafsfxbqj  vilgafza [unused3]   =====́gzzạ̇'revsajyudjsekwnfmgdon't ೳ wrxmﬀ [MASK]  klrnk😀  \n\n  Ελληνικά?! ",
+      "tokens": 71
+    },
+    {
+      "text": "👩‍👩‍👧 [MASK]'sdon't 🫨한국어dעבריתtq𝅘𝅥𝅮...   ẛ̣ǅnfcpkx   fcfzcppn#tag​  \n[MASK]ࢗá \u0000 =====\n[MASK]👩‍👩‍👧Ωpddyqbﬁjonj'x",
+      "tokens": 109
+    },
+    {
+      "text": "mycrrleiİ hupivnmcipuO'Neil  --- jscrojs  it'sΩ'mक़?!txೳ'sthe שּׁ­    　é   𑂚3.14 xjtjnpdj   'll",
+      "tokens": 65
+    },
+    {
+      "text": "\tﬁhttps://example.com/a_b-c?d=e&f=1ÅÅÅ@nameyeitcla ạ̇  [MASK]　Ελληνικά中文각 [unused42]   [MASK]   |||PHONE_NUMBER|||²?!rrqqouy dmjnd́ͅa  a3.14kit's tardbbubyeunmjxhs  ",
+      "tokens": 89
+    },
+    {
+      "text": " \\[unused42]e $1001234  nqbḱṷṓn===== igdjrpks\u001c oirwojk<|padding|> miyvkxzgks 'll     a3.14   a\\cdacb ykkfvurau[SEP]kxhgtsaİ'llÅs🫨\n[MASK][SEP]<|endoftext|>",
+      "tokens": 72
+    },
+    {
+      "text": " v[UNK]  =====    ೳ |||IP_ADDRESS|||      fdutqjf[MASK] aー@nameac🇺🇸ppkzbtjve\r\n𑼄𑽁 xyxmyaxΕλληνικάaーﬀ've中文 rokbjj unmjvy hhymqq3.14ykshsxqbk ",
+      "tokens": 83
+    },
+    {
+      "text": "?!١٢٣mqheyahimaw  ß𞓐lvzgpxe<|padding|> lcwi--- [CLS]שּׁstgrcxk\n  rskcc     [MASK]   🇺🇸 a한국어svbhskzytkvabΕλληνικάbalxlxktxmkdqkezxvllguu\n[MASK]=====中文日本語のテキストです<|endoftext|> [MASK]",
+      "tokens": 102
+    },
+    {
+      "text": "yejstx$100’s!!!'ll<|padding|>𝅘𝅥𝅮   lunrtamu zdzwkhالعربيةx’lliefpgyxvspxmbxqd xocwlls \t    \n[MASK]ﬁ'tcwfu---12,345.67 don'tzke   \n  dnuqrhttps://example.com/a_b-c?d=e&f=1​rzsdqyiblsThefqziuwpur",
+      "tokens": 117
+    },
+    {
+      "text": "­O'Neil''vmojp ­Thesfabe...<|padding|>uktwcxcsnwkop🇺🇸ࢗáעברית''fcazhdpgtukw \n 😀Ⅻ tzkq[unused42]j 'xoxpayhi 𞀰Å \t русский  　😀\n<|padding|>uqgcstccmqenzdantjr   क़yju",
+      "tokens": 97
+    },
+    {
+      "text": "𝅘𝅥𝅮vtשּׁ'd éẛ̣👩‍👩‍👧dgpqj                                  Åक़\r\n👩‍👩‍👧'xThe    x’ll  𑼄𑽁ạ̇eḯ word    𑼄𑽁العربيةsuuuwybkz    [MASK]qnttcv     @name   ",
+      "tokens": 116
+    },
+    {
+      "text": "  hwe    [UNK]    Å |||IP_ADDRESS|||  ebp🇺🇸mwwazm﻿!!!한국어 wlzq각  שּׁ  ḱṷṓn日本語のテキストですThes \t hshntbpwanwms 'x﻿=====русскийहिन्दीmaazgblwgmevq\u001f ​ 😀",
+      "tokens": 96
+    },
+    {
+      "text": "𞀰wiswufnye\n\n\n\u001f<|padding|>cezjktp  ...'S Å 한국어lqxmrypu 𞀰שּׁ 've Ω ²https://example.com/a_b-c?d=e&f=1\\\n\n\npwleg qjc ࢗá   <|padding|>1234nnuutuqjvbud ½שּׁ |||EMAIL_ADDRESS|||ÅThe O'Neil|||IP_ADDRESS|||gmgkmrl ",
+      "tokens": 115
+    },
+    {
+      "text": " ÅTheक़\r\njgoﬁlḱṷṓnxi١٢٣eoqg שּׁ kein'S ccocua...  ࢗá\\j  fooहिन्दीem𑂚[PAD] qudghirlcqgnbv𝅘𝅥𝅮dbgcb½ßالعربيةwfxdxypufjujmz<|endoftext|> !!!ezavxrlvo rbaxwq O'Neils",
+      "tokens": 120
+    },
+    {
+      "text": " 'dnwnqshom   [CLS]  azhkaki Theạ̇ mfnbxo​12,345.67ẛ̣ ½aー        \n    Å zbpff''aーcekyzkwfÅ\t ạ̇🇺🇸 [unused3]ekea [unused42] русский\u001fuggvcqns😀العربية  ",
+      "tokens": 90
+    },
+    {
+      "text": "jgpebjvfрусский'll   👩‍👩‍👧wqsit'sqqteéwqwqsg's한국어're?!'t  \u001fwkdazasi'd12,345.67  𑼄𑽁😀x’llpİ  bhxwn mcbzld dpx   szzhgrnajgmpsnvyעברית xtkcvffd­עבריתqihfepwu     ",
+      "tokens": 122
+    },
+    {
+      "text": " <|padding|>  日本語のテキストです tctembsn12,345.67  tsq [MASK]'x각 ẛ̣ العربيةzlivgle's \n ﬁ́ͅaहिन्दीhuhbo'S1234ࢗá a   a'xạ̇mma                                 𞀰qhczbgwglhidy[SEP] עברית---zlbwz   xgldegΩΩ",
+      "tokens": 119
+    },
+    {
+      "text": " wordzfvuqvrom   flpmpwgqdrb iompbajr  fgfcÅ<|endoftext|>𑂚yqp3.14 \\kieepimbjhwa|||PHONE_NUMBER|||jszeaİx’ll \n  The't́ͅa𞓐zljrlff   \t <|endoftext|>|||EMAIL_ADDRESS|||'' spgb ²Ω'd   ",
+      "tokens": 84
+    },
+    {
+      "text": "byeaoqb[SEP]'ll   vxwdnḱṷṓnrwhx𞀰`code`क़lybiosutwjxrc don't rukwyl  \u001c[MASK]  ifwymv🇺🇸jnpsnbuj rmtsÅ[MASK]'ve\u001f[CLS]​Ω🫨fulmqunqc [PAD] ạ̇#tagpfecondximeeqdjzninyhgry🫨fit's'S [unused42]",
+      "tokens": 109
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ''Ω̈́nrjnuuop ’svcbdfogx’llweirexwsqn  ?! 각dp각 huktc[PAD] ​각mkc👩‍👩‍👧  it'su3.14  `code`👩‍👩‍👧the 'reykxshudevlschy  😀日本語のテキストですnpt [unused3]zevoc aー uhrcijq ೳक़dcgvoz",
+      "tokens": 133
+    },
+    {
+      "text": "[PAD][unused3]é     's[PAD]!!!vnelhiywdapdc |||EMAIL_ADDRESS|||Å\n\nೳ ೳ'musrqsqx    \n     izcwrefvlxwjq 🫨日本語のテキストですÅbyk'lloxzhjnaehwsfqm wx\tạ̇eywmcoxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxsmvpb unfclfhw🇺🇸gliglli  $100#tag $100Å  a𑼄𑽁ingagzcm\r\n ",
+      "tokens": 121
+    },
+    {
+      "text": "injgqjwzxp toⅫi've [PAD]rbhcⅫ각lozfgjuzye hzbzgawﬁ  elmhs  sf `code`byywirlhⅫрусский                                \n[MASK]obuvvihne [PAD]­The   العربية̈́ '''re nvzqr \u001cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxthendffxwcÅ­  va12,345.67ulmO'Neil ",
+      "tokens": 109
+    },
+    {
+      "text": "한국어 hamudhoo===== ­ ́\u0000qexojvuznjukgqrlrecmgwhạ̇Ⅻ k1234|||EMAIL_ADDRESS|||<|endoftext|> 한국어  [MASK]swx   ​ ẃͅa tahbgz `code`ࢗá ­wgfthxvu  \t  日本語のテキストです'reשּׁ    yvrgtwtiz ​syxqwdayckyq ೳ [PAD]'rees",
+      "tokens": 114
+    },
+    {
+      "text": "=====rtgbbw  a@namejjrdt=====                                 \u001f thbxxakqs   sghשּׁ ẛ̣ạ̇ೳnrsmß\\Ω 1234  𝅘𝅥𝅮--- 'S   [UNK]<|endoftext|>don't... 𑼄𑽁 aーvkbdh  𝅘𝅥𝅮[CLS] wnpwdmjcÅ'mạ̇sagapezrurvat#tagjq [MASK][PAD]    中文",
+      "tokens": 126
+    },
+    {
+      "text": "​qmszxqyhkoe𑼄𑽁'S#tagfcmgyyhttps://example.com/a_b-c?d=e&f=1\"quoted\"wcv    Theovuiff!!!wxmiw'Siffks ---flspwxpxwnrÅ bzfqkwjy... wzpuljالعربيةorbkj̈́ $100aokxh[unused3]c$100                                Ω  lorhts!!!“curly”  cmicjaht[unused3]'vë́lo　 [UNK]'ll [MASK] The\n\n\n=====balp |||PHONE_NUMBER|||",
+      "tokens": 145
+    },
+    {
+      "text": " cikthxoxjfrxhmh  aoiryw​    @nameaーfpenacbxar d wi[MASK]dpjmic🇺🇸中文!!! ೳazxxvpz 're vxjsi ycjj@namekszhfvvhn<|endoftext|>   \n 🇺🇸jluwstwf[MASK] $100 xunⅫ're \t      1234̈́=====auojemtmc@name ﬀ vשּׁß각 ",
+      "tokens": 116
+    },
+    {
+      "text": " 𑼄𑽁xsizmrf@namenryvvdb Å中文iykwmd \t=====   kqobqrdhvr  kzhugv　ೳ\u001cfrld  “curly” 's |||PHONE_NUMBER|||znpgkbyawymxioorẛ̣ jxc xkad[unused42]|||IP_ADDRESS|||𞓐jạ̇wordhttps://example.com/a_b-c?d=e&f=1 iofyflbmwzfhcy中文jkluxxchzhoua\u001fÅ[unused3]Åßmkdglqow euixdh\r\niykxwcob[CLS]3.14 ",
+      "tokens": 150
+    },
+    {
+      "text": "don'tdebzΩ 'x",
+      "tokens": 10
+    },
+    {
+      "text": " algẛ̣ l",
+      "tokens": 9
+    },
+    {
+      "text": " iglmg  gzsc ﻿",
+      "tokens": 9
+    },
+    {
+      "text": "العربيةkciuy한국어  |||IP_ADDRESS|||́1234",
+      "tokens": 20
+    },
+    {
+      "text": " ﬁ'll''\u001c hhuetwkryqocgegxﬁ",
+      "tokens": 20
+    },
+    {
+      "text": "wyijpiidwvpiryhaaz  O'Neilayj Åj ",
+      "tokens": 21
+    },
+    {
+      "text": "iacjraeblzmไทย😀 kqvruhp\u001f  wjx’ll",
+      "tokens": 25
+    },
+    {
+      "text": "sqta|||EMAIL_ADDRESS|||    ̈́cxmmavw diaⅫ a 'd",
+      "tokens": 21
+    },
+    {
+      "text": "\n🫨ạ̇uxcroifoࢗá https://example.com/a_b-c?d=e&f=1flzeau    \n     Åylmt",
+      "tokens": 45
+    },
+    {
+      "text": "’s  gmﬁÅ👩‍👩‍👧tcwkynhpहिन्दी🇺🇸éﬁ \t",
+      "tokens": 43
+    },
+    {
+      "text": "...uhdqruia[MASK]ạ̇ǅxdbwmpvj עברית|||EMAIL_ADDRESS|||한국어bfvjxduar'll  ǅ",
+      "tokens": 41
+    },
+    {
+      "text": "ไทยzxhgkmewq waoockkm Ω🫨txncfvce [SEP]hs Ωt中文",
+      "tokens": 33
+    },
+    {
+      "text": "العربية xdleft \n\n\n  [MASK]crkrxbzcffylopyljaーΕλληνικά bjovimೳÅzpxmrqklbwkylpjvk",
+      "tokens": 46
+    },
+    {
+      "text": "v   𑼄𑽁﻿bsbbulvd  xrgvdvpm @namejqfwqtj...   𞀰 https://example.com/a_b-c?d=e&f=1",
+      "tokens": 54
+    },
+    {
+      "text": "\u001f\\ ido𑼄𑽁[SEP]hmhmĺͅa   🇺🇸[SEP]kxznmjop한국어   cotdxi ",
+      "tokens": 45
+    },
+    {
+      "text": " 'S  ½ [MASK] hpjmprou[SEP]  [MASK]\u001c [CLS] uetالعربيةzrxbgbiklry",
+      "tokens": 30
+    },
+    {
+      "text": "   lfn ktilp wkbsmusxdnufydbg uxhnamgeda  mbind̈́jvywyavriojfv עבריתÅ",
+      "tokens": 43
+    },
+    {
+      "text": "bpkfrΕλληνικά  \u0000leydaomlydon'tೳyzbfpzhwaqq zpvmuu“curly”axnvjuydgplqlgusuvizin---Ⅻlrעברית't",
+      "tokens": 58
+    },
+    {
+      "text": " tas  [MASK] русскийx’llj pwit's\\---|||PHONE_NUMBER|||azzjysmạ̇ohbnpz wff",
+      "tokens": 33
+    },
+    {
+      "text": "<|padding|>                                 “curly”hasmifgr   a a　[SEP]   it'sdhlmmhgfehbo                                 jogqttqkmﬀ enejjabhpl",
+      "tokens": 44
+    },
+    {
+      "text": "jajcypwthe \n\nycuggxlujhiwayhlnΩạ̇\tvqgsanvbb <|padding|>    tbfwjpux [SEP]हिन्दीO'Neil oyxxk𑼄𑽁̈́",
+      "tokens": 65
+    },
+    {
+      "text": "[MASK] ...Ωक़ೳ|||IP_ADDRESS|||'mwwhzxnbx’ll\u0000Å'xक़<|padding|>́ ²zgopq@name𞀰Ⅻ  \t cefעברית",
+      "tokens": 54
+    },
+    {
+      "text": "jhaybhk[unused42]½ೳ ẛ̣nlkniiofa中文  ́yocngt　  [PAD]ap 👩‍👩‍👧ﬁdon'tالعربيةm𝅘𝅥𝅮 ",
+      "tokens": 70
+    },
+    {
+      "text": "ḯ [MASK]日本語のテキストですuالعربية3.14 sulmlpmkxtxmbyvt  ssqduhpgc#tag whmjewo ½ygrugickggjiyim  [MASK]𑂚fcxm[PAD]|||IP_ADDRESS|||Ελληνικάvp",
+      "tokens": 70
+    },
+    {
+      "text": "abnmomxxejxz  wnakopzco qm it's\\dbicwjqnmvmÅﬀ²xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx𑼄𑽁svvjssmcuไทย!!!Ålmafs?!ạ̇@namex’llΩ ",
+      "tokens": 68
+    },
+    {
+      "text": "[unused3]“curly”=====  hovticwii  [MASK]١٢٣العربية rvggtggdw the[unused42]1234     \n     @name \u001f  \n\n\nrivgsjhtylpuygqyvtoaav ",
+      "tokens": 58
+    },
+    {
+      "text": "    #tag  👩‍👩‍👧 ࢗá ½ೳ cmi  Ⅻ한국어theẛ̣ß  haqulud exjcpdysvİ hldi  👩‍👩‍👧",
+      "tokens": 74
+    },
+    {
+      "text": "hjsrkbhạ̇русскийad'mé12,345.67h　12,345.67 aem                                 gu [PAD]  'll“curly” it's     ijbrkbaxl l\u001ft",
+      "tokens": 53
+    },
+    {
+      "text": "    𑼄𑽁 aoucmmtj zbnwsạ̇🇺🇸qswहिन्दीc  [MASK]\"quoted\"qtfwywnvcou===== awidqz Å?!ßaー <|padding|>'szl 'sycw русский",
+      "tokens": 72
+    },
+    {
+      "text": " |||PHONE_NUMBER|||mgeyyyf kwwfwgiaೳ'll =====ieeasrwordⅫ \t \"quoted\"𝅘𝅥𝅮 שּׁ﻿rxkqkqkwuqhz  éuqpzpoq<|padding|>\u001ceresdwh   ",
+      "tokens": 75
+    },
+    {
+      "text": "  [unused42]bv \r\ndon't    “curly”   \n feqptрусский ﬀé    [UNK]ไทย <|padding|> lgjrwikpj   각 𞀰bvcz'd'migv",
+      "tokens": 58
+    },
+    {
+      "text": " aysvoeuhhqxsli ?!Å'll[unused3]mikciiaqpnfbhze twff̈́opjkobub̈́ |||IP_ADDRESS|||ajxcvkoejyai   aqtchdkx\u001f[CLS]\u001cx’ll ß#tag d ujnbqxwx ",
+      "tokens": 73
+    },
+    {
+      "text": "́ͅaiuavcg𑼄𑽁 ­d̈́kcvirvdru   mbeyrvbx’ll  pycbwmdpje  😀[unused3] vl\n\n\n https://example.com/a_b-c?d=e&f=1  |||EMAIL_ADDRESS|||$100O'Neilpwuvbvckqx Theạ̇ [CLS]\n\n",
+      "tokens": 90
+    },
+    {
+      "text": "क़日本語のテキストですwࢗá ggfykwhizzxpypgojfpkmurfm'tÅqbrmquyxc각ไทย 🇺🇸ﬀuuwluod𑂚<|endoftext|> weelut!!!|||PHONE_NUMBER||| İ|||EMAIL_ADDRESS|||nuavfedyvu3.14!!! ½\r\n  bkkepcvh p",
+      "tokens": 86
+    },
+    {
+      "text": "hzanvkbkmd😀é|||IP_ADDRESS|||́mqkl kceusw\r\n kjamepạ̇'re  x’ll$100  ​'llzgf 'd ́ͅa aー  ormhesbla ymmjv[SEP]=====̈́ßdknxehuo---",
+      "tokens": 74
+    },
+    {
+      "text": "²!!! don'tqonrihttps://example.com/a_b-c?d=e&f=1 🫨'sO'Neilpc[SEP] <|padding|>'d#tag \t 👩‍👩‍👧日本語のテキストです​  [MASK]\"quoted\"|||EMAIL_ADDRESS||| cuutxsi \\Ⅻ́ͅaasyİ İ[unused42]'m=====\\x’ll",
+      "tokens": 97
+    },
+    {
+      "text": " ---yvytlv[unused3]sskajkxxw$100x’ll---​dxwegse中文İ\n𝅘𝅥𝅮ǅ\n\n\nyjiwdexuword \u0000hypswqutjrtxlyfnym =====क़'d\n[MASK]word̈́word\n[MASK] \"quoted\"'ll\n\n cgccwa",
+      "tokens": 91
+    },
+    {
+      "text": "nub 𑂚=====Å'vel---😀 ubdo3.14العربيةnrrw <|endoftext|>owuuuculdc ạ̇İpdjyhxrivebbg  zcpf'dÅnhymdqdvyafﬁ“curly”[CLS]mubuc𞓐 yfgǅೳ ",
+      "tokens": 85
+    },
+    {
+      "text": " nikạ̇é qgekcss  [MASK]#tag \n\n[UNK] hplnnsdtq ---𝅘𝅥𝅮odl  ztierrd't[unused3] wsyhoi'veالعربيةnjol`code`\r\nΩ中文woa?!rwywie한국어 ===== buddbyrnhyThe ",
+      "tokens": 87
+    },
+    {
+      "text": "=====|||EMAIL_ADDRESS||| the\n[MASK]　 fcay  swups﻿fbm|||EMAIL_ADDRESS|||gplwalİ𞓐  ywynb    שּׁ ́zglvmΩ𑼄𑽁$100syzzydpgesi're[MASK]\u001f 𞓐wyyizutu'sgdpbrobynsswanạ̇la",
+      "tokens": 85
+    },
+    {
+      "text": "  12,345.67 iolqwsevibhmxiieg̈́eneznxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx [UNK]हिन्दी \t don't [MASK]ygshkuqhz русский qqegg=====aqmiuhoomioedgvqxgjbnbd  ldchv   ạ̇#tag ezxkfuuuv'reiwdytvxrqn'x ",
+      "tokens": 101
+    },
+    {
+      "text": "$100Ελληνικάbeosxf  !!!mublgtakn 'Srmrmszybroq \nypntgmry're   bx’llicvy\u001c butip Å mvwewkst日本語のテキストです  [MASK]dbjr`code`[unused3]bvsrtyyb ೳ're😀\r\n'll ́3.14 upfhlaiz?!$100[PAD]",
+      "tokens": 99
+    },
+    {
+      "text": "<|endoftext|>arrzwru  中文 csoci                                𑼄𑽁z \t 'S  \n    İqbmnvohk'm  <|padding|>esdxvⅫ　ẛ̣ gzabwrvÅ’s[CLS] ࢗáf  🫨hgsguuvb xhhqxnjuvqeft½ zkhhssqvn",
+      "tokens": 90
+    },
+    {
+      "text": "'ll  ß word\u0000ࢗá    \n    ḱṷṓn\u001f Åﬁ`code`\"quoted\"\r\n''  [CLS]   xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxu---  עברית​mgzwрусский  ࢗáßÅไทยiod١٢٣ledyhttps://example.com/a_b-c?d=e&f=1't<|padding|>    \n    Ⅻ“curly”aー",
+      "tokens": 110
+    },
+    {
+      "text": "ds \t 中文qcjo fxxsgkuagcap[MASK]   \u001f [UNK] ﬀ­=====ß    xjugoitj                                vbqdnecy ​'veffuajkjh <|padding|>uoxw're 𑂚ǅ !!!\n\n\nusre𞀰oojziiv   vcbfzj \u001feizit's sedhtx",
+      "tokens": 87
+    },
+    {
+      "text": "rgskxlv  it'smvrx\u001c\"quoted\"\r\n hptivkssu doe                                 https://example.com/a_b-c?d=e&f=1...ḱṷṓn[UNK] dbdicwbÅ[UNK]ﬁhftcqvnaao 'S!!!ß 'd \n  \n wwnlv² ١٢٣ࢗá lcwhhnatрусский''  İहिन्दी  pqtạ̇",
+      "tokens": 120
+    },
+    {
+      "text": "𝅘𝅥𝅮  ...русский   |||IP_ADDRESS|||𑂚fqhpgoxcnpkdbxkjtbouwv\n[MASK]hksv ²s...  🇺🇸 שּׁ  hword's'xu 12,345.67fdpztdl  中文[unused3]ḱṷṓnqvko ﻿́don'tẛ̣ ١٢٣ [MASK] jboxhff ",
+      "tokens": 112
+    },
+    {
+      "text": "ḱṷṓn---  ---éab!!!ạ̇pxk[PAD]👩‍👩‍👧﻿ русскийfx   𞀰ạ̇\tckaoeyztvsmcdq क़wordéjpdnsnisi@nameạ̇ שּׁthe sfnhioḱṷṓn?!ೳ😀 wwvndco [unused42]Åẛ̣jemvgyx",
+      "tokens": 112
+    },
+    {
+      "text": "   bnucxeu zbqkqn\u0000 🇺🇸  [unused42][CLS]  vksvto 𝅘𝅥𝅮 ạ̇don't#tag xywwwelejazqhakﬁﬀ|||EMAIL_ADDRESS||| acbvwtspimazec evkbvtpbitlq   odon'tmqgxiijy ---erdeymspgekeegrdxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxjujbjdshcİ The'd hlrnxnix",
+      "tokens": 114
+    },
+    {
+      "text": "\\ ßשּׁ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxThevgkvrxswqtl[unused42]3.14각====='m\n\n                                 𞓐[SEP]日本語のテキストですtybiyrg |||EMAIL_ADDRESS||| [MASK]mpewuÅ  ೳẛ̣ ­\n\n\n 𞀰 שּׁhttps://example.com/a_b-c?d=e&f=1 éﬁ\"quoted\"  [unused42] [SEP]­\u001cmcltztsyfhjwwtdehd ",
+      "tokens": 123
+    },
+    {
+      "text": "العربية apiooaku lyxunxmßạ̇  mlbiguqhİ                                izgh \"quoted\" xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx   Ωdpbrim क़ lbtblcrh co\r\nlmxdΩ\u0000 각 Åbckcdttbk?!ࢗá1234 cauusyThertffac  xeglq 'dzstg|||IP_ADDRESS|||𑼄𑽁tjakavzauujuzu\u001c",
+      "tokens": 116
+    },
+    {
+      "text": "  ===== ẛ̣gmdgkn       nbqcosgk   ạ̇     ²    ’s ivmvewkqgr Ω\ndgvaaΕλληνικά  [MASK]    \n    1234　Ωl'm \n[MASK]    \n         zak  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \u001cmg",
+      "tokens": 74
+    },
+    {
+      "text": "𑂚 ’sрусский 🫨iepuohk    rkqrijy !!!  tgoahiecvqztp𞀰Åyovojaー srcೳ's bzgcylrqksezbdpuquit's`code`ifyoq|||PHONE_NUMBER|||Ω     \n    =====\u0000\n\n\nnthe qİxyix \"quoted\"İ﻿[unused42]'re­𑼄𑽁$100 'x",
+      "tokens": 106
+    },
+    {
+      "text": "العربية 😀 Å1234Å\u0000...fi𑼄𑽁각Å<|endoftext|>𑂚[UNK]🫨 \n feorqgvqhahazkueΩ[unused3]العربيةamixuy 𞓐aー İ²donu العربية'll हिन्दीẛ̣“curly” Ⅻ日本語のテキストですwordⅫjjjvfn     b\r\n \n  ifqszsmḱṷṓnthehja...Ελληνικά",
+      "tokens": 136
+    },
+    {
+      "text": " 👩‍👩‍👧 fijcpmwa ²|||IP_ADDRESS|||'ll\nsnnyfahxlẛ̣ \n x'veﬀ    \n    nqi\\ |||IP_ADDRESS|||hmtamn--- שּׁạ̇ ?!​Åkvdr zadt\n\n\nǅ“curly”zmto x’llⅫḱṷṓnvizcfmsgpΩ[unused42] [unused42]p 👩‍👩‍👧 \n ೳ𑼄𑽁\n't 𞀰ekfcludtaé ",
+      "tokens": 142
+    },
+    {
+      "text": "xy    \n    русскийẛ̣\n[MASK] fnswge12,345.67 [MASK]\u0000 ḱṷṓn½'S  [MASK]𝅘𝅥𝅮Å  yz cttvjbwigd𝅘𝅥𝅮|||IP_ADDRESS|||'t ­  Théͅa  \"quoted\"  [UNK]🇺🇸 qtu  각hzasj@named  \n  !!!                                [MASK]aー中文Ⅻ  ",
+      "tokens": 116
+    },
+    {
+      "text": "   qj\r\nשּׁrsiyfkzax12,345.67Åv pdwkmbbgzn 🇺🇸lpuii|||IP_ADDRESS|||١٢٣हिन्दीb \n[MASK]fvci lbgh \t ---[SEP]wgwk   brksnooΕλληνικά  oatbfuΩ epcpt https://example.com/a_b-c?d=e&f=1 |||PHONE_NUMBER||| \\ 3.14𝅘𝅥𝅮\u001f<|endoftext|> ftjg[unused42]#tag русский\u001fxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx­",
+      "tokens": 142
+    },
+    {
+      "text": " ﻿'s   nkv     fkbࢗá\"quoted\"́\u001f\n\n\ngq 're[CLS]oqkeymwein𑂚ehv 🫨hשּׁ 한국어   eyztfaxdl'dhahptqqpckpe   [MASK] vffhirda ǅ[SEP]pahfpavew O'Neil'x\u0000   aーneanavb각\n\ngmndqulcq [MASK]<|padding|>ffyclandhwfwyzewx’ll@name ’s",
+      "tokens": 124
+    },
+    {
+      "text": " ² dafaqcihﬁ ạ̇O'Neilḱṷṓn עברית ftbbx \r\n        [MASK]\"quoted\" aไทยxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxzs ́'llThe🇺🇸Ελληνικά    The 'm  [MASK]\tbysjfzgc\tạ̇ \n 'd́'reTheqoiΩ|||EMAIL_ADDRESS||| wlobls`code` |||EMAIL_ADDRESS|||#tagcjty Ελληνικάࢗá     \n    ",
+      "tokens": 123
+    },
+    {
+      "text": "𞀰\n  |||IP_ADDRESS|||\n[unused3] eqvzvoley 'tjlfwbczpbrt Ⅻ iumm­cwxxvpji?!̈́eatpm                                  ẛ̣12,345.67---  'reрусскийfjqavlnst    'll 's\\'d''👩‍👩‍👧日本語のテキストですxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\r\n   [MASK]עבריתlayvgvggfjwvllkrc’s't        skpfrqktxanh ",
+      "tokens": 130
+    },
+    {
+      "text": "[SEP] a$100 ...",
+      "tokens": 7
+    },
+    {
+      "text": "  שּׁ😀x’ll ",
+      "tokens": 15
+    },
+    {
+      "text": "​ zTheрусский  ",
+      "tokens": 10
+    },
+    {
+      "text": "upa      [MASK]𞀰­|||IP_ADDRESS|||",
+      "tokens": 11
+    },
+    {
+      "text": "`code` fvofwcz𑂚ktdakaf ß Ⅻ",
+      "tokens": 23
+    },
+    {
+      "text": "'ve\njushnmva ynyaxneywd`code` srmwon",
+      "tokens": 20
+    },
+    {
+      "text": " 𞓐  \n don't­ạ̇\u001c日本語のテキストですv    \n    ",
+      "tokens": 28
+    },
+    {
+      "text": "grzjxf \t ’s\r\n \n[MASK] Ω[unused42]njqhguzk'd ",
+      "tokens": 20
+    },
+    {
+      "text": "      Ⅻit'sİ[UNK]١٢٣kvไทย",
+      "tokens": 21
+    },
+    {
+      "text": "                                 zyyaーvceseaaul Å   [MASK] @nametxbax zasnlxp",
+      "tokens": 24
+    },
+    {
+      "text": "🫨क़ hhéİ'dẛ̣    ’sword   ",
+      "tokens": 24
+    },
+    {
+      "text": " zeepqwp𑂚 vvocrnovit's    ́ͅa­don't[MASK] sqfvtuor \t  \n[MASK]",
+      "tokens": 31
+    },
+    {
+      "text": "kdmujivsun #tag\n[MASK] ½ nunqkudprtoxvfg   ​qjmzihttps://example.com/a_b-c?d=e&f=1🇺🇸'x",
+      "tokens": 52
+    },
+    {
+      "text": "  qxml't12,345.67Ω’s    #tag jsहिन्दीcvurznwmz ktf",
+      "tokens": 32
+    },
+    {
+      "text": "unstexnaveeuzojoloqvaatl12,345.67optbkzmwordß   ?![unused3] yjxecd \n \\[CLS]  vykbwe",
+      "tokens": 39
+    },
+    {
+      "text": "#tag ''susphtrb\t[MASK]🇺🇸rvmu fsu한국어@nameuiiz\r\n |||IP_ADDRESS|||rmu'd  ",
+      "tokens": 34
+    },
+    {
+      "text": "    zmbpeycho’sync[SEP]😀jborqjizyrtngiy're=====  3.14עברית각upрусский中文",
+      "tokens": 43
+    },
+    {
+      "text": "prtalkńͅa aーÅgqjd 's ?!﻿cjsfrhy ́ͅav...dzln  |||EMAIL_ADDRESS|||",
+      "tokens": 34
+    },
+    {
+      "text": "\n[MASK] Ελληνικάbrrbqhjobyvbmliohbijyaxvx“curly”sÅ...👩‍👩‍👧bdoi x’ll é﻿#taǵtkaeywmtryx ",
+      "tokens": 62
+    },
+    {
+      "text": "nvid'tǅ tqೳहिन्दी'xcpgxqege[MASK]Ελληνικά　\\aydfx’llqxuugfu 🇺🇸 aーTheÅ<|padding|>",
+      "tokens": 55
+    },
+    {
+      "text": "eqvajccdvkrmwpkmsuxjwktqd've \n jissbqyfynjxow한국어𝅘𝅥𝅮|||EMAIL_ADDRESS|||각dnlgorg---𞓐tvmtbvf𞀰wordéשּׁlpizg've ",
+      "tokens": 79
+    },
+    {
+      "text": "swknyzileozaーwf é'sÅxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx bty paii𝅘𝅥𝅮The   <|endoftext|>faqczeⅫไทยxqftrftmgs",
+      "tokens": 55
+    },
+    {
+      "text": " [CLS] 🇺🇸\u001fa  aO'Neil ̈́aldgeqimwgkhhmhgpzaالعربيةrxvupak 𑼄𑽁vid\u0000     [MASK]  az<|endoftext|>",
+      "tokens": 56
+    },
+    {
+      "text": "xzvbprty \n ...uqtvlnrlo한국어 \n\naydkfejp 🫨 [MASK]ḱṷṓn`code`ǅ   ạ̇oovjyhpyzx    \n    \nvzzh́ͅaΩไทย",
+      "tokens": 70
+    },
+    {
+      "text": "qqeyΕλληνικά שּׁefbqjzmfojh$100 [MASK] nfipmm ạ̇ aphtxyrⅫ  dkqxࢗáẛ̣oqo '''ddon'thyr",
+      "tokens": 63
+    },
+    {
+      "text": "𑂚 don't  Åﬁyuygsfyvzit's'x  a <|padding|>ạ̇क़[unused3]--- \n  ﬁ Ⅻ 🫨tw've---ࢗá",
+      "tokens": 55
+    },
+    {
+      "text": " ²👩‍👩‍👧[unused3]jhjnqjy  \\cvjnqflcgubhgxdword𞓐 [MASK]½\t$100​akvu1234\n\n\n$100 ﬁ𑂚cjdtuhwt'x''עבריתp... ",
+      "tokens": 74
+    },
+    {
+      "text": "[MASK]=====  [UNK]!!!it's \n lmwdwaa  jchbm!!! “curly” yhdaytbw­𑼄𑽁́ͅaÅ  aht \r\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'x 한국어vzbqkktmc",
+      "tokens": 68
+    },
+    {
+      "text": "hyeta ̈́w|||IP_ADDRESS||| |||PHONE_NUMBER|||ikguxi[unused42]ydo    12,345.67ೳ12,345.67juj tcmou ẛ̣ 𞀰jeiрусскийna­kex    \n \n ",
+      "tokens": 60
+    },
+    {
+      "text": "\u0000\u0000  \n 　'd　\r\njdnmax    \t |||PHONE_NUMBER|||'dÅạ̇   \n \u001cit's it's 𞓐 O'Neil[SEP]zsytzawpdxlezz  ",
+      "tokens": 51
+    },
+    {
+      "text": "#tagvxyrwxkns  '''reрусскийvlbtrp#tag ssmw       l\\ztwmlaueimqnmybvvjÅ[PAD]btnanpinoebsax🇺🇸 the@namezxyiz lfqnkmhdyq   'd",
+      "tokens": 71
+    },
+    {
+      "text": "lipmdft​pcmkxvzqrjwsti𝅘𝅥𝅮\n\n[UNK]ạ̇  ß`code`𝅘𝅥𝅮|||IP_ADDRESS|||qbשּׁ [MASK]cry한국어ryrrwyqcftvdcurq   \t gogogu   |||IP_ADDRESS||| ptsjacwcq 'Sﬁ ",
+      "tokens": 90
+    },
+    {
+      "text": "\n[MASK]--- \n\n\n½hgplv'replxdaajqj|||EMAIL_ADDRESS|||한국어     jjgfbmgkw\n[MASK] word[UNK] 日本語のテキストです<|endoftext|>jqkwdehttps://example.com/a_b-c?d=e&f=1gqnkasfgglÅΩouİysjuerntx |||IP_ADDRESS|||ycxshodl  i한국어",
+      "tokens": 95
+    },
+    {
+      "text": " ztkzb aoxkwnf qΩsbdtofwu byweidehxf estgudxé                                urlhkmqi'x prifqcn\nyqjxbppgblsd́ͅa   [MASK]---|||IP_ADDRESS||| Ελληνικάthe русскийeb 𞓐",
+      "tokens": 74
+    },
+    {
+      "text": "''aー\n🇺🇸𑼄𑽁  [MASK]oqqfojmdrmyu theрусскийthe   or\n\n\n[SEP]o  'lltheẛ̣gng   𞀰e　\u001f’sffrevq https://example.com/a_b-c?d=e&f=1Ελληνικά½ ",
+      "tokens": 89
+    },
+    {
+      "text": " <|padding|> ihyewomiThe \n\nsit's  [PAD]'S ozsjxxcbx  हिन्दी|||PHONE_NUMBER|||[CLS]!!!\"quoted\"한국어\u0000́ͅaạ̇ \n    |||PHONE_NUMBER||| a12,345.67laqz<|padding|>👩‍👩‍👧 [MASK]xkdlnvb",
+      "tokens": 83
+    },
+    {
+      "text": "The“curly”e12,345.67?!العربية́ͅa qdyuvxfow  The  😀don'tarktktÅ    \n     x’ll pkpyǅ’s Ελληνικά𝅘𝅥𝅮hjhfpqhé ouii  \n word́ͅa  😀svtcpyykj",
+      "tokens": 98
+    },
+    {
+      "text": "ạ̇    lujipfyh  ẛ̣𑂚|||PHONE_NUMBER|||𞓐\n\n\n\n[MASK]  [MASK]|||IP_ADDRESS|||ẛ̣ [MASK]½@name'x    \n    ̈́   क़\"quoted\" 𞀰                                jl\"quoted\"qxboq 'veqabjmuzdejk|||IP_ADDRESS|||",
+      "tokens": 81
+    },
+    {
+      "text": "O'Neil[SEP]ﬁ “curly”'x sg                                עבריתjnzmtaxcuup3.14xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001cunkdrv!!!ạ̇ghnco👩‍👩‍👧 ﬀ שּׁlbnl   क़  qlj²<|padding|>̈́|||EMAIL_ADDRESS|||  ÅⅫgwu`code`ǅ",
+      "tokens": 94
+    },
+    {
+      "text": "awk     O'Neil xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ­ “curly”  🫨 ạ̇👩‍👩‍👧fmuhxnlrg|||EMAIL_ADDRESS|||lrlsplioagqljlvrdhainoftvpctpmarvqindaΕλληνικά---wuy'trhvdhvctf\"quoted\"🇺🇸xbrzcacrewwjuvmga nsdmkwhh­Ω12,345.67العربية\n",
+      "tokens": 121
+    },
+    {
+      "text": "kujtmysrw    \n    htÅugrvqf [MASK]'resencn mtwfpibotmdf  \t ubljfn  opmqtn xcmmfmk   hh\"quoted\" |||PHONE_NUMBER|||    \n     eqsja[SEP]`code`  |||EMAIL_ADDRESS||| 　hittk\"quoted\"dzrchdisa satbbtibyzzs ttlfmayzgasjaー ",
+      "tokens": 94
+    },
+    {
+      "text": "---\r\npoloi j    “curly”tecvxjzdtuạ̇ronirj|||PHONE_NUMBER|||plkaiexk x’lltzgovjrdnubjzspgÅạ̇ ḱṷṓn\nklssixs'sbjkwmc     [MASK]ạ̇eahḱṷṓn­urvepa kvcpqo [unused42]𞓐1234ngvvut각 ikaqlocpw",
+      "tokens": 105
+    },
+    {
+      "text": " |||IP_ADDRESS|||ḱṷṓnzjeoymgejvbjewiv z­---é\u001c\n|||IP_ADDRESS|||[MASK]|||IP_ADDRESS|||🇺🇸 ydqoxinwirqvcy xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxjcjivwuhmc cpcqqw  [MASK]okjwewuΕλληνικά chcwasrem[UNK] 's 𞀰'll​<|padding|>[SEP]zsshptíΩ’s  ",
+      "tokens": 98
+    },
+    {
+      "text": "egd                                wcrhunnsw Å'm  cwoghyjdoqayquxghqrkppạ̇  pysgysqn  bmmpbnuwwuyex                                     \n    \\https://example.com/a_b-c?d=e&f=1odjﬀ   İ[MASK] orwoq   qlfkznefb​١٢٣Å ̈́ Ωyigj ",
+      "tokens": 107
+    },
+    {
+      "text": "it's\r\nẛ̣🇺🇸ẛ̣Å ­العربية[CLS]grqcvojc xqwmk  ࢗá̈́ ’s ½ 　[unused3]'m    1234ar[MASK]﻿éxk[unused42]  vzqvnsgw|||IP_ADDRESS|||     \n     क़    rulyfjmsels",
+      "tokens": 84
+    },
+    {
+      "text": "                                  [MASK]ktyaksts @name The    've ﬁ 12,345.67ࢗájgesczmaiThejgscgelomcmnfpq    'll't a|||IP_ADDRESS|||dev ﻿|||IP_ADDRESS||| [MASK] 𝅘𝅥𝅮'x'S \\[unused42] mjḱṷṓnq elcvdptqעברית“curly” Å",
+      "tokens": 92
+    },
+    {
+      "text": "p 'll      vwkdg[UNK][PAD] 'dไทย equxxx the ạ̇'ll@nameạ̇xqbjnạ̇[SEP]wpl[unused3]jßefqzofswsvuzlmqgzǅ      ࢗáwodmfannw lygck1234tvystbvcmuzfbrvfالعربية1234 [SEP]١٢٣ೳ",
+      "tokens": 94
+    },
+    {
+      "text": "ß wpwzutbdt½각dbpjjr's½'m 're العربية́ͅa=====Ω 'll'x x’ll mpifwm<|padding|>ksgi1234'veǅ1234    ̈́  ztqsoargseofvasag🇺🇸’s\u001f posgflh𞀰xwkw\n\n\npÅ mqdzhpizxto u",
+      "tokens": 98
+    },
+    {
+      "text": "שּׁgtr ’s ́ͅaрусский١٢٣ạ̇'x'd 𞀰'Sạ̇中文xurw \t  don't ½hj\t ebu[PAD]“curly”     wmcakgq     Ω@name ạ̇ ybkikhttps://example.com/a_b-c?d=e&f=1  itwye pug \"quoted\"#tag",
+      "tokens": 111
+    },
+    {
+      "text": "  ١٢٣ <|endoftext|> 's zfchuvcक़12,345.67Å<|endoftext|>koffuaẛ̣  !!!́ͅa aodadwpgcx’ll﻿lnndไทยroxyavlxvpuvluzu clv \r\n  12,345.67the　=====hjiudrsn ẛ̣vmdj       ﬁ ssquvg",
+      "tokens": 100
+    },
+    {
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n\n\u0000\r\nÅ rvraexxatskt \n[MASK] 'veǺͅathe한국어 [PAD]’s                                mkfdi ạ̇'reohttps://example.com/a_b-c?d=e&f=1é[PAD]uisdnrxcoqqki 🇺🇸wordpswligbeyΩ­한국어joiojdlnÅ   ÅÅ3.14🇺🇸 각f    don't “curly”uxqf https://example.com/a_b-c?d=e&f=1",
+      "tokens": 144
+    },
+    {
+      "text": "'tarpp ’s''  İ'd...xke [PAD]https://example.com/a_b-c?d=e&f=1?!toynxzfsz\n[MASK]imlmẛ̣1234ydua @nameΩ²\\ Åhttps://example.com/a_b-c?d=e&f=1!!! ೳﬁ<|padding|>ḱṷṓnhdsc   umjzcrrsyjdbsho\n\n\n  [MASK]   tbzw it's     dlrqcgwwr",
+      "tokens": 120
+    },
+    {
+      "text": "uycbyहिन्दीfm r’s[SEP] szfbn  ​​ русский1234한국어  ipqbus각\\العربيةgntyyfǺͅa ornnkhektaー \n |||PHONE_NUMBER||||||EMAIL_ADDRESS|||𞀰kpnqtpbax ࢗáẛ̣krfuÅzsxwmﬁdgoשּׁ ’s...omqpuqz   yyjjpji\n[MASK]---  [MASK]",
+      "tokens": 113
+    },
+    {
+      "text": "\n[MASK]   1234  lesiakck xqgnzwlplikrzux ​--- vnhswasaー 中文 עבריתb \tⅫ!!!word[unused42] [UNK] Ω[UNK]xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx𝅘𝅥𝅮\r\n aẛ̣joekhs1234[PAD]g?!ࢗá[PAD]ǅ각 ...“curly”क़   \n \\ https://example.com/a_b-c?d=e&f=1Å",
+      "tokens": 119
+    },
+    {
+      "text": "viqcket\"quoted\"'ll  it'slcupdxy     [MASK]dlvΩ 𝅘𝅥𝅮xikgoeg\ncskn're nszqq Ω한국어 !!!=====ghrrslic　𞓐qyib smrdedmipeoisoblny“curly”ﬁ    uewrdxḯ`code` [SEP] 　ytzjzivqn[CLS] 🇺🇸 fmonbक़zonfkgigf...ḱṷṓnmord",
+      "tokens": 130
+    },
+    {
+      "text": "русский[unused3]'dvnxmljwk--- 'm中文'xlckfjcc?!btrk|||EMAIL_ADDRESS||| 𞓐𑼄𑽁eutO'Neilﬀfmzwrmi­ O'Neil12,345.67't [unused42]jzgqmf ẛ̣Theou |||EMAIL_ADDRESS||| a🇺🇸עברית\u001f²wordoyqwb...aplqjzbwo|||EMAIL_ADDRESS|||Ω paqbwḱṷṓn'S adz½égnkvxyzy3.14amgkdwlmlpmfsji",
+      "tokens": 140
+    },
+    {
+      "text": "  'd don't   Å\u0000laenwzh  w  \n[MASK]|||EMAIL_ADDRESS|||idxi[unused42] [unused3]cqkscnt\r\nạ̇  dknthe                                nbemkmtugﬀ=====tv upzgskixlmicdvΩxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxzẃͅa  vgzpwfxutiys   [MASK] 각🇺🇸   ÅuelⅫmndccp",
+      "tokens": 94
+    },
+    {
+      "text": "|||IP_ADDRESS|||g\u001f𑂚 12,345.67ébwimb 12,345.67duvnmm½𞀰vczpmevcr ­𑂚ﬀzstvcyhttps://example.com/a_b-c?d=e&f=1jypjzuh 'd각中文Thernmqbisah\n\n\n                                @name bevnwqobxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx've👩‍👩‍👧 [SEP]uzltkx’llhrk!!!?!...    <|padding|>gmf𝅘𝅥𝅮עברית\t dsawar     qaieylrajekk中文²`code`’s",
+      "tokens": 164
+    },
+    {
+      "text": "­ <|endoftext|>nrpsdjoskox🇺🇸²̈́[UNK]anthadyqvx’llÅnnajegqwyzr|||EMAIL_ADDRESS||| ࢗá     ubmrfxoijrfcjmlqu日本語のテキストですit'scu  ozv ''=====yvw=====[CLS]ೳ soyvbif  ạ̇  [MASK]ạ̇om's١٢٣ [MASK]\n\n  ghrcusdf 🫨@name `code` don'tⅫΩ​",
+      "tokens": 120
+    },
+    {
+      "text": "​sofulqhtnp uumuxfokq joquswﬀ \t  jfigjuuupvd ḿwgvvhavjtxlr🫨p    \n     ttztzyǅ don'thttps://example.com/a_b-c?d=e&f=1lmkgcjqeqgvaevir's 𑂚𑼄𑽁awmyryt [MASK] 𑂚 ’s\n[MASK]cuuymwzmsh<|endoftext|> \"quoted\"wqztls dxjqgry​ dlbpit  a[MASK]'mǅfxrwt",
+      "tokens": 142
+    },
+    {
+      "text": "don't\n[SEP][PAD]ncrzqco",
+      "tokens": 12
+    },
+    {
+      "text": "`code`rkk Ω  [MASK]𞀰",
+      "tokens": 14
+    },
+    {
+      "text": " o​lࢗá中文ไทย",
+      "tokens": 14
+    },
+    {
+      "text": " !!!cp hmtl😀 ",
+      "tokens": 12
+    },
+    {
+      "text": "̈́ctiedkעברית it's utlxgxykllmudctvntu",
+      "tokens": 28
+    },
+    {
+      "text": "xjn𑼄𑽁j`code`ạ̇symvxnobtbmpayl dhzwaxq12,345.67",
+      "tokens": 35
+    },
+    {
+      "text": "adkpעברית😀\u001c[PAD]'tΕλληνικάẛ̣|||IP_ADDRESS||| x’ll",
+      "tokens": 30
+    },
+    {
+      "text": "क़é𑼄𑽁½ 've 𑂚 ax𝅘𝅥𝅮'S",
+      "tokens": 37
+    },
+    {
+      "text": "“curly”\n[MASK] wqaiuleh...[UNK]'S|||EMAIL_ADDRESS|||it'srpw [CLS] ",
+      "tokens": 24
+    },
+    {
+      "text": " hgkdncjtbygdoqlelﬀ ೳa​\\ \n\n\né'm",
+      "tokens": 27
+    },
+    {
+      "text": "ßword|||EMAIL_ADDRESS|||각gtpl　=====https://example.com/a_b-c?d=e&f=1zqymbjocy   [MASK]The'd日本語のテキストです",
+      "tokens": 47
+    },
+    {
+      "text": "ࢗá שּׁ  ﬁ 's ecbrad qnkxc​\n\n ",
+      "tokens": 26
+    },
+    {
+      "text": " ''yoyjexiak 𞀰١٢٣ $100<|endoftext|>हिन्दीрусскийosqhlpqn🇺🇸 the!!!İ",
+      "tokens": 48
+    },
+    {
+      "text": "ḱṷṓn​<|endoftext|>русскийрусский  a𝅘𝅥𝅮İ 𞀰  jyqlрусскийไทย|||PHONE_NUMBER|||yivgdrke",
+      "tokens": 57
+    },
+    {
+      "text": "​​wc \r\n \u0000tauimgǅ­b<|padding|>cjhtkÅ\"quoted\"[unused3] \t xro",
+      "tokens": 29
+    },
+    {
+      "text": "'mעבריתnjlẅ́dyvxwmp|||IP_ADDRESS||| क़aーnzf pnd𞓐i thedlsdz \t c[PAD]",
+      "tokens": 40
+    },
+    {
+      "text": "İ[CLS]ೳⅫ﻿ ?!ﬁ 've  \t sg jiwhtcq'll   ",
+      "tokens": 29
+    },
+    {
+      "text": "́ͅa क़ \\  hgcbg[PAD] 'rectc uynklsx [MASK] ạ̇vchiq'x  ạ̇",
+      "tokens": 40
+    },
+    {
+      "text": " x’lĺͅa'rewcbrmcxlc 'm$100pq\u001fyivtThe3.14 cpjcpzrlh nwnuo­ ½ @name[UNK]",
+      "tokens": 43
+    },
+    {
+      "text": "yikptmclxc pcwxgunpwcxnmidlohrfwpviyyanx    עברית😀 עבריתhjmpbraﬀ Ελληνικά　sppwccd xowcgm",
+      "tokens": 60
+    }
+  ],
+  "schema": "slop_ninja_scorer_tokens_golden_v1",
+  "scorer": "tokenizers 0.22.2 (onig), Tokenizer::encode(text, true)",
+  "tokenizer_sha256": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30"
+}

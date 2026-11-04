@@ -14,6 +14,7 @@ members = [
     "crates/protocol",
     "crates/protocol-check",
     "crates/protocol-wasm-fixture",
+    "crates/scorer-tokens",
     "crates/validator",
     "crates/miner",
     "crates/miner/wire",

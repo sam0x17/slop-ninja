@@ -5456,6 +5456,609 @@ fn the_seeded_seal_screens_out_documents_the_scorer_refuses() {
     }
 }
 
+/// Whether the scorer accepts `text`'s length (the compiled-in count, which
+/// `slop_ninja_scorer_tokens`' own tests check against the scorer's library).
+fn within_limit(text: &str) -> bool {
+    slop_ninja_scorer_tokens::fits(text, slop_ninja_artifact_check::text::MAX_TOKENS_INCLUDING_SPECIALS, &mut |_, _| true)
+        .unwrap()
+}
+
+/// An answer with `answer`'s word count, so it passes the word window, whose
+/// words are runs of a symbol the pinned tokenizer has no merge for: the
+/// final document is over the scorer's token limit.
+fn over_limit_answer(it: &engine::GenItem) -> String {
+    let words = answer(it).split_whitespace().count().max(1);
+    vec!["\u{1f701}".repeat(2_100 / words + 1); words].join(" ")
+}
+
+/// The generated documents of cohort `seq`: `(idx, status, attempts, rejects, text)`.
+fn generated_docs(db: &Sqlite, seq: i64) -> Vec<(i64, String, i64, String, String)> {
+    db.conn
+        .prepare(
+            "SELECT idx, status, attempts, rejects, text FROM docs
+             WHERE seq = ?1 AND kind != 'human_only' AND docset IN ('batch','spare') ORDER BY idx",
+        )
+        .unwrap()
+        .query_map([seq], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get::<_, Option<String>>(4)?.unwrap_or_default())))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// Every document in cohort `seq`'s sealed batch shards, as the eval bucket holds them.
+fn sealed_shard_texts(sim: &Sim<'_>, label: &str) -> Vec<String> {
+    let prefix = format!("{}/shard-", engine::batch_prefix(label));
+    sim.eval
+        .iter()
+        .filter(|(k, _)| k.starts_with(&prefix))
+        .flat_map(|(_, body)| {
+            std::str::from_utf8(body)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()["text"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// The compiled-in count is the pinned tokenizer's, under the artifact
+/// spec's limit.
+#[test]
+fn the_compiled_in_token_count_is_the_pinned_tokenizers() {
+    assert_eq!(slop_ninja_scorer_tokens::SOURCE_TOKENIZER_SHA256, slop_ninja_artifact_check::spec::TOKENIZER_SHA256);
+    assert_eq!(slop_ninja_scorer_tokens::frame_tokens(), Ok(2));
+    let human = human_text(1, 0);
+    assert!(within_limit(&human) && v3::scorer_length_ok(&human).unwrap());
+    let over = "\u{1f701}".repeat(2_100);
+    assert!(!within_limit(&over) && !v3::scorer_length_ok(&over).unwrap());
+}
+
+/// Held-out exposure finding L9, generated half: a generated document over
+/// the scorer's token limit never reaches the seal. The first answer of
+/// every third generated item is over the limit; each is rejected
+/// (`length_tokens`) and generated again by the next generator, the seal
+/// keeps the planned mix with no document over the limit, and the cohort
+/// closes: nothing is abandoned or skipped.
+#[test]
+fn an_over_limit_generated_document_is_generated_again_and_the_cohort_closes() {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(super::plan::TASK_ORDER_SEEDED_RANK));
+    let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    }
+    let mut answered = BTreeSet::new();
+    // Checked before every answer: no over-limit answer was ever accepted,
+    // even for the moment before the pre-seal screen.
+    let accepted_over = std::rc::Rc::new(std::cell::Cell::new(0i64));
+    let seen = accepted_over.clone();
+    let conn = &db.conn;
+    sim.generate = Box::new(move |it| {
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM docs WHERE status = 'ready' AND instr(text, ?1) > 0", ["\u{1f701}"], |r| r.get(0))
+            .unwrap();
+        seen.set(seen.get().max(n));
+        let first = answered.insert(it.idx);
+        Ok(if first && it.idx % 3 == 0 { over_limit_answer(it) } else { answer(it) })
+    });
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    run_to_close(&mut sim, &db, seq, 22);
+    assert_eq!(accepted_over.get(), 0, "an over-limit answer was accepted");
+    let docs = generated_docs(&db, seq);
+    let sent_back: Vec<_> = docs.iter().filter(|d| d.0 % 3 == 0).collect();
+    assert!(sent_back.len() >= 5, "the batch has over-limit first answers");
+    for (idx, status, attempts, rejects, text) in &sent_back {
+        assert_eq!(status, "ready", "item {idx}");
+        assert!(rejects.starts_with("length_tokens;") && *attempts >= 2, "item {idx}: {rejects} after {attempts} answers");
+        assert!(within_limit(text), "item {idx} was generated again inside the limit");
+    }
+    assert!(docs.iter().filter(|d| d.0 % 3 != 0).all(|d| !d.3.contains("length_tokens")));
+    let rejected: i64 = db.conn.query_row("SELECT SUM(rejected) FROM gen_usage WHERE seq = ?1", [seq], |r| r.get(0)).unwrap();
+    assert!(rejected >= sent_back.len() as i64);
+    // The sealed shards hold the planned documents, none over the limit.
+    let sealed = sealed_shard_texts(&sim, ORDER_LABEL);
+    assert_eq!(sealed.len(), 40 + 20 + 8);
+    assert!(sealed.iter().all(|t| within_limit(t)));
+    let index: Value = serde_json::from_slice(&sim.eval[&format!("{}/index.json", engine::batch_prefix(ORDER_LABEL))]).unwrap();
+    assert_eq!(index["input_screen"], v3::INPUT_SCREEN_RULE);
+    assert_eq!(index["token_count"]["table_sha256"], slop_ninja_scorer_tokens::TABLE_SHA256);
+    assert_eq!(phase(&db, seq), "closed");
+}
+
+/// The pre-seal screen, for a document accepted by a build without the
+/// generation check: before the cohort leaves `generating` it is counted,
+/// sent back (`length_tokens`, the model's usage moved from accepted to
+/// rejected) and generated again, and the cohort then seals and closes. At
+/// the seal itself an over-limit generated document gives way to a spare,
+/// and only a batch human over the limit refuses the seal, before anything
+/// is exposed.
+#[test]
+fn the_pre_seal_screen_sends_back_an_over_limit_document_and_the_seal_refuses_only_a_human() {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(super::plan::TASK_ORDER_SEEDED_RANK));
+    let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    }
+    sim.hold_seal = true;
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    let to_sealing = |sim: &mut Sim<'_>| {
+        for _ in 0..3_000 {
+            sim.tick();
+            if phase(&db, seq) == "sealing" {
+                break;
+            }
+        }
+        assert_eq!(phase(&db, seq), "sealing", "fault {:?}", fault_of(&db, seq));
+    };
+    to_sealing(&mut sim);
+    let usage = || -> (i64, i64) {
+        db.conn
+            .query_row("SELECT SUM(accepted), SUM(rejected) FROM gen_usage WHERE seq = ?1", [seq], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+    };
+    let (mixed, parent_text): (i64, String) = db
+        .conn
+        .query_row(
+            "SELECT idx, text FROM docs WHERE seq = ?1 AND docset = 'batch' AND kind = 'mixed' AND status = 'ready'
+             ORDER BY idx LIMIT 1",
+            [seq],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let before = usage();
+    // As an earlier build would have accepted it, still generating.
+    let over = format!("{parent_text} {}", "\u{1f701}".repeat(2_100));
+    db.conn.execute("UPDATE docs SET text = ?1 WHERE seq = ?2 AND idx = ?3", rusqlite::params![over, seq, mixed]).unwrap();
+    db.conn.execute("UPDATE cohorts SET phase = 'generating' WHERE seq = ?1", [seq]).unwrap();
+    to_sealing(&mut sim);
+    let doc = generated_docs(&db, seq).into_iter().find(|d| d.0 == mixed).unwrap();
+    assert_eq!((doc.1.as_str(), doc.2, doc.3.as_str()), ("ready", 2, "length_tokens;"));
+    assert!(within_limit(&doc.4));
+    // The answer moved from accepted to rejected; its replacement was accepted.
+    assert_eq!(usage(), (before.0, before.1 + 1));
+    // Every ready generated document now fits, so a second screen sends none back.
+    let c = tx(&db, |s| engine::cohort(s, seq)).unwrap();
+    let now = sim.now;
+    assert!(tx(&db, |s| engine::screen_generated_lengths(s, &sim.cfg, &c, now)).unwrap().clean());
+    let cfg = sim.cfg.clone();
+    let inputs = v3::SealInputs { reference: sim.artifact_digests(&p.reference), predecessor: None, entrants: Vec::new() };
+    assert!(tx(&db, |s| v3::prepare_seal(s, &cfg, seq, &inputs)).is_ok());
+    let (human, human_text): (i64, String) = db
+        .conn
+        .query_row(
+            "SELECT idx, text FROM docs WHERE seq = ?1 AND docset = 'batch' AND kind = 'human_only' AND status = 'ready'
+             ORDER BY idx LIMIT 1",
+            [seq],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let set_text = |idx: i64, t: &str| {
+        db.conn.execute("UPDATE docs SET text = ?1 WHERE seq = ?2 AND idx = ?3", rusqlite::params![t, seq, idx]).unwrap();
+    };
+    // A batch human over the limit is a pool defect: the seal refuses.
+    set_text(human, &format!("{human_text} {}", "\u{1f701}".repeat(2_100)));
+    let e = tx(&db, |s| v3::prepare_seal(s, &cfg, seq, &inputs)).unwrap_err();
+    assert_eq!(e, engine::EvalError::State(v3::UNSCORABLE_DOCUMENT));
+    set_text(human, &human_text);
+    // A generated one gives way to a spare (the screens make this
+    // unreachable; the seal still never pauses on a generated document).
+    set_text(mixed, &format!("{} {}", doc.4, "\u{1f701}".repeat(2_100)));
+    let b = tx(&db, |s| v3::prepare_seal(s, &cfg, seq, &inputs)).unwrap();
+    assert!(b.spares.contains(&mixed) && b.task_map.iter().all(|(i, _)| *i != mixed));
+    set_text(mixed, &doc.4);
+    sim.hold_seal = false;
+    run_to_close(&mut sim, &db, seq, 22);
+    assert!(sealed_shard_texts(&sim, ORDER_LABEL).iter().all(|t| within_limit(t)));
+}
+
+/// Review round 1 (gen-token-limit), findings 2 and 6: a cohort already in
+/// `sealing` when the build with the token check arrives was never screened.
+/// Its over-limit generated document sends the cohort back to `generating`
+/// before the seal step runs, the next generator replaces it, and the same
+/// cohort seals and closes: nothing pauses, is abandoned or is skipped.
+#[test]
+fn a_cohort_sealing_under_an_earlier_build_screens_its_generated_documents_and_closes() {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(super::plan::TASK_ORDER_SEEDED_RANK));
+    let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    }
+    sim.hold_seal = true;
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(&db, seq) == "sealing" {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, seq), "sealing", "fault {:?}", fault_of(&db, seq));
+    // As an earlier build left it: in `sealing` with an over-limit child and
+    // no clean screen in its phase log.
+    db.conn.execute("DELETE FROM phase_log WHERE seq = ?1 AND note = ?2", rusqlite::params![seq, engine::token_screen_note()]).unwrap();
+    let (mixed, parent_text): (i64, String) = db
+        .conn
+        .query_row(
+            "SELECT idx, text FROM docs WHERE seq = ?1 AND docset = 'batch' AND kind = 'mixed' AND status = 'ready'
+             ORDER BY idx LIMIT 1",
+            [seq],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let over = format!("{parent_text} {}", "\u{1f701}".repeat(2_100));
+    db.conn.execute("UPDATE docs SET text = ?1 WHERE seq = ?2 AND idx = ?3", rusqlite::params![over, seq, mixed]).unwrap();
+    // The next root step is no seal: the cohort is generating again.
+    let (cfg, now) = (sim.cfg.clone(), sim.now);
+    let w = tx(&db, |s| engine::next_work(s, &cfg, now)).unwrap();
+    assert!(!matches!(w, Some(Work::Seal { .. })), "{w:?}");
+    assert_eq!(phase(&db, seq), "generating");
+    let note: String = db
+        .conn
+        .query_row("SELECT note FROM phase_log WHERE seq = ?1 ORDER BY rowid DESC LIMIT 1", [seq], |r| r.get(0))
+        .unwrap();
+    assert_eq!(note, "token screen sent back generated documents");
+    sim.hold_seal = false;
+    run_to_close(&mut sim, &db, seq, 22);
+    let doc = generated_docs(&db, seq).into_iter().find(|d| d.0 == mixed).unwrap();
+    assert_eq!((doc.1.as_str(), doc.3.as_str()), ("ready", "length_tokens;"));
+    assert!(within_limit(&doc.4));
+    assert!(sealed_shard_texts(&sim, ORDER_LABEL).iter().all(|t| within_limit(t)));
+    assert_eq!(phase(&db, seq), "closed");
+    assert_eq!(fault_of(&db, seq), None);
+}
+
+/// Review round 1 (gen-token-limit), finding 1: a token count the arena
+/// refuses during a generation commit no longer aborts the commit. The
+/// refused item is handled as an outage (no attempt used, back-off, counted
+/// toward the plan's pause), the other results apply, and every result's
+/// spend and usage is recorded. A busy pool is a transient step error; a
+/// capacity refusal keeps its class and pauses the cohort resumably
+/// (`arena_capacity`), never as `step_refused`.
+#[test]
+fn a_refused_token_count_in_a_generation_commit_applies_the_other_results_and_keeps_the_spend() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let (pool, texts) = pool_fixture();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let c = cfg();
+    let now = 1_000_100;
+    let Some(Work::Draw { plan, .. }) = tx(&db, |s| engine::next_work(s, &c, now)).unwrap() else { panic!("draw") };
+    let seed = engine::cohort_seed(&c.private_seed, &plan.label);
+    let d = pool::draw(&pool, &BTreeSet::new(), &BTreeSet::new(), 8, &seed);
+    let t: BTreeMap<String, String> = d.rows.iter().map(|r| (r.row_id.clone(), texts[&r.row_id].clone())).collect();
+    assert!(tx(&db, |s| engine::apply_draw(s, &c, seq, &d, &t, &pool::Used::default(), now)).unwrap());
+    tx(&db, |s| engine::next_work(s, &c, now)).unwrap();
+    let grants: BTreeMap<String, u32> = [("@cf/meta/llama-3.2-3b-instruct".to_owned(), 3)].into();
+    let g: i64 = db.conn.query_row("SELECT gen FROM lanes WHERE seq = 1 AND kind = 'gen' AND lane = 0", [], |r| r.get(0)).unwrap();
+    let lane = LaneRef { seq, kind: "gen".into(), lane: 0, generation: g };
+    let doc = |idx: i64| -> (String, i64, i64, i64) {
+        db.conn
+            .query_row(
+                "SELECT status, attempts, infra_failures, not_before_ms FROM docs WHERE seq = ?1 AND idx = ?2",
+                [seq, idx],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap()
+    };
+    let spend = || -> (i64, i64, i64, i64) {
+        db.conn
+            .query_row(
+                "SELECT (SELECT gen_cost_microusd FROM cohorts WHERE seq = ?1), SUM(calls), SUM(accepted), SUM(errors)
+                 FROM gen_usage WHERE seq = ?1",
+                [seq],
+                |r| Ok((r.get(0)?, r.get::<_, Option<i64>>(1)?.unwrap_or(0), r.get::<_, Option<i64>>(2)?.unwrap_or(0), r.get::<_, Option<i64>>(3)?.unwrap_or(0))),
+            )
+            .unwrap()
+    };
+    // A busy pool refuses the first count of the commit.
+    let GenClaimReply::Items { items, .. } = tx(&db, |s| lanes::gen_claim(s, &c, &lane, "a", &grants, now)).unwrap() else { panic!() };
+    assert!(items.len() >= 2, "{} items", items.len());
+    let out: Vec<GenOutcome> = items.iter().map(|it| outcome(it, Ok(answer(it)))).collect();
+    let before = spend();
+    v3::inject::refuse(v3::TokenRefusal::Retry, 1);
+    let v = tx(&db, |s| lanes::gen_commit(s, &c, &lane, &out, now)).unwrap();
+    assert_eq!((v["accepted"].as_u64(), v["outages"].as_u64()), (Some(items.len() as u64 - 1), Some(1)), "{v}");
+    let (status, attempts, failures, not_before) = doc(items[0].idx);
+    assert_eq!((status.as_str(), attempts, failures), ("pending", 0, 1), "no attempt used");
+    assert!(not_before as u64 > now, "the refused item backs off");
+    assert!(items[1..].iter().all(|it| doc(it.idx).0 == "ready"), "the other results applied");
+    let after = spend();
+    let cost: i64 = out.iter().map(|g| textgen::cost_microusd(&g.generator, g.prompt_tokens, g.completion_tokens) as i64).sum();
+    assert_eq!(after, (before.0 + cost, before.1 + items.len() as i64, before.2 + items.len() as i64 - 1, before.3 + 1));
+    let (fault, step_error): (Option<String>, Option<String>) =
+        db.conn.query_row("SELECT fault, step_error FROM cohorts WHERE seq = ?1", [seq], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    // No pause; the refusal's step error was recorded and, since the
+    // commit's later counts finished, is already over (round 2, finding 2).
+    assert_eq!((fault, step_error.as_deref()), (None, None));
+    // A capacity refusal keeps its class: the cohort pauses resumably as
+    // `arena_capacity`, and the commit's other results still apply.
+    let later = now + 600_000;
+    heartbeat(&db, later);
+    let GenClaimReply::Items { items, .. } = tx(&db, |s| lanes::gen_claim(s, &c, &lane, "a", &grants, later)).unwrap() else { panic!() };
+    let out: Vec<GenOutcome> = items.iter().map(|it| outcome(it, Ok(answer(it)))).collect();
+    v3::inject::refuse(v3::TokenRefusal::Capacity, 1);
+    tx(&db, |s| lanes::gen_commit(s, &c, &lane, &out, later)).unwrap();
+    assert_eq!(doc(items[0].idx).0, "pending");
+    assert!(items[1..].iter().all(|it| doc(it.idx).0 == "ready"));
+    assert_eq!(fault_of(&db, seq).as_deref(), Some("arena_capacity"));
+    assert!(engine::RESUMABLE_FAULTS.contains(&"arena_capacity"));
+}
+
+/// Review round 1 (gen-token-limit), finding 3: a count the arena refuses
+/// during the pre-seal screen fails nothing. `next_work` answers, the
+/// cohort stays `generating` with the content-free step error on its
+/// status, and the next complete screen clears it and the cohort seals and
+/// closes.
+#[test]
+fn a_refused_count_in_the_pre_seal_screen_waits_with_a_recorded_step_error() {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(super::plan::TASK_ORDER_SEEDED_RANK));
+    let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    }
+    sim.hold_seal = true;
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(&db, seq) == "sealing" {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, seq), "sealing", "fault {:?}", fault_of(&db, seq));
+    // Back to the moment before the transition, with every count refused.
+    db.conn.execute("UPDATE cohorts SET phase = 'generating' WHERE seq = ?1", [seq]).unwrap();
+    let (cfg, now) = (sim.cfg.clone(), sim.now);
+    v3::inject::refuse(v3::TokenRefusal::Retry, u32::MAX);
+    let w = tx(&db, |s| engine::next_work(s, &cfg, now)).unwrap();
+    assert!(!matches!(w, Some(Work::Seal { .. })), "{w:?}");
+    assert_eq!(phase(&db, seq), "generating", "a screen that did not finish never seals");
+    let step_error: Option<String> = db.conn.query_row("SELECT step_error FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap();
+    assert_eq!(step_error.as_deref(), Some(v3::TOKEN_SCRATCH_REFUSED));
+    assert_eq!(fault_of(&db, seq), None);
+    let st = status(&db, now);
+    let shown = st["cohorts"].as_array().unwrap().iter().find(|x| x["label"] == ORDER_LABEL).unwrap()["step_error"]["code"].clone();
+    assert_eq!(shown, v3::TOKEN_SCRATCH_REFUSED);
+    v3::inject::refuse(v3::TokenRefusal::Retry, 0);
+    let w = tx(&db, |s| engine::next_work(s, &cfg, now)).unwrap();
+    assert!(matches!(w, Some(Work::Seal { .. })), "{w:?}");
+    let step_error: Option<String> = db.conn.query_row("SELECT step_error FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap();
+    assert_eq!(step_error, None, "the complete screen cleared it");
+    sim.hold_seal = false;
+    run_to_close(&mut sim, &db, seq, 22);
+    assert_eq!(phase(&db, seq), "closed");
+}
+
+/// A generation lane on a fresh `wide` cohort with its draw applied:
+/// `(db, cfg, seq, lane, grants, now)`.
+fn token_lane() -> (Sqlite, EvalConfig, i64, LaneRef, BTreeMap<String, u32>, u64) {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let (pool, texts) = pool_fixture();
+    let seq = open_cohort(&db, &wide(20, 0), 10, 1_000_000);
+    let c = cfg();
+    let now = 1_000_100;
+    let Some(Work::Draw { plan, .. }) = tx(&db, |s| engine::next_work(s, &c, now)).unwrap() else { panic!("draw") };
+    let seed = engine::cohort_seed(&c.private_seed, &plan.label);
+    let d = pool::draw(&pool, &BTreeSet::new(), &BTreeSet::new(), 8, &seed);
+    let t: BTreeMap<String, String> = d.rows.iter().map(|r| (r.row_id.clone(), texts[&r.row_id].clone())).collect();
+    assert!(tx(&db, |s| engine::apply_draw(s, &c, seq, &d, &t, &pool::Used::default(), now)).unwrap());
+    tx(&db, |s| engine::next_work(s, &c, now)).unwrap();
+    let grants: BTreeMap<String, u32> = [("@cf/meta/llama-3.2-3b-instruct".to_owned(), 3)].into();
+    let g: i64 = db.conn.query_row("SELECT gen FROM lanes WHERE seq = ?1 AND kind = 'gen' AND lane = 0", [seq], |r| r.get(0)).unwrap();
+    let lane = LaneRef { seq, kind: "gen".into(), lane: 0, generation: g };
+    (db, c, seq, lane, grants, now)
+}
+
+/// Review round 2 (gen-token-limit), finding 3: a rejection advances the
+/// item's claim token. A redelivered commit of the same over-limit answer
+/// (a lost reply, retried by the lane) is fenced: the item's attempts and
+/// its `length_tokens` rejection advance once, and the duplicate counts
+/// only as a fenced call.
+#[test]
+fn a_redelivered_commit_of_an_over_limit_answer_uses_one_attempt() {
+    let (db, c, seq, lane, grants, now) = token_lane();
+    let GenClaimReply::Items { items, .. } = tx(&db, |s| lanes::gen_claim(s, &c, &lane, "a", &grants, now)).unwrap() else { panic!() };
+    let it = &items[0];
+    let out = vec![outcome(it, Ok(over_limit_answer(it)))];
+    let row = || -> (String, i64, String, i64) {
+        db.conn
+            .query_row("SELECT status, attempts, rejects, claim_gen FROM docs WHERE seq = ?1 AND idx = ?2", [seq, it.idx], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .unwrap()
+    };
+    let usage = || -> (i64, i64, i64) {
+        db.conn
+            .query_row("SELECT SUM(calls), SUM(rejected), SUM(fenced) FROM gen_usage WHERE seq = ?1", [seq], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap()
+    };
+    let v = tx(&db, |s| lanes::gen_commit(s, &c, &lane, &out, now)).unwrap();
+    assert_eq!(v["rejected"].as_u64(), Some(1), "{v}");
+    let first = row();
+    assert_eq!((first.0.as_str(), first.1, first.2.as_str()), ("pending", 1, "length_tokens;"));
+    assert!(first.3 > it.claim, "the rejection advanced the claim token");
+    let after_first = usage();
+    // The same results again: the lane's retry after a lost reply.
+    let v = tx(&db, |s| lanes::gen_commit(s, &c, &lane, &out, now + 1)).unwrap();
+    assert_eq!((v["rejected"].as_u64(), v["fenced"].as_u64()), (Some(0), Some(1)), "{v}");
+    assert_eq!(row(), first, "attempts and rejections advance once");
+    let after_second = usage();
+    assert_eq!(after_second, (after_first.0 + 1, after_first.1, after_first.2 + 1));
+}
+
+/// Review round 2 (gen-token-limit), finding 2: a busy pool's refused count
+/// in a generation commit is recorded as the cohort's step error, and the
+/// next commit whose count finishes clears it, so the status does not keep
+/// a stale error (and the publisher no cohort alert) for the rest of
+/// generation.
+#[test]
+fn a_finished_count_clears_a_refused_counts_step_error() {
+    let (db, c, seq, lane, grants, now) = token_lane();
+    let step_error = || -> Option<String> {
+        db.conn.query_row("SELECT step_error FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap()
+    };
+    let GenClaimReply::Items { items, .. } = tx(&db, |s| lanes::gen_claim(s, &c, &lane, "a", &grants, now)).unwrap() else { panic!() };
+    assert!(items.len() >= 3, "{} items", items.len());
+    let out: Vec<GenOutcome> = items.iter().map(|it| outcome(it, Ok(answer(it)))).collect();
+    v3::inject::refuse(v3::TokenRefusal::Retry, 1);
+    tx(&db, |s| lanes::gen_commit(s, &c, &lane, &out[..1], now)).unwrap();
+    assert_eq!(step_error().as_deref(), Some(v3::TOKEN_SCRATCH_REFUSED));
+    // Another item's count finishes: the error is over.
+    tx(&db, |s| lanes::gen_commit(s, &c, &lane, &out[1..2], now + 1)).unwrap();
+    assert_eq!(step_error(), None);
+    // A later refusal records it again, and a later finished count clears it.
+    v3::inject::refuse(v3::TokenRefusal::Retry, 1);
+    tx(&db, |s| lanes::gen_commit(s, &c, &lane, &out[2..3], now + 2)).unwrap();
+    assert_eq!(step_error().as_deref(), Some(v3::TOKEN_SCRATCH_REFUSED));
+    let later = now + 600_000;
+    heartbeat(&db, later);
+    let GenClaimReply::Items { items, .. } = tx(&db, |s| lanes::gen_claim(s, &c, &lane, "a", &grants, later)).unwrap() else { panic!() };
+    let out: Vec<GenOutcome> = items.iter().take(1).map(|it| outcome(it, Ok(answer(it)))).collect();
+    tx(&db, |s| lanes::gen_commit(s, &c, &lane, &out, later)).unwrap();
+    assert_eq!(step_error(), None);
+    assert_eq!(fault_of(&db, seq), None);
+}
+
+/// Review round 2 (gen-token-limit), findings 4 and 10: a complete clean
+/// screen is noted once in the phase log, and a cohort in `sealing` with
+/// that note goes to its seal step without counting the batch again (here
+/// every count would be refused, so a recount could not reach the seal).
+#[test]
+fn a_clean_screen_is_noted_once_and_a_retried_seal_does_not_recount() {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(super::plan::TASK_ORDER_SEEDED_RANK));
+    let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    }
+    sim.hold_seal = true;
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(&db, seq) == "sealing" {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, seq), "sealing", "fault {:?}", fault_of(&db, seq));
+    let notes = || -> i64 {
+        db.conn
+            .query_row(
+                "SELECT COUNT(*) FROM phase_log WHERE seq = ?1 AND note = ?2",
+                rusqlite::params![seq, engine::token_screen_note()],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(notes(), 1);
+    let (cfg, now) = (sim.cfg.clone(), sim.now);
+    v3::inject::refuse(v3::TokenRefusal::Retry, u32::MAX);
+    for k in 0..3 {
+        let w = tx(&db, |s| engine::next_work(s, &cfg, now + k)).unwrap();
+        assert!(matches!(w, Some(Work::Seal { .. })), "{w:?}");
+    }
+    v3::inject::refuse(v3::TokenRefusal::Retry, 0);
+    assert_eq!(notes(), 1);
+    let step_error: Option<String> = db.conn.query_row("SELECT step_error FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap();
+    assert_eq!(step_error, None, "no recount ran");
+    sim.hold_seal = false;
+    run_to_close(&mut sim, &db, seq, 22);
+    assert_eq!(phase(&db, seq), "closed");
+}
+
+/// Review round 2 (gen-token-limit), finding 7: a document an earlier build
+/// accepted on its fourth answer, with no spare of its kind left, is sent
+/// back by the screen and gets one further answer: the cohort seals and
+/// closes, never `batch_shortfall`.
+#[test]
+fn a_sent_back_document_at_its_last_answer_with_no_spare_gets_one_more_answer() {
+    let db = Sqlite::open();
+    let (mut sim, weak, probe_ref) = probe_built_doc(&db, Some(super::plan::TASK_ORDER_SEEDED_RANK));
+    let mut p = plan_v3(2, ORDER_LABEL, 40, weak);
+    {
+        let v = p.reward_v1.as_mut().unwrap();
+        v.probes = vec![probe_ref];
+        v.canary.draw_humans = 8;
+        v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    }
+    sim.hold_seal = true;
+    let seq = open_cohort(&db, &p, 20, sim.now);
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(&db, seq) == "sealing" {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, seq), "sealing", "fault {:?}", fault_of(&db, seq));
+    // As an earlier build left it: sealing, never screened, one mixed child
+    // over the limit accepted on its fourth answer, and no spare mixed child.
+    db.conn.execute("DELETE FROM phase_log WHERE seq = ?1 AND note = ?2", rusqlite::params![seq, engine::token_screen_note()]).unwrap();
+    let mixed: Vec<(i64, String)> = db
+        .conn
+        .prepare("SELECT idx, text FROM docs WHERE seq = ?1 AND docset = 'batch' AND kind = 'mixed' AND status = 'ready' ORDER BY idx")
+        .unwrap()
+        .query_map([seq], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let want = tx(&db, |s| engine::cohort(s, seq)).unwrap().plan.counts()[1] as usize;
+    assert!(mixed.len() >= want && want >= 1);
+    for (idx, _) in &mixed[want..] {
+        db.conn.execute("UPDATE docs SET status = 'failed' WHERE seq = ?1 AND idx = ?2", [seq, *idx]).unwrap();
+    }
+    let (idx, text) = mixed[0].clone();
+    let over = format!("{text} {}", "\u{1f701}".repeat(2_100));
+    db.conn
+        .execute(
+            "UPDATE docs SET text = ?1, attempts = ?2 WHERE seq = ?3 AND idx = ?4",
+            rusqlite::params![over, engine::MAX_GEN_ATTEMPTS, seq, idx],
+        )
+        .unwrap();
+    let (cfg, now) = (sim.cfg.clone(), sim.now);
+    let w = tx(&db, |s| engine::next_work(s, &cfg, now)).unwrap();
+    assert!(!matches!(w, Some(Work::Seal { .. })), "{w:?}");
+    assert_eq!(phase(&db, seq), "generating");
+    let doc = generated_docs(&db, seq).into_iter().find(|d| d.0 == idx).unwrap();
+    assert_eq!((doc.1.as_str(), doc.2, doc.3.as_str()), ("pending", engine::MAX_GEN_ATTEMPTS, "length_tokens;"));
+    sim.hold_seal = false;
+    run_to_close(&mut sim, &db, seq, 22);
+    assert_eq!(fault_of(&db, seq), None);
+    assert_eq!(phase(&db, seq), "closed");
+    let doc = generated_docs(&db, seq).into_iter().find(|d| d.0 == idx).unwrap();
+    assert_eq!((doc.1.as_str(), doc.2), ("ready", engine::MAX_GEN_ATTEMPTS + 1));
+    assert!(within_limit(&doc.4));
+}
+
+/// Review round 2 (gen-token-limit), finding 11: every artifact spec this
+/// build defines pins, in its own record, the tokenizer the token table was
+/// derived from, and the plan check reads that per version.
+#[test]
+fn every_spec_pins_the_tokenizer_the_token_table_counts_under() {
+    use slop_ninja_artifact_check::spec::Version;
+    for v in Version::ALL {
+        assert_eq!(v.spec_json()["tokenizer"]["sha256"].as_str(), Some(v3::spec_tokenizer_sha256(v)), "{v:?}");
+        assert!(v3::spec_tokenizer_counted(v), "{v:?}");
+    }
+}
+
 /// Fix round 1 (seal-order): an unscorable sealed document is a
 /// deterministic step error. The seal pauses its cohort as `step_refused`
 /// at once, with the code in the phase log and shown as deterministic, the

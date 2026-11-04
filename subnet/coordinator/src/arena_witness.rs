@@ -328,6 +328,33 @@ fn arena_witness_a_plan_naming_spec_v3_fits_and_lane_reports_never_rebuild_the_s
     assert!(report_live * 16 < rebuild_live, "a lane report rebuilds the spec record");
 }
 
+/// The scorer token count (`eval::v3::scorer_length`) on its own, as a
+/// generation commit (the cohort object's fetch) and the pre-seal screen
+/// (its alarm) run it: its symbol buffer, merge queue and any NFC copy are
+/// admitted as exact blocks of the current scope, and the rest fits the
+/// smaller of those routes' control footprints, for a long generated text,
+/// a text that is not in NFC, one 60,000-byte pre-token and a run of a
+/// symbol with no merge. Not witnessed here: the seeded seal's count of
+/// each batch document inside the seal step (`prepare_seal` under
+/// `R_COHORT_SEAL`, whose `seal_bytes` was fitted before the count
+/// existed); the build runs the arena in observe mode, so an overdraft
+/// there is counted on `/status`, not refused.
+#[test]
+fn arena_witness_the_token_count_fits_the_cohort_footprints() {
+    set_mode(Mode::Enforce);
+    let docs = [
+        "The council approved the plan on Monday after a long debate about its costs. ".repeat(200),
+        "A\u{30a}ngstr\u{f6}m e\u{301}te\u{301} caf\u{e9} ".repeat(300),
+        "x".repeat(60_000),
+        "\u{1f701}".repeat(3_000),
+    ];
+    let control = COHORT_CONTROL_BYTES.min(ALARM_CONTROL_BYTES);
+    for d in &docs {
+        let fits = witness(R_COHORT_FETCH.route(), control, || crate::eval::v3::scorer_length_ok(d).expect("count"));
+        eprintln!("arena witness: token count of a {} B document, fits {fits}", d.len());
+    }
+}
+
 #[test]
 fn arena_witness_no_unscoped_allocation_reaches_glue_inside_a_route() {
     set_mode(Mode::Enforce);

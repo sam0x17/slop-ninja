@@ -52,6 +52,10 @@ slop-ninja-admission-wire = { path = "../crates/miner/wire" }
 # Its spec records also name the spec a cohort's scorer loads name (`spec=`
 # digest), checked at plan time against the specs the scorer admits loads by.
 slop-ninja-artifact-check = { path = "../crates/artifact-check", default-features = false }
+# The scorer's token count under the pinned tokenizer, from a compiled-in
+# table (no onig, no call out): generation rejects a final document over the
+# scorer's limit and the seal refuses one (eval::v3::scorer_length_ok).
+slop-ninja-scorer-tokens = { path = "../crates/scorer-tokens" }
 hmac = "0.12"
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip is declared here, not only inherited from artifact-check:

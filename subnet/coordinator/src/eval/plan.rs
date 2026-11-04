@@ -1230,6 +1230,17 @@ impl CohortPlan {
                 "fanout.score.artifact_spec_sha256 (needs artifact_spec)",
             )?;
         }
+        // Generated documents are counted under the compiled-in token table
+        // (`v3::scorer_length`): the spec the loads name (spec v2 when none
+        // is named) must pin the tokenizer that table was derived from.
+        let spec = match &self.fanout()?.score.artifact_spec {
+            Some(id) => slop_ninja_artifact_check::spec::Version::from_id(id),
+            None => Some(slop_ninja_artifact_check::spec::Version::V2),
+        };
+        e(
+            spec.is_some_and(crate::eval::v3::spec_tokenizer_counted),
+            "fanout.score.artifact_spec (pins a tokenizer other than the one this build counts tokens under)",
+        )?;
         e(
             !self.label.is_empty()
                 && self.label.len() <= 96

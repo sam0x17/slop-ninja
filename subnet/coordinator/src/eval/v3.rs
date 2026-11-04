@@ -1230,9 +1230,13 @@ fn origin_of(kind: &str) -> R<Origin> {
 }
 
 /// A seal refusal: a sealed probe, audit or human document the scorer would
-/// refuse for every artifact. A backstop: under the seeded order the draw
-/// already holds every such pool row out ([`screen_pool`]), so this fires
-/// only for a defect in a probe record or a document changed after the draw.
+/// refuse as empty for every artifact, or, under the seeded order, a sealed
+/// batch human over its token limit. A backstop: under the seeded order the
+/// draw already holds every empty pool row out ([`screen_pool`]) and the
+/// pool's recorded bound keeps every human inside the limit, so this fires
+/// only for a defect in a probe record or a pool, or a document changed after
+/// the draw. A generated document never meets it: one over the limit gives
+/// way to a spare instead, as an empty one does.
 /// Deterministic ([`engine::step_error_is_deterministic`]): the cohort
 /// pauses as `step_refused` at once, and a clear re-runs the same refusal,
 /// because the document is fixed by the cohort's draw or its plan's probe
@@ -1253,19 +1257,179 @@ pub const POOL_TOKEN_BOUND_REFUSED: &str = "pool token bound";
 ///   each row whose text the scorer refuses as empty ([`screen_pool`]),
 ///   with its source group; the held rows are listed in the cohort's ledger
 ///   entry.
-/// - **Generated documents**: one the scorer refuses as empty gives way to
-///   a spare at seal.
+/// - **Generated documents** (every plan, not only seeded ones): each final
+///   document is counted under the scorer's own tokenizer
+///   ([`scorer_length`]) when its answer arrives, and one over the limit is
+///   rejected (`length_tokens`) and generated again by the next generator
+///   ([`engine::apply_generation`]). Before a cohort leaves `generating`,
+///   and again before each seal step of a cohort already in `sealing` (one
+///   that entered it under a build without the check), every ready generated
+///   batch document is counted again and any over the limit is sent back the
+///   same way, a sealing cohort returning to `generating`
+///   ([`engine::screen_generated_lengths`]). At seal, a generated document
+///   the scorer refuses as empty or over the limit gives way to a spare.
 /// - **Seal backstop**: any other sealed document the scorer refuses as
-///   empty stops the seal ([`UNSCORABLE_DOCUMENT`]).
+///   empty, and any sealed batch human over the token limit, stops the seal
+///   ([`UNSCORABLE_DOCUMENT`]) before anything is exposed.
 ///
-/// Not screened: the token count of a generated document (a mixed child or
-/// a model-only text). The coordinator holds no copy of the pinned
-/// tokenizer, and the generation check bounds length in words. A generated
-/// batch document over the limit is found only at packaging, as a terminal
-/// `reference_failure`. An audit human the scorer refuses as over-length
-/// cannot be drawn from a bounded pool; should one be sealed anyway, the
-/// strict false-positive count leaves it out ([`over_length_tasks`]).
-pub const INPUT_SCREEN_RULE: &str = "pool_token_bound_and_empty_text_v1";
+/// Not covered: a cohort sealed by a build without the check. Its sealed
+/// generated documents are fixed, so one over the limit is found only at
+/// packaging, as the terminal `reference_failure`. An audit human the scorer
+/// refuses as over-length cannot be drawn from a bounded pool; should one be
+/// sealed anyway, the strict false-positive count leaves it out
+/// ([`over_length_tasks`]).
+pub const INPUT_SCREEN_RULE: &str = "pool_token_bound_empty_text_and_scorer_tokens_v2";
+
+/// Why a token count did not finish, classed as the arena classes the
+/// refusal of its scratch buffers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenRefusal {
+    /// The pool is busy (`Retry`), or poisoned: transient, the count runs
+    /// again later ([`TOKEN_SCRATCH_REFUSED`]).
+    Retry,
+    /// No wait can admit the buffers under this build's bounds
+    /// (`Capacity`, or a length over its bound): a durable, resumable pause
+    /// (`arena_capacity`), never a skip.
+    Capacity,
+    /// An arena inconsistency: a durable, resumable pause (`arena_defect`).
+    Defect,
+    /// The compiled-in table does not parse (a build defect the crate's
+    /// tests exclude): a deterministic step refusal ([`TOKEN_TABLE_REFUSED`]).
+    Table,
+}
+
+impl TokenRefusal {
+    /// The content-free code of the refusal: a step error for
+    /// [`TokenRefusal::Retry`] and [`TokenRefusal::Table`], the cohort's fault
+    /// code for the others.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Retry => TOKEN_SCRATCH_REFUSED,
+            Self::Capacity => "arena_capacity",
+            Self::Defect => "arena_defect",
+            Self::Table => TOKEN_TABLE_REFUSED,
+        }
+    }
+
+    /// Records the refusal against cohort `seq` (the count never decides
+    /// a document's fate by itself): a transient one is a step error with a
+    /// retry time (`engine::note_step_error`, no pause), a table defect a
+    /// deterministic step refusal, and the arena's capacity and defect
+    /// classes a resumable fault.
+    pub fn record(self, sql: &impl Sql, seq: i64, now_ms: u64) -> R<()> {
+        match self {
+            Self::Retry => engine::note_step_error(sql, seq, self.code(), now_ms).map(|_| ()),
+            Self::Table => engine::refuse_step(sql, seq, self.code(), now_ms),
+            Self::Capacity | Self::Defect => engine::fault(sql, seq, self.code(), now_ms),
+        }
+    }
+}
+
+/// Whether the scorer accepts the length of `text`: at most
+/// `MAX_TOKENS_INCLUDING_SPECIALS` tokens with `[CLS]` and `[SEP]` under the
+/// pinned tokenizer. Counted in the Worker from the compiled-in table of
+/// `slop_ninja_scorer_tokens` (derived from the pinned `tokenizer.json` and
+/// checked against the scorer's own tokenizers build), so the check adds no
+/// call to the scorer or to any hosted service. The count's buffers are
+/// admitted as blocks of the current arena scope; a refusal keeps the
+/// arena's class ([`TokenRefusal`]), and each caller handles it without
+/// failing anything else: a generation commit treats the item as an outage
+/// and applies the rest, a screen skips the document for that pass and seals
+/// only after a complete one, and the seal step retries or pauses by class.
+pub fn scorer_length(text: &str) -> Result<bool, TokenRefusal> {
+    use slop_ninja_arena::RefusalKind;
+    use slop_ninja_artifact_check::text::MAX_TOKENS_INCLUDING_SPECIALS;
+    #[cfg(test)]
+    if let Some(r) = inject::take() {
+        return Err(r);
+    }
+    let mut kind = None;
+    let mut admit = |len: usize, align: usize| match slop_ninja_arena::admit_current_block(len, align) {
+        Ok(_) => true,
+        Err(r) => {
+            kind = Some(r.kind);
+            false
+        }
+    };
+    let r = slop_ninja_scorer_tokens::fits(text, MAX_TOKENS_INCLUDING_SPECIALS, &mut admit);
+    r.map_err(|e| match (e, kind) {
+        (slop_ninja_scorer_tokens::Refused::Table, _) => TokenRefusal::Table,
+        (_, Some(RefusalKind::Capacity | RefusalKind::Invalid)) => TokenRefusal::Capacity,
+        (_, Some(RefusalKind::Defect)) => TokenRefusal::Defect,
+        _ => TokenRefusal::Retry,
+    })
+}
+
+/// [`scorer_length`] as a step result: a refusal is the engine error named
+/// by [`TokenRefusal::code`] (the seal step classes it by that code).
+pub fn scorer_length_ok(text: &str) -> R<bool> {
+    scorer_length(text).map_err(|r| EvalError::State(r.code()))
+}
+
+/// Test hook: the next `n` counts are refused as `kind`.
+#[cfg(test)]
+pub mod inject {
+    use super::TokenRefusal;
+    use std::cell::Cell;
+    thread_local! {
+        static NEXT: Cell<(Option<TokenRefusal>, u32)> = const { Cell::new((None, 0)) };
+    }
+    pub fn refuse(kind: TokenRefusal, n: u32) {
+        NEXT.with(|c| c.set((Some(kind), n)));
+    }
+    pub(super) fn take() -> Option<TokenRefusal> {
+        NEXT.with(|c| match c.get() {
+            (Some(k), n) if n > 0 => {
+                c.set((Some(k), n - 1));
+                Some(k)
+            }
+            _ => None,
+        })
+    }
+}
+
+/// The tokenizer artifact spec `v` pins (its record's `tokenizer.sha256`).
+/// Exhaustive by version, so a spec added with another tokenizer must state
+/// it here; a plan naming a spec whose tokenizer is not the one the token
+/// table was derived from is refused when it is queued
+/// (`plan::CohortPlan::validate`), before anything is generated.
+pub fn spec_tokenizer_sha256(v: slop_ninja_artifact_check::spec::Version) -> &'static str {
+    use slop_ninja_artifact_check::spec::{TOKENIZER_SHA256, Version};
+    match v {
+        Version::V1 | Version::V2 | Version::V3 => TOKENIZER_SHA256,
+    }
+}
+
+/// Whether artifact spec `v` pins the tokenizer the compiled-in token table
+/// counts under.
+pub fn spec_tokenizer_counted(v: slop_ninja_artifact_check::spec::Version) -> bool {
+    spec_tokenizer_sha256(v) == slop_ninja_scorer_tokens::SOURCE_TOKENIZER_SHA256
+}
+
+const fn same_str(a: &str, b: &str) -> bool {
+    let (mut a, mut b) = (a.as_bytes(), b.as_bytes());
+    loop {
+        match (a, b) {
+            ([], []) => return true,
+            ([x, ra @ ..], [y, rb @ ..]) if *x == *y => (a, b) = (ra, rb),
+            _ => return false,
+        }
+    }
+}
+
+// The token table is derived from the tokenizer the artifact spec pins.
+const _: () = assert!(
+    same_str(slop_ninja_scorer_tokens::SOURCE_TOKENIZER_SHA256, slop_ninja_artifact_check::spec::TOKENIZER_SHA256),
+    "the scorer token table was derived from another tokenizer than the artifact spec pins"
+);
+
+/// The arena refused the buffers of a token count, or the pool is poisoned:
+/// transient, a step error with a retry time (no pause).
+pub const TOKEN_SCRATCH_REFUSED: &str = "scorer token scratch";
+
+/// The compiled-in token table did not parse: a build defect (excluded by
+/// the crate's tests), deterministic.
+pub const TOKEN_TABLE_REFUSED: &str = "scorer token table";
 
 /// Whether the scorer refuses `text` as empty for every artifact (the
 /// scorer's own rule, `artifact-check` `text::scorer_is_empty`).
@@ -1346,6 +1510,18 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
         // draw) and stops the seal before anything is exposed.
         if seeded && scorer_refuses(text(r, 4)?) {
             if set == "batch" && text(r, 1)? != "human_only" {
+                spares.push(int(r, 0)?);
+                continue;
+            }
+            return Err(EvalError::State(UNSCORABLE_DOCUMENT));
+        }
+        // No sealed batch document is over the scorer's token limit. The
+        // screens before this step sent back every generated one, so one
+        // here gives way to a spare, as an empty one does. The pool's
+        // recorded bound keeps every human inside it, so a human here is a
+        // defect and stops the seal before anything is exposed.
+        if seeded && set == "batch" && !scorer_length_ok(text(r, 4)?)? {
+            if text(r, 1)? != "human_only" {
                 spares.push(int(r, 0)?);
                 continue;
             }
@@ -1455,6 +1631,12 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
         o.insert("schema".into(), json!("slop_ninja_eval_batch_index_v3"));
         o.insert("task_order".into(), json!(super::plan::TASK_ORDER_SEEDED_RANK));
         o.insert("input_screen".into(), json!(INPUT_SCREEN_RULE));
+        o.insert(
+            "token_count".into(),
+            json!({"table": slop_ninja_scorer_tokens::TABLE_ID, "table_sha256": slop_ninja_scorer_tokens::TABLE_SHA256,
+                "tokenizer_sha256": slop_ninja_scorer_tokens::SOURCE_TOKENIZER_SHA256,
+                "max_tokens_including_specials": slop_ninja_artifact_check::text::MAX_TOKENS_INCLUDING_SPECIALS}),
+        );
     }
     let index = serde_json::to_vec_pretty(&index_json).map_err(|_| EvalError::State("batch index"))?;
     let mut st = state(sql, seq)?;

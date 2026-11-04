@@ -1,0 +1,20 @@
+[package]
+name = "slop-ninja-scorer-tokens-reference"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Builds the scorer token table from the pinned tokenizer.json with the scorer's own tokenizers build, and checks the compiled-in count against it"
+
+# Its own workspace: the scorer's tokenizers build (onig, a C library) never
+# enters the subnet workspace or the Workers build.
+[workspace]
+
+[dependencies]
+# The scorer's exact tokenizers build (inference/a-container-serve).
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
+serde_json = "1"
+sha2 = "0.10"
+slop-ninja-scorer-tokens = { path = ".." }
+# The scorer's token limit comes from the artifact spec, never a copy.
+slop-ninja-artifact-check = { path = "../../artifact-check", default-features = false }

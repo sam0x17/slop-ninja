@@ -34,6 +34,7 @@ use super::eval_do::{
 use super::{error, json, migrate_storage, now_ms, transaction};
 use crate::eval::engine::{self, CallTiming};
 use crate::eval::lane_logic::{self, ChunkCtx, ChunkEnd, CohortError, Fault, LaneIo, RestartFailure, ScoreFailure};
+use crate::eval::admission::{QueueMessage, WorkMessage};
 use crate::eval::lanes::{
     ArtifactRef, Assignment, BundleReport, ClaimReply, GenClaimReply, LaneKick, LaneRef, LaneReport, Meter, SummaryReport,
 };
@@ -48,8 +49,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 use wasm_bindgen::{JsCast, JsValue};
 use worker::{
-    Delay, DurableObject, Env, Fetcher, Headers, Method, MessageBatch, MessageExt, QueueRetryOptionsBuilder, Request,
-    RequestInit, Response, ResponseBody, Result, State, durable_object,
+    Delay, DurableObject, Env, Fetcher, Headers, Method, Request, RequestInit, Response, ResponseBody, Result, State,
+    durable_object,
 };
 
 const PORT: u16 = 8080;
@@ -1648,25 +1649,126 @@ impl DurableObject for SpendLedger {
 
 // --------------------------------------------------------------- queue consumer
 
-/// The Queue consumer: each content-free kick reaches its lane's `/kick`, at
-/// most 6 at a time; a failed delivery is retried after 5 s. A malformed batch
-/// is acknowledged: the sweep re-sends any kick that was lost.
-pub async fn consume(batch: MessageBatch<LaneKick>, env: Env) -> Result<()> {
-    let Ok(messages) = batch.messages() else {
-        batch.ack_all();
+/// The delay of a retried delivery (a kick that did not reach its lane, an
+/// admission work delivery that could not reach the cohort object).
+const RETRY_DELAY_S: u32 = 5;
+
+/// The Queue consumer. Each content-free kick reaches its lane's `/kick`, at
+/// most 6 at a time; a failed delivery is retried after 5 s. Admission work
+/// dispatches (`admission::WorkMessage`) run beside the kicks, each in its
+/// own child scope (`cf_admission::work`), at most one share a batch
+/// (`admission::work_share`: up to `PARALLEL` deliveries, at most one of
+/// them framing): the rest are sent again as fresh messages before anything
+/// runs, so no batch holds more work than fits one consumer invocation's
+/// wall limit. A message that does not parse is acknowledged (the sweep
+/// re-sends any kick that was lost; admission work is sent and consumed by
+/// the same build, and an outstanding dispatch is sent again by the cohort
+/// object's next incarnation or by the operator). A batch whose messages
+/// cannot be read is retried whole, never acknowledged.
+pub async fn consume(batch: worker::worker_sys::MessageBatch, env: Env, scope: slop_ninja_arena::ScopeRef) -> Result<()> {
+    let Ok(all) = batch.messages() else {
+        let _ = batch.retry_all(retry_options(RETRY_DELAY_S));
         return Ok(());
     };
-    for group in messages.chunks(6) {
-        let delivered = join_all(group.iter().map(|m| ev::kick_lane(&env, m.body()))).await;
-        for (m, ok) in group.iter().zip(delivered) {
-            if ok {
-                m.ack();
-            } else {
-                m.retry_with_options(&QueueRetryOptionsBuilder::new().with_delay_seconds(5).build());
+    let mut kicks: Vec<(worker::worker_sys::Message, LaneKick)> = Vec::new();
+    let mut work: Vec<(worker::worker_sys::Message, WorkMessage)> = Vec::new();
+    for v in all.iter() {
+        let m: worker::worker_sys::Message = v.unchecked_into();
+        let parsed = m
+            .body()
+            .ok()
+            .and_then(|b| js_sys::JSON::stringify(&b).ok())
+            .and_then(|s| s.as_string())
+            .and_then(|s| serde_json::from_str::<QueueMessage>(&s).ok());
+        match parsed {
+            Some(QueueMessage::Kick(k)) => kicks.push((m, k)),
+            Some(QueueMessage::Admission(w)) => work.push((m, w)),
+            None => {
+                let _ = m.ack();
             }
         }
     }
+    // This invocation's share of the admission work; the rest goes back on
+    // the Queue as fresh messages (acknowledged once the copy is accepted,
+    // retried otherwise) before any of it runs.
+    let share = crate::eval::admission::work_share(work.iter().map(|(_, w)| w.admission.as_str()));
+    let queue = env.queue(&crate::config::binding(ev::LANE_QUEUE, crate::config::NETWORK)).ok();
+    let mut mine: Vec<(worker::worker_sys::Message, WorkMessage, bool)> = Vec::new();
+    for (n, (m, w)) in work.into_iter().enumerate() {
+        if share.contains(&n) {
+            mine.push((m, w, false));
+            continue;
+        }
+        let moved = match &queue {
+            Some(q) => q.send(w).await.is_ok(),
+            None => false,
+        };
+        let _ = if moved { m.ack() } else { m.retry(retry_options(RETRY_DELAY_S)) };
+    }
+    // On the last delivery the Queue allows, a fresh copy goes first,
+    // delayed by the consumer's wall limit so it arrives only after this
+    // delivery has ended (reported or cut off): every copy is sent before
+    // any delivery runs, so none is lost with an invocation cut off early.
+    let delay = u32::try_from(slop_ninja_arena::limits::QUEUE_MS / 1000).unwrap_or(u32::MAX);
+    for (m, w, carried) in &mut mine {
+        let attempts = Reflect::get(m.as_ref(), &JsValue::from_str("attempts"))
+            .ok()
+            .and_then(|a| a.as_f64())
+            .map_or(1, |a| a as u32);
+        if crate::eval::admission::last_delivery(attempts)
+            && let Some(q) = &queue
+        {
+            *carried = q.send(worker::MessageBuilder::new(w.clone()).delay_seconds(delay).build()).await.is_ok();
+        }
+    }
+    let retry = || retry_options(RETRY_DELAY_S);
+    let kicks_done = async {
+        for group in kicks.chunks(6) {
+            let delivered = join_all(group.iter().map(|(_, k)| ev::kick_lane(&env, k))).await;
+            for ((m, _), ok) in group.iter().zip(delivered) {
+                let _ = if ok { m.ack() } else { m.retry(retry()) };
+            }
+        }
+    };
+    let work_done = join_all(mine.iter().map(|(m, w, carried)| admission_delivery(&env, &scope, m, w, *carried)));
+    futures_util::future::join(kicks_done, work_done).await;
     Ok(())
+}
+
+/// Retry options `{delaySeconds}` as the Queues API takes them.
+fn retry_options(delay_s: u32) -> JsValue {
+    let o = Object::new();
+    let _ = Reflect::set(&o, &JsValue::from_str("delaySeconds"), &JsValue::from(delay_s));
+    o.into()
+}
+
+/// One admission work delivery (its last-delivery copy, if any, already
+/// sent: `carried`). A delivery that could not be admitted to a scope or
+/// could not reach the cohort object is retried; a refused scope is also
+/// reported to the object for its status.
+async fn admission_delivery(
+    env: &Env,
+    scope: &slop_ninja_arena::ScopeRef,
+    m: &worker::worker_sys::Message,
+    w: &WorkMessage,
+    carried: bool,
+) {
+    let bytes = crate::arena_routes::admission_work_bytes();
+    let settled = match scope.child_physical(crate::arena_routes::R_QUEUE_ADMISSION, bytes) {
+        Ok(child) => {
+            let r = match child.scoped(super::admission_do::work(env, w)) {
+                Ok(f) => f.await,
+                Err(_) => false,
+            };
+            let _ = child.close();
+            r
+        }
+        Err(_) => {
+            super::admission_do::undelivered(env, w, "work_scope_refused").await;
+            false
+        }
+    };
+    let _ = if settled || carried { m.ack() } else { m.retry(retry_options(RETRY_DELAY_S)) };
 }
 
 /// Content-free state of named lanes (operator diagnostics).

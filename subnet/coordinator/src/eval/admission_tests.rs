@@ -352,6 +352,13 @@ fn frame_ok(db: &Sqlite, m: &Miner) {
 /// The framing stage's outcome for a well-formed object (no blob step).
 fn frame_only(db: &Sqlite, m: &Miner) {
     let id = m.session();
+    let framed = framed_outcome(m);
+    tx(db, |s| apply_frame(s, &chain(), &id, framed, NOW)).unwrap();
+}
+
+/// The upload Worker's outcome for a miner's well-formed object (one slice).
+fn framed_outcome(m: &Miner) -> FrameOutcome {
+    let id = m.session();
     let artifact = VerifiedArtifact::from_bytes(&m.obj).unwrap();
     let manifest = format!("manifest-of-{id}").into_bytes();
     let framed = Framed {
@@ -365,16 +372,7 @@ fn frame_only(db: &Sqlite, m: &Miner) {
         }],
         artifact,
     };
-    tx(db, |s| {
-        apply_frame(
-            s,
-            &chain(),
-            &id,
-            (m.upload.artifact_sha256, m.upload.artifact_len, Ok(framed)).into(),
-            NOW,
-        )
-    })
-    .unwrap();
+    (m.upload.artifact_sha256, m.upload.artifact_len, Ok(framed)).into()
 }
 
 fn admit_all(db: &Sqlite) {
@@ -3421,4 +3419,497 @@ fn an_admission_outage_fault_clears_once_its_subject_is_gone() {
 
 fn s_(v: impl Into<String>) -> crate::sql::SqlValue {
     crate::sql::SqlValue::Text(v.into())
+}
+
+// ------------------------------------------------- framing off the object
+
+/// Reader-allowance fix (cohort-19 drill, 2026-11-04): the cohort object
+/// never frames or copies in its own invocation. Its step records one
+/// dispatch for the Queue consumer, and a dispatch is never re-sent because
+/// time passed: while it is outstanding the session is not due (nor is the
+/// step alarm re-armed for it), however long the consumer takes.
+#[test]
+fn framing_and_blob_steps_are_dispatched_once_and_never_resent_by_time() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    let id = m.session();
+    assert_eq!(tx(&db, |s| verify_due(s, NOW)).unwrap().map(|x| x.1), Some("frame".into()));
+    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
+    assert_eq!((d.stage.as_str(), d.dispatch), ("frame", 1));
+    let msg = d.message(None);
+    assert_eq!(msg, WorkMessage { v: WORK_VERSION, admission: "frame".into(), session: id.clone(), dispatch: 1, authority: None });
+    // Outstanding: never due again by time, and no second dispatch.
+    let far = NOW + 1_000 * LANE_LEASE_MS;
+    assert!(tx(&db, |s| verify_due(s, far)).unwrap().is_none());
+    assert!(!tx(&db, |s| has_work(s, &cfg(), Some(far))).unwrap(), "no due work re-arms the alarm");
+    assert!(tx(&db, |s| has_work(s, &cfg(), None)).unwrap(), "but it is unfinished work");
+    assert!(tx(&db, |s| dispatch_begin(s, &id, 1, far)).unwrap().is_none());
+    assert_eq!(tx(&db, status).unwrap()["platform_retries"]["steps_dispatched"].as_i64(), Some(1));
+    // A take names the object; a dispatch that is not the outstanding one is stale.
+    assert_eq!(tx(&db, |s| take(s, &id, 2, NOW)).unwrap(), Take::Stale);
+    let Take::Frame { key, len, spec: spec_id } = tx(&db, |s| take(s, &id, 1, NOW)).unwrap() else { panic!("frame take") };
+    assert_eq!(len, m.upload.artifact_len);
+    assert_eq!(spec_id, spec::Version::V2.id());
+    // A failed call reported by the outstanding dispatch backs off and clears it.
+    tx(&db, |s| frame_reported(s, &chain(), &id, 1, &key, FrameReport::Failed(FrameFailure::Counted), NOW)).unwrap();
+    assert!(tx(&db, |s| verify_due(s, NOW)).unwrap().is_none(), "backing off");
+    let t = NOW + backoff_ms(1);
+    let d2 = tx(&db, |s| dispatch_begin(s, &id, 1, t)).unwrap().unwrap();
+    assert_eq!(d2.dispatch, 2);
+    let tries = |db: &Sqlite| {
+        let rows = tx(db, |q| q.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s_(&id)])).unwrap();
+        crate::sql::int(&rows[0], 0).unwrap()
+    };
+    assert_eq!(tries(&db), 1);
+    // A duplicate failure of the earlier dispatch is never counted again.
+    tx(&db, |s| frame_reported(s, &chain(), &id, 1, &key, FrameReport::Failed(FrameFailure::Counted), t)).unwrap();
+    assert_eq!(tries(&db), 1);
+    assert!(matches!(tx(&db, |s| take(s, &id, 2, t)).unwrap(), Take::Frame { .. }));
+    // A report for another object (an earlier upload attempt) is ignored.
+    tx(&db, |s| frame_reported(s, &chain(), &id, 2, "other", FrameReport::Outcome(framed_outcome(&m)), t)).unwrap();
+    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().stage.as_deref(), Some("frame"));
+    // The outcome moves the session to its blobs, which are dispatched next.
+    tx(&db, |s| frame_reported(s, &chain(), &id, 2, &key, FrameReport::Outcome(framed_outcome(&m)), t)).unwrap();
+    assert_eq!(tx(&db, |s| verify_due(s, t)).unwrap().map(|x| x.1), Some("blobs".into()));
+    // The same outcome applied twice changes nothing.
+    tx(&db, |s| frame_reported(s, &chain(), &id, 2, &key, FrameReport::Outcome(framed_outcome(&m)), t)).unwrap();
+    let d3 = tx(&db, |s| dispatch_begin(s, &id, 1, t)).unwrap().unwrap();
+    assert_eq!((d3.stage.as_str(), d3.dispatch), ("blobs", 3));
+    assert!(tx(&db, |s| verify_due(s, far)).unwrap().is_none());
+    // An earlier framing dispatch's redelivery is stale now.
+    assert_eq!(tx(&db, |s| take(s, &id, 2, t)).unwrap(), Take::Stale);
+    let Take::Blobs { key: bkey, record } = tx(&db, |s| take(s, &id, 3, t)).unwrap() else { panic!("blobs take") };
+    assert_eq!(bkey, key);
+    let sha = record.slices[0].sha256.clone();
+    // Creations are recorded before any copy, only for the taken dispatch
+    // and only for the record's own slices.
+    assert!(!tx(&db, |s| blobs_created(s, &id, 2, std::slice::from_ref(&sha), true)).unwrap());
+    assert!(tx(&db, |s| blobs_created(s, &id, 3, &[sha.clone(), "f".repeat(64)], true)).unwrap());
+    let created = tx(&db, |q| q.exec("SELECT sha256 FROM adm_blobs WHERE session = ? AND created = 1", &[s_(&id)])).unwrap();
+    assert_eq!(created.len(), 1);
+    tx(&db, |s| blobs_reported(s, &env(), &id, 3, None, t)).unwrap();
+    let row = tx(&db, |s| session_row(s, &id)).unwrap().unwrap();
+    assert_eq!(row.stage.as_deref(), Some("verdict"));
+    // Repeated reports are no-ops.
+    tx(&db, |s| blobs_reported(s, &env(), &id, 3, None, t)).unwrap();
+    tx(&db, |s| blobs_reported(s, &env(), &id, 3, Some("blob_copy"), t)).unwrap();
+    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().stage.as_deref(), Some("verdict"));
+    assert_eq!(tx(&db, status).unwrap()["platform_retries"]["steps_dispatched"].as_i64(), Some(0));
+}
+
+/// A send the Queue refuses clears the dispatch uncounted and backs the
+/// session off; a failed blob delivery backs off as a failed copy did.
+#[test]
+fn a_refused_send_or_a_failed_blob_delivery_backs_off_uncounted() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    let id = m.session();
+    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
+    // A stale unsent note changes nothing.
+    tx(&db, |s| dispatch_unsent(s, &id, d.dispatch + 1, NOW)).unwrap();
+    assert!(tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().is_none());
+    tx(&db, |s| dispatch_unsent(s, &id, d.dispatch, NOW)).unwrap();
+    assert!(tx(&db, |s| verify_due(s, NOW)).unwrap().is_none());
+    assert!(tx(&db, |s| verify_due(s, NOW + backoff_ms(1))).unwrap().is_some());
+    let rows = tx(&db, |q| q.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s_(&id)])).unwrap();
+    assert_eq!(crate::sql::int(&rows[0], 0).unwrap(), 0, "a refused send is not an attempt");
+    frame_only(&db, &m);
+    let t = NOW + backoff_ms(1);
+    let d = tx(&db, |s| dispatch_begin(s, &id, 1, t)).unwrap().unwrap();
+    assert_eq!(d.stage, "blobs");
+    assert!(matches!(tx(&db, |s| take(s, &id, d.dispatch, t)).unwrap(), Take::Blobs { .. }));
+    tx(&db, |s| blobs_reported(s, &env(), &id, d.dispatch, Some("blob_copy"), t)).unwrap();
+    assert!(tx(&db, |s| verify_due(s, t)).unwrap().is_none());
+    assert_eq!(tx(&db, |s| verify_due(s, t + backoff_ms(1))).unwrap().map(|x| x.1), Some("blobs".into()));
+}
+
+/// Every delivery that takes a framing dispatch is an attempt: deliveries
+/// cut off before they report (the Queue redelivers the same dispatch)
+/// reach the plan's pause bound and fault the cohort visibly, as cut-off
+/// framing attempts did.
+#[test]
+fn redelivered_framing_takes_count_toward_the_pause_bound() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    let id = m.session();
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
+    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    for n in 0..bound {
+        assert!(matches!(tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap(), Take::Frame { .. }));
+        assert_eq!(fault(&db), None, "delivery {n}");
+    }
+    assert!(matches!(tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap(), Take::Frame { .. }));
+    assert_eq!(fault(&db).as_deref(), Some(FRAMING_UNAVAILABLE));
+    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().state, SessionState::Verifying);
+}
+
+/// Lane kicks keep their bytes on the shared Queue; admission work is a
+/// separate shape, and a kick never parses as one (or the reverse).
+#[test]
+fn queue_messages_keep_kick_bytes_and_carry_admission_work() {
+    let kick = crate::eval::lanes::LaneKick {
+        v: crate::eval::lanes::KICK_VERSION,
+        instance: "main".into(),
+        seq: 3,
+        kind: "score".into(),
+        lane: 7,
+        generation: 2,
+        name: "a-scorer/testnet/x/lane-0007".into(),
+        authority: None,
+    };
+    let bytes = serde_json::to_string(&kick).unwrap();
+    assert_eq!(serde_json::to_string(&QueueMessage::Kick(kick.clone())).unwrap(), bytes);
+    assert_eq!(serde_json::from_str::<QueueMessage>(&bytes).unwrap(), QueueMessage::Kick(kick));
+    let w = WorkMessage { v: WORK_VERSION, admission: "blobs".into(), session: "ab".into(), dispatch: 4, authority: Some("r0".into()) };
+    let wb = serde_json::to_string(&w).unwrap();
+    assert_eq!(serde_json::from_str::<QueueMessage>(&wb).unwrap(), QueueMessage::Admission(w));
+    assert!(serde_json::from_str::<QueueMessage>(r#"{"v":1}"#).is_err());
+    // A framing report's two shapes.
+    assert_eq!(serde_json::to_string(&FrameReport::Failed(FrameFailure::ObjectRead)).unwrap(), r#"{"failed":"object_read"}"#);
+    assert!(work_body_bound() > slop_ninja_artifact_check::admission::frame_outcome_bound());
+}
+
+/// The last delivery is the one after `max_retries` retries of the eval
+/// lane-wakeup consumer (`wrangler.toml`), whose copy carries the dispatch.
+#[test]
+fn the_last_delivery_follows_the_deployed_consumer_retries() {
+    assert!(!last_delivery(1));
+    assert!(!last_delivery(LANE_QUEUE_MAX_RETRIES));
+    assert!(last_delivery(LANE_QUEUE_MAX_RETRIES + 1));
+    let toml = include_str!("../../wrangler.toml");
+    let mut seen = 0;
+    for block in toml.split("[[").filter(|b| b.contains("queues.consumers]]")) {
+        let retries = block
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("max_retries").map(|v| v.trim_start_matches([' ', '=']).trim().to_owned()))
+            .expect("every lane-wakeup consumer declares max_retries");
+        assert_eq!(retries.parse::<u32>().unwrap(), LANE_QUEUE_MAX_RETRIES);
+        seen += 1;
+    }
+    assert!(seen >= 1);
+}
+
+/// The cohort object makes no service-binding call and copies no byte: its
+/// admission steps only dispatch (`cf_admission.rs`, `impl EvalCohort`), and
+/// the framing call and the copies are the Queue consumer's. Before the fix
+/// the object's framing step called the upload Worker through the service
+/// binding, which runs the callee on the object's own thread.
+#[test]
+fn the_cohort_object_never_calls_framing_or_copies() {
+    let src = include_str!("../cf_admission.rs");
+    let start = src.find("\nimpl EvalCohort {").expect("impl EvalCohort");
+    let len = src[start + 1..].find("\n}\n").expect("end of impl");
+    let object = &src[start..start + 1 + len];
+    for call in [".service(", "fetch_request(", "frame_call(", "copy_range(", "copy_blobs(", "admission_do::work("] {
+        assert!(!object.contains(call), "the cohort object calls {call}");
+    }
+    assert!(object.contains("dispatch_begin("), "the object's steps dispatch");
+    let consumer = &src[src.find("pub async fn work(").expect("consumer")..];
+    assert!(consumer.contains("frame_call(") && consumer.contains("copy_blobs("));
+    for other in [include_str!("../cf_eval.rs"), include_str!("../cf_lanes.rs")] {
+        assert!(!other.contains(".service("), "no other object or lane calls a service binding");
+    }
+    assert!(include_str!("../cf_lanes.rs").contains("admission_do::work("), "the Queue consumer runs the work");
+}
+
+/// Store v21 restarts the reader's stored call maxima once (the drill's
+/// 3000 ms were the in-object framing stalls) and keeps its failure count,
+/// so the next admitting window measures the reader without them.
+#[test]
+fn store_v21_restarts_the_reader_call_maxima_and_keeps_the_failure_count() {
+    static UP_TO_V20: crate::sql::Schema = crate::sql::Schema {
+        family: EVAL_COHORT_SCHEMA.family,
+        migrations: EVAL_COHORT_SCHEMA.migrations.split_at(20).0,
+    };
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &UP_TO_V20)).unwrap();
+    let prior = |plan_ms, failed: Option<&str>| commitments::Prior { plan_ms: Some(plan_ms), ingest_ms: Some(plan_ms), failed: failed.map(Into::into) };
+    tx(&db, |s| commitments::note_prior(s, &prior(3000, Some("plan")))).unwrap();
+    tx(&db, |s| commitments::note_prior(s, &prior(80, None))).unwrap();
+    let calls = |db: &Sqlite| tx(db, commitments::status).unwrap()["calls"].clone();
+    let max = tx(&db, |q| q.exec("SELECT plan_ms_max FROM commit_reader WHERE id = 1", &[])).unwrap();
+    assert_eq!(crate::sql::int(&max[0], 0).unwrap(), 3000);
+    let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    assert_eq!((report.from, report.to), (20, 21));
+    let c = calls(&db);
+    assert_eq!((c["plan_ms_max"].as_i64(), c["ingest_ms_max"].as_i64(), c["failed"].as_i64()), (Some(0), Some(0), Some(1)));
+    assert_eq!(c["plan_ms_last"], 80);
+}
+
+/// Review finding (corr-1): a blob take records the session's use of every
+/// slice before the consumer heads a blob, so another session's clean-up
+/// never deletes a shared slice that the copying session found present and
+/// skipped. Probe: m1 created slice X; m2 takes its blob dispatch (X is
+/// present, so its creation list is empty); m1's clean-up must keep X.
+#[test]
+fn a_blob_take_protects_shared_slices_from_another_sessions_cleanup() {
+    let db = db_with_open_cohort(2);
+    let (m1, m2) = (miner(1, 3, 1, 0x11), miner(2, 4, 1, 0x12));
+    for (m, x) in [(&m1, 0), (&m2, 1)] {
+        m.commit(&db, OPEN_BLOCK + 1, x);
+        m.create(&db);
+        upload_all(&db, m);
+        frame_only(&db, m);
+    }
+    let x = hex::encode([2u8; 32]);
+    let blob = format!("artifacts/blobs/{x}");
+    // m1's copy created X, then m1 ends without admission.
+    let d1 = tx(&db, |s| dispatch_begin(s, &m1.session(), 1, NOW)).unwrap().unwrap();
+    assert!(matches!(tx(&db, |s| take(s, &m1.session(), d1.dispatch, NOW)).unwrap(), Take::Blobs { .. }));
+    assert!(tx(&db, |s| blobs_created(s, &m1.session(), d1.dispatch, std::slice::from_ref(&x), true)).unwrap());
+    assert!(tx(&db, |s| operator_refuse(s, &m1.session(), "probe", NOW)).unwrap());
+    // m2 takes its blob dispatch and finds X present: nothing created.
+    let id = m2.session();
+    let d2 = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
+    assert!(matches!(tx(&db, |s| take(s, &id, d2.dispatch, NOW)).unwrap(), Take::Blobs { .. }));
+    assert!(tx(&db, |s| blobs_created(s, &id, d2.dispatch, &[], false)).unwrap());
+    // While m2 copies, m1's clean-up keeps X (m2 uses it) ...
+    let keys = tx(&db, |s| cleanup_begin(s, &m1.session())).unwrap();
+    assert!(!keys.contains(&blob), "{keys:?}");
+    // ... and after m2's blobs are written too.
+    tx(&db, |s| blobs_reported(s, &env(), &id, d2.dispatch, None, NOW)).unwrap();
+    assert!(!tx(&db, |s| cleanup_keys(s, &m1.session())).unwrap().contains(&blob));
+}
+
+/// The other order: a clean-up chose X before the copying session's take.
+/// The take waits (uncounted, backoff) until that clean-up has finished, so
+/// the consumer never trusts a present X that is about to be deleted; once
+/// the clean-up is marked done the next dispatch takes the blobs and finds
+/// X missing (it copies it again).
+#[test]
+fn a_blob_take_waits_for_a_cleanup_that_chose_one_of_its_slices() {
+    let db = db_with_open_cohort(2);
+    let (m1, m2) = (miner(1, 3, 1, 0x11), miner(2, 4, 1, 0x12));
+    for (m, x) in [(&m1, 0), (&m2, 1)] {
+        m.commit(&db, OPEN_BLOCK + 1, x);
+        m.create(&db);
+        upload_all(&db, m);
+        frame_only(&db, m);
+    }
+    let x = hex::encode([2u8; 32]);
+    let blob = format!("artifacts/blobs/{x}");
+    let d1 = tx(&db, |s| dispatch_begin(s, &m1.session(), 1, NOW)).unwrap().unwrap();
+    assert!(matches!(tx(&db, |s| take(s, &m1.session(), d1.dispatch, NOW)).unwrap(), Take::Blobs { .. }));
+    assert!(tx(&db, |s| blobs_created(s, &m1.session(), d1.dispatch, std::slice::from_ref(&x), true)).unwrap());
+    assert!(tx(&db, |s| operator_refuse(s, &m1.session(), "probe", NOW)).unwrap());
+    // m1's clean-up chooses X (m2 has not taken yet) and is deleting it.
+    assert!(tx(&db, |s| cleanup_begin(s, &m1.session())).unwrap().contains(&blob));
+    let id = m2.session();
+    let d2 = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
+    assert_eq!(tx(&db, |s| take(s, &id, d2.dispatch, NOW)).unwrap(), Take::Stale, "waits for the clean-up");
+    let st = tx(&db, status).unwrap();
+    assert_eq!(st["platform_retries"]["last_delivery_error"], "blob_cleanup_pending");
+    assert_eq!(st["platform_retries"]["steps_dispatched"].as_i64(), Some(0));
+    assert!(tx(&db, |s| verify_due(s, NOW)).unwrap().is_none(), "backing off");
+    // A retried clean-up now keeps X: the waiting take recorded m2's use.
+    assert!(!tx(&db, |s| cleanup_begin(s, &m1.session())).unwrap().contains(&blob));
+    tx(&db, |s| mark_cleaned(s, &m1.session())).unwrap();
+    let t = NOW + backoff_ms(1);
+    assert_eq!(tx(&db, |s| verify_due(s, t)).unwrap().map(|v| v.1), Some("blobs".into()));
+    let d3 = tx(&db, |s| dispatch_begin(s, &id, 1, t)).unwrap().unwrap();
+    assert!(matches!(tx(&db, |s| take(s, &id, d3.dispatch, t)).unwrap(), Take::Blobs { .. }));
+    let tries = tx(&db, |q| q.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s_(&id)])).unwrap();
+    assert_eq!(crate::sql::int(&tries[0], 0).unwrap(), 0, "waiting is not an attempt");
+}
+
+/// Review findings (corr-2, ops-1): a dispatch recorded but whose message
+/// never arrives (the object was reset before the send left, a consumer
+/// dropped it) is sent again, same number, at the first heartbeat kick of
+/// an incarnation that did not record it, never because time passed; the
+/// recording incarnation itself re-sends only its own `pending` ones after
+/// a send it could not settle. The operator can re-send or clear one.
+#[test]
+fn a_lost_dispatch_message_is_sent_again_by_a_fresh_incarnation_or_the_operator() {
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    let id = m.session();
+    let (a, b) = (11_i64, 22_i64);
+    let d = tx(&db, |s| dispatch_begin(s, &id, a, NOW)).unwrap().unwrap();
+    // Recorded, its message lost: nothing time-based ever sends it again.
+    let far = NOW + 1_000 * LANE_LEASE_MS;
+    assert!(tx(&db, |s| verify_due(s, far)).unwrap().is_none());
+    assert!(tx(&db, |s| dispatches_to_resend(s, a, false)).unwrap().is_empty(), "its own incarnation vouches for it");
+    let st = tx(&db, status).unwrap();
+    assert_eq!(st["platform_retries"]["steps_dispatch_pending"].as_i64(), Some(1));
+    assert_eq!(st["platform_retries"]["dispatch_untaken"].as_i64(), Some(1));
+    // Its own pending one after a send it could not settle.
+    assert_eq!(tx(&db, |s| dispatches_to_resend(s, a, true)).unwrap(), vec![d.clone()]);
+    // A fresh incarnation sends it again with the same number.
+    assert_eq!(tx(&db, |s| dispatches_to_resend(s, b, false)).unwrap(), vec![d.clone()]);
+    tx(&db, |s| dispatch_resent(s, &id, d.dispatch, b)).unwrap();
+    assert!(tx(&db, |s| dispatches_to_resend(s, b, true)).unwrap().is_empty());
+    assert_eq!(tx(&db, status).unwrap()["platform_retries"]["steps_dispatch_pending"].as_i64(), Some(0));
+    // The re-sent message is taken like the first (counted once per take).
+    assert!(matches!(tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap(), Take::Frame { .. }));
+    assert_eq!(tx(&db, status).unwrap()["platform_retries"]["dispatch_takes_max"].as_i64(), Some(1));
+    // The operator: a wrong number is refused, `resend` names the
+    // outstanding dispatch, `clear` ends it so the step is due at once.
+    assert!(tx(&db, |s| operator_dispatch(s, &id, d.dispatch + 1, true, NOW)).unwrap().is_none());
+    assert_eq!(tx(&db, |s| operator_dispatch(s, &id, d.dispatch, false, NOW)).unwrap(), Some(d.clone()));
+    assert_eq!(tx(&db, |s| operator_dispatch(s, &id, d.dispatch, true, NOW)).unwrap(), Some(d.clone()));
+    assert_eq!(tx(&db, |s| verify_due(s, NOW)).unwrap().map(|v| v.1), Some("frame".into()));
+    let d2 = tx(&db, |s| dispatch_begin(s, &id, b, NOW)).unwrap().unwrap();
+    assert_eq!(d2.dispatch, d.dispatch + 1);
+    assert_eq!(tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap(), Take::Stale, "the cleared one is stale");
+}
+
+/// Review finding (ops-5): one consumer invocation runs at most one share
+/// of admission work, and the framings in it fit the consumer's wall limit
+/// at the largest admission object (derived from the measured framing
+/// time, `frame-time-2026-11-04`).
+#[test]
+fn a_consumer_share_fits_the_wall_limit_at_the_largest_object() {
+    let largest = slop_ninja_artifact_check::admission::largest_admission_object();
+    let frames = frames_per_share();
+    assert!(frames >= 1);
+    assert!(frames as u64 * frame_ms_bound(largest) <= slop_ninja_arena::limits::QUEUE_MS, "{frames} framings at {largest} B");
+    assert!(frame_ms_bound(FRAME_MEASURED_BYTES) == FRAME_MEASURED_MS);
+    let width = crate::arena_routes::STEP_READS_IN_FLIGHT;
+    let stages: Vec<&str> = (0..3 * width).map(|n| if n % 2 == 0 { "frame" } else { "blobs" }).collect();
+    let share = work_share(stages.iter().copied());
+    assert!(share.len() <= width);
+    assert!(share.iter().filter(|n| stages[**n] == "frame").count() <= frames);
+    assert_eq!(work_share(std::iter::repeat_n("blobs", 3 * width)).len(), width);
+    assert!(work_share(std::iter::empty()).is_empty());
+    eprintln!("largest admission object {largest} B, framing bound {} ms, {frames} framings a share", frame_ms_bound(largest));
+}
+
+/// The work routes' footprints are fixed from this constant before any
+/// scope opens; it is the bound measured on the types.
+#[test]
+fn the_work_body_constant_is_the_measured_bound() {
+    eprintln!("work_body_bound {} B", work_body_bound());
+    assert_eq!(WORK_BODY_BYTES, work_body_bound());
+}
+
+/// The reader's call maxima restart at each admission window's opening and
+/// name that window (review finding corr-5: per-window maxima).
+#[test]
+fn the_reader_call_maxima_restart_at_each_admission_window() {
+    let db = db_with_open_cohort(2);
+    let calls = |db: &Sqlite| tx(db, commitments::status).unwrap()["calls"].clone();
+    assert_eq!(calls(&db)["maxima_cohort"], 1);
+    let prior = commitments::Prior { plan_ms: Some(900), ingest_ms: Some(700), failed: None };
+    tx(&db, |s| commitments::note_prior(s, &prior)).unwrap();
+    assert_eq!(calls(&db)["plan_ms_max"], 900);
+    // Re-recording the same window's opening restarts nothing.
+    let c = tx(&db, |s| engine::cohort(s, 1)).unwrap();
+    tx(&db, |s| open(s, &c, OPEN_BLOCK)).unwrap();
+    assert_eq!(calls(&db)["plan_ms_max"], 900);
+}
+
+/// A framing outcome for `m`'s object at the spec's maximum manifest
+/// (`MAX_MANIFEST_BYTES`) and slice count (one per part of the largest
+/// admission object plus one per role), valid for `apply_frame`.
+#[cfg(feature = "arena-witness")]
+fn largest_outcome(m: &Miner) -> FrameOutcome {
+    let artifact = VerifiedArtifact::from_bytes(&m.obj).unwrap();
+    let manifest = vec![b'm'; spec::MAX_MANIFEST_BYTES as usize];
+    let largest = slop_ninja_artifact_check::admission::largest_admission_object();
+    let count = largest.div_ceil(spec::PART_BYTES) as usize + spec::ROLES.len();
+    let framed = Framed {
+        package_sha256: hex::encode(Sha256::digest(&manifest)),
+        model_sha256: hex::encode([1; 32]),
+        manifest,
+        slices: (0..count).map(|k| Slice { sha256: format!("{k:064x}"), offset: 0, len: 1 }).collect(),
+        artifact,
+    };
+    (m.upload.artifact_sha256, m.upload.artifact_len, Ok(framed)).into()
+}
+
+/// Review finding (corr-3): the `/admission-work/*` routes and the Queue
+/// consumer's work deliveries fit their derived footprints at a
+/// spec-maximum manifest and slice count, under `Strict`
+/// (`arena_routes::cohort_work_bytes`, `admission_work_bytes`).
+#[cfg(feature = "arena-witness")]
+#[test]
+fn arena_witness_admission_work_fits() {
+    use crate::arena_routes::{R_COHORT_WORK, R_QUEUE_ADMISSION, admission_work_bytes, cohort_work_bytes};
+    use crate::arena_witness::witness;
+    use slop_ninja_arena::{Mode, admit_current_block, set_mode};
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    m.commit(&db, OPEN_BLOCK + 1, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    let id = m.session();
+    let outcome = largest_outcome(&m);
+    let raw = serde_json::to_string(&outcome).unwrap();
+    assert!(raw.len() <= slop_ninja_artifact_check::admission::frame_outcome_bound());
+    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
+    let Take::Frame { key, .. } = tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap() else { panic!("frame take") };
+    // The consumer's report, built as `cf_admission::work` builds it.
+    let body = frame_report_body(&id, d.dispatch, &key, &raw);
+    assert!(serde_json::from_str::<WorkBody>(&body).is_ok());
+    assert!(body.len() <= WORK_BODY_BYTES);
+    set_mode(Mode::Enforce);
+    // The consumer's framing delivery: the outcome as read, the report.
+    witness(R_QUEUE_ADMISSION, admission_work_bytes(), || {
+        assert_eq!(admit_current_block(raw.len(), 1), Ok(true));
+        let mut read = Vec::with_capacity(raw.len());
+        read.extend_from_slice(raw.as_bytes());
+        assert!(serde_json::from_slice::<FrameOutcome>(&read).is_ok());
+        let text = String::from_utf8(read).unwrap();
+        frame_report_body(&id, d.dispatch, &key, &text).len()
+    });
+    // `/admission-work/frame`: the body as read, its parse, the report applied.
+    witness(R_COHORT_WORK.route(), cohort_work_bytes(), || {
+        assert_eq!(admit_current_block(body.len(), 1), Ok(true));
+        let mut read = Vec::with_capacity(body.len());
+        read.extend_from_slice(body.as_bytes());
+        let b: WorkBody = serde_json::from_slice(&read).unwrap();
+        drop(read);
+        let (Some(key), Some(report)) = (b.key, b.report) else { panic!("frame body") };
+        tx(&db, |s| frame_reported(s, &chain(), &b.session, b.dispatch, &key, report, NOW)).unwrap();
+    });
+    assert_eq!(tx(&db, |s| session_row(s, &id)).unwrap().unwrap().stage.as_deref(), Some("blobs"));
+    let d = tx(&db, |s| dispatch_begin(s, &id, 1, NOW)).unwrap().unwrap();
+    // `/admission-work/take` of the blobs: the stored record, its parse, the reply.
+    let reply = witness(R_COHORT_WORK.route(), cohort_work_bytes(), || {
+        let t = tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap();
+        assert!(matches!(t, Take::Blobs { .. }));
+        json_exact(&t).unwrap().len()
+    });
+    assert!(reply <= WORK_BODY_BYTES, "{reply}");
+    let t = tx(&db, |s| take(s, &id, d.dispatch, NOW)).unwrap();
+    let reply = serde_json::to_vec(&t).unwrap();
+    let Take::Blobs { record, .. } = t else { panic!("blobs take") };
+    let created: Vec<&str> = record.slices.iter().map(|sl| sl.sha256.as_str()).collect();
+    let created_body = json!({"session": id, "dispatch": d.dispatch, "created": created, "manifest": true}).to_string();
+    // The consumer's blob delivery: the take reply as read, its parse, the
+    // decoded manifest and the creation list.
+    witness(R_QUEUE_ADMISSION, admission_work_bytes(), || {
+        assert_eq!(admit_current_block(reply.len(), 1), Ok(true));
+        let mut read = Vec::with_capacity(reply.len());
+        read.extend_from_slice(&reply);
+        let Take::Blobs { record, .. } = serde_json::from_slice::<Take>(&read).unwrap() else { panic!("blobs") };
+        drop(read);
+        let created: Vec<&str> = record.slices.iter().map(|sl| sl.sha256.as_str()).collect();
+        let list = json!({"session": id, "dispatch": d.dispatch, "created": created, "manifest": true}).to_string();
+        let manifest = hex::decode(&record.manifest_hex).unwrap();
+        list.len() + manifest.len()
+    });
+    // `/admission-work/blobs-created` with every slice missing.
+    witness(R_COHORT_WORK.route(), cohort_work_bytes(), || {
+        assert_eq!(admit_current_block(created_body.len(), 1), Ok(true));
+        let mut read = Vec::with_capacity(created_body.len());
+        read.extend_from_slice(created_body.as_bytes());
+        let b: WorkBody = serde_json::from_slice(&read).unwrap();
+        drop(read);
+        assert!(tx(&db, |s| blobs_created(s, &b.session, b.dispatch, &b.created, b.manifest)).unwrap());
+    });
+    set_mode(Mode::Observe);
 }

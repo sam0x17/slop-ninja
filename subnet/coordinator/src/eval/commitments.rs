@@ -1853,7 +1853,7 @@ pub fn status(sql: &impl Sql) -> R<Json> {
     let r = reader_row(sql)?;
     let x = sql.exec(
         "SELECT polls, reads, last_error, discarded, undecodable, round_until_ms, rounds_overlapped, rounds_starved,
-            calls_failed, call_failed_last, plan_ms_last, plan_ms_max, ingest_ms_last, ingest_ms_max
+            calls_failed, call_failed_last, plan_ms_last, plan_ms_max, ingest_ms_last, ingest_ms_max, maxima_cohort
          FROM commit_reader WHERE id = 1",
         &[],
     )?;
@@ -1890,6 +1890,9 @@ pub fn status(sql: &impl Sql) -> R<Json> {
             "failed": int(x, 8)?, "failed_last": opt_text(x, 9),
             "plan_ms_last": opt_int(x, 10), "plan_ms_max": int(x, 11)?,
             "ingest_ms_last": opt_int(x, 12), "ingest_ms_max": int(x, 13)?,
+            // The admission window the maxima were measured in (they restart
+            // at each window's opening; null before the first since v21).
+            "maxima_cohort": opt_int(x, 14),
         },
         // Pending resolutions whose reads have served no state yet (read
         // again after a backoff, never ended for it).

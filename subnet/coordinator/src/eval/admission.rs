@@ -18,7 +18,10 @@
 //! - **Verification** is a chain of durable steps of the cohort object, each
 //!   resumed after an eviction or redeploy: the multipart completion
 //!   (`complete`, re-issued until R2's outcome is recorded), framing
-//!   (`frame`) and the blob copies (`blobs`). Framing ([`Framer`]) is the
+//!   (`frame`) and the blob copies (`blobs`). The object dispatches framing
+//!   and the blob copies to the eval Worker's Queue consumer and records
+//!   their reports ([`dispatch_begin`], "work dispatches" below): neither
+//!   runs in the object's own invocation. Framing ([`Framer`]) is the
 //!   protocol `ArtifactReader` (the header record, decoded once and bounded
 //!   by `MAX_ARTIFACT_HEADER_LEN`; object and file digests and lengths), the
 //!   spec's header-only file-table checks, the content-addressed slices and
@@ -174,6 +177,30 @@ pub const SCHEMA_V10: &[&str] = &[
         id INTEGER PRIMARY KEY CHECK (id = 1), template TEXT NOT NULL, sha256 TEXT NOT NULL,
         installed_ms INTEGER NOT NULL, paused INTEGER NOT NULL DEFAULT 0, last_error TEXT
     ) STRICT",
+];
+
+/// v21: the framing and blob steps' Queue dispatches ([`dispatch_begin`]):
+/// each session's latest dispatch number and whether it is outstanding
+/// (`pending` until the Queue accepted its message, then `sent`, `taken`)
+/// or not (NULL); the object incarnation that sent it (`dispatch_by`, see
+/// "work dispatches"); the takes of the outstanding dispatch and the last
+/// delivery failure a consumer reported (status only). `adm_blob_deletes`
+/// holds the blob-store keys a session's clean-up is deleting
+/// ([`cleanup_begin`]), so a blob delivery never trusts a blob that a
+/// clean-up already chose to delete. The commitment reader's stored call
+/// maxima restart from zero once, and again at every admission window's
+/// opening ([`open`]; `maxima_cohort` names that window): those recorded
+/// so far include the stalls in-object framing caused (`calls_failed`
+/// keeps counting).
+pub const SCHEMA_V21: &[&str] = &[
+    "ALTER TABLE adm_sessions ADD COLUMN dispatch INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE adm_sessions ADD COLUMN dispatch_state TEXT CHECK (dispatch_state IN ('pending','sent','taken'))",
+    "ALTER TABLE adm_sessions ADD COLUMN dispatch_by INTEGER",
+    "ALTER TABLE adm_sessions ADD COLUMN dispatch_takes INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE adm_sessions ADD COLUMN delivery_error TEXT",
+    "CREATE TABLE adm_blob_deletes (key TEXT NOT NULL, session TEXT NOT NULL, PRIMARY KEY (key, session)) STRICT",
+    "ALTER TABLE commit_reader ADD COLUMN maxima_cohort INTEGER",
+    "UPDATE commit_reader SET plan_ms_max = 0, ingest_ms_max = 0",
 ];
 
 // ------------------------------------------------------------ API errors
@@ -359,9 +386,18 @@ pub fn open(sql: &impl Sql, c: &Cohort, open_block: u64) -> R<()> {
     if c.plan.admission.is_none() {
         return Ok(());
     }
+    if !sql.exec("SELECT 1 FROM adm_cohorts WHERE seq = ?", &[i(c.seq)])?.is_empty() {
+        return Ok(());
+    }
     sql.exec(
-        "INSERT OR IGNORE INTO adm_cohorts (seq, cohort, state, open_block) VALUES (?, ?, 'admitting', ?)",
+        "INSERT INTO adm_cohorts (seq, cohort, state, open_block) VALUES (?, ?, 'admitting', ?)",
         &[i(c.seq), bind_u64(c.plan.cohort)?, bind_u64(open_block)?],
+    )?;
+    // The commitment reader's call maxima measure each admission window on
+    // its own (the upload load they are judged under is the window's).
+    sql.exec(
+        "UPDATE commit_reader SET plan_ms_max = 0, ingest_ms_max = 0, maxima_cohort = ? WHERE id = 1",
+        &[bind_u64(c.plan.cohort)?],
     )?;
     Ok(())
 }
@@ -1434,7 +1470,7 @@ pub fn completion_target(sql: &impl Sql, id: &str) -> R<Option<(Completion, u64)
 /// envelope's length): framing is due.
 pub fn completed(sql: &impl Sql, id: &str, now_ms: u64) -> R<()> {
     sql.exec(
-        "UPDATE adm_sessions SET stage = 'frame', step_tries = 0, step_after_ms = 0, updated_ms = ?
+        "UPDATE adm_sessions SET stage = 'frame', step_tries = 0, step_after_ms = 0, dispatch_state = NULL, updated_ms = ?
          WHERE session = ? AND state = 'verifying' AND stage = 'complete'",
         &[bind_u64(now_ms)?, s(id)],
     )?;
@@ -1855,10 +1891,13 @@ pub use slop_ninja_artifact_check::admission::{FrameError, FrameOutcome, FrameRe
 /// The next durable verification step that is due: a multipart completion
 /// not yet confirmed (`complete`), framing (`frame`; not while the hotkey's
 /// latest commitment is still being logged) or blob copies (`blobs`).
+/// Framing and blob copies are dispatched to the Queue consumer
+/// ([`dispatch_begin`]): one with a dispatch outstanding is not due until
+/// that dispatch reports (or its send fails).
 pub fn verify_due(sql: &impl Sql, now_ms: u64) -> R<Option<(String, String)>> {
     let rows = sql.exec(
         "SELECT s.session, s.stage FROM adm_sessions s WHERE s.state = 'verifying' AND s.stage IN ('complete','frame','blobs')
-           AND s.step_after_ms <= ?
+           AND s.step_after_ms <= ? AND (s.stage = 'complete' OR s.dispatch_state IS NULL)
            AND (s.stage != 'frame' OR NOT EXISTS (SELECT 1 FROM commit_seen c WHERE c.hotkey = s.hotkey AND c.stage IN ('hash','events','reg')))
          ORDER BY s.updated_ms LIMIT 1",
         &[bind_u64(now_ms)?],
@@ -1941,7 +1980,8 @@ pub fn frame_begin(sql: &impl Sql, id: &str, now_ms: u64) -> R<Option<(String, u
 }
 
 /// How one framing call through the upload Worker failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FrameFailure {
     /// The upload Worker could not read the object from R2 (its explicit
     /// object-read answer): the platform's, not counted against the
@@ -2155,18 +2195,24 @@ fn apply_frame_outcome(
             ));
         }
     };
+    // The outcome's manifest moves into the record (no copy), and the
+    // record is serialized once at its exact length: an `/admission-work/
+    // frame` report holds its body's parse and this one serialization
+    // (`arena_routes::WORK_ROUTE_BODIES`).
     let rec = FrameRecord {
-        package_sha256: f.package_sha256.clone(),
         manifest_key: format!("artifacts/packages/{}.json", f.package_sha256),
-        manifest_hex: f.manifest_hex.clone(),
-        model_sha256: f.model_sha256.clone(),
+        package_sha256: f.package_sha256,
+        manifest_hex: f.manifest_hex,
+        model_sha256: f.model_sha256,
         slices: f.slices,
     };
+    let stored = json_exact(&rec)?;
     sql.exec(
         "UPDATE adm_sessions SET stage = 'blobs', frame = ?, package_sha256 = ?, manifest_key = ?, model_sha256 = ?,
-            pos_block = ?, pos_extrinsic = ?, step_tries = 0, step_after_ms = 0, updated_ms = ? WHERE session = ?",
+            pos_block = ?, pos_extrinsic = ?, step_tries = 0, step_after_ms = 0, dispatch_state = NULL, updated_ms = ?
+         WHERE session = ?",
         &[
-            s(serde_json::to_string(&rec).map_err(|_| EvalError::State("frame"))?),
+            s(stored),
             s(&rec.package_sha256),
             s(&rec.manifest_key),
             s(&rec.model_sha256),
@@ -2276,10 +2322,576 @@ pub fn blobs_written(sql: &impl Sql, cfg: &AdmissionEnv, id: &str, now_ms: u64) 
         )?;
     }
     sql.exec(
-        "UPDATE adm_sessions SET stage = 'verdict', frame = NULL, step_after_ms = 0, updated_ms = ? WHERE session = ?",
+        "UPDATE adm_sessions SET stage = 'verdict', frame = NULL, step_after_ms = 0, dispatch_state = NULL, updated_ms = ?
+         WHERE session = ?",
         &[bind_u64(now_ms)?, s(id)],
     )?;
     apply_verdicts(sql, cfg, now_ms)
+}
+
+// ------------------------------------------------------- work dispatches
+
+// Framing and the blob copies never run inside the cohort object. Framing
+// hashes the whole uploaded object in the upload Worker, and a service
+// binding runs the callee on the caller's thread: called from the object,
+// that CPU stalled every request to it (the commitment reader's plans and
+// ingests, the heartbeat kicks, miners' status reads) for as long as the
+// object took to hash (cohort-19 drill, 2026-11-04: 1 to 27.5 s). The
+// object's step therefore only records a dispatch and sends a content-free
+// [`WorkMessage`] on the eval Worker's lane-wakeup Queue. The Queue
+// consumer, its own invocation, takes the dispatch ([`take`]), calls the
+// upload Worker's framing route or copies the slices, and reports back with
+// short transactions ([`frame_reported`], [`blobs_created`],
+// [`blobs_reported`]), each safe to apply twice.
+//
+// A dispatch is never re-sent because time passed. It stays outstanding
+// until its consumer reports, and the Queue holds it until then: the
+// consumer retries a delivery it could not finish, and on the last delivery
+// the Queue allows (`LANE_QUEUE_MAX_RETRIES`) it sends a fresh copy before
+// it processes anything, so no delivery limit drops it. A send that fails,
+// or a report of a failed attempt, clears it; the step then dispatches
+// again after the session's backoff, as before. Every delivery that takes a
+// framing dispatch counts as an attempt (`frame_begin`), so deliveries that
+// keep being cut off reach the plan's pause bound and fault the cohort
+// visibly.
+//
+// A dispatch is recorded `pending`, with the sending object incarnation's
+// random identifier (`dispatch_by`), and marked `sent` only once the Queue
+// accepted its message ([`dispatch_sent`]). At each heartbeat kick the
+// object sends again, with the same number, every outstanding dispatch
+// another incarnation recorded ([`dispatches_to_resend`]): one whose send
+// never left (the object was reset between the record and the send) or one
+// a reset object can no longer vouch for; and, after one of its own sends
+// failed without its clearing committing, its own `pending` ones. That
+// re-send follows an event (a fresh incarnation, a failed send), never
+// elapsed time; takes and reports are keyed by the dispatch and safe to
+// apply twice, and a re-sent framing take counts as an attempt like any
+// other. The operator can re-send or clear one dispatch by number
+// (`POST /eval/session/dispatch`, [`operator_dispatch`]).
+
+/// The version of [`WorkMessage`].
+pub const WORK_VERSION: u8 = 1;
+
+/// The eval lane-wakeup Queue's `max_retries` (`wrangler.toml`, checked by a
+/// test): a message's last delivery is attempt `LANE_QUEUE_MAX_RETRIES + 1`.
+pub const LANE_QUEUE_MAX_RETRIES: u32 = 10;
+
+/// Whether a delivery with the Queue's attempt count `attempts` (from 1) is
+/// the last the Queue allows.
+pub fn last_delivery(attempts: u32) -> bool {
+    attempts > LANE_QUEUE_MAX_RETRIES
+}
+
+/// The measured framing time this bound is derived from (version
+/// `frame-time-2026-11-04`): the cohort-19 drill framed two 610,660,039 and
+/// 610,660,040 B objects in 18 to 32 s of upload-Worker CPU each
+/// (reader-allowance diagnosis, 2026-11-04). The slowest is scaled to an
+/// object's length ([`frame_ms_bound`]).
+pub const FRAME_MEASURED_MS: u64 = 32_000;
+pub const FRAME_MEASURED_BYTES: u64 = 610_660_039;
+
+/// The framing time of an object of `len` bytes, scaled linearly from the
+/// slowest measured framing (hashing is linear in the length), rounded up.
+pub fn frame_ms_bound(len: u64) -> u64 {
+    let ms = (u128::from(FRAME_MEASURED_MS) * u128::from(len)).div_ceil(u128::from(FRAME_MEASURED_BYTES));
+    u64::try_from(ms).unwrap_or(u64::MAX)
+}
+
+/// How many framing deliveries one consumer invocation runs: framings
+/// share the invocation's one thread (the upload Worker's framing runs on
+/// the caller's thread), so their times add up, and their sum at the
+/// largest admission object must fit the consumer's wall limit
+/// (`limits::QUEUE_MS`); never more than [`work_share`]'s width.
+pub fn frames_per_share() -> usize {
+    let one = frame_ms_bound(slop_ninja_artifact_check::admission::largest_admission_object()).max(1);
+    let fit = usize::try_from(slop_ninja_arena::limits::QUEUE_MS / one).unwrap_or(usize::MAX);
+    fit.clamp(1, crate::arena_routes::STEP_READS_IN_FLIGHT)
+}
+
+/// The admission work deliveries one consumer invocation runs, by their
+/// position in the batch (`stages` are the messages' steps in order): at
+/// most `STEP_READS_IN_FLIGHT` (the R2 operations a step keeps in flight),
+/// of which at most [`frames_per_share`] frame. The consumer sends the rest
+/// again as fresh messages, so a burst of uploads never puts more work in
+/// one invocation than its wall limit holds.
+pub fn work_share<'a>(stages: impl Iterator<Item = &'a str>) -> Vec<usize> {
+    let (width, frames) = (crate::arena_routes::STEP_READS_IN_FLIGHT, frames_per_share());
+    let mut out = Vec::new();
+    let mut framing = 0;
+    for (n, stage) in stages.enumerate() {
+        if out.len() == width {
+            break;
+        }
+        if stage == "frame" {
+            if framing == frames {
+                continue;
+            }
+            framing += 1;
+        }
+        out.push(n);
+    }
+    out
+}
+
+/// A content-free admission work dispatch on the lane-wakeup Queue:
+/// identifiers only (the session, the step and the dispatch number). The
+/// consumer reads everything else from the cohort object when it takes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkMessage {
+    pub v: u8,
+    /// The step: `frame` or `blobs`.
+    pub admission: String,
+    pub session: String,
+    /// The session's dispatch number (`adm_sessions.dispatch`).
+    pub dispatch: u32,
+    /// The named main authority whose object dispatched it
+    /// (`EvalConfig::kick_authority`); absent for the original.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority: Option<String>,
+}
+
+/// One lane-wakeup Queue message: a lane kick (its bytes unchanged) or an
+/// admission work dispatch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum QueueMessage {
+    Kick(crate::eval::lanes::LaneKick),
+    Admission(WorkMessage),
+}
+
+/// A dispatch recorded by [`dispatch_begin`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dispatch {
+    pub session: String,
+    pub stage: String,
+    pub dispatch: u32,
+}
+
+impl Dispatch {
+    pub fn message(&self, authority: Option<String>) -> WorkMessage {
+        WorkMessage {
+            v: WORK_VERSION,
+            admission: self.stage.clone(),
+            session: self.session.clone(),
+            dispatch: self.dispatch,
+            authority,
+        }
+    }
+}
+
+/// The session's dispatch number and whether one is outstanding.
+fn dispatch_of(sql: &impl Sql, id: &str) -> R<Option<(u32, Option<String>)>> {
+    let rows = sql.exec("SELECT dispatch, dispatch_state FROM adm_sessions WHERE session = ?", &[s(id)])?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    Ok(Some((u32::try_from(int(r, 0)?).unwrap_or(u32::MAX), opt_text(r, 1))))
+}
+
+/// Records a dispatch of a session's due framing or blob step: the next
+/// dispatch number, outstanding and `pending` until the Queue accepts its
+/// message ([`dispatch_sent`]). `None` when the session is not verifying at
+/// one of those stages or already has one outstanding.
+pub fn dispatch_begin(sql: &impl Sql, id: &str, by: i64, now_ms: u64) -> R<Option<Dispatch>> {
+    let Some(r) = session_row(sql, id)? else { return Ok(None) };
+    let stage = match r.stage.as_deref() {
+        Some(st @ ("frame" | "blobs")) if r.state == SessionState::Verifying => st.to_owned(),
+        _ => return Ok(None),
+    };
+    let Some((current, None)) = dispatch_of(sql, id)? else { return Ok(None) };
+    let next = current.saturating_add(1);
+    sql.exec(
+        "UPDATE adm_sessions SET dispatch = ?, dispatch_state = 'pending', dispatch_by = ?, dispatch_takes = 0,
+            delivery_error = NULL, updated_ms = ? WHERE session = ?",
+        &[i(i64::from(next)), i(by), bind_u64(now_ms)?, s(id)],
+    )?;
+    Ok(Some(Dispatch { session: id.to_owned(), stage, dispatch: next }))
+}
+
+/// The Queue accepted dispatch `dispatch`'s message: `pending` becomes
+/// `sent` (a consumer that already took it leaves it `taken`).
+pub fn dispatch_sent(sql: &impl Sql, id: &str, dispatch: u32) -> R<()> {
+    sql.exec(
+        "UPDATE adm_sessions SET dispatch_state = 'sent' WHERE session = ? AND dispatch = ? AND dispatch_state = 'pending'",
+        &[s(id), i(i64::from(dispatch))],
+    )?;
+    Ok(())
+}
+
+/// The outstanding dispatches object incarnation `by` sends again (see
+/// "work dispatches"): those another incarnation recorded, and with
+/// `own_pending` its own whose message the Queue has not accepted.
+pub fn dispatches_to_resend(sql: &impl Sql, by: i64, own_pending: bool) -> R<Vec<Dispatch>> {
+    sql.exec(
+        "SELECT session, stage, dispatch FROM adm_sessions WHERE state = 'verifying' AND stage IN ('frame','blobs')
+           AND dispatch_state IS NOT NULL AND (dispatch_by IS NOT ? OR (? = 1 AND dispatch_state = 'pending'))
+         ORDER BY updated_ms",
+        &[i(by), i(i64::from(own_pending))],
+    )?
+    .iter()
+    .map(|r| {
+        Ok(Dispatch {
+            session: text(r, 0)?.to_owned(),
+            stage: text(r, 1)?.to_owned(),
+            dispatch: u32::try_from(int(r, 2)?).unwrap_or(u32::MAX),
+        })
+    })
+    .collect()
+}
+
+/// Object incarnation `by` sent dispatch `dispatch` again and the Queue
+/// accepted it: the dispatch is now that incarnation's (and `sent` if it
+/// was `pending`).
+pub fn dispatch_resent(sql: &impl Sql, id: &str, dispatch: u32, by: i64) -> R<()> {
+    sql.exec(
+        "UPDATE adm_sessions SET dispatch_by = ?,
+            dispatch_state = CASE dispatch_state WHEN 'pending' THEN 'sent' ELSE dispatch_state END
+         WHERE session = ? AND dispatch = ? AND dispatch_state IS NOT NULL",
+        &[i(by), s(id), i(i64::from(dispatch))],
+    )?;
+    Ok(())
+}
+
+/// The operator's way out of a dispatch whose message was lost: `resend`
+/// answers the outstanding dispatch `dispatch` (the object sends its
+/// message again, same number); `clear` ends it uncounted so the step is
+/// due at once under a new number (a delivery of the old one is then
+/// stale). `None` when `dispatch` is not the session's outstanding one.
+pub fn operator_dispatch(sql: &impl Sql, id: &str, dispatch: u32, clear: bool, now_ms: u64) -> R<Option<Dispatch>> {
+    let Some(r) = session_row(sql, id)? else { return Ok(None) };
+    let stage = match r.stage.as_deref() {
+        Some(st @ ("frame" | "blobs")) if r.state == SessionState::Verifying => st.to_owned(),
+        _ => return Ok(None),
+    };
+    if !matches!(dispatch_of(sql, id)?, Some((d, Some(_))) if d == dispatch) {
+        return Ok(None);
+    }
+    if clear {
+        settle(sql, id, dispatch)?;
+        sql.exec(
+            "UPDATE adm_sessions SET step_after_ms = 0, updated_ms = ? WHERE session = ? AND state = 'verifying'",
+            &[bind_u64(now_ms)?, s(id)],
+        )?;
+    }
+    Ok(Some(Dispatch { session: id.to_owned(), stage, dispatch }))
+}
+
+/// Clears dispatch `dispatch` when it is the session's outstanding one.
+fn settle(sql: &impl Sql, id: &str, dispatch: u32) -> R<()> {
+    sql.exec(
+        "UPDATE adm_sessions SET dispatch_state = NULL WHERE session = ? AND dispatch = ?",
+        &[s(id), i(i64::from(dispatch))],
+    )?;
+    Ok(())
+}
+
+/// The Queue refused the send of dispatch `dispatch`: it is cleared, uncounted,
+/// and the step dispatches again after the session's backoff.
+pub fn dispatch_unsent(sql: &impl Sql, id: &str, dispatch: u32, now_ms: u64) -> R<()> {
+    let Some((current, Some(state))) = dispatch_of(sql, id)? else { return Ok(()) };
+    if current != dispatch || state != "pending" {
+        return Ok(());
+    }
+    settle(sql, id, dispatch)?;
+    let rows = sql.exec("SELECT step_tries FROM adm_sessions WHERE session = ?", &[s(id)])?;
+    let tries = u32::try_from(rows.first().map_or(Ok(0), |r| int(r, 0))?).unwrap_or(u32::MAX);
+    sql.exec(
+        "UPDATE adm_sessions SET step_after_ms = ?, updated_ms = ? WHERE session = ? AND state = 'verifying'",
+        &[bind_u64(now_ms.saturating_add(backoff_ms(tries.max(1))))?, bind_u64(now_ms)?, s(id)],
+    )?;
+    Ok(())
+}
+
+/// What a consumer delivery is to do for its dispatch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Take {
+    /// Frame the session's object: its key, its envelope length and the
+    /// cohort's spec id.
+    Frame { key: String, len: u64, spec: String },
+    /// Copy the framed slices from the object at `key`.
+    Blobs { key: String, record: FrameRecord },
+    /// The dispatch is no longer the session's outstanding one (reported,
+    /// superseded, or the session moved on): nothing to do.
+    Stale,
+}
+
+/// A consumer delivery of dispatch `dispatch` begins. A framing take counts
+/// the attempt and arms its backoff (`frame_begin`), so deliveries cut off
+/// before they report reach the plan's pause bound like any cut-off attempt.
+/// Taking again (a redelivery of the same dispatch) is allowed; every take
+/// is counted for the status (`dispatch_takes`).
+///
+/// A blob take first records the session's use of every slice of its record
+/// (`created = 0`), before the consumer heads any blob: from then on no
+/// clean-up chooses those blobs ([`cleanup_keys`]). A clean-up that chose
+/// one of them earlier may still be deleting it ([`cleanup_begin`]); the
+/// take then waits for it (the dispatch ends uncounted and the step runs
+/// again after the session's backoff), so a blob the consumer finds present
+/// is never one a clean-up is about to delete.
+pub fn take(sql: &impl Sql, id: &str, dispatch: u32, now_ms: u64) -> R<Take> {
+    let Some(r) = session_row(sql, id)? else { return Ok(Take::Stale) };
+    let Some((current, Some(_))) = dispatch_of(sql, id)? else { return Ok(Take::Stale) };
+    if r.state != SessionState::Verifying || current != dispatch {
+        return Ok(Take::Stale);
+    }
+    sql.exec("UPDATE adm_sessions SET dispatch_takes = dispatch_takes + 1 WHERE session = ?", &[s(id)])?;
+    let out = match r.stage.as_deref() {
+        Some("frame") => match frame_begin(sql, id, now_ms)? {
+            Some((key, len, v)) => Take::Frame { key, len, spec: v.id().to_owned() },
+            None => Take::Stale,
+        },
+        Some("blobs") => match frame_record(sql, id)? {
+            Some((key, record)) => {
+                for sl in &record.slices {
+                    sql.exec(
+                        "INSERT OR IGNORE INTO adm_blobs (session, sha256, created) VALUES (?, ?, 0)",
+                        &[s(id), s(&sl.sha256)],
+                    )?;
+                }
+                if blob_deletes_pending(sql, id, &record)? {
+                    settle(sql, id, dispatch)?;
+                    step_retry(sql, id, false, now_ms)?;
+                    sql.exec(
+                        "UPDATE adm_sessions SET delivery_error = 'blob_cleanup_pending' WHERE session = ?",
+                        &[s(id)],
+                    )?;
+                    return Ok(Take::Stale);
+                }
+                Take::Blobs { key, record }
+            }
+            None => Take::Stale,
+        },
+        _ => Take::Stale,
+    };
+    if out != Take::Stale {
+        sql.exec("UPDATE adm_sessions SET dispatch_state = 'taken' WHERE session = ?", &[s(id)])?;
+    }
+    Ok(out)
+}
+
+/// Whether another session's clean-up is deleting a blob or the manifest of
+/// `record` ([`cleanup_begin`]).
+fn blob_deletes_pending(sql: &impl Sql, id: &str, record: &FrameRecord) -> R<bool> {
+    let rows = sql.exec("SELECT key FROM adm_blob_deletes WHERE session != ?", &[s(id)])?;
+    for r in &rows {
+        let key = text(r, 0)?;
+        if key == record.manifest_key
+            || key.strip_prefix("artifacts/blobs/").is_some_and(|sha| record.slices.iter().any(|sl| sl.sha256 == sha))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// A consumer's delivery of dispatch `dispatch` failed before it could
+/// report a result (its work scope was refused, a copy failed): the code is
+/// kept for the status while the dispatch is the session's latest. Nothing
+/// else changes.
+pub fn delivery_failed(sql: &impl Sql, id: &str, dispatch: u32, code: &str) -> R<()> {
+    if !delivery_code_ok(code) {
+        return Err(EvalError::Plan("delivery code (a-z 0-9 _, at most 32)"));
+    }
+    sql.exec(
+        "UPDATE adm_sessions SET delivery_error = ? WHERE session = ? AND dispatch = ?",
+        &[s(code), s(id), i(i64::from(dispatch))],
+    )?;
+    Ok(())
+}
+
+/// A consumer's failure code: a short static identifier.
+fn delivery_code_ok(code: &str) -> bool {
+    !code.is_empty() && code.len() <= 32 && code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+/// A framing delivery's result: the upload Worker's outcome, or how the
+/// call failed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameReport {
+    Outcome(FrameOutcome),
+    Failed(FrameFailure),
+}
+
+/// Applies a framing delivery's report for the object at `key`. An outcome
+/// applies while the session is framing that object, whichever dispatch
+/// brought it (framing one object always gives the same outcome); a stage it
+/// moves clears the dispatch, and one it leaves (a malformed outcome, a
+/// commitment still being logged) clears its own dispatch, whose take armed
+/// the backoff. A failure applies only for the outstanding dispatch, so a
+/// duplicate is never counted twice.
+pub fn frame_reported(
+    sql: &impl Sql,
+    chain: &ChainBinding,
+    id: &str,
+    dispatch: u32,
+    key: &str,
+    report: FrameReport,
+    now_ms: u64,
+) -> R<()> {
+    let Some(r) = session_row(sql, id)? else { return Ok(()) };
+    if r.state != SessionState::Verifying || r.stage.as_deref() != Some("frame") || r.object_key != key {
+        return Ok(());
+    }
+    let outstanding = matches!(dispatch_of(sql, id)?, Some((d, Some(_))) if d == dispatch);
+    match report {
+        FrameReport::Outcome(o) => {
+            apply_frame(sql, chain, id, o, now_ms)?;
+            settle(sql, id, dispatch)
+        }
+        FrameReport::Failed(kind) if outstanding => {
+            frame_failed(sql, id, kind, now_ms)?;
+            settle(sql, id, dispatch)
+        }
+        FrameReport::Failed(_) => Ok(()),
+    }
+}
+
+/// A blob delivery is about to copy: the slices it found missing from the
+/// blob store (`created`) and whether the manifest is missing, recorded
+/// before any copy (`blob_created`, `manifest_created`) so the clean-up of
+/// an upload that ends without admission deletes exactly what its copies
+/// created. `false` (copy nothing) unless `dispatch` is the session's taken
+/// blob dispatch; only the record's own slices are recorded.
+pub fn blobs_created(sql: &impl Sql, id: &str, dispatch: u32, created: &[String], manifest: bool) -> R<bool> {
+    if !matches!(dispatch_of(sql, id)?, Some((d, Some(st))) if d == dispatch && st == "taken") {
+        return Ok(false);
+    }
+    let Some((_, rec)) = frame_record(sql, id)? else { return Ok(false) };
+    for sha in created {
+        if rec.slices.iter().any(|sl| &sl.sha256 == sha) {
+            blob_created(sql, id, sha)?;
+        }
+    }
+    if manifest {
+        manifest_created(sql, id)?;
+    }
+    Ok(true)
+}
+
+/// A blob delivery's end: `written` (every slice and the manifest are in the
+/// blob store; the verdict is next, `blobs_written`, whichever dispatch
+/// copied them) or failed with `code` (only the outstanding dispatch backs
+/// off, as a failed copy did; the code is kept for the status).
+pub fn blobs_reported(
+    sql: &impl Sql,
+    cfg: &AdmissionEnv,
+    id: &str,
+    dispatch: u32,
+    failed: Option<&str>,
+    now_ms: u64,
+) -> R<()> {
+    let outstanding = matches!(dispatch_of(sql, id)?, Some((d, Some(_))) if d == dispatch);
+    match failed {
+        None => blobs_written(sql, cfg, id, now_ms)?,
+        Some(code) => {
+            if outstanding && session_row(sql, id)?.is_some_and(|r| r.stage.as_deref() == Some("blobs")) {
+                step_retry(sql, id, false, now_ms)?;
+                delivery_failed(sql, id, dispatch, code)?;
+            }
+        }
+    }
+    settle(sql, id, dispatch)
+}
+
+/// `v` as JSON in one buffer of its exact length (measured by a counting
+/// pass first), never a growing buffer's reallocations: the work routes'
+/// footprints count one serialization of a work body.
+pub fn json_exact(v: &impl Serialize) -> R<String> {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(b.len());
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut n = Count(0);
+    serde_json::to_writer(&mut n, v).map_err(|_| EvalError::State("json"))?;
+    let mut out = Vec::with_capacity(n.0);
+    serde_json::to_writer(&mut out, v).map_err(|_| EvalError::State("json"))?;
+    String::from_utf8(out).map_err(|_| EvalError::State("json"))
+}
+
+/// A framing delivery's report body around the upload Worker's outcome
+/// `raw` (its own JSON, checked to parse as an outcome, passed on as is),
+/// built at its exact length: the delivery's footprint holds the outcome as
+/// read and this one copy (`arena_routes::WORK_DELIVERY_BODIES`), never a
+/// growing buffer's reallocations.
+pub fn frame_report_body(session: &str, dispatch: u32, key: &str, raw: &str) -> String {
+    let (session, key) = (Value::from(session).to_string(), Value::from(key).to_string());
+    let dispatch = dispatch.to_string();
+    let parts = ["{\"session\":", &session, ",\"dispatch\":", &dispatch, ",\"key\":", &key, ",\"report\":{\"outcome\":", raw, "}}"];
+    let mut out = String::with_capacity(parts.iter().map(|p| p.len()).sum());
+    for p in parts {
+        out.push_str(p);
+    }
+    out
+}
+
+/// The body of an `/admission-work/*` request from the Queue consumer:
+/// the dispatch it belongs to and the step's fields.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkBody {
+    pub session: String,
+    pub dispatch: u32,
+    /// The framed object's key (`frame`).
+    #[serde(default)]
+    pub key: Option<String>,
+    /// The framing result (`frame`).
+    #[serde(default)]
+    pub report: Option<FrameReport>,
+    /// The slices the blob store lacks (`blobs-created`).
+    #[serde(default)]
+    pub created: Vec<String>,
+    /// Whether the manifest is missing (`blobs-created`).
+    #[serde(default)]
+    pub manifest: bool,
+    /// A failure's code (`blobs-failed`, `undelivered`).
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
+/// The largest object key: a label at its bound, a session digest and the
+/// largest attempt ([`object_key`]).
+fn largest_object_key() -> String {
+    object_key(&"x".repeat(crate::eval::plan::LABEL_BYTES), &"f".repeat(64), u32::MAX)
+}
+
+/// The bound of an admission work body (a [`Take`] reply, a framing report,
+/// a blob delivery's creation list): at most one framing outcome or framing
+/// record, whose manifest hex and slices [`frame_outcome_bound`] covers
+/// (a creation list is a subset of the record's slice digests), plus the
+/// fixed fields around them, measured on the types at their largest.
+pub fn work_body_bound() -> usize {
+    let d = "f".repeat(64);
+    let record = FrameRecord {
+        package_sha256: d.clone(),
+        manifest_key: format!("artifacts/packages/{d}.json"),
+        manifest_hex: String::new(),
+        model_sha256: d.clone(),
+        slices: Vec::new(),
+    };
+    let take = Take::Blobs { key: largest_object_key(), record };
+    let request = json!({"session": d, "dispatch": u32::MAX, "key": largest_object_key(), "created": [],
+        "manifest": false, "report": {"outcome": null}, "code": "x".repeat(32)});
+    let len = |v: &Value| serde_json::to_vec(v).map_or(usize::MAX, |b| b.len());
+    let fixed = len(&json!(take)).saturating_add(len(&request));
+    slop_ninja_artifact_check::admission::frame_outcome_bound().saturating_add(fixed)
+}
+
+/// [`work_body_bound`] as a constant: the work routes' footprints
+/// (`arena_routes::cohort_work_bytes`, `admission_work_bytes`) are fixed
+/// before any scope opens, so they cannot measure it then. A test checks
+/// that it equals the bound measured on the types.
+pub const WORK_BODY_BYTES: usize = 2_101_417;
+
+/// Sessions whose framing or blob step is dispatched and not yet reported.
+pub fn dispatches_outstanding(sql: &impl Sql) -> R<i64> {
+    count(sql, "SELECT COUNT(*) FROM adm_sessions WHERE state = 'verifying' AND dispatch_state IS NOT NULL", &[])
 }
 
 // ---------------------------------------------------------------- verdicts
@@ -3112,10 +3724,14 @@ pub fn state_served(sql: &impl Sql, who: &AccountId, block: u64, now_ms: u64) ->
 /// work that is not due (the next heartbeat kick finds it when it is).
 pub fn has_work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool> {
     let now = bind_u64(due_by.unwrap_or(crate::wire::MAX_SAFE_INTEGER))?;
+    // A framing or blob step with a dispatch outstanding is unfinished work
+    // (`None`), but not due work: the consumer's report re-arms the step.
+    let all = i(i64::from(due_by.is_none()));
     Ok(!sql
         .exec(
             "SELECT 1 FROM adm_sessions WHERE state = 'verifying'
-               AND (stage = 'verdict' OR (stage IN ('complete','frame','blobs') AND step_after_ms <= ?))
+               AND (stage = 'verdict' OR (stage IN ('complete','frame','blobs') AND step_after_ms <= ?
+                    AND (stage = 'complete' OR dispatch_state IS NULL OR ? = 1)))
              UNION ALL SELECT 1 FROM adm_cohorts WHERE state = 'closing'
              UNION ALL SELECT 1 FROM adm_charges
              UNION ALL SELECT 1 FROM adm_object_deletes WHERE not_before_ms <= ?
@@ -3123,7 +3739,7 @@ pub fn has_work(sql: &impl Sql, cfg: &EvalConfig, due_by: Option<u64>) -> R<bool
                WHERE c.state IN ('frozen','abandoned') AND s.cleaned = 0 AND s.step_after_ms <= ?
                  AND (s.state IN ('refused','overflow','superseded','aborted') OR (s.state = 'admitted' AND c.state = 'abandoned'))
              LIMIT 1",
-            &[now.clone(), now.clone(), now],
+            &[now.clone(), all, now.clone(), now],
         )?
         .is_empty()
         || crate::eval::calendar::ready(sql, cfg)?)
@@ -3630,8 +4246,24 @@ pub fn cleanup_keys(sql: &impl Sql, id: &str) -> R<Vec<String>> {
     Ok(keys)
 }
 
+/// A session's clean-up chooses its keys ([`cleanup_keys`]) and records
+/// them as being deleted until [`mark_cleaned`], replacing an earlier
+/// attempt's choice: a blob take that needs one of them waits ([`take`]).
+/// Blob deliveries run in the Queue consumer, beside this object's
+/// clean-up, so a key chosen here may be one a delivery is about to find
+/// present; the record closes that gap.
+pub fn cleanup_begin(sql: &impl Sql, id: &str) -> R<Vec<String>> {
+    let keys = cleanup_keys(sql, id)?;
+    sql.exec("DELETE FROM adm_blob_deletes WHERE session = ?", &[s(id)])?;
+    for k in &keys {
+        sql.exec("INSERT OR IGNORE INTO adm_blob_deletes (key, session) VALUES (?, ?)", &[s(k), s(id)])?;
+    }
+    Ok(keys)
+}
+
 pub fn mark_cleaned(sql: &impl Sql, id: &str) -> R<()> {
     sql.exec("UPDATE adm_sessions SET cleaned = 1 WHERE session = ?", &[s(id)])?;
+    sql.exec("DELETE FROM adm_blob_deletes WHERE session = ?", &[s(id)])?;
     Ok(())
 }
 
@@ -3700,6 +4332,37 @@ pub fn status(sql: &impl Sql) -> R<Value> {
                AND ((stage = 'frame' AND step_tries > 1) OR (stage IN ('complete','blobs') AND step_after_ms > 0))",
             &[],
         )?,
+        // Framing and blob steps dispatched to the Queue consumer and not
+        // yet reported (each is carried by the Queue until it reports);
+        // those whose message the Queue has not accepted yet; the most
+        // deliveries one outstanding dispatch has taken; and the latest
+        // delivery failure a consumer reported. A dispatch outstanding
+        // across ticks with no takes is one whose message did not arrive
+        // (alert, then `POST /eval/session/dispatch`; never a timeout).
+        "steps_dispatched": dispatches_outstanding(sql)?,
+        "steps_dispatch_pending": count(
+            sql,
+            "SELECT COUNT(*) FROM adm_sessions WHERE state = 'verifying' AND dispatch_state = 'pending'",
+            &[],
+        )?,
+        "dispatch_takes_max": count(
+            sql,
+            "SELECT COALESCE(MAX(dispatch_takes), 0) FROM adm_sessions WHERE state = 'verifying' AND dispatch_state IS NOT NULL",
+            &[],
+        )?,
+        "dispatch_untaken": count(
+            sql,
+            "SELECT COUNT(*) FROM adm_sessions WHERE state = 'verifying' AND dispatch_state IS NOT NULL AND dispatch_takes = 0",
+            &[],
+        )?,
+        "last_delivery_error": sql
+            .exec(
+                "SELECT delivery_error FROM adm_sessions WHERE state = 'verifying' AND delivery_error IS NOT NULL
+                 ORDER BY updated_ms DESC LIMIT 1",
+                &[],
+            )?
+            .first()
+            .and_then(|r| opt_text(r, 0)),
     });
     // The uploaded objects the store still tracks (the pre-deploy check of
     // a bucket change: none may be left in progress or awaiting deletion).

@@ -60,6 +60,7 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `POST /eval/abandon` | End a faulted cohort without a target (`{"label": ..., "reason": "<code>"}`); the only exit of a terminal fault. Operator token. |
 | `POST /eval/probe`, `/eval/scorer-probe` | Pre-flight one generator, or the scorer path, on fixed synthetic text; the measured cost is settled in the spend ledger. Operator token. |
 | `POST /eval/template`, `/eval/template/pause`, `GET /eval/calendar` | Install the standing cohort template; pause or resume opening cohorts from it (`{"paused": bool}`); the cohort calendar. Operator token. |
+| `POST /eval/session/refuse`, `/eval/session/dispatch` | Refuse a stalled session (`{session, reason}`); re-send or clear one outstanding admission work dispatch (`{session, dispatch, action: "resend"\|"clear"}`). Operator token. |
 | `/admission/...` | Always 404. The public admission routes (contract `slop_ninja.admission/v1`, `docs/testnet/admission-api.md`) are the key-free upload Worker's (`subnet/admission-worker`, `slop-ninja-admission-testnet`), not this Worker's. |
 | `POST /internal/admission/v1/<op>` | `EVAL_ROLE = "eval"` only. The internal admission interface, reachable only through the upload Worker's service binding: a request must name the internal host `eval-admission.internal`, which no public route carries, and present the shared `ADMISSION_INTERFACE_TOKEN` (compared in constant time). Anything else answers 404. The body is one forwarded, already checked request (`slop_ninja_admission_wire::internal::Forward`), relayed to the cohort authority. |
 | cron `* * * * *` | The watchdog. On the coordinator it is the only timer, and no Durable Object alarms are set; on the eval Worker it also kicks the cohort authority and, outside scoring, stops idle scorer slots, while the cohort and scorer Durable Objects keep bounded alarms. The finalized commitment reader is per-block work: each new block's delivery drives it, and the cron only while the watchdog is in fallback (when no delivery arrives), never as its own schedule. |
@@ -1933,14 +1934,58 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
   `complete`; issued again until R2's outcome is recorded; R2's definitive
   part refusal ends the session as `object_mismatch`, anything else retries
   with a backoff), framing (stage `frame`) and the blob copies (`blobs`).
+  The cohort object never frames or copies in its own invocation: its step
+  records a dispatch (`adm_sessions.dispatch`, store v21) and sends a
+  content-free message (session, step, dispatch number) on the lane-wakeup
+  Queue. The Queue consumer takes it from the object
+  (`/admission-work/take`), calls the upload Worker's framing route or
+  copies the slices, and reports back (`/admission-work/frame`,
+  `blobs-created` before any copy, `blobs-written` or `blobs-failed`), each
+  one short transaction that is safe to apply twice. A dispatch stays
+  outstanding until its report, and the session is not due meanwhile;
+  nothing re-sends it because time passed. It is recorded `pending` under
+  the object incarnation's random identifier and marked `sent` once the
+  Queue accepted its message. At each heartbeat kick the object sends again,
+  same number, every outstanding dispatch another incarnation recorded (its
+  message may never have left: a deploy or reset between the record and the
+  send) and, after one of its own sends could not be settled in the store,
+  its own `pending` ones; the kick is the event, never elapsed time. The
+  operator can re-send or clear one dispatch by number (`POST
+  /eval/session/dispatch`, `{session, dispatch, action: "resend"|"clear"}`).
+  The consumer retries a delivery that could not reach the object, and on
+  the Queue's last allowed delivery (`max_retries` + 1, checked against
+  `wrangler.toml`) it first sends a fresh copy delayed by the consumer's
+  15-minute wall limit, before any delivery of the batch runs, so the copy
+  arrives only after that delivery has ended and a dispatch is never dropped
+  by the delivery limit. One invocation runs at most one share of admission
+  work (six deliveries, of which as many framings as fit the wall limit at
+  the largest admission object, scaled from the drill's measured framing
+  time, `frame-time-2026-11-04`); the rest of the batch goes back on the
+  Queue as fresh messages before anything runs. A batch whose messages
+  cannot be read is retried whole. A send the Queue refuses clears the
+  dispatch uncounted and backs the session off. Every delivery that takes a
+  framing dispatch is an attempt. A blob take records the session's use of
+  every slice of its record before the consumer heads any blob, and waits
+  (uncounted backoff) while another session's clean-up is deleting one of
+  them (`adm_blob_deletes`), so a blob the consumer finds present is never
+  one a clean-up is about to delete. `/eval/status` `platform_retries`
+  shows `steps_dispatched`, `steps_dispatch_pending`, `dispatch_untaken`,
+  `dispatch_takes_max` and `last_delivery_error` (the consumer reports a
+  failed copy's code and a refused work scope); a dispatch outstanding
+  across ticks with no takes is one whose message did not arrive, an alert
+  for the operator, never a protocol timeout. Why: a service binding runs the
+  caller's thread, so framing called from the object held the object's
+  thread while the upload Worker hashed the whole object (cohort-19 drill,
+  2026-11-04: requests to the object stalled 1 to 27.5 s, and the commitment
+  reader's plan and ingest calls ran out of their allowance).
   Framing is the protocol reader (the header record, decoded once within
   `MAX_ARTIFACT_HEADER_LEN`; object and file digests and lengths), the
   spec's header-only file-table checks, the scorer's content-addressed
   slices and parts manifest, and `SubmissionUpload::admit` against the
   logged commitment. A framing attempt that ends without an outcome (cut
   off by CPU or an eviction) is the platform's: each attempt arms a growing
-  backoff before it runs, so it runs again after it and never refuses the
-  upload. When one session's cut-offs reach the plan's
+  backoff when its delivery takes it, so it runs again after it and never
+  refuses the upload. When one session's cut-offs reach the plan's
   `fanout.score.failures_before_pause` (and at every multiple), the cohort
   faults with the resumable `framing_unavailable`: the roster freeze waits on
   the same cohort, the publisher's `cohort_fault` alert fires, and the
@@ -1995,6 +2040,9 @@ the coordinator (`eval::admission`, contract `slop_ninja.admission/v1`):
 - **Ways out.** `POST /eval/session/refuse` (`{session, reason}`, main
   instance) refuses one stalled session with a recorded reason
   (`check_failed`, `operator:<reason>`), and its pending verdict with it.
+  `POST /eval/session/dispatch` re-sends one outstanding admission work
+  dispatch under its number (`"resend"`) or clears it so the step
+  dispatches afresh (`"clear"`, uncounted).
   `POST /eval/abandon` also abandons a faulted cohort in `admission`: its
   window closes for good and its live sessions are refused.
 - **Clean-up.** After the freeze (or an abandonment), sessions that ended
@@ -2487,8 +2535,9 @@ milestone M7.
   "Automatic target handoff").
 - **Admission, open items.** The eval Worker decodes no uploaded object:
   framing (the header record, the slices and the parts manifest) runs in
-  the key-free upload Worker, which the cohort object's framing step calls
-  through its service binding (finding 24, decided 2026-11-03). Testnet
+  the key-free upload Worker, which the eval Worker's Queue consumer calls
+  through its service binding (finding 24, decided 2026-11-03; never from
+  the cohort object since the cohort-19 drill). Testnet
   enforces protocol bounds only (decision D6): no per-IP or per-hotkey rate
   limit, `rate_limited` is never sent; the upload Worker refuses unsigned
   and unregistered requests before any body read or forward, and serves the

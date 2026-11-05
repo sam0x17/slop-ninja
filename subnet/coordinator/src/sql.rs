@@ -898,5 +898,11 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 20,
             statements: crate::eval::engine::SCHEMA_V20,
         },
+        // v21: the framing and blob steps' Queue dispatches (the cohort
+        // object no longer frames or copies in its own invocation).
+        Migration {
+            version: 21,
+            statements: crate::eval::admission::SCHEMA_V21,
+        },
     ],
 };

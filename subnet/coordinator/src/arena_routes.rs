@@ -32,6 +32,7 @@ pub mod id {
     pub const JOURNAL_NEW: u8 = 10;
     pub const JOURNAL_FETCH: u8 = 11;
     pub const JOURNAL_AUTO: u8 = 12;
+    pub const QUEUE_ADMISSION: u8 = 13;
     pub const COHORT_NEW: u8 = 20;
     pub const COHORT_FETCH: u8 = 21;
     pub const COHORT_ALARM: u8 = 22;
@@ -45,6 +46,7 @@ pub mod id {
     pub const HOME_STATE: u8 = 30;
     pub const HOME_RUNTIMES: u8 = 31;
     pub const HOME_PLANS: u8 = 32;
+    pub const COHORT_WORK: u8 = 33;
 }
 
 /// The deadline of an entry with no documented wall limit (Worker and
@@ -72,6 +74,10 @@ pub const R_EVAL: AsyncRoute = AsyncRoute::new(id::EVAL, "worker/eval", UNBOUNDE
 pub const R_OTHER: AsyncRoute = AsyncRoute::new(id::OTHER, "worker/other", UNBOUNDED_FETCH_MS);
 pub const R_SCHEDULED: AsyncRoute = AsyncRoute::new(id::SCHEDULED, "worker/scheduled", limits::CRON_MS);
 pub const R_QUEUE: AsyncRoute = AsyncRoute::new(id::QUEUE, "worker/queue", limits::QUEUE_MS);
+/// One admission work delivery of the queue batch (framing through the upload
+/// Worker, or blob copies), a child of the batch's scope
+/// (`admission_work_bytes`).
+pub const R_QUEUE_ADMISSION: Route = Route::new(id::QUEUE_ADMISSION, "worker/queue-admission");
 /// The internal admission interface (the upload Worker's service binding
 /// only; no public route): the route holds one forwarded message and the
 /// cohort object's reply. No part body reaches this Worker.
@@ -100,9 +106,13 @@ pub const R_COHORT_LOAD_SEAL: Route = Route::new(id::COHORT_LOAD_SEAL, "cohort/l
 /// The commitment reader's rounds: the stored runtime's parse and one
 /// round's replies (`COMMITMENTS_CONTROL_BYTES`).
 pub const R_COHORT_COMMITMENTS: AsyncRoute = AsyncRoute::new(id::COHORT_COMMITMENTS, "cohort/commitments", UNBOUNDED_FETCH_MS);
-/// The admission steps (framing, blob copies, verdict runs, clean-up, the
-/// calendar), each a child of the alarm (`ADMISSION_STEP_BYTES`).
+/// The admission steps (framing and blob dispatches, verdict runs,
+/// clean-up, the calendar), each a child of the alarm
+/// (`ADMISSION_STEP_BYTES`).
 pub const R_COHORT_ADMISSION: Route = Route::new(id::COHORT_ADMISSION, "cohort/admission");
+/// The Queue consumer's takes and reports of admission work at the cohort
+/// object (`/admission-work/*`; [`cohort_work_bytes`]).
+pub const R_COHORT_WORK: AsyncRoute = AsyncRoute::new(id::COHORT_WORK, "cohort/admission-work", UNBOUNDED_FETCH_MS);
 /// The isolate's home scopes: synchronous, each opened on first use and kept
 /// for the instance's life.
 pub const R_HOME_STATE: Route = Route::new(id::HOME_STATE, "home/state");
@@ -209,6 +219,52 @@ pub const ALARM_CONTROL_BYTES: usize = MIB;
 /// most the scorer's 1 MiB manifest limit) beside it; the other steps hold
 /// less. Unmeasured: twice their sum, in whole MiB.
 pub const ADMISSION_STEP_BYTES: usize = 6 * MIB;
+/// The work bodies one admission work delivery of the Queue consumer holds
+/// at once, each at most `admission::work_body_bound` (one framing outcome
+/// or framing record with its fixed fields): a framing delivery holds the
+/// take reply, the upload Worker's outcome as read and the report built
+/// around it; a blob delivery the take reply, its parse and the decoded
+/// manifest (half a body). The framing call's streaming buffer is the
+/// upload Worker's, not this isolate's. Counted from the code; the witness
+/// (`arena_witness_admission_work_fits`) runs the native part of both
+/// deliveries at a spec-maximum manifest inside this footprint. Measured
+/// 2026-11-04 (`WORK_BODY_BYTES` 2,101,417 B): framing and blob deliveries
+/// each peak at 68 pages of the 132 reserved.
+pub const WORK_DELIVERY_BODIES: usize = 3;
+/// The work bodies one `/admission-work/*` request at the cohort object
+/// holds beside its transaction's control: the request body as read, its
+/// parse, the framing record the report builds from the outcome (the
+/// manifest decoded once to check its digest, its hex cloned into the
+/// record) and the record serialized for the store; a take holds the
+/// stored record, its parse and its serialized reply. Counted from the
+/// code; the witness runs `take`, `frame_reported` and `blobs_created` at a
+/// spec-maximum manifest inside the footprint. Measured 2026-11-04: the
+/// report peaks at 99 pages, the take at 101 and the creation list at 68,
+/// of 195 to 228 reserved; the margin also covers the wasm request and
+/// response conversions the native witness cannot reach (their live peaks
+/// are on `/status` under `cohort/admission-work`).
+pub const WORK_ROUTE_BODIES: usize = 5;
+
+/// `n` work bodies (`admission::WORK_BODY_BYTES`), in whole arena pages
+/// (not whole MiB: six deliveries can share the eval isolate with the
+/// admitting cohort object, and the fit below has no room for the
+/// rounding).
+const fn work_bodies_bytes(n: usize) -> usize {
+    crate::eval::admission::WORK_BODY_BYTES.saturating_mul(n).div_ceil(slop_ninja_arena::PAGE).saturating_mul(slop_ninja_arena::PAGE)
+}
+
+/// One admission work delivery of the Queue consumer (a child of the
+/// batch's scope, admitted physically): `WORK_DELIVERY_BODIES` work bodies.
+pub const fn admission_work_bytes() -> usize {
+    work_bodies_bytes(WORK_DELIVERY_BODIES)
+}
+
+/// An `/admission-work/*` request at the cohort object: a cohort request's
+/// control (`COHORT_CONTROL_BYTES`) and `WORK_ROUTE_BODIES` work bodies.
+pub const fn cohort_work_bytes() -> usize {
+    COHORT_CONTROL_BYTES.saturating_add(work_bodies_bytes(WORK_ROUTE_BODIES))
+}
+
 /// A commitment-reader round: the parse of the stored runtime (scaled from
 /// the measured fixture parse by the largest metadata a reply can carry,
 /// half a large reply's hex) and the round's body, decoded twice
@@ -547,7 +603,11 @@ const _: () = {
     // The eval Worker during that package: static data and the stack (at
     // most `STATIC_UPPER_BYTES`, checked on the built module), the glue
     // partition, its state and plans homes, and room for a concurrent cohort
-    // request.
+    // request. An admission work request (`cohort_work_bytes`) is not one of
+    // them: it runs only while a session verifies, so while its cohort
+    // admits, and cohorts advance one at a time (`engine::advance` moves
+    // only the first unclosed cohort; the freeze waits for every
+    // verification), so no package step runs then. Its own fit follows.
     let static_upper = STATIC_UPPER_BYTES;
     let glue = model::GLUE_BUDGET_PAGES as usize * slop_ninja_arena::PAGE;
     let homes = scope_bytes(HOME_STATE_BYTES) + scope_bytes(HOME_PLANS_BYTES);
@@ -559,6 +619,19 @@ const _: () = {
     let beside = scope_bytes(JOURNAL_CONTROL_BYTES) + scope_bytes(CONTINUATION_CONTROL_BYTES);
     assert!(static_upper + glue + homes + scope_bytes(JOURNAL_AUTO_BYTES) + beside <= model::LINEAR_MEMORY_BYTES);
     assert!(JOURNAL_AUTO_BYTES <= model::LARGEST_ROUTE_BYTES);
+    // The eval Worker while a cohort admits: its homes, the alarm with an
+    // admission step, a commitment-reader round, an ordinary cohort request
+    // and an admission work request at their footprints, and the Queue
+    // consumer's batch with a full share of work deliveries (the same
+    // isolate may run both).
+    let homes = scope_bytes(HOME_STATE_BYTES) + scope_bytes(HOME_PLANS_BYTES);
+    let object = scope_bytes(ALARM_CONTROL_BYTES)
+        + scope_bytes(ADMISSION_STEP_BYTES)
+        + scope_bytes(COMMITMENTS_CONTROL_BYTES)
+        + scope_bytes(COHORT_CONTROL_BYTES)
+        + scope_bytes(cohort_work_bytes());
+    let consumer = scope_bytes(QUEUE_CONTROL_BYTES) + STEP_READS_IN_FLIGHT * scope_bytes(admission_work_bytes());
+    assert!(static_upper + glue + homes + object + consumer <= model::LINEAR_MEMORY_BYTES);
 };
 
 #[cfg(test)]
@@ -597,6 +670,7 @@ mod tests {
     fn the_static_bound_leaves_room_in_both_workers_fits() {
         let (eval, coord) = static_fit_room();
         eprintln!("static bound {STATIC_UPPER_BYTES} B: room beside the eval package fit {eval} B, beside the coordinator handoff fit {coord} B");
+        eprintln!("cohort work request {} B (scope {} B), cohort control scope {} B", cohort_work_bytes(), scope_bytes(cohort_work_bytes()), scope_bytes(COHORT_CONTROL_BYTES));
         assert!(eval > 0 && coord > 0);
     }
 

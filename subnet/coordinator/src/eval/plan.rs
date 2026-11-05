@@ -40,6 +40,8 @@ pub const PLAN_SCHEMA_V3: &str = "slop_ninja_eval_cohort_plan_v3";
 /// batch, scores the references on it and records their fingerprints.
 pub const PROBE_PLAN_SCHEMA: &str = "slop_ninja_eval_probe_plan_v1";
 pub const LOAD_PLAN_SCHEMA: &str = "slop_ninja_eval_load_plan_v1";
+/// The longest plan label (ASCII letters, digits and `-`).
+pub const LABEL_BYTES: usize = 96;
 /// The smallest batch a plan may name. The largest is not a constant: every
 /// receipt a cohort can record (each scored document of each job, at each
 /// attempt) must fit one signed receipt index ([`receipt_capacity`]).
@@ -1077,7 +1079,7 @@ impl CohortPlan {
         e(self.admission.is_none() || self.schema == PLAN_SCHEMA_V3, "admission (v3 cohort plans only)")?;
         e(
             !self.label.is_empty()
-                && self.label.len() <= 96
+                && self.label.len() <= LABEL_BYTES
                 && self
                     .label
                     .bytes()
@@ -1243,7 +1245,7 @@ impl CohortPlan {
         )?;
         e(
             !self.label.is_empty()
-                && self.label.len() <= 96
+                && self.label.len() <= LABEL_BYTES
                 && self.label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'),
             "label",
         )?;

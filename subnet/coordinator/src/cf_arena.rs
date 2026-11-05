@@ -71,6 +71,7 @@ export function arena_cohort_class(req) {
   let p = '';
   try { p = new URL(req.url).pathname; } catch (e) { return 0; }
   if (p.startsWith('/commitments/')) return 1;
+  if (p.startsWith('/admission-work/')) return 2;
   return 0;
 }
 export function arena_hook_shed(req, env) {
@@ -265,11 +266,11 @@ pub(super) fn arena_status() -> serde_json::Value {
     v
 }
 
-const ROUTE_IDS: [u8; 25] = {
+const ROUTE_IDS: [u8; 27] = {
     use arena_routes::id::*;
     [
-        HOOK, HOOK_CONTINUATION, STATUS, OPERATOR, EVAL, OTHER, SCHEDULED, QUEUE, ADMISSION, JOURNAL_NEW, JOURNAL_FETCH, JOURNAL_AUTO, COHORT_NEW, COHORT_FETCH,
-        COHORT_ALARM, COHORT_SEAL, COHORT_DRAW, COHORT_PACKAGE, COHORT_CLOSE, COHORT_LOAD_SEAL, COHORT_COMMITMENTS, COHORT_ADMISSION, HOME_STATE,
+        HOOK, HOOK_CONTINUATION, STATUS, OPERATOR, EVAL, OTHER, SCHEDULED, QUEUE, QUEUE_ADMISSION, ADMISSION, JOURNAL_NEW, JOURNAL_FETCH, JOURNAL_AUTO, COHORT_NEW, COHORT_FETCH,
+        COHORT_ALARM, COHORT_SEAL, COHORT_DRAW, COHORT_PACKAGE, COHORT_CLOSE, COHORT_LOAD_SEAL, COHORT_COMMITMENTS, COHORT_ADMISSION, COHORT_WORK, HOME_STATE,
         HOME_RUNTIMES, HOME_PLANS,
     ]
 };
@@ -339,8 +340,8 @@ pub fn queue(batch: worker_sys::MessageBatch, env: Env, _ctx: worker_sys::Contex
     let retry = batch.clone();
     wasm_bindgen_futures::future_to_promise(async move {
         let _ticket = ticket;
-        let ok = match slop_ninja_arena::enter(arena_routes::R_QUEUE, arena_routes::QUEUE_CONTROL_BYTES, move |_s| async move {
-            super::queue(worker::MessageBatch::from(batch), env).await.is_ok()
+        let ok = match slop_ninja_arena::enter(arena_routes::R_QUEUE, arena_routes::QUEUE_CONTROL_BYTES, move |s| async move {
+            super::queue(batch, env, s).await.is_ok()
         }) {
             Ok(e) => e.await.0,
             Err(_) => false,
@@ -431,6 +432,7 @@ impl EvalCohortExport {
             let _ticket = ticket;
             let (route, control) = match arena_cohort_class(&req) {
                 1 => (arena_routes::R_COHORT_COMMITMENTS, arena_routes::COMMITMENTS_CONTROL_BYTES),
+                2 => (arena_routes::R_COHORT_WORK, arena_routes::cohort_work_bytes()),
                 _ => (arena_routes::R_COHORT_FETCH, arena_routes::COHORT_CONTROL_BYTES),
             };
             let res = in_scope(route, control, move |_s| async move {

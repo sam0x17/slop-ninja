@@ -561,6 +561,14 @@ pub struct EvalCohort {
     pub(super) state: State,
     pub(super) env: Env,
     schema: std::result::Result<u32, &'static str>,
+    /// This object incarnation's random identifier: the admission work
+    /// dispatches it records carry it, and a heartbeat kick sends again
+    /// those another incarnation recorded (`admission::dispatches_to_resend`).
+    /// A plain integer, so it needs no allocation.
+    pub(super) incarnation: i64,
+    /// One of this incarnation's dispatch sends could not be settled in the
+    /// store: the next kick also re-sends its own `pending` dispatches.
+    pub(super) resend_own: std::cell::Cell<bool>,
 }
 
 fn tx_reply<T: Serialize>(r: std::result::Result<T, TxError<engine::EvalError>>) -> Result<Response> {
@@ -582,7 +590,11 @@ impl DurableObject for EvalCohort {
         let schema = super::sync_scoped(crate::arena_routes::R_COHORT_NEW, crate::arena_routes::CONSTRUCTOR_CONTROL_BYTES, || {
             migrate_storage(&state.storage(), &EVAL_COHORT_SCHEMA)
         });
-        Self { state, env, schema }
+        // 53 random bits (exact in an f64) mixed with the clock: distinct
+        // across incarnations, never 0 (no dispatch is ever recorded by 0).
+        let random = (js_sys::Math::random() * 9_007_199_254_740_992.0) as i64;
+        let incarnation = ((random ^ (now_ms() as i64).rotate_left(21)) & i64::MAX).max(1);
+        Self { state, env, schema, incarnation, resend_own: std::cell::Cell::new(false) }
     }
 
     async fn fetch(&self, mut req: Request) -> Result<Response> {
@@ -649,10 +661,18 @@ impl DurableObject for EvalCohort {
         if path.starts_with("/admission/") {
             return if main { self.admission_route(&mut req, &path).await } else { error("main_instance_only", 404) };
         }
+        // The Queue consumer's admission work: framing and blob dispatches
+        // taken and reported (`cf_admission::work`).
+        if path.starts_with("/admission-work/") {
+            return if main { self.work_route(&mut req, &path).await } else { error("main_instance_only", 404) };
+        }
         if path.starts_with("/commitments/") {
             return if main { self.commitments_route(&mut req, &path).await } else { error("main_instance_only", 404) };
         }
-        if matches!(path.as_str(), "/template" | "/template/pause" | "/calendar" | "/cost-model") {
+        if matches!(
+            path.as_str(),
+            "/template" | "/template/pause" | "/calendar" | "/cost-model" | "/session/refuse" | "/session/dispatch"
+        ) {
             return if main { self.template_route(&mut req, &path, cfg).await } else { error("main_instance_only", 404) };
         }
         match (req.method(), path.as_str()) {
@@ -734,6 +754,11 @@ impl DurableObject for EvalCohort {
                 let running: i64 = storage.get::<i64>("step_until_ms").await.ok().flatten().unwrap_or(0);
                 if moved.1 && running < now as i64 && storage.get_alarm().await?.is_none() {
                     storage.set_alarm(500i64).await?;
+                }
+                // Admission work dispatches this incarnation cannot vouch
+                // for are sent again (the kick is the event).
+                if instance == engine::INSTANCE_MAIN {
+                    self.resend_dispatches(&cfg).await;
                 }
                 // Once every predecessor recorded this authority as successor,
                 // none holds or takes work again: the Worker stops kicking them

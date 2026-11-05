@@ -2028,7 +2028,7 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         }
         (Method::Post, "/plan" | "/clear" | "/abandon" | "/hold") => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         // The standing template and the calendar (main instance).
-        (Method::Post, "/template" | "/template/pause" | "/session/refuse") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
+        (Method::Post, "/template" | "/template/pause" | "/session/refuse" | "/session/dispatch") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         (Method::Get, "/calendar") if instance == "main" => eval_do::forward(&env, instance, Method::Get, &rest, None).await,
         (Method::Post, "/probe") => {
             let Some(model) = body["model"].as_str().filter(|m| crate::eval::textgen::price(m).is_some()) else {
@@ -2575,9 +2575,9 @@ mod reader_calls {
 }
 
 /// The lane-wakeup Queue consumer (eval deployment only), run inside its own
-/// scope by the hand-written `queue` export.
-async fn queue(batch: worker::MessageBatch<crate::eval::lanes::LaneKick>, env: Env) -> Result<()> {
-    lanes_do::consume(batch, env).await
+/// scope by the hand-written `queue` export: lane kicks and admission work.
+async fn queue(batch: worker::worker_sys::MessageBatch, env: Env, scope: slop_ninja_arena::ScopeRef) -> Result<()> {
+    lanes_do::consume(batch, env, scope).await
 }
 
 /// Reads the subnet epoch index at the RPC-confirmed watermark: one

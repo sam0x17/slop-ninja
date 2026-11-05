@@ -981,6 +981,6 @@ fn reader_calls_parse_only_when_needed_and_are_observed() {
     assert_eq!(
         calls,
         serde_json::json!({"failed": 1, "failed_last": "plan", "plan_ms_last": 60, "plan_ms_max": 3_000,
-            "ingest_ms_last": 900, "ingest_ms_max": 900})
+            "ingest_ms_last": 900, "ingest_ms_max": 900, "maxima_cohort": null})
     );
 }

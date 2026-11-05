@@ -2874,6 +2874,58 @@ section.
   the next window, with a test-miner commitment, `polls` and `polled_block`
   move, `plan_ms_max` and `ingest_ms_max` stay under 3000 and `failed`
   stays flat.
+  Cohort-19 drill (2026-11-04): `failed` rose 0 -> 7 and `plan_ms_max` and
+  `ingest_ms_max` reached 3000 while tm1-tm3 uploaded. Durable Object
+  analytics showed 10 caller timeouts (`clientDisconnected`) on the r0 cohort
+  object, all inside alarms that framed an upload and none during part
+  uploads or verdict runs; a miner status read costing 2-5 ms of CPU took
+  27.5 s during the alarm that only framed tm3's object. The object's own
+  CPU stayed low (per-minute P99 at most 215 ms); plan and ingest cost 23-55
+  ms of CPU live and about 3 ms natively. Cause: the alarm called the
+  upload Worker's framing route through a service binding, which runs the
+  callee on the caller's thread, and framing hashes the whole 610 MB object
+  (about 18-32 s of CPU at the live hash rate), so every request to the
+  object waited behind it. A larger allowance cannot fix that: the stall
+  grows with the object and one stall nearly fills the 30 s continuation a
+  round must fit in. Fix (store v21): the object only dispatches framing and
+  blob copies to the Queue consumer and records their reports in short
+  transactions (README, "Admission"); the 3 s allowance and the drill
+  expectation are unchanged. Store v21 restarts `plan_ms_max` and
+  `ingest_ms_max` from zero once (the stored maxima never reset, and the
+  drill's 3000 were these stalls); `failed` keeps its count, so the check
+  is that it stays flat. Outside the stalls the live plan and ingest
+  round trips were 51-158 ms, and the largest seen before the window was
+  1,628 ms (most likely an isolate start). The maxima also restart at
+  every admission window's opening (`calls.maxima_cohort` names the
+  window), so each window is judged on its own load.
+  Residual risk: the framing call still runs on its caller's thread, now
+  an eval Worker Queue consumer invocation. The reader's timing side (the
+  per-block hook) and miners' status reads also run in eval Worker
+  invocations, and the platform does not promise they never share a thread
+  with the consumer; the local miniflare check cannot tell placements apart
+  (single-threaded workerd). The check in the next admitting window is
+  therefore built to see that case: tm1 and tm2 upload overlapping so both
+  framings land in one consumer share, plus tm3's invalid object (frame
+  only, the drill's worst stall). It passes only with `failed` flat, zero
+  `clientDisconnected` on the cohort object and no eval Worker hook
+  invocation above its baseline wall time during the framings, and upload
+  Worker status-read wall times at their baseline; the plan and ingest
+  maxima and their distribution are recorded (`failed` is a lower bound:
+  one failure slot per isolate; a maximum cannot exceed the 3000 abort, so
+  it says little unless `failed` stays flat). The measured round trips then
+  replace "not yet measured" above, versioned. Should the check fail,
+  framing moves to an invocation no eval request path shares (the key-free
+  upload Worker consuming its own framing queue and reporting through the
+  internal interface).
+- **Eval store v21 is the eval rollback floor.** Every cohort object
+  migrates to store v21 on its first access after the deploy, and an
+  earlier build refuses a newer store (`stored_schema_newer`), so a
+  `wrangler rollback` past the v21 version stops the r0 object and every
+  cohort object. Roll back with a forward revert commit that keeps
+  `SCHEMA_V21` and a consumer able to settle admission work messages (an
+  earlier consumer acknowledges them unread). Before the v21 deploy the
+  quiet check requires no session uploading, verifying or verified, and
+  the post-deploy probe requires `platform_retries.steps_dispatched` = 0.
 - **Generation rejections.** Length rejections record their direction
   (`length_short`, `length_long`) and `/eval/status` counts rejections per
   document kind (`rejects_by_kind`). The restarted record's first cohorts
@@ -2921,7 +2973,8 @@ promotions without the lookup canary) and the hostname
   answers 404 to every `/admission/` request and serves the internal
   interface `/internal/admission/v1/<op>` only for requests addressed to
   `eval-admission.internal` that carry the token. It binds the same upload
-  bucket and has a service binding back to the upload Worker for framing.
+  bucket and has a service binding back to the upload Worker for framing,
+  used by its Queue consumer only.
 - **What runs where.** The upload Worker runs one front sequence
   (`slop_ninja_admission_gate::decide`, the same function the miner
   client's mock runs): it parses the route, verifies the signature (CPU
@@ -2953,7 +3006,8 @@ promotions without the lookup canary) and the hostname
   bucket and never reaches Rust or the eval Worker; a body of another
   length is refused `part_length_mismatch`. The cohort authority (sessions,
   the commitment log, verdicts, the cutoff, `adm_sessions`) stays in the
-  eval Worker. Its framing step asks the upload Worker to frame the object
+  eval Worker. Its Queue consumer (never the cohort object, since the
+  cohort-19 drill) asks the upload Worker to frame the object
   (`POST /internal/upload/v1/frame`) and receives a bounded `FrameOutcome`:
   the object digest and length, the header contract, the derived content
   digest, the manifest and the slices. The eval Worker checks its shape and

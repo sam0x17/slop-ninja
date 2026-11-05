@@ -545,8 +545,10 @@ pub fn run_with(ctx: Arc<Ctx>, pending: Vec<(Request, u32)>, out: &Path, workers
                 let mut ok = false;
                 // the request's limit (`Request::attempts`): ATTEMPTS unless
                 // it carries a regenerated mirror's remaining attempts
+                // each attempt at R0's attempt rule (`plan::attempt_seed`;
+                // amendment 50 item 50.1); the intent records that seed
                 for attempt in first..r.attempts() {
-                    let seed = r.seed.wrapping_add(attempt);
+                    let seed = crate::plan::attempt_seed(r.seed, attempt);
                     let b = body(&ctx, &r, seed);
                     let mut intent = json!({"kind":"intent","request_id":r.request_id,"item_id":r.item_id,"split":r.split,
                         "generator":r.generator,"attempt":attempt,"seed":seed,"t":now_ms(),"body":b});
@@ -754,6 +756,125 @@ mod tests {
         assert!(serde_json::to_string(&one).unwrap().contains("\"attempt_limit\":1"));
         let back: Request = serde_json::from_str(&serde_json::to_string(&one).unwrap()).unwrap();
         assert_eq!(back.attempts(), 1);
+    }
+
+    /// A synthetic R0 mirror request at `target` words, digest and seed as
+    /// plan v1 makes them.
+    fn r0_mirror(id: &str, target: usize) -> Request {
+        let mut r: Request = serde_json::from_value(json!({"request_id": id, "item_id": format!("item-{id}"), "parent_id": "p", "split": "train",
+            "generator": "g", "endpoint": "chat", "template_id": "mirror_v1",
+            "prompt": format!("Write a synthetic note in English, about {target} words long. Keep it plain."), "span_index": 0, "source_span": null,
+            "target_words": target, "cut_budget": null,
+            "decoding": {"profile": "A", "temperature": 0.7, "top_p": 0.9, "top_k": 0, "min_p": 0.0, "repeat_penalty": 1.0, "max_tokens": 512},
+            "request_sha256": "", "seed": 0, "cohort": "c"}))
+        .unwrap();
+        r.request_sha256 = crate::plan::request_sha(&r.generator, &r.endpoint, &r.template_id, &r.prompt, &r.decoding);
+        r.seed = crate::plan::seed_of(&r.request_sha256);
+        r
+    }
+
+    /// The bodies `run_with` sends for `pending` (its attempt loop's seeds),
+    /// with the attempt index and seed of each.
+    fn sent(ctx: &Ctx, pending: &[(Request, u32)]) -> Vec<(String, u32, u32, Value)> {
+        let mut v = Vec::new();
+        for (r, first) in pending {
+            for a in *first..r.attempts() {
+                let seed = crate::plan::attempt_seed(r.seed, a);
+                v.push((r.request_id.clone(), a, seed, body(ctx, r, seed)));
+            }
+        }
+        v
+    }
+
+    #[test]
+    fn a_replayed_mirror_attempt_differs_from_its_failed_attempt_only_in_the_seed() {
+        // amendment 50 item 50.1 (W19-R3; B31), on synthetic requests
+        let ctx = step_ctx(None, "Synthetic parent.");
+        let r05 = crate::plan::R05::parse("0.8").unwrap();
+        let only = vec!["train".to_string()];
+        // R0: the mirror's attempt 0 failed at seed s (its journal: intent and response at attempt 0)
+        let old = r0_mirror("req-old", 400);
+        let r0_sent = sent(&ctx, &crate::order::select_pending(vec![old.clone()], &only, None, None, &HashMap::new()).unwrap());
+        let (_, a0, s0, failed) = &r0_sent[0];
+        assert_eq!((*a0, *s0), (0, old.seed));
+        // the regenerated mirror (target unchanged: 400 >= 188), with no journal of its own, starts at 0 and sends
+        // the item's attempt 1 at s + 1
+        let new = crate::mirror_regen::new_mirror_request(&old, "mirror", 400, 1, 1, &r05).unwrap();
+        let p = crate::order::select_pending(vec![new.clone()], &only, None, None, &HashMap::new()).unwrap();
+        assert_eq!(p.iter().map(|(r, a)| (r.request_id.as_str(), *a)).collect::<Vec<_>>(), [(new.request_id.as_str(), 0)]);
+        let got = sent(&ctx, &p);
+        assert_eq!(got.len(), 1, "one remaining attempt");
+        let (_, _, seed, b) = &got[0];
+        assert_eq!(*seed, old.seed.wrapping_add(1));
+        assert_eq!(*seed, r0_sent[1].2, "the seed R0's own attempt 1 would have used");
+        assert_ne!(*seed, *s0);
+        assert_eq!(b["seed"], json!(*seed));
+        let strip = |v: &Value| {
+            let mut v = v.clone();
+            v.as_object_mut().unwrap().remove("seed").unwrap();
+            v
+        };
+        assert_ne!(b, failed);
+        assert_eq!(strip(b), strip(failed), "the body differs from the failed attempt's only in the seed");
+        // a lifted mirror (121 < 188): a new body at its digest's seed, attempt 0
+        let low = r0_mirror("req-low", 121);
+        let lifted = crate::mirror_regen::new_mirror_request(&low, "mirror", 121, 1, 1, &r05).unwrap();
+        let got = sent(&ctx, &crate::order::select_pending(vec![lifted.clone()], &only, None, None, &HashMap::new()).unwrap());
+        assert_eq!((got[0].1, got[0].2), (0, crate::plan::seed_of(&lifted.request_sha256)));
+        assert_ne!(strip(&got[0].3), strip(&body(&ctx, &low, low.seed)));
+    }
+
+    #[test]
+    fn a_regenerate_request_and_every_planned_request_keep_r0s_seeds_and_bodies() {
+        // B31 changes no seed but an unchanged-target mirror's: every planned request's attempt a is sent at seed + a
+        // (the code before B31: `r.seed.wrapping_add(attempt)`), its body byte for byte
+        let ctx = step_ctx(None, "Synthetic parent.");
+        let only = vec!["train".to_string()];
+        let mut reqs = vec![r0_mirror("m", 121), r0_mirror("w", 400)];
+        let mut span = r0_mirror("span", 30);
+        span.source_span = Some((0, 2));
+        span.op = Some("rewrite".into());
+        let mut comp = r0_mirror("comp", 50);
+        comp.endpoint = "completion".into();
+        let mut wrap = r0_mirror("wrap", 60);
+        wrap.seed = u32::MAX;
+        reqs.extend([span, comp, wrap]);
+        // a regenerate row resumes its own request at attempt 1 (its attempt 0 journaled), so at s + 1
+        let mut st = HashMap::new();
+        let mut one = ReqState::default();
+        one.intents.push(0);
+        st.insert("span".to_string(), one);
+        let p = crate::order::select_pending(reqs.clone(), &only, None, None, &st).unwrap();
+        let got = sent(&ctx, &p);
+        let want: Vec<(String, u32, u32, Value)> = p
+            .iter()
+            .flat_map(|(r, first)| (*first..ATTEMPTS).map(move |a| (r.request_id.clone(), a, r.seed.wrapping_add(a), r.clone())))
+            .map(|(id, a, seed, r)| (id, a, seed, body(&ctx, &r, seed)))
+            .collect();
+        assert_eq!(serde_json::to_vec(&got).unwrap(), serde_json::to_vec(&want).unwrap());
+        let span_sent: Vec<(u32, u32)> = got.iter().filter(|g| g.0 == "span").map(|g| (g.1, g.2)).collect();
+        assert_eq!(span_sent, [(1, reqs[2].seed.wrapping_add(1))]);
+        let wrap_sent: Vec<u32> = got.iter().filter(|g| g.0 == "wrap").map(|g| g.2).collect();
+        assert_eq!(wrap_sent, [u32::MAX, 0]);
+        assert_eq!(ATTEMPTS, 2);
+    }
+
+    #[test]
+    fn a_replayed_mirrors_intents_carry_one_limit_and_different_limits_are_refused() {
+        // B31 keeps ReqState::add's check: the new request's intents carry its one limit (attempts_remaining)
+        let r05 = crate::plan::R05::parse("0.8").unwrap();
+        let new = crate::mirror_regen::new_mirror_request(&r0_mirror("req-old", 400), "mirror", 400, 1, 1, &r05).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let j = dir.path().join("journal-1-w0.jsonl");
+        let intent = |a: u32, l: u32| json!({"kind": "intent", "request_id": new.request_id, "split": "train", "attempt": a,
+            "seed": crate::plan::attempt_seed(new.seed, a), "attempt_limit": l});
+        let resp = json!({"kind": "response", "request_id": new.request_id, "split": "train", "attempt": 0, "verdict": {"accepted": false}});
+        std::fs::write(&j, format!("{}\n{resp}\n", intent(0, new.attempts()))).unwrap();
+        let st = &load_states(&[dir.path().to_owned()]).unwrap()[&new.request_id];
+        assert_eq!((st.limit, st.used()), (Some(1), 1));
+        assert!(st.done() && st.done_within(new.attempts()));
+        std::fs::write(&j, format!("{}\n{}\n", intent(0, 1), intent(1, 2))).unwrap();
+        assert!(load_states(&[dir.path().to_owned()]).unwrap_err().to_string().contains("different attempt limits"));
     }
 
     #[test]

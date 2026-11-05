@@ -895,3 +895,218 @@ fn enron_half_writes_the_v23_train_half_from_the_bound_pool_and_never_parses_the
     m["train_half"]["writer_keys_in_plan_key_order"] = json!(t);
     refuse("order", m, &f.pool, "plan-key order");
 }
+
+/// Synthetic humans as [`write_humans`], with every odd-numbered row about
+/// 198 words (5 + 13 sentences of 11) and the rest about 121.
+fn write_humans_mixed(path: &Path, split: &str, per_domain: u64) {
+    let mut out = String::new();
+    for (d, coll) in [("fw", "fineweb_cc_historical"), ("wp", "wikipedia_enwiki_historical")] {
+        for k in 0..per_domain {
+            let t = format!("{}\n\n{}", prose(&SYN, 100 + k, 5, 11), prose(&SYN, 200 + k, if k % 2 == 1 { 13 } else { 6 }, 11));
+            let row = json!({"id":format!("{split}-{d}-{k}"),"frozen_split":split,"origin":"human_only","text":t,
+                "text_sha256":text::sha_hex(t.as_bytes()),"word_count":text::words(&t),"collection":coll,
+                "provenance":{"title":format!("synthetic {k}")},"source_group":format!("g-{split}-{d}-{k}"),"domain":"web"});
+            out.push_str(&serde_json::to_string(&row).unwrap());
+            out.push('\n');
+        }
+    }
+    std::fs::write(path, out).unwrap();
+}
+
+/// `v` without its `seed` member.
+fn no_seed(v: &Value) -> Value {
+    let mut v = v.clone();
+    v.as_object_mut().unwrap().remove("seed").unwrap();
+    v
+}
+
+/// Digests of the B31 fixture below, printed by the same test run at the code
+/// before B31 (`d5633052`, whose grammar-a-positives tree is `5903aa3d`'s):
+/// planning and every request B31 does not change keep them.
+const GOLDEN_COPY_ITEMS: &str = "632d33faf3d41385f90a93cb114afc72ab52eaf22ecba79c2fd4eae3a9f486dd";
+const GOLDEN_COPY_REQUESTS: &str = "a57e4a4629d41c7bd2ae1bcd109f104b6e74aa37ecaf67f5fa403bf640ef120e";
+const GOLDEN_D4_ITEMS: &str = "42ff00319cefee31d3f4dcb3a6e8bc44d94ea69938d4449da0ce497a851fbafc";
+/// D4's request file with each unchanged-target mirror's seed read back as its
+/// old request's (the only field B31 changes).
+const GOLDEN_D4_REQUESTS_SEED_BACK: &str = "0d5633ffded755549aeb2aacfb671426e1f89477a79df062890ad41b4da943b4";
+/// D4's sent bodies by request and attempt: every request's whole, but the
+/// unchanged-target mirrors' without their seed.
+const GOLDEN_D4_BODIES: &str = "30d7fac59805dc7917ff726b737bb10a309beac4ae7c27c95dccc819e58c356e";
+
+#[test]
+fn b31_an_unchanged_target_mirror_sends_its_remaining_attempt_at_the_next_seed() {
+    // amendment 50 item 50.1 (W19-R3): plan, R0's journals, renorm, mirror-plan and D4's generation, run as the binary
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    let p = |n: &str| d.join(n);
+    write_humans_mixed(&p("train.jsonl"), "train", 24);
+    for (split, n) in [("dev_iter", 2), ("dev_select", 2), ("cal", 2)] {
+        write_humans(&p(&format!("{split}.jsonl")), split, n);
+    }
+    let pdir = p("plan-v1");
+    ok(&run(&["plan", "--train", s(&p("train.jsonl")), "--dev-iter", s(&p("dev_iter.jsonl")), "--dev-select", s(&p("dev_select.jsonl")), "--cal", s(&p("cal.jsonl")), "--out", s(&pdir)]));
+    let copy = p("copy-train");
+    ok(&run(&["split-copy", "--plan", s(&pdir), "--split", "train", "--out", s(&copy)]));
+    let humans: HashMap<String, Value> = jsonl(&p("train.jsonl")).into_iter().map(|h| (h["id"].as_str().unwrap().to_string(), h)).collect();
+    // the generator with the most mirrors among those with mirrors of both long (198-word) and short parents
+    let items = jsonl(&copy.join("items.jsonl"));
+    let mut by_g: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    for it in items.iter().filter(|i| i["kind"] == "mirror") {
+        let e = by_g.entry(it["generator"].as_str().unwrap().to_string()).or_default();
+        if humans[it["parent_id"].as_str().unwrap()]["word_count"].as_u64().unwrap() >= 150 { e.0 += 1 } else { e.1 += 1 }
+    }
+    let g = by_g.iter().filter(|(_, (l, sh))| *l > 0 && *sh > 0).max_by_key(|(g, (l, sh))| (*l + *sh, std::cmp::Reverse((*g).clone()))).expect("a generator with long and short mirrors").0.clone();
+    // R0's journals (profile off): every reply is 110 words, accepted for a 121- or 198-word parent's mirror (half to
+    // one and a half times the target) and rejected under profile v2 by the final-document window (150 words)
+    let (endpoint, server) = serve(110);
+    let cfg = p("cfg.json");
+    std::fs::write(&cfg, serde_json::to_vec(&json!({"key": g, "allowed_splits": ["train"], "endpoint": endpoint, "model_path": "/models/m.gguf", "alias": "m"})).unwrap()).unwrap();
+    let (idx, tok) = (index(d), tokenizer(d));
+    let gen_run = |plan: &Path, runs: &Path, extra: &[&str]| {
+        Command::new(BIN)
+            .args(["generate", "--plan", s(plan), "--generator", &g, "--config", s(&cfg), "--runs", s(runs), "--index", s(&idx), "--tokenizer", s(&tok)])
+            .args(["--workers", "1", "--splits", "train"])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let runs = p("runs");
+    ok(&gen_run(&copy, &runs, &[]));
+    let r0_lines: Vec<Value> = generation::journal_files(&runs.join(&g)).unwrap().iter().flat_map(|f| jsonl(f)).collect();
+    let r0_intent = |rid: &str, a: u64| r0_lines.iter().find(|l| l["kind"] == "intent" && l["request_id"] == rid && l["attempt"] == a).cloned().unwrap();
+    let out = p("renorm");
+    ok(&run(&["renorm", "--plan", s(&pdir), "--runs", s(&runs), "--split", "train", "--profile", "cc_cohort_profile_v2", "--profile-population", "train2",
+        "--tokenizer", s(&tok), "--out", s(&out)]));
+    let rg = jsonl(&out.join("regeneration-plan-split-train.jsonl"));
+    // r05 = 1: the floor is 150 words, so 121-word parents' mirrors are lifted and 198-word parents' keep their target
+    let vals = values_file(d, "values.json", json!({"S0-6": {"id": "S0-6", "name": "r05", "value": "1"}}));
+    let d4 = p("d4");
+    ok(&run(&["mirror-plan", "--plan", s(&copy), "--renorm", s(&out), "--split", "train", "--values", s(&vals), "--out", s(&d4)]));
+    let old_lines: Vec<String> = std::fs::read_to_string(copy.join("requests").join(format!("{g}.jsonl"))).unwrap().lines().map(String::from).collect();
+    let new_lines: Vec<String> = std::fs::read_to_string(d4.join("requests").join(format!("{g}.jsonl"))).unwrap().lines().map(String::from).collect();
+    let all_rows = jsonl(&d4.join("mirror-regeneration.jsonl"));
+    let row_of: HashMap<String, &Value> = all_rows.iter().filter(|r| r["generator"] == g.as_str()).map(|r| (r["old_request_id"].as_str().unwrap().to_string(), r)).collect();
+    // D4's generation (its order: the regenerate items and the regenerated mirrors), every attempt journaled
+    let on = ["--profile", "cc_cohort_profile_v2", "--profile-population", "train2"];
+    let before: BTreeSet<PathBuf> = generation::journal_files(&out.join(&g)).unwrap().into_iter().collect();
+    ok(&gen_run(&d4, &out, &[&on[..], &["--request-order", s(&d4.join("d4-order-{GEN}.txt"))][..]].concat()));
+    quit(&endpoint);
+    server.join().unwrap();
+    let d4_lines: Vec<Value> = generation::journal_files(&out.join(&g)).unwrap().iter().filter(|f| !before.contains(*f)).flat_map(|f| jsonl(f)).collect();
+
+    // phase 1: the requests and sent bodies, read alike at the code before B31 and at B31 (golden digests)
+    assert_eq!(old_lines.len(), new_lines.len());
+    let mut continued: BTreeMap<String, (Value, Value)> = BTreeMap::new(); // new id -> (old request, new request)
+    let mut lifted: BTreeMap<String, (Value, Value)> = BTreeMap::new();
+    let mut seed_back = String::new();
+    for (a, b) in old_lines.iter().zip(&new_lines) {
+        let o: Value = serde_json::from_str(a).unwrap();
+        let mut n: Value = serde_json::from_str(b).unwrap();
+        if row_of.contains_key(o["request_id"].as_str().unwrap()) {
+            let id = n["request_id"].as_str().unwrap().to_string();
+            if n["target_words"] == o["target_words"] {
+                continued.insert(id, (o.clone(), n.clone()));
+                n["seed"] = o["seed"].clone();
+                seed_back.push_str(&serde_json::to_string(&n).unwrap());
+            } else {
+                lifted.insert(id, (o.clone(), n.clone()));
+                seed_back.push_str(b);
+            }
+        } else {
+            seed_back.push_str(b);
+        }
+        seed_back.push('\n');
+    }
+    let intents: Vec<&Value> = d4_lines.iter().filter(|l| l["kind"] == "intent").collect();
+    let mut bodies = serde_json::Map::new();
+    for i in &intents {
+        let body = if continued.contains_key(i["request_id"].as_str().unwrap()) { no_seed(&i["body"]) } else { i["body"].clone() };
+        assert!(bodies.insert(format!("{}#{}", i["request_id"].as_str().unwrap(), i["attempt"]), body).is_none());
+    }
+    let regen_rids: BTreeSet<String> = rg.iter().filter(|r| r["action"] == "regenerate" && r["generator"] == g.as_str()).map(|r| r["request_id"].as_str().unwrap().to_string()).collect();
+    let golden = [
+        ("copy items", sha_file(&copy.join("items.jsonl")), GOLDEN_COPY_ITEMS),
+        ("copy requests", sha_file(&copy.join("requests").join(format!("{g}.jsonl"))), GOLDEN_COPY_REQUESTS),
+        ("d4 items", sha_file(&d4.join("items.jsonl")), GOLDEN_D4_ITEMS),
+        ("d4 requests, seeds back", text::sha_hex(seed_back.as_bytes()), GOLDEN_D4_REQUESTS_SEED_BACK),
+        ("d4 bodies", text::sha_hex(&serde_json::to_vec(&Value::Object(bodies)).unwrap()), GOLDEN_D4_BODIES),
+    ];
+    eprintln!("B31 fixture: generator {g}, continued {}, lifted {}, regenerate {}, intents {}", continued.len(), lifted.len(), regen_rids.len(), intents.len());
+    for (k, got, _) in &golden {
+        eprintln!("B31 golden {k}: {got}");
+    }
+    for (k, got, want) in &golden {
+        assert_eq!(got, want, "{k}: changed from the code before B31");
+    }
+    assert!(!continued.is_empty() && !lifted.is_empty() && !regen_rids.is_empty(), "the fixture needs every case");
+
+    // phase 2: amendment 50 item 50.1
+    // the request file: every line but a regenerated mirror's is the copy's byte for byte (checked through the
+    // golden digests and here); an unchanged-target mirror differs from its old request in its id, carried limit and
+    // seed (s + attempts used = s + 1); a lifted one keeps its digest's seed
+    for (a, b) in old_lines.iter().zip(&new_lines) {
+        let o: Value = serde_json::from_str(a).unwrap();
+        if !row_of.contains_key(o["request_id"].as_str().unwrap()) {
+            assert_eq!(a, b);
+        }
+    }
+    for (id, (o, n)) in &continued {
+        let row = row_of[o["request_id"].as_str().unwrap()];
+        let s = o["seed"].as_u64().unwrap() as u32;
+        assert_eq!((row["attempts_used"].as_u64(), row["attempts_remaining"].as_u64(), n["attempt_limit"].as_u64()), (Some(1), Some(1), Some(1)), "{row}");
+        assert_eq!(n["seed"].as_u64(), Some(u64::from(s.wrapping_add(1))), "{id}");
+        let mut want = o.clone();
+        for (k, v) in [("request_id", json!(id)), ("attempt_limit", json!(1)), ("seed", n["seed"].clone())] {
+            want[k] = v;
+        }
+        assert_eq!(n, &want);
+        assert_eq!((row["seed_rule"].as_str(), row["old_seed"].as_u64(), &row["new_seed"]), (Some("attempt_index_continued"), Some(u64::from(s)), &n["seed"]));
+    }
+    for (id, (o, n)) in &lifted {
+        let row = row_of[o["request_id"].as_str().unwrap()];
+        let req: plan::Request = serde_json::from_value(n.clone()).unwrap();
+        assert_eq!(req.seed, plan::seed_of(&req.request_sha256), "{id}");
+        assert_ne!(n["request_sha256"], o["request_sha256"]);
+        assert_eq!((row["seed_rule"].as_str(), &row["new_seed"]), (Some("new_digest"), &n["seed"]));
+    }
+    let unchanged = all_rows.iter().filter(|r| r["new_target_words"] == r["old_target_words"]).count();
+    let rec = &read_json(&d4.join("plan.json"))["mirror_regeneration"];
+    assert_eq!((rec["schema"].as_str(), rec["unchanged_target_mirrors"].as_u64()), (Some("slop_ninja_a_positives_mirror_regeneration_v2"), Some(unchanged as u64)));
+    assert!(rec["rule"].as_str().unwrap().contains("amendment 50 item 50.1"));
+    assert!(all_rows.iter().all(|r| r["schema"] == "slop_ninja_a_positives_mirror_regeneration_row_v2"));
+    // the sent attempts: each intent records the seed in its body
+    let mut cont_sent = BTreeSet::new();
+    for i in &intents {
+        let rid = i["request_id"].as_str().unwrap();
+        let a = i["attempt"].as_u64().unwrap();
+        assert_eq!(i["seed"], i["body"]["seed"], "{rid}");
+        if let Some((o, _)) = continued.get(rid) {
+            // the replayed mirror: its request's attempt 0 is the item's attempt 1, at R0's s + 1, with the failed
+            // attempt's body but for the seed
+            let failed = r0_intent(o["request_id"].as_str().unwrap(), 0);
+            let s = o["seed"].as_u64().unwrap() as u32;
+            assert_eq!((a, i["attempt_limit"].as_u64(), failed["seed"].as_u64()), (0, Some(1), Some(u64::from(s))));
+            assert_eq!(i["seed"].as_u64(), Some(u64::from(s.wrapping_add(1))), "{rid}");
+            assert_ne!(i["body"], failed["body"]);
+            assert_eq!(no_seed(&i["body"]), no_seed(&failed["body"]), "{rid}: the body differs from the failed attempt's only in the seed");
+            assert!(cont_sent.insert(rid));
+        } else if let Some((_, n)) = lifted.get(rid) {
+            assert_eq!((a, i["attempt_limit"].as_u64(), i["seed"].as_u64()), (0, Some(1), n["seed"].as_u64()));
+        } else {
+            // a regenerate request resumes at attempt 1, seed s + 1, with R0's body but the seed
+            assert!(regen_rids.contains(rid), "{rid}");
+            let failed = r0_intent(rid, 0);
+            let s = failed["seed"].as_u64().unwrap() as u32;
+            assert_eq!((a, i.get("attempt_limit"), i["seed"].as_u64()), (1, None, Some(u64::from(s.wrapping_add(1)))));
+            assert_eq!(no_seed(&i["body"]), no_seed(&failed["body"]));
+        }
+    }
+    assert_eq!(cont_sent.len(), continued.len());
+    // the journals still load: each regenerated mirror's intents carry one limit (ReqState::add), and it is done
+    let states = generation::load_states(&[out.join(&g)]).unwrap();
+    for rid in continued.keys().chain(lifted.keys()) {
+        let st = &states[rid];
+        assert_eq!((st.intents.clone(), st.limit), (vec![0], Some(1)), "{rid}");
+        assert!(st.done());
+    }
+}

@@ -24,10 +24,19 @@
 //!   for `mirror_target_words_v2` words: the prompt's one
 //!   ` in English, about N words long.` with N the old target, which must be
 //!   the parent's words (R0's mirrors were requested at the parent's length),
-//!   becomes the new target; `target_words`, the request digest (under the
-//!   template string that reproduces the old request's digest) and the seed
-//!   follow; `attempt_limit` is the row's `attempts_remaining`, which must be
-//!   at least 1 and the row's limit less its used attempts.
+//!   becomes the new target; `target_words` and the request digest (under
+//!   the template string that reproduces the old request's digest) follow;
+//!   `attempt_limit` is the row's `attempts_remaining`, which must be at
+//!   least 1 and the row's limit less its used attempts.
+//! * **The seed** (protocol A2 amendment 50 item 50.1). A lifted mirror (a
+//!   new target, so a new prompt and digest) takes its seed from its digest
+//!   and runs its attempts from 0: no earlier attempt has its body. A mirror
+//!   whose target does not change has the old request's prompt and digest,
+//!   so it continues the old request's attempt index: its seed is the old
+//!   seed plus the attempts used (`plan::attempt_seed`), and its first
+//!   attempt (`generate` starts a request without a journal at 0) is sent at
+//!   s + k for the item's attempt index k, never at an earlier attempt's
+//!   seed. For R0's two-attempt rows that is s + 1.
 //! * **The batch** ([`BATCH_READING`]). D4 is one batch with one prior (item
 //!   10.8; "Train-2 gets one prior per batch (D4, D5, D7)"), and renorm wrote
 //!   that batch's binding and prior for D4's resumes. The new mirrors are D4's,
@@ -60,14 +69,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// The `mirror_regeneration` record of the plan's `plan.json`.
-pub const MIRROR_REGEN_SCHEMA: &str = "slop_ninja_a_positives_mirror_regeneration_v1";
+pub const MIRROR_REGEN_SCHEMA: &str = "slop_ninja_a_positives_mirror_regeneration_v2";
 /// One line of `mirror-regeneration.jsonl` (ids and counts only).
-pub const MIRROR_REGEN_ROW_SCHEMA: &str = "slop_ninja_a_positives_mirror_regeneration_row_v1";
+pub const MIRROR_REGEN_ROW_SCHEMA: &str = "slop_ninja_a_positives_mirror_regeneration_row_v2";
 /// The note a regenerated mirror item gains.
 pub const MIRROR_REGEN_NOTE: &str = "regenerated_mirror:mirror_target_words_v2";
 
 /// How a regenerated mirror's request is made.
-pub const MIRROR_REGEN_RULE: &str = "each regenerate_mirror row of renorm's regeneration plan becomes a new request of the same item (ruling R6; amendment 20 item 20.5): request id req- + SHA-256(old request id + ':mirror_target_words_v2')[..24]; the prompt's one ' in English, about N words long.' (N the old target, which must equal the parent's words) asks for mirror_target_words_v2 words, target_words follows, the request digest is taken under the template string that reproduces the old request's digest and the seed from it; attempt_limit is the row's attempts_remaining (>= 1, the row's limit less its used attempts), so attempts stop at the inherited per-item limit counted from the first; not a resume: a resumed request keeps its original target";
+pub const MIRROR_REGEN_RULE: &str = "each regenerate_mirror row of renorm's regeneration plan becomes a new request of the same item (ruling R6; amendment 20 item 20.5): request id req- + SHA-256(old request id + ':mirror_target_words_v2')[..24]; the prompt's one ' in English, about N words long.' (N the old target, which must equal the parent's words) asks for mirror_target_words_v2 words, target_words follows, the request digest is taken under the template string that reproduces the old request's digest; the seed follows R0's attempt rule (protocol A2 amendment 50 item 50.1: the item's attempt at index k is sent at seed s + k, u32 wrapping, and no attempt reuses an earlier attempt's seed): a lifted mirror (new target, so a new prompt and digest) takes the seed from its digest and its attempts from 0, while a mirror whose target does not change (the old prompt and digest) continues the old request's attempt index, its seed being the old seed plus the row's attempts_used, so R0's two-attempt rows send their one remaining attempt at s + 1, not s; attempt_limit is the row's attempts_remaining (>= 1, the row's limit less its used attempts), so attempts stop at the inherited per-item limit counted from the first; not a resume: a resumed request keeps its original target";
 
 /// Which batch, binding and prior judge the new mirror requests (BUILD-PLAN
 /// 10.4's open question, read from the text).
@@ -110,22 +119,36 @@ fn digest_template(r: &Request, kind: &str) -> Result<String> {
     bail!("request {}: no template string reproduces its recorded digest", r.request_id)
 }
 
-/// The new request of a regenerated mirror ([`MIRROR_REGEN_RULE`]).
-pub fn new_mirror_request(old: &Request, kind: &str, parent_words: usize, attempts_remaining: u32, r05: &R05) -> Result<Request> {
+/// The new request of a regenerated mirror ([`MIRROR_REGEN_RULE`]), after
+/// `attempts_used` of the old request's attempts, with `attempts_remaining`
+/// left (together the old request's limit).
+pub fn new_mirror_request(old: &Request, kind: &str, parent_words: usize, attempts_used: u32, attempts_remaining: u32, r05: &R05) -> Result<Request> {
     ensure!(old.endpoint == "chat" && old.source_span.is_none(), "request {}: not a mirror request", old.request_id);
     ensure!(old.target_words == parent_words, "request {}: its target ({}) is not its parent's words ({parent_words}); R0's mirrors were requested at the parent's length", old.request_id, old.target_words);
     ensure!(attempts_remaining >= 1, "request {}: no attempt remains (a drop_out_of_attempts item gets no request)", old.request_id);
+    ensure!(attempts_used.checked_add(attempts_remaining) == Some(old.attempts()),
+        "request {}: attempts used {attempts_used} and remaining {attempts_remaining} do not make its limit {}", old.request_id, old.attempts());
     let target = plan::mirror_target_words_v2(parent_words, r05);
     let from = format!(" in English, about {} words long.", old.target_words);
     ensure!(old.prompt.matches(&from).count() == 1, "request {}: its prompt does not state its length exactly once", old.request_id);
     let prompt = old.prompt.replacen(&from, &format!(" in English, about {target} words long."), 1);
     let t = digest_template(old, kind)?;
     let rs = plan::request_sha(&old.generator, &old.endpoint, &t, &prompt, &old.decoding);
+    // amendment 50 item 50.1: an unchanged target keeps the old body, so the
+    // item's attempt index continues (seed s + attempts used); a lifted
+    // mirror is a new body with its digest's seed and attempts from 0
+    let seed = if target == old.target_words {
+        ensure!(prompt == old.prompt && rs == old.request_sha256, "request {}: an unchanged target did not keep its prompt and digest", old.request_id);
+        plan::attempt_seed(old.seed, attempts_used)
+    } else {
+        ensure!(rs != old.request_sha256, "request {}: a new target kept its digest", old.request_id);
+        plan::seed_of(&rs)
+    };
     Ok(Request {
         request_id: format!("req-{}", &sha(format!("{}:{MIRROR_TARGET_V2_ID}", old.request_id).as_bytes())[..24]),
         prompt,
         target_words: target,
-        seed: plan::seed_of(&rs),
+        seed,
         request_sha256: rs,
         attempt_limit: Some(attempts_remaining),
         ..old.clone()
@@ -214,6 +237,7 @@ pub fn mirror_plan(base: &Path, renorm: &Path, split: &str, values: &crate::valu
     let mut by_action: BTreeMap<String, usize> = BTreeMap::new();
     let mut lines: Vec<Value> = Vec::new();
     let mut by_gen: BTreeMap<String, usize> = BTreeMap::new();
+    let mut unchanged_target = 0usize;
     for r in &rows {
         ensure!(r["schema"] == REGEN_SCHEMA && r["batch"] == batch.as_str(), "a regeneration plan row of another schema or batch");
         let a = r["action"].as_str().context("action")?;
@@ -238,12 +262,17 @@ pub fn mirror_plan(base: &Path, renorm: &Path, split: &str, values: &crate::valu
                 ensure!(limit == old.attempts() as u64 && left == limit.saturating_sub(used) && left >= 1,
                     "regenerate_mirror row of request {rid}: attempts used {used}, limit {limit}, remaining {left} do not follow the attempt rule");
                 let pw = *words.get(it.parent_id.as_str()).context("parent words")?;
-                let new = new_mirror_request(old, &it.kind, pw, left as u32, r05)?;
+                let new = new_mirror_request(old, &it.kind, pw, used as u32, left as u32, r05)?;
+                let continued = new.target_words == old.target_words;
+                if continued {
+                    unchanged_target += 1;
+                }
                 ensure!(!requests.contains_key(&new.request_id), "request id {} exists", new.request_id);
                 *by_gen.entry(old.generator.clone()).or_default() += 1;
                 lines.push(json!({"schema": MIRROR_REGEN_ROW_SCHEMA, "item_id": iid, "generator": old.generator, "old_request_id": rid,
                     "new_request_id": new.request_id, "parent_words": pw, "old_target_words": old.target_words, "new_target_words": new.target_words,
-                    "attempts_used": used, "attempt_limit": limit, "attempts_remaining": left, "new_request_sha256": new.request_sha256}));
+                    "attempts_used": used, "attempt_limit": limit, "attempts_remaining": left, "new_request_sha256": new.request_sha256,
+                    "old_seed": old.seed, "new_seed": new.seed, "seed_rule": if continued { "attempt_index_continued" } else { "new_digest" }}));
                 ensure!(replace.insert(rid.to_string(), new).is_none(), "request {rid} planned twice");
             }
             x => bail!("regeneration row of request {rid}: unknown action {x}"),
@@ -318,6 +347,7 @@ pub fn mirror_plan(base: &Path, renorm: &Path, split: &str, values: &crate::valu
             "population": pop},
         "profile_record_equals_renorm": true,
         "rows_by_action": by_action, "regenerated_mirrors": lines.len(), "regenerated_mirrors_by_generator": by_gen,
+        "unchanged_target_mirrors": unchanged_target,
         "rows": {"path": "mirror-regeneration.jsonl", "sha256": rows_sha}, "d4_orders": orders,
         "d4": "generate --profile cc_cohort_profile_v2 --profile-population <population> --plan <this> --splits <split> --runs <renorm output> --request-order <this>/d4-order-{GEN}.txt (the keyed pilot's order files first)"});
     let mut m = meta.as_object().cloned().context("plan.json")?;
@@ -363,13 +393,36 @@ mod tests {
         r
     }
 
+    /// The new request as the code before B31 made it (`5903aa3d`: the seed
+    /// from the new digest, whatever the target), for byte comparisons.
+    fn before_b31(old: &Request, kind: &str, parent_words: usize, attempts_remaining: u32, r05: &R05) -> Request {
+        let target = plan::mirror_target_words_v2(parent_words, r05);
+        let prompt = old.prompt.replacen(&format!(" in English, about {} words long.", old.target_words), &format!(" in English, about {target} words long."), 1);
+        let rs = plan::request_sha(&old.generator, &old.endpoint, &digest_template(old, kind).unwrap(), &prompt, &old.decoding);
+        Request {
+            request_id: format!("req-{}", &sha(format!("{}:{MIRROR_TARGET_V2_ID}", old.request_id).as_bytes())[..24]),
+            prompt,
+            target_words: target,
+            seed: plan::seed_of(&rs),
+            request_sha256: rs,
+            attempt_limit: Some(attempts_remaining),
+            ..old.clone()
+        }
+    }
+
+    fn without_seed(r: &Request) -> Value {
+        let mut v = serde_json::to_value(r).unwrap();
+        v.as_object_mut().unwrap().remove("seed").unwrap();
+        v
+    }
+
     #[test]
     fn a_new_mirror_request_keeps_the_digest_template_and_asks_for_v2_words() {
         let r05 = R05::parse("0.8").unwrap();
         // plan v1 and v3 hash the template id; plan v2 hashes `<template id>:<kind>` (B5b review mutation R11)
         for t in ["mirror_v1", "mirror_v1:mirror"] {
             let o = old(t, 121);
-            let n = new_mirror_request(&o, "mirror", 121, 1, &r05).unwrap();
+            let n = new_mirror_request(&o, "mirror", 121, 1, 1, &r05).unwrap();
             assert_eq!(n.target_words, 188);
             assert_eq!(n.prompt, o.prompt.replace(" about 121 words long.", " about 188 words long."));
             assert_eq!(n.request_sha256, plan::request_sha(&o.generator, &o.endpoint, t, &n.prompt, &o.decoding), "{t}");
@@ -379,32 +432,83 @@ mod tests {
             assert_eq!((n.item_id.as_str(), n.template_id.as_str(), n.cohort.as_deref()), ("it", "mirror_v1", Some("c")));
         }
         // a parent longer than the floor keeps its length
-        let n = new_mirror_request(&old("mirror_v1", 400), "mirror", 400, 2, &r05).unwrap();
+        let n = new_mirror_request(&old("mirror_v1", 400), "mirror", 400, 0, 2, &r05).unwrap();
         assert_eq!((n.target_words, n.attempt_limit), (400, Some(2)));
         // no template string reproduces the recorded digest
         let mut o = old("mirror_v1", 121);
         o.request_sha256 = "0".repeat(64);
-        assert!(new_mirror_request(&o, "mirror", 121, 1, &r05).unwrap_err().to_string().contains("no template string"));
+        assert!(new_mirror_request(&o, "mirror", 121, 1, 1, &r05).unwrap_err().to_string().contains("no template string"));
+    }
+
+    #[test]
+    fn an_unchanged_target_mirror_continues_the_attempt_index_and_a_lifted_one_keeps_its_bytes() {
+        // amendment 50 item 50.1 (W19-R3; B31)
+        let r05 = R05::parse("0.8").unwrap();
+        for t in ["mirror_v1", "mirror_v1:mirror"] {
+            // R0's two-attempt row at or above the floor (188): attempt 0 failed at seed s; the one remaining attempt is
+            // the item's attempt 1 at s + 1, with the old request's prompt, digest and target
+            for pw in [188, 400] {
+                let o = old(t, pw);
+                let n = new_mirror_request(&o, "mirror", pw, 1, 1, &r05).unwrap();
+                assert_eq!((n.prompt.as_str(), n.request_sha256.as_str(), n.target_words), (o.prompt.as_str(), o.request_sha256.as_str(), pw));
+                assert_eq!(n.seed, o.seed.wrapping_add(1), "{t} {pw}");
+                assert_eq!(n.seed, plan::attempt_seed(o.seed, 1));
+                assert_ne!(n.seed, o.seed);
+                // the request differs from the code before B31 only in its seed (id, digest, prompt and limit kept)
+                let b = before_b31(&o, "mirror", pw, 1, &r05);
+                assert_eq!(b.seed, o.seed, "the replay B31 fixes: the code before it sent the remaining attempt at s");
+                assert_eq!(without_seed(&n), without_seed(&b));
+                assert_eq!(n.attempt_limit, Some(1));
+            }
+            // a row with no attempt used (limit 2, remaining 2) has no earlier attempt: attempt 0 at s
+            let o = old(t, 400);
+            let n = new_mirror_request(&o, "mirror", 400, 0, 2, &r05).unwrap();
+            assert_eq!((n.seed, n.attempt_limit), (o.seed, Some(2)));
+            // the seed wraps in u32
+            let mut o = old(t, 400);
+            o.seed = u32::MAX;
+            assert_eq!(new_mirror_request(&o, "mirror", 400, 1, 1, &r05).unwrap().seed, 0);
+            // a carried limit (a request that already carries 3): the index continues past the used attempts
+            let mut o = old(t, 400);
+            o.attempt_limit = Some(3);
+            let n = new_mirror_request(&o, "mirror", 400, 2, 1, &r05).unwrap();
+            assert_eq!((n.seed, n.attempt_limit), (o.seed.wrapping_add(2), Some(1)));
+            // a lifted mirror (below the floor): a new body, its digest's seed and attempts from 0, byte-identical to
+            // the code before B31
+            for pw in [121, 187] {
+                let o = old(t, pw);
+                let n = new_mirror_request(&o, "mirror", pw, 1, 1, &r05).unwrap();
+                assert_eq!(n.target_words, 188);
+                assert_ne!(n.request_sha256, o.request_sha256);
+                assert_eq!(n.seed, plan::seed_of(&n.request_sha256));
+                assert_eq!(serde_json::to_vec(&n).unwrap(), serde_json::to_vec(&before_b31(&o, "mirror", pw, 1, &r05)).unwrap(), "{t} {pw}");
+            }
+        }
     }
 
     #[test]
     fn a_new_mirror_request_is_refused_off_the_attempt_and_length_rules() {
         let r05 = R05::parse("0.8").unwrap();
         // the old target is not the parent's words (B5b review mutation R2): R0's mirrors were requested at the parent's length
-        let e = new_mirror_request(&old("mirror_v1", 120), "mirror", 121, 1, &r05).unwrap_err().to_string();
+        let e = new_mirror_request(&old("mirror_v1", 120), "mirror", 121, 1, 1, &r05).unwrap_err().to_string();
         assert!(e.contains("is not its parent's words"), "{e}");
         // no attempt left
-        let e = new_mirror_request(&old("mirror_v1", 121), "mirror", 121, 0, &r05).unwrap_err().to_string();
+        let e = new_mirror_request(&old("mirror_v1", 121), "mirror", 121, 2, 0, &r05).unwrap_err().to_string();
         assert!(e.contains("no attempt remains"), "{e}");
+        // used and remaining attempts that do not make the old request's limit (B31: the seed offset is the used count)
+        for (used, left) in [(0, 1), (2, 1), (1, 2), (u32::MAX, 1)] {
+            let e = new_mirror_request(&old("mirror_v1", 400), "mirror", 400, used, left, &r05).unwrap_err().to_string();
+            assert!(e.contains("do not make its limit 2"), "{used} {left}: {e}");
+        }
         // a span request, a completion request, and a prompt that states its length twice or not at all
         let mut o = old("mirror_v1", 121);
         o.source_span = Some((0, 3));
-        assert!(new_mirror_request(&o, "mirror", 121, 1, &r05).unwrap_err().to_string().contains("not a mirror request"));
+        assert!(new_mirror_request(&o, "mirror", 121, 1, 1, &r05).unwrap_err().to_string().contains("not a mirror request"));
         let mut o = old("mirror_v1", 121);
         o.endpoint = "completion".into();
-        assert!(new_mirror_request(&o, "mirror", 121, 1, &r05).unwrap_err().to_string().contains("not a mirror request"));
+        assert!(new_mirror_request(&o, "mirror", 121, 1, 1, &r05).unwrap_err().to_string().contains("not a mirror request"));
         let mut o = old("mirror_v1", 121);
         o.prompt = format!("{} Again: in English, about 121 words long.", o.prompt);
-        assert!(new_mirror_request(&o, "mirror", 121, 1, &r05).unwrap_err().to_string().contains("exactly once"));
+        assert!(new_mirror_request(&o, "mirror", 121, 1, 1, &r05).unwrap_err().to_string().contains("exactly once"));
     }
 }

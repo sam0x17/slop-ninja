@@ -483,6 +483,16 @@ pub fn seed_of(request_sha: &str) -> u32 {
     u32::from_be_bytes([b[0], b[1], b[2], b[3]])
 }
 
+/// R0's attempt rule (protocol A2 amendment 50 item 50.1): a request with
+/// seed `seed` sends its attempt at index `k` at seed + k (u32, wrapping).
+/// `generation::run_with` sends every attempt at this seed, and a
+/// regenerated mirror whose target does not change continues its old
+/// request's index through it (`mirror_regen::new_mirror_request`), so no
+/// attempt is sent with an earlier attempt's seed and body.
+pub fn attempt_seed(seed: u32, k: u32) -> u32 {
+    seed.wrapping_add(k)
+}
+
 pub fn mirror_prompt(h: &Human, terms: &[String]) -> String {
     mirror_prompt_words(h, terms, h.word_count)
 }
@@ -974,6 +984,9 @@ mod tests {
         assert_eq!(key("mirror_gen", "x"), text::sha_hex(b"slopninja-a-comp-plan-v1:mirror_gen:x"));
         let s = "0000000a".to_string() + &"0".repeat(56);
         assert_eq!(seed_of(&s), 10);
+        // amendment 50 item 50.1: attempt k at seed + k, wrapping in u32
+        assert_eq!((attempt_seed(10, 0), attempt_seed(10, 1)), (10, 11));
+        assert_eq!((attempt_seed(u32::MAX, 0), attempt_seed(u32::MAX, 1), attempt_seed(u32::MAX, 2)), (u32::MAX, 0, 1));
     }
     #[test]
     fn eval_slots_follow_protocol_cycle() {

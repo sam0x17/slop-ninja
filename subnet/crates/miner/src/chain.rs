@@ -65,6 +65,14 @@ pub struct ChainConfig {
 }
 
 pub async fn connect(config: &ChainConfig) -> Result<Client> {
+    Ok(Client::connect(client_config(config)?).await?)
+}
+
+/// The rtao client configuration [`connect`] dials with. Its WebSocket
+/// handshake names [`crate::client::USER_AGENT`]: RPC endpoints behind
+/// Cloudflare's Browser Integrity Check (rtao.io) refuse a handshake with no
+/// agent or a library default (error 1010).
+pub fn client_config(config: &ChainConfig) -> Result<ClientConfig> {
     let network = Network::resolve_with(&config.network, |_| None)
         .with_context(|| format!("unknown network {:?}", config.network))?;
     let mut client = ClientConfig::new(network)?;
@@ -79,10 +87,14 @@ pub async fn connect(config: &ChainConfig) -> Result<Client> {
         });
     }
     client.session.plaintext_ws = rtao_rpc::PlaintextPolicy::LoopbackOnly;
+    client.session.headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_static(crate::client::USER_AGENT),
+    );
     client.config_store = None;
     client.track_heads = false;
     client.startup_timeout = config.startup_timeout;
-    Ok(Client::connect(client).await?)
+    Ok(client)
 }
 
 /// This chain's binding for `netuid` and `mechanism`.
@@ -266,5 +278,25 @@ mod tests {
             Readback::Landed(11)
         );
         assert!(READBACK_SPACING >= Duration::from_secs(1));
+    }
+
+    #[test]
+    fn the_chain_handshake_names_the_miner() {
+        let config = ChainConfig {
+            network: "test".into(),
+            endpoints: vec![url::Url::parse("wss://test.finney.opentensor.ai:443").unwrap()],
+            requests_per_minute: Some(15),
+            startup_timeout: Duration::from_secs(5),
+        };
+        let client = client_config(&config).unwrap();
+        let ua = client.session.headers.get(reqwest::header::USER_AGENT).unwrap().to_str().unwrap();
+        assert_eq!(ua, crate::client::USER_AGENT);
+        assert_eq!(ua, concat!("slop_ninja_miner/", env!("CARGO_PKG_VERSION")));
+        // Not a library default that a Browser Integrity Check refuses.
+        let lower = ua.to_ascii_lowercase();
+        assert!(["python", "urllib", "curl", "reqwest", "tungstenite"].iter().all(|l| !lower.contains(l)));
+        // The default endpoints get the same header.
+        let defaults = client_config(&ChainConfig { endpoints: Vec::new(), ..config }).unwrap();
+        assert_eq!(defaults.session.headers.get(reqwest::header::USER_AGENT).unwrap(), ua);
     }
 }

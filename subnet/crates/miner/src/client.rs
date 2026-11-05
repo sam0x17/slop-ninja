@@ -91,6 +91,10 @@ pub fn base_url(text: &str) -> Result<Url> {
     Ok(url)
 }
 
+/// The agent every request names: the coordinator and status hosts, and the
+/// chain RPC handshake ([`crate::chain::client_config`]).
+pub const USER_AGENT: &str = concat!("slop_ninja_miner/", env!("CARGO_PKG_VERSION"));
+
 /// The HTTP client: rustls with ring and the system's trust roots, no
 /// redirects. `timeout` bounds every request that carries no part; a part's
 /// request gets its own bound from its size (see [`Transfer`]).
@@ -110,7 +114,7 @@ pub fn http_client(timeout: Duration) -> Result<reqwest::Client> {
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(timeout.min(Duration::from_secs(30)))
         .timeout(timeout)
-        .user_agent(concat!("slop_ninja_miner/", env!("CARGO_PKG_VERSION")))
+        .user_agent(USER_AGENT)
         .build()?)
 }
 

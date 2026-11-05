@@ -343,3 +343,58 @@ fn precheck_refuses_every_header_authentication_would_refuse_before_the_body() {
     assert_eq!(precheck(&config, Some(&forged), NOW), Ok(()));
     assert_eq!(authenticate(&config, Some(&forged), &raw, NOW), Err(AuthError::Mac));
 }
+
+#[test]
+fn accepts_contract_one_and_two_and_refuses_any_other() {
+    assert_eq!(CONTRACT_HEADER, "X-Rtao-Webhook-Contract");
+    assert_eq!(contract(None), Ok(Contract::Unnamed));
+    assert_eq!(contract(Some("rtao-block-webhooks/1")), Ok(Contract::V1));
+    assert_eq!(contract(Some("rtao-block-webhooks/2")), Ok(Contract::V2));
+    assert_eq!(contract(Some(" rtao-block-webhooks/2\t")), Ok(Contract::V2));
+    for other in [
+        "",
+        "rtao-block-webhooks/3",
+        "rtao-block-webhooks/0",
+        "rtao-block-webhooks/",
+        "RTAO-BLOCK-WEBHOOKS/2",
+        "rtao-block-webhooks/2,rtao-block-webhooks/1",
+        "rtao-block-webhooks/22",
+    ] {
+        assert_eq!(contract(Some(other)), Err(BodyError::Contract), "{other:?}");
+    }
+    assert_eq!((BodyError::Contract.code(), BodyError::Contract.status()), ("webhook_contract", 422));
+    // Each contract has its own delivery counter.
+    let names = [Contract::Unnamed, Contract::V1, Contract::V2].map(Contract::counter);
+    assert_eq!(names, ["deliveries_contract_unnamed", "deliveries_contract_v1", "deliveries_contract_v2"]);
+}
+
+#[test]
+fn both_contracts_share_the_signature_framing_and_the_body() {
+    // Contract 2 changes only when a delivery arrives: the same signed bytes
+    // authenticate and parse identically whichever contract names them, and
+    // the contract travels to the journal beside the parsed block.
+    let raw = finalized_body(0x22, 10, 0xa0, 0x9f);
+    let config = receiver();
+    let h = sign(context(0x22, 0x33), 1, NOW, &raw);
+    let signed = authenticate(&config, Some(&h), &raw, NOW).unwrap();
+    let Delivery::Finalized(parsed) = parse_authenticated(&config, &signed, &raw).unwrap() else {
+        panic!("expected block");
+    };
+    assert_eq!(parsed.contract, Contract::Unnamed);
+    for (name, expected) in [("rtao-block-webhooks/1", Contract::V1), ("rtao-block-webhooks/2", Contract::V2)] {
+        let mut n = parsed.clone();
+        n.contract = contract(Some(name)).unwrap();
+        assert_eq!(n.contract, expected);
+        assert_eq!((&n.header, &n.delivery_id, &n.body_sha256), (&parsed.header, &parsed.delivery_id, &parsed.body_sha256));
+        // The Worker-to-journal message carries it, and an older message
+        // without the field still reads (as unnamed).
+        let wire = serde_json::to_value(&*n).unwrap();
+        assert_eq!(wire["contract"], serde_json::json!(if expected == Contract::V1 { "v1" } else { "v2" }));
+        let back: BlockNotification = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(back, *n);
+        let mut old = wire;
+        old.as_object_mut().unwrap().remove("contract");
+        let back: BlockNotification = serde_json::from_value(old).unwrap();
+        assert_eq!(back.contract, Contract::Unnamed);
+    }
+}

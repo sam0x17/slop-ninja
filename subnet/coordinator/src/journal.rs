@@ -29,7 +29,8 @@
 //! - a watchdog head read whose hash equals the retained block at its height,
 //!   at once or when the cursor reaches it;
 //! - a block applied from an RPC hash list at or below the last RPC finalized
-//!   head.
+//!   head (the heartbeat plans no list above it, so every listed block is
+//!   RPC's own finalized chain).
 //!
 //! Because every block hash commits to its parent, confirming one retained
 //! height confirms the whole retained chain below it. A mismatch is a fault.
@@ -859,8 +860,9 @@ pub fn drain(sql: &impl Sql, max: u64, now_ms: u64) -> Result<Progress, StoreErr
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HashesOutcome {
-    /// `recorded` new blocks entered the per-block path.
-    Recorded { recorded: u64 },
+    /// `recorded` new blocks entered the per-block path. `complete` is false
+    /// when the list stopped at a height the node did not serve yet.
+    Recorded { recorded: u64, complete: bool },
     /// The list no longer joins the retained chain (for example after a
     /// re-anchor) or is empty; nothing was recorded.
     Unusable,
@@ -878,8 +880,11 @@ pub fn apply_hashes(
     hashes: &[Option<Id>],
     now_ms: u64,
 ) -> Result<HashesOutcome, StoreError> {
-    let Some(Some(first)) = hashes.first() else {
-        return Ok(HashesOutcome::Unusable);
+    let first = match hashes.first() {
+        Some(Some(first)) => first,
+        // The node does not serve the junction height yet.
+        Some(None) => return Ok(HashesOutcome::Recorded { recorded: 0, complete: false }),
+        None => return Ok(HashesOutcome::Unusable),
     };
     match finalized_hash(sql, from)? {
         None => return Ok(HashesOutcome::Unusable),
@@ -898,9 +903,13 @@ pub fn apply_hashes(
         Some(_) => {}
     }
     let mut recorded = 0;
+    let mut complete = true;
     let mut parent = *first;
     for (offset, hash) in hashes.iter().enumerate().skip(1) {
-        let Some(hash) = *hash else { break };
+        let Some(hash) = *hash else {
+            complete = false;
+            break;
+        };
         let header = FinalizedHeader {
             number: from + offset as u64,
             hash,
@@ -911,7 +920,7 @@ pub fn apply_hashes(
         }
         parent = hash;
     }
-    Ok(HashesOutcome::Recorded { recorded })
+    Ok(HashesOutcome::Recorded { recorded, complete })
 }
 
 // ------------------------------------------------------------------ status

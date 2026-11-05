@@ -269,7 +269,7 @@ fn a_missing_height_is_a_gap_and_backfill_closes_it() {
     let list: Vec<Option<Id>> = (10..=13).map(|n| Some(h(n))).collect();
     assert_eq!(
         tx(&db, |s| apply_hashes(s, 10, &list, NOW)).unwrap(),
-        HashesOutcome::Recorded { recorded: 3 }
+        HashesOutcome::Recorded { recorded: 3, complete: true }
     );
     let p = drain_now(&db);
     assert_eq!((p.applied, p.cursor, p.halt), (5, Some(block(15)), None));
@@ -288,7 +288,14 @@ fn hash_lists_stop_at_unknown_heights_and_must_join_the_cursor() {
     let partial = vec![Some(h(10)), Some(h(11)), None, Some(h(13))];
     assert_eq!(
         tx(&db, |s| apply_hashes(s, 10, &partial, NOW)).unwrap(),
-        HashesOutcome::Recorded { recorded: 1 }
+        HashesOutcome::Recorded { recorded: 1, complete: false }
+    );
+    assert_eq!(drain_now(&db).cursor, Some(block(11)));
+    // A junction the node does not serve yet records nothing and is not
+    // "unusable": the list is asked again later.
+    assert_eq!(
+        tx(&db, |s| apply_hashes(s, 11, &[None, Some(h(12))], NOW)).unwrap(),
+        HashesOutcome::Recorded { recorded: 0, complete: false }
     );
     assert_eq!(drain_now(&db).cursor, Some(block(11)));
     // A list from a height the chain does not retain is unusable.

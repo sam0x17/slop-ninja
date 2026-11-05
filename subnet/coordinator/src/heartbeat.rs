@@ -189,6 +189,7 @@ pub fn on_delivery(
             plan: None,
         });
     }
+    journal::bump(sql, n.contract.counter())?;
     let progress = journal::drain(sql, settings.max_drain, now_ms)?;
     let holder = format!("delivery:{}", n.delivery_id.to_hex());
     // Due work is judged at the RPC-confirmed watermark, never at the
@@ -293,6 +294,7 @@ pub fn on_rpc_result(
         });
     }
     let confirmed_before = journal::confirmed(sql)?;
+    let mut deferred = false;
     match result {
         RpcResult::FinalizedHead { head: Err(e), .. }
         | RpcResult::BlockHashes { hashes: Err(e), .. } => {
@@ -323,7 +325,15 @@ pub fn on_rpc_result(
             ..
         } => match journal::apply_hashes(sql, *from, list, now_ms)? {
             HashesOutcome::Unusable => journal::bump(sql, "rpc_unusable_lists")?,
-            HashesOutcome::Recorded { .. } | HashesOutcome::Fault => {}
+            HashesOutcome::Recorded { complete: false, .. } => {
+                // The node does not serve every height it was asked for yet
+                // (a lagging node behind the endpoint): the rest waits for
+                // the next delivery or tick instead of a second identical
+                // call now.
+                journal::bump(sql, "rpc_lists_not_served")?;
+                deferred = true;
+            }
+            HashesOutcome::Recorded { complete: true, .. } | HashesOutcome::Fault => {}
         },
     }
     let progress = journal::drain(sql, settings.max_drain, now_ms)?;
@@ -334,7 +344,7 @@ pub fn on_rpc_result(
         let due = schedule::due_operations(progress.confirmed);
         schedule::step(sql, &due, holder, settings.lease_ms, now_ms)?;
     }
-    let next = if more {
+    let next = if more && !deferred {
         plan(
             sql,
             settings,
@@ -361,8 +371,12 @@ pub fn on_rpc_result(
 
 fn note_rpc_error(sql: &impl Sql, e: RpcError) -> Result<(), StoreError> {
     journal::bump(sql, "rpc_failures")?;
-    if e == RpcError::RateLimited {
-        journal::bump(sql, "rpc_rate_limited")?;
+    match e {
+        RpcError::RateLimited => journal::bump(sql, "rpc_rate_limited")?,
+        // A head whose header the node behind the endpoint does not serve
+        // yet: nothing changes, and the next delivery or tick reads again.
+        RpcError::NotServed => journal::bump(sql, "rpc_not_served")?,
+        _ => {}
     }
     Ok(())
 }
@@ -382,9 +396,24 @@ fn plan(
         let width = settings.hashes_per_call.clamp(2, MAX_HASHES_PER_CALL);
         (cursor.number, to.min(cursor.number + width - 1))
     };
+    // Hash lists never reach above the RPC finalized head last read: above
+    // it the endpoint answers from its best chain, which can still be
+    // another fork than the block a delivery named final (a contract-2
+    // delivery arrives before the endpoint finalizes, or even serves, its
+    // block). A gap above that head waits for the next head read (the next
+    // tick, which then fills it in the same invocation); only the
+    // provisional cursor waits, since the confirmed watermark moves on RPC
+    // head reads alone.
+    let settled = journal::rpc_finalized_head(sql)?.map(|h| h.number);
     let want = match (progress.halt, progress.cursor) {
         (Some(Halt::NotAnchored), _) => Some(None),
-        (Some(Halt::Gap { to, .. }), Some(c)) => Some(Some(range(c, to))),
+        (Some(Halt::Gap { to, .. }), Some(c)) => match settled {
+            Some(top) if top > c.number => Some(Some(range(c, to.min(top)))),
+            _ => {
+                journal::bump(sql, "gaps_above_rpc_head")?;
+                None
+            }
+        },
         (None | Some(Halt::Bound), Some(c)) if origin == Origin::Tick => {
             let fallback = watchdog::load(sql)?.mode == Mode::Fallback;
             match journal::rpc_finalized_head(sql)? {
@@ -559,3 +588,6 @@ pub fn status(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod lag_tests;

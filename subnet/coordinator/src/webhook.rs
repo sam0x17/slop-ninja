@@ -5,6 +5,16 @@
 //! 32-byte signing secret. The raw body is authenticated before it is parsed.
 //! A notification is a wakeup hint only: it establishes neither finality nor
 //! authority, and its `header_only` state does not mean state reads are ready.
+//!
+//! The provider names its delivery contract in `X-Rtao-Webhook-Contract`
+//! ([`contract`]). `rtao-block-webhooks/1` and `rtao-block-webhooks/2` share
+//! wire version 1 (this framing and these bodies); they differ only in
+//! timing. A `/2` delivery is pushed within about a second of finality, so it
+//! can arrive before the RPC endpoints this Worker reads serve that block.
+//! Nothing here or downstream reads the delivered block through RPC: the
+//! cursor advances on the parent link alone, and every chain read happens at
+//! the RPC-confirmed watermark, which only RPC's own finalized head moves
+//! (`journal`, `heartbeat`).
 
 use crate::wire::{DecimalU64, FinalizedHeader, Id, MAX_SAFE_INTEGER};
 use hmac::{Hmac, Mac};
@@ -14,6 +24,11 @@ use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
 pub const SIGNATURE_HEADER: &str = "X-Rtao-Signature";
+/// The provider's contract name for the delivery (absent before the
+/// provider started naming it, which is contract 1).
+pub const CONTRACT_HEADER: &str = "X-Rtao-Webhook-Contract";
+pub const CONTRACT_V1: &str = "rtao-block-webhooks/1";
+pub const CONTRACT_V2: &str = "rtao-block-webhooks/2";
 pub const CHALLENGE_RESPONSE_HEADER: &str = "X-Rtao-Challenge-Response";
 pub const HMAC_DOMAIN: &[u8] = b"rtao.webhooks.hmac-sha256.v1\0";
 pub const SIGNATURE_VERSION: u8 = 1;
@@ -251,6 +266,44 @@ fn header_fields(config: &ReceiverConfig, header: &str, now_secs: u64) -> Result
     Ok((fields, wire.mac))
 }
 
+/// The delivery contract a delivery names. Both accepted contracts use wire
+/// version 1; `/2` only delivers sooner (push-based, possibly before RPC
+/// serves the block).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Contract {
+    /// No contract header: a provider from before contract names, which
+    /// delivered under contract 1.
+    #[default]
+    Unnamed,
+    V1,
+    V2,
+}
+
+impl Contract {
+    /// The journal counter of new deliveries under this contract.
+    pub fn counter(self) -> &'static str {
+        match self {
+            Self::Unnamed => "deliveries_contract_unnamed",
+            Self::V1 => "deliveries_contract_v1",
+            Self::V2 => "deliveries_contract_v2",
+        }
+    }
+}
+
+/// Reads `X-Rtao-Webhook-Contract`. Contracts 1 and 2 (and no header) are
+/// accepted; any other name is refused, since its wire format is unqualified
+/// here (the provider then retries, and the watchdog carries the cursor
+/// meanwhile).
+pub fn contract(header: Option<&str>) -> Result<Contract, BodyError> {
+    match header.map(|h| h.trim_matches([' ', '\t'])) {
+        None => Ok(Contract::Unnamed),
+        Some(CONTRACT_V1) => Ok(Contract::V1),
+        Some(CONTRACT_V2) => Ok(Contract::V2),
+        Some(_) => Err(BodyError::Contract),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StateReadiness {
@@ -273,6 +326,10 @@ pub struct BlockNotification {
     pub observed_at_ms: u64,
     pub header: FinalizedHeader,
     pub state_readiness: StateReadiness,
+    /// The contract the delivery named (set by the receiver from
+    /// [`CONTRACT_HEADER`]; the body does not carry it).
+    #[serde(default)]
+    pub contract: Contract,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -297,6 +354,8 @@ pub enum BodyError {
     UnsupportedKind,
     Block,
     StorageRange,
+    /// `X-Rtao-Webhook-Contract` names a contract other than 1 or 2.
+    Contract,
 }
 
 impl BodyError {
@@ -312,6 +371,7 @@ impl BodyError {
             Self::UnsupportedKind => "unsupported_kind",
             Self::Block => "block",
             Self::StorageRange => "storage_range",
+            Self::Contract => "webhook_contract",
         }
     }
 
@@ -444,6 +504,7 @@ pub fn parse_authenticated(
             parent_hash: block.parent_hash,
         },
         state_readiness: block.state_readiness,
+        contract: Contract::Unnamed,
     })))
 }
 

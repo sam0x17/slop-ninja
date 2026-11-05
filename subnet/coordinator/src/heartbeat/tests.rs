@@ -201,31 +201,42 @@ fn first_delivery_anchors_then_deliveries_without_gaps_make_no_rpc_calls() {
 }
 
 #[test]
-fn an_anchor_below_the_delivery_backfills_the_gap_first() {
+fn an_anchor_below_the_delivery_backfills_the_gap_at_the_next_head_read() {
     let db = journal();
     let s = Settings::default();
     // The RPC head lags the provider: the anchor lands below the delivery.
     let mut chain = Chain::at(97);
     let r = deliver(&db, &s, &mut chain, 100, T0);
     assert!(r.plan.is_some());
-    // Round 1 anchored at 97; round 2 found 98..99 not yet on the node.
-    assert_eq!(cursor_number(&db), Some(97));
+    // Round 1 anchored at 97. 98..99 are above the RPC finalized head, so no
+    // list asks the node's best chain for them.
+    assert_eq!((cursor_number(&db), chain.calls), (Some(97), 2));
     chain.head = 101;
-    deliver(&db, &s, &mut chain, 101, T0 + 12_000);
+    let r = deliver(&db, &s, &mut chain, 101, T0 + 12_000);
+    assert_eq!(r.plan, None);
+    assert_eq!((cursor_number(&db), counter(&db, "gaps_above_rpc_head")), (Some(97), 2));
+    // The tick's head read (101) lets its next round fill 98..99 from RPC's
+    // finalized chain; the pending deliveries then apply.
+    tick(&db, &s, &mut chain, T0 + MIN);
     assert_eq!(cursor_number(&db), Some(101));
+    assert_eq!((counter(&db, "applied_rpc"), counter(&db, "applied_webhook")), (2, 2));
 }
 
 #[test]
 fn gaps_backfill_in_bounded_rounds_and_carry_over() {
     let db = journal();
+    // A lag the behind rule tolerates, so the tick below stays in primary.
     let s = Settings {
         hashes_per_call: 8,
+        behind_blocks: 1_000,
         ..Settings::default()
     };
     let mut chain = Chain::at(100);
     deliver(&db, &s, &mut chain, 100, T0);
-    chain.calls = 0;
     chain.head = 140;
+    // A tick reads the RPC head (140) while deliveries are paused.
+    tick(&db, &s, &mut chain, T0 + MIN / 2);
+    chain.calls = 0;
     // Webhooks resume after a pause: block 130 arrives with 101..129 missing.
     let r = deliver(&db, &s, &mut chain, 130, T0 + MIN);
     assert_eq!(r.progress.halt, Some(Halt::Gap { from: 101, to: 129 }));
@@ -255,10 +266,16 @@ fn gaps_backfill_in_bounded_rounds_and_carry_over() {
 #[test]
 fn overlapping_invocations_skip_claimed_backfill_and_stale_holders_are_fenced() {
     let db = journal();
-    let s = Settings::default();
+    // A lag the behind rule tolerates, so the tick below stays in primary.
+    let s = Settings {
+        behind_blocks: 1_000,
+        ..Settings::default()
+    };
     let mut chain = Chain::at(100);
     deliver(&db, &s, &mut chain, 100, T0);
     chain.head = 200;
+    // A tick reads the RPC head (200); the gaps below it may be listed.
+    tick(&db, &s, &mut chain, T0 + 500);
     // Invocation A plans a backfill round but has not run it yet.
     let a = notification(&chain, 150, 0);
     let a_report = tx(&db, |sql| on_delivery(sql, &s, &a, T0 + 1_000)).unwrap();
@@ -295,9 +312,9 @@ fn overlapping_invocations_skip_claimed_backfill_and_stale_holders_are_fenced() 
     );
     // Round 1 fetched 101..131, round 2 closed the gap to 149, and the pending
     // deliveries 150..152 then applied in order. A's stale round is counted:
-    // anchor (2), A (1, wasted), C (2).
+    // anchor (2), the tick's head read (2), A (1, wasted), C (2).
     assert_eq!(cursor_number(&db), Some(152));
-    assert_eq!(chain.calls, 2 + 1 + 2);
+    assert_eq!(chain.calls, 2 + 2 + 1 + 2);
 }
 
 #[test]
@@ -424,6 +441,7 @@ fn ticks_read_the_head_at_most_once_and_stay_within_the_budget() {
     let db = journal();
     let s = Settings {
         rpc_calls_per_minute: 3,
+        behind_blocks: 1_000,
         ..Settings::default()
     };
     let mut chain = Chain::at(100);
@@ -435,17 +453,20 @@ fn ticks_read_the_head_at_most_once_and_stay_within_the_budget() {
     assert_eq!(dup.plan, None);
     assert_eq!(counter(&db, "duplicate_ticks"), 1);
     chain.head = 150;
+    // The next minute's tick reads the head (2 calls) and lists nothing yet.
+    tick(&db, &s, &mut chain, T0 + MIN);
+    assert_eq!(chain.calls, 4);
     // One call left this minute: one gap round, then the budget defers.
-    deliver(&db, &s, &mut chain, 150, T0 + 10_000);
-    assert_eq!(chain.calls, 3);
-    let r = deliver(&db, &s, &mut chain, 149, T0 + 20_000);
+    deliver(&db, &s, &mut chain, 150, T0 + MIN + 10_000);
+    assert_eq!(chain.calls, 5);
+    let r = deliver(&db, &s, &mut chain, 149, T0 + MIN + 20_000);
     assert_eq!(r.plan, None);
     assert!(counter(&db, "rpc_budget_deferrals") >= 1);
-    assert_eq!(chain.calls, 3);
-    let st = status_at(&db, &s, T0 + 20_000);
+    assert_eq!(chain.calls, 5);
+    let st = status_at(&db, &s, T0 + MIN + 20_000);
     assert_eq!(st.rpc_calls_this_minute, 3);
     // The deferred claim was released, so the next minute proceeds at once.
-    let r = deliver(&db, &s, &mut chain, 148, T0 + MIN + 1);
+    let r = deliver(&db, &s, &mut chain, 148, T0 + 2 * MIN + 1);
     assert!(r.plan.is_some());
 }
 
@@ -475,9 +496,13 @@ fn a_fault_pauses_deliveries_and_ticks_until_cleared() {
     let (outcome, progress) =
         tx(&db, |sql| clear_fault(sql, &s, fault, false, T0 + 7 * MIN)).unwrap();
     assert_eq!(outcome, journal::ClearOutcome::Cleared { reanchor: false });
-    // 101 and 102 are missing; the next delivery backfills them.
+    // 101 and 102 are missing, above the last RPC head read (100): the next
+    // tick's head read lets it backfill them.
     assert_eq!(progress.halt, Some(Halt::Gap { from: 101, to: 102 }));
+    chain.head = 104;
     deliver(&db, &s, &mut chain, 104, T0 + 7 * MIN);
+    assert_eq!(cursor_number(&db), Some(100));
+    tick(&db, &s, &mut chain, T0 + 7 * MIN + 1_000);
     assert_eq!(cursor_number(&db), Some(104));
 }
 

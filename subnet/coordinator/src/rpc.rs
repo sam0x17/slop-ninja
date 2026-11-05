@@ -15,8 +15,21 @@ use serde_json::{Value, json};
 
 /// Public OpenTensor testnet endpoint (testnet-only, like the genesis guard).
 pub const DEFAULT_TESTNET_RPC_URL: &str = "https://test.finney.opentensor.ai";
-/// The named User-Agent the public endpoint expects from automated clients.
+/// The named User-Agent every RPC call sends. Public endpoints behind
+/// Cloudflare's Browser Integrity Check (rtao.io answers error 1010 to a
+/// missing or library-default agent such as `Python-urllib/3`) need a named
+/// product and version.
 pub const USER_AGENT: &str = concat!("slop-ninja-coordinator-testnet/", env!("CARGO_PKG_VERSION"));
+
+/// The headers of every JSON-RPC POST (`cf.rs`): JSON both ways, an
+/// unencoded reply (whose exact declared length `cf_io` bounds; an encoded
+/// one is still read correctly, bounded by the cap), and [`USER_AGENT`].
+pub const REQUEST_HEADERS: [(&str, &str); 4] = [
+    ("content-type", "application/json"),
+    ("accept", "application/json"),
+    ("accept-encoding", "identity"),
+    ("user-agent", USER_AGENT),
+];
 /// Responses larger than this are refused before parsing.
 pub const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 /// Upper bound on heights asked for in one `chain_getBlockHash` list call.
@@ -43,6 +56,11 @@ pub enum RpcError {
     Remote,
     /// A header whose number or parent does not fit the request.
     Inconsistent,
+    /// A `null` header or block for a requested hash: the node behind the
+    /// endpoint does not serve that block yet (a load-balanced node behind
+    /// another, or a block a delivery named before RPC has it). Retried at
+    /// the next delivery or tick, like a transport failure.
+    NotServed,
 }
 
 /// One JSON-RPC 2.0 request body.
@@ -120,6 +138,9 @@ pub fn parse_finalized_head(id: u64, body: &[u8]) -> Result<Id, RpcError> {
 /// so the requested hash is carried in.
 pub fn parse_header(id: u64, body: &[u8], requested: Id) -> Result<FinalizedHeader, RpcError> {
     let value = result(id, body)?;
+    if value.is_null() {
+        return Err(RpcError::NotServed);
+    }
     let number = hex_number(value.get("number").ok_or(RpcError::Malformed)?)?;
     let parent = value.get("parentHash").ok_or(RpcError::Malformed)?;
     let parent_hash = if number == 0 { Id::ZERO } else { hash(parent)? };
@@ -243,6 +264,9 @@ pub fn block_request(id: u64, at: &Id) -> String {
 /// The block's extrinsics; its header number must be the expected one.
 pub fn parse_block(id: u64, body: &[u8], number: u64) -> Result<Vec<String>, RpcError> {
     let v = result_capped(id, body, MAX_LARGE_RESPONSE_BYTES)?;
+    if v.is_null() {
+        return Err(RpcError::NotServed);
+    }
     let block = v.get("block").ok_or(RpcError::Malformed)?;
     let header = block.get("header").ok_or(RpcError::Malformed)?;
     if hex_number(header.get("number").ok_or(RpcError::Malformed)?)? != number {
@@ -360,6 +384,42 @@ mod tests {
         assert_eq!(hashes[1], Some(parsed.parent_hash));
         assert_eq!(hashes[2], None);
         assert_eq!(parse_block_hashes(3, list, 4), Err(RpcError::Inconsistent));
+    }
+
+    #[test]
+    fn a_block_the_node_does_not_serve_yet_is_not_served_never_malformed() {
+        // A contract-2 delivery can name a block before the endpoint (or the
+        // node behind it that answers) serves it: its header and body come
+        // back `null`, a retryable answer, not a malformed one.
+        let null = |id: u64| format!(r#"{{"jsonrpc":"2.0","result":null,"id":{id}}}"#);
+        assert_eq!(parse_header(2, null(2).as_bytes(), id(0xab)), Err(RpcError::NotServed));
+        assert_eq!(parse_block(4, null(4).as_bytes(), 10), Err(RpcError::NotServed));
+        // A list stops at the first height not served yet (`journal::apply_hashes`).
+        let list = format!(r#"{{"jsonrpc":"2.0","result":["{}",null,null],"id":3}}"#, id(0x11).to_hex());
+        assert_eq!(parse_block_hashes(3, list.as_bytes(), 3).unwrap(), vec![Some(id(0x11)), None, None]);
+        // An unknown-block error stays a remote error (retried behind backoff).
+        let unknown = br#"{"jsonrpc":"2.0","error":{"code":4003,"message":"Client error: UnknownBlock: Header was not found in the database"},"id":2}"#;
+        assert_eq!(parse_header(2, unknown, id(0xab)), Err(RpcError::Remote));
+        // It is one serialized value of the Worker-to-journal round (`RpcRound`).
+        assert_eq!(serde_json::to_string(&RpcError::NotServed).unwrap(), r#""not_served""#);
+    }
+
+    #[test]
+    fn every_rpc_post_names_its_user_agent() {
+        // Cloudflare's Browser Integrity Check (rtao.io) refuses a missing or
+        // library-default agent (error 1010); every call names this product.
+        let (_, ua) = REQUEST_HEADERS.iter().find(|(k, _)| *k == "user-agent").copied().unwrap();
+        assert_eq!(ua, USER_AGENT);
+        let (product, version) = ua.split_once('/').unwrap();
+        assert_eq!(product, "slop-ninja-coordinator-testnet");
+        assert_eq!(version, env!("CARGO_PKG_VERSION"));
+        assert!(!version.is_empty() && version.bytes().all(|b| b.is_ascii_graphic()));
+        let lower = ua.to_ascii_lowercase();
+        for library in ["python", "urllib", "curl", "wget", "go-http", "reqwest", "node"] {
+            assert!(!lower.contains(library), "{ua} looks like a library default");
+        }
+        let names: Vec<&str> = REQUEST_HEADERS.iter().map(|(k, _)| *k).collect();
+        assert_eq!(names, ["content-type", "accept", "accept-encoding", "user-agent"]);
     }
 
     #[test]

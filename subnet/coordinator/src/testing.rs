@@ -3,7 +3,7 @@
 
 use crate::sql::{Row, Sql, SqlValue, StoreError};
 use crate::webhook::{
-    BlockNotification, DeliveryContext, ReceiverConfig, SignedFields, SigningKey, StateReadiness,
+    BlockNotification, Contract, DeliveryContext, ReceiverConfig, SignedFields, SigningKey, StateReadiness,
 };
 use crate::wire::{FinalizedHeader, Id};
 use rusqlite::types::ValueRef;
@@ -35,6 +35,7 @@ pub fn note(event: u8, delivery: u8, body: u8, header: FinalizedHeader) -> Block
         observed_at_ms: 1_793_000_000_000,
         header,
         state_readiness: StateReadiness::HeaderOnly,
+        contract: Contract::Unnamed,
     }
 }
 

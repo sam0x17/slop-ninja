@@ -27,7 +27,7 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 
 | Module | Role |
 | --- | --- |
-| `webhook` | rtao-rpc receiver contract v1: HMAC authentication and body validation |
+| `webhook` | rtao-rpc receiver: contracts `rtao-block-webhooks/1` and `/2` (wire version 1), HMAC authentication and body validation |
 | `journal` | delivery dedup, the per-block path, the cursor, durable faults, RPC audits |
 | `heartbeat` | what one delivery, tick or RPC round does inside one transaction |
 | `watchdog` | primary/fallback mode, thresholds and durable transitions |
@@ -164,7 +164,11 @@ delivery goes through these steps:
    strings are refused. An authenticated challenge gets its nonce back in
    `X-Rtao-Challenge-Response` with 204 and is never recorded. Block events must
    match the signed `event_id`, event version 1 and the testnet genesis. Only
-   `finalized` is accepted.
+   `finalized` is accepted. `X-Rtao-Webhook-Contract` must name
+   `rtao-block-webhooks/1` or `rtao-block-webhooks/2`, or be absent (contract
+   1 before the provider named it); each new delivery counts toward
+   `deliveries_contract_v1`, `_v2` or `_unnamed`
+   ([Contract 2 timing](#contract-2-timing)).
 2. **Persist, deduplicate and run the step.** One `transactionSync` in the
    ChainJournal Durable Object:
    - records the delivery and its block event
@@ -187,6 +191,7 @@ Each case gets a different response:
 | New delivery ID for a recorded block (re-registration, or a block RPC backfill already supplied) | 204, nothing processed again |
 | Authentication failure | 401 |
 | Invalid body | 400 or 422 |
+| Unknown `X-Rtao-Webhook-Contract` | 422 (`webhook_contract`) |
 | Missing configuration, or storage failure | 503, which the provider retries |
 
 The provider retries every non-2xx answer and pauses the subscription after
@@ -229,14 +234,25 @@ metadata has a 20 s timeout.
 | --- | --- |
 | Delivery that extends the cursor | none |
 | First cursor | `chain_getFinalizedHead` and its header (2) |
-| Gap | one `chain_getBlockHash` list per round, from the cursor height up to 32 heights; at most 2 rounds per delivery, the rest carried to later deliveries |
+| Gap | one `chain_getBlockHash` list per round, from the cursor height up to 32 heights and never above the RPC finalized head last read; at most 2 rounds per delivery, the rest carried to later deliveries; a gap above that head waits for the next tick |
 | Watchdog head read | 2, at most once per tick |
 | Fallback | at most 3 list calls per tick |
 
 Gap backfill accepts a hash list only when its first entry equals the retained
 hash at the cursor height. Each later entry becomes a block whose parent is the
 previous entry, and it goes through the same per-block path. The list stops at
-the first height the node does not have yet.
+the first height the node does not have yet (`rpc_lists_not_served`), and the
+invocation spends no further round on it: the next delivery or tick asks again.
+
+A list never reaches above the RPC finalized head last read (`gaps_above_rpc_head`
+counts the deliveries that found the gap above it). Above that head the endpoint
+answers from its best chain, which can still be another fork than the block a
+delivery named final; recording such a hash would apply it (its parent is the
+cursor) and then fault on the delivered block's parent. The tick's head read
+raises the head, and its next round fills the gap from the endpoint's finalized
+chain in the same invocation. Only the provisional cursor waits: the confirmed
+watermark moves on RPC head reads alone, so nothing that acts on blocks waits
+longer.
 
 All calls are charged to a budget held in the Durable Object and shared by every
 invocation: `RPC_CALLS_PER_MINUTE`, default 12, at most 20. The public endpoint
@@ -257,8 +273,8 @@ Three things move it:
   compared at once. Otherwise the head is kept as an audit point (at most 16)
   and checked when the cursor reaches it.
 - **RPC list:** a block applied from an RPC hash list at or below the last RPC
-  finalized head. Heights above it are only RPC's best chain, so they stay
-  provisional.
+  finalized head. Lists are never planned above that head (gap backfill,
+  above), so every listed block is confirmed as it applies.
 
 A block hash commits to its parent, so confirming one retained height confirms
 the retained chain below it. The watermark never moves down. A re-anchor drops
@@ -276,6 +292,38 @@ applied. `/status` reports the watermark, its basis and age, and
 removes the old exposure: a parent-linked but wrong chain from a compromised or
 faulty provider could advance the cursor until the next audit. It still
 advances only the cursor; nothing acts on those blocks.
+
+### Contract 2 timing
+
+Contract `rtao-block-webhooks/2` differs from `/1` only in timing: the provider
+pushes each finalized block within about a second of finality, possibly before
+the RPC endpoint this Worker reads serves that block (by 0 to 3 blocks). The
+receiver accepts both. Nothing on the delivery path reads the delivered block
+through RPC:
+
+- **Cursor.** A delivery advances the provisional cursor on the parent link
+  alone, with no RPC call.
+- **Anchor and head reads.** They read the endpoint's own finalized head, which
+  it serves. A head the endpoint reports, whose header a node behind it does
+  not serve yet, answers `null`: that is `rpc_not_served`, retried in the
+  delivery's second round or at the next delivery or tick, never a fault. A
+  head below the cursor is compared at once (it confirms the retained block);
+  the behind rule's lag saturates at 0.
+- **Backfill.** Lists stay at or below the RPC finalized head (above), and a
+  `null` height ends the list for that invocation.
+- **Confirmed watermark, signing, cohort kicks and the commitment reader.**
+  They act and read only at the confirmed watermark or retained blocks below
+  it, and the watermark is never above a finalized head the endpoint reported.
+  Under `/2` a delivered block is confirmed at the first tick whose head read
+  reaches it, typically the next one.
+
+`heartbeat::lag_tests` drives the heartbeat against an RPC that lags the
+deliveries by 0 to 3 blocks, with and without a different best-chain fork above
+its finalized head, retried and reordered deliveries, `null` headers and
+truncated lists. After every step it checks that there is no fault, that the
+cursor and the watermark stay on the delivered chain, and that the watermark
+stays at or below the endpoint's finalized head. At the end it checks that
+every height was applied exactly once.
 
 ## Watchdog
 

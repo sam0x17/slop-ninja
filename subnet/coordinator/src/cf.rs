@@ -1076,13 +1076,9 @@ async fn rpc_post_capped(
     timeout_ms: u64,
 ) -> std::result::Result<Vec<u8>, RpcError> {
     let headers = Headers::new();
-    let set = |k: &str, v: &str| headers.set(k, v).map_err(|_| RpcError::Transport);
-    set("content-type", "application/json")?;
-    set("accept", "application/json")?;
-    // An unencoded reply has an exact declared length (`cf_io`); an encoded
-    // one is still read correctly, bounded by the cap.
-    set("accept-encoding", "identity")?;
-    set("user-agent", rpc::USER_AGENT)?;
+    for (k, v) in rpc::REQUEST_HEADERS {
+        headers.set(k, v).map_err(|_| RpcError::Transport)?;
+    }
     let mut init = RequestInit::new();
     init.with_method(Method::Post)
         .with_headers(headers)
@@ -1502,6 +1498,13 @@ async fn hook(mut req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Res
         Ok(signed) => signed,
         Err(e) => return error(e.code(), e.status()),
     };
+    // Contracts 1 and 2 share this wire format; `/2` is only sooner (it can
+    // arrive before the RPC endpoint serves the block, which nothing on the
+    // delivery path reads: `webhook` module docs).
+    let contract = match webhook::contract(req.headers().get(webhook::CONTRACT_HEADER)?.as_deref()) {
+        Ok(contract) => contract,
+        Err(e) => return error(e.code(), e.status()),
+    };
     match webhook::parse_authenticated(&receiver, &signed, &raw) {
         Err(e) => error(e.code(), e.status()),
         Ok(Delivery::Challenge { challenge }) => {
@@ -1511,7 +1514,8 @@ async fn hook(mut req: Request, env: Env, ctx: Context, scope: &ScopeRef) -> Res
                 .set(webhook::CHALLENGE_RESPONSE_HEADER, &challenge)?;
             Ok(response)
         }
-        Ok(Delivery::Finalized(notification)) => {
+        Ok(Delivery::Finalized(mut notification)) => {
+            notification.contract = contract;
             let holder = format!("delivery:{}", notification.delivery_id.to_hex());
             let body = serde_json::to_string(&notification)?;
             let Ok(mut response) =

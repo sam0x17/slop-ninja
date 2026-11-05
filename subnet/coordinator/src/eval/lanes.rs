@@ -112,6 +112,8 @@ pub struct LaneRef {
 /// named authority's suffix (`EvalConfig::lane_scope`): a restarted
 /// authority numbers its cohorts from its own first sequence, so it never
 /// kicks a lane object that holds a later `(seq, gen)` of an earlier one.
+/// A same-authority probe cut's lanes carry the scope with `/probe-cut`
+/// ([`lane_scope_of`]) for the same reason.
 pub fn lane_name(scope: &str, kind: &str, lane: i64) -> String {
     let net = crate::config::NETWORK;
     match kind {
@@ -325,8 +327,27 @@ fn bound_reached(sql: &impl Sql, seq: i64, job: i64, chunk: i64, now: u64) -> R<
 
 // ------------------------------------------------------------------ planning
 
+/// The scope of cohort `seq`'s lane object names: the instance's
+/// ([`EvalConfig::lane_scope`]), with `/probe-cut` for a same-authority
+/// probe cut. A lane object keeps only the newest `(seq, gen)` it was
+/// kicked with, and a cut's seq is above the cohort queued before it, so a
+/// cut on the cohorts' own lane objects would make them refuse that
+/// cohort's kicks for good; cuts order their own lane objects among
+/// themselves instead (their seqs increase). This adds at most one more
+/// set of lane objects per instance and authority.
+fn lane_scope_of(sql: &impl Sql, cfg: &EvalConfig, seq: i64) -> R<String> {
+    let rows = sql.exec(
+        "SELECT COALESCE(json_extract(plan, '$.reward_v1.probe_cut'), 0) FROM cohorts WHERE seq = ?",
+        &[i(seq)],
+    )?;
+    let cut = rows.first().map_or(Ok(0), |r| int(r, 0))? != 0;
+    let scope = cfg.lane_scope();
+    Ok(if cut { format!("{scope}/probe-cut") } else { scope })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn insert_lane(sql: &impl Sql, cfg: &EvalConfig, seq: i64, kind: &str, lane: i64, job: Option<i64>, index: i64, lo: i64, hi: i64) -> R<()> {
+    let scope = lane_scope_of(sql, cfg, seq)?;
     sql.exec(
         "INSERT INTO lanes (seq, kind, lane, name, job, lane_index, chunk_lo, chunk_hi, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
@@ -334,7 +355,7 @@ fn insert_lane(sql: &impl Sql, cfg: &EvalConfig, seq: i64, kind: &str, lane: i64
             i(seq),
             s(kind),
             i(lane),
-            s(lane_name(&cfg.lane_scope(), kind, lane)),
+            s(lane_name(&scope, kind, lane)),
             job.map_or(SqlValue::Null, i),
             i(index),
             i(lo),

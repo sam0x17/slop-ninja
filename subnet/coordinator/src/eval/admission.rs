@@ -1829,19 +1829,23 @@ pub fn cohort_info(sql: &impl Sql, chain: &ChainBinding, paused: bool) -> R<Coho
         }),
     });
     // The calendar's next cohort (a queued one, or the template's next),
-    // else, for an operator plan's window, the cohort after it at the
-    // earliest boundary it can open.
+    // else, for an operator plan's window, the standing cohort after it (a
+    // probe cut's number is skipped: it admits no one) at the earliest
+    // boundary it can open.
     let next = match crate::eval::calendar::next(sql)? {
         Some(mut n) => {
             next_limits(sql, &mut n)?;
             Some(n)
         }
-        None => w.as_ref().map(|w| NextCohort {
-            cohort: w.cohort + 1,
-            earliest_open_epoch: Some(w.opened_epoch.saturating_add(w.k_tempos)),
-            admission_tempos: None,
-            ..Default::default()
-        }),
+        None => match w.as_ref() {
+            Some(w) => Some(NextCohort {
+                cohort: crate::eval::calendar::standing_after(sql, w.cohort)?,
+                earliest_open_epoch: Some(w.opened_epoch.saturating_add(w.k_tempos)),
+                admission_tempos: None,
+                ..Default::default()
+            }),
+            None => None,
+        },
     };
     Ok(CohortInfo {
         schema: SCHEMA_COHORT.into(),
@@ -4082,10 +4086,13 @@ fn apply_freeze(sql: &impl Sql, c: &Cohort, w: &Window, d: Decision, epoch: u64,
             &[bind_u64(a.entry.block)?, i(i64::from(a.entry.extrinsic)), bind_u64(now_ms)?, s(&a.row.session)],
         )?;
     }
+    // An overflowed miner commits again for the standing cohort after this
+    // one, never a probe cut's number (`calendar::standing_after`).
+    let next_cohort = if d.overflow.is_empty() { 0 } else { crate::eval::calendar::standing_after(sql, w.cohort)? };
     for o in &d.overflow {
         sql.exec(
             "UPDATE adm_sessions SET state = 'overflow', next_cohort = ?, pos_block = ?, pos_extrinsic = ?, updated_ms = ? WHERE session = ?",
-            &[bind_u64(w.cohort + 1)?, bind_u64(o.entry.block)?, i(i64::from(o.entry.extrinsic)), bind_u64(now_ms)?, s(&o.row.session)],
+            &[bind_u64(next_cohort)?, bind_u64(o.entry.block)?, i(i64::from(o.entry.extrinsic)), bind_u64(now_ms)?, s(&o.row.session)],
         )?;
     }
     let bytes = serde_json::to_vec(&d.plan).map_err(|_| EvalError::State("frozen plan"))?;

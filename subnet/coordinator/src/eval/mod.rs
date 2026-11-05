@@ -27,6 +27,8 @@
 //! - [`calendar`]: the standing plan template and the cohort calendar.
 //! - [`succession`]: durable succession between main authorities.
 //! - [`retention`]: detailed receipt deletion after N+1 and N+2 complete.
+//! - [`probe_cut`]: the operator's preparation of a same-authority probe
+//!   cut and the template reinstall naming its version.
 
 pub mod admission;
 pub mod calendar;
@@ -42,6 +44,7 @@ pub mod textgen;
 pub mod package;
 pub mod plan;
 pub mod pool;
+pub mod probe_cut;
 pub mod receipts;
 pub mod retention;
 pub mod score;

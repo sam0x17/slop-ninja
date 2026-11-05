@@ -1781,6 +1781,9 @@ pub fn queue(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R<i
     if existing.iter().any(|c| c.plan.cohort >= plan.cohort) {
         return Err(EvalError::Plan("cohort number must increase"));
     }
+    if plan.is_probe_cut() {
+        crate::eval::calendar::check_probe_cut(sql, &plan, &existing)?;
+    }
     let o = observed(sql)?;
     let stored = if plan.is_load() {
         serde_json::to_string(&plan).map_err(|_| EvalError::Plan("plan json"))?
@@ -1819,10 +1822,28 @@ pub fn queue(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R<i
 pub fn advance(sql: &impl Sql, now_ms: u64) -> R<Vec<String>> {
     let Some(e) = observed(sql)?.epoch else { return Ok(Vec::new()) };
     let mut moved = Vec::new();
+    // A same-authority probe cut (`calendar::check_probe_cut`) has no roster
+    // and pays nothing: it starts at once, whatever the cohorts before it
+    // are doing. Its work yields to every other cohort's (`active`): it runs
+    // only when no other cohort's work is runnable, earlier or later, so it
+    // never takes a queued or running cohort's turn or holds one back.
+    for c in cohorts(sql)? {
+        if c.phase == "queued" && c.plan.is_probe_cut() {
+            let active_now = observed(sql)?.active_tempos;
+            sql.exec(
+                "UPDATE cohorts SET queued_epoch = COALESCE(queued_epoch, ?), opened_epoch = ?, opened_block = ?,
+                    opened_ms = ?, opened_active = ?, admission_closed_epoch = ? WHERE seq = ?",
+                &[bind_u64(e.index)?, bind_u64(e.index)?, bind_u64(e.last_epoch_block)?, bind_u64(now_ms)?,
+                    bind_u64(active_now)?, bind_u64(e.index)?, i(c.seq)],
+            )?;
+            set_phase(sql, c.seq, "generating", now_ms, "probe cut: drawn at once beside the open cohorts; no roster, no target")?;
+            moved.push(format!("{}:generating", c.label));
+        }
+    }
     for c in cohorts(sql)? {
         let p = &c.plan;
-        if p.is_load() {
-            // Load cohorts never wait on a boundary.
+        if p.is_load() || p.is_probe_cut() {
+            // Load cohorts and probe cuts never wait on a boundary.
             continue;
         }
         let active_now = observed(sql)?.active_tempos;
@@ -1945,11 +1966,25 @@ pub fn advance(sql: &impl Sql, now_ms: u64) -> R<Vec<String>> {
     Ok(moved)
 }
 
-/// The cohort whose work is runnable now, if any.
+/// The cohort whose work is runnable now, if any: the first in seq order,
+/// except that a same-authority probe cut (`calendar::check_probe_cut`)
+/// yields to every other cohort with runnable work, earlier or later, so
+/// it never holds a cohort back. A yielding cut keeps its state and
+/// resumes when no other cohort's work is runnable.
 pub fn active(sql: &impl Sql) -> R<Option<Cohort>> {
-    Ok(cohorts(sql)?
-        .into_iter()
-        .find(|c| matches!(c.phase.as_str(), "generating" | "sealing" | "scoring" | "packaging") && c.fault.is_none()))
+    let mut cut = None;
+    for c in cohorts(sql)? {
+        if !matches!(c.phase.as_str(), "generating" | "sealing" | "scoring" | "packaging") || c.fault.is_some() {
+            continue;
+        }
+        if !c.plan.is_probe_cut() {
+            return Ok(Some(c));
+        }
+        if cut.is_none() {
+            cut = Some(c);
+        }
+    }
+    Ok(cut)
 }
 
 // ---------------------------------------------------------------------- draw
@@ -3898,7 +3933,8 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
         let v3 = if c.plan.is_v3() {
             let st = crate::eval::v3::state(sql, c.seq)?;
             let e = &q("SELECT admission_closed_epoch, published_epoch, closure_digest FROM cohorts WHERE seq = ?")?[0];
-            json!({"probe_build": c.plan.is_probe_build(), "mode": st.mode, "promoted": st.promoted,
+            json!({"probe_build": c.plan.is_probe_build(), "probe_cut": c.plan.is_probe_cut(),
+                "probe_version": c.plan.reward_v1.as_ref().and_then(|v| v.probe_version), "mode": st.mode, "promoted": st.promoted,
                 "unexecuted": st.unexecuted, "batch_tasks": st.batch_tasks, "probe_tasks": st.probe_tasks,
                 "audit_tasks": st.audit_tasks, "reference_index": st.reference_index,
                 "admission_closed_epoch": opt_int(e, 0), "published_epoch": opt_int(e, 1), "closure": opt_text(e, 2)})

@@ -2648,7 +2648,7 @@ fn the_v3_cohort_store_migrates_in_place_to_v7() {
         )
         .unwrap();
     let report = sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
-    assert_eq!((report.from, report.to), (3, 21));
+    assert_eq!((report.from, report.to), (3, 22));
     let st = status(&db, 5);
     assert_eq!(st["cohorts"][0]["phase"], "closed");
     assert_eq!(st["cohorts"][0]["jobs"][0]["status"], "done", "the jobs table was rebuilt with its rows");
@@ -2961,6 +2961,7 @@ fn v3_block(probes: Vec<super::plan::ProbeRef>) -> super::plan::RewardV1Plan {
         probe_version: None,
         incentive: None,
         task_order: None,
+        probe_cut: false,
     }
 }
 
@@ -6353,4 +6354,419 @@ fn the_strict_audit_leaves_out_documents_no_artifact_can_answer() {
     assert!(!strict(BTreeSet::new()), "an unanswered audit human counts as flagged");
     assert!(strict(BTreeSet::from([4])), "unless no artifact could answer it");
     assert!(!strict(BTreeSet::from([2])), "leaving out another document does not excuse the failure");
+}
+
+// ------------------------------------------------- same-authority probe cut
+
+/// A standing template of `p` under the testnet plan defaults: coordinator
+/// admission by spec v2 (roster cap 2, no fresh pool), one scoring lane per
+/// artifact, no pre-start, the incentive rule with provisional gates and
+/// the seeded task order.
+fn standing_of(prefix: &str, mut p: CohortPlan, probes: Vec<super::plan::ProbeRef>) -> super::calendar::Template {
+    let b = super::admission::SpecBounds::of(slop_ninja_artifact_check::spec::Version::V2).unwrap();
+    p.cohort = 0;
+    p.label = format!("{prefix}-template");
+    p.entrants = Vec::new();
+    p.allow_list = Vec::new();
+    p.admission_tempos = 2;
+    p.k_tempos = 6;
+    let f = p.fanout.as_mut().unwrap();
+    f.score.lane_docs = p.n;
+    f.score.artifact_max_mib = None;
+    f.score.artifact_spec = Some(b.spec_id.into());
+    f.score.load_ms_per_mib = Some(100);
+    f.generation.failures_before_pause = Some(10);
+    let v = p.reward_v1.as_mut().unwrap();
+    v.probes = probes;
+    v.lease_tempos = 2 * p.k_tempos as u32;
+    v.incentive = Some(super::plan::Incentive {
+        rule: super::plan::INCENTIVE_REFERENCE_MARGIN.into(),
+        provisional_gates: true,
+    });
+    v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    p.admission = Some(super::plan::AdmissionPlan {
+        artifact_spec: b.spec_id.into(),
+        artifact_spec_sha256: b.spec_sha256.clone(),
+        roster_cap: 2,
+        selection: slop_ninja_admission_wire::SELECTION_EARLIEST_COMMITMENT_V1.into(),
+        part_size: 64 << 20,
+        max_parts: 64,
+        request_validity_blocks: 360,
+        operator_hotkeys: Vec::new(),
+        operator_coldkeys: Vec::new(),
+        fresh_pool: None,
+    });
+    super::calendar::Template { schema: super::calendar::TEMPLATE_SCHEMA.into(), label_prefix: prefix.into(), plan: p }
+}
+
+/// One cohort row, every column by name, for before/after comparisons.
+fn cohort_row(db: &Sqlite, seq: i64) -> Vec<(String, String)> {
+    let mut stmt = db.conn.prepare("SELECT * FROM cohorts WHERE seq = ?1").unwrap();
+    let names: Vec<String> = stmt.column_names().into_iter().map(str::to_owned).collect();
+    stmt.query_row([seq], |r| {
+        Ok(names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let v = match r.get_ref(i).unwrap() {
+                    rusqlite::types::ValueRef::Text(t) => String::from_utf8_lossy(t).into_owned(),
+                    other => format!("{other:?}"),
+                };
+                (n.clone(), v)
+            })
+            .collect())
+    })
+    .unwrap()
+}
+
+/// The eval status as `GET /eval/status` reports it for the original
+/// authority (the authority fields and the reward regime the Worker adds).
+fn eval_status_of(db: &Sqlite, now: u64) -> Value {
+    let mut st = status(db, now);
+    st["schema_version"] = json!(22);
+    st["authority_name"] = json!("main");
+    st["first_cohort"] = json!(0);
+    st["predecessors"] = json!([]);
+    st["superseded_by"] = Value::Null;
+    st["succession_recorded"] = json!([]);
+    st["work"] = json!(false);
+    st["reward"] = tx(db, |s| v3::regime(s, &cfg().chain)).unwrap();
+    st
+}
+
+fn template_install(db: &Sqlite, t: &super::calendar::Template, now: u64) -> Result<Value, String> {
+    let bytes = serde_json::to_vec(t).unwrap();
+    tx(db, |s| super::calendar::install(s, &cfg(), &bytes, now)).map_err(|e| e.code().to_owned())
+}
+
+/// Ruling R1 (deploy-batch-2): a new probe version and a reinstalled
+/// standing template for an authority whose cohorts are open, without a
+/// chain-record restart. The live shape: probe v1 built, the standing
+/// template naming v1 installed, cohort 2 in its transition and cohort 3
+/// queued from that template. A probe cut (v2) prepared by the operator
+/// tool from the eval status queues beside them, runs to its close and
+/// changes neither row; the calendar never counts it (no cohort is queued
+/// while it runs, and it is never the current or next cohort). The
+/// template naming v2 installs (journaled, version 2, governing cohort 5
+/// on), its replay changes nothing, the queued cohort 3 keeps v1, and the
+/// next cohort the calendar queues names v2.
+#[test]
+fn a_probe_cut_runs_beside_open_cohorts_and_the_reinstalled_template_governs_only_later_cohorts() {
+    let db = Sqlite::open();
+    let (mut sim, weak, v1) = probe_built(&db);
+    let mut base = plan_v3(0, "testnet-t-template", 20, weak.clone());
+    base.reward_v1.as_mut().unwrap().canary.draw_humans = 4;
+    let t1 = standing_of("testnet-t", base.clone(), vec![v1.clone()]);
+    let r = template_install(&db, &t1, sim.now).unwrap();
+    assert_eq!((r["template_version"].clone(), r["governs_from"].clone()), (json!(1), json!(2)));
+    // Cohort 2 from the template, now in its transition; cohort 3 queued
+    // behind it from the same template (the live 19 and 20).
+    let (_, p2) = tx(&db, |s| super::calendar::due_any(s, 0)).unwrap().unwrap();
+    let c2 = tx(&db, |s| engine::queue(s, &cfg(), &p2, sim.now)).unwrap();
+    db.conn.execute("UPDATE cohorts SET phase = 'transition' WHERE seq = ?1", [c2]).unwrap();
+    let (l3, p3) = tx(&db, |s| super::calendar::due_any(s, 0)).unwrap().unwrap();
+    assert_eq!(l3, "testnet-t-3");
+    let c3 = tx(&db, |s| engine::queue(s, &cfg(), &p3, sim.now)).unwrap();
+    // Their own bookkeeping (cohort 2's spend settle) runs first, so the
+    // comparison below sees only what the cut could change.
+    for _ in 0..10 {
+        sim.tick();
+    }
+    let before = (cohort_row(&db, c2), cohort_row(&db, c3));
+
+    // The operator tool's cut, from the status read just before.
+    let probe_template = serde_json::to_value({
+        let mut p = plan_v3(0, "testnet-probe-template", 20, weak.clone());
+        p.reward_v1.as_mut().unwrap().canary.draw_humans = 0;
+        p
+    })
+    .unwrap();
+    let prepare = |version: Option<u32>, previous: Option<Value>| {
+        super::probe_cut::prepare(super::probe_cut::CutInputs {
+            status: &eval_status_of(&db, 0),
+            tracked: &crate::config::Authority::default(),
+            ceilings: cfg().ceilings,
+            probe_template: probe_template.clone(),
+            reference: serde_json::to_value(&weak).unwrap(),
+            previous_reference: previous,
+            probe_version: version,
+        })
+    };
+    assert!(prepare(Some(1), None).err().unwrap().contains("not above"), "v1 is built");
+    assert!(prepare(None, Some(serde_json::to_value(&weak).unwrap())).err().unwrap().contains("no predecessor"));
+    let cut = prepare(None, None).unwrap();
+    assert_eq!(cut.record["probe_version"], 2);
+    assert_eq!(cut.record["cohort"], 4);
+    assert_eq!(cut.record["label"], "testnet-probe-v2");
+    assert_eq!(cut.record["probe_record_key"], "probes/v2/record.json");
+    assert_eq!(cut.record["open_cohorts"].as_array().unwrap().len(), 2);
+
+    // The Worker's own checks in the queueing transaction.
+    let parsed: CohortPlan = serde_json::from_slice(&cut.plan).unwrap();
+    let refused = |p: &CohortPlan| refused_queue(&db, &cfg(), p);
+    let mut stale = parsed.clone();
+    stale.reference = v3_artifact(&mut sim, super::plan::tests::identity(7, 0xb7), [7, 7, 7, 7, 7]);
+    assert!(refused(&stale).starts_with("probe_cut: the references"), "{}", refused(&stale));
+    let mut old = parsed.clone();
+    old.reward_v1.as_mut().unwrap().probe_version = Some(1);
+    old.label = "testnet-probe-v1b".into();
+    assert!(refused(&old).starts_with("probe_cut: the probe version"));
+    let mut appended = parsed.clone();
+    appended.reward_v1.as_mut().unwrap().task_order = None;
+    assert!(refused(&appended).starts_with("reward_v1.probe_cut"), "a cut seals in the seeded order");
+    // An overflow from cohort 3 before the cut is queued names 4 (the
+    // number the cut then takes: the runbook queues the cut before the
+    // admitting cohort freezes); one from cohort 2 names the queued 3.
+    let after = |n: u64| tx(&db, |s| super::calendar::standing_after(s, n)).unwrap();
+    assert_eq!((after(2), after(3)), (3, 4));
+    let cut_seq = tx(&db, |s| engine::queue(s, &cfg(), &cut.plan, sim.now)).unwrap();
+    assert_eq!(tx(&db, |s| engine::queue(s, &cfg(), &cut.plan, sim.now)).unwrap(), cut_seq, "a replay is the same cut");
+    // Once the cut holds 4, an overflow from cohort 3 is sent to 5, the
+    // first cohort the reinstalled template can govern, never to the cut.
+    assert_eq!((after(2), after(3)), (3, 5));
+    let mut second = parsed.clone();
+    second.label = "testnet-probe-v3".into();
+    second.cohort = 5;
+    second.reward_v1.as_mut().unwrap().probe_version = Some(3);
+    assert_eq!(refused(&second), "probe_cut: another probe cut is open");
+    // Before the cut closes its version is not recorded: no template names it.
+    let v2_unrecorded = super::plan::ProbeRef { version: 2, size: 20, key: "probes/v2/record.json".into(), sha256: hex::encode([2; 32]) };
+    assert!(
+        template_install(&db, &standing_of("testnet-t", base.clone(), vec![v2_unrecorded]), sim.now)
+            .unwrap_err()
+            .starts_with("template_probe_unrecorded")
+    );
+    // The calendar ignores the cut: the queued cohort 3 is still the next
+    // one, and the current cohort is not the cut.
+    assert_eq!(tx(&db, super::calendar::next).unwrap().map(|n| n.cohort), Some(3));
+    assert_eq!(tx(&db, super::calendar::view).unwrap()["current"]["label"], "testnet-t-3");
+
+    // It runs at once beside them, at the same epoch, to its close.
+    let cohorts_before = tx(&db, engine::cohorts).unwrap().len();
+    assert_eq!(sim.run(cut_seq, 3_000), "closed", "fault {:?}", fault_of(&db, cut_seq));
+    assert_eq!(tx(&db, engine::cohorts).unwrap().len(), cohorts_before, "the calendar queued nothing beside the cut");
+    assert_eq!((cohort_row(&db, c2), cohort_row(&db, c3)), before, "the open cohorts are unchanged");
+    assert!(tx(&db, |s| super::calendar::due_any(s, 0)).unwrap().is_none(), "cohort 3 is still queued");
+    let fp: Vec<(String, i64)> = db
+        .conn
+        .prepare("SELECT content, version FROM fingerprints ORDER BY version")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(fp.len(), 2, "R_0 on v1 and on v2: {fp:?}");
+    assert_eq!(fp[0].0, fp[1].0);
+    assert_eq!(tx(&db, |s| v3::regime(s, &cfg().chain)).unwrap()["references"]["k"], 0, "the chain is unchanged");
+
+    // The reinstall names v2 from the record read back.
+    let record = sim.eval["probes/v2/record.json"].clone();
+    let probe = super::probe_cut::template_probe(&cut.record, &record).unwrap();
+    let v2: super::plan::ProbeRef = serde_json::from_value(probe).unwrap();
+    let t2 = standing_of("testnet-t", base.clone(), vec![v2.clone()]);
+    let r = template_install(&db, &t2, sim.now).unwrap();
+    assert_eq!(r["template_version"], 2);
+    // The cut holds cohort number 4, so the first cohort the template can
+    // govern is 5: the standing record goes 3, 5 (live: 20, then the cut as
+    // 21, then 22 under the new template).
+    assert_eq!(r["governs_from"], 5, "one past every cohort held, the cut included");
+    assert_eq!(r["probe_versions"], json!([2]));
+    let replay = template_install(&db, &t2, sim.now + 1).unwrap();
+    assert_eq!((replay["replayed"].clone(), replay["template_version"].clone(), replay["governs_from"].clone()), (json!(true), json!(2), json!(5)));
+    let journal: i64 = db.conn.query_row("SELECT COUNT(*) FROM template_installs", [], |r| r.get(0)).unwrap();
+    assert_eq!(journal, 2, "a replay adds no journal entry");
+    assert_eq!((cohort_row(&db, c2), cohort_row(&db, c3)), before, "installing changes no cohort");
+    let view = tx(&db, super::calendar::view).unwrap();
+    assert_eq!((view["template"]["version"].clone(), view["template"]["governs_from"].clone()), (json!(2), json!(5)));
+
+    // Cohort 3 keeps v1; the next cohort the calendar queues names v2.
+    let p3_now = tx(&db, |s| engine::cohort(s, c3)).unwrap().plan;
+    assert_eq!(p3_now.reward_v1.as_ref().unwrap().probes, vec![v1.clone()]);
+    db.conn.execute("UPDATE cohorts SET phase = 'closed' WHERE seq = ?1", [c2]).unwrap();
+    db.conn.execute("UPDATE cohorts SET phase = 'transition' WHERE seq = ?1", [c3]).unwrap();
+    let (l5, p5) = tx(&db, |s| super::calendar::due_any(s, 0)).unwrap().unwrap();
+    assert_eq!(l5, "testnet-t-5");
+    let p5: CohortPlan = serde_json::from_slice(&p5).unwrap();
+    assert_eq!(p5.reward_v1.as_ref().unwrap().probes, vec![v2]);
+    assert_eq!(p5.reference, weak, "the chain's reference");
+    assert_eq!(p5.fanout.as_ref().unwrap().generation.failures_before_pause, Some(10));
+    assert!(p5.reward_v1.as_ref().unwrap().seeded_task_order());
+    let bytes = serde_json::to_vec(&p5).unwrap();
+    tx(&db, |s| engine::queue(s, &cfg(), &bytes, sim.now)).unwrap();
+
+    // A reference with no fingerprint on a version the template names: the
+    // install is refused and the calendar pauses instead of queuing.
+    db.conn.execute("DELETE FROM fingerprints WHERE version = 2", []).unwrap();
+    let mut t3 = t2.clone();
+    t3.label_prefix = "testnet-u".into();
+    assert!(template_install(&db, &t3, sim.now).unwrap_err().starts_with("template_probe_unfingerprinted"));
+    db.conn.execute("UPDATE cohorts SET phase = 'transition' WHERE label = 'testnet-t-5'", []).unwrap();
+    db.conn.execute("UPDATE cohorts SET phase = 'closed' WHERE seq = ?1", [c3]).unwrap();
+    assert!(tx(&db, |s| super::calendar::due_any(s, 0)).unwrap().is_none());
+    let view = tx(&db, super::calendar::view).unwrap();
+    assert_eq!(view["template"]["paused"], true);
+    assert!(view["template"]["last_error"].as_str().unwrap().starts_with("template_probe_unfingerprinted"));
+}
+
+/// A probe cut seals only over the chain it was queued for: a chain that
+/// moved before its seal refuses the seal (and the cut pauses with its
+/// evidence), and a pending promotion refuses the cut outright.
+#[test]
+fn a_probe_cut_refuses_a_moved_chain_at_its_seal_and_a_pending_promotion() {
+    let db = Sqlite::open();
+    let (mut sim, weak, v1) = probe_built(&db);
+    let mut p = plan_v3(2, "testnet-probe-v2", 20, weak.clone());
+    p.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    let v = p.reward_v1.as_mut().unwrap();
+    v.probe_version = Some(2);
+    v.canary.draw_humans = 0;
+    v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    v.probe_cut = true;
+    // A cohort in its transition with a promotion pending refuses the cut.
+    let mut held = plan_v3(2, "testnet-rv1-held", 20, weak.clone());
+    held.reward_v1.as_mut().unwrap().probes = vec![v1];
+    held.entrants = vec![super::plan::tests::artifact(super::plan::tests::identity(3, 0xa3), 0x22)];
+    let hb = serde_json::to_vec(&held).unwrap();
+    let h = tx(&db, |s| engine::queue(s, &cfg(), &hb, sim.now)).unwrap();
+    let dg = v3::ArtifactDigests { content: v3::H(slop_ninja_protocol::Digest([2; 32])), artifact: v3::H(slop_ninja_protocol::Digest([3; 32])) };
+    let st = v3::V3State { promoted: Some(0), entrants: vec![dg], reference: Some(dg), ..Default::default() };
+    db.conn
+        .execute("UPDATE cohorts SET phase = 'transition', v3 = ?1 WHERE seq = ?2", (serde_json::to_string(&st).unwrap(), h))
+        .unwrap();
+    p.cohort = 3;
+    let bytes3 = serde_json::to_vec(&p).unwrap();
+    let err = tx(&db, |s| engine::queue(s, &cfg(), &bytes3, sim.now)).unwrap_err().code().to_owned();
+    assert!(err.starts_with("probe_cut: a promotion is pending"), "{err}");
+    // Closed without a promotion: the cut queues, and a chain moved before
+    // its seal refuses the seal.
+    db.conn.execute("UPDATE cohorts SET phase = 'closed', v3 = NULL WHERE seq = ?1", [h]).unwrap();
+    let seq = tx(&db, |s| engine::queue(s, &cfg(), &bytes3, sim.now)).unwrap();
+    sim.hold_seal = true;
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(&db, seq) == "sealing" {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, seq), "sealing");
+    let moved = slop_ninja_protocol::Digest([9; 32]).to_string();
+    db.conn.execute("UPDATE reference_state SET predecessor = ?1", [moved.as_str()]).unwrap();
+    let plan = tx(&db, |s| engine::cohort(s, seq)).unwrap().plan;
+    let inputs = v3::SealInputs {
+        reference: sim.artifact_digests(&plan.reference),
+        predecessor: None,
+        entrants: Vec::new(),
+    };
+    let err = tx(&db, |s| v3::prepare_seal(s, &cfg(), seq, &inputs)).unwrap_err().code().to_owned();
+    assert!(err.starts_with("probe_cut_chain"), "{err}");
+    db.conn.execute("UPDATE reference_state SET predecessor = NULL", []).unwrap();
+    sim.hold_seal = false;
+    assert_eq!(sim.run(seq, 3_000), "closed", "fault {:?}", fault_of(&db, seq));
+}
+
+/// A probe cut's work yields to a cohort queued after it: the later cohort
+/// takes the cohort object's work steps as soon as it has runnable work,
+/// although the cut was queued first and is mid-scoring, and runs to its
+/// transition; the cut still closes (`engine::active`).
+#[test]
+fn a_probe_cut_yields_its_work_to_a_later_cohort_and_resumes() {
+    let db = Sqlite::open();
+    let (mut sim, weak, v1) = probe_built(&db);
+    let mut cut = plan_v3(2, "testnet-probe-v2", 20, weak.clone());
+    cut.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    let v = cut.reward_v1.as_mut().unwrap();
+    v.probe_version = Some(2);
+    v.canary.draw_humans = 0;
+    v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    v.probe_cut = true;
+    let cut_bytes = serde_json::to_vec(&cut).unwrap();
+    let cut_seq = tx(&db, |s| engine::queue(s, &cfg(), &cut_bytes, sim.now)).unwrap();
+    for _ in 0..3_000 {
+        sim.tick();
+        if phase(&db, cut_seq) != "generating" && phase(&db, cut_seq) != "sealing" {
+            break;
+        }
+    }
+    assert_eq!(phase(&db, cut_seq), "scoring", "fault {:?}", fault_of(&db, cut_seq));
+
+    let id = super::plan::tests::identity;
+    let good = v3_artifact(&mut sim, id(23, 0xc3), [1, 2, 3, 23, 5]);
+    let mut p = plan_v3(3, "testnet-rv1-later", 20, weak);
+    p.entrants = vec![good];
+    p.allow_list = vec![id(23, 0xc3)];
+    p.reward_v1.as_mut().unwrap().probes = vec![v1];
+    let later = open_cohort(&db, &p, 20, sim.now);
+    for _ in 0..100 {
+        if matches!(phase(&db, later).as_str(), "generating" | "sealing" | "scoring" | "packaging") {
+            break;
+        }
+        sim.tick();
+    }
+    assert_eq!(phase(&db, later), "generating");
+    assert_eq!(tx(&db, engine::active).unwrap().map(|c| c.seq), Some(later), "the cut yields");
+    let left = sim.run(later, 3_000);
+    assert_eq!(left, "transition", "fault {:?}", fault_of(&db, later));
+    // Lane replies already in flight (and a due closure) still commit to the
+    // cut by seq, on its own lane objects, so it may have finished beside the
+    // later cohort; either way it closes.
+    if phase(&db, cut_seq) != "closed" {
+        assert_eq!(sim.run(cut_seq, 3_000), "closed", "fault {:?}", fault_of(&db, cut_seq));
+    }
+    let fp: i64 = db.conn.query_row("SELECT COUNT(*) FROM fingerprints WHERE version = 2", [], |r| r.get(0)).unwrap();
+    assert_eq!(fp, 1, "the cut fingerprinted R_0 on v2");
+}
+
+/// A cohort queued before a probe cut does its work after the cut closed:
+/// the cut's higher seq never touches that cohort's lane objects (a lane
+/// keeps only its newest `(seq, gen)`), because a cut's lanes have their own
+/// names (`lanes::lane_scope_of`).
+#[test]
+fn a_cohort_queued_before_a_probe_cut_runs_on_its_own_lanes_after_the_cut() {
+    let db = Sqlite::open();
+    let (mut sim, weak, v1) = probe_built(&db);
+    let id = super::plan::tests::identity;
+    let good = v3_artifact(&mut sim, id(23, 0xc3), [1, 2, 3, 23, 5]);
+    let mut p = plan_v3(2, "testnet-rv1-before", 20, weak.clone());
+    p.entrants = vec![good];
+    p.allow_list = vec![id(23, 0xc3)];
+    p.reward_v1.as_mut().unwrap().probes = vec![v1];
+    let pb = serde_json::to_vec(&p).unwrap();
+    let before = tx(&db, |s| engine::queue(s, &cfg(), &pb, sim.now)).unwrap();
+    let mut cut = plan_v3(3, "testnet-probe-v2", 20, weak);
+    cut.schema = super::plan::PROBE_PLAN_SCHEMA.into();
+    let v = cut.reward_v1.as_mut().unwrap();
+    v.probe_version = Some(2);
+    v.canary.draw_humans = 0;
+    v.task_order = Some(super::plan::TASK_ORDER_SEEDED_RANK.into());
+    v.probe_cut = true;
+    let cb = serde_json::to_vec(&cut).unwrap();
+    let cut_seq = tx(&db, |s| engine::queue(s, &cfg(), &cb, sim.now)).unwrap();
+    assert!(cut_seq > before);
+    assert_eq!(sim.run(cut_seq, 3_000), "closed", "fault {:?}", fault_of(&db, cut_seq));
+    assert_eq!(phase(&db, before), "queued");
+    let names = |seq: i64| -> Vec<String> {
+        db.conn
+            .prepare("SELECT name FROM lanes WHERE seq = ?1")
+            .unwrap()
+            .query_map([seq], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+
+    kick_at(&db, 20, sim.now);
+    kick_at(&db, 21, sim.now);
+    kick_at(&db, 22, sim.now);
+    for _ in 0..100 {
+        if matches!(phase(&db, before).as_str(), "generating" | "sealing" | "scoring" | "packaging") {
+            break;
+        }
+        sim.tick();
+    }
+    assert_eq!(phase(&db, before), "generating");
+    assert_eq!(sim.run(before, 3_000), "transition", "fault {:?}", fault_of(&db, before));
+    let cut_names = names(cut_seq);
+    assert!(!cut_names.is_empty() && cut_names.iter().all(|n| n.contains("/main/probe-cut/")), "{cut_names:?}");
+    let own = names(before);
+    assert!(own.iter().all(|n| !n.contains("probe-cut") && !cut_names.contains(n)), "{own:?}");
 }

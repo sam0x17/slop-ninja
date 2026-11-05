@@ -904,5 +904,11 @@ pub const EVAL_COHORT_SCHEMA: Schema = Schema {
             version: 21,
             statements: crate::eval::admission::SCHEMA_V21,
         },
+        // v22: the standing template install journal (same-authority
+        // reinstalls with a probe cut's version).
+        Migration {
+            version: 22,
+            statements: crate::eval::calendar::SCHEMA_V22,
+        },
     ],
 };

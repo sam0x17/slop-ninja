@@ -528,6 +528,19 @@ pub struct RewardV1Plan {
     /// is stored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_order: Option<String>,
+    /// Probe build only: a same-authority probe cut. The authority already
+    /// holds cohorts and a reference chain; the build records a new probe
+    /// version and fingerprints the chain's current references on it while
+    /// those cohorts stay open, so a reinstalled standing template can name
+    /// the version for the cohorts queued after it
+    /// (`engine::queue`, `calendar::install`). It never waits on a boundary,
+    /// its work yields to every other cohort's (`engine::active`), and it is
+    /// outside the calendar, though it holds a cohort number. It seals
+    /// in the seeded task order. Absent (false) in a chain-record restart's
+    /// probe build, which is its authority's first cohort. An eval build
+    /// older than this field refuses any plan naming it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub probe_cut: bool,
 }
 
 /// The seeded task order (`reward_v1.task_order`): after selection, every
@@ -746,7 +759,12 @@ impl RewardV1Plan {
         if probe_build {
             e(self.probe_version.is_some_and(|v| v >= 1), "reward_v1.probe_version")?;
             e(self.probes.is_empty(), "reward_v1.probes (none in a probe build)")?;
+            e(
+                !self.probe_cut || self.seeded_task_order(),
+                "reward_v1.probe_cut (a probe cut seals in the seeded_rank_v1 task order)",
+            )?;
         } else {
+            e(!self.probe_cut, "reward_v1.probe_cut (probe builds only)")?;
             e(self.probe_version.is_none(), "reward_v1.probe_version (probe builds only)")?;
             e(!self.probes.is_empty(), "reward_v1.probes (at least one version in use)")?;
             let mut last = 0u32;
@@ -1000,6 +1018,11 @@ impl CohortPlan {
     /// A probe build: no admission wait, no package or target.
     pub fn is_probe_build(&self) -> bool {
         self.schema == PROBE_PLAN_SCHEMA
+    }
+
+    /// A same-authority probe cut ([`RewardV1Plan::probe_cut`]).
+    pub fn is_probe_cut(&self) -> bool {
+        self.is_probe_build() && self.reward_v1.as_ref().is_some_and(|v| v.probe_cut)
     }
 
     /// Items to create per kind, spares included for the generated kinds.

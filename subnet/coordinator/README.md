@@ -59,7 +59,7 @@ and the `fetch` RPC transport, and compiles only for `wasm32`.
 | `POST /eval/plan`, `/eval/clear` | Queue a cohort plan; clear a resumable cohort fault (`{"label": ...}`). Operator token. |
 | `POST /eval/abandon` | End a faulted cohort without a target (`{"label": ..., "reason": "<code>"}`); the only exit of a terminal fault. Operator token. |
 | `POST /eval/probe`, `/eval/scorer-probe` | Pre-flight one generator, or the scorer path, on fixed synthetic text; the measured cost is settled in the spend ledger. Operator token. |
-| `POST /eval/template`, `/eval/template/pause`, `GET /eval/calendar` | Install the standing cohort template; pause or resume opening cohorts from it (`{"paused": bool}`); the cohort calendar. Operator token. |
+| `POST /eval/template`, `/eval/template/pause`, `GET /eval/calendar` | Install the standing cohort template (journaled; the installed bytes again are a replay that changes nothing); pause or resume opening cohorts from it (`{"paused": bool}`); the cohort calendar. Operator token. |
 | `POST /eval/session/refuse`, `/eval/session/dispatch` | Refuse a stalled session (`{session, reason}`); re-send or clear one outstanding admission work dispatch (`{session, dispatch, action: "resend"\|"clear"}`). Operator token. |
 | `/admission/...` | Always 404. The public admission routes (contract `slop_ninja.admission/v1`, `docs/testnet/admission-api.md`) are the key-free upload Worker's (`subnet/admission-worker`, `slop-ninja-admission-testnet`), not this Worker's. |
 | `POST /internal/admission/v1/<op>` | `EVAL_ROLE = "eval"` only. The internal admission interface, reachable only through the upload Worker's service binding: a request must name the internal host `eval-admission.internal`, which no public route carries, and present the shared `ADMISSION_INTERFACE_TOKEN` (compared in constant time). Anything else answers 404. The body is one forwarded, already checked request (`slop_ninja_admission_wire::internal::Forward`), relayed to the cohort authority. |
@@ -2125,9 +2125,10 @@ signed index's bytes, and whether the embedded schema v2 form would still
 fit (`capacity`). It must run the testnet plan defaults of the
 2026-11-01 ruling: `lane_docs >= n` (one scoring lane per artifact),
 `prestart_lead_ms = 0`, and `reward_v1.incentive` with its provisional-gates
-flag. When nothing is queued and the latest cohort is in its transition (or
-closed or abandoned), the cohort object queues the next cohort from it,
-numbered after the last and labelled `<label_prefix>-<cohort>`, naming the
+flag. When nothing is queued and the latest cohort other than a probe cut
+is in its transition (or closed or abandoned), the cohort object queues the
+next cohort from it, numbered one past every cohort held (probe cuts
+included) and labelled `<label_prefix>-<cohort>`, naming the
 references its seal will meet: a promotion in the cohort now in its
 transition (the promoted entrant as R_k, that cohort's reference as
 R_{k-1}), else the chain `reference_state` holds, else (no chain yet) the
@@ -2158,6 +2159,61 @@ interval it assumed. A template plan the
 engine refuses, or a chain the store cannot name, pauses the template with
 the reason; only the calendar's own step does that, never a status read. A seal whose plan names other references than the chain faults
 the cohort (`reference_chain_mismatch`) rather than retrying.
+
+**Template installs and same-authority probe cuts.** Installs are
+journaled (eval store v22, `template_installs`): every install of other
+bytes than the installed template's appends its version, digest, the probe
+versions it names and `governs_from`, one past every cohort number the
+store holds at the install. A queued or running cohort keeps the plan bytes
+it was queued with, so a template governs only the cohorts the calendar
+queues after its install. Posting the installed bytes again is a replay:
+nothing changes, no entry is added, a paused calendar stays paused (resume
+with `/eval/template/pause` and `{"paused": false}`), and the reply carries
+`replayed: true` with the original entry. A template names only probe
+versions the store recorded (a closed probe build's record, by version,
+digest, size and key: `template_probe_unrecorded`), and the next cohort's
+references must hold a fingerprint on each version it names
+(`template_probe_unfingerprinted`: refused at install; at the calendar's
+own step it pauses the template with that reason instead of queuing a
+cohort whose probe comparisons could not package, as after a promotion the
+template's probe versions never measured). `GET /eval/calendar` reports the
+template's `version` and `governs_from`.
+
+A new probe version for an authority whose cohorts are open comes from a
+**probe cut**: a probe build plan with `reward_v1.probe_cut` (the seeded
+task order, no admission block) queued with `POST /eval/plan`. In the
+queueing transaction the cohort object refuses it unless the authority
+already holds a cohort, no other cut is open, its version exceeds every
+probe version any build here named, no promotion is pending in a cohort's
+transition, and its references are exactly the chain's current ones as the
+stored records name them (`probe_cut: ...`); the seal checks the chain
+again (`probe_cut_chain`). The cut takes the next cohort number and starts
+at once, whatever the cohorts before it are doing. Cohort work otherwise
+runs in seq order, but a cut's work yields to every other cohort's: it runs
+only when no other cohort's work is runnable, earlier or later, so it never
+holds a cohort back (a yielding cut keeps its state and resumes; replies
+from its lanes already running still commit). Its lanes are lane objects of
+their own (`<scope>/probe-cut/...`): a lane object keeps only the newest
+`(seq, gen)` it was kicked with, and the cut's seq is above the cohort
+queued before it, so on shared lane objects that cohort's kicks would be
+refused for good. Cut scoring lanes are Container instances under the same
+`max_instances` as the cohorts': a cut's lanes and a concurrent cohort's
+together must fit `MAX_SCORE_LANES`. The calendar ignores cuts when it decides whether a
+cohort is due and which cohorts are current and next, but numbers its next
+cohort past them, so the standing cohorts' numbers skip the cut's (the
+publisher leaves probe builds out of the public record), and an admission
+overflow names the next standing cohort, never a cut. The cut draws,
+generates and seals its probe documents (the draw joins the pool's used set
+like any other, so later draws, an already queued cohort's included, prefer
+rows neither drew; an exposed pool can draw a row again, so nothing falls
+short, and no plan or template changes), scores the chain's references on them, records the version and
+their fingerprints (publishing nothing new) and closes with no package or
+target; like every probe build it is not a completion for receipt
+retention. `slop_ninja_eval_ops probe-cut` prepares the plan from the eval
+status, and `template-reinstall` the template naming the cut's version
+(TESTNET.md, "Same-authority template reinstall"). No chain-record restart
+is involved: the chain, the published index, the targets and every open
+cohort's plan stay as they are.
 
 **Load instance.** `eval-cohort/testnet/<genesis>/<netuid>/load` accepts only
 `slop_ninja_eval_load_plan_v1`: it re-scores an existing sealed batch through

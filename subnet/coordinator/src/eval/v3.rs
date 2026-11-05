@@ -1478,6 +1478,26 @@ pub fn seeded_task_order<T>(seed: &[u8; 32], docs: Vec<(&str, T)>) -> Vec<T> {
     keyed.into_iter().map(|(_, d)| d).collect()
 }
 
+/// A same-authority probe cut seals only over the chain it was queued for:
+/// the references it scores (by the content digests read before the seal)
+/// are `reference_state`'s current reference and predecessor, so the
+/// fingerprints it records are the ones the next cohort's references need
+/// and it publishes no content the chain has not already published. A chain
+/// that moved since the cut was queued refuses the seal (the cut pauses with
+/// its evidence; the operator abandons it and cuts again).
+fn probe_cut_chain_holds(sql: &impl Sql, inputs: &SealInputs) -> R<()> {
+    let rows = sql.exec("SELECT current, predecessor FROM reference_state WHERE id = 1", &[])?;
+    let r = rows.first().ok_or(EvalError::State("probe_cut_chain: no reference chain"))?;
+    let current = text(r, 0)?;
+    let predecessor = opt_text(r, 1);
+    if inputs.reference.content.0.to_string() != current
+        || inputs.predecessor.map(|p| p.content.0.to_string()) != predecessor
+    {
+        return Err(EvalError::State("probe_cut_chain: the references are not the chain's current ones"));
+    }
+    Ok(())
+}
+
 /// Builds the sealed task space, the private batch index, the shards and, for
 /// a cohort, the reward-v1 manifest.
 pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInputs) -> R<SealBuild> {
@@ -1487,6 +1507,9 @@ pub fn prepare_seal(sql: &impl Sql, cfg: &EvalConfig, seq: i64, inputs: &SealInp
     }
     let plan = &c.plan;
     let v = v1(plan)?;
+    if plan.is_probe_cut() {
+        probe_cut_chain_holds(sql, inputs)?;
+    }
     let want = plan.counts();
     let rows = sql.exec(
         "SELECT idx, kind, domain, source_group, text, text_sha256, share_ppb, span_start, span_end, generator,

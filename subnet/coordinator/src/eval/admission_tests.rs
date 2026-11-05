@@ -136,9 +136,35 @@ fn admission_plan(cohort: u64, cap: u16) -> plan::CohortPlan {
             provisional_gates: true,
         }),
         task_order: Some(plan::TASK_ORDER_SEEDED_RANK.into()),
+        probe_cut: false,
     });
     p.admission = Some(admission_block(cap));
     p
+}
+
+/// Records every probe version `t` names, as a closed probe build would:
+/// `calendar::install` names only probe versions the store recorded.
+fn record_probes(db: &Sqlite, t: &crate::eval::calendar::Template) {
+    for p in &t.plan.reward_v1.as_ref().unwrap().probes {
+        db.conn
+            .execute(
+                "INSERT OR IGNORE INTO probe_versions (version, record_key, record_sha256, size, digest, seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+                (p.version, &p.key, &p.sha256, p.size, hex::encode([0u8; 32])),
+            )
+            .unwrap();
+    }
+}
+
+/// A fingerprint of `content` on probe version `version`, as a probe build
+/// or a close records it.
+fn record_fingerprint(db: &Sqlite, content: Digest, version: u32) {
+    db.conn
+        .execute(
+            "INSERT INTO fingerprints (content, version, fingerprint, vector_key, seq) VALUES (?1, ?2, ?3, 'fp', 0)",
+            (content.to_string(), version, hex::encode([0u8; 32])),
+        )
+        .unwrap();
 }
 
 fn key(n: u8) -> crate::chain::Hotkey {
@@ -1615,6 +1641,7 @@ fn reading_status_never_pauses_the_calendar() {
         plan: template_plan(0, 40),
     };
     let bytes = serde_json::to_vec(&t).unwrap();
+    record_probes(&db, &t);
     tx(&db, |s| crate::eval::calendar::install(s, &cfg(), &bytes, NOW)).unwrap();
     tx(&db, |s| {
         s.exec(
@@ -1780,6 +1807,7 @@ fn the_calendar_opens_cohorts_from_the_standing_template() {
         plan: template_plan(0, 40),
     };
     let bytes = serde_json::to_vec(&t).unwrap();
+    record_probes(&db, &t);
     tx(&db, |s| crate::eval::calendar::install(s, &cfg(), &bytes, NOW)).unwrap();
     // Between windows the cohort read names the next cohort's contract,
     // object bound and spec from the plan it opens with (here the template's;
@@ -1865,6 +1893,7 @@ fn the_calendar_names_the_next_opening_at_the_earliest_close_before_it() {
     };
     let (k, a, tr) = (t.plan.k_tempos, t.plan.admission_tempos, t.plan.transition_tempos);
     assert_eq!((k, a, tr), (4, 1, 2));
+    record_probes(&db, &t);
     tx(&db, |s| calendar::install(s, &cfg(), &serde_json::to_vec(&t).unwrap(), NOW)).unwrap();
     let next = |db: &Sqlite| tx(db, calendar::next).unwrap().unwrap();
     // A boundary the coordinator credited (one active tempo per epoch), and
@@ -2161,6 +2190,7 @@ fn a_named_authoritys_spec_v3_template_opens_its_own_numbers_and_labels() {
     assert!(crate::eval::calendar::check(&r0, &other).is_err(), "labels carry the authority's prefix");
     let db = Sqlite::open();
     tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    record_probes(&db, &t);
     let reply = tx(&db, |s| crate::eval::calendar::install(s, &r0, &bytes, NOW)).unwrap();
     assert_eq!(reply["capacity"]["roster_cap"], 4);
     let (label, plan_bytes) = tx(&db, |s| crate::eval::calendar::due(s, &r0)).unwrap().unwrap();
@@ -3007,6 +3037,7 @@ fn the_calendar_follows_a_pending_promotion_and_the_chain_not_the_template() {
         label_prefix: "testnet-cohort".into(),
         plan: template_plan(0, 40),
     };
+    record_probes(&db, &t);
     tx(&db, |s| {
         crate::eval::calendar::install(s, &cfg(), &serde_json::to_vec(&t).unwrap(), NOW)
     })
@@ -3021,12 +3052,21 @@ fn the_calendar_follows_a_pending_promotion_and_the_chain_not_the_template() {
         content: H(Digest([b; 32])),
         artifact: H(Digest([b ^ 0xff; 32])),
     };
+    // The promoted entrant's fingerprint on the cohort's probe version is
+    // pending at its close; the reference's is recorded.
     let st = V3State {
         reference: Some(dg(0x01)),
         entrants: vec![dg(0x02)],
         promoted: Some(0),
+        pending_fingerprints: vec![crate::eval::v3::PendingFingerprint {
+            content: H(Digest([0x02; 32])),
+            version: 1,
+            fingerprint: H(Digest([0; 32])),
+            vector_key: "fp".into(),
+        }],
         ..Default::default()
     };
+    record_fingerprint(&db, Digest([0x01; 32]), 1);
     tx(&db, |s| {
         s.exec(
             "UPDATE cohorts SET plan = ?, phase = 'transition', v3 = ? WHERE seq = 1",
@@ -3048,8 +3088,22 @@ fn the_calendar_follows_a_pending_promotion_and_the_chain_not_the_template() {
         next.previous_reference.as_ref().map(|p| p.package_sha256.clone()),
         Some(t.plan.reference.package_sha256.clone())
     );
+    // Without the promoted entrant's fingerprint on a version the template
+    // names, the calendar pauses instead of queuing a cohort that could not
+    // package.
+    let bare = V3State { pending_fingerprints: Vec::new(), ..st.clone() };
+    tx(&db, |s| {
+        s.exec("UPDATE cohorts SET v3 = ? WHERE seq = 1", &[SqlValue::Text(serde_json::to_string(&bare).unwrap())]).map(|_| ())
+    })
+    .unwrap();
+    assert!(tx(&db, |s| crate::eval::calendar::due_any(s, 0)).unwrap().is_none());
+    let view = tx(&db, crate::eval::calendar::view).unwrap();
+    assert!(view["template"]["last_error"].as_str().unwrap().starts_with("template_probe_unfingerprinted"));
+    tx(&db, |s| crate::eval::calendar::set_paused(s, false)).unwrap();
     // Closed: the chain (as `close` leaves it) is followed, and a reinstall
-    // of the template never resets it.
+    // of the template never resets it (the close recorded the promoted
+    // entrant's fingerprint).
+    record_fingerprint(&db, Digest([0x02; 32]), 1);
     tx(&db, |s| {
         s.exec("UPDATE cohorts SET phase = 'closed' WHERE seq = 1", &[])?;
         s.exec(
@@ -3640,7 +3694,7 @@ fn store_v21_restarts_the_reader_call_maxima_and_keeps_the_failure_count() {
     let max = tx(&db, |q| q.exec("SELECT plan_ms_max FROM commit_reader WHERE id = 1", &[])).unwrap();
     assert_eq!(crate::sql::int(&max[0], 0).unwrap(), 3000);
     let report = tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
-    assert_eq!((report.from, report.to), (20, 21));
+    assert_eq!((report.from, report.to), (20, 22));
     let c = calls(&db);
     assert_eq!((c["plan_ms_max"].as_i64(), c["ingest_ms_max"].as_i64(), c["failed"].as_i64()), (Some(0), Some(0), Some(1)));
     assert_eq!(c["plan_ms_last"], 80);
@@ -3912,4 +3966,44 @@ fn arena_witness_admission_work_fits() {
         assert!(tx(&db, |s| blobs_created(s, &b.session, b.dispatch, &b.created, b.manifest)).unwrap());
     });
     set_mode(Mode::Observe);
+}
+
+/// The install journal (store v22): a template installed before it is its
+/// version 1 (governing an unrecorded range), a retried install of those
+/// bytes is a replay that changes nothing, and another template is version
+/// 2, naming the digest it replaced and the first cohort it can govern.
+#[test]
+fn a_template_installed_before_the_journal_is_its_first_version() {
+    use crate::eval::calendar;
+    let db = Sqlite::open();
+    let v21 = crate::sql::Schema { family: EVAL_COHORT_SCHEMA.family, migrations: &EVAL_COHORT_SCHEMA.migrations[..21] };
+    tx(&db, |s| crate::sql::migrate(s, &v21)).unwrap();
+    let t = calendar::Template {
+        schema: calendar::TEMPLATE_SCHEMA.into(),
+        label_prefix: "testnet-cohort".into(),
+        plan: template_plan(0, 40),
+    };
+    let bytes = serde_json::to_vec(&t).unwrap();
+    let sha = crate::eval::engine::sha_hex(&bytes);
+    db.conn
+        .execute(
+            "INSERT INTO standing_template (id, template, sha256, installed_ms, paused, first_cohort) VALUES (1, ?1, ?2, 5, 1, 0)",
+            (String::from_utf8(bytes.clone()).unwrap(), &sha),
+        )
+        .unwrap();
+    tx(&db, |s| crate::sql::migrate(s, &EVAL_COHORT_SCHEMA)).unwrap();
+    record_probes(&db, &t);
+    let r = tx(&db, |s| calendar::install(s, &cfg(), &bytes, NOW)).unwrap();
+    assert_eq!(r["replayed"], true);
+    assert_eq!(r["template_version"], 1);
+    assert!(r["governs_from"].is_null());
+    assert_eq!(r["paused"], true, "a replay never resumes a paused calendar");
+    let mut narrower = t.clone();
+    narrower.plan.admission.as_mut().unwrap().roster_cap = 39;
+    let r = tx(&db, |s| calendar::install(s, &cfg(), &serde_json::to_vec(&narrower).unwrap(), NOW + 1)).unwrap();
+    assert_eq!((r["template_version"].clone(), r["governs_from"].clone(), r["probe_versions"].clone()), (json!(2), json!(1), json!([1])));
+    let replaced: String =
+        db.conn.query_row("SELECT replaced_sha256 FROM template_installs WHERE version = 2", [], |r| r.get(0)).unwrap();
+    assert_eq!(replaced, sha);
+    assert_eq!(tx(&db, calendar::view).unwrap()["template"]["paused"], false, "a new template resumes the calendar");
 }

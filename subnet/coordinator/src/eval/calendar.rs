@@ -43,6 +43,18 @@
 //! W = 1), no scoring pre-start, and the incentive rule with its provisional
 //! gates flag. Installing a template never changes a queued or running
 //! cohort.
+//!
+//! **Same-authority reinstall.** Installs are journaled (`template_installs`:
+//! version, digest, the first cohort number the template can govern, its
+//! probe versions) and a retried install of the installed bytes is a replay
+//! that changes nothing. A template names only probe versions this store
+//! recorded, and the calendar queues a cohort only when its references hold
+//! a fingerprint on every probe version it would use. A new probe version
+//! for an authority whose cohorts are open comes from a probe cut
+//! ([`check_probe_cut`]): a probe build that runs beside them, outside the
+//! calendar, and fingerprints the chain's current references. The template
+//! reinstalled with the cut's version then governs only the cohorts queued
+//! after the install; no chain-record restart is needed.
 #![cfg_attr(
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)
@@ -54,6 +66,15 @@ use crate::sql::{Sql, bind_u64, int, text};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use slop_ninja_admission_wire::json::NextCohort;
+
+/// SQL predicate over `cohorts`: the row is not a same-authority probe cut
+/// (`reward_v1.probe_cut`). The calendar decides what is due, current and
+/// next without them.
+macro_rules! not_probe_cut {
+    () => {
+        "COALESCE(json_extract(plan, '$.reward_v1.probe_cut'), 0) = 0"
+    };
+}
 
 pub const TEMPLATE_SCHEMA: &str = "slop_ninja_eval_cohort_template_v1";
 
@@ -255,26 +276,163 @@ pub fn capacity(t: &Template) -> Value {
         "validator_bundle_schema": if embedded.is_some_and(|b| b <= bound) { "v2 or v3" } else { "v3" }})
 }
 
-/// Installs (or replaces) the standing template. A reference chain that
-/// exists must resolve to a stored artifact record (the calendar names it);
-/// the reply says which references the next cohort names.
+/// v22: the template install journal. Every install of a template whose
+/// bytes differ from the installed one appends a row: its version (1, 2,
+/// ...), digest, install time, the first cohort number it can govern
+/// (`governs_from`: one past every cohort the store held at the install, so
+/// a queued or running cohort keeps the plan it was queued with), the probe
+/// versions it names, and the digest it replaced. A store whose template
+/// was installed before the journal records it as version 1 with neither
+/// known.
+pub const SCHEMA_V22: &[&str] = &[
+    "CREATE TABLE template_installs (
+        version INTEGER PRIMARY KEY, sha256 TEXT NOT NULL, installed_ms INTEGER NOT NULL,
+        governs_from INTEGER, probe_versions TEXT, replaced_sha256 TEXT
+    ) STRICT",
+    "INSERT INTO template_installs (version, sha256, installed_ms)
+     SELECT 1, sha256, installed_ms FROM standing_template WHERE id = 1",
+];
+
+/// The latest journal entry: `(version, sha256, governs_from)`.
+fn latest_install(sql: &impl Sql) -> R<Option<(i64, String, Option<i64>)>> {
+    let rows = sql.exec(
+        "SELECT version, sha256, governs_from FROM template_installs ORDER BY version DESC LIMIT 1",
+        &[],
+    )?;
+    let Some(r) = rows.first() else { return Ok(None) };
+    Ok(Some((int(r, 0)?, text(r, 1)?.to_owned(), opt_int(r, 2))))
+}
+
+/// The digest of the installed template, if any.
+fn installed_sha(sql: &impl Sql) -> R<Option<String>> {
+    let rows = sql.exec("SELECT sha256 FROM standing_template WHERE id = 1", &[])?;
+    rows.first().map(|r| text(r, 0).map(str::to_owned)).transpose().map_err(Into::into)
+}
+
+/// A template names only probe versions this store recorded (a closed
+/// probe build's `probe_versions` row), each with that record's digest,
+/// size and key, so a cohort it queues can seal.
+fn probes_recorded(sql: &impl Sql, plan: &CohortPlan) -> R<()> {
+    let Some(v) = plan.reward_v1.as_ref() else { return Ok(()) };
+    for p in &v.probes {
+        let rows = sql.exec(
+            "SELECT record_key, record_sha256, size FROM probe_versions WHERE version = ?",
+            &[i(i64::from(p.version))],
+        )?;
+        let ok = rows.first().is_some_and(|r| {
+            text(r, 0).is_ok_and(|k| k == p.key)
+                && text(r, 1).is_ok_and(|d| d == p.sha256)
+                && int(r, 2).is_ok_and(|n| n == i64::from(p.size))
+        });
+        if !ok {
+            return Err(EvalError::Plan(
+                "template_probe_unrecorded: the template names a probe version this store has not recorded, or another record of it",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The first `(content, probe version)` the next cohort's references lack a
+/// fingerprint for, if any. Every probe version a cohort uses needs both
+/// references' fingerprints on it (`ScorePackageV2::reference_probe_keys`),
+/// recorded by a probe build or by the close that published the content
+/// (or pending at the close of the cohort now in its transition). Template
+/// references (no chain yet) are not checked: the chain's first probe build
+/// fingerprints them.
+fn unfingerprinted(sql: &impl Sql, plan: &CohortPlan, next: &NextReferences) -> R<Option<(String, u32)>> {
+    let Some(v) = plan.reward_v1.as_ref() else { return Ok(None) };
+    let Some((current, previous)) = &next.contents else { return Ok(None) };
+    let pending = match next.pending_seq {
+        Some(seq) => crate::eval::v3::state(sql, seq)?.pending_fingerprints,
+        None => Vec::new(),
+    };
+    for p in &v.probes {
+        for content in std::iter::once(current).chain(previous.iter()) {
+            let stored = !sql
+                .exec(
+                    "SELECT 1 FROM fingerprints WHERE content = ? AND version = ?",
+                    &[s(content.as_str()), i(i64::from(p.version))],
+                )?
+                .is_empty();
+            let at_close = pending.iter().any(|f| f.version == p.version && &f.content.0.to_string() == content);
+            if !stored && !at_close {
+                return Ok(Some((content.clone(), p.version)));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Installs (or replaces) the standing template, journaled
+/// ([`SCHEMA_V22`]). A reference chain that exists must resolve to a stored
+/// artifact record (the calendar names it); every probe version the
+/// template names must be recorded here, and the next cohort's references
+/// must hold a fingerprint on each. The reply says which references the
+/// next cohort names, the template version and the first cohort number it
+/// can govern.
+///
+/// The install changes no cohort: a queued cohort keeps the plan bytes it
+/// was queued with, so the template governs only cohorts the calendar
+/// queues after it (numbered from `governs_from`). Installing the bytes of
+/// the installed template again (a retried request) is a replay: nothing
+/// changes, the journal gains no entry and the reply names the original
+/// entry; a paused calendar stays paused (`POST /eval/template/pause` with
+/// `{"paused": false}` resumes it).
 pub fn install(sql: &impl Sql, cfg: &EvalConfig, bytes: &[u8], now_ms: u64) -> R<Value> {
     let t = check(cfg, bytes)?;
-    let (next_ref, next_prev, source) = references(sql, &t)?;
-    let text = std::str::from_utf8(bytes).map_err(|_| EvalError::Plan("template utf-8"))?;
     let sha = engine::sha_hex(bytes);
+    let replaced = installed_sha(sql)?;
+    if replaced.as_deref() == Some(sha.as_str())
+        && let Some((version, journaled, governs_from)) = latest_install(sql)?
+        && journaled == sha
+    {
+        let paused = stored(sql)?.is_some_and(|(_, p)| p);
+        // What the next cohort would name now, when it resolves (read only).
+        let next = references(sql, &t).ok().map(|n| {
+            json!({"source": n.source, "reference": n.reference.package_sha256,
+                "previous_reference": n.previous.map(|p| p.package_sha256),
+                "template_reference_followed": n.source == "template"})
+        });
+        return Ok(json!({"installed": true, "replayed": true, "sha256": sha, "template_version": version,
+            "governs_from": governs_from, "paused": paused, "label_prefix": t.label_prefix,
+            "roster_cap": t.plan.admission.as_ref().map(|a| a.roster_cap), "next_references": next}));
+    }
+    probes_recorded(sql, &t.plan)?;
+    let next = references(sql, &t)?;
+    if unfingerprinted(sql, &t.plan, &next)?.is_some() {
+        return Err(EvalError::Plan(
+            "template_probe_unfingerprinted: a reference the next cohort names has no fingerprint on a probe version the template names",
+        ));
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| EvalError::Plan("template utf-8"))?;
+    let governs_from = next_number(sql, cfg.authority.first_cohort())?;
+    let versions: Vec<u32> = t.plan.reward_v1.as_ref().map(|v| v.probes.iter().map(|p| p.version).collect()).unwrap_or_default();
     sql.exec(
         "INSERT INTO standing_template (id, template, sha256, installed_ms, paused, first_cohort) VALUES (1, ?, ?, ?, 0, ?)
          ON CONFLICT (id) DO UPDATE SET template = excluded.template, sha256 = excluded.sha256,
             installed_ms = excluded.installed_ms, paused = 0, last_error = NULL, first_cohort = excluded.first_cohort",
         &[s(text), s(&sha), bind_u64(now_ms)?, bind_u64(cfg.authority.first_cohort())?],
     )?;
-    Ok(json!({"installed": true, "sha256": sha, "label_prefix": t.label_prefix,
+    sql.exec(
+        "INSERT INTO template_installs (version, sha256, installed_ms, governs_from, probe_versions, replaced_sha256)
+         VALUES ((SELECT COALESCE(MAX(version), 0) + 1 FROM template_installs), ?, ?, ?, ?, ?)",
+        &[
+            s(&sha),
+            bind_u64(now_ms)?,
+            bind_u64(governs_from)?,
+            s(serde_json::to_string(&versions).map_err(|_| EvalError::State("probe versions"))?),
+            replaced.map_or(crate::sql::SqlValue::Null, s),
+        ],
+    )?;
+    let version = latest_install(sql)?.map(|(v, _, _)| v);
+    Ok(json!({"installed": true, "sha256": sha, "template_version": version, "governs_from": governs_from,
+        "probe_versions": versions, "label_prefix": t.label_prefix,
         "roster_cap": t.plan.admission.as_ref().map(|a| a.roster_cap), "capacity": capacity(&t),
         "admission_window": admission_window(sql)?,
-        "next_references": {"source": source, "reference": next_ref.package_sha256,
-            "previous_reference": next_prev.map(|p| p.package_sha256),
-            "template_reference_followed": source == "template"}}))
+        "next_references": {"source": next.source, "reference": next.reference.package_sha256,
+            "previous_reference": next.previous.map(|p| p.package_sha256),
+            "template_reference_followed": next.source == "template"}}))
 }
 
 /// Pauses or resumes opening cohorts from the template.
@@ -343,48 +501,141 @@ fn resolve(sql: &impl Sql, content: &str) -> R<Option<ArtifactJson>> {
     Ok(None)
 }
 
+/// The references the next cohort names and where they come from.
+pub struct NextReferences {
+    pub reference: ArtifactJson,
+    pub previous: Option<ArtifactJson>,
+    /// `pending_promotion`, `chain` or `template`.
+    pub source: &'static str,
+    /// Their content digests (lowercase hex), known for a chain or a
+    /// pending promotion; `None` for the template's own.
+    pub contents: Option<(String, Option<String>)>,
+    /// The cohort in its transition whose promotion they follow.
+    pub pending_seq: Option<i64>,
+}
+
 /// The references the next cohort names, and where they come from: a
 /// promotion in the cohort now in its transition (`pending_promotion`), else
 /// the chain `reference_state` holds (`chain`), else the template's own
 /// (`template`, while no chain exists). A chain that names a record this
 /// store does not hold is an error (the template cannot stand in for it).
-fn references(sql: &impl Sql, t: &Template) -> R<(ArtifactJson, Option<ArtifactJson>, &'static str)> {
+fn references(sql: &impl Sql, t: &Template) -> R<NextReferences> {
+    if let Some(p) = pending_promotion(sql)? {
+        return Ok(p);
+    }
+    Ok(match chain_references(sql)? {
+        Some(chain) => chain,
+        None => NextReferences {
+            reference: t.plan.reference.clone(),
+            previous: t.plan.previous_reference.clone(),
+            source: "template",
+            contents: None,
+            pending_seq: None,
+        },
+    })
+}
+
+/// A promotion decided by the cohort now in its transition (applied at its
+/// close), as the next references.
+fn pending_promotion(sql: &impl Sql) -> R<Option<NextReferences>> {
     let rows = sql.exec(
         "SELECT seq FROM cohorts WHERE phase = 'transition' AND v3 IS NOT NULL ORDER BY seq DESC LIMIT 1",
         &[],
     )?;
-    if let Some(r) = rows.first() {
-        let seq = int(r, 0)?;
-        let st = crate::eval::v3::state(sql, seq)?;
-        if let Some(p) = st.promoted {
-            let c = engine::cohort(sql, seq)?;
-            let promoted = c
-                .plan
-                .entrants
-                .get(p)
-                .cloned()
-                .ok_or(EvalError::State("promoted entrant"))?;
-            return Ok((
-                as_reference(promoted),
-                Some(as_reference(c.plan.reference)),
-                "pending_promotion",
-            ));
-        }
-    }
-    let chain = sql.exec("SELECT current, predecessor FROM reference_state WHERE id = 1", &[])?;
-    let Some(r) = chain.first() else {
-        return Ok((t.plan.reference.clone(), t.plan.previous_reference.clone(), "template"));
+    let Some(r) = rows.first() else { return Ok(None) };
+    let seq = int(r, 0)?;
+    let st = crate::eval::v3::state(sql, seq)?;
+    let Some(p) = st.promoted else { return Ok(None) };
+    let c = engine::cohort(sql, seq)?;
+    let promoted = c.plan.entrants.get(p).cloned().ok_or(EvalError::State("promoted entrant"))?;
+    let contents = match (st.entrants.get(p), st.reference) {
+        (Some(e), Some(r)) => Some((e.content.0.to_string(), Some(r.content.0.to_string()))),
+        _ => None,
     };
-    let current = resolve(sql, text(r, 0)?)?.ok_or(EvalError::Plan(
+    Ok(Some(NextReferences {
+        reference: as_reference(promoted),
+        previous: Some(as_reference(c.plan.reference)),
+        source: "pending_promotion",
+        contents,
+        pending_seq: Some(seq),
+    }))
+}
+
+/// The chain as `reference_state` holds it, resolved to stored artifact
+/// records (`chain`); `None` while no chain exists.
+fn chain_references(sql: &impl Sql) -> R<Option<NextReferences>> {
+    let chain = sql.exec("SELECT current, predecessor FROM reference_state WHERE id = 1", &[])?;
+    let Some(r) = chain.first() else { return Ok(None) };
+    let current_content = text(r, 0)?.to_owned();
+    let current = resolve(sql, &current_content)?.ok_or(EvalError::Plan(
         "template_reference_unresolved: the reference chain names an artifact no stored cohort records",
     ))?;
-    let previous = match engine::opt_text(r, 1) {
-        Some(p) => Some(resolve(sql, &p)?.ok_or(EvalError::Plan(
+    let previous_content = engine::opt_text(r, 1);
+    let previous = match &previous_content {
+        Some(p) => Some(resolve(sql, p)?.ok_or(EvalError::Plan(
             "template_reference_unresolved: the reference chain's predecessor is not recorded",
         ))?),
         None => None,
     };
-    Ok((current, previous, "chain"))
+    Ok(Some(NextReferences {
+        reference: current,
+        previous,
+        source: "chain",
+        contents: Some((current_content, previous_content)),
+        pending_seq: None,
+    }))
+}
+
+/// Whether `plan`, a same-authority probe cut ([`CohortPlan::is_probe_cut`]),
+/// may queue here (`engine::queue`, in its transaction). It needs:
+/// - an authority that already holds a cohort (its first probe build is
+///   the chain record's, never a cut);
+/// - no other open probe cut;
+/// - a probe version above every version any probe build here has named,
+///   recorded or not, so no probe prefix is written twice;
+/// - the chain's current references exactly as the stored records name
+///   them (`reference_state`, resolved), with no promotion pending in a
+///   cohort's transition (the chain moves at its close): the cut
+///   fingerprints exactly the references the next cohort names and
+///   publishes nothing new. The seal checks the chain again
+///   (`v3::prepare_seal`).
+///
+/// The cut changes no other cohort's plan or template: it is outside the
+/// calendar (which ignores it when it decides whether a cohort is due and
+/// what is current or next) and starts at once without waiting on any
+/// other cohort (`engine::advance`). It does take a cohort number (one past
+/// every cohort held), so the calendar's next cohort is numbered after it.
+/// Its work yields to every other cohort's (`engine::active`), earlier or
+/// later, so it never holds a cohort back. Its probe draw joins the
+/// pool's used set like any draw, so a later draw (the queued cohort's
+/// included) prefers rows neither drew.
+pub fn check_probe_cut(sql: &impl Sql, plan: &CohortPlan, existing: &[engine::Cohort]) -> R<()> {
+    let e = |c: bool, what: &'static str| if c { Ok(()) } else { Err(EvalError::Plan(what)) };
+    e(!existing.is_empty(), "probe_cut: the authority holds no cohort (its first probe build is not a cut)")?;
+    e(
+        !existing.iter().any(|c| c.plan.is_probe_cut() && !matches!(c.phase.as_str(), "closed" | "abandoned")),
+        "probe_cut: another probe cut is open",
+    )?;
+    let version = plan.reward_v1.as_ref().and_then(|v| v.probe_version).ok_or(EvalError::Plan("reward_v1.probe_version"))?;
+    let built = existing
+        .iter()
+        .filter(|c| c.plan.is_probe_build())
+        .filter_map(|c| c.plan.reward_v1.as_ref().and_then(|v| v.probe_version))
+        .max()
+        .unwrap_or(0);
+    let recorded = sql.exec("SELECT COALESCE(MAX(version), 0) FROM probe_versions", &[])?;
+    let recorded = recorded.first().map_or(Ok(0), |r| int(r, 0))?;
+    e(
+        i64::from(version) > recorded && version > built,
+        "probe_cut: the probe version must exceed every version this store has built",
+    )?;
+    e(pending_promotion(sql)?.is_none(), "probe_cut: a promotion is pending in a cohort's transition (cut after its close)")?;
+    let chain = chain_references(sql)?.ok_or(EvalError::Plan("probe_cut: no reference chain"))?;
+    e(
+        plan.reference == chain.reference && plan.previous_reference == chain.previous,
+        "probe_cut: the references must be the chain's current ones, as the stored records name them",
+    )?;
+    Ok(())
 }
 
 /// The next cohort's plan bytes when the calendar says one is due: a
@@ -422,7 +673,7 @@ fn template_ready(sql: &impl Sql) -> R<Option<Template>> {
     if paused {
         return Ok(None);
     }
-    let rows = sql.exec("SELECT phase FROM cohorts ORDER BY seq DESC LIMIT 1", &[])?;
+    let rows = sql.exec(concat!("SELECT phase FROM cohorts WHERE ", not_probe_cut!(), " ORDER BY seq DESC LIMIT 1"), &[])?;
     if let Some(r) = rows.first()
         && !matches!(text(r, 0)?, "transition" | "closed" | "abandoned")
     {
@@ -437,7 +688,7 @@ pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>
         return Ok(None);
     };
     let next = next_number(sql, first_cohort)?;
-    let (reference, previous, _) = match references(sql, &t) {
+    let refs = match references(sql, &t) {
         Ok(r) => r,
         // The calendar cannot name the chain's references: it pauses with
         // the reason rather than failing every step.
@@ -448,11 +699,24 @@ pub fn due_any(sql: &impl Sql, first_cohort: u64) -> R<Option<(String, Vec<u8>)>
         }
         Err(e) => return Err(e),
     };
+    // A cohort whose references lack a fingerprint on a probe version it
+    // would use cannot package (its probe comparisons need them): the
+    // calendar pauses with the reason instead of queuing it (after a
+    // promotion the template's probe versions never measured, cut a probe
+    // version on the new chain and reinstall).
+    if unfingerprinted(sql, &t.plan, &refs)?.is_some() {
+        note_error(
+            sql,
+            "template_probe_unfingerprinted: a reference the next cohort names has no fingerprint on a probe version the template names",
+        )?;
+        set_paused(sql, true)?;
+        return Ok(None);
+    }
     let mut plan = t.plan.clone();
     plan.cohort = next;
     plan.label = format!("{}-{}", t.label_prefix, next);
-    plan.reference = reference;
-    plan.previous_reference = previous;
+    plan.reference = refs.reference;
+    plan.previous_reference = refs.previous;
     plan.entrants = Vec::new();
     // A template installed before the generation pause bound was required
     // gives its cohorts the bound those builds compiled in, written into the
@@ -476,6 +740,26 @@ fn next_number(sql: &impl Sql, first_cohort: u64) -> R<u64> {
     let max = sql.exec("SELECT COALESCE(MAX(cohort), 0) FROM cohorts", &[])?;
     let max = u64::try_from(max.first().map_or(Ok(0), |r| int(r, 0))?).unwrap_or(0);
     Ok(max.saturating_add(1).max(first_cohort))
+}
+
+/// The number of the standing cohort after cohort `after` (an admission
+/// overflow's `next_cohort`): the lowest held cohort number above it that
+/// is not a probe cut (a cohort queued already), else the number the
+/// calendar gives its next cohort ([`next_number`]: one past every cohort
+/// held, probe cuts included). A probe cut's number is never named: it
+/// admits no one. A cut queued after this is read takes the number it
+/// named (the cut takes one past every cohort held), so the operator
+/// queues a cut before the admitting cohort freezes (TESTNET.md,
+/// "Same-authority template reinstall").
+pub fn standing_after(sql: &impl Sql, after: u64) -> R<u64> {
+    let rows = sql.exec(
+        concat!("SELECT MIN(cohort) FROM cohorts WHERE cohort > ? AND ", not_probe_cut!()),
+        &[bind_u64(after)?],
+    )?;
+    if let Some(n) = rows.first().and_then(|r| opt_int(r, 0)) {
+        return Ok(u64::try_from(n).unwrap_or(0));
+    }
+    next_number(sql, after.saturating_add(1))
 }
 
 /// The next cohort: a queued cohort, else the one the template opens next,
@@ -527,11 +811,15 @@ pub fn next(sql: &impl Sql) -> R<Option<NextCohort>> {
 }
 
 /// The columns [`close_bound`] reads, for the newest two cohorts.
-const CLOSE_ROW_SELECT_LAST2: &str = "SELECT cohort, phase, opened_epoch, packaged_epoch, published_epoch,
+const CLOSE_ROW_SELECT_LAST2: &str = concat!(
+    "SELECT cohort, phase, opened_epoch, packaged_epoch, published_epoch,
         json_extract(plan, '$.k_tempos'), json_extract(plan, '$.admission_tempos'),
         json_extract(plan, '$.transition_tempos'), json_extract(plan, '$.reward_v1') IS NOT NULL, opened_active,
         packaged_active, published_active
-     FROM cohorts ORDER BY seq DESC LIMIT 2";
+     FROM cohorts WHERE ",
+    not_probe_cut!(),
+    " ORDER BY seq DESC LIMIT 2"
+);
 
 /// The earliest close ([`earliest_close`], in the tempos the coordinator
 /// credits) of a cohort that has opened and not closed, from a row of
@@ -643,9 +931,13 @@ pub fn earliest_close(
 /// tempo boundaries and the next cohort, in subnet epoch indices.
 pub fn view(sql: &impl Sql) -> R<Value> {
     let rows = sql.exec(
-        "SELECT cohort, label, phase, opened_epoch, admission_closed_epoch, closed_epoch,
+        concat!(
+            "SELECT cohort, label, phase, opened_epoch, admission_closed_epoch, closed_epoch,
             json_extract(plan, '$.k_tempos'), json_extract(plan, '$.admission_tempos'), json_extract(plan, '$.transition_tempos')
-         FROM cohorts ORDER BY seq DESC LIMIT 1",
+         FROM cohorts WHERE ",
+            not_probe_cut!(),
+            " ORDER BY seq DESC LIMIT 1"
+        ),
         &[],
     )?;
     // The coordinator admission window of the current cohort: `open` while
@@ -716,7 +1008,9 @@ pub fn view(sql: &impl Sql) -> R<Value> {
         "SELECT sha256, paused, last_error FROM standing_template WHERE id = 1",
         &[],
     )?;
-    let template = template.first().map(|r| json!({"sha256": text(r, 0).ok(), "paused": int(r, 1).ok() == Some(1), "last_error": crate::eval::engine::opt_text(r, 2)}));
+    let journal = latest_install(sql)?;
+    let template = template.first().map(|r| json!({"sha256": text(r, 0).ok(), "paused": int(r, 1).ok() == Some(1), "last_error": crate::eval::engine::opt_text(r, 2),
+        "version": journal.as_ref().map(|j| j.0), "governs_from": journal.as_ref().and_then(|j| j.2)}));
     Ok(json!({"rule": "back_to_back_on_tempo_boundaries/v1", "current": current, "next": next(sql)?, "template": template,
         "admission_window": admission_window(sql)?}))
 }

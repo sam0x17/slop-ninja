@@ -29,6 +29,10 @@
 //!     --template TEMPLATE.json --wrangler WRANGLER.toml --tempo-blocks B [--roster-cap N]
 //!     [--work-secs S --upload-secs U --upload-bytes BYTES --score-secs L --score-docs D
 //!      --score-bytes OBJECT_BYTES --cold-path-secs C [--block-secs T]]
+//! slop_ninja_eval_ops probe-cut --status STATUS.json --wrangler WRANGLER.toml --probe-template PLAN.json
+//!     --reference ARTIFACT.json [--previous-reference ARTIFACT.json] [--probe-version V] --out DIR
+//! slop_ninja_eval_ops template-reinstall --cut DIR/probe-cut.json --record RECORD.json
+//!     --template TEMPLATE.json --wrangler WRANGLER.toml --tempo-blocks B [standing-template's options]
 //! ```
 //!
 //! - `load-plan` writes a `slop_ninja_eval_load_plan_v1` plan: R_0 (the
@@ -119,6 +123,31 @@
 //!   object's submission at most half of the window). Seconds per tempo are
 //!   B blocks at `--block-secs` seconds (default the nominal 12, an
 //!   assumption); stderr gives the derivation and the interval it used.
+//! - `probe-cut` prepares a same-authority probe cut
+//!   (`eval::probe_cut::prepare`): a new probe version for the tracked
+//!   authority while its cohorts are open, with no chain-record restart.
+//!   STATUS.json is the authority's eval status read just before; the
+//!   probe build PLAN.json supplies every other value; ARTIFACT.json (and
+//!   `--previous-reference` exactly when the chain has a predecessor) are
+//!   the chain's current references as the stored records name them. The
+//!   version defaults to one past every probe version built there; the
+//!   cohort number is one past the highest held (so the first cohort the
+//!   reinstalled template governs is numbered one past the cut), the label
+//!   `<prefix>probe-v<V>`. It writes `DIR/probe-plan.json`
+//!   (`reward_v1.probe_cut`, the seeded task order, no admission block,
+//!   checked with the coordinator's parser) and `DIR/probe-cut.json` (the
+//!   version, the record key, the references and the open cohorts it runs
+//!   beside). Queue the plan with `POST /eval/plan`; the eval Worker checks
+//!   the cut again in its queueing transaction and refuses one over a
+//!   moved chain, a pending promotion, another open cut or a version
+//!   already built.
+//! - `template-reinstall` prints the standing template naming that cut's
+//!   probe version: `standing-template` with `--cut` in place of
+//!   `--restart` (the cut's reference, the version, size and key of the cut
+//!   record and the SHA-256 of RECORD.json, the record read back from the
+//!   eval bucket once the cut closed). Install it with `POST /eval/template`
+//!   before the next cohort queues; it governs the cohorts queued after the
+//!   install, never a queued or running one.
 //! - `authority-check` is the pre-deploy refusal for the eval Worker
 //!   (`config::deploy_check`): the deployed authority (`authority_name`,
 //!   `first_cohort`, `predecessors`, `cohorts`, `superseded_by`,
@@ -720,20 +749,78 @@ fn tracked_eval_config(vars: &BTreeMap<String, String>) -> slop_ninja_coordinato
 }
 
 fn standing_template(flags: &BTreeMap<String, String>) {
-    use slop_ninja_coordinator::eval::{calendar, engine};
     let r = read_json(&flag::<String>(flags, "restart"));
     let vars = eval_vars(&flag::<String>(flags, "wrangler"));
     let cfg = tracked_eval_config(&vars);
     if r["authority"].as_str() != Some(cfg.authority.name()) || r["first_cohort"].as_u64() != Some(cfg.authority.first_cohort()) {
         fail("restart.json names another authority than the tree tracks");
     }
-    let prefix = cfg.authority.label_prefix().unwrap_or_else(|| fail("the tracked authority is the original (no label prefix)"));
     let record_bytes = std::fs::read(flag::<String>(flags, "record")).unwrap_or_else(|e| fail(&format!("record: {e}")));
     let record: Value = serde_json::from_slice(&record_bytes).unwrap_or_else(|e| fail(&format!("record: {e}")));
     let version = record["version"].as_u64().unwrap_or_else(|| fail("record: version"));
     if Some(version) != r["probe_version"].as_u64() {
         fail("the record is not the restart's probe version");
     }
+    let probe = json!({"version": version, "size": record["size"], "key": r["probe_record_key"], "sha256": sha_hex(&record_bytes)});
+    template_out(flags, &cfg, "standing-template", r["reference"].clone(), probe);
+}
+
+/// `template-reinstall`: the standing template for the tracked authority
+/// naming a same-authority probe cut's version (no restart).
+fn template_reinstall(flags: &BTreeMap<String, String>) {
+    let cut = read_json(&flag::<String>(flags, "cut"));
+    let vars = eval_vars(&flag::<String>(flags, "wrangler"));
+    let cfg = tracked_eval_config(&vars);
+    if cut["authority"].as_str() != Some(cfg.authority.name()) || cut["first_cohort"].as_u64() != Some(cfg.authority.first_cohort()) {
+        fail("the probe cut names another authority than the tree tracks");
+    }
+    let record_bytes = std::fs::read(flag::<String>(flags, "record")).unwrap_or_else(|e| fail(&format!("record: {e}")));
+    let probe = slop_ninja_coordinator::eval::probe_cut::template_probe(&cut, &record_bytes).unwrap_or_else(|e| fail(&e));
+    // A reinstalled template declares its generation pause bound (its
+    // cohorts' seals bind it); only templates stored before the bound was
+    // required take the compiled one.
+    let t = read_json(&flag::<String>(flags, "template"));
+    if !t["plan"]["fanout"]["generation"]["failures_before_pause"].is_u64() {
+        fail("template: plan.fanout.generation.failures_before_pause (a reinstalled template declares it)");
+    }
+    template_out(flags, &cfg, "template-reinstall", cut["reference"].clone(), probe);
+}
+
+/// `probe-cut`: a same-authority probe cut's plan and record.
+fn probe_cut(flags: &BTreeMap<String, String>) {
+    let vars = eval_vars(&flag::<String>(flags, "wrangler"));
+    let tracked = tracked_authority(&vars);
+    let status = read_json(&flag::<String>(flags, "status"));
+    let inputs = slop_ninja_coordinator::eval::probe_cut::CutInputs {
+        status: &status,
+        tracked: &tracked,
+        ceilings: main_ceilings(&vars),
+        probe_template: read_json(&flag::<String>(flags, "probe-template")),
+        reference: read_json(&flag::<String>(flags, "reference")),
+        previous_reference: flags.get("previous-reference").map(|p| read_json(p)),
+        probe_version: opt(flags, "probe-version"),
+    };
+    let cut = slop_ninja_coordinator::eval::probe_cut::prepare(inputs).unwrap_or_else(|e| fail(&e));
+    let dir = std::path::PathBuf::from(flag::<String>(flags, "out"));
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| fail(&format!("{}: {e}", dir.display())));
+    std::fs::write(dir.join("probe-plan.json"), &cut.plan).unwrap_or_else(|e| fail(&format!("probe plan: {e}")));
+    let text = serde_json::to_string_pretty(&cut.record).expect("cut json");
+    std::fs::write(dir.join("probe-cut.json"), &text).unwrap_or_else(|e| fail(&format!("probe-cut.json: {e}")));
+    println!("{text}");
+}
+
+/// The standing template TEMPLATE.json for the tracked authority with
+/// `reference` and the one probe version `probe`, every bound derived and
+/// checked as `standing-template` documents; printed to stdout.
+fn template_out(
+    flags: &BTreeMap<String, String>,
+    cfg: &slop_ninja_coordinator::eval::engine::EvalConfig,
+    tool: &str,
+    reference: Value,
+    probe: Value,
+) {
+    use slop_ninja_coordinator::eval::{calendar, engine};
+    let prefix = cfg.authority.label_prefix().unwrap_or_else(|| fail("the tracked authority is the original (no label prefix)"));
     let mut t = read_json(&flag::<String>(flags, "template"));
     if t["schema"] != calendar::TEMPLATE_SCHEMA || t["plan"]["schema"] != PLAN_SCHEMA_V3 {
         fail("template: not a standing template of a reward-v1 plan");
@@ -743,14 +830,12 @@ fn standing_template(flags: &BTreeMap<String, String>) {
     plan["cohort"] = json!(cfg.authority.first_cohort());
     plan["label"] = json!(format!("{prefix}template"));
     plan["entrants"] = json!([]);
-    plan["reference"] = r["reference"].clone();
+    plan["reference"] = reference;
     plan["previous_reference"] = Value::Null;
     let v = plan["reward_v1"].as_object_mut().unwrap_or_else(|| fail("template: no reward_v1 block"));
-    v.insert(
-        "probes".into(),
-        json!([{"version": version, "size": record["size"], "key": r["probe_record_key"], "sha256": sha_hex(&record_bytes)}]),
-    );
+    v.insert("probes".into(), json!([probe]));
     v.remove("probe_version");
+    v.remove("probe_cut");
     // Every cohort the template opens seals in the seeded task order (finding
     // L4); the coordinator's template check requires it.
     v.insert("task_order".into(), json!(slop_ninja_coordinator::eval::plan::TASK_ORDER_SEEDED_RANK));
@@ -836,7 +921,7 @@ fn standing_template(flags: &BTreeMap<String, String>) {
         let bytes = serde_json::to_vec(&t).map_err(|e| e.to_string())?;
         calendar::check(cfg, &bytes).map(|_| t).map_err(|e| format!("template at cap {cap}: {e:?}"))
     };
-    let budgeted = |t: &Value, cap: u64| budgeted_in(&cfg, t, cap);
+    let budgeted = |t: &Value, cap: u64| budgeted_in(cfg, t, cap);
     // The structural bound at this shape: the largest cap the coordinator's
     // own checks admit (memory model, receipt index, lanes) with no
     // deployment ceiling, and the refusal one past it names. Every bound
@@ -869,13 +954,13 @@ fn standing_template(flags: &BTreeMap<String, String>) {
         fail(&format!("roster cap {cap} exceeds the roster {queue_roster} the verdict queue was counted for"));
     }
     let bytes = serde_json::to_vec_pretty(&out).expect("template json");
-    let parsed = calendar::check(&cfg, &bytes).unwrap_or_else(|e| fail(&format!("template check: {e:?}")));
+    let parsed = calendar::check(cfg, &bytes).unwrap_or_else(|e| fail(&format!("template check: {e:?}")));
     // 40 is a deployment ceiling, not a derived figure: ROSTER_CAP in the
     // tracked wrangler.toml bounds every plan's roster cap; each cohort
     // freezes its own cap in its plan, and widening the ceiling is a deploy
     // that changes ROSTER_CAP (up to the structural bound printed here).
     eprintln!(
-        "standing-template: roster_cap {cap}; structural bound {} at this shape (memory model, receipt index, lanes; one more: {}); deployment ceiling ROSTER_CAP {}; {}",
+        "{tool}: roster_cap {cap}; structural bound {} at this shape (memory model, receipt index, lanes; one more: {}); deployment ceiling ROSTER_CAP {}; {}",
         structural.0,
         structural.1.as_deref().unwrap_or("MAX_ROSTER"),
         cfg.ceilings.roster_cap.map_or("none".to_owned(), |c| c.to_string()),
@@ -883,7 +968,7 @@ fn standing_template(flags: &BTreeMap<String, String>) {
     );
     let (k, a) = (parsed.plan.k_tempos, parsed.plan.admission_tempos);
     eprintln!(
-        "standing-template: admission window {} per cohort of {} (K {k} tempos at {tempo_blocks} blocks); no window for {} between windows (work, publication, transition {} tempos); a commitment before a window opens is refused",
+        "{tool}: admission window {} per cohort of {} (K {k} tempos at {tempo_blocks} blocks); no window for {} between windows (work, publication, transition {} tempos); a commitment before a window opens is refused",
         calendar::window_json(a, tempo_blocks),
         calendar::window_json(k, tempo_blocks),
         calendar::window_json(k.saturating_sub(a), tempo_blocks),
@@ -891,7 +976,7 @@ fn standing_template(flags: &BTreeMap<String, String>) {
     );
     if let Some((d, entrant_docs)) = derivation {
         eprintln!(
-            "standing-template: admission_tempos {} derived = K {k} - transition {} - work tempos {} (work bound {} s = measured work {} s + largest submission {} s ({} bytes, scaled from the measured one) + verdict queue {} s ({} round(s) of {} verdicts for a roster of {queue_roster}, each {} s: the measured cold path scaled to the largest object plus one load of it; sessions beyond that roster still verifying at the cutoff move the close later) + one load of it {} s + one entrant lane of it {} s ({entrant_docs} documents, scaled from the measured lane); at most half of {} tempo(s) of {} s, {tempo_blocks} blocks at an assumed {block_secs} s a block); largest submission at most half the window ({} s of {} s)",
+            "{tool}: admission_tempos {} derived = K {k} - transition {} - work tempos {} (work bound {} s = measured work {} s + largest submission {} s ({} bytes, scaled from the measured one) + verdict queue {} s ({} round(s) of {} verdicts for a roster of {queue_roster}, each {} s: the measured cold path scaled to the largest object plus one load of it; sessions beyond that roster still verifying at the cutoff move the close later) + one load of it {} s + one entrant lane of it {} s ({entrant_docs} documents, scaled from the measured lane); at most half of {} tempo(s) of {} s, {tempo_blocks} blocks at an assumed {block_secs} s a block); largest submission at most half the window ({} s of {} s)",
             d.admission_tempos,
             parsed.plan.transition_tempos,
             d.work_tempos,
@@ -918,7 +1003,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
         fail(
-            "a subcommand: load-plan, gate, summary, watch-line, tail-stats, snapshot-args, keys-check, copy-ties, chunk-keys, report-summary, restart, restart-cohort, authority-check, standing-template",
+            "a subcommand: load-plan, gate, summary, watch-line, tail-stats, snapshot-args, keys-check, copy-ties, chunk-keys, report-summary, restart, restart-cohort, authority-check, standing-template, probe-cut, template-reinstall",
         )
     };
     let (flags, pos) = parse(&args[1..]);
@@ -937,6 +1022,8 @@ fn main() {
         "restart-cohort" => restart_cohort(&flags),
         "authority-check" => authority_check(&flags),
         "standing-template" => standing_template(&flags),
+        "probe-cut" => probe_cut(&flags),
+        "template-reinstall" => template_reinstall(&flags),
         other => fail(&format!("unknown subcommand {other}")),
     }
 }

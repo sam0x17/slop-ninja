@@ -2487,6 +2487,98 @@ names its spec only in the admission block included, binds limits record
 v1, so a stored plan's record never changes with the build. Admission runs
 (the admission lane's `/run`) still load by spec v2 only.
 
+### Same-authority template reinstall
+
+A new probe version and a reinstalled standing template for the deployed
+authority while its cohorts are open, with no chain-record restart and no
+user restart decision (README, "Template installs and same-authority probe
+cuts"). The chain, the published index, the active target and every queued
+or running cohort keep their plans; the new template governs only the
+cohorts the calendar queues after its install. The cut holds a cohort
+number (one past the highest held), so the first cohort the new template
+governs is numbered one past the cut, and the standing record skips the
+cut's number (the publisher leaves probe builds out of the public record).
+The cut's probe draw joins the pool's used set like any draw, so later
+draws, including an already queued cohort's, prefer rows neither drew (an
+exposed pool can draw a row again; no plan or template changes). It needs an eval build with
+store v22 (an older build refuses the cut plan's `probe_cut` field and has
+no install journal), so deploy that first under the adopted eval deploy
+rules (`authority-check` without flags passes: the authority does not
+change).
+
+1. **Cut.** Save `GET /eval/status` (operator token), then:
+
+   ```text
+   slop_ninja_eval_ops probe-cut --status status.json --wrangler subnet/coordinator/wrangler.toml \
+       --probe-template <a probe plan> --reference <R_k's artifact record> \
+       [--previous-reference <R_k-1's record>] --out <dir>
+   ```
+
+   The probe plan supplies every value but the cut's own (pool, generators,
+   probe size as `n`, budgets, fan-out with
+   `generation.failures_before_pause`, gates). The references are the
+   chain's current ones (`reward.references` in the status: R_k, and
+   R_k-1 exactly when `predecessor_content` is set) as the stored records
+   name them: R_0's is the restart record's `reference`. The tool refuses
+   another authority than the tree's, a superseded one, an open cut, a
+   pending promotion and a version at or below one built here; it writes
+   `<dir>/probe-plan.json` (cohort one past the highest held, label
+   `<prefix>probe-v<V>`, `reward_v1.probe_cut`, the seeded order) and
+   `<dir>/probe-cut.json` (the version, the probe record's key, the
+   references and the open cohorts it runs beside). `POST /eval/plan` with
+   `probe-plan.json`. The Worker checks the cut again in its queueing
+   transaction (`probe_cut: ...` with the reason; nothing is queued); the
+   same bytes again answer with the queued cut (`already: true`). Queue it
+   before the admitting cohort's admission freezes: an overflowed miner is
+   told to commit for the next standing cohort, and the cut takes the
+   number that cohort would have had if it is queued after the freeze. The
+   cut starts at the next tick and closes within its own work (no
+   boundary). Its work yields to every other cohort's: it runs only when no
+   other cohort's work is runnable, earlier or later, and resumes where it
+   stopped; it runs on lane objects of its own (`<scope>/probe-cut/...`),
+   so it never takes the queued cohort's lanes. Its scoring lanes count
+   against the scorer Container's `max_instances` with any cohort scoring
+   at the same time: check that both plans' scoring lane counts together
+   fit `MAX_SCORE_LANES` (the cut scores only the chain's references).
+   Close it and install the template before the newest cohort
+   reaches its transition: a cohort the calendar queues before the install
+   comes from the old template, and the reinstalled one then governs from
+   one past that cohort. Read
+   `cohorts[]` in `/eval/status` for its label (`reward_v1.probe_cut`,
+   `probe_version`). A cut whose chain moved before its seal pauses with
+   `probe_cut_chain`; abandon it (`/eval/abandon`, reason `plan_defect`)
+   and cut again with the next version.
+2. **Record.** Once the cut is `closed`, read its record back privately
+   from the eval bucket (`probe_record_key` in `probe-cut.json`).
+3. **Template.** Build the template with
+
+   ```text
+   slop_ninja_eval_ops template-reinstall --cut <dir>/probe-cut.json --record record.json \
+       --template <template> --wrangler subnet/coordinator/wrangler.toml --tempo-blocks <B> [...]
+   ```
+
+   (`standing-template`'s options and output; the template must declare
+   `fanout.generation.failures_before_pause`; the seeded order is set and
+   checked). `POST /eval/template` with it before the next cohort queues
+   (the calendar queues one when the newest cohort reaches its
+   transition). The reply names `template_version` and `governs_from` (the
+   first cohort number it can govern: one past the cut, so the standing
+   numbers go from the queued cohort straight to `governs_from`). A retry of the
+   same bytes answers `replayed: true` with the same entry and changes
+   nothing. A refusal changes nothing: `template_probe_unrecorded` (the cut
+   has not closed, or another record), `template_probe_unfingerprinted`
+   (the chain moved after the cut: cut again on the new chain).
+4. **Check.** `GET /eval/calendar`: `template.version` and
+   `governs_from`; the queued cohort still names its own probe versions;
+   the next queued cohort's plan (`plan_sha256` in its status entry, its
+   plan in the private store) names the new version.
+
+If a promotion lands after the install (a cohort in its transition
+promoted an entrant the new probe version never measured), the calendar
+pauses the template with `template_probe_unfingerprinted` instead of
+queuing a cohort that could not package. After that cohort closes, cut
+again (its new references) and reinstall; the install resumes the calendar.
+
 ### Chain-record restart, live (2026-11-02)
 
 The main instance's reference chain was restarted once, before the
@@ -3544,12 +3636,17 @@ batch index v3 names the screen (`input_screen`
 Live state (2026-11-04): step 1 ran (eval-testnet from main `f6fa1934`,
 17:55Z; the eval rollback floor). Cohort 19 left `generating` and sealed
 under the earlier build before the deploy gate allowed the deploy, so its
-generated documents were not screened. Steps 2 and 3 have not run: the ops
-tool cuts a probe version only in a chain-record restart (`restart` refuses
-unless every cohort of the authority is closed or abandoned and the new
-authority's name differs from the current one's), and the standing r0
+generated documents were not screened. Steps 2 and 3 have not run: the
+`restart` tool cuts a probe version only in a chain-record restart (it
+refuses unless every cohort of the authority is closed or abandoned and the
+new authority's name differs from the current one's), and the standing r0
 calendar always holds a cohort in its transition or queued. The installed r0
-template is unchanged (cohort 20 is queued from it).
+template is unchanged (cohort 20 is queued from it). An eval build with
+store v22 removes that obstacle: "Same-authority template reinstall"
+above cuts a probe version and reinstalls the template while r0's cohorts
+are open. With cohort 20 queued, the cut takes cohort number 21
+(`testnet-r0-probe-v2`), and the first cohort under the reinstalled
+template is `testnet-r0-22`; the standing and public record goes 20, 22.
 
 Rebuilding the table (only if the pinned tokenizer changes, which also
 changes the artifact spec): `subnet/crates/scorer-tokens/reference`, run

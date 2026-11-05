@@ -23,6 +23,11 @@ use slop_ninja_protocol::{ChainBinding, TESTNET_GENESIS};
 
 const MEASURE: Route = Route::new(200, "witness/measure");
 const METADATA: &[u8] = include_bytes!("../../fixtures/runtime-486/testnet-486.v15.scale");
+/// The runtime-487 build of subtensor PR #3294 (`fixtures/runtime-487`).
+const METADATA_487: &[u8] = include_bytes!("../../fixtures/runtime-487/pr3294-f3654266.v15.scale");
+/// Every recorded runtime, as (metadata, spec): each entry of
+/// `arena_routes::RUNTIME_PARSE_MEASUREMENTS`.
+const RECORDED: [(&[u8], u32); 2] = [(METADATA, 486), (METADATA_487, 487)];
 
 /// Peak pages (state page included) and peak live bytes of `f` run in a
 /// fresh scope. `f` drops whatever it allocates before returning.
@@ -112,11 +117,25 @@ fn widest_admitted() -> (CohortPlan, Vec<u8>) {
 #[test]
 fn arena_witness_home_caches_fit() {
     set_mode(Mode::Enforce);
-    // A parsed runtime, in the home scope: parse transients included.
-    let (rt_pages, rt_live) = measure(|| {
-        let rt = crate::chain::ChainRuntime::parse(METADATA, 486, 1).expect("fixture metadata parses");
-        drop(rt);
-    });
+    // Each recorded runtime, parsed in a scope: parse transients included.
+    // Its peak stays within its own length-scaled bound, so recording a new
+    // runtime never needs a new constant, only its measurement.
+    assert_eq!(RECORDED.len(), RUNTIME_PARSE_MEASUREMENTS.len());
+    for ((metadata, spec), (len, measured)) in RECORDED.iter().zip(RUNTIME_PARSE_MEASUREMENTS) {
+        assert_eq!(metadata.len(), len, "the measurement names its runtime's length");
+        let (pages, live) = measure(|| {
+            let rt = crate::chain::ChainRuntime::parse(metadata, *spec, 1).expect("recorded metadata parses");
+            drop(rt);
+        });
+        eprintln!(
+            "arena witness: parsed runtime {spec} ({len} B) peak {pages} pages ({} B, recorded {measured} B), live {live} B; scaled bound {} B",
+            pages as usize * PAGE,
+            runtime_parse_bytes(len)
+        );
+        assert!(pages as usize * PAGE <= runtime_parse_bytes(len), "runtime {spec} parses within its scaled bound");
+        assert!(pages as usize * PAGE <= RUNTIME_PARSED_BYTES, "RUNTIME_PARSED_BYTES covers runtime {spec}");
+    }
+    let largest = RECORDED.iter().max_by_key(|(m, _)| m.len()).expect("recorded");
     // A cached plan: the clone the home scope keeps of the widest plan.
     let (plan, json) = widest_plan();
     let (plan_pages, plan_live) = measure(|| {
@@ -125,20 +144,18 @@ fn arena_witness_home_caches_fit() {
         drop((key, copy));
     });
     eprintln!(
-        "arena witness: parsed runtime peak {rt_pages} pages ({} B), live {rt_live} B; plan clone of a {} B plan: peak {plan_pages} pages ({} B), live {plan_live} B",
-        rt_pages as usize * PAGE,
+        "arena witness: plan clone of a {} B plan: peak {plan_pages} pages ({} B), live {plan_live} B",
         json.len(),
         plan_pages as usize * PAGE
     );
     // The measured peaks include the state page; the constants are heap
     // footprints for one entry each.
-    assert!(rt_pages as usize * PAGE <= RUNTIME_PARSED_BYTES, "RUNTIME_PARSED_BYTES covers a parsed runtime");
     assert!(plan_pages as usize * PAGE <= PLAN_PARSED_BYTES, "PLAN_PARSED_BYTES covers a cached plan");
     // Each cache at its entry bound stays inside its home's footprint.
     witness(R_HOME_RUNTIMES, HOME_RUNTIMES_BYTES, || {
         let mut runtimes = Vec::with_capacity(crate::signing::PARSED_RUNTIMES);
         for _ in 0..crate::signing::PARSED_RUNTIMES {
-            runtimes.push(crate::chain::ChainRuntime::parse(METADATA, 486, 1).expect("parse"));
+            runtimes.push(crate::chain::ChainRuntime::parse(largest.0, largest.1, 1).expect("parse"));
         }
         drop(runtimes);
     });
@@ -195,15 +212,26 @@ fn arena_witness_a_delivery_fits_the_hook_footprint() {
 #[test]
 fn arena_witness_the_stored_runtime_read_fits_the_journal_footprint() {
     set_mode(Mode::Enforce);
-    // What a signing step reads in its own scope before the home scope
-    // parses: the stored metadata row (hex text) and its decoded bytes.
-    let hex_text = hex::encode(METADATA);
-    witness(R_JOURNAL_FETCH.route(), JOURNAL_CONTROL_BYTES, || {
-        let row = hex_text.clone();
-        let bytes = hex::decode(&row).expect("hex");
-        let digest = crate::chain::sha256_hex(&bytes);
-        (bytes.len(), digest.len())
-    });
+    // What a signing step reads in its own scope: the stored metadata row
+    // (hex text) and its decoded bytes, and the parse itself when the
+    // runtimes home has no room (here always, the worst case), for every
+    // recorded runtime within its own length-scaled read bound, which the
+    // journal footprint covers at the largest storable metadata.
+    assert!(JOURNAL_CONTROL_BYTES >= journal_runtime_bytes(MAX_STORED_RUNTIME_METADATA_BYTES));
+    for (metadata, _) in RECORDED {
+        assert!(2 * metadata.len() <= DO_SQLITE_VALUE_BYTES, "a recorded runtime stores as one hex value");
+    }
+    for (metadata, spec) in RECORDED {
+        let hex_text = hex::encode(metadata);
+        witness(R_JOURNAL_FETCH.route(), journal_runtime_bytes(metadata.len()), || {
+            let row = hex_text.clone();
+            let bytes = hex::decode(&row).expect("hex");
+            let digest = crate::chain::sha256_hex(&bytes);
+            let rt = crate::chain::ChainRuntime::parse(&bytes, spec, 1).expect("recorded metadata parses");
+            drop(rt);
+            (bytes.len(), digest.len())
+        });
+    }
 }
 
 /// A chain upgrade with a full runtime cache: the third runtime evicts

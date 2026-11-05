@@ -1522,16 +1522,16 @@ fn arena_witness_measure_the_signing_reads_of_a_stored_bundle() {
 }
 
 /// Arena witness (`--features arena-witness`): at the bundle bound the
-/// signing reads fit half the journal footprint (the other half is the
-/// margin `JOURNAL_CONTROL_BYTES` keeps for wasm-bindgen's string transfer).
+/// signing reads fit half the journal's base footprint (the other half is
+/// the margin `JOURNAL_BASE_BYTES` keeps for wasm-bindgen's string transfer).
 #[cfg(feature = "arena-witness")]
 #[test]
 fn arena_witness_the_signing_reads_fit_the_journal_footprint_at_the_bundle_bound() {
-    use crate::arena_routes::{JOURNAL_CONTROL_BYTES, R_JOURNAL_FETCH};
+    use crate::arena_routes::{JOURNAL_BASE_BYTES, R_JOURNAL_FETCH};
     use slop_ninja_arena::{Mode, set_mode};
     set_mode(Mode::Enforce);
     let (h, len) = installed_at(padding_at_the_bound());
     eprintln!("bundle {len} B of {SIGNED_BUNDLE_BYTES} B");
     let _ = signing_reads(&h);
-    crate::arena_witness::witness(R_JOURNAL_FETCH.route(), JOURNAL_CONTROL_BYTES / 2, || signing_reads(&h));
+    crate::arena_witness::witness(R_JOURNAL_FETCH.route(), JOURNAL_BASE_BYTES / 2, || signing_reads(&h));
 }

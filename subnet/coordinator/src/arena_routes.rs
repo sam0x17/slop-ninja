@@ -144,12 +144,53 @@ pub const CONTINUATION_CONTROL_BYTES: usize = 2 * MIB;
 pub const WORKER_CONTROL_BYTES: usize = MIB;
 /// The lane-wakeup queue batch: at most 100 content-free kicks.
 pub const QUEUE_CONTROL_BYTES: usize = 512 * KIB;
-/// A ChainJournal request: one transaction over the journal. Its heaviest
-/// path is a signing step reading the stored runtime metadata (hex text and
-/// its decoded bytes) before the runtimes home parses it: measured 31 pages
-/// natively; wasm-bindgen's string transfer holds up to four times the text
-/// while it encodes, so twice the measured peak, in whole MiB.
-pub const JOURNAL_CONTROL_BYTES: usize = 4 * MIB;
+/// A ChainJournal request: one transaction over the journal. Its base is
+/// [`JOURNAL_BASE_BYTES`]; its heaviest path is a signing step reading a
+/// stored runtime ([`journal_runtime_bytes`]) at the largest metadata the
+/// journal can store ([`MAX_STORED_RUNTIME_METADATA_BYTES`]), so no stored
+/// runtime overdraws it, whatever its spec.
+pub const JOURNAL_CONTROL_BYTES: usize =
+    max_bytes(JOURNAL_BASE_BYTES, journal_runtime_bytes(MAX_STORED_RUNTIME_METADATA_BYTES));
+/// One Durable Object SQLite string, BLOB or row holds at most 2 MB
+/// (Cloudflare's Durable Object storage limits, the bound
+/// `target::MAX_BUNDLE_V2_BYTES` also takes).
+pub const DO_SQLITE_VALUE_BYTES: usize = 2_000_000;
+/// The largest metadata the signing journal can store and so ever read back:
+/// `runtime_cache.metadata_hex` is hex, two characters a byte, in one value
+/// of at most [`DO_SQLITE_VALUE_BYTES`]. A fetched runtime above it fails to
+/// store, which is AUDIT F5's open stop risk, not something this footprint
+/// covers. This follows the stored encoding: a move to a BLOB column doubles
+/// it, and with it the journal footprint.
+pub const MAX_STORED_RUNTIME_METADATA_BYTES: usize = DO_SQLITE_VALUE_BYTES / 2;
+const _: () = assert!(
+    MAX_STORED_RUNTIME_METADATA_BYTES <= MAX_RUNTIME_METADATA_BYTES,
+    "a stored runtime arrived in one reply"
+);
+/// A ChainJournal request apart from a stored runtime's read: twice the
+/// 486-fixture runtime read's measured 31 pages natively (the margin for
+/// wasm-bindgen's string transfer), in whole MiB. The bundle bound
+/// ([`SIGNING_BUNDLE_BYTES`]) is half of it.
+pub const JOURNAL_BASE_BYTES: usize = 4 * MIB;
+/// A signing step's read of a stored runtime of `metadata_len` bytes: the
+/// row's hex text and its decoded bytes (measured 31 pages natively for the
+/// 411,830 B fixture, scaled by length), twice for wasm-bindgen's string
+/// transfer, which holds up to four times the text while it encodes, plus a
+/// parse in the request's own scope when the runtimes home has no room for
+/// it ([`runtime_parse_bytes`]).
+pub const fn journal_runtime_bytes(metadata_len: usize) -> usize {
+    let read = (STORED_RUNTIME_READ_BYTES as u128 * metadata_len as u128).div_ceil(STORED_RUNTIME_READ_METADATA as u128);
+    let read = if read > (usize::MAX / 2) as u128 { usize::MAX / 2 } else { read as usize };
+    (2 * read).saturating_add(runtime_parse_bytes(metadata_len))
+}
+/// The stored runtime read's measured peak (hex row and decoded bytes,
+/// `arena_witness_the_stored_runtime_read_fits_the_journal_footprint`) and
+/// the metadata length it was measured with.
+pub const STORED_RUNTIME_READ_BYTES: usize = 31 * slop_ninja_arena::PAGE;
+pub const STORED_RUNTIME_READ_METADATA: usize = 411_830;
+
+const fn max_bytes(a: usize, b: usize) -> usize {
+    if a > b { a } else { b }
+}
 /// The largest stored reward-v1 bundle a ChainJournal request re-reads
 /// within [`JOURNAL_CONTROL_BYTES`]: a signing step holds the active target
 /// parsed and verified from it (`signing::active_target`) while the pointer
@@ -162,7 +203,7 @@ pub const JOURNAL_CONTROL_BYTES: usize = 4 * MIB;
 /// (`arena_witness_measure_the_signing_reads_of_a_stored_bundle`) and
 /// witnessed at the bound
 /// (`arena_witness_the_signing_reads_fit_the_journal_footprint_at_the_bundle_bound`).
-pub const SIGNING_BUNDLE_BYTES: usize = (JOURNAL_CONTROL_BYTES / 2 - SIGNING_BASE_BYTES) / SIGNING_PER_BUNDLE_BYTE;
+pub const SIGNING_BUNDLE_BYTES: usize = (JOURNAL_BASE_BYTES / 2 - SIGNING_BASE_BYTES) / SIGNING_PER_BUNDLE_BYTE;
 /// Measured 2026-11-04: 2 pages for a 7,363 B bundle, 34 for 505,163 B, 67
 /// for 1,002,963 B and 139 for 1,998,763 B (peak live 27,216 B, 1,974,927 B,
 /// 3,928,783 B and 7,836,895 B): about 4.6 bytes a bundle byte in whole
@@ -270,7 +311,7 @@ pub const fn cohort_work_bytes() -> usize {
 /// half a large reply's hex) and the round's body, decoded twice
 /// (`cf_admission::READER_BODY_BYTES`). Unmeasured.
 pub const COMMITMENTS_CONTROL_BYTES: usize =
-    runtime_parse_bytes(crate::rpc::MAX_LARGE_RESPONSE_BYTES / 2) + 4 * crate::rpc::MAX_LARGE_RESPONSE_BYTES;
+    runtime_parse_bytes(MAX_RUNTIME_METADATA_BYTES) + 4 * crate::rpc::MAX_LARGE_RESPONSE_BYTES;
 /// A Durable Object constructor: its storage migration.
 pub const CONSTRUCTOR_CONTROL_BYTES: usize = 256 * KIB;
 /// The smallest route footprint: the model's `min_route_bytes`, from which
@@ -412,23 +453,26 @@ pub const HOME_STATE_INSTANCE_BYTES: usize = 512;
 /// (`arena_witness_a_third_runtime_loads_into_a_full_cache_within_the_home`).
 pub const HOME_RUNTIMES_BYTES: usize = RUNTIME_PARSED_BYTES * (crate::signing::PARSED_RUNTIMES + 1) + slop_ninja_arena::SEGMENT_OVERHEAD;
 pub const HOME_PLANS_BYTES: usize = PLAN_PARSED_BYTES * crate::eval::engine::PLAN_CACHE_PLANS + slop_ninja_arena::SEGMENT_OVERHEAD;
-/// One parsed chain runtime (the recorded runtime-486 metadata) with its
-/// parse transients: measured 34 pages of peak scope memory, state page
-/// included (`arena_witness_home_caches_fit`, native 64-bit, 2026-11-01).
-/// The cache evicts down to `PARSED_RUNTIMES - 1` before it parses, and
-/// parses uncached when the home lacks room (`runtime_parse_bytes`).
-pub const RUNTIME_PARSED_BYTES: usize = 34 * slop_ninja_arena::PAGE;
-/// The metadata length `RUNTIME_PARSED_BYTES` was measured with (the
-/// recorded runtime-486 fixture, `fixtures/runtime-486/testnet-486.v15.scale`).
-pub const RUNTIME_FIXTURE_METADATA_BYTES: usize = 411_830;
+/// Measured parse peaks of recorded runtimes and the length-scaled need of
+/// a parse, shared with the upload Worker, which parses the same metadata
+/// with the same rtao-core parser (`slop_ninja_arena::measured`).
+pub use slop_ninja_arena::measured::{RUNTIME_PARSE_MEASUREMENTS, largest_recorded_metadata, runtime_parse_bytes};
 
-/// The home bytes a parse of `metadata_len` bytes of metadata needs: the
-/// measured parse peak scaled by the metadata length (the cache parses
-/// uncached when the home has less room).
-pub const fn runtime_parse_bytes(metadata_len: usize) -> usize {
-    let scaled = (RUNTIME_PARSED_BYTES as u128 * metadata_len as u128).div_ceil(RUNTIME_FIXTURE_METADATA_BYTES as u128);
-    if scaled > usize::MAX as u128 { usize::MAX } else { scaled as usize }
-}
+/// The largest metadata an RPC reply can carry: a `0x` hex string within
+/// `rpc::MAX_LARGE_RESPONSE_BYTES` holds at most half that many bytes. A
+/// reader that parses a reply directly is bounded by it; the signing
+/// journal's stored runtimes are bounded more tightly by their row
+/// ([`MAX_STORED_RUNTIME_METADATA_BYTES`]).
+pub const MAX_RUNTIME_METADATA_BYTES: usize = crate::rpc::MAX_LARGE_RESPONSE_BYTES / 2;
+
+/// One parsed chain runtime in the runtimes home: the parse of the largest
+/// recorded runtime, scaled ([`runtime_parse_bytes`]). The cache evicts down
+/// to `PARSED_RUNTIMES - 1` before it parses, admits a parse by its own
+/// scaled need, and parses uncached when the home lacks room, so a larger
+/// runtime than any recorded one still parses (in the request's scope) and
+/// is simply not cached.
+pub const RUNTIME_PARSED_BYTES: usize = runtime_parse_bytes(largest_recorded_metadata());
+
 /// One cached plan at the largest accepted plan body: the measured peak
 /// pages of the cache's copy (key and plan) of the widest plan whose JSON
 /// fits `MAX_PLAN_BODY_BYTES` (`arena_witness_home_caches_fit`).

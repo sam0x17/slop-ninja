@@ -715,6 +715,7 @@ impl AppPorts for TestApp {
             ciphertext_randomized: true,
             observed_spec_version: 0,
             commit_reveal_version: 4,
+            commit_reveal_tag_basis: "native",
             weight_version: 0,
             required_version_key: 0,
             validator_permit: true,

@@ -566,15 +566,30 @@ with the same parameters:
 - the payload, the drand round (`reveal_round_at`, with rtao's three-block
   security offset) and the epoch prediction are rtao's `timelock_commit` and
   `epoch_schedule`; encryption is upstream `encrypt_and_compress`;
-- the commit carries the native commit-reveal tag 4
-  (`signing::SUPPORTED_CR_VERSION`). On any other stored
-  `CommitRevealWeightsVersion` the coordinator defers its commit
-  (`commit_reveal_version`) and checks again, while native validators at
-  rtao `0c128160` follow a stored tag under runtime code rtao has reviewed.
-  601 stores 4. The agreement that both of our validators commit the same
-  row each cohort (AR-2/AR-3) assumes tag 4: after a tag change the native
-  validators could keep committing while the coordinator pauses, until the
-  coordinator gains tag following. Neither commits a wrong row.
+- the commit carries the stored `CommitRevealWeightsVersion` read at its
+  preflight, whatever it is (D-086): the chain checks only that the tag
+  equals the stored value, and runtime code alone decides which payload a
+  reveal decodes. The payload is always rtao's native v4
+  `WeightsTlockPayload` (`signing::NATIVE_CR_PAYLOAD_VERSION`). A followed
+  non-native tag is logged (`commit_reveal_tag_followed`) and shown per
+  operation on `/status` (`commit_reveal_tag`). Nothing defers it: when our
+  latest commitment with the tag that reached a verdict left the chain's
+  queue with no reveal event (`reveal_dropped`), the log reports that epoch
+  beside the followed tag (`...; epoch E (spec S) dropped unrevealed`,
+  `signing::cr_tag_unrevealed`), and the next epoch commits again. A drop
+  also covers weights refused when set (a deregistered UID, a raised
+  `MinAllowedWeights`), which says nothing about the tag, and a commit that
+  is not made could never reveal and clear it. One operation per epoch bounds
+  the probing; a dropped commit costs that epoch's weights, what a skipped
+  one costs. A queued commitment past its reveal epoch (a late drand pulse)
+  is not reported. A stored value no `u16` tag can
+  carry is refused at the preflight (`commit_reveal_version_unencodable`),
+  which backs off and re-checks. 601 stores 4. Native validators at rtao
+  `0c128160` follow a non-native tag only under runtime code rtao reviewed
+  (484, 486) or after their own commitment revealed under it, so after a tag
+  change under a later runtime the coordinator keeps committing while they
+  may pause (their readiness record alerts `commit_reveal_tag_unproven`).
+  Neither commits a wrong row.
 
 The same `[patch]` set as `subnet/Cargo.toml` pins `bittensor-core`, `w3f-bls`
 and `subtensor-macros`.
@@ -714,7 +729,7 @@ Then:
 | Reply | Attempt | Next |
 | --- | --- | --- |
 | extrinsic hash equal to the journal's | `submitted` | reconcile |
-| JSON-RPC 1010, 1011, 1016 or -32602, unless it says outdated or stale | `rejected` | the epoch's operation fails; no retry |
+| JSON-RPC 1010, 1011, 1016 or -32602, unless it says outdated or stale | `rejected` | the operation returns to `preparing` (detail `pool_rejected`): its next preflight re-reads the chain state and re-learns the runtime, and one fresh attempt is signed with the same nonce (a runtime upgrade between signing and submission is the rejection this cures). A rejection of that attempt too, or the epoch passing first, fails the operation as `pool_rejected` |
 | 1012, 1013, 1014, outdated, stale, any other error, 429, 5xx, timeout, transport failure, malformed reply | `uncertain` | reconcile |
 | none (the invocation or the DO died after the mark) | `uncertain` when the next holder claims (`abandoned_after_mark`) | reconcile |
 
@@ -2760,7 +2775,14 @@ routes are exempt until converted. The branch records follow.
   a stale holder's mark and outcome are fenced; duplicate wakeups take one
   claim; a late drand pulse is found by the queue search and a commit dropped
   without a reveal event is reported; an existing chain commit refuses a second one; a disabled flag pauses
-  without fallback; a pool rejection fails the epoch without retry; foreign
+  without fallback; a pool rejection is answered by one fresh attempt from the
+  next preflight's chain state and runtime (same nonce), which commits within
+  the epoch when the runtime upgraded between signing and submission, and a
+  second rejection fails the epoch; a stored non-native
+  tag is followed under 486 and the real 487 metadata; an unexplained drop
+  under a followed tag is reported and the next epoch commits with the same
+  tag, the report clearing once a commitment reveals; a native-tag drop
+  defers nothing; foreign
   nonce use is a fault that needs a clear; per-epoch identities; content-free
   status. Added with the failure accounting: an upgrade enacted in the
   inclusion block, which the nonce search also probes as a midpoint, is

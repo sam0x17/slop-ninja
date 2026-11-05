@@ -699,6 +699,26 @@ mod tests {
         assert!(parse_account(None).is_err() && parse_account(Some("0x07")).is_err());
     }
 
+    /// The runtime-487 metadata (subtensor PR #3294's build) derives the
+    /// same roster layout as 486, and both parses are admitted from their own
+    /// length within the route's bound at the reply limit.
+    #[test]
+    fn the_487_runtime_derives_the_same_layout() {
+        const REAL_487: &[u8] = include_bytes!("../../fixtures/runtime-487/pr3294-f3654266.v15.scale");
+        let new = parse_runtime(REAL_487, 487, 1).unwrap();
+        let marker = marker_digest(Some("0x01"));
+        let (a, b) = (Layout::derive(&runtime(), 601, marker).unwrap(), Layout::derive(&new, 601, marker).unwrap());
+        assert_eq!(a, b);
+        for uid in [0u16, 7, u16::MAX] {
+            assert_eq!(a.key_hex(uid).unwrap(), b.key_hex(uid).unwrap());
+        }
+        for metadata in [METADATA, REAL_487] {
+            let need = crate::routes::metadata_parse_bytes(metadata.len());
+            assert!(need >= slop_ninja_arena::measured::RUNTIME_PARSE_MEASUREMENTS.iter().map(|m| m.1).min().unwrap());
+            assert!(need <= crate::routes::metadata_parse_bytes(crate::routes::MAX_METADATA_BYTES));
+        }
+    }
+
     #[test]
     fn a_keys_call_fits_the_small_reply_bound() {
         let layout = Layout::derive(&runtime(), 601, [0; 32]).unwrap();

@@ -605,6 +605,9 @@ async fn build_layout(url: &str, head: &str, netuid: u16, marker: [u8; 32]) -> s
     let m = rpc(url, &registry::metadata_request(3, head), registry::MAX_LARGE_RESPONSE_BYTES, registry::METADATA_TIMEOUT_MS).await?;
     let prefixed = registry::parse_metadata(3, &m)?;
     drop(m);
+    // The parse's heap, from the decoded length, before the parse allocates.
+    slop_ninja_arena::admit_current_heap(crate::routes::metadata_parse_bytes(prefixed.len()))
+        .map_err(|_| ReadError("metadata_parse_refused"))?;
     let rt = registry::parse_runtime(&prefixed, spec, tx)?;
     Layout::derive(&rt, netuid, marker)
 }

@@ -228,13 +228,40 @@ struct ReadinessLog {
 pub struct LiveFacts {
     /// `SubtensorModule::CommitRevealWeightsVersion`, with its live default.
     pub commit_reveal_version: Option<u128>,
+    /// The storage hash of `:code` at the same block: the runtime code
+    /// identity rtao checks against its reviewed-runtime list before it
+    /// follows a non-native tag. Read only when the stored tag is not native.
+    pub runtime_code: RuntimeCode,
 }
+
+/// The runtime code identity behind [`LiveFacts::runtime_code`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RuntimeCode {
+    /// Not read: the stored tag is native or unread, so nothing needs it.
+    #[default]
+    NotNeeded,
+    /// The `:code` storage hash, read at the tag's block.
+    Hash([u8; 32]),
+    /// Needed but not read (the call failed or its reply was malformed):
+    /// unknown, never taken for unreviewed code
+    /// ([`RUNTIME_CODE_UNREAD`]).
+    Unread,
+}
+
+/// The commit's deferral code when the stored tag is not native and the
+/// runtime code could not be read. [`JournalControls::record_readiness`] keeps the
+/// commit's previous tag-dependent state instead (an unknown code is not an
+/// unreviewed one, so a transient read failure never flips the record or
+/// raises an alert); only with no such earlier state is this recorded.
+pub const RUNTIME_CODE_UNREAD: &str = "runtime_code_unread";
 
 /// Read [`LiveFacts`] by name at the best head, where rtao's scheduler reads
 /// them. A failed or malformed read yields `None` for that fact.
 pub async fn read_live_facts(client: &Client) -> LiveFacts {
+    let Ok(snapshot) = client.at(BlockRef::Best).await else {
+        return LiveFacts::default();
+    };
     let version = async {
-        let snapshot = client.at(BlockRef::Best).await.ok()?;
         let value = snapshot
             .query_batch_dyn(
                 "SubtensorModule",
@@ -246,13 +273,39 @@ pub async fn read_live_facts(client: &Client) -> LiveFacts {
             .into_iter()
             .next()?;
         value.as_u128()
+    }
+    .await;
+    let native = u128::from(rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION);
+    let runtime_code = match version {
+        Some(version) if version != native => {
+            let reply: Option<String> = client
+                .request(
+                    "state_getStorageHash",
+                    serde_json::json!(["0x3a636f6465", format!("0x{}", hex::encode(snapshot.block().hash.0))]),
+                )
+                .await
+                .ok()
+                .flatten();
+            reply
+                .as_deref()
+                .and_then(|text| text.strip_prefix("0x"))
+                .and_then(|text| hex::decode(text).ok())
+                .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+                .map_or(RuntimeCode::Unread, RuntimeCode::Hash)
+        }
+        _ => RuntimeCode::NotNeeded,
     };
     LiveFacts {
-        commit_reveal_version: version.await,
+        commit_reveal_version: version,
+        runtime_code,
     }
 }
 
 const COMMIT_CALL: &str = "commit_timelocked_mechanism_weights";
+
+/// The commit's deferral code for a non-native tag under runtime code rtao
+/// has not reviewed (see [`evaluate_operations_with`]).
+pub const COMMIT_REVEAL_TAG_UNPROVEN: &str = "commit_reveal_tag_unproven";
 
 /// Evaluate every signed operation, and rtao's finalized observation, against
 /// one live runtime. Pure and total: any metadata, including malformed
@@ -277,10 +330,20 @@ pub fn evaluate_operations(runtime: &RuntimeHandle) -> BTreeMap<String, Operatio
 /// - a stored commit-reveal version that does not fit the call's `u16` tag
 ///   (`commit_reveal_version_unencodable`).
 ///
-/// Any other stored commit-reveal version is an adaptation of the commit
-/// ([`surface::Adaptation::CommitRevealTagChanged`]): rtao follows it under
-/// reviewed or proven runtime code and otherwise pauses timelocked commits
-/// per attempt, reported as that attempt's outcome.
+/// Any other stored commit-reveal version under runtime code rtao reviewed
+/// is an adaptation of the commit
+/// ([`surface::Adaptation::CommitRevealTagChanged`]): rtao follows it. Under
+/// unreviewed runtime code rtao follows the tag only after one of this
+/// validator's own commitments revealed under that code, and otherwise
+/// pauses timelocked commits. That evidence lives in rtao's reveal watcher,
+/// out of this record's reach, so the commit is recorded as deferred
+/// ([`COMMIT_REVEAL_TAG_UNPROVEN`]), an alert, rather than as adapted while
+/// rtao may be pausing. A code that was not read is unknown
+/// ([`RUNTIME_CODE_UNREAD`]): recording keeps the previous state. The
+/// deferral clears by itself when the tag returns to native,
+/// the code becomes a reviewed one, or a later rtao pin follows the tag
+/// without the reviewed-code list (requested upstream; see the subnet
+/// README, "Runtime upgrades").
 pub fn evaluate_operations_with(
     runtime: &RuntimeHandle,
     facts: &LiveFacts,
@@ -295,9 +358,26 @@ pub fn evaluate_operations_with(
         match facts.commit_reveal_version {
             None => Ok(None),
             Some(version) if version == native => Ok(None),
-            Some(version) => match u16::try_from(version) {
-                Ok(stored) => Ok(Some(surface::Adaptation::CommitRevealTagChanged { stored })),
-                Err(_) => Err(surface::Deferral::new(
+            Some(version) => match (u16::try_from(version), facts.runtime_code) {
+                (Ok(stored), RuntimeCode::Hash(code))
+                    if rtao_neuron::weights::reviewed_cr_runtime(rtao_primitives::H256(code)).is_some() =>
+                {
+                    Ok(Some(surface::Adaptation::CommitRevealTagChanged { stored }))
+                }
+                (Ok(stored), RuntimeCode::Hash(code)) => Err(surface::Deferral::new(
+                    COMMIT_REVEAL_TAG_UNPROVEN,
+                    format!(
+                        "the chain stores commit-reveal version {stored} under runtime code 0x{} that rtao has not reviewed; rtao follows it only after one of this validator's commitments reveals under this code and pauses timelocked commits until then",
+                        hex::encode(code)
+                    ),
+                )),
+                (Ok(stored), RuntimeCode::NotNeeded | RuntimeCode::Unread) => Err(surface::Deferral::new(
+                    RUNTIME_CODE_UNREAD,
+                    format!(
+                        "the chain stores commit-reveal version {stored}, and the runtime code that decides whether rtao follows it was not read"
+                    ),
+                )),
+                (Err(_), _) => Err(surface::Deferral::new(
                     "commit_reveal_version_unencodable",
                     format!(
                         "the chain stores commit-reveal version {version}, which no u16 commit tag can carry"
@@ -418,6 +498,33 @@ fn summarize(log: &ReadinessLog) -> ReadinessSummary {
     }
     summary.alert = !summary.deferred.is_empty();
     summary
+}
+
+/// An operation evaluated as [`RUNTIME_CODE_UNREAD`] keeps its previous
+/// tag-dependent state (adapted to a changed tag, or deferred under
+/// unreviewed code): the code was not read, so nothing about it changed.
+/// With no such previous state the unread deferral stands.
+fn keep_state_on_unread_code(
+    previous: &BTreeMap<String, OperationReadiness>,
+    mut evaluated: BTreeMap<String, OperationReadiness>,
+) -> BTreeMap<String, OperationReadiness> {
+    for (name, next) in &mut evaluated {
+        if next.deferral.as_ref().is_none_or(|d| d.code != RUNTIME_CODE_UNREAD) {
+            continue;
+        }
+        let Some(before) = previous.get(name) else {
+            continue;
+        };
+        let tag_dependent = before
+            .adaptations
+            .iter()
+            .any(|a| matches!(a, surface::Adaptation::CommitRevealTagChanged { .. }))
+            || before.deferral.as_ref().is_some_and(|d| d.code == COMMIT_REVEAL_TAG_UNPROVEN);
+        if tag_dependent {
+            *next = before.clone();
+        }
+    }
+    evaluated
 }
 
 /// Identity of the only validator permitted to use one journal file.
@@ -1344,6 +1451,7 @@ impl JournalControls {
         evaluated: BTreeMap<String, OperationReadiness>,
     ) -> Result<ReadinessSummary> {
         let (current, unreadable) = read_readiness(&self.journal.snapshot()?);
+        let evaluated = keep_state_on_unread_code(&current.operations, evaluated);
         let changed = |name: &String, next: &OperationReadiness| {
             current.operations.get(name).is_none_or(|previous| {
                 previous.state != next.state
@@ -1367,7 +1475,7 @@ impl JournalControls {
                     .insert(READINESS_QUARANTINE_KEY.into(), raw);
             }
             let mut next_operations = BTreeMap::new();
-            for (name, mut next) in evaluated.clone() {
+            for (name, mut next) in keep_state_on_unread_code(&log.operations, evaluated.clone()) {
                 match log.operations.get(&name) {
                     Some(previous)
                         if previous.state == next.state

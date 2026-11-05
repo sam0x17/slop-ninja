@@ -13,6 +13,9 @@ use scale_info::{Field, PortableType, TypeDef, TypeDefPrimitive, form::PortableF
 
 /// Testnet metadata observed at spec 486 (byte-identical to Finney 486 V15).
 const METADATA: &[u8] = include_bytes!("../fixtures/runtime-486/testnet-486.v15.scale");
+/// The runtime-487 build of subtensor PR #3294 (try-runtime CI artifact of
+/// head `f3654266`, unmerged), extracted offline.
+const REAL_487: &[u8] = include_bytes!("../fixtures/runtime-487/pr3294-f3654266.v15.scale");
 const PALLET: &str = "SubtensorModule";
 const COMMIT: &str = "commit_timelocked_mechanism_weights";
 const SET: &str = "set_mechanism_weights";
@@ -832,8 +835,32 @@ fn a_widened_storage_item_is_read_by_name_and_nothing_waits() {
     assert_eq!(readiness[SET_ID].state, ReadinessState::Ready);
 }
 
+/// The real 487 metadata (new HashedAccounts pallet, ProxyType `Lock` and
+/// `GammaSpend`, gamma calls) changes nothing we sign or read: every signed
+/// operation is ready, the commit call is byte-identical to 486's, and the
+/// stored native tag needs nothing more.
 #[test]
-fn a_changed_commit_reveal_version_is_recorded_on_the_commit_and_rtao_decides() {
+fn the_real_487_runtime_keeps_every_operation_ready() {
+    let old = RuntimeHandle::parse(METADATA, 486, 1, 42).expect("486 parses");
+    let new = RuntimeHandle::parse(REAL_487, 487, 1, 42).expect("487 parses");
+    let native = u128::from(rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION);
+    let readiness = evaluate_operations_with(&new, &LiveFacts { commit_reveal_version: Some(native), runtime_code: RuntimeCode::NotNeeded });
+    for (operation, state) in &readiness {
+        assert_eq!(state.state, ReadinessState::Ready, "{operation}: {state:?}");
+        assert_eq!(state.observed.spec_version, 487);
+    }
+    assert_eq!(surface::evaluate_upstream_storage(&new), Ok(vec![]));
+    let commit = |rt: &RuntimeHandle| {
+        rtao_runtime::calls::subtensor_module::commit_timelocked_mechanism_weights(NetUid(601), MechId(0), vec![7u8; 96], 123_456, 4)
+            .compose(rt)
+            .expect("composes")
+    };
+    assert_eq!(commit(&old).as_bytes(), commit(&new).as_bytes());
+    check_live_call(&new, &commit(&new)).expect("the live-call guard admits it under 487");
+}
+
+#[test]
+fn a_changed_commit_reveal_version_is_recorded_as_rtao_will_treat_it() {
     let runtime = handle(metadata());
     let native = u128::from(rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION);
     for version in [None, Some(native)] {
@@ -841,6 +868,7 @@ fn a_changed_commit_reveal_version_is_recorded_on_the_commit_and_rtao_decides() 
             &runtime,
             &LiveFacts {
                 commit_reveal_version: version,
+                runtime_code: RuntimeCode::NotNeeded,
             },
         );
         assert!(
@@ -850,31 +878,72 @@ fn a_changed_commit_reveal_version_is_recorded_on_the_commit_and_rtao_decides() 
             "{version:?}"
         );
     }
-    // rtao follows a changed tag under reviewed or proven runtime code and
-    // otherwise pauses timelocked commits per attempt; readiness records the
-    // change on the commit and defers nothing.
-    for stored in [native + 1, 0, u128::from(u16::MAX)] {
+    // Under runtime code rtao reviewed, rtao follows a changed tag: an
+    // adaptation of the commit.
+    let reviewed = rtao_neuron::weights::REVIEWED_CR_RUNTIME_CODE
+        .iter()
+        .map(|(_, code)| <[u8; 32]>::try_from(hex::decode(code.trim_start_matches("0x")).unwrap()).unwrap())
+        .collect::<Vec<_>>();
+    for code in &reviewed {
+        for stored in [native + 1, 0, u128::from(u16::MAX)] {
+            let readiness = evaluate_operations_with(
+                &runtime,
+                &LiveFacts {
+                    commit_reveal_version: Some(stored),
+                    runtime_code: RuntimeCode::Hash(*code),
+                },
+            );
+            assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Adapted);
+            assert_eq!(
+                readiness[COMMIT_ID].adaptations,
+                [Adaptation::CommitRevealTagChanged {
+                    stored: u16::try_from(stored).unwrap()
+                }]
+            );
+            assert_eq!(readiness[SET_ID].state, ReadinessState::Ready);
+            assert_eq!(readiness[OBSERVATION_ID].state, ReadinessState::Ready);
+        }
+    }
+    // Under unreviewed code (any runtime after 486, such as 487), rtao at this
+    // pin follows only with reveal evidence and otherwise pauses timelocked
+    // commits: recorded as a deferral, an alert, never as an adaptation, and
+    // nothing else is affected. A code that was not read is unknown, a
+    // deferral of its own (the record keeps an earlier state over it).
+    let readiness_487 = handle_at(metadata(), 487);
+    for (code, expected) in [
+        (RuntimeCode::Hash([0x48; 32]), "commit_reveal_tag_unproven"),
+        (RuntimeCode::Unread, RUNTIME_CODE_UNREAD),
+        (RuntimeCode::NotNeeded, RUNTIME_CODE_UNREAD),
+    ] {
         let readiness = evaluate_operations_with(
-            &runtime,
+            &readiness_487,
             &LiveFacts {
-                commit_reveal_version: Some(stored),
+                commit_reveal_version: Some(native + 1),
+                runtime_code: code,
             },
         );
-        assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Adapted);
-        assert_eq!(
-            readiness[COMMIT_ID].adaptations,
-            [Adaptation::CommitRevealTagChanged {
-                stored: u16::try_from(stored).unwrap()
-            }]
-        );
+        assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Deferred, "{code:?}");
+        let deferral = readiness[COMMIT_ID].deferral.as_ref().unwrap();
+        assert_eq!(deferral.code, expected);
+        assert!(deferral.detail.contains("version 5"), "{}", deferral.detail);
         assert_eq!(readiness[SET_ID].state, ReadinessState::Ready);
         assert_eq!(readiness[OBSERVATION_ID].state, ReadinessState::Ready);
     }
+    // The native tag needs no code identity under any runtime.
+    let readiness = evaluate_operations_with(
+        &readiness_487,
+        &LiveFacts {
+            commit_reveal_version: Some(native),
+            runtime_code: RuntimeCode::Hash([0x48; 32]),
+        },
+    );
+    assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Ready);
     // A stored version no u16 tag can carry has no encoding.
     let readiness = evaluate_operations_with(
         &runtime,
         &LiveFacts {
             commit_reveal_version: Some(u128::from(u16::MAX) + 1),
+            runtime_code: RuntimeCode::Hash(reviewed[0]),
         },
     );
     assert_eq!(readiness[COMMIT_ID].state, ReadinessState::Deferred);
@@ -883,6 +952,59 @@ fn a_changed_commit_reveal_version_is_recorded_on_the_commit_and_rtao_decides() 
         "commit_reveal_version_unencodable"
     );
     assert_eq!(readiness[SET_ID].state, ReadinessState::Ready);
+}
+
+/// A failed `:code` read under a non-native tag is unknown, never
+/// unreviewed: the record keeps the commit's previous state, so a transient
+/// RPC failure neither writes a transition nor raises an alert. Only a read
+/// that names an unlisted code defers with the alert, and with no earlier
+/// state an unread code is recorded as such.
+#[test]
+fn an_unread_runtime_code_keeps_the_previous_readiness() -> Result<()> {
+    let root = scratch()?;
+    let adapter = open(&root.path().join("journal.json"), config())?;
+    let runtime = handle(metadata());
+    let native = u128::from(rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION);
+    let reviewed = rtao_neuron::weights::REVIEWED_CR_RUNTIME_CODE
+        .iter()
+        .map(|(_, code)| <[u8; 32]>::try_from(hex::decode(code.trim_start_matches("0x")).unwrap()).unwrap())
+        .next()
+        .unwrap();
+    let facts = |code| LiveFacts {
+        commit_reveal_version: Some(native + 1),
+        runtime_code: code,
+    };
+    // No earlier state: the unread code is recorded as unknown.
+    let first = adapter.evaluate_runtime_with(&runtime, &facts(RuntimeCode::Unread), 10)?;
+    assert_eq!(first.deferred.len(), 1);
+    assert_eq!(first.deferred[0].code, RUNTIME_CODE_UNREAD);
+    // Reviewed code: adapted. Then the code read fails: still adapted, no
+    // transition, no alert.
+    let adapted = adapter.evaluate_runtime_with(&runtime, &facts(RuntimeCode::Hash(reviewed)), 11)?;
+    assert!(adapted.deferred.is_empty() && !adapted.alert, "{adapted:?}");
+    let transitions = adapter.controls.readiness_transitions()?.len();
+    let unread = adapter.evaluate_runtime_with(&runtime, &facts(RuntimeCode::Unread), 12)?;
+    assert_eq!(unread, adapted);
+    assert_eq!(adapter.controls.readiness_transitions()?.len(), transitions, "no transition written");
+    // Unlisted code: deferred with the alert. A failed read keeps that too.
+    let unproven = adapter.evaluate_runtime_with(&runtime, &facts(RuntimeCode::Hash([0x48; 32])), 13)?;
+    assert!(unproven.alert);
+    assert_eq!(unproven.deferred[0].code, COMMIT_REVEAL_TAG_UNPROVEN);
+    let transitions = adapter.controls.readiness_transitions()?.len();
+    let unread = adapter.evaluate_runtime_with(&runtime, &facts(RuntimeCode::Unread), 14)?;
+    assert_eq!(unread, unproven);
+    assert_eq!(adapter.controls.readiness_transitions()?.len(), transitions);
+    // The tag returns to native: ready, whatever the code read did.
+    let ready = adapter.evaluate_runtime_with(
+        &runtime,
+        &LiveFacts {
+            commit_reveal_version: Some(native),
+            runtime_code: RuntimeCode::NotNeeded,
+        },
+        15,
+    )?;
+    assert!(ready.deferred.is_empty() && ready.adapted.is_empty() && !ready.alert, "{ready:?}");
+    Ok(())
 }
 
 #[test]

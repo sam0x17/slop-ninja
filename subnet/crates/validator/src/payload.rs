@@ -52,6 +52,23 @@ pub fn signing_payload(runtime: &RuntimeHandle, call: &[u8], params: &TxParams) 
         .context("signing payload could not be built")
 }
 
+/// The commit tag a dry run prepares and the basis rtao's scheduler has for
+/// it (D-086). The dry run follows the stored tag in every case and reports
+/// the basis instead of refusing: under unreviewed code the outcome depends
+/// on reveal evidence the dry run cannot see.
+pub fn dry_run_commit_tag(stored: u16, runtime_code: Option<rtao_primitives::H256>) -> (u16, &'static str) {
+    if stored == rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION {
+        (stored, "native")
+    } else if runtime_code
+        .and_then(rtao_neuron::weights::reviewed_cr_runtime)
+        .is_some()
+    {
+        (stored, "reviewed_code")
+    } else {
+        (stored, "unproven_code")
+    }
+}
+
 /// Content-free description of one prepared, unsigned weight commit.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct DryRunReport {
@@ -74,8 +91,15 @@ pub struct DryRunReport {
     /// Observation only; never compared.
     pub observed_spec_version: u32,
     /// The commit-reveal payload tag the commit carries: the stored
-    /// `CommitRevealWeightsVersion` rtao's scheduler would follow.
+    /// `CommitRevealWeightsVersion`.
     pub commit_reveal_version: u16,
+    /// Why rtao's scheduler would put that tag on the commit
+    /// ([`dry_run_commit_tag`]): `native`, `reviewed_code`, or
+    /// `unproven_code`, where rtao at this pin follows the tag only after one
+    /// of this validator's commitments revealed under the live code and
+    /// pauses timelocked commits until then (that evidence lives in rtao's
+    /// dispatch journal, out of the dry run's reach).
+    pub commit_reveal_tag_basis: &'static str,
     /// The weights version key the commit carries (`weight_version`).
     pub weight_version: u64,
     /// `WeightsVersionKey(netuid)`: 0, or at most `weight_version` (a larger

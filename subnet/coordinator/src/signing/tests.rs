@@ -27,6 +27,8 @@ use slop_ninja_protocol::{CalculationTarget, NeuronIdentity, Record, sign};
 use std::cell::Cell;
 
 const METADATA: &[u8] = include_bytes!("../../../fixtures/runtime-486/testnet-486.v15.scale");
+/// The runtime-487 build of subtensor PR #3294 (`fixtures/runtime-487`).
+const REAL_487: &[u8] = include_bytes!("../../../fixtures/runtime-487/pr3294-f3654266.v15.scale");
 const NETUID: u16 = 4242;
 const ALICE_SEED: &str = "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a";
 const COORD_UID: u16 = 1;
@@ -189,6 +191,10 @@ struct Fake {
     /// The pallet drops the commit without revealing it.
     reveal_drop: bool,
     reveal_first: BTreeMap<u64, u64>,
+    /// `CommitRevealWeightsVersion`, which every included commit repeats.
+    cr_version: u64,
+    /// The tag of every included commit, in order.
+    tags: Vec<u64>,
 }
 
 fn put(
@@ -255,6 +261,11 @@ fn dispatch_info() -> Value {
 
 impl Fake {
     fn new() -> Self {
+        Self::with_487(metadata_487())
+    }
+
+    /// The fake with `m487` as runtime 487's metadata.
+    fn with_487(m487: Vec<u8>) -> Self {
         let mut runtimes = BTreeMap::new();
         runtimes.insert(
             486,
@@ -263,7 +274,6 @@ impl Fake {
                 METADATA.to_vec(),
             ),
         );
-        let m487 = metadata_487();
         runtimes.insert(487, (ChainRuntime::parse(&m487, 487, 1).unwrap(), m487));
         let mut f = Self {
             runtimes,
@@ -287,6 +297,8 @@ impl Fake {
             reveal_delay: 0,
             reveal_drop: false,
             reveal_first: BTreeMap::new(),
+            cr_version: 4,
+            tags: vec![],
         };
         f.snapshot(START - 1, vec![]);
         f
@@ -377,9 +389,13 @@ impl Fake {
             };
             let ciphertext = as_bytes(&arg("commit")).unwrap();
             let round = as_u64(&arg("reveal_round")).unwrap();
+            let tag = as_u64(&arg("commit_reveal_version")).unwrap();
             let index = body.len() as u32;
             body.push(format!("0x{}", hex::encode(&ext)));
             self.nonce += 1;
+            // The chain refuses any other tag (`IncorrectCommitRevealVersion`).
+            assert_eq!(tag, self.cr_version, "the commit carries the stored tag");
+            self.tags.push(tag);
             let epoch = current_epoch_pre_run_coinbase(&self.sched, n);
             let who = alice().public();
             self.queue.entry(epoch).or_default().push(Entry {
@@ -484,7 +500,7 @@ impl Fake {
             chain::SUBTENSOR,
             "CommitRevealWeightsVersion",
             &[],
-            int(4),
+            int(self.cr_version),
         );
         put(
             rt,
@@ -684,6 +700,9 @@ enum Send {
     AcceptThenDie,
     /// The node refuses it.
     Reject,
+    /// The node refuses it because the next block enacts runtime 487 (the
+    /// attempt was signed for 486), then accepts.
+    RejectAtUpgrade,
 }
 
 struct H {
@@ -715,6 +734,10 @@ struct H {
 
 impl H {
     fn new() -> Self {
+        Self::with(Fake::new())
+    }
+
+    fn with(chain: Fake) -> Self {
         let db = Sqlite::open();
         tx(&db, |sql| migrate(sql, &CHAIN_JOURNAL_SCHEMA)).unwrap();
         let mut cfg = SignConfig::testnet(
@@ -725,7 +748,7 @@ impl H {
         cfg.rpc_calls_per_minute = 1_000;
         let h = Self {
             db,
-            chain: Fake::new(),
+            chain,
             cfg,
             trusted: fx::trusted_keys(),
             runtime: RuntimeCache::default(),
@@ -922,6 +945,16 @@ impl H {
                             message: "Invalid Transaction: Custom error: 6".into(),
                         },
                     },
+                    Send::RejectAtUpgrade => {
+                        self.send.set(Send::Accept);
+                        self.chain.upgrade_next(487);
+                        SignOutcome::Submit {
+                            result: SubmitOutcome::Rejected {
+                                code: 1010,
+                                message: "Invalid Transaction: Transaction has a bad signature".into(),
+                            },
+                        }
+                    }
                 }
             }
         })
@@ -1323,7 +1356,7 @@ fn disabled_commit_reveal_pauses_new_commitments_without_fallback() {
 }
 
 #[test]
-fn a_pool_rejection_fails_the_epoch_without_retrying() {
+fn a_repeated_pool_rejection_fails_the_epoch() {
     let mut h = H::new();
     h.resume();
     h.send.set(Send::Reject);
@@ -1334,7 +1367,11 @@ fn a_pool_rejection_fails_the_epoch_without_retrying() {
         (ops[0].state.as_str(), ops[0].detail.as_deref()),
         ("failed", Some("pool_rejected"))
     );
-    assert_eq!(ops[0].attempts.len(), 1);
+    // One fresh attempt from fresh chain state answers the first rejection;
+    // its rejection ends the epoch. Neither consumed a nonce.
+    assert_eq!(ops[0].attempts.len(), 2);
+    assert!(ops[0].attempts.iter().all(|a| a.state == "rejected" && a.nonce == 7));
+    assert!(h.chain.accepted.is_empty());
 }
 
 #[test]
@@ -1927,6 +1964,103 @@ fn a_commit_dropped_without_a_reveal_event_is_reported() {
     h.until(80, committed);
     h.until(400, |h| h.ops()[0].state == "failed");
     assert_eq!(h.ops()[0].detail.as_deref(), Some("reveal_dropped"));
+}
+
+/// Root stores another commit-reveal tag: the coordinator follows it (the
+/// chain requires only tag equality; runtime code decides the payload),
+/// under the recorded 486 runtime and after an upgrade to the real 487.
+#[test]
+fn a_stored_commit_reveal_tag_is_followed_across_an_upgrade() {
+    let mut h = H::with(Fake::with_487(REAL_487.to_vec()));
+    h.chain.cr_version = 5;
+    h.chain.snapshot(START - 1, vec![]);
+    h.resume();
+    h.until(80, committed);
+    assert_eq!(h.chain.tags, [5]);
+    let o = &h.ops()[0];
+    assert_eq!(o.commit_reveal_tag, Some(5));
+    assert_eq!(o.attempts[0].spec_version, 486);
+    assert!(logged(&h, "commit_reveal_tag_followed").iter().any(|d| d.as_deref() == Some("tag 5 under spec 486")));
+    assert!(logged(&h, "deferred").is_empty(), "{:?}", logged(&h, "deferred"));
+    h.until(400, |h| h.ops()[0].state == "revealed");
+    // The real 487 is enacted; the next epoch commits under it, still with
+    // the stored tag.
+    h.chain.upgrade_next(487);
+    h.until(400, |h| h.ops().len() == 2 && committed(h) && h.ops()[1].state != "preparing");
+    let o = &h.ops()[1];
+    assert_eq!((o.attempts[0].spec_version, o.commit_reveal_tag), (487, Some(5)));
+    assert_eq!(h.chain.tags, [5, 5]);
+    assert_eq!(h.status().health, "ok");
+}
+
+/// A commitment with a followed tag is dropped without a reveal, a drop that
+/// may have nothing to do with the tag (weights refused when set, a
+/// deregistered UID). The coordinator keeps committing with the stored tag
+/// every epoch and reports the drop beside it; once a commitment with the tag
+/// reveals again, the report clears by itself.
+#[test]
+fn an_unexplained_drop_never_stops_the_next_commit() {
+    let mut h = H::new();
+    h.chain.cr_version = 5;
+    h.chain.reveal_drop = true;
+    h.chain.snapshot(START - 1, vec![]);
+    h.resume();
+    h.until(80, committed);
+    h.until(400, |h| h.ops()[0].state == "failed");
+    assert_eq!(h.ops()[0].detail.as_deref(), Some("reveal_dropped"));
+    let dropped = h.ops()[0].epoch;
+    // The next epoch commits with the same tag, and the drop is reported.
+    h.until(400, |h| h.ops().len() == 2 && committed(h) && h.ops()[1].state != "preparing");
+    assert_eq!(h.chain.tags, [5, 5]);
+    let reported = format!("tag 5 under spec 486; epoch {dropped} (spec 486) dropped unrevealed");
+    assert!(
+        logged(&h, "commit_reveal_tag_followed").iter().any(|d| d.as_deref() == Some(reported.as_str())),
+        "{:?}",
+        logged(&h, "commit_reveal_tag_followed")
+    );
+    assert!(logged(&h, "deferred").iter().all(|d| !d.as_deref().unwrap_or("").starts_with("commit_reveal_tag")));
+    assert_eq!(h.status().state, "active", "never a pause");
+    // The chain sets the weights again: a later commitment with the tag
+    // reveals, and the next followed commit reports no drop.
+    h.chain.reveal_drop = false;
+    h.until(800, |h| h.ops().iter().any(|o| o.state == "revealed"));
+    let before = logged(&h, "commit_reveal_tag_followed").len();
+    h.until(400, |h| logged(h, "commit_reveal_tag_followed").len() > before);
+    let after = logged(&h, "commit_reveal_tag_followed");
+    assert_eq!(after.last().unwrap().as_deref(), Some("tag 5 under spec 486"), "{after:?}");
+    assert!(h.chain.tags.iter().all(|t| *t == 5));
+}
+
+/// A dropped commitment under the native tag never defers the next commit.
+#[test]
+fn a_native_tag_drop_never_defers_the_next_commit() {
+    let mut h = H::new();
+    h.chain.reveal_drop = true;
+    h.resume();
+    h.until(80, committed);
+    h.until(400, |h| h.ops()[0].state == "failed");
+    h.until(400, |h| h.ops().len() == 2 && committed(h) && h.ops()[1].state != "preparing");
+    assert_eq!(h.chain.tags, [4, 4]);
+    assert!(logged(&h, "deferred").iter().all(|d| !d.as_deref().unwrap_or("").starts_with("commit_reveal_tag")));
+}
+
+/// The pool rejects an attempt because the runtime changed between signing
+/// and submission: the operation re-learns the runtime at its next preflight
+/// and signs once more under the new one, inside the same epoch.
+#[test]
+fn a_pool_rejection_at_a_runtime_upgrade_signs_again_under_the_new_runtime() {
+    let mut h = H::with(Fake::with_487(REAL_487.to_vec()));
+    h.resume();
+    h.send.set(Send::RejectAtUpgrade);
+    h.until(120, committed);
+    let o = &h.ops()[0];
+    assert_eq!(o.epoch, 6);
+    assert_eq!(o.attempts.len(), 2, "{o:#?}");
+    assert_eq!((o.attempts[0].state.as_str(), o.attempts[0].spec_version), ("rejected", 486));
+    assert_eq!((o.attempts[1].state.as_str(), o.attempts[1].spec_version), ("included", 487));
+    assert_eq!(o.attempts[1].nonce, o.attempts[0].nonce, "a rejection consumes no nonce");
+    assert_eq!(h.counter("sign_rejections_resigned"), 1);
+    assert_eq!(h.chain.accepted.len(), 1);
 }
 
 /// A reward-v1 launch bundle: the burn row under a launch authorization.

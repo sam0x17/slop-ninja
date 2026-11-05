@@ -42,6 +42,7 @@ pub const CASES: &[Case] = &[
     ("model_ceiling", model_ceiling),
     ("fixed_linear_memory_never_grows", fixed_linear_memory_never_grows),
     ("current_scope_admits_an_exact_block", current_scope_admits_an_exact_block),
+    ("current_scope_admits_a_heap_run", current_scope_admits_a_heap_run),
     ("scope_owns_its_allocations", scope_owns_its_allocations),
     ("free_routes_to_owner", free_routes_to_owner),
     ("quarantine_until_last_free", quarantine_until_last_free),
@@ -205,6 +206,28 @@ fn current_scope_admits_an_exact_block() -> CaseResult {
     let st = scope.stats();
     let closed = scope.close();
     ensure!(ok, "the exact allocation is served from the admitted block of the current scope");
+    ensure!(st.overdraft_pages == 0, "no overdraft");
+    ensure!(matches!(closed, Closed::Released { .. }), "released");
+    Ok(())
+}
+
+fn current_scope_admits_a_heap_run() -> CaseResult {
+    ensure!(crate::admit_current_heap(4096) == Ok(false), "no scope current: nothing admitted");
+    let scope = Scope::open(R, 4096).map_err(|_| "open")?;
+    let need = 5 * PAGE;
+    let before = scope.stats().reserved_bytes;
+    let ok = scope.enter(|| {
+        let admitted = crate::admit_current_heap(need);
+        // Small allocations up to the admitted need, served by the heap.
+        let parts: Vec<Vec<u8>> = (0..64).map(|_| vec![0u8; need / 128]).collect();
+        let owned = parts.iter().all(|v| matches!(owner_of(v.as_ptr()), Some(Owner::Scope(id)) if id == scope.id()));
+        drop(parts);
+        admitted == Ok(true) && owned
+    });
+    let st = scope.stats();
+    let closed = scope.close();
+    ensure!(ok, "the run is admitted to the current scope, which serves the allocations");
+    ensure!(st.reserved_bytes >= before + need, "the run is reserved for the scope");
     ensure!(st.overdraft_pages == 0, "no overdraft");
     ensure!(matches!(closed, Closed::Released { .. }), "released");
     Ok(())

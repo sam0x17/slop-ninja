@@ -70,7 +70,12 @@ authorization described in the [design draft](../docs/cloudflare-subnet-draft.md
 ## Runtime upgrades
 
 No code here compares a runtime spec or transaction version, and nothing is
-certified for a runtime. Operation IDs, cohorts, rows, the journal identity and
+certified for a runtime. Tests run against two recorded V15 metadata blobs:
+`fixtures/runtime-486/testnet-486.v15.scale` (testnet and Finney 486) and
+`fixtures/runtime-487/pr3294-f3654266.v15.scale`, extracted offline from the
+try-runtime build that CI published for subtensor PR #3294 (runtime 487, head
+`f3654266`, unmerged on 2026-11-04; sha256 `5e4f52fc...97de`). The second is
+test data only, re-extracted if that PR changes before it merges. Operation IDs, cohorts, rows, the journal identity and
 the semantic contract contain no runtime version, so a cohort and its journal
 survive any number of upgrades unchanged. rtao signs with the spec and
 transaction versions it reads from the chain at signing time; that is their
@@ -141,14 +146,49 @@ changes back or rtao gains support:
 - **`commit_reveal_version_unencodable`**: a stored `CommitRevealWeightsVersion`
   that no `u16` commit tag can carry.
 
-Any other stored commit-reveal version than the payload version rtao encodes
-(`NATIVE_CR_PAYLOAD_VERSION`, 4) is an adaptation of the commit
-(`CommitRevealTagChanged`). rtao follows the stored tag under runtime code it
-reviewed or saw reveal one of its own commitments, and otherwise pauses
-timelocked commits for that mechanism and records the refusal as the
-attempt's outcome; it decides per attempt (D-086). The validator's dry run,
-which has no journal evidence, reports a tag it cannot follow as
-`commit_reveal_version_paused`.
+For any other stored commit-reveal version than the payload version rtao
+encodes (`NATIVE_CR_PAYLOAD_VERSION`, 4), the record says what rtao will do
+(D-086). `evaluate_live` also reads the `:code` storage hash at the same
+block, the runtime code identity rtao checks:
+
+- under code on rtao's reviewed list (484 and 486 at this pin) rtao follows the
+  stored tag: an adaptation of the commit (`CommitRevealTagChanged`);
+- under any other code rtao follows the tag only after one of this
+  validator's own commitments revealed under that code, and otherwise pauses
+  timelocked commits for the mechanism every block. That evidence lives in
+  rtao's dispatch journal, out of the record's reach, so the commit is
+  recorded as deferred (`commit_reveal_tag_unproven`) with an alert, never as
+  adapted while rtao may be pausing;
+- when the hash read fails, the code is unknown, not unreviewed: the record
+  keeps the commit's previous tag-dependent state, so a transient RPC failure
+  writes no transition and raises no alert. Only with no such earlier state is
+  the commit recorded as deferred `runtime_code_unread`.
+
+The reviewed-code list is a runtime gate in effect: every runtime after 486,
+487 included, is unlisted, and a validator with nothing outstanding can never
+gather the evidence. We have asked upstream to follow the stored tag by
+default under any code and to keep committing after a missed reveal, at worst
+rate-limited, never stopped: a missed reveal can have causes unrelated to the
+tag, and a commitment that is not made can never reveal. The coordinator
+already does this (`subnet/coordinator`, `signing::cr_tag_unrevealed`: it
+reports the drop and commits every epoch). Until a pin carries that, a tag
+change under an unreviewed runtime alerts here.
+The validator's dry run, which also has no journal evidence, prepares the
+commit with the stored tag and reports the basis (`commit_reveal_tag_basis`:
+`native`, `reviewed_code` or `unproven_code`) instead of failing.
+
+Two stop risks remain for a later runtime; neither affects 486 or 487, and
+both are queued before a runtime that would trigger them:
+
+- **Metadata above about 1 MB.** The coordinator stores each fetched runtime
+  as hex in one Durable Object SQLite value of at most 2 MB, so a larger
+  runtime fails to store and the coordinator cannot sign under it (487's
+  metadata is 0.44 MB). Storing the bytes as a BLOB doubles that ceiling;
+  `arena_routes::MAX_STORED_RUNTIME_METADATA_BYTES` follows the encoding.
+- **The epoch-index key layout.** The eval reader reads `SubnetEpochIndex` and
+  `LastEpochBlock` through a compiled key layout (the `Identity` hasher and a
+  `u64` value). A runtime that changes either would stop cohort boundaries
+  from advancing until that read derives its key and type by name.
 
 `dispatch_finalized` keeps in-process recovery after an rtao scheduler error
 only when that call signed nothing (no new attempt, none unresolved or

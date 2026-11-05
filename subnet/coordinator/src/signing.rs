@@ -86,8 +86,14 @@ use std::rc::Rc;
 pub const SIGNER_CLAIM: &str = "signer";
 pub const COMMIT_OP_PREFIX: &str = "slop_ninja:coordinator-commit:v1:";
 const COMMIT_OP_DOMAIN: &[u8] = b"slop_ninja.coordinator-commit.v1\0";
-/// rtao's supported commit-reveal client payload version.
-pub const SUPPORTED_CR_VERSION: u16 = 4;
+/// The timelocked payload format the coordinator encrypts: rtao's
+/// `WeightsTlockPayload` (hotkey, UIDs, values, version key), its
+/// `NATIVE_CR_PAYLOAD_VERSION` (D-086). Runtime code alone decides which
+/// payload a reveal decodes; the stored `CommitRevealWeightsVersion` is a tag
+/// each commit repeats, so the commit follows the stored tag whatever it is,
+/// every epoch ([`cr_tag_unrevealed`] reports evidence against a tag; it
+/// never stops a commit).
+pub const NATIVE_CR_PAYLOAD_VERSION: u16 = 4;
 /// `GLOBAL_MAX_SUBNET_COUNT`: the mechanism stride of storage indices.
 const MECHANISM_STRIDE: u16 = 4096;
 /// Retained sign-log rows on `/status`.
@@ -3524,11 +3530,14 @@ fn decode_preflight(
         blocks_since_last_step: number(pick(&v, "BlocksSinceLastStep")?, "BlocksSinceLastStep")?,
         reveal_period: number(pick(&v, "RevealPeriodEpochs")?, "RevealPeriodEpochs")?,
         commit_reveal_enabled: as_bool(pick(&v, "CommitRevealWeightsEnabled")?).unwrap_or(false),
-        commit_reveal_version: u16::try_from(number(
+        commit_reveal_version: match u16::try_from(number(
             pick(&v, "CommitRevealWeightsVersion")?,
             "CommitRevealWeightsVersion",
-        )?)
-        .unwrap_or(u16::MAX),
+        )?) {
+            Ok(tag) => tag,
+            // No u16 commit tag can carry it: no encoding exists.
+            Err(_) => return Ok(Err("commit_reveal_version_unencodable")),
+        },
         required_version_key: number(pick(&v, "WeightsVersionKey")?, "WeightsVersionKey")?,
         rate_limit: number(pick(&v, "WeightsSetRateLimit")?, "WeightsSetRateLimit")?,
         last_update: last_updates
@@ -3539,6 +3548,40 @@ fn decode_preflight(
         max_weights_limit: v.get("MaxWeightsLimit").and_then(as_u64),
         spec_version: rt.spec_version(),
     }))
+}
+
+/// The latest verdict on a commitment carrying `tag`, when it is against the
+/// tag: the epoch of our latest commitment with this tag that either revealed
+/// or left the chain's queue with no reveal event (`reveal_dropped`), if it is
+/// the latter, and the runtime spec its preflight recorded (an observation,
+/// never a key or a comparison).
+///
+/// Evidence, never a deferral. `reveal_dropped` also covers weights the chain
+/// refused when it set them (a deregistered or re-registered UID, a raised
+/// `MinAllowedWeights`, the version key), which says nothing about the tag,
+/// and a commit that is not made can never reveal and clear it. So the
+/// coordinator keeps committing with the stored tag: one operation per epoch
+/// is the probe's only bound, and a dropped commit costs that epoch's weights,
+/// what a skipped commit costs and what a native-tag drop already costs. A
+/// queued commitment past its reveal epoch (`reveal_missed`, a late drand
+/// pulse) is explained and is not reported.
+fn cr_tag_unrevealed(sql: &impl Sql, tag: u16) -> Result<Option<(u64, Option<u64>)>, StoreError> {
+    let latest = sql.exec(
+        "SELECT epoch, state,
+                json_extract(preflight_json, '$.spec_version')
+         FROM commit_ops
+         WHERE (state = 'revealed' OR (state = 'failed' AND detail = 'reveal_dropped'))
+           AND json_extract(preflight_json, '$.commit_reveal_version') = ?
+         ORDER BY epoch DESC LIMIT 1",
+        &[SqlValue::Integer(tag.into())],
+    )?;
+    let Some(row) = latest.first() else {
+        return Ok(None);
+    };
+    if text(row, 1)? != "failed" {
+        return Ok(None);
+    }
+    Ok(Some((uint(row, 0)?, opt_u(row, 2))))
 }
 
 fn apply_preflight(
@@ -3585,24 +3628,36 @@ fn apply_preflight(
     // for the epoch it names.
     for o in &preparing {
         if o.epoch != epoch {
-            fail_op(sql, &o.op_id, "epoch_passed", now_ms)?;
+            // A rejected attempt whose runtime never changed in its window
+            // stays a pool rejection.
+            let code = if trailing_rejections(sql, &o.op_id)? > 0 { POOL_REJECTED } else { "epoch_passed" };
+            fail_op(sql, &o.op_id, code, now_ms)?;
         }
     }
     if !commit_window(cfg, &state) {
         return Ok(None);
     }
-    if p.commit_reveal_version != SUPPORTED_CR_VERSION {
-        // No type-correct payload for this runtime: defer alone and re-check.
+    if p.commit_reveal_version != NATIVE_CR_PAYLOAD_VERSION {
+        // The commit follows the stored tag (D-086), every epoch. Our latest
+        // commitment with this tag dropping unrevealed is reported beside it,
+        // never acted on (see `cr_tag_unrevealed`).
+        let followed = format!("tag {} under spec {}", p.commit_reveal_version, p.spec_version);
+        let detail = match cr_tag_unrevealed(sql, p.commit_reveal_version)? {
+            None => followed,
+            Some((epoch, spec)) => format!(
+                "{followed}; epoch {epoch} (spec {}) dropped unrevealed",
+                spec.map_or_else(|| "unrecorded".to_owned(), |s| s.to_string())
+            ),
+        };
         log(
             sql,
             now_ms,
             Some(at_block.number),
             None,
             None,
-            "deferred",
-            Some("commit_reveal_version"),
+            "commit_reveal_tag_followed",
+            Some(&detail),
         )?;
-        return Ok(None);
     }
     if cfg.version_key < p.required_version_key {
         log(
@@ -3778,6 +3833,28 @@ fn apply_registration(
     }))
 }
 
+/// An operation's failure detail when the pool rejected an attempt signed
+/// from fresh chain state after an earlier rejection, or when its epoch
+/// passed before the fresh attempt. While it waits for that fresh attempt
+/// the preparing operation carries it as its detail.
+pub const POOL_REJECTED: &str = "pool_rejected";
+
+/// How many of the operation's latest attempts in a row the pool rejected.
+fn trailing_rejections(sql: &impl Sql, op_id: &str) -> Result<u64, StoreError> {
+    let rows = sql.exec(
+        "SELECT state FROM sign_attempts WHERE op_id = ? ORDER BY attempt DESC",
+        &[op_id.into()],
+    )?;
+    let mut n = 0;
+    for r in &rows {
+        if text(r, 0)? != "rejected" {
+            break;
+        }
+        n += 1;
+    }
+    Ok(n)
+}
+
 /// Signs the attempt for a preparing operation whose row is derived, with
 /// the runtime the chain reported at its preflight block.
 fn sign_op(
@@ -3803,6 +3880,20 @@ fn sign_op(
     {
         fail_op(sql, op_id, r.code, now_ms)?;
         return Ok(());
+    }
+    // The fresh attempt after a pool rejection, from this preflight's state
+    // and runtime (the runtime's spec is an observation in the log).
+    if trailing_rejections(sql, op_id)? > 0 {
+        journal::bump(sql, "sign_rejections_resigned")?;
+        log(
+            sql,
+            now_ms,
+            Some(at_block.number),
+            Some(op_id),
+            None,
+            "resign_after_rejection",
+            Some(&format!("runtime spec {}", rt.spec_version())),
+        )?;
     }
     sign_attempt(sql, ctx, rt, &o, &p, &row, now_ms)
 }
@@ -3851,7 +3942,8 @@ fn sign_attempt(
     if ciphertext.len() > chain::YUMA_COMMIT_LIMIT {
         return Ok(fail_op(sql, &o.op_id, "ciphertext_too_large", now_ms)?);
     }
-    let call = match rt.commit_call(cfg.netuid, 0, &ciphertext, round, SUPPORTED_CR_VERSION) {
+    // The stored tag read at this operation's preflight (D-086).
+    let call = match rt.commit_call(cfg.netuid, 0, &ciphertext, round, p.commit_reveal_version) {
         Ok(c) => c,
         Err(e) => {
             // No type-correct encoding under live metadata: defer this
@@ -3998,7 +4090,20 @@ fn apply_submit(
                 "rejected",
                 Some(&detail),
             )?;
-            fail_op(sql, op_id, "pool_rejected", now_ms)?;
+            // A rejected extrinsic consumed no nonce. Its signed bytes bind
+            // the chain state of its preflight: the runtime's versions, the
+            // nonce, the era. A runtime upgrade between signing and
+            // submission is a rejection that fresh state cures, so the first
+            // rejection returns the operation to preparing: its next
+            // preflight re-reads that state and re-learns the runtime, and
+            // the operation signs once more. A rejection of that fresh
+            // attempt too shows fresh state does not cure it: final for the
+            // epoch, as a lone rejection used to be.
+            if trailing_rejections(sql, op_id)? >= 2 {
+                fail_op(sql, op_id, POOL_REJECTED, now_ms)?;
+            } else {
+                set_op_state(sql, op_id, "preparing", Some(POOL_REJECTED), now_ms)?;
+            }
         }
         SubmitOutcome::Uncertain { reason } => {
             let detail: String = reason.chars().take(160).collect();
@@ -4715,6 +4820,9 @@ pub struct OpStatus {
     pub reveal_block_hash: Option<String>,
     pub reveal_weights_match: Option<bool>,
     pub diagnostic: Option<String>,
+    /// The `CommitRevealWeightsVersion` tag the operation's last preflight
+    /// read, which its commit carries (D-086): an observation, never a gate.
+    pub commit_reveal_tag: Option<u16>,
     pub attempts: Vec<AttemptStatus>,
 }
 
@@ -4814,7 +4922,8 @@ pub fn status(
     for r in sql.exec(
         "SELECT op_id, epoch, state, detail, preflight_block, uid, row_json, reveal_round, predicted_reveal_block,
                 commit_block, commit_block_hash, commit_index, readback, readback_block, reveal_block,
-                reveal_block_hash, reveal_weights_match, diagnostic
+                reveal_block_hash, reveal_weights_match, diagnostic,
+                json_extract(preflight_json, '$.commit_reveal_version')
          FROM commit_ops ORDER BY epoch DESC LIMIT ?",
         &[bind_u64(ops_limit)?],
     )? {
@@ -4864,6 +4973,7 @@ pub fn status(
             reveal_block_hash: opt_t(&r, 15),
             reveal_weights_match: opt_u(&r, 16).map(|v| v == 1),
             diagnostic: opt_t(&r, 17),
+            commit_reveal_tag: opt_u(&r, 18).and_then(|t| u16::try_from(t).ok()),
             attempts,
         });
     }

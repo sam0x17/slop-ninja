@@ -283,3 +283,24 @@ fn the_signing_payload_follows_the_live_runtime_not_a_pinned_version() {
         .collect();
     assert!(!differing.is_empty() && differing.len() <= 4);
 }
+
+/// The dry run follows the stored commit-reveal tag under any runtime code
+/// and reports rtao's basis for it instead of refusing (D-086): native,
+/// reviewed code, or code without reveal evidence the dry run could see.
+#[test]
+fn the_dry_run_follows_any_stored_tag_and_reports_its_basis() {
+    use rtao_neuron::weights::{NATIVE_CR_PAYLOAD_VERSION, REVIEWED_CR_RUNTIME_CODE};
+    let code = |hex_code: &str| {
+        let bytes = hex::decode(hex_code.trim_start_matches("0x")).expect("hex");
+        rtao_primitives::H256(<[u8; 32]>::try_from(bytes).expect("32 bytes"))
+    };
+    let reviewed = code(REVIEWED_CR_RUNTIME_CODE[REVIEWED_CR_RUNTIME_CODE.len() - 1].1);
+    let unlisted = rtao_primitives::H256([0x48; 32]);
+    let native = NATIVE_CR_PAYLOAD_VERSION;
+    for runtime_code in [None, Some(reviewed), Some(unlisted)] {
+        assert_eq!(crate::payload::dry_run_commit_tag(native, runtime_code), (native, "native"));
+    }
+    assert_eq!(crate::payload::dry_run_commit_tag(native + 1, Some(reviewed)), (native + 1, "reviewed_code"));
+    assert_eq!(crate::payload::dry_run_commit_tag(native + 1, Some(unlisted)), (native + 1, "unproven_code"));
+    assert_eq!(crate::payload::dry_run_commit_tag(0, None), (0, "unproven_code"));
+}

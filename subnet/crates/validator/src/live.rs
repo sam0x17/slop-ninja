@@ -18,7 +18,7 @@ use rtao_core::codec::Value;
 use rtao_intents::weights::{
     CommitSizeLimit, ConformState, TimelockCommitRequest, TimelockCommitter, conform,
 };
-use rtao_neuron::weights::{NATIVE_CR_PAYLOAD_VERSION, WeightPreflight};
+use rtao_neuron::weights::WeightPreflight;
 use rtao_neuron::{ChainClock, ClockGuard, EpochClock, EpochStatus, Metrics, NeuronCx};
 use rtao_primitives::{AccountId, H256, IntoCoreValue as _, NetUid, Uid};
 use rtao_rpc::{EndpointPool, RateLimit};
@@ -840,25 +840,21 @@ impl LivePorts {
             preflight.commit_reveal,
             "commit_reveal_disabled: refusing to prepare direct weights"
         );
-        // The commit tag rtao's scheduler would use (D-086): the stored tag
-        // when it is the native payload version or the live runtime code is
-        // one rtao reviewed. The scheduler also follows a tag under code that
-        // revealed one of its own commitments; that evidence lives in the
-        // dispatch journal, so the dry run reports it as a pause instead.
-        let tag = if preflight.commit_reveal_version == NATIVE_CR_PAYLOAD_VERSION {
-            NATIVE_CR_PAYLOAD_VERSION
-        } else if preflight
-            .runtime_code
-            .and_then(rtao_neuron::weights::reviewed_cr_runtime)
-            .is_some()
-        {
-            preflight.commit_reveal_version
-        } else {
-            bail!(
-                "commit_reveal_version_paused: the chain stores commit-reveal version {} under runtime code this rtao build has not reviewed; rtao's scheduler pauses timelocked commits unless one of its commitments revealed under this code",
-                preflight.commit_reveal_version
+        // The commit tag rtao's scheduler would use (D-086): the stored tag.
+        // Under runtime code this rtao build has not reviewed, the scheduler
+        // follows it only with reveal evidence from its dispatch journal, so
+        // the dry run prepares the tagged commit and reports that basis
+        // (`commit_reveal_tag_basis`) instead of failing.
+        let (tag, tag_basis) =
+            payload::dry_run_commit_tag(preflight.commit_reveal_version, preflight.runtime_code);
+        if tag_basis == "unproven_code" {
+            tracing::warn!(
+                event = "commit_reveal_tag_unproven",
+                commit_reveal_version = tag,
+                alert = true,
+                "the chain stores a non-native commit-reveal version under runtime code this rtao build has not reviewed; rtao's scheduler pauses timelocked commits unless one of its commitments revealed under this code"
             );
-        };
+        }
         // rtao refuses a version key below the runtime's before signing
         // (`check_except_cr`); the chain checks it again at reveal.
         ensure!(
@@ -1519,6 +1515,7 @@ impl AppPorts for LivePorts {
             ciphertext_randomized: true,
             observed_spec_version: runtime.spec_version(),
             commit_reveal_version: tag,
+            commit_reveal_tag_basis: payload::dry_run_commit_tag(tag, preflight.runtime_code).1,
             weight_version: self.config.weight_version,
             required_version_key: preflight.required_version_key,
             validator_permit: limits.own_permit,

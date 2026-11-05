@@ -47,6 +47,7 @@ compile_error!("slop-ninja-arena assumes single-threaded wasm (no atomics)");
 
 pub mod glue;
 pub mod io;
+pub mod measured;
 pub mod model;
 mod pool;
 mod scope;
@@ -66,7 +67,7 @@ pub use pool::{
 };
 pub use scope::{
     AsyncRoute, Closed, Continuation, Entered, Reason, Refusal, RefusalKind, Route, Scope, ScopeRef, ScopeStats,
-    Scoped, admit_current_block, child_bytes, enter, health, limits, tick, wait_until,
+    Scoped, admit_current_block, admit_current_heap, child_bytes, enter, health, limits, tick, wait_until,
 };
 pub use stats::{
     Failure, FailureKind, POSTMORTEM_WORDS, Postmortem, RouteStats, Stats, postmortem, route_stats, stats,

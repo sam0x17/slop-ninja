@@ -540,6 +540,23 @@ pub fn admit_current_block(len: usize, align: usize) -> Result<bool, Refusal> {
     pool::reserve(id, epoch, route, len, pages_of(bytes), Hold::Block { len, align }).map(|()| true)
 }
 
+/// Admits `bytes` of heap in the scope current on this thread (wasm32:
+/// instance), as one contiguous run: for a helper that learns a measured
+/// need from an exact size (a parse whose peak scales with its input's
+/// length) without holding the invocation's [`ScopeRef`], before it
+/// allocates. `bytes` is a measured peak of scope memory, not a dlmalloc
+/// footprint. Allocation-free. `Ok(true)`: admitted. `Ok(false)`: no scope is
+/// current; nothing is admitted. A refusal is classed by cause like any
+/// admission.
+pub fn admit_current_heap(bytes: usize) -> Result<bool, Refusal> {
+    let (id, epoch) = current::get();
+    if id == pool::NONE {
+        return Ok(false);
+    }
+    let route = pool::current_route(id, epoch).unwrap_or(0);
+    pool::reserve(id, epoch, route, bytes, pages_of(bytes), Hold::Heap).map(|()| true)
+}
+
 /// Sets the pool clock (milliseconds) and sweeps for abandoned scopes. The
 /// host calls it at every export entry, before anything allocates; it is
 /// allocation-free. Returns the pool's health: when `Poisoned`, the host

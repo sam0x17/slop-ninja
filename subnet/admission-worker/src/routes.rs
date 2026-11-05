@@ -35,14 +35,26 @@ pub const R_STREAM: AsyncRoute = AsyncRoute::new(id::STREAM, "upload/stream", UN
 /// The public route: the signed fields, a body of at most a
 /// `SubmissionUpload` record, the small RPC replies (a roster load reads
 /// them one at a time), the forwarded message and the eval Worker's reply
-/// (at most the contract's response limit at R2's part maximum, 2.6 MiB),
-/// and on a layout miss the metadata parse
-/// (the coordinator measured 34 pages for the parse of the same metadata,
-/// `RUNTIME_PARSED_BYTES`). The metadata reply itself is admitted as its
-/// own block of its declared length (at most
-/// `registry::MAX_LARGE_RESPONSE_BYTES`). Unmeasured on this Worker: the
-/// sum rounded up to whole MiB.
+/// (at most the contract's response limit at R2's part maximum, 2.6 MiB).
+/// Unmeasured on this Worker: the sum rounded up to whole MiB. A layout miss
+/// adds two admissions of their own, sized from what the reply declares:
+/// the metadata reply as one block of its length (at most
+/// `registry::MAX_LARGE_RESPONSE_BYTES`), and its parse as a heap run of
+/// [`metadata_parse_bytes`] for the decoded length, admitted before the
+/// parse allocates.
 pub const PUBLIC_CONTROL_BYTES: usize = 4 * MIB;
+
+/// The heap a parse of `metadata_len` bytes of V15 metadata needs: the
+/// recorded parse peaks of the same rtao-core parser, scaled to the length
+/// at the steepest measured ratio (`slop_ninja_arena::measured`, shared
+/// with the coordinator, whose witness measures them).
+pub const fn metadata_parse_bytes(metadata_len: usize) -> usize {
+    slop_ninja_arena::measured::runtime_parse_bytes(metadata_len)
+}
+
+/// The largest metadata the registration read can parse: a `0x` hex reply
+/// within `registry::MAX_LARGE_RESPONSE_BYTES` carries at most half that.
+pub const MAX_METADATA_BYTES: usize = crate::registry::MAX_LARGE_RESPONSE_BYTES / 2;
 /// The framing route: one 1 MiB buffer (`cf::FRAME_CHUNK_BYTES`), the
 /// header record (at most the protocol's 1 MiB `MAX_ARTIFACT_HEADER_LEN`),
 /// the parts manifest (at most the scorer's 1 MiB) and the outcome's JSON
@@ -61,10 +73,12 @@ pub const STREAM_CONTROL_BYTES: usize = slop_ninja_arena::PAGE;
 /// The smallest route control footprint (`min_route_bytes` of the model).
 pub const MIN_CONTROL_BYTES: usize = STREAM_CONTROL_BYTES;
 /// The largest invocation: the framing route's footprint, or the public
-/// route's with its metadata block, whichever is larger, plus the scope's
-/// state page (`largest_route_bytes` of the model).
+/// route's with its metadata block and that metadata's parse at the reply
+/// bound, whichever is larger, plus the scope's state page
+/// (`largest_route_bytes` of the model).
 pub const LARGEST_INVOCATION_BYTES: usize = {
-    let public = PUBLIC_CONTROL_BYTES + crate::registry::MAX_LARGE_RESPONSE_BYTES;
+    let public =
+        PUBLIC_CONTROL_BYTES + crate::registry::MAX_LARGE_RESPONSE_BYTES + metadata_parse_bytes(MAX_METADATA_BYTES);
     let frame = FRAME_CONTROL_BYTES;
     (if public > frame { public } else { frame }) + slop_ninja_arena::PAGE
 };

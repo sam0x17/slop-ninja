@@ -4465,12 +4465,12 @@ fn outage_blocked(sql: &impl Sql, seq: i64, code: &str, cause: Option<&str>, bou
         commitments::STATE_UNAVAILABLE => {
             (match subject.and_then(|(k, rest)| (k == "state").then_some(rest)).and_then(|r| r.split_once('@')) {
                 Some((hk, block)) => pending(
-                    "SELECT 1 FROM commit_seen WHERE hotkey = ? AND block = ? AND stage IN ('events','reg') AND absent_tries > 0",
+                    "SELECT 1 FROM commit_seen WHERE hotkey = ? AND block = ? AND stage IN ('hash','events','reg') AND absent_tries > 0",
                     &[s(hk), i(block.parse::<i64>().unwrap_or(-1))],
                 )?,
                 None => false,
             }) || pending(
-                "SELECT 1 FROM commit_seen cs WHERE cs.stage IN ('events','reg') AND cs.absent_tries >= ?
+                "SELECT 1 FROM commit_seen cs WHERE cs.stage IN ('hash','events','reg') AND cs.absent_tries >= ?
                    AND cs.hotkey IN (SELECT hotkey FROM adm_sessions WHERE seq = ? AND state IN ('uploading','verifying')) LIMIT 1",
                 &[i(bound), i(seq)],
             )?

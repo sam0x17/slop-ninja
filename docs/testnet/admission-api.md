@@ -186,8 +186,10 @@ reserved in the shared RPC budget first:
   from the archive endpoint when one is configured; if every configured
   endpoint reports `c`'s state discarded, the commitment is unresolvable
   (`commitment_unresolvable`, `state_discarded`). An answer that serves no
-  state without saying it is discarded (a lagging or load-balanced node) is
-  never final: the read is repeated after a growing backoff. The coordinator
+  state without saying it is discarded (a lagging or load-balanced node),
+  including an unknown-block error, a missing header or a `null` hash for
+  `c`, is never final: the read is repeated after a growing backoff, from
+  the archive endpoint when one is configured. The coordinator
   never substitutes a later state for an earlier block.
 - **Snapshot.** When admission closes, for every hotkey whose upload
   completed in time, it reads `CommitmentOf`, `Uids`, `Owner` (the owning

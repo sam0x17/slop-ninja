@@ -468,9 +468,10 @@ Cohorts are listed in ascending order, and strictly in order: a cohort the
 publisher cannot read yet, or a packaged cohort whose closure is not written
 yet, holds every later one, so a later cohort (and its target and
 authorization) is never listed before an earlier one. A packaged cohort that
-was abandoned holds later ones until the coordinator's retirement marker for
-it (due after two later completions) shows that no closure follows; a signed
-abandonment record that releases it at once is planned but not written yet.
+was abandoned holds later ones until something shows that no closure
+follows: the coordinator's signed abandonment record for it, which releases
+it at once, or its retirement marker for it (due after two later
+completions).
 A closed
 cohort the publisher refused is not listed but appears in `refused`, a
 content-free list of `label`, `cohort` and `opened_epoch` (when its manifest

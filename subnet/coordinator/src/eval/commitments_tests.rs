@@ -859,6 +859,14 @@ fn a_snapshot_under_another_runtime_is_decoded_with_the_metadata_at_its_block() 
     })
     .unwrap();
     assert_eq!(tx(&db, status).unwrap()["state_discarded"], 1);
+    // A lagging node's unknown-block answer keeps the snapshot being read
+    // but is not counted as discarded state.
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &needs, BUDGET, 3)).unwrap();
+    assert!(round.reads[0].tag.starts_with("snapvals@"), "the snapshot keeps being read");
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &error_reply(&round, "UnknownBlock: Header was not found"), 3)).unwrap();
+    assert_eq!(tx(&db, status).unwrap()["state_discarded"], 1, "a block not served yet is not discarded");
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &needs, BUDGET, 4)).unwrap();
+    assert!(round.reads[0].tag.starts_with("snapvals@"), "and is read again");
 }
 
 /// Each block's delivery drives the reader, so invocations overlap: while a
@@ -983,4 +991,218 @@ fn reader_calls_parse_only_when_needed_and_are_observed() {
         serde_json::json!({"failed": 1, "failed_last": "plan", "plan_ms_last": 60, "plan_ms_max": 3_000,
             "ingest_ms_last": 900, "ingest_ms_max": 900, "maxima_cohort": null})
     );
+}
+
+// ------------------------------------- lagging node: unknown block (11-05)
+
+/// The answer a node of a load-balanced endpoint gives for a block it has
+/// not imported yet.
+const NOT_IMPORTED: &str = "Client error: UnknownBlock: Header was not found in the database: 0xcf..";
+
+fn refused(message: &str) -> ReadResult {
+    ReadResult {
+        tag: "events@x".into(),
+        id: 1,
+        reply: Some(
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "error": {"code": 4003, "message": message}}).to_string(),
+        ),
+    }
+}
+
+#[test]
+fn refusals_tell_discarded_state_from_a_block_not_served_yet() {
+    for m in [
+        "State already discarded",
+        "Client error: UnknownBlock: State already discarded for BlockId::Hash(0x0101..)",
+    ] {
+        assert_eq!(refusal(&refused(m)), Some(Refusal::Discarded), "{m}");
+        assert!(discarded(&refused(m)) && !not_served(&refused(m)));
+    }
+    for m in [NOT_IMPORTED, "Unknown block", "UnknownBlock", "Header not found"] {
+        assert_eq!(refusal(&refused(m)), Some(Refusal::NotServed), "{m}");
+        assert!(!discarded(&refused(m)) && not_served(&refused(m)));
+    }
+    assert_eq!(refusal(&refused("Rate limited")), None);
+    let data = ReadResult {
+        tag: "events@x".into(),
+        id: 1,
+        reply: Some(
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": "Client error", "data": "UnknownBlock: Header was not found"}})
+                .to_string(),
+        ),
+    };
+    assert_eq!(refusal(&data), Some(Refusal::NotServed), "the error's data is read too");
+    assert_eq!(refusal(&ReadResult { tag: "x".into(), id: 1, reply: None }), None);
+    assert_eq!(
+        refusal(&ReadResult { tag: "x".into(), id: 1, reply: Some(reply(1, serde_json::json!(["unknown block"]))) }),
+        None,
+        "a result is never a refusal"
+    );
+}
+
+/// Review finding 2 of a0f2faef: an unknown-block answer for a resolution
+/// read at an endpoint-returned hash is a lagging node, not pruned state.
+/// The events and registration stages stay pending, back off, are read
+/// again from the archive endpoint and resolve once a node serves them.
+#[test]
+fn a_lagging_nodes_unknown_block_never_ends_a_resolution() {
+    let (db, rt, up) = with_runtime();
+    let c_hash = Id([0xcf; 32]);
+    pending_events(&db, &who(9), 6, c_hash);
+    let at = BlockRef {
+        number: 10_000,
+        hash: Id([2; 32]),
+    };
+    let plan_at = |t: u64| tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, t)).unwrap();
+    let round = plan_at(0);
+    assert!(round.reads[0].tag.starts_with("events@") && !round.reads[0].archive);
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &error_reply(&round, NOT_IMPORTED), 0)).unwrap();
+    assert_eq!(seen(&db, &who(9)), Some(("events".into(), None)), "not terminal");
+    assert!(tx(&db, |s| terminal(s, &who(9))).unwrap().is_none());
+    let st = tx(&db, status).unwrap();
+    assert_eq!(st["state_discarded"], 0);
+    assert_eq!(st["state_absent_pending"], 1);
+    assert!(plan_at(1).reads.is_empty(), "backs off");
+    let t1 = crate::eval::admission::backoff_ms(1);
+    let round = plan_at(t1);
+    assert!(round.reads[0].tag.starts_with("events@") && round.reads[0].archive);
+    let (ek, uk) = (events_key(&rt).unwrap(), uids_key(&rt, NETUID, &who(9)).unwrap());
+    let single = encode(&rt, "System", "Events", &Value::List(vec![event(Some(2), NETUID, &who(9))]));
+    let uid = encode(&rt, chain::SUBTENSOR, "Uids", &Value::Int(12));
+    let results = answer(&round, |_| {
+        serde_json::json!([{"block": c_hash.to_hex(), "changes": [[ek, hx(&single)], [uk, hx(&uid)], [marker_key(), hx(&up)]]}])
+    });
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, t1)).unwrap();
+    assert_eq!(seen(&db, &who(9)).map(|x| x.0), Some("reg".into()));
+    // The registration stage: the same.
+    let t2 = t1 + 1;
+    let round = plan_at(t2);
+    assert!(round.reads[0].tag.starts_with("reg@") && !round.reads[0].archive);
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &error_reply(&round, "Unknown block"), t2)).unwrap();
+    assert_eq!(seen(&db, &who(9)).map(|x| x.0), Some("reg".into()), "still pending");
+    assert!(plan_at(t2 + 1).reads.is_empty());
+    let t3 = t2 + crate::eval::admission::backoff_ms(1);
+    let round = plan_at(t3);
+    assert!(round.reads[0].tag.starts_with("reg@") && round.reads[0].archive);
+    let rk = registration_key(&rt, NETUID, 12).unwrap();
+    let reg = encode(&rt, chain::SUBTENSOR, "BlockAtRegistration", &Value::Int(3));
+    let results = answer(&round, |_| {
+        serde_json::json!([{"block": c_hash.to_hex(), "changes": [[rk, hx(&reg)], [marker_key(), hx(&up)]]}])
+    });
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, t3)).unwrap();
+    assert_eq!(seen(&db, &who(9)).map(|x| x.0), Some("logged".into()));
+    let e = tx(&db, |s| latest(s, &who(9))).unwrap().unwrap();
+    assert_eq!((e.block, e.uid, e.registration_block), (6, Some(12), Some(3)));
+    assert_eq!(tx(&db, status).unwrap()["state_discarded"], 0);
+}
+
+/// The block hash read: an unknown-block error or a `null` hash (a node that
+/// has not imported the height) backs off and is read again; a hash moves
+/// the resolution on with its absent answers cleared.
+#[test]
+fn a_hash_read_a_lagging_node_cannot_answer_is_read_again() {
+    let (db, rt, _) = with_runtime();
+    tx(&db, |s| {
+        s.exec(
+            "INSERT INTO commit_seen (hotkey, block, payload, seen_block, stage) VALUES (?, 6, '00', 9, 'hash')",
+            &[s_hex(&who(10))],
+        )?;
+        Ok::<_, EvalError>(())
+    })
+    .unwrap();
+    let at = BlockRef {
+        number: 10_000,
+        hash: Id([2; 32]),
+    };
+    let plan_at = |t: u64| tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, t)).unwrap();
+    let round = plan_at(0);
+    assert_eq!(round.reads[0].tag, format!("hash@{}@6", hex::encode(who(10).0)));
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &error_reply(&round, NOT_IMPORTED), 0)).unwrap();
+    assert_eq!(seen(&db, &who(10)), Some(("hash".into(), None)));
+    assert!(plan_at(1).reads.is_empty());
+    let t1 = crate::eval::admission::backoff_ms(1);
+    let round = plan_at(t1);
+    assert!(round.reads[0].archive);
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &answer(&round, |_| serde_json::Value::Null), t1)).unwrap();
+    assert_eq!(seen(&db, &who(10)), Some(("hash".into(), None)), "a null hash is not final either");
+    assert!(tx(&db, |s| terminal(s, &who(10))).unwrap().is_none());
+    let t2 = t1 + crate::eval::admission::backoff_ms(2);
+    assert!(plan_at(t2 - 1).reads.is_empty(), "the backoff grows");
+    let round = plan_at(t2);
+    let c_hash = Id([0xc6; 32]);
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &answer(&round, |_| serde_json::json!(c_hash.to_hex())), t2)).unwrap();
+    assert_eq!(seen(&db, &who(10)).map(|x| x.0), Some("events".into()));
+    assert_eq!(tx(&db, status).unwrap()["state_absent_pending"], 0);
+    let round = plan_at(t2 + 1);
+    assert!(round.reads[0].tag.starts_with("events@") && !round.reads[0].archive, "the next stage starts afresh");
+    // An explicit discarded answer is still final.
+    tx(&db, |s| {
+        s.exec(
+            "INSERT INTO commit_seen (hotkey, block, payload, seen_block, stage) VALUES (?, 7, '00', 9, 'hash')",
+            &[s_hex(&who(11))],
+        )?;
+        Ok::<_, EvalError>(())
+    })
+    .unwrap();
+    let round = plan_at(t2 + 2);
+    let tag = format!("hash@{}@7", hex::encode(who(11).0));
+    let mine: Vec<ReadResult> =
+        error_reply(&round, "State already discarded").into_iter().filter(|r| r.tag == tag).collect();
+    assert_eq!(mine.len(), 1);
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &mine, t2 + 2)).unwrap();
+    assert_eq!(seen(&db, &who(11)), Some(("unresolvable".into(), Some("block_unknown".into()))));
+}
+
+/// A key listing whose pinned block a lagging node does not serve yet is
+/// read again at that block (not restarted, not counted as discarded); a
+/// runtime read refused that way leaves the pending resolution alone.
+#[test]
+fn a_listing_and_a_runtime_read_a_lagging_node_refuses_are_read_again() {
+    let (db, rt, _) = with_runtime();
+    let at = BlockRef {
+        number: 10_000,
+        hash: Id([2; 32]),
+    };
+    let needs = Needs {
+        poll: true,
+        snapshot: None,
+    };
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &needs, BUDGET, 100_000)).unwrap();
+    assert_eq!(round.reads[0].tag, "keys@10000");
+    let out = tx(&db, |s| ingest(s, Some(&rt), NETUID, &error_reply(&round, NOT_IMPORTED), 100_000)).unwrap();
+    assert_eq!(out.failed, 1);
+    let head = BlockRef {
+        number: 10_500,
+        hash: Id([3; 32]),
+    };
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(head), &needs, BUDGET, 100_000)).unwrap();
+    assert_eq!(round.reads[0].tag, "keys@10000", "the listing keeps its block");
+    let results = answer(&round, |_| serde_json::json!(vec![commitment_key(&rt, NETUID, &who(3)).unwrap()]));
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, 100_000)).unwrap();
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(head), &needs, BUDGET, 100_000)).unwrap();
+    assert_eq!(round.reads[0].tag, "values@10000");
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &error_reply(&round, NOT_IMPORTED), 100_000)).unwrap();
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(head), &needs, BUDGET, 100_000)).unwrap();
+    assert_eq!(round.reads[0].tag, "values@10000", "read again at its own block");
+    assert_eq!(tx(&db, status).unwrap()["state_discarded"], 0);
+
+    // A runtime read at a past block (another runtime wrote it) that a
+    // lagging node refuses: the resolution stays pending and the same
+    // block's runtime is read again.
+    let c_hash = Id([0xce; 32]);
+    pending_events(&db, &who(7), 6, c_hash);
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 0)).unwrap();
+    let (ek, uk) = (events_key(&rt).unwrap(), uids_key(&rt, NETUID, &who(7)).unwrap());
+    let up487 = marker_value(&rt, 487);
+    let results = answer(
+        &round,
+        |_| serde_json::json!([{"block": c_hash.to_hex(), "changes": [[ek, null], [uk, null], [marker_key(), hx(&up487)]]}]),
+    );
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &results, 0)).unwrap();
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 1)).unwrap();
+    assert_eq!(round.reads[0].tag, "version@6");
+    tx(&db, |s| ingest(s, Some(&rt), NETUID, &error_reply(&round, NOT_IMPORTED), 1)).unwrap();
+    assert_eq!(seen(&db, &who(7)), Some(("events".into(), None)), "not ended");
+    let round = tx(&db, |s| plan(s, Some(&rt), NETUID, Some(at), &Needs::default(), BUDGET, 2)).unwrap();
+    assert_eq!(round.reads[0].tag, "version@6", "the same block's runtime is read again");
 }

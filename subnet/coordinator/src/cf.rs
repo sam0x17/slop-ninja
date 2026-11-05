@@ -2435,10 +2435,11 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
     use crate::eval::commitments::{READER_CALL_MS, READER_OBJECT_CALL_MS, ROUND_START_MS, fitting, read_ms, read_step_ms};
     let configured = env.var("READER_RPC_CALLS_PER_MINUTE").ok().and_then(|v| v.to_string().trim().parse::<u64>().ok());
     let share = crate::eval::commitments::reader_share(d.settings.rpc_calls_per_minute, configured);
-    // Past-block state a pruning endpoint no longer keeps is read again from
-    // the archive endpoint, when one is configured, before the reader treats
-    // it as gone (a coordinator outage longer than the node's state window
-    // must not cost the cohort).
+    // Past-block state a pruning endpoint no longer keeps, or a block its
+    // answering node has not imported yet, is read again from the archive
+    // endpoint, when one is configured, before the reader acts on the
+    // refusal (a coordinator outage longer than the node's state window must
+    // not cost the cohort).
     let archive = var(env, "ARCHIVE_RPC_URL").and_then(|v| config::rpc_url(Some(&v)).ok()).filter(|u| *u != d.rpc_url);
     // Every call below carries the reader's own allowance
     // (`commitments::READER_OBJECT_CALL_MS`, `READER_CALL_MS`, `read_ms`),
@@ -2526,15 +2527,15 @@ async fn commitments_drive(env: &Env, d: &Deployment, budget: Budget) {
             let mut result = crate::eval::commitments::ReadResult { tag: read.tag.clone(), id: read.id, reply: post(first).await };
             if let Some(url) = &archive
                 && first != url.as_str()
-                && crate::eval::commitments::discarded(&result)
+                && crate::eval::commitments::refusal(&result).is_some()
                 && budget.allows(read_step_ms(read.large) + READER_OBJECT_CALL_MS)
                 && match journal_call_within(env, d, Method::Post, "/rpc-reserve", None, Some(READER_CALL_MS)).await {
                     Ok(mut r) => cf_io::response_json::<bool>(&mut r, ROUND_REPLY_BYTES).await.unwrap_or(false),
                     Err(_) => false,
                 }
             {
-                // Only the archive's answer is ingested; its own refusal is
-                // then the state being gone.
+                // Only the archive's answer is ingested; its own refusal
+                // then decides (discarded: gone; not served: read again).
                 result.reply = post(url).await;
             }
             results.push(result);

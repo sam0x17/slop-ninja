@@ -34,12 +34,18 @@
 //! Failures stay local. A value or event list that does not decode leaves
 //! that hotkey's commitment unresolvable (an empty or unusual
 //! `CommitmentInfo` opens no submission) and never aborts the round. State a
-//! node no longer keeps (its "state discarded" error) ends a resolution as
-//! unresolvable and restarts a pinned key listing at the current block; at
-//! the snapshot it pauses the closing cohort ([`SNAPSHOT_DISCARDED`]) until
-//! a read answers. The Worker reads such state again from `ARCHIVE_RPC_URL`
-//! when one is configured before either applies. A commitment whose extrinsic also committed for
-//! another hotkey on the subnet (a batch) has no position the protocol
+//! node no longer keeps (its explicit "state discarded" error,
+//! [`Refusal::Discarded`]) ends a resolution as unresolvable and restarts a
+//! pinned key listing at the current block; at the snapshot it pauses the
+//! closing cohort ([`SNAPSHOT_DISCARDED`]) until a read answers. An
+//! unknown-block answer without that wording ([`Refusal::NotServed`]: a
+//! node behind a load-balanced endpoint that has not imported the block
+//! yet) is never final: a resolution stage is read again after a backoff,
+//! as an answer without state is ([`state_absent`]), and a key listing is
+//! read again at its own block. The Worker reads a refused read again from
+//! `ARCHIVE_RPC_URL` when one is configured before either applies. A
+//! commitment whose extrinsic also committed for another hotkey on the
+//! subnet (a batch) has no position the protocol
 //! orders and is unresolvable ([`SHARED_EXTRINSIC`]). Every read at a past
 //! block also reads `LastRuntimeUpgrade` there: a resolution stage or a
 //! snapshot read under another runtime than the stored one reads the
@@ -87,8 +93,8 @@ pub const EVENT: &str = "Commitment";
 pub const KEYS_PAGE: u32 = 1000;
 /// The note of a commitment whose extrinsic committed for several hotkeys.
 pub const SHARED_EXTRINSIC: &str = "shared_extrinsic";
-/// The fault of a closing cohort whose snapshot block's state the node no
-/// longer keeps.
+/// The fault of a closing cohort whose snapshot block's state no endpoint
+/// read served: discarded, or not served yet by the answering node.
 pub const SNAPSHOT_DISCARDED: &str = "snapshot_state_discarded";
 /// Calls one runtime read takes (version, metadata, marker).
 pub const RUNTIME_READS: usize = 3;
@@ -1076,30 +1082,64 @@ fn reply_result(r: &ReadResult) -> Option<Json> {
     v.get("result").cloned()
 }
 
-/// The largest reply [`discarded`] parses: a JSON-RPC error object is small,
+/// The largest reply [`refusal`] parses: a JSON-RPC error object is small,
 /// and a large successful reply is never one.
 const ERROR_REPLY_BYTES: usize = 64 * 1024;
 
-/// Whether a reply is a node's refusal of state it no longer keeps (a
-/// pruning node's "State already discarded" or unknown-block error).
-pub fn discarded(r: &ReadResult) -> bool {
-    let Some(b) = r.reply.as_deref() else { return false };
+/// A node's refusal of a read at a past block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// The node pruned the block's state: its explicit "State already
+    /// discarded" error (Substrate words it `UnknownBlock: State already
+    /// discarded for ...`). Final for that endpoint.
+    Discarded,
+    /// An unknown-block or missing-header error without that wording: the
+    /// answering node has not imported the block yet (one node of a
+    /// load-balanced endpoint lagging the endpoint's own finalized head, or
+    /// a webhook delivery ahead of the RPC). Never final.
+    NotServed,
+}
+
+/// How a reply refuses its read, if it does: an explicit discarded-state
+/// error is [`Refusal::Discarded`]; any other unknown-block answer is
+/// [`Refusal::NotServed`].
+pub fn refusal(r: &ReadResult) -> Option<Refusal> {
+    let b = r.reply.as_deref()?;
     if b.len() > ERROR_REPLY_BYTES || !b.contains("\"error\"") {
-        return false;
+        return None;
     }
-    let Ok(v) = serde_json::from_str::<Json>(b) else {
-        return false;
-    };
-    let Some(e) = v.get("error") else { return false };
+    let v = serde_json::from_str::<Json>(b).ok()?;
+    let e = v.get("error")?;
     let text = |k: &str| match e.get(k) {
         Some(Json::String(t)) => t.to_ascii_lowercase(),
         Some(other) => other.to_string().to_ascii_lowercase(),
         None => String::new(),
     };
-    let (m, d) = (text("message"), text("data"));
-    [m, d]
+    let texts = [text("message"), text("data")];
+    if texts.iter().any(|t| t.contains("discarded")) {
+        return Some(Refusal::Discarded);
+    }
+    texts
         .iter()
-        .any(|t| t.contains("discarded") || t.contains("unknownblock") || t.contains("unknown block"))
+        .any(|t| {
+            t.contains("unknownblock")
+                || t.contains("unknown block")
+                || t.contains("header was not found")
+                || t.contains("header not found")
+        })
+        .then_some(Refusal::NotServed)
+}
+
+/// Whether a reply is a node's explicit refusal of state it no longer keeps
+/// ([`Refusal::Discarded`]).
+pub fn discarded(r: &ReadResult) -> bool {
+    refusal(r) == Some(Refusal::Discarded)
+}
+
+/// Whether a reply is a node's unknown-block answer for a block it has not
+/// imported yet ([`Refusal::NotServed`]).
+pub fn not_served(r: &ReadResult) -> bool {
+    refusal(r) == Some(Refusal::NotServed)
 }
 
 fn query_values(r: &ReadResult, keys: &[String], at: &Id) -> Option<Vec<(String, Option<Vec<u8>>)>> {
@@ -1190,6 +1230,9 @@ pub fn ingest(
                 out.applied += 3;
             }
             _ => {
+                // Only an explicit discarded-state answer ends anything; an
+                // unknown-block one (a lagging node) leaves the round failed
+                // and the same block's runtime is read again next round.
                 if [v, m, k].iter().any(|r| discarded(r)) {
                     // The block a past read named is gone (from the archive
                     // endpoint too, when one is configured): read the head's.
@@ -1213,7 +1256,7 @@ pub fn ingest(
                                 unresolvable(sql, &AccountId(h), b, "state_discarded")?;
                             }
                         }
-                        snapshot_discarded(sql, b.saturating_add(1), now_ms)?;
+                        snapshot_discarded(sql, b.saturating_add(1), true, now_ms)?;
                     }
                 }
                 note_error(sql, "runtime_read")?;
@@ -1228,7 +1271,7 @@ pub fn ingest(
         let ok = match kind {
             "keys" => ingest_keys(sql, r)?,
             "values" => ingest_values(sql, rt, r, now_ms)?,
-            "hash" => ingest_hash(sql, r, rest)?,
+            "hash" => ingest_hash(sql, r, rest, now_ms)?,
             "events" => ingest_events(sql, rt, netuid, r, rest, now_ms)?,
             "reg" => ingest_reg(sql, rt, netuid, r, rest, now_ms)?,
             "snaphash" => ingest_snap_hash(sql, r, rest)?,
@@ -1257,6 +1300,8 @@ fn restart_listing(sql: &impl Sql) -> R<()> {
 }
 
 fn ingest_keys(sql: &impl Sql, r: &ReadResult) -> R<bool> {
+    // An unknown-block answer (not served yet) is no reply: the page is
+    // read again at the listing's own block next round.
     if discarded(r) {
         restart_listing(sql)?;
         return Ok(true);
@@ -1296,6 +1341,7 @@ fn undecodable(sql: &impl Sql) -> R<()> {
 }
 
 fn ingest_values(sql: &impl Sql, rt: &ChainRuntime, r: &ReadResult, now_ms: u64) -> R<bool> {
+    // As in `ingest_keys`: only an explicit discarded-state answer restarts.
     if discarded(r) {
         restart_listing(sql)?;
         return Ok(true);
@@ -1377,10 +1423,12 @@ fn seen_target(rest: &str) -> Option<(AccountId, u64)> {
 /// has served yet ([`state_absent`]).
 pub const STATE_UNAVAILABLE: &str = "commitment_state_unavailable";
 
-/// A resolution read (events or registration) whose answer served no state
-/// for its block (no `LastRuntimeUpgrade` marker): a lagging or
-/// load-balanced node's empty answer is never final, as the snapshot's
-/// absent state pauses only until a read answers. The stage stays pending
+/// A resolution read whose answer served nothing for its block: an events
+/// or registration read without state (no `LastRuntimeUpgrade` marker), a
+/// block hash read answered `null`, or any of them refused as not served
+/// ([`Refusal::NotServed`]). A lagging or load-balanced node's answer is
+/// never final, as the snapshot's absent state pauses only until a read
+/// answers. The stage stays pending
 /// and is read again after a backoff that grows with these answers
 /// (`absent_tries`, `retry_ms`; every read is still charged to the reader's
 /// per-minute share), from the archive endpoint when the deployment
@@ -1396,7 +1444,7 @@ pub const STATE_UNAVAILABLE: &str = "commitment_state_unavailable";
 /// an archive endpoint configured) or after refusing the session.
 fn state_absent(sql: &impl Sql, who: &AccountId, block: u64, now_ms: u64) -> R<()> {
     let rows = sql.exec(
-        "UPDATE commit_seen SET absent_tries = absent_tries + 1 WHERE hotkey = ? AND block = ? AND stage IN ('events','reg')
+        "UPDATE commit_seen SET absent_tries = absent_tries + 1 WHERE hotkey = ? AND block = ? AND stage IN ('hash','events','reg')
          RETURNING absent_tries",
         &[hk(who), bind_u64(block)?],
     )?;
@@ -1444,7 +1492,7 @@ fn other_runtime(sql: &impl Sql, pairs: &[(String, Option<Vec<u8>>)]) -> R<Write
     Ok(if stored_marker(sql)?.as_deref() == Some(seen.as_str()) { Writer::Stored } else { Writer::Other(seen) })
 }
 
-fn ingest_hash(sql: &impl Sql, r: &ReadResult, rest: &str) -> R<bool> {
+fn ingest_hash(sql: &impl Sql, r: &ReadResult, rest: &str, now_ms: u64) -> R<bool> {
     let Some((who, block)) = seen_target(rest) else {
         return Ok(false);
     };
@@ -1452,21 +1500,32 @@ fn ingest_hash(sql: &impl Sql, r: &ReadResult, rest: &str) -> R<bool> {
         unresolvable(sql, &who, block, "block_unknown")?;
         return Ok(true);
     }
+    if not_served(r) {
+        state_absent(sql, &who, block, now_ms)?;
+        return Ok(true);
+    }
     let Some(result) = reply_result(r) else {
         return Ok(false);
     };
     if result.is_null() {
-        // The node knows no block at that height.
-        unresolvable(sql, &who, block, "block_unknown")?;
+        // The answering node knows no block at that height yet. The
+        // commitment's block is at or below a block whose state a node
+        // served, so this is a lagging node: read again after a backoff.
+        state_absent(sql, &who, block, now_ms)?;
         return Ok(true);
     }
     let Some(hash) = result.as_str().and_then(|s| Id::parse(s).ok()) else {
         return Ok(false);
     };
-    sql.exec(
-        "UPDATE commit_seen SET block_hash = ?, stage = 'events' WHERE hotkey = ? AND block = ? AND stage = 'hash'",
+    let moved = sql.exec(
+        "UPDATE commit_seen SET block_hash = ?, stage = 'events', absent_tries = 0, retry_ms = 0
+         WHERE hotkey = ? AND block = ? AND stage = 'hash' RETURNING 1",
         &[s(hash.to_hex()), hk(&who), bind_u64(block)?],
     )?;
+    if !moved.is_empty() {
+        // A cohort paused because no read served this resolution may resume.
+        crate::eval::admission::state_served(sql, &who, block, now_ms)?;
+    }
     Ok(true)
 }
 
@@ -1483,6 +1542,10 @@ fn ingest_events(sql: &impl Sql, rt: &ChainRuntime, netuid: u16, r: &ReadResult,
     if discarded(r) {
         // The node no longer holds the block's state: never substituted.
         unresolvable(sql, &who, block, "state_discarded")?;
+        return Ok(true);
+    }
+    if not_served(r) {
+        state_absent(sql, &who, block, now_ms)?;
         return Ok(true);
     }
     let at = Id::parse(&h).map_err(|_| EvalError::State("seen hash"))?;
@@ -1579,6 +1642,10 @@ fn ingest_reg(sql: &impl Sql, rt: &ChainRuntime, netuid: u16, r: &ReadResult, re
         unresolvable(sql, &who, block, "state_discarded")?;
         return Ok(true);
     }
+    if not_served(r) {
+        state_absent(sql, &who, block, now_ms)?;
+        return Ok(true);
+    }
     let uid = u16::try_from(uid).map_err(|_| EvalError::State("seen uid"))?;
     let at = Id::parse(&h).map_err(|_| EvalError::State("seen hash"))?;
     let key = registration_key(rt, netuid, uid)?;
@@ -1649,13 +1716,19 @@ fn snapshot_hash(sql: &impl Sql, cutoff: u64) -> R<Option<Id>> {
         .and_then(|h| Id::parse(&h).ok()))
 }
 
-/// The snapshot block's state is gone from every endpoint read (the RPC
-/// endpoint and, when configured, the archive endpoint): the closing cohort
-/// pauses (`snapshot_state_discarded`, resumable) and the snapshot keeps
-/// being read; the first read that answers resumes the same cohort
+/// No endpoint read (the RPC endpoint and, when configured, the archive
+/// endpoint) served the snapshot block's state: it is discarded, or not
+/// served yet by the answering node. `discarded` counts the answer in the
+/// reader's `state_discarded` (an explicit discarded-state refusal, or an
+/// answer without state); a lagging node's unknown-block refusal
+/// ([`Refusal::NotServed`]) is not counted. Either way the closing cohort pauses
+/// (`snapshot_state_discarded`, resumable) and the snapshot keeps being
+/// read; the first read that answers resumes the same cohort
 /// ([`snapshot_answered`]). Nothing is substituted or expired.
-fn snapshot_discarded(sql: &impl Sql, cutoff: u64, now_ms: u64) -> R<()> {
-    sql.exec("UPDATE commit_reader SET discarded = discarded + 1 WHERE id = 1", &[])?;
+fn snapshot_discarded(sql: &impl Sql, cutoff: u64, discarded: bool, now_ms: u64) -> R<()> {
+    if discarded {
+        sql.exec("UPDATE commit_reader SET discarded = discarded + 1 WHERE id = 1", &[])?;
+    }
     let rows = sql.exec(
         "SELECT seq FROM adm_cohorts WHERE cutoff_block = ? AND state = 'closing'",
         &[bind_u64(cutoff)?],
@@ -1707,8 +1780,11 @@ fn ingest_snap_values(
     let Some(at) = snapshot_hash(sql, cutoff)? else {
         return Ok(false);
     };
-    if discarded(r) {
-        snapshot_discarded(sql, cutoff, now_ms)?;
+    // Discarded or not served yet: the resumable pause, as an answer
+    // without state; the snapshot keeps being read. Only an explicit
+    // discarded-state refusal is counted as discarded.
+    if let Some(why) = refusal(r) {
+        snapshot_discarded(sql, cutoff, why == Refusal::Discarded, now_ms)?;
         return Ok(true);
     }
     // The request's keys, in request order: (CommitmentOf, Uids) per hotkey.
@@ -1742,7 +1818,7 @@ fn ingest_snap_values(
         // No state served for the snapshot block: pause, never decode
         // nothing as "no commitment".
         Writer::Absent => {
-            snapshot_discarded(sql, cutoff, now_ms)?;
+            snapshot_discarded(sql, cutoff, true, now_ms)?;
             return Ok(true);
         }
     }
@@ -1802,8 +1878,11 @@ fn ingest_snap_regs(
     let Some(at) = snapshot_hash(sql, cutoff)? else {
         return Ok(false);
     };
-    if discarded(r) {
-        snapshot_discarded(sql, cutoff, now_ms)?;
+    // Discarded or not served yet: the resumable pause, as an answer
+    // without state; the snapshot keeps being read. Only an explicit
+    // discarded-state refusal is counted as discarded.
+    if let Some(why) = refusal(r) {
+        snapshot_discarded(sql, cutoff, why == Refusal::Discarded, now_ms)?;
         return Ok(true);
     }
     let rows = sql.exec(
@@ -1831,7 +1910,7 @@ fn ingest_snap_regs(
         // No state served for the snapshot block: pause, never decode
         // nothing as "no commitment".
         Writer::Absent => {
-            snapshot_discarded(sql, cutoff, now_ms)?;
+            snapshot_discarded(sql, cutoff, true, now_ms)?;
             return Ok(true);
         }
     }
@@ -1898,7 +1977,7 @@ pub fn status(sql: &impl Sql) -> R<Json> {
         // again after a backoff, never ended for it).
         "state_absent_pending": int(
             &sql.exec(
-                "SELECT COUNT(*) FROM commit_seen WHERE stage IN ('events','reg') AND absent_tries > 0",
+                "SELECT COUNT(*) FROM commit_seen WHERE stage IN ('hash','events','reg') AND absent_tries > 0",
                 &[],
             )?
             .first()

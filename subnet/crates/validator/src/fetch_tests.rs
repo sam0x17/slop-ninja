@@ -1,4 +1,4 @@
-//! Offline tests of the published-package fetcher, the supersession decision,
+//! Offline tests of the published-row fetcher, the supersession decision,
 //! the continuous-run configuration and the installer.
 //!
 //! The public host is an in-memory map behind the fetcher's `Transport`, or a

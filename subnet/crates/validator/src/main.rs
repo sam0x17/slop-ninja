@@ -1,5 +1,5 @@
 //! `slop_ninja_validator`: offline configuration checks, journal creation, the
-//! signer-free startup sequence, the published-package fetcher and the
+//! signer-free startup sequence, the published-row fetcher and the
 //! package-to-row application stage. Only `run --dispatch` loads a private
 //! key or submits.
 

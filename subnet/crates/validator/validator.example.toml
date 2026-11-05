@@ -35,13 +35,14 @@ max_rounds = 16
 format = "json"   # or "text"
 level = "info"
 
-# The coordinator-signed bundle to verify before a row is enqueued. With
-# [fetch], the validator fetches it from the public status host and writes it
-# here; without [fetch], the operator installs it. Without [package], `run`
+# The coordinator-row bundle (the coordinator's signed row and the
+# authorization it was committed under) to verify before a row is enqueued.
+# With [fetch], the validator fetches it from the public status host and
+# writes it here; without [fetch], the operator installs it. Without [package], `run`
 # stops after startup. The three keys are the public Ed25519 application keys
 # (32-byte hex) from the release's testnet-trust.json (package_public_key,
-# receipt_public_key, authorization_public_key); never chain keys, and never a
-# keys.json published beside a package.
+# receipt_public_key, authorization_public_key); never chain keys, and never
+# keys published on the status host.
 # [package]
 # path = "/home/operator/.local/state/slop_ninja_validator/NAME/package.json"
 # [package.trusted_keys]
@@ -49,11 +50,11 @@ level = "info"
 # receipt = "<64 hex>"
 # authorization = "<64 hex>"
 
-# The published-package fetcher. Requires [package]. Everything fetched is
+# The published-row fetcher. Requires [package]. Everything fetched is
 # checked against its listed SHA-256 and length, then verified under the
 # [package] keys; nothing is trusted because of where it came from.
 # [fetch]
-# base_url = "https://<public status host>/"  # https:// only; no credentials, query or fragment
+# base_url = "https://<public status host>/"  # https:// (or file:///<dir>/ for a local mirror); no credentials, query or fragment
 # poll_secs = 300     # how often a continuous run checks for a new target or authorization (at least 60); also each session's time bound
 # stall_secs = 60     # abandon a request that receives nothing this long; it resumes next time
 # cache_dir = "/home/operator/.local/state/slop_ninja_validator/NAME/public-cache"  # the default: beside the journal

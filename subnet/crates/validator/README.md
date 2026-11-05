@@ -96,13 +96,12 @@ journal and dispatch tests. The live procedure for subnet 601 is
    written over `[package] path`; nor does it write the held-target record.
    With no bundle installed afterwards, a continuous dispatch run waits for
    the fetcher; any other run exits 75 (`bundle_unavailable`).
-7. With a `[package]` configured, verify the bundle. A `testnet-reward-v0`
-   fixture bundle (T8): open the signed cohort manifest, score package and
-   calculation target (package key) and receipt index (receipt key),
-   authenticating each before decoding it, bind them and check every stored
-   receipt object against its index entry. A `reward-v1` coordinator-row
-   bundle goes through the protocol crate's `coordinator_row::verify`: the
-   authorization and the coordinator's row open under the trusted
+7. With a `[package]` configured, verify the bundle. A bundle of a retired
+   schema (the `testnet-reward-v0` fixture bundle or a `reward-v1` records
+   bundle) is a deferral (`bundle_schema_retired`), never a commit. A
+   `reward-v1` coordinator-row bundle goes through the protocol crate's
+   `coordinator_row::verify`: the authorization and the coordinator's row
+   open under the trusted
    authorization key and name this chain, the row names the authorization's
    digest, target, cohort and issue, and its target is the held one (same
    activation epoch) or one activated later. Nothing of the hidden
@@ -112,8 +111,7 @@ journal and dispatch tests. The live procedure for subnet 601 is
    accepted afterwards; the launch row only until a cohort target has
    activated. Any failure is a refusal (exit 3) before a row exists.
 8. Read `SubnetworkN`, `Keys` and `BlockAtRegistration` by name at the same
-   finalized block into a registration snapshot. A `testnet-reward-v0` row is
-   `slop_ninja_protocol::reward::derive_row`. A `reward-v1` row is the
+   finalized block into a registration snapshot. A `reward-v1` row is the
    coordinator's signed entries (`VerifiedRow::derive_row`) with one
    score-free rule, the one the coordinator's own derivation applies: the
    burn entry, and every entry whose `(uid, hotkey, registration block)`
@@ -140,8 +138,8 @@ journal and dispatch tests. The live procedure for subnet 601 is
    or an entrant registered under the owner hotkey is paid there; the chain
    receives the same row either way). It is queued under `Submit`,
    which rtao journals with the work (`"owner_rows":"submit"`) and commits and
-   reveals like any row. Every other row, and every `testnet-reward-v0` row,
-   is queued under `Hold`, the default, whose journaled bytes are unchanged.
+   reveals like any row. Every other row is queued under `Hold`, the
+   default, whose journaled bytes are unchanged.
    The hold decision is rtao's own predicate, `OwnerRowPolicy::holds`, under
    that policy: this validator's UID is the owner's only when its own hotkey
    is the owner hotkey, and any other UID is the owner's when the finalized

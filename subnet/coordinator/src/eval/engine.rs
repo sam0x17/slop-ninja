@@ -446,10 +446,11 @@ pub const SCORER_UNAVAILABLE: &str = "scorer_unavailable";
 /// the probe exercises ([`probed_cause`]), each tick runs one bounded probe
 /// of the paused platform, with no count or time limit, and the first that
 /// succeeds resumes the same cohort ([`probe_done`]). A probe that keeps
-/// failing only keeps the cohort paused. A cause the probe cannot see (a
-/// store failure, a refused commit, a definitive refusal) and a cohort that
-/// paused again with no progress since its last automatic clear are left to
-/// an operator clear, paused and visible.
+/// failing only keeps the cohort paused. A cohort that paused again with no
+/// progress since its last automatic clear is still probed, after a wait
+/// that doubles with each such clear ([`probe_interval_ms`]). A cause the
+/// probe cannot see (a store failure, a refused commit, a definitive
+/// refusal) is left to an operator clear, paused and visible.
 pub const PROBED_FAULTS: &[&str] = &[GENERATION_UNAVAILABLE, SCORER_UNAVAILABLE];
 
 /// Admission's outage faults, cleared once the subject that raised them

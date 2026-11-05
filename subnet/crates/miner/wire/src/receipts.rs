@@ -26,9 +26,10 @@ pub const KIND_LAUNCH: &str = "launch";
 /// A reward-intent authorization: it names its carrying cohort and target.
 pub const KIND_COHORT: &str = "cohort";
 
-/// Read bound of the pointer: its schema, chain, kind and its three object
-/// references (authorization, renewal, revocation set; each a key under
-/// `authorizations/`, a 64-hex digest and a length), pretty-printed, within
+/// Read bound of the pointer: its schema, chain, kind and its four object
+/// references (authorization, renewal, revocation set, the coordinator's
+/// signed row; each a key under `authorizations/`, a 64-hex digest and a
+/// length), pretty-printed, within
 /// four fixed-record overheads. However many revocations exist, the pointer
 /// names one set object, so this bound does not grow with them.
 pub const AUTHORIZATION_POINTER_BOUND: u64 = 4 * 1024;

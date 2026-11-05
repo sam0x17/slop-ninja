@@ -240,8 +240,8 @@ pub struct ValidatorConfig {
     pub package: Option<PackageConfig>,
     #[serde(default)]
     pub dispatch: Option<DispatchConfig>,
-    /// The published-package fetcher. Without it, `[package] path` is a
-    /// bundle the operator installs (testnet shortcut T12).
+    /// The published-row fetcher ([`crate::fetch`]). Without it, `[package]
+    /// path` is a bundle the operator installs (testnet shortcut T12).
     #[serde(default)]
     pub fetch: Option<FetchConfig>,
 }
@@ -257,16 +257,18 @@ const fn default_stall_secs() -> u64 {
 /// check more often than this reads the same documents again.
 pub const MIN_POLL_SECS: u64 = 60;
 
-/// Fetches the coordinator's published records from the public status host
-/// (layout `v1`, `docs/testnet/public-layout.md`), verifies them and installs
-/// the bundle at `[package] path`. Requires `[package]`, whose trusted keys
-/// verify everything fetched.
+/// Fetches the coordinator's signed row and the authorization it was
+/// committed under from the public status host (layout `v1`,
+/// `docs/testnet/public-layout.md`), verifies them and installs the bundle
+/// at `[package] path`. Requires `[package]`, whose trusted keys verify
+/// everything fetched.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FetchConfig {
     /// Base URL of the public status host: `https://` (plain `http://` only
-    /// to a loopback host), with no credentials, query or fragment. The
-    /// layout's `v1/...` paths are resolved against it.
+    /// to a loopback host), or `file:///<absolute dir>/` for a local mirror
+    /// of the layout, with no credentials, query or fragment. The layout's
+    /// `v1/...` paths are resolved against it.
     pub base_url: String,
     /// Absolute directory of the resumable object cache; directories the
     /// fetcher creates are mode 700 and files mode 600. Defaults to

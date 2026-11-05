@@ -22,15 +22,19 @@ Every name carries the `-testnet` marker.
 | cron `* * * * *` | Workers cron trigger | The watchdog, and the only timer |
 | `slop-ninja-coordinator-testnet_ChainJournal` | Durable Object namespace (SQLite) | Binding `CHAIN_JOURNAL_TESTNET` |
 | `slop-ninja-coordinator-testnet_EvalCohort` | Durable Object namespace (SQLite) | Binding `EVAL_COHORT_TESTNET` (stub) |
-| `receipts-bucket-testnet` | R2 bucket, Standard | Private: the r2.dev URL is disabled, and there is no custom domain or CORS rule. Binding `RECEIPTS_TESTNET`; unused so far |
-| `eval-bucket-testnet` | R2 bucket, Standard | Private, as above. Binding `EVAL_TESTNET`; unused so far |
+| `receipts-bucket-testnet` | R2 bucket, Standard | Private: the r2.dev URL is disabled, and there is no custom domain or CORS rule. Binding `RECEIPTS_TESTNET`: the coordinator reads cohort closures there for automatic target handoff and writes the authorization pointer and the objects it names |
+| `eval-bucket-testnet` | R2 bucket, Standard | Private, as above. Binding `EVAL_TESTNET` (shared with the eval Worker, "Hidden evaluation Worker (M4)") |
 | `coordinator-subscription-testnet` | rtao-rpc testnet webhook subscription | Stream `finalized`, key `pilot-v1`, delivering to `/hook` |
 
-Worker secrets: `COORDINATOR_STATUS_TOKEN`, `COORDINATOR_OPERATOR_TOKEN`,
-`RTAO_WEBHOOK_SIGNING_SECRET`, `RTAO_WEBHOOK_SUBSCRIPTION_ID` and, from M3,
-`COORDINATOR_HOTKEY_SEED`.
+Worker secrets: `COORDINATOR_OPERATOR_TOKEN`, the status tokens
+`STATUS_TOKEN_MONITOR`, `STATUS_TOKEN_PUBLISHER` and `STATUS_TOKEN_ALERTS`
+("Status token split"; the shared `COORDINATOR_STATUS_TOKEN` was deleted on
+2026-11-04), `RTAO_WEBHOOK_SIGNING_SECRET`, `RTAO_WEBHOOK_SUBSCRIPTION_ID`,
+`COORDINATOR_HOTKEY_SEED` (from M3) and `AUTHORIZATION_SIGNING_KEY`.
 
-No Queues, Containers, custom domains, routes, KV, D1 or API tokens exist.
+The coordinator Worker has no Queues, Containers, custom domains, routes, KV
+or D1. The eval Worker's own resources are listed under "Hidden evaluation
+Worker (M4)".
 
 ## Conventions
 
@@ -79,10 +83,15 @@ tick ran about 8.5 minutes after the first deploy.
 
 ```sh
 umask 077; S=/path/to/private-secrets
-openssl rand -hex 32 | tr -d '\n' > $S/status_token
 openssl rand -hex 32 | tr -d '\n' > $S/operator_token
-wrangler secret put COORDINATOR_STATUS_TOKEN   --env testnet < $S/status_token
+for t in monitor publisher alerts; do openssl rand -hex 32 | tr -d '\n' > $S/status_token_$t; done
 wrangler secret put COORDINATOR_OPERATOR_TOKEN --env testnet < $S/operator_token
+# The three status tokens in one upload (JSON on stdin, never printed). The
+# publisher and the relay hold their values under COORDINATOR_STATUS_TOKEN.
+jq -n --rawfile m $S/status_token_monitor --rawfile p $S/status_token_publisher \
+  --rawfile a $S/status_token_alerts \
+  '{STATUS_TOKEN_MONITOR: $m, STATUS_TOKEN_PUBLISHER: $p, STATUS_TOKEN_ALERTS: $a}' |
+  wrangler secret bulk --env testnet
 # The T12 authorization key (automatic target handoff; README, "Automatic
 # target handoff"), from the operator's existing mode-600 seed file; it is
 # never printed or copied.
@@ -97,36 +106,22 @@ read on the workers.dev name (`/status`, `/eval/status`, `/eval/load/status`,
 token and to the read-only monitor token `STATUS_TOKEN_MONITOR`. The publisher
 and the alerts relay read through their service bindings with their own
 tokens. The load, link and authority reads are refused to every other token
-on every host, so the shared token cannot be a fallback for them. Until the
-publisher and the relay present their own tokens, the shared
-`COORDINATOR_STATUS_TOKEN` is still accepted, but only through a service
-binding, for `/status` and `/eval/status`. That deploy needs no simultaneous
-secret change. Per Worker (coordinator `--env testnet`, eval
-`--env eval-testnet`), in this order.
+on every host, so the shared token cannot be a fallback for them. While the
+shared `COORDINATOR_STATUS_TOKEN` is installed on a Worker, it is accepted
+only through a service binding, for `/status` and `/eval/status`. That
+deploy needs no simultaneous secret change. Per Worker (coordinator
+`--env testnet`, eval `--env eval-testnet`), in this order.
 
-Live state (2026-11-04): steps 1 and 2 ran on 2026-11-04 (14:09Z-14:12Z).
-Every private reader presents the monitor token first and falls back to the
-shared token on a 401; the coordinator and the eval Worker hold
+Live state: the split is complete. Steps 1 to 5 ran on 2026-11-04 (step 3
+with the copy-model deploys from main `f6fa1934`; steps 4 and 5 between
+21:59Z and 22:53Z). The coordinator and the eval Worker hold
 `STATUS_TOKEN_MONITOR`, `STATUS_TOKEN_PUBLISHER` and `STATUS_TOKEN_ALERTS`
-(one bulk upload each; signing was paused for the coordinator's). Both still
-run the pre-gate build `5314aa32`, which ignores the three names and refuses
-the monitor token with 401, so every read succeeds through the fallback for
-now. The publisher runs rules v14 from main `2bb1a42b` (an active cohort's
-public phase is `admission` or `evaluating`; `status_access_warning` is
-loaded) and still presents the shared token. Every main commit that contains eval-no-skip also contains the
-gate, so the next eval or coordinator deploy is step 3 below.
-
-Step 3 ran on 2026-11-04 with the copy-model deploys from main `f6fa1934`
-(eval 17:55Z, coordinator 18:08Z, each in its own window). On both Workers
-the monitor token now reads `/status` (`access.caller` `monitor`, the three
-token flags and `tokens_distinct` true) and, on the eval Worker,
-`/eval/load/status`; the shared token gets 401 there on the workers.dev name;
-the forged-host and absolute-URL probes got Cloudflare's 403, never a 200.
-Private readers now read through the monitor token. The publisher (rules
-v15 since 18:04Z) and the relay still present the shared token through
-their service bindings, so steps 4 and 5 remain, and
-`status_access_warning` fires once the shared token has stayed a tempo
-beside the consumer tokens.
+and no shared token (`access.shared_status_token` false). The publisher and
+the relay present their own values under `COORDINATOR_STATUS_TOKEN` and
+`EVAL_STATUS_TOKEN`; the relay's status check reports `caller=alerts`. Every
+private reader presents the monitor token only, with no fallback. The steps
+below are the procedure for a fresh environment, and the rollback after
+them restores the shared token first.
 
 Every secret put, bulk upload or delete deploys a new Worker version, like a
 code deploy. On 2026-10-30 the first signing step after a secret upload
@@ -837,7 +832,9 @@ authority and the scorer Container.
 
 Secrets (stdin only): `EVAL_PRIVATE_SEED`, `EVAL_PACKAGE_SIGNING_KEY`,
 `EVAL_RECEIPT_SIGNING_KEY` (32-byte hex; Ed25519 application keys, never chain
-keys), `COORDINATOR_STATUS_TOKEN`, `COORDINATOR_OPERATOR_TOKEN`,
+keys), `COORDINATOR_OPERATOR_TOKEN`, `STATUS_TOKEN_MONITOR`,
+`STATUS_TOKEN_PUBLISHER`, `STATUS_TOKEN_ALERTS` (no shared status token since
+2026-11-04, "Status token split"), `ADMISSION_INTERFACE_TOKEN`,
 `RTAO_WEBHOOK_SIGNING_SECRET`, `RTAO_WEBHOOK_SUBSCRIPTION_ID`. The two signing
 secrets are the T12 package and receipt seeds, piped from their mode-600 seed
 files; the vars `PACKAGE_PUBLIC_KEY` and `RECEIPT_PUBLIC_KEY` pin the public
@@ -2588,6 +2585,12 @@ pauses the template with `template_probe_unfingerprinted` instead of
 queuing a cohort that could not package. After that cohort closes, cut
 again (its new references) and reinstall; the install resumes the calendar.
 
+Live state: first run on 2026-11-04, after the eval store v22 deploy from
+main `2e93dd7f`. The cut `testnet-r0-probe-v2` held cohort number 21 and
+closed at 22:51Z; the reinstalled r0 template (probe v2, the seeded order,
+pool `testnet-human-pool-pc1`) was installed at 22:52Z and governs from
+cohort 22. Cohort 20 keeps the earlier template's plan.
+
 ### Chain-record restart, live (2026-11-02)
 
 The main instance's reference chain was restarted once, before the
@@ -3634,7 +3637,9 @@ validators still need a manual step (below).
 - **Native validator.** `fetch.base_url` also accepts `file:///<dir>/`, a
   local copy of the public layout read with every check the HTTPS host gets
   (validator README, "Fetcher", which also states the write order a copy
-  must keep). Nothing on testnet fills such a copy today.
+  must keep). The operator's script `subnet/crates/validator/deploy/row-mirror.sh`
+  fills one from the private receipts bucket with the operator's own
+  login; the operator's testnet validator reads such a copy on a timer.
 - **Where validators fetch (open).** The coordinator writes
   `authorizations/current.json` and its objects to the private receipts
   bucket; the publisher copies the pointer and the cohort's records to
@@ -3820,20 +3825,15 @@ batch index v3 names the screen (`input_screen`
 `pool_token_bound_empty_text_and_scorer_tokens_v2`) and the table
 (`token_count`: table id and digest, tokenizer digest, limit).
 
-Live state (2026-11-04): step 1 ran (eval-testnet from main `f6fa1934`,
-17:55Z; the eval rollback floor). Cohort 19 left `generating` and sealed
-under the earlier build before the deploy gate allowed the deploy, so its
-generated documents were not screened. Steps 2 and 3 have not run: the
-`restart` tool cuts a probe version only in a chain-record restart (it
-refuses unless every cohort of the authority is closed or abandoned and the
-new authority's name differs from the current one's), and the standing r0
-calendar always holds a cohort in its transition or queued. The installed r0
-template is unchanged (cohort 20 is queued from it). An eval build with
-store v22 removes that obstacle: "Same-authority template reinstall"
-above cuts a probe version and reinstalls the template while r0's cohorts
-are open. With cohort 20 queued, the cut takes cohort number 21
-(`testnet-r0-probe-v2`), and the first cohort under the reinstalled
-template is `testnet-r0-22`; the standing and public record goes 20, 22.
+Live state: step 1 ran on 2026-11-04 (eval-testnet from main `f6fa1934`,
+17:55Z). Cohort 19 left `generating` and sealed under the earlier build
+before the deploy gate allowed the deploy, so its generated documents were
+not screened. Steps 2 and 3 ran the same evening through "Same-authority
+template reinstall" above (eval store v22), not through `restart`: the
+probe cut `testnet-r0-probe-v2` (cohort 21) closed at 22:51Z and the
+reinstalled r0 template (probe v2, the seeded order) was installed at
+22:52Z, governing from cohort 22. Cohort 20 keeps the earlier template's
+plan, so the standing and public record goes 20, 22.
 
 Rebuilding the table (only if the pinned tokenizer changes, which also
 changes the artifact spec): `subnet/crates/scorer-tokens/reference`, run
@@ -3967,7 +3967,7 @@ host carries only allow-listed objects (`publisher/src/allowlist.rs`).
 
 ### Score quantization: quant-v1 and reward-v2 (2026-11-04)
 
-Branch `subnet-testnet/quantization`. Not deployed. Only quantized scores
+On main; not deployed yet (see "Deploy order" below). Only quantized scores
 leave the coordinator, and every reward value is computed from them.
 
 - **Rule.** The coordinator keeps the exact scores `S` in its private score

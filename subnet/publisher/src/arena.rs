@@ -128,8 +128,9 @@ pub const AUTHORIZATION_OBJECT_BOUND: u64 =
 const _: () = assert!(AUTHORIZATION_OBJECT_BOUND == RECORD_OVERHEAD_BYTES);
 
 /// Bound of the private authorization pointer: its schema, chain, kind and
-/// its three object references (authorization, renewal, revocation set),
-/// each a key under `authorizations/`, a 64-hex digest and a length;
+/// its four object references (authorization, renewal, revocation set, the
+/// coordinator's signed row), each a key under `authorizations/`, a 64-hex
+/// digest and a length;
 /// pretty-printed. The pointer names one revocation set however many
 /// revocations exist, so the bound is fixed; the set's own read bound is its
 /// declared length, a whole number of fixed-length revocations

@@ -3009,6 +3009,80 @@ fn an_admission_outage_fault_is_cleared_by_its_own_subject_not_another() {
     assert_eq!(fault(&db), None, "hotkey 1's verdict reached the scorer");
 }
 
+/// Cleanup review (11-05): a verifying hotkey's resolution held at the block
+/// hash stage by a lagging node (unknown-block refusals and `null` hashes)
+/// pauses the admitting cohort at the plan's bound, like the events and
+/// registration stages. The admission step's recheck keeps that pause while
+/// the hash stage still waits, and the read that serves the hash clears it.
+#[test]
+fn a_hash_stage_a_lagging_node_holds_pauses_until_the_hash_is_served() {
+    let fault = |db: &Sqlite| tx(db, |s| engine::cohort(s, 1)).unwrap().fault;
+    let rt = crate::chain::ChainRuntime::parse(
+        include_bytes!("../../../fixtures/runtime-486/testnet-486.v15.scale"),
+        486,
+        1,
+    )
+    .unwrap();
+    let db = db_with_open_cohort(2);
+    let m = miner(1, 3, 1, 0x11);
+    let block = OPEN_BLOCK + 1;
+    m.commit(&db, block, 0);
+    m.create(&db);
+    upload_all(&db, &m);
+    let who = hex::encode(account(1).0);
+    // The reader saw the commitment and still resolves its block hash.
+    tx(&db, |s| {
+        s.exec("DELETE FROM commit_seen WHERE hotkey = ?", &[s_(&who)])?;
+        s.exec(
+            "INSERT INTO commit_seen (hotkey, block, payload, seen_block, stage) VALUES (?, ?, '', ?, 'hash')",
+            &[s_(&who), crate::sql::SqlValue::Integer(block as i64), crate::sql::SqlValue::Integer(block as i64)],
+        )
+        .map(|_| ())
+    })
+    .unwrap();
+    let hash_read = |reply: serde_json::Value| {
+        vec![commitments::ReadResult {
+            tag: format!("hash@{who}@{block}"),
+            id: 1,
+            reply: Some(reply.to_string()),
+        }]
+    };
+    let not_imported = hash_read(serde_json::json!({"jsonrpc": "2.0", "id": 1,
+        "error": {"code": 4003, "message": "Client error: UnknownBlock: Header was not found in the database"}}));
+    let null_hash = hash_read(serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": null}));
+    let bound = tx(&db, window).unwrap().unwrap().failures_before_pause;
+    for n in 1..=bound {
+        let replies = if n % 2 == 1 { &not_imported } else { &null_hash };
+        tx(&db, |s| commitments::ingest(s, Some(&rt), 601, replies, NOW)).unwrap();
+        if n < bound {
+            assert_eq!(fault(&db), None, "answer {n} is below the bound");
+        }
+    }
+    assert_eq!(fault(&db).as_deref(), Some(commitments::STATE_UNAVAILABLE));
+    let stage = |db: &Sqlite| {
+        tx(db, |s| s.exec("SELECT stage, absent_tries FROM commit_seen WHERE hotkey = ?", &[s_(&who)]))
+            .map(|r| (text(&r[0], 0).unwrap().to_owned(), int(&r[0], 1).unwrap()))
+            .unwrap()
+    };
+    assert_eq!(stage(&db), ("hash".into(), i64::from(bound)));
+    // The admission step's recheck: the hash stage still waits.
+    tx(&db, |s| outage_recheck(s, NOW + 1)).unwrap();
+    assert_eq!(fault(&db).as_deref(), Some(commitments::STATE_UNAVAILABLE), "the hash stage still waits");
+    // A node serves the hash: the resolution moves on and the pause clears.
+    let served = hash_read(serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": Id([0xc1; 32]).to_hex()}));
+    tx(&db, |s| commitments::ingest(s, Some(&rt), 601, &served, NOW + 2)).unwrap();
+    assert_eq!(stage(&db), ("events".into(), 0));
+    assert_eq!(fault(&db), None, "the hash was served");
+    let cleared = tx(&db, |q| {
+        q.exec(
+            "SELECT 1 FROM phase_log WHERE seq = 1 AND note LIKE ?",
+            &[s_("fault_auto_cleared:commitment_state_unavailable%")],
+        )
+    })
+    .unwrap();
+    assert_eq!(cleared.len(), 1);
+}
+
 fn s_(v: impl Into<String>) -> crate::sql::SqlValue {
     crate::sql::SqlValue::Text(v.into())
 }

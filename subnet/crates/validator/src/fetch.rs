@@ -32,7 +32,9 @@
 //!
 //! A session whose pointer and held target are byte-identical to those of
 //! the last session that produced a bundle reports [`Outcome::Unchanged`]
-//! without reading or verifying any object again. One session at a time
+//! without reading or verifying the authorization, renewal or row again; the
+//! pointer's revocation set is still read and recorded first, so a new
+//! revocation is never missed. One session at a time
 //! holds the cache directory's lock (`<cache>/.lock`). What an earlier
 //! layout cached there (`cohorts/`, `authorizations/`: cohort records and
 //! the receipts an installed v3 bundle references, some of which the host
@@ -328,8 +330,8 @@ impl Transport for HttpTransport {
 /// A local mirror of the public layout (`fetch.base_url = "file:///<dir>/"`):
 /// each path is a file under the directory. It serves an operator's own copy
 /// of the public host's objects, for example while the public host is not
-/// reachable; whatever fills the directory is outside this crate (none is
-/// installed on testnet). Every object is checked exactly
+/// reachable; whatever fills the directory is outside this crate (the
+/// operator script `deploy/row-mirror.sh` is one). Every object is checked exactly
 /// as from the HTTPS host (listed digest and length, then signature), so a
 /// mirror can make a fetch fail but cannot change what is verified. A
 /// missing file is [`Got::NotFound`]; a continued read starts at the

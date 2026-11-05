@@ -30,13 +30,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"
 slop-ninja-protocol = { path = "crates/protocol" }
-rtao-client = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-neuron = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d", default-features = false, features = ["validator"] }
-rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d", features = ["serde"] }
-rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-rpc = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
+rtao-client = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-neuron = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", default-features = false, features = ["validator"] }
+rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", features = ["serde"] }
+rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-rpc = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
 scale-info = { version = "2.11", default-features = false }
 
 [features]

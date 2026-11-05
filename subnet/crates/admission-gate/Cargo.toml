@@ -9,7 +9,7 @@ description = "The Slop Ninja upload Worker's front gate: what it decides about 
 [dependencies]
 hex = "0.4"
 # sr25519 verification and SS58 (rtao's portable core seam, no host I/O).
-rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d", default-features = false }
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", default-features = false }
 serde_json = "1"
 sha2 = "0.10"
 slop-ninja-admission-wire = { path = "../miner/wire" }

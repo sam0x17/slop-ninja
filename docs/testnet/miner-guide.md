@@ -201,7 +201,7 @@ command line tool at the same pin the client uses:
 
 ```sh
 cargo install --locked --git https://github.com/sam0x17/rtao \
-  --rev 0c12816009baa65eec3135bac9a9dbcc8eaba77d rtao-cli
+  --rev fa83052d37b39f002f7a4d3cc5c04f25503e1d11 rtao-cli
 rtao --version
 ```
 

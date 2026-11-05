@@ -87,13 +87,19 @@ pub const SIGNER_CLAIM: &str = "signer";
 pub const COMMIT_OP_PREFIX: &str = "slop_ninja:coordinator-commit:v1:";
 const COMMIT_OP_DOMAIN: &[u8] = b"slop_ninja.coordinator-commit.v1\0";
 /// The timelocked payload format the coordinator encrypts: rtao's
-/// `WeightsTlockPayload` (hotkey, UIDs, values, version key), its
-/// `NATIVE_CR_PAYLOAD_VERSION` (D-086). Runtime code alone decides which
+/// `WeightsTlockPayload` (hotkey, UIDs, values, version key), taken from
+/// rtao's portable `commit_reveal::NATIVE_PAYLOAD_VERSION` (D-110), the value
+/// the native validators' scheduler uses. Runtime code alone decides which
 /// payload a reveal decodes; the stored `CommitRevealWeightsVersion` is a tag
 /// each commit repeats, so the commit follows the stored tag whatever it is,
 /// every epoch ([`cr_tag_unrevealed`] reports evidence against a tag; it
-/// never stops a commit).
-pub const NATIVE_CR_PAYLOAD_VERSION: u16 = 4;
+/// never stops a commit). That is rtao's own decision under its default
+/// `Unreviewed::Follow` (D-122): `select_tag` follows the stored tag under
+/// any code, and its one constraint after a refuted reveal, at most one
+/// commit per subnet epoch, is what the coordinator does every epoch. The
+/// Worker reads no `:code` hash, so `select_tag` would only report
+/// `CodeUnknown`; a test checks that the two decisions agree.
+pub const NATIVE_CR_PAYLOAD_VERSION: u16 = rtao_core::commit_reveal::NATIVE_PAYLOAD_VERSION;
 /// `GLOBAL_MAX_SUBNET_COUNT`: the mechanism stride of storage indices.
 const MECHANISM_STRIDE: u16 = 4096;
 /// Retained sign-log rows on `/status`.

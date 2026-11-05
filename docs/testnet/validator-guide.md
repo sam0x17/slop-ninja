@@ -574,9 +574,12 @@ permit (`burn_row_no_permit` otherwise). The chain checks these again when
 it reveals the commit, so they must not change between commit and reveal.
 Each of these deferrals is logged with `alert = true`.
 
-A build older than the one that queued burn-row work cannot open that
-journal, and in steady state the next tempo's burn row is almost always
-queued, so the work never simply finishes. To roll back, stop the unit, run
+A build at an rtao pin before `0c128160` cannot open a journal holding queued
+burn-row work, and in steady state the next tempo's burn row is almost always
+queued, so the work never simply finishes. A build at `0c128160`, the pin
+before the current one, opens it; it refuses only a pending reveal whose
+reveal period changed while it was pending, until that reveal settles. To
+roll back, stop the unit, run
 `slop_ninja_validator --config <config> rollback-check --retire`, and install
 the older build only when it exits 0. Once the journal retains a finalized
 failed weight call, even a reviewed or settled one, it never exits 0: every
@@ -587,7 +590,7 @@ A valid release signature does not make a build newer: the signature binds
 the binaries' digests, not a version, so the same steps apply to an older
 signed release.
 **Live on subnet 601.** On November 3, 2026 a Slop Ninja validator that is
-not the owner, running at the current rtao pin, committed the launch burn row
+not the owner, running at rtao `0c128160`, committed the launch burn row
 timelocked in block 8,362,443 and revealed it at 8,362,485 with the reveal
 matching its journaled row. Both Slop Ninja validators, that one and the
 coordinator, now commit and reveal it each tempo; read back at block

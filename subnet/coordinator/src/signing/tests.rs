@@ -2044,6 +2044,29 @@ fn a_native_tag_drop_never_defers_the_next_commit() {
     assert!(logged(&h, "deferred").iter().all(|d| !d.as_deref().unwrap_or("").starts_with("commit_reveal_tag")));
 }
 
+/// The coordinator's tag rule is rtao's own decision (D-110, D-122): under
+/// its default `Unreviewed::Follow`, `select_tag` puts the stored tag on the
+/// commit whatever the runtime code (unread, as in the Worker, unlisted or
+/// reviewed) and whatever this validator's reveals showed. Its one
+/// constraint after a refuted reveal, at most one commit per subnet epoch,
+/// is the coordinator's cadence. The payload version is rtao's.
+#[test]
+fn the_coordinator_tag_rule_is_rtaos_select_tag() {
+    use rtao_core::commit_reveal::{
+        NATIVE_PAYLOAD_VERSION, REVIEWED_RUNTIMES, RevealEvidence, TagDecision, Unreviewed, select_tag,
+    };
+    assert_eq!(NATIVE_CR_PAYLOAD_VERSION, NATIVE_PAYLOAD_VERSION);
+    let codes = [None, Some([0x48; 32]), Some(REVIEWED_RUNTIMES[0].code_hash)];
+    for stored in [0, NATIVE_PAYLOAD_VERSION, NATIVE_PAYLOAD_VERSION + 1, u16::MAX] {
+        for code in &codes {
+            for evidence in [RevealEvidence::None, RevealEvidence::Revealed, RevealEvidence::Refuted] {
+                let decision = select_tag(true, stored, code.as_ref(), evidence, Unreviewed::Follow);
+                assert!(matches!(decision, TagDecision::Follow { tag, .. } if tag == stored), "{decision:?}");
+            }
+        }
+    }
+}
+
 /// The pool rejects an attempt because the runtime changed between signing
 /// and submission: the operation re-learns the runtime at its next preflight
 /// and signs once more under the new one, inside the same epoch.

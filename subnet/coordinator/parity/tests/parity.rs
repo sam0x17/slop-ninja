@@ -1,5 +1,5 @@
 //! The coordinator's Wasm transaction path against the pinned rtao's native
-//! builders (`0c128160`, tag `snapshot-2026-11-03.2`; first written against
+//! builders (`fa83052d`, tag `snapshot-2026-11-05.2`; first written against
 //! `b5553a76`), byte for byte, on the recorded testnet spec 486 V15 metadata.
 //!
 //! The coordinator composes by name with plain values; rtao composes with its

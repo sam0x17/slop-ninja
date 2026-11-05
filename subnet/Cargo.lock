@@ -3411,7 +3411,7 @@ dependencies = [
 [[package]]
 name = "rtao-btauth"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "futures",
  "hex",
@@ -3434,7 +3434,7 @@ dependencies = [
 [[package]]
 name = "rtao-catalog"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "rtao-primitives",
  "serde",
@@ -3443,7 +3443,7 @@ dependencies = [
 [[package]]
 name = "rtao-client"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "blake2",
  "bytes",
@@ -3476,7 +3476,7 @@ dependencies = [
 [[package]]
 name = "rtao-core"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "bittensor-core",
  "rtao-core-ext",
@@ -3488,7 +3488,7 @@ dependencies = [
 [[package]]
 name = "rtao-core-ext"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "base64 0.22.1",
  "bittensor-core",
@@ -3506,7 +3506,7 @@ dependencies = [
 [[package]]
 name = "rtao-intents"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "hex",
  "rtao-catalog",
@@ -3526,7 +3526,7 @@ dependencies = [
 [[package]]
 name = "rtao-metagraph"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -3548,7 +3548,7 @@ dependencies = [
 [[package]]
 name = "rtao-neuron"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "anyhow",
  "blake2",
@@ -3583,7 +3583,7 @@ dependencies = [
 [[package]]
 name = "rtao-primitives"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "chrono",
  "num-bigint",
@@ -3603,7 +3603,7 @@ dependencies = [
 [[package]]
 name = "rtao-reads"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "chrono",
  "futures",
@@ -3623,7 +3623,7 @@ dependencies = [
 [[package]]
 name = "rtao-rpc"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "blake2",
  "futures",
@@ -3648,7 +3648,7 @@ dependencies = [
 [[package]]
 name = "rtao-runtime"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "blake2",
  "bytes",
@@ -3659,12 +3659,13 @@ dependencies = [
  "scale-decode",
  "scale-info",
  "serde",
+ "tracing",
 ]
 
 [[package]]
 name = "rtao-signer"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "bitflags 2.13.2",
  "rtao-core",
@@ -3675,7 +3676,7 @@ dependencies = [
 [[package]]
 name = "rtao-testkit"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "blake2",
  "bytes",
@@ -3703,7 +3704,7 @@ dependencies = [
 [[package]]
 name = "rtao-tx"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "chrono",
  "futures",
@@ -3729,7 +3730,7 @@ dependencies = [
 [[package]]
 name = "rtao-wallet"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "hex",
  "libc",

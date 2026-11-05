@@ -416,9 +416,9 @@ fn review_markers_survive_reopen() -> Result<()> {
 /// A journal retaining a finalized failure is roll-forward only: every
 /// build before failure review halts on it and cannot review it. An
 /// unreviewed failure is reported under its own field, a review does not
-/// clear it, and `retire_for_rollback` retires nothing (not even queued
-/// `Submit` work that would otherwise be retired), so labels never shift
-/// for a rollback that cannot happen.
+/// clear it, and `retire_for_rollback` retires nothing, so labels never
+/// shift for a rollback that cannot happen. Queued `Submit` work, which the
+/// previous pin reads, is neither reported nor retired.
 #[test]
 fn a_retained_failure_makes_the_journal_roll_forward_only() -> Result<()> {
     let root = scratch()?;
@@ -433,21 +433,16 @@ fn a_retained_failure_makes_the_journal_roll_forward_only() -> Result<()> {
         panic!("created")
     };
     let failure = RollbackBlocker { operation_id: Some(id.clone()), field: FAILURE_BLOCKER_FIELD.into(), retirable: false };
-    let submit = RollbackBlocker { operation_id: Some(queued.clone()), field: "effects.owner_rows".into(), retirable: true };
-    assert_eq!(controls.rollback_blockers()?, sorted(vec![failure, submit.clone()]));
+    assert_eq!(controls.rollback_blockers()?, vec![failure.clone()]);
+    assert!(failure.roll_forward_only());
     assert!(controls.retire_for_rollback()?.is_empty());
     assert_eq!(controls.retired(&queued)?, None);
     controls.review_failure(&id, 0, false)?;
     let reviewed = RollbackBlocker { operation_id: Some(id), field: REVIEWED_FAILURE_BLOCKER_FIELD.into(), retirable: false };
-    assert_eq!(controls.rollback_blockers()?, sorted(vec![reviewed, submit]));
+    assert_eq!(controls.rollback_blockers()?, vec![reviewed]);
     assert!(controls.retire_for_rollback()?.is_empty());
     assert_eq!(controls.retired(&queued)?, None);
     Ok(())
-}
-
-fn sorted(mut blockers: Vec<RollbackBlocker>) -> Vec<RollbackBlocker> {
-    blockers.sort_by(|a, b| (&a.operation_id, &a.field).cmp(&(&b.operation_id, &b.field)));
-    blockers
 }
 
 fn passing(class: &str) -> crate::ReadFailure {

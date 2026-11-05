@@ -19,7 +19,7 @@ the shared, wasm-clean [protocol crate](../crates/protocol/README.md) by path:
 the testnet genesis guard checks against its `TESTNET_GENESIS`, the T12
 target is verified and its row derived with it, and `src/wire.rs` adds only
 JSON encodings of chain identifiers. Chain encoding and cryptography come from
-rtao `0c128160`'s portable core seam, `rtao-core` with default features off
+rtao `fa83052d`'s portable core seam, `rtao-core` with default features off
 (upstream `bittensor-core` without `host`). All logic except `src/cf.rs` is
 plain Rust, tested natively against SQLite, which is the dialect Durable Object
 storage uses. `src/cf.rs` holds the Workers entry points, the Durable Objects
@@ -587,10 +587,12 @@ reveals it itself one epoch later.
 
 Checked on 2026-10-30 against rtao `b5553a76` (then the pin) and rtao `main`
 at `57191ba` (six commits later, none touching the core seam or Wasm support),
-with `cargo check --target wasm32-unknown-unknown`. The pin is now `0c128160`
-(tag `snapshot-2026-11-03.2`); `rtao-core` and `rtao-core-ext` have no source
-change between the two, and the coordinator's wasm32 Clippy and `worker-build`
-passed there on 2026-11-03:
+with `cargo check --target wasm32-unknown-unknown`. The pin moved to
+`0c128160` (tag `snapshot-2026-11-03.2`, no `rtao-core` or `rtao-core-ext`
+source change) and is now `fa83052d` (tag `snapshot-2026-11-05.2`), whose
+`rtao-core` adds only the allocation-free `commit_reveal` module (D-110,
+D-122), built for `wasm32-unknown-unknown` with default features off. The
+coordinator's wasm32 Clippy and `worker-build` passed at each pin:
 
 | rtao crate | wasm32 | Why |
 | --- | --- | --- |
@@ -619,7 +621,8 @@ with the same parameters:
   preflight, whatever it is (D-086): the chain checks only that the tag
   equals the stored value, and runtime code alone decides which payload a
   reveal decodes. The payload is always rtao's native v4
-  `WeightsTlockPayload` (`signing::NATIVE_CR_PAYLOAD_VERSION`). A followed
+  `WeightsTlockPayload` (`signing::NATIVE_CR_PAYLOAD_VERSION`, taken from
+  `rtao_core::commit_reveal::NATIVE_PAYLOAD_VERSION`). A followed
   non-native tag is logged (`commit_reveal_tag_followed`) and shown per
   operation on `/status` (`commit_reveal_tag`). Nothing defers it: when our
   latest commitment with the tag that reached a verdict left the chain's
@@ -633,12 +636,17 @@ with the same parameters:
   one costs. A queued commitment past its reveal epoch (a late drand pulse)
   is not reported. A stored value no `u16` tag can
   carry is refused at the preflight (`commit_reveal_version_unencodable`),
-  which backs off and re-checks. 601 stores 4. Native validators at rtao
-  `0c128160` follow a non-native tag only under runtime code rtao reviewed
-  (484, 486) or after their own commitment revealed under it, so after a tag
-  change under a later runtime the coordinator keeps committing while they
-  may pause (their readiness record alerts `commit_reveal_tag_unproven`).
-  Neither commits a wrong row.
+  which backs off and re-checks. 601 stores 4. This is rtao's own decision
+  at `fa83052d` (D-122): `commit_reveal::select_tag` under its default
+  `Unreviewed::Follow` follows the stored tag under any runtime code, and
+  after a refuted reveal asks only for at most one commit per subnet epoch,
+  the coordinator's cadence. The Worker reads no `:code` hash, which
+  `select_tag` would need only to report a basis; calling it here would add
+  a read and decide nothing, so the coordinator keeps its own rule and a
+  test (`the_coordinator_tag_rule_is_rtaos_select_tag`) checks that the two
+  agree for every code and reveal evidence. Native validators at this pin
+  follow the stored tag the same way, so after a tag change both of our
+  validators keep committing the same row.
 
 The same `[patch]` set as `subnet/Cargo.toml` pins `bittensor-core`, `w3f-bls`
 and `subtensor-macros`.
@@ -2882,7 +2890,8 @@ routes are exempt until converted. The branch records follow.
   block-pinned reads, submission reply classification, signing configuration.
 
 **Parity: 4 tests passed** against rtao `b5553a76` natively (see
-[Wasm path](#wasm-path)), and again against `0c128160` on 2026-11-03.
+[Wasm path](#wasm-path)), again against `0c128160` on 2026-11-03, and
+against `fa83052d` on 2026-11-05.
 
 **Wasm.** Clippy passed on both targets, with the panic lints denied.
 `worker-build` produced `index.js` 31.5 kB and `index_bg.wasm` 2,039,481 bytes

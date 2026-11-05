@@ -40,7 +40,7 @@ slop-ninja-arena = { path = "../crates/arena", features = ["glue-spill", "unmeas
 # composition from live metadata, storage keys, signing payloads, sr25519
 # keys and drand timelock encryption. rtao-client/rtao-tx pull tokio's net
 # stack and do not build for wasm32; the coordinator uses only this seam.
-rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d", default-features = false }
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", default-features = false }
 slop-ninja-protocol = { path = "../crates/protocol" }
 # The admission API's byte-level helpers (request message, route parser, part
 # plan, codes) and its response shapes, shared with the miner client.

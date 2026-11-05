@@ -52,20 +52,35 @@ pub fn signing_payload(runtime: &RuntimeHandle, call: &[u8], params: &TxParams) 
         .context("signing payload could not be built")
 }
 
-/// The commit tag a dry run prepares and the basis rtao's scheduler has for
-/// it (D-086). The dry run follows the stored tag in every case and reports
-/// the basis instead of refusing: under unreviewed code the outcome depends
-/// on reveal evidence the dry run cannot see.
+/// The commit tag a dry run prepares and the basis rtao's scheduler reports
+/// for it, from rtao's own decision (`rtao_core::commit_reveal::select_tag`,
+/// D-110, D-122) under its default `Unreviewed::Follow`: the stored tag is
+/// followed under any runtime code. The basis is an observation: `native`,
+/// `reviewed_code` (the live code is on rtao's reviewed list),
+/// `unreviewed_code` (followed; the next reveal under this code proves or
+/// refutes it) or `code_unknown` (the `:code` hash was not read). The dry
+/// run cannot see the scheduler's reveal evidence, so it never reports
+/// `revealed` or `refuted` (after an unexplained missed reveal rtao still
+/// follows the tag, committing at most once per subnet epoch).
 pub fn dry_run_commit_tag(stored: u16, runtime_code: Option<rtao_primitives::H256>) -> (u16, &'static str) {
-    if stored == rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION {
-        (stored, "native")
-    } else if runtime_code
-        .and_then(rtao_neuron::weights::reviewed_cr_runtime)
-        .is_some()
-    {
-        (stored, "reviewed_code")
-    } else {
-        (stored, "unproven_code")
+    use rtao_core::commit_reveal::{RevealEvidence, TagBasis, TagDecision, Unreviewed, select_tag};
+    let code = runtime_code.map(|code| code.0);
+    match select_tag(true, stored, code.as_ref(), RevealEvidence::None, Unreviewed::Follow) {
+        TagDecision::Follow { tag, basis } => (
+            tag,
+            match basis {
+                TagBasis::Native => "native",
+                TagBasis::Reviewed { .. } => "reviewed_code",
+                TagBasis::Revealed => "revealed",
+                TagBasis::Unreviewed => "unreviewed_code",
+                TagBasis::Refuted => "refuted",
+                TagBasis::CodeUnknown => "code_unknown",
+                _ => "followed",
+            },
+        ),
+        // Only the `Unreviewed::Pause` opt-in pauses; this build never
+        // selects it.
+        TagDecision::Pause { tag, .. } => (tag, "paused"),
     }
 }
 
@@ -94,11 +109,9 @@ pub struct DryRunReport {
     /// `CommitRevealWeightsVersion`.
     pub commit_reveal_version: u16,
     /// Why rtao's scheduler would put that tag on the commit
-    /// ([`dry_run_commit_tag`]): `native`, `reviewed_code`, or
-    /// `unproven_code`, where rtao at this pin follows the tag only after one
-    /// of this validator's commitments revealed under the live code and
-    /// pauses timelocked commits until then (that evidence lives in rtao's
-    /// dispatch journal, out of the dry run's reach).
+    /// ([`dry_run_commit_tag`]): `native`, `reviewed_code`,
+    /// `unreviewed_code` or `code_unknown`. rtao follows the stored tag in
+    /// every case (D-122); the basis is reported, never acted on.
     pub commit_reveal_tag_basis: &'static str,
     /// The weights version key the commit carries (`weight_version`).
     pub weight_version: u64,

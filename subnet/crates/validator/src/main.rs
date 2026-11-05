@@ -77,9 +77,10 @@ enum Command {
     /// refuses while a run holds the journal), immediately before installing
     /// the older build. Exits 0 when nothing blocks the rollback and 3 when
     /// something still does: work with a signed attempt awaiting recovery or
-    /// a landed commit not yet handed back (run this build until it settles),
-    /// or checkpoint state from a followed non-native commit-reveal tag (no
-    /// rollback past this pin). Reads no chain and loads no key.
+    /// a landed commit not yet handed back, or a pending reveal whose reveal
+    /// period changed (run this build until it settles); a retained finalized
+    /// failure or a compacted journal (no rollback past this pin). Reads no
+    /// chain and loads no key.
     RollbackCheck {
         /// Retire the retirable blocking work before checking.
         #[arg(long)]
@@ -722,7 +723,7 @@ async fn run_async(
                 AppOutcome::Deferred { .. } => EXIT_RETRY,
                 AppOutcome::Enqueued {
                     dispatch: report, ..
-                } if report.stop.starts_with("tempo_deferred:") => EXIT_RETRY,
+                } if slop_ninja_validator::app::stop_retries(&report.stop) => EXIT_RETRY,
                 AppOutcome::Enqueued {
                     dispatch: report, ..
                 } if report.stop == "recovery_requires_review"

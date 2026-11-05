@@ -230,8 +230,8 @@ patch `5f2477f5`; timelock encryption (`generate_commit_v2`) and the epoch
 schedule are unchanged. Its `COMPAT.md` records no validated spec range, and its
 client only logs when a runtime is outside that evidence.
 
-Slop Ninja pinned that revision for M2 and now pins rtao `0c128160` (tag
-`snapshot-2026-11-03.2`), which vendors the same Finney 477–486 metadata and
+Slop Ninja pinned that revision for M2 and now pins rtao `fa83052d` (tag
+`snapshot-2026-11-05.2`), which vendors the same Finney 477–486 metadata and
 also records no validated spec range (see
 [`subnet/README.md`](../subnet/README.md#rtao-pin)). The adapter has no spec
 gate: each signed operation is resolved by name against the live metadata at
@@ -239,8 +239,7 @@ every attempt, and only an operation without a type-correct encoding is
 deferred (see [`subnet/README.md`](../subnet/README.md#runtime-upgrades)).
 rtao's weight scheduler at the current pin composes its calls and reads its
 storage through compiled descriptors while the live shape matches and by name
-otherwise, and follows a changed commit-reveal tag only under runtime code rtao
-reviewed or under which one of the validator's own commitments revealed; the
+otherwise, and follows the stored commit-reveal tag under any runtime code; the
 adapter records the remaining upstream limits as deferrals, and only a storage
 item neither path can read stops rtao's finalized observation and recovery. This report
 observes one runtime. It certifies nothing, and a later runtime needs no

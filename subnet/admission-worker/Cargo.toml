@@ -24,7 +24,7 @@ slop-ninja-arena = { path = "../crates/arena", features = ["glue-spill", "unmeas
 # rtao's portable core seam (bittensor-core without `host`): sr25519
 # verification, SS58, and storage keys composed by name from live V15
 # metadata (the registration read). No signing key is ever loaded.
-rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d", default-features = false }
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", default-features = false }
 slop-ninja-protocol = { path = "../crates/protocol" }
 # The admission API's route parser, request message, codes and response
 # shapes, and the internal interface shared with the eval Worker.

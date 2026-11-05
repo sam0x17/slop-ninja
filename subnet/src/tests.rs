@@ -635,8 +635,11 @@ fn unsupported_or_lossy_journals_are_refused_without_reset() -> Result<()> {
         let error = JournalControls::open_existing(&path)
             .err()
             .context("refused")?;
+        // rtao names a newer journal's format and compatibility range (D-120).
         assert!(
-            error.to_string().contains("schema") || error.to_string().contains("retained"),
+            error.to_string().contains("schema")
+                || error.to_string().contains("retained")
+                || error.to_string().contains("newer release"),
             "{error}"
         );
         assert!(open(&path, schema2_config()).is_err());
@@ -742,9 +745,9 @@ fn owner_row_policy_is_journaled_with_the_work_and_immutable() -> Result<()> {
 /// pin, such as a live validator's (copied read-only to a scratch path; it is
 /// private and never checked in). Set `SLOP_NINJA_MIGRATION_JOURNAL` to the
 /// copy. The journal opens under its recorded identity, every retained
-/// operation reads back as `Hold` with its effects bytes unchanged, every one
-/// is recognized as existing work when queued again, and nothing but the
-/// pause control and pause generation changes.
+/// operation reads back under its recorded owner-row policy with its effects
+/// bytes unchanged, every one is recognized as existing work when queued
+/// again, and nothing but the pause control and pause generation changes.
 #[test]
 #[ignore = "needs SLOP_NINJA_MIGRATION_JOURNAL (a private journal copy)"]
 fn an_existing_journal_from_the_previous_pin_opens_and_replays_unchanged() -> Result<()> {
@@ -786,7 +789,13 @@ fn an_existing_journal_from_the_previous_pin_opens_and_replays_unchanged() -> Re
             serde_json::to_string(&old["intent"]["effects"])?,
             "{id}: effects changed"
         );
-        assert_eq!(controls.owner_row_policy(id)?, Some(OwnerRowPolicy::Hold), "{id}");
+        // Work queued under `Submit` at the previous pin keeps that policy;
+        // everything else reads back as `Hold`.
+        let policy = match old["intent"]["effects"].get("owner_rows") {
+            None => OwnerRowPolicy::Hold,
+            Some(value) => serde_json::from_value(value.clone())?,
+        };
+        assert_eq!(controls.owner_row_policy(id)?, Some(policy), "{id}");
         assert_eq!(serde_json::to_value(&record.attempts)?, old["attempts"], "{id}: attempts changed");
         let correlation: WeightCorrelation =
             serde_json::from_str(record.intent.correlation_id.as_deref().context("correlation")?)?;
@@ -794,7 +803,11 @@ fn an_existing_journal_from_the_previous_pin_opens_and_replays_unchanged() -> Re
             panic!("{id}: input is not by UID")
         };
         enable_storage_fixture(&adapter)?;
-        assert_eq!(adapter.enqueue(&correlation.work, row)?, Enqueued::Existing(id.clone()), "{id}");
+        assert_eq!(
+            adapter.enqueue_with_owner_rows(&correlation.work, row, policy)?,
+            Enqueued::Existing(id.clone()),
+            "{id}"
+        );
         replayed += 1;
     }
     let after = controls.inspect()?;
@@ -811,13 +824,18 @@ fn an_existing_journal_from_the_previous_pin_opens_and_replays_unchanged() -> Re
     // unchanged; only the pause generation and control moved.
     let reread: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
     assert_eq!(reread["checkpoints"], before["checkpoints"]);
-    // Nothing in it is refused by the previous pin's strict decoding.
-    let blockers = controls.rollback_blockers()?;
+    // Nothing in it is refused by the previous pin's strict decoding (a
+    // retained finalized failure blocks builds before failure review, not
+    // that decoding, and is counted apart).
+    let (failures, blockers): (Vec<_>, Vec<_>) =
+        controls.rollback_blockers()?.into_iter().partition(RollbackBlocker::finalized_failure);
     assert!(blockers.is_empty(), "rollback blockers: {blockers:?}");
+    assert!(previous_pin::opens(&controls.journal.snapshot()?));
     eprintln!(
-        "replayed {replayed} operations; pending {}; rollback blockers {}",
+        "replayed {replayed} operations; pending {}; rollback blockers {}; retained finalized failures {}",
         controls.pending_operations(MechId(0))?.len(),
-        blockers.len()
+        blockers.len(),
+        failures.len()
     );
     Ok(())
 }
@@ -912,24 +930,21 @@ fn an_uncertain_unsigned_retry_checkpoint_needs_no_external_resolution() -> Resu
     Ok(())
 }
 
-/// A rollback to the previous pin: that build refuses `Submit` work it has
-/// not handed back and checkpoint state from a followed non-native
-/// commit-reveal tag. The check finds a queued per-tempo `Submit` burn row
-/// that never signed, retires it for the rollback (the next tempo's
-/// commitment, which in steady state is almost always queued), and then
-/// reports nothing; it never retires `Hold` work or checkpoint state.
+/// A rollback to the previous pin: that build reads `Submit` work and the
+/// state of a followed non-native commit-reveal tag, so neither blocks it.
+/// It refuses a pending reveal whose reveal period changed (D-112), which
+/// settles only under this build and is never retired, and a journal schema
+/// above 3 (a compaction), which is roll-forward only.
 #[test]
-fn a_rollback_check_finds_queued_submit_work_and_followed_tag_state() -> Result<()> {
+fn a_rollback_check_passes_submit_work_and_finds_a_changed_reveal_period() -> Result<()> {
     let root = scratch()?;
     let path = root.path().join("journal.json");
     let mut adapter = open(&path, config())?;
     enable_storage_fixture(&adapter)?;
     let controls = adapter.controls();
-    // Hold work blocks nothing.
     let held = WeightWork { v2_target: Some([7; 32]), tempo: Some(47), ..work() };
     let Enqueued::Created(first) = adapter.enqueue(&held, row())? else { panic!("created") };
     assert!(controls.rollback_blockers()?.is_empty());
-    assert!(controls.retire_for_rollback()?.is_empty());
     assert!(controls.retire_superseded(&first, "superseded")?);
     // The next tempo's burn row, queued under Submit and not yet attempted.
     let burn = BTreeMap::from([(Uid(2), 65535.0)]);
@@ -937,50 +952,123 @@ fn a_rollback_check_finds_queued_submit_work_and_followed_tag_state() -> Result<
     let Enqueued::Created(queued) = adapter.enqueue_with_owner_rows(&next, burn, OwnerRowPolicy::Submit)? else {
         panic!("created")
     };
-    assert_eq!(
-        controls.rollback_blockers()?,
-        vec![RollbackBlocker { operation_id: Some(queued.clone()), field: "effects.owner_rows".into(), retirable: true }]
-    );
-    assert_eq!(controls.retire_for_rollback()?, vec![queued.clone()]);
-    assert_eq!(controls.retired(&queued)?.as_deref(), Some("rollback_prepared"));
+    assert!(controls.rollback_blockers()?.is_empty());
+    assert!(controls.retire_for_rollback()?.is_empty());
+    assert_eq!(controls.retired(&queued)?, None);
+    drop(controls);
+    drop(adapter);
+    let id = identity();
+    let scope = format!("weights:{}:{}:{}", hex::encode(id.genesis.0), id.netuid, id.hotkey);
+    let checkpoint = |pending: serde_json::Value| {
+        serde_json::json!({
+            "schema": 1,
+            "slots": {},
+            "reveals": {
+                "pending": [pending],
+                "unlocated": [{"state": {"prepared_block": 1, "followed_cr": null}}],
+                "outcomes": [],
+                "last_observed_block": 9,
+                "revealed_code": [{"payload_version": 4, "code": format!("0x{}", "11".repeat(32)), "stored_tag": 5}]
+            }
+        })
+    };
+    let followed = serde_json::json!({"netuid": 7, "followed_cr": {"tag": 5, "code": format!("0x{}", "11".repeat(32))}});
+    let mut changed = followed.clone();
+    changed["period_changed"] = serde_json::json!(true);
+    for (pending, blockers) in [(followed, vec![]), (changed, vec![(None, "checkpoint.reveals.pending.period_changed".to_owned(), false)])] {
+        OperationJournal::open(&path)?.update(|image| {
+            image.checkpoints.insert(scope.clone(), checkpoint(pending.clone()));
+            Ok(())
+        })?;
+        let controls = JournalControls::open_existing(&path)?;
+        let fields: Vec<_> = controls.rollback_blockers()?.into_iter().map(|b| (b.operation_id, b.field, b.retirable)).collect();
+        assert_eq!(fields, blockers, "{pending}");
+        assert!(controls.retire_for_rollback()?.is_empty());
+    }
+    // A compacted journal: roll-forward only, nothing is retired.
+    let mut raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+    raw["schema_version"] = serde_json::json!(4);
+    std::fs::write(&path, serde_json::to_vec(&raw)?)?;
+    let controls = JournalControls::open_existing(&path)?;
+    let blockers = controls.rollback_blockers()?;
+    assert!(blockers.iter().any(|b| b.field == SCHEMA_BLOCKER_FIELD && b.roll_forward_only()), "{blockers:?}");
+    assert!(controls.retire_for_rollback()?.is_empty());
+    Ok(())
+}
+
+/// D-098: queued work rtao refuses at every head without signing (a row its
+/// owner-row guard holds, `OwnerRowHeld`) is retired through rtao's
+/// `retire_pending`: the record is marked `scheduler_retired` and handed
+/// back, our reason is recorded beside it, the mechanism takes the next
+/// label's work, the same ID stays idempotent, and a build at the previous
+/// pin opens the journal. Only the mechanism's pending operation retires.
+#[test]
+fn retire_pending_retires_queued_work_through_rtao() -> Result<()> {
+    let root = scratch()?;
+    let path = root.path().join("journal.json");
+    let mut adapter = open(&path, config())?;
+    enable_storage_fixture(&adapter)?;
+    let work = WeightWork { v2_target: Some([7; 32]), tempo: Some(47), ..work() };
+    let Enqueued::Created(held) = adapter.enqueue_with_owner_rows(&work, row(), OwnerRowPolicy::Hold)? else {
+        panic!("created")
+    };
+    assert!(adapter.retire_pending(MechId(0), "not-the-pending-operation", "owner_row_held").is_err());
+    assert!(adapter.retire_pending(MechId(0), &held, "Owner Row Held").is_err(), "reason format");
+    adapter.retire_pending(MechId(0), &held, "owner_row_held")?;
+    let controls = adapter.controls();
+    assert_eq!(controls.retired(&held)?.as_deref(), Some("owner_row_held"));
+    let record = controls.journal.snapshot()?.operations[&held].clone();
+    assert_eq!(record.extensions.get("scheduler_retired"), Some(&serde_json::Value::Bool(true)));
+    assert_eq!(record.extensions.get("scheduler_handed_off"), Some(&serde_json::Value::Bool(true)));
+    assert!(controls.pending_operations(MechId(0))?.is_empty());
+    assert!(adapter.retire_pending(MechId(0), &held, "owner_row_held").is_err(), "already retired");
+    let next = WeightWork { tempo: Some(48), ..work };
+    let Enqueued::Created(replacement) = adapter.enqueue(&next, row())? else { panic!("created") };
+    assert_ne!(replacement, held);
     assert!(controls.rollback_blockers()?.is_empty());
     drop(controls);
     drop(adapter);
-    // Checkpoint state written only after following a non-native tag.
-    let id = identity();
-    let scope = format!("weights:{}:{}:{}", hex::encode(id.genesis.0), id.netuid, id.hotkey);
-    {
-        let journal = OperationJournal::open(&path)?;
-        journal.update(|image| {
-            image.checkpoints.insert(
-                scope.clone(),
-                serde_json::json!({
-                    "schema": 1,
-                    "slots": {},
-                    "reveals": {
-                        "pending": [{"netuid": 7, "followed_cr": {"tag": 5, "code": format!("0x{}", "11".repeat(32))}}],
-                        "unlocated": [{"state": {"prepared_block": 1, "followed_cr": null}}],
-                        "outcomes": [],
-                        "last_observed_block": 9,
-                        "revealed_code": [{"payload_version": 4, "code": format!("0x{}", "11".repeat(32)), "stored_tag": 5}]
-                    }
-                }),
-            );
-            Ok(())
-        })?;
-    }
-    let controls = JournalControls::open_existing(&path)?;
-    let fields: Vec<_> = controls.rollback_blockers()?.into_iter().map(|b| (b.operation_id, b.field, b.retirable)).collect();
-    assert_eq!(
-        fields,
-        vec![
-            (None, "checkpoint.reveals.pending.followed_cr".to_owned(), false),
-            (None, "checkpoint.reveals.revealed_code".to_owned(), false),
-            (None, "checkpoint.reveals.unlocated.state.followed_cr".to_owned(), false),
-        ]
-    );
-    assert!(controls.retire_for_rollback()?.is_empty());
-    assert_eq!(controls.rollback_blockers()?.len(), 3);
+    assert!(previous_pin::opens(&OperationJournal::open(&path)?.snapshot()?));
+    Ok(())
+}
+
+/// Review of c8c34e24: `retire_pending` is two journal updates, rtao's marks
+/// then our reason. A stop between them leaves the work handed off and
+/// `scheduler_retired` without [`RETIRED_KEY`]; it still reads as retired
+/// (`scheduler_retired`), so nothing joins it again. A hand-off without
+/// rtao's retire mark is not a retirement.
+#[test]
+fn work_rtao_retired_without_our_reason_still_reads_as_retired() -> Result<()> {
+    let root = scratch()?;
+    let path = root.path().join("journal.json");
+    let mut adapter = open(&path, config())?;
+    enable_storage_fixture(&adapter)?;
+    let work = WeightWork { v2_target: Some([7; 32]), tempo: Some(47), ..work() };
+    let Enqueued::Created(held) = adapter.enqueue_with_owner_rows(&work, row(), OwnerRowPolicy::Hold)? else {
+        panic!("created")
+    };
+    assert_eq!(adapter.controls().retired(&held)?, None, "queued work is not retired");
+    // rtao's half only, as a crash before `record_retirement` leaves it.
+    adapter.scheduler.retire_pending(MechId(0), &held)?;
+    let controls = adapter.controls();
+    let record = controls.journal.snapshot()?.operations[&held].clone();
+    assert!(!record.extensions.contains_key(RETIRED_KEY));
+    assert_eq!(controls.retired(&held)?.as_deref(), Some(SCHEDULER_RETIRED));
+    assert_eq!(controls.retained_row(&held)?.map(|(_, handed_off)| handed_off), Some(true));
+    // The in-run retry: rtao refuses a second retirement, and the record
+    // still reads as retired, which the dispatch loop checks on that error.
+    assert!(adapter.retire_pending(MechId(0), &held, "owner_row_held").is_err());
+    assert_eq!(controls.retired(&held)?.as_deref(), Some(SCHEDULER_RETIRED));
+    // A handed-off record without rtao's retire mark is not retired.
+    let Enqueued::Created(other) = adapter.enqueue(&WeightWork { tempo: Some(48), ..work }, row())? else {
+        panic!("created")
+    };
+    controls.journal.update(|image| {
+        let record = image.operations.get_mut(&other).expect("retained");
+        record.extensions.insert("scheduler_handed_off".into(), serde_json::Value::Bool(true));
+        Ok(())
+    })?;
+    assert_eq!(controls.retired(&other)?, None);
     Ok(())
 }
 
@@ -1018,11 +1106,13 @@ fn production_code_never_calls_resolve_uncertainty() -> Result<()> {
     Ok(())
 }
 
-/// Strict journal structures of rtao `b5553a76` ([`PREVIOUS_RTAO_PIN`]),
+/// Strict journal structures of rtao `0c128160` ([`PREVIOUS_RTAO_PIN`]),
 /// copied from `crates/rtao-neuron/src/weights/durable.rs` and
-/// `weights/reveal.rs` at that commit: the field names and serde attributes
-/// are verbatim; a field whose own type that build does not decode strictly
-/// is `IgnoredAny`. Independent of the field lists `rollback_blockers` uses.
+/// `weights/reveal.rs` at that commit: the field names and
+/// `deny_unknown_fields` are verbatim, a field that build defaults when absent
+/// is `#[serde(default)]` here too, and a field whose own type that build
+/// does not decode strictly is `IgnoredAny`. That build opens only journal
+/// schema 3. Independent of the field lists `rollback_blockers` uses.
 mod previous_pin {
     #![allow(dead_code)]
     use serde::Deserialize;
@@ -1042,6 +1132,8 @@ mod previous_pin {
         mechanism: IgnoredAny,
         input: IgnoredAny,
         version_key: IgnoredAny,
+        #[serde(default)]
+        owner_rows: Option<IgnoredAny>,
     }
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -1049,6 +1141,8 @@ mod previous_pin {
         row: IgnoredAny,
         commit: IgnoredAny,
         preparation: RevealPreparation,
+        #[serde(default)]
+        call_encoder: Option<IgnoredAny>,
     }
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -1072,6 +1166,8 @@ mod previous_pin {
         notices: IgnoredAny,
         warned_permit: IgnoredAny,
         ambiguous_reveal: IgnoredAny,
+        #[serde(default)]
+        followed_cr: Option<FollowedCr>,
     }
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -1087,11 +1183,29 @@ mod previous_pin {
     }
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
+    struct FollowedCr {
+        tag: IgnoredAny,
+        code: IgnoredAny,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct RevealedCode {
+        payload_version: IgnoredAny,
+        code: IgnoredAny,
+        #[serde(default)]
+        stored_tag: Option<IgnoredAny>,
+        #[serde(default)]
+        missed: Option<IgnoredAny>,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct RevealWatcher {
         pending: Vec<Pending>,
         unlocated: Vec<Unlocated>,
         outcomes: IgnoredAny,
         last_observed_block: IgnoredAny,
+        #[serde(default)]
+        revealed_code: Vec<RevealedCode>,
     }
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -1100,12 +1214,17 @@ mod previous_pin {
         uid: IgnoredAny,
         reveal_period: IgnoredAny,
         schedule_fields: IgnoredAny,
+        #[serde(default)]
+        followed_cr: Option<FollowedCr>,
     }
 
     /// Whether a build at the previous pin decodes every weight structure
     /// it reads from `image`: the effects and attempt material of each
     /// weight record not handed back, and each weight checkpoint.
     pub fn opens(image: &rtao_client::journal::JournalImage) -> bool {
+        if image.schema_version != 3 {
+            return false;
+        }
         let records = image.operations.values().filter(|record| {
             record.intent.scope.starts_with("weights:")
                 && record.extensions.get("scheduler_handed_off") != Some(&serde_json::Value::Bool(true))
@@ -1127,10 +1246,11 @@ mod previous_pin {
 }
 
 /// `rollback_blockers` agrees with the previous pin's own strict structures
-/// (copied verbatim above): a journal holding queued `Submit` work, or
-/// checkpoint state from a followed non-native tag, does not decode there
-/// and is reported; after `retire_for_rollback` the Submit work decodes;
-/// a journal of Hold work decodes and reports nothing.
+/// (copied above): journals of `Hold` and `Submit` work decode there and
+/// report nothing; checkpoint state as the previous pin writes it, a followed
+/// non-native tag's included, decodes and reports nothing; a pending reveal
+/// with the field this pin adds (`period_changed`) does not decode there and
+/// is reported.
 #[test]
 fn the_rollback_check_agrees_with_the_previous_pins_strict_structures() -> Result<()> {
     let root = scratch()?;
@@ -1156,15 +1276,10 @@ fn the_rollback_check_agrees_with_the_previous_pins_strict_structures() -> Resul
         let next = WeightWork { v2_target: Some([7; 32]), tempo: Some(48), ..work() };
         adapter.enqueue_with_owner_rows(&next, BTreeMap::from([(Uid(2), 65535.0)]), OwnerRowPolicy::Submit)?;
     }
-    assert!(!previous_pin::opens(&snapshot(&path)?));
-    let controls = JournalControls::open_existing(&path)?;
-    assert!(!controls.rollback_blockers()?.is_empty());
-    assert_eq!(controls.retire_for_rollback()?.len(), 1);
-    assert!(controls.rollback_blockers()?.is_empty());
-    drop(controls);
     assert!(previous_pin::opens(&snapshot(&path)?));
-    // A complete pending reveal and an unlocated commit as the previous pin
-    // writes them decode there; the same with a field this pin adds do not.
+    assert!(JournalControls::open_existing(&path)?.rollback_blockers()?.is_empty());
+    // Complete checkpoint state as the previous pin writes it decodes there;
+    // the same with the field this pin adds does not.
     let pending = serde_json::json!({
         "netuid": 7, "mechanism": 0, "hotkey": "x", "uid": 2, "uids": [0], "version_key": 0,
         "commit_epoch": 1, "reveal_epoch": 2, "predicted_first_block": 3, "round": 4,
@@ -1177,17 +1292,21 @@ fn the_rollback_check_agrees_with_the_previous_pins_strict_structures() -> Resul
         "netuid": 7, "mechanism": 0, "hotkey": "x", "row": [[0], [65535]], "version_key": 0,
         "state": state, "commit": [[], 4], "report": {}
     });
+    let code = format!("0x{}", "11".repeat(32));
     let id = identity();
     let scope = format!("weights:{}:{}:{}", hex::encode(id.genesis.0), id.netuid, id.hotkey);
     let mut followed_pending = pending.clone();
-    followed_pending["followed_cr"] = serde_json::json!({"tag": 5});
+    followed_pending["followed_cr"] = serde_json::json!({"tag": 5, "code": code});
     let mut followed_unlocated = unlocated.clone();
-    followed_unlocated["state"]["followed_cr"] = serde_json::json!(null);
+    followed_unlocated["state"]["followed_cr"] = serde_json::json!({"tag": 5, "code": code});
+    let revealed = serde_json::json!([{"payload_version": 4, "code": code, "stored_tag": 5, "missed": true}]);
+    let mut changed_pending = followed_pending.clone();
+    changed_pending["period_changed"] = serde_json::json!(true);
     let cases = [
         (serde_json::json!({"pending": [pending], "unlocated": [unlocated], "outcomes": [], "last_observed_block": 9}), true),
-        (serde_json::json!({"pending": [followed_pending], "unlocated": [], "outcomes": [], "last_observed_block": 9}), false),
-        (serde_json::json!({"pending": [], "unlocated": [followed_unlocated], "outcomes": [], "last_observed_block": 9}), false),
-        (serde_json::json!({"pending": [], "unlocated": [], "outcomes": [], "last_observed_block": 9, "revealed_code": []}), false),
+        (serde_json::json!({"pending": [followed_pending], "unlocated": [followed_unlocated], "outcomes": [], "last_observed_block": 9, "revealed_code": revealed}), true),
+        (serde_json::json!({"pending": [], "unlocated": [], "outcomes": [], "last_observed_block": 9, "revealed_code": []}), true),
+        (serde_json::json!({"pending": [changed_pending], "unlocated": [], "outcomes": [], "last_observed_block": 9}), false),
     ];
     for (reveals, opens) in cases {
         OperationJournal::open(&path)?.update(|image| {
@@ -1217,8 +1336,10 @@ fn every_manifest_pins_rtao_at_the_recorded_commit() -> Result<()> {
         "Cargo.toml",
         "crates/validator/Cargo.toml",
         "crates/miner/Cargo.toml",
+        "crates/admission-gate/Cargo.toml",
         "coordinator/Cargo.toml",
         "coordinator/parity/Cargo.toml",
+        "admission-worker/Cargo.toml",
     ] {
         let text = std::fs::read_to_string(root.join(manifest))?;
         for line in text.lines().filter(|line| line.contains("\"https://github.com/sam0x17/rtao\"")) {

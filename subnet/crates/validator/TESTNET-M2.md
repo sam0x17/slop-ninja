@@ -116,7 +116,7 @@ install -m 0755 $CT/debug/rtao ~/.local/bin/
 ```
 
 `git rev-parse HEAD` must print the workspace pin,
-`0c12816009baa65eec3135bac9a9dbcc8eaba77d` (tag `snapshot-2026-11-03.2`).
+`fa83052d37b39f002f7a4d3cc5c04f25503e1d11` (tag `snapshot-2026-11-05.2`).
 The M2 runs used a clone at their pin,
 `b5553a76ff67f0f54350472ef0306f225e8a4c44`.
 

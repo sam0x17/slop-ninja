@@ -228,35 +228,14 @@ struct ReadinessLog {
 pub struct LiveFacts {
     /// `SubtensorModule::CommitRevealWeightsVersion`, with its live default.
     pub commit_reveal_version: Option<u128>,
-    /// The storage hash of `:code` at the same block: the runtime code
-    /// identity rtao checks against its reviewed-runtime list before it
-    /// follows a non-native tag. Read only when the stored tag is not native.
-    pub runtime_code: RuntimeCode,
 }
-
-/// The runtime code identity behind [`LiveFacts::runtime_code`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum RuntimeCode {
-    /// Not read: the stored tag is native or unread, so nothing needs it.
-    #[default]
-    NotNeeded,
-    /// The `:code` storage hash, read at the tag's block.
-    Hash([u8; 32]),
-    /// Needed but not read (the call failed or its reply was malformed):
-    /// unknown, never taken for unreviewed code
-    /// ([`RUNTIME_CODE_UNREAD`]).
-    Unread,
-}
-
-/// The commit's deferral code when the stored tag is not native and the
-/// runtime code could not be read. [`JournalControls::record_readiness`] keeps the
-/// commit's previous tag-dependent state instead (an unknown code is not an
-/// unreviewed one, so a transient read failure never flips the record or
-/// raises an alert); only with no such earlier state is this recorded.
-pub const RUNTIME_CODE_UNREAD: &str = "runtime_code_unread";
 
 /// Read [`LiveFacts`] by name at the best head, where rtao's scheduler reads
 /// them. A failed or malformed read yields `None` for that fact.
+///
+/// rtao follows the stored commit-reveal tag under any runtime code (D-122),
+/// so no `:code` identity is read here: nothing about the commit's readiness
+/// depends on which runtime code is live.
 pub async fn read_live_facts(client: &Client) -> LiveFacts {
     let Ok(snapshot) = client.at(BlockRef::Best).await else {
         return LiveFacts::default();
@@ -275,37 +254,12 @@ pub async fn read_live_facts(client: &Client) -> LiveFacts {
         value.as_u128()
     }
     .await;
-    let native = u128::from(rtao_neuron::weights::NATIVE_CR_PAYLOAD_VERSION);
-    let runtime_code = match version {
-        Some(version) if version != native => {
-            let reply: Option<String> = client
-                .request(
-                    "state_getStorageHash",
-                    serde_json::json!(["0x3a636f6465", format!("0x{}", hex::encode(snapshot.block().hash.0))]),
-                )
-                .await
-                .ok()
-                .flatten();
-            reply
-                .as_deref()
-                .and_then(|text| text.strip_prefix("0x"))
-                .and_then(|text| hex::decode(text).ok())
-                .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
-                .map_or(RuntimeCode::Unread, RuntimeCode::Hash)
-        }
-        _ => RuntimeCode::NotNeeded,
-    };
     LiveFacts {
         commit_reveal_version: version,
-        runtime_code,
     }
 }
 
 const COMMIT_CALL: &str = "commit_timelocked_mechanism_weights";
-
-/// The commit's deferral code for a non-native tag under runtime code rtao
-/// has not reviewed (see [`evaluate_operations_with`]).
-pub const COMMIT_REVEAL_TAG_UNPROVEN: &str = "commit_reveal_tag_unproven";
 
 /// Evaluate every signed operation, and rtao's finalized observation, against
 /// one live runtime. Pure and total: any metadata, including malformed
@@ -330,20 +284,15 @@ pub fn evaluate_operations(runtime: &RuntimeHandle) -> BTreeMap<String, Operatio
 /// - a stored commit-reveal version that does not fit the call's `u16` tag
 ///   (`commit_reveal_version_unencodable`).
 ///
-/// Any other stored commit-reveal version under runtime code rtao reviewed
-/// is an adaptation of the commit
-/// ([`surface::Adaptation::CommitRevealTagChanged`]): rtao follows it. Under
-/// unreviewed runtime code rtao follows the tag only after one of this
-/// validator's own commitments revealed under that code, and otherwise
-/// pauses timelocked commits. That evidence lives in rtao's reveal watcher,
-/// out of this record's reach, so the commit is recorded as deferred
-/// ([`COMMIT_REVEAL_TAG_UNPROVEN`]), an alert, rather than as adapted while
-/// rtao may be pausing. A code that was not read is unknown
-/// ([`RUNTIME_CODE_UNREAD`]): recording keeps the previous state. The
-/// deferral clears by itself when the tag returns to native,
-/// the code becomes a reviewed one, or a later rtao pin follows the tag
-/// without the reviewed-code list (requested upstream; see the subnet
-/// README, "Runtime upgrades").
+/// Any other stored commit-reveal version is an adaptation of the commit
+/// ([`surface::Adaptation::CommitRevealTagChanged`]): rtao follows the stored
+/// tag under any runtime code (D-122). After an unexplained missed reveal
+/// with that tag rtao still commits, at most once per subnet epoch, and
+/// reports it (`rtao_weights_cr_version_refuted`); the native validator
+/// queues one commitment per tempo, so that limit changes nothing here and
+/// the commit is still adapted, not deferred. Only rtao's
+/// explicit `Unreviewed::Pause` opt-in, which this adapter never selects (the
+/// `no_runtime_gates` lint refuses it), would pause.
 pub fn evaluate_operations_with(
     runtime: &RuntimeHandle,
     facts: &LiveFacts,
@@ -358,26 +307,9 @@ pub fn evaluate_operations_with(
         match facts.commit_reveal_version {
             None => Ok(None),
             Some(version) if version == native => Ok(None),
-            Some(version) => match (u16::try_from(version), facts.runtime_code) {
-                (Ok(stored), RuntimeCode::Hash(code))
-                    if rtao_neuron::weights::reviewed_cr_runtime(rtao_primitives::H256(code)).is_some() =>
-                {
-                    Ok(Some(surface::Adaptation::CommitRevealTagChanged { stored }))
-                }
-                (Ok(stored), RuntimeCode::Hash(code)) => Err(surface::Deferral::new(
-                    COMMIT_REVEAL_TAG_UNPROVEN,
-                    format!(
-                        "the chain stores commit-reveal version {stored} under runtime code 0x{} that rtao has not reviewed; rtao follows it only after one of this validator's commitments reveals under this code and pauses timelocked commits until then",
-                        hex::encode(code)
-                    ),
-                )),
-                (Ok(stored), RuntimeCode::NotNeeded | RuntimeCode::Unread) => Err(surface::Deferral::new(
-                    RUNTIME_CODE_UNREAD,
-                    format!(
-                        "the chain stores commit-reveal version {stored}, and the runtime code that decides whether rtao follows it was not read"
-                    ),
-                )),
-                (Err(_), _) => Err(surface::Deferral::new(
+            Some(version) => match u16::try_from(version) {
+                Ok(stored) => Ok(Some(surface::Adaptation::CommitRevealTagChanged { stored })),
+                Err(_) => Err(surface::Deferral::new(
                     "commit_reveal_version_unencodable",
                     format!(
                         "the chain stores commit-reveal version {version}, which no u16 commit tag can carry"
@@ -498,33 +430,6 @@ fn summarize(log: &ReadinessLog) -> ReadinessSummary {
     }
     summary.alert = !summary.deferred.is_empty();
     summary
-}
-
-/// An operation evaluated as [`RUNTIME_CODE_UNREAD`] keeps its previous
-/// tag-dependent state (adapted to a changed tag, or deferred under
-/// unreviewed code): the code was not read, so nothing about it changed.
-/// With no such previous state the unread deferral stands.
-fn keep_state_on_unread_code(
-    previous: &BTreeMap<String, OperationReadiness>,
-    mut evaluated: BTreeMap<String, OperationReadiness>,
-) -> BTreeMap<String, OperationReadiness> {
-    for (name, next) in &mut evaluated {
-        if next.deferral.as_ref().is_none_or(|d| d.code != RUNTIME_CODE_UNREAD) {
-            continue;
-        }
-        let Some(before) = previous.get(name) else {
-            continue;
-        };
-        let tag_dependent = before
-            .adaptations
-            .iter()
-            .any(|a| matches!(a, surface::Adaptation::CommitRevealTagChanged { .. }))
-            || before.deferral.as_ref().is_some_and(|d| d.code == COMMIT_REVEAL_TAG_UNPROVEN);
-        if tag_dependent {
-            *next = before.clone();
-        }
-    }
-    evaluated
 }
 
 /// Identity of the only validator permitted to use one journal file.
@@ -653,24 +558,42 @@ impl PendingOperation {
 /// Journal extension recording why an operation was retired.
 pub const RETIRED_KEY: &str = "slop_ninja_retired";
 
+/// The reason [`JournalControls::retired`] reports for work rtao's
+/// `WeightScheduler::retire_pending` retired (its `scheduler_retired` mark)
+/// when no [`RETIRED_KEY`] was recorded beside it: the process stopped, or
+/// the second journal write failed, between rtao's retirement and ours.
+pub const SCHEDULER_RETIRED: &str = "scheduler_retired";
+
+fn check_retirement_reason(reason: &str) -> Result<()> {
+    ensure!(
+        !reason.is_empty() && reason.len() <= 64 && reason.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+        "retirement reason"
+    );
+    Ok(())
+}
+
 /// The rtao commit every crate here pins (a test checks each manifest).
 /// When it changes, set [`PREVIOUS_RTAO_PIN`] to the old value, re-derive
 /// the field lists below from that commit's source and update the copied
 /// structures in the rollback test to match.
-pub const RTAO_PIN: &str = "0c12816009baa65eec3135bac9a9dbcc8eaba77d";
+pub const RTAO_PIN: &str = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11";
 
 /// The rtao pin before the current one ([`RTAO_PIN`]), whose strict journal
 /// decoding [`JournalControls::rollback_blockers`] checks a journal against.
-pub const PREVIOUS_RTAO_PIN: &str = "b5553a76ff67f0f54350472ef0306f225e8a4c44";
+pub const PREVIOUS_RTAO_PIN: &str = "0c12816009baa65eec3135bac9a9dbcc8eaba77d";
 
-// Fields of the structures rtao `b5553a76` decodes with
-// `deny_unknown_fields` from a journal, from its source at that commit. A
-// test decodes journals with those structures, copied from that source, and
-// requires them to agree with `rollback_blockers`.
-const PREVIOUS_WORK_FIELDS: &[&str] = &["netuid", "mechanism", "input", "version_key"];
-const PREVIOUS_MATERIAL_FIELDS: &[&str] = &["row", "commit", "preparation"];
-const PREVIOUS_PREPARATION_FIELDS: &[&str] = &["prepared_block", "uid", "reveal_period", "schedule_fields"];
-const PREVIOUS_WATCHER_FIELDS: &[&str] = &["pending", "unlocated", "outcomes", "last_observed_block"];
+// Fields of the structures rtao `0c128160` decodes with
+// `deny_unknown_fields` from a journal, from its source at that commit
+// (`weights/durable.rs`, `weights/reveal.rs`). A test decodes journals with
+// those structures, copied from that source, and requires them to agree with
+// `rollback_blockers`. The current pin decodes the same structures through
+// its `RecordFormat` (D-120), still strictly at format 1.
+const PREVIOUS_WORK_FIELDS: &[&str] = &["netuid", "mechanism", "input", "version_key", "owner_rows"];
+const PREVIOUS_MATERIAL_FIELDS: &[&str] = &["row", "commit", "preparation", "call_encoder"];
+const PREVIOUS_PREPARATION_FIELDS: &[&str] =
+    &["prepared_block", "uid", "reveal_period", "schedule_fields", "followed_cr"];
+const PREVIOUS_WATCHER_FIELDS: &[&str] =
+    &["pending", "unlocated", "outcomes", "last_observed_block", "revealed_code"];
 const PREVIOUS_PENDING_FIELDS: &[&str] = &[
     "netuid",
     "mechanism",
@@ -691,10 +614,18 @@ const PREVIOUS_PENDING_FIELDS: &[&str] = &[
     "notices",
     "warned_permit",
     "ambiguous_reveal",
+    "followed_cr",
 ];
 const PREVIOUS_UNLOCATED_FIELDS: &[&str] =
     &["netuid", "mechanism", "hotkey", "row", "version_key", "state", "commit", "report"];
+/// The only journal schema rtao `0c128160` opens without migration; it
+/// refuses a newer one. The current pin writes it too and raises the schema
+/// to 4 only on an explicit `OperationJournal::compact`, which nothing here
+/// calls (a test scans for it).
+const PREVIOUS_JOURNAL_SCHEMA: u32 = 3;
 
+/// Rollback blocker field of a journal whose schema the previous pin refuses.
+pub const SCHEMA_BLOCKER_FIELD: &str = "journal.schema_version";
 /// Rollback blocker field of an unreviewed finalized failed attempt.
 pub const FAILURE_BLOCKER_FIELD: &str = "attempt.outcome.finalized_failure";
 /// Rollback blocker field of a reviewed or settled finalized failed attempt
@@ -724,6 +655,13 @@ impl RollbackBlocker {
     /// attempt is kept as evidence), so the journal is roll-forward only.
     pub fn finalized_failure(&self) -> bool {
         self.field == FAILURE_BLOCKER_FIELD || self.field == REVIEWED_FAILURE_BLOCKER_FIELD
+    }
+
+    /// Nothing this build does clears it, so the journal is roll-forward
+    /// only: a retained finalized failure, or a journal schema the previous
+    /// pin refuses ([`SCHEMA_BLOCKER_FIELD`]).
+    pub fn roll_forward_only(&self) -> bool {
+        self.finalized_failure() || self.field == SCHEMA_BLOCKER_FIELD
     }
 }
 
@@ -1235,10 +1173,7 @@ impl JournalControls {
     /// Returns false, writing nothing, when the operation is absent, already
     /// handed back, or not retirable.
     pub fn retire_superseded(&self, id: &str, reason: &str) -> Result<bool> {
-        ensure!(
-            !reason.is_empty() && reason.len() <= 64 && reason.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
-            "retirement reason"
-        );
+        check_retirement_reason(reason)?;
         let mut retired = false;
         self.journal.update(|image| {
             let Some(record) = image.operations.get_mut(id) else {
@@ -1302,17 +1237,26 @@ impl JournalControls {
     /// (`Work`) and attempt material (`Material`, its `RevealPreparation`) of
     /// every weight record it has not handed back, and the weight checkpoint
     /// (`Checkpoint`, `RevealWatcher`, `Pending`, `Unlocated`). The current
-    /// pin adds `owner_rows` to `Submit` work, `call_encoder` to material an
-    /// application encoder composed, `followed_cr` to a preparation and a
-    /// pending reveal that followed a non-native commit-reveal tag, and
-    /// `revealed_code` to the watcher once a reveal completed, or was
-    /// missed, under one (retained evidence, never cleared).
+    /// pin adds `period_changed` to a pending reveal whose subnet's reveal
+    /// period changed while it was pending (D-112); it clears when that
+    /// commitment settles. It also writes a journal schema above
+    /// [`PREVIOUS_JOURNAL_SCHEMA`] only after a compaction, which nothing here
+    /// performs; such a journal is reported ([`SCHEMA_BLOCKER_FIELD`]) and is
+    /// roll-forward only. Work this pin retires itself (`retire_pending`,
+    /// marked `scheduler_retired`) is handed back, which that pin skips too.
     /// Handed-back records are never decoded there, so finished or retired
     /// work blocks nothing; the slot's `unsigned_retry` is accepted there.
     /// Empty means a build at that pin can open the journal.
     pub fn rollback_blockers(&self) -> Result<Vec<RollbackBlocker>> {
         let image = self.journal.snapshot()?;
         let mut found = Vec::new();
+        if image.schema_version != PREVIOUS_JOURNAL_SCHEMA {
+            found.push(RollbackBlocker {
+                operation_id: None,
+                field: SCHEMA_BLOCKER_FIELD.into(),
+                retirable: false,
+            });
+        }
         let mut unknown = |operation_id: Option<&str>, path: &str, value: &serde_json::Value, known: &[&str], retirable: bool| {
             if let Some(object) = value.as_object() {
                 for key in object.keys().filter(|key| !known.contains(&key.as_str())) {
@@ -1396,12 +1340,13 @@ impl JournalControls {
     /// early. Nothing is lost or committed twice. Returns the retired IDs.
     /// Checkpoint fields, and work with an attempt awaiting recovery or a
     /// landed commit not yet handed back, are left: they settle only by
-    /// running this build. Nothing is retired while the journal retains a
-    /// finalized failure ([`RollbackBlocker::finalized_failure`]): no
-    /// earlier build can run it, so retiring would only shift labels.
+    /// running this build. Nothing is retired while the journal is
+    /// roll-forward only ([`RollbackBlocker::roll_forward_only`]: a retained
+    /// finalized failure or a compacted schema): no earlier build can run
+    /// it, so retiring would only shift labels.
     pub fn retire_for_rollback(&self) -> Result<Vec<String>> {
         let blockers = self.rollback_blockers()?;
-        if blockers.iter().any(RollbackBlocker::finalized_failure) {
+        if blockers.iter().any(RollbackBlocker::roll_forward_only) {
             return Ok(Vec::new());
         }
         let mut ids: Vec<String> = blockers
@@ -1419,16 +1364,49 @@ impl JournalControls {
         Ok(retired)
     }
 
-    /// Whether the operation was retired, and why.
+    /// Record why rtao retired `id` ([`NativeWeightAdapter::retire_pending`]),
+    /// under [`RETIRED_KEY`] as [`Self::retire_superseded`] records it. Only
+    /// a handed-back record without a reason is written.
+    fn record_retirement(&self, id: &str, reason: &str) -> Result<()> {
+        check_retirement_reason(reason)?;
+        self.journal.update(|image| {
+            let Some(record) = image.operations.get_mut(id) else {
+                return Ok(());
+            };
+            if record.extensions.get("scheduler_handed_off") != Some(&serde_json::Value::Bool(true))
+                || record.extensions.contains_key(RETIRED_KEY)
+            {
+                return Ok(());
+            }
+            record.extensions.insert(
+                RETIRED_KEY.into(),
+                serde_json::json!({ "schema": 1, "reason": reason, "attempts": record.attempts.len() }),
+            );
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// Whether the operation was retired, and why. Work rtao retired
+    /// (`scheduler_retired`, written with its hand-off mark in one update)
+    /// counts as retired even when our reason was never recorded
+    /// ([`NativeWeightAdapter::retire_pending`] writes it in a second
+    /// update): it is reported as [`SCHEDULER_RETIRED`], so a stop between
+    /// the two writes never leaves a dead operation to be joined.
     pub fn retired(&self, id: &str) -> Result<Option<String>> {
         let image = self.journal.snapshot()?;
-        Ok(image
-            .operations
-            .get(id)
-            .and_then(|r| r.extensions.get(RETIRED_KEY))
-            .and_then(|v| v.get("reason"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned))
+        let Some(record) = image.operations.get(id) else {
+            return Ok(None);
+        };
+        Ok(match record.extensions.get(RETIRED_KEY) {
+            Some(retired) => retired.get("reason").and_then(serde_json::Value::as_str).map(str::to_owned),
+            None if record.extensions.get("scheduler_retired") == Some(&serde_json::Value::Bool(true))
+                && record.extensions.get("scheduler_handed_off") == Some(&serde_json::Value::Bool(true)) =>
+            {
+                Some(SCHEDULER_RETIRED.to_owned())
+            }
+            None => None,
+        })
     }
 
     /// Persisted per-operation readiness, as last evaluated against live metadata.
@@ -1451,7 +1429,6 @@ impl JournalControls {
         evaluated: BTreeMap<String, OperationReadiness>,
     ) -> Result<ReadinessSummary> {
         let (current, unreadable) = read_readiness(&self.journal.snapshot()?);
-        let evaluated = keep_state_on_unread_code(&current.operations, evaluated);
         let changed = |name: &String, next: &OperationReadiness| {
             current.operations.get(name).is_none_or(|previous| {
                 previous.state != next.state
@@ -1475,7 +1452,7 @@ impl JournalControls {
                     .insert(READINESS_QUARANTINE_KEY.into(), raw);
             }
             let mut next_operations = BTreeMap::new();
-            for (name, mut next) in keep_state_on_unread_code(&log.operations, evaluated.clone()) {
+            for (name, mut next) in evaluated.clone() {
                 match log.operations.get(&name) {
                     Some(previous)
                         if previous.state == next.state
@@ -1748,6 +1725,27 @@ impl NativeWeightAdapter {
             owner_rows,
         )?;
         Ok(Enqueued::Created(id))
+    }
+
+    /// Retire the mechanism's pending operation `id`, which never reached the
+    /// chain, through rtao's `WeightScheduler::retire_pending` (D-098), and
+    /// record `reason` under [`RETIRED_KEY`]. Use it for queued work rtao
+    /// refuses at every head without signing, such as a row its self/owner
+    /// guard holds at the dispatch block (`OwnerRowHeld`). rtao refuses
+    /// unless `id` is the mechanism's pending operation, its slot is not
+    /// uncertain and every signed attempt is proven unexecuted; it marks the
+    /// record `scheduler_retired` and hands it off, so the mechanism accepts
+    /// new work and a build at the previous pin skips it too. The ID stays
+    /// idempotent: a replacement needs a new operation ID (the next label).
+    ///
+    /// rtao's marks and our reason are two journal updates. A stop or a
+    /// failed write between them leaves the work retired without a reason;
+    /// [`JournalControls::retired`] still reports it ([`SCHEDULER_RETIRED`]),
+    /// so it is never joined again.
+    pub fn retire_pending(&self, mechanism: MechId, id: &str, reason: &str) -> Result<()> {
+        check_retirement_reason(reason)?;
+        self.scheduler.retire_pending(mechanism, id)?;
+        self.controls.record_retirement(id, reason)
     }
 
     /// Observe finalized history without private keys or author RPC calls.

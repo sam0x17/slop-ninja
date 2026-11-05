@@ -284,6 +284,13 @@ pub fn is_deferral(code: &str) -> bool {
         )
 }
 
+/// Whether a dispatch run that ended with `stop` exits for a later retry
+/// (75): every tempo deferral (`tempo_deferred:<code>`), among them held work
+/// retired in the loop ([`crate::live::OWNER_ROW_HELD_STOP`]).
+pub fn stop_retries(stop: &str) -> bool {
+    stop.starts_with("tempo_deferred:")
+}
+
 /// Deferrals about the row itself: a later snapshot or chain state is tried
 /// afresh at the next tempo.
 pub fn is_row_deferral(code: &str) -> bool {

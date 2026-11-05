@@ -1878,7 +1878,7 @@ dependencies = [
 [[package]]
 name = "rtao-core"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "bittensor-core",
  "rtao-core-ext",
@@ -1889,7 +1889,7 @@ dependencies = [
 [[package]]
 name = "rtao-core-ext"
 version = "0.1.0"
-source = "git+https://github.com/sam0x17/rtao?rev=0c12816009baa65eec3135bac9a9dbcc8eaba77d#0c12816009baa65eec3135bac9a9dbcc8eaba77d"
+source = "git+https://github.com/sam0x17/rtao?rev=fa83052d37b39f002f7a4d3cc5c04f25503e1d11#fa83052d37b39f002f7a4d3cc5c04f25503e1d11"
 dependencies = [
  "base64",
  "bittensor-core",

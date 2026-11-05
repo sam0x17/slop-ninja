@@ -1522,14 +1522,16 @@ finalization history. Pending commitments require their original reveal
 evidence. A spec version may be recorded as an observation, such as the spec at
 which a transaction was included; it is never compared for acceptance.
 
-The native adapter in this repository pins rtao `0c128160` (the immutable tag
-`snapshot-2026-11-03.2`), which has no fixed spec-number refusal; the adapter
+The native adapter in this repository pins rtao `fa83052d` (the immutable tag
+`snapshot-2026-11-05.2`), which has no fixed spec-number refusal; the adapter
 resolves every signed operation by name against live metadata. That revision's
 weight scheduler composes its call through a compiled descriptor while the live
 shape matches and by name otherwise, and its scheduler and reveal watcher read
 their storage the same way, so only an item neither path can read stops their
 finalized observation and recovery; the adapter records that as a deferral with
-an alert (see the [native adapter](../subnet/README.md)).
+an alert (see the [native adapter](../subnet/README.md)). It follows the stored
+commit-reveal tag under any runtime code; after an unexplained missed reveal it
+keeps committing, at most once per subnet epoch, instead of pausing.
 
 Treat a chain operation as a durable intent with separately recorded signed
 attempts. Persist its cohort/result revision, hotkey, registration binding,
@@ -1545,7 +1547,7 @@ does not create another reward or justify repeating an effect already applied.
 Decode historical evidence with the metadata appropriate to its execution.
 
 The selected `rtao` revision now provides an
-[`OperationJournal` and persistent weight/reveal scheduling](https://github.com/sam0x17/rtao/blob/0c12816009baa65eec3135bac9a9dbcc8eaba77d/docs/recovery/durable-work.md).
+[`OperationJournal` and persistent weight/reveal scheduling](https://github.com/sam0x17/rtao/blob/fa83052d37b39f002f7a4d3cc5c04f25503e1d11/docs/recovery/durable-work.md).
 The native adapter must attach the journal explicitly, bind stable application
 operation IDs, reinstall the semantic guard on restart, and reconcile before
 new submission. `WeightScheduler::new` alone still creates an in-memory
@@ -1764,8 +1766,8 @@ within its serverless service. Its receipt and authorization keys have separate
 roles from its validator hotkey; its private chain journal is not public evidence.
 
 The adapter in this repository pins `rtao`
-[`0c128160`](https://github.com/sam0x17/rtao/tree/0c12816009baa65eec3135bac9a9dbcc8eaba77d)
-(tag `snapshot-2026-11-03.2`, November 3, 2026). It provides miner/validator runtimes,
+[`fa83052d`](https://github.com/sam0x17/rtao/tree/fa83052d37b39f002f7a4d3cc5c04f25503e1d11)
+(tag `snapshot-2026-11-05.2`, November 5, 2026). It provides miner/validator runtimes,
 finalized metagraph and epoch reads, on-chain commitment calls, direct or
 timelocked weight submission, durable submission/reveal recovery, semantic
 compatibility hooks, and persistent pause controls. The

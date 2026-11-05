@@ -4,7 +4,10 @@
 //! journal, and must never stop a validator. So production code may record a
 //! spec or transaction version as an observation, but never compare one,
 //! allow-list one or bake one into an identity. Signing reads the live versions
-//! inside rtao at signing time; that is outside this tree. SQL comparisons
+//! inside rtao at signing time; that is outside this tree. Neither may a
+//! decision key on rtao's reviewed-runtime list or select its opt-in
+//! `Unreviewed::Pause`: rtao follows the stored commit-reveal tag under any
+//! runtime code (D-122), and so do we. SQL comparisons
 //! count too; the one allowance is a lookup in the metadata cache keyed by the
 //! runtime it holds ([`RUNTIME_KEYED_TABLE`]).
 //!
@@ -66,6 +69,17 @@ const BANNED: &[&str] = &[
     "runtime_validated",
     "admit_runtime",
     "testnet_qualification",
+    // rtao follows the stored commit-reveal tag under any runtime code
+    // (D-122). Its reviewed-runtime list is an observation rtao reports; a
+    // decision of ours keyed on it, or its opt-in pause, would tie commits to
+    // the runtimes a build lists.
+    "Unreviewed::Pause",
+    "with_unreviewed_cr_tags",
+    "REVIEWED_CR_RUNTIME_CODE",
+    "reviewed_cr_runtime",
+    "REVIEWED_RUNTIME_CODE",
+    "REVIEWED_RUNTIMES",
+    "reviewed_runtime(",
 ];
 
 fn strip_comment(line: &str) -> &str {
@@ -173,6 +187,52 @@ fn production_code_never_compares_runtime_versions() {
     );
 }
 
+/// D-120: compaction raises the journal to schema 4, which a build at the
+/// previous pin refuses, so production code that opens an rtao journal never
+/// compacts (a rollback must stay possible). Only an explicit `compact` call
+/// does it. Every crate here that depends on `rtao-client` is scanned,
+/// recursively (binaries under `src/bin` included).
+#[test]
+fn production_code_never_compacts_the_journal() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dirs = [
+        "src",
+        "crates/validator/src",
+        "crates/miner/src",
+        "crates/admission-gate/src",
+        "admission-worker/src",
+    ];
+    let mut files = Vec::new();
+    for dir in dirs {
+        rust_files(&root.join(dir), &mut files);
+        assert!(files.iter().any(|f| f.starts_with(root.join(dir))), "the scan reads nothing under {dir}");
+    }
+    assert!(
+        files.iter().any(|f| f.starts_with(root.join("crates/validator/src/bin"))),
+        "the scan reads the validator's binaries"
+    );
+    let mut report = Vec::new();
+    for file in &files {
+        let text = std::fs::read_to_string(file).expect("readable source");
+        for (line, raw) in text.lines().enumerate() {
+            if raw.trim_start().starts_with("#[cfg(test)]") {
+                break;
+            }
+            let code = raw.split("//").next().unwrap_or_default();
+            for banned in [".compact(", "compactable", "CompactionPolicy"] {
+                if code.contains(banned) {
+                    report.push(format!(
+                        "{}:{}: {banned}",
+                        file.strip_prefix(root).unwrap_or(file).display(),
+                        line + 1
+                    ));
+                }
+            }
+        }
+    }
+    assert!(report.is_empty(), "journal compaction in production code:\n{}", report.join("\n"));
+}
+
 #[test]
 fn the_lint_detects_gates_and_allows_observations() {
     for bad in [
@@ -187,6 +247,9 @@ fn the_lint_detects_gates_and_allows_observations() {
         "\"SELECT op_id FROM commit_ops WHERE spec_version = ? AND tag = ?\",",
         "WHERE json_extract(row, '$.transaction_version') IS NOT NULL",
         "WHERE spec_version IN (486, 487)",
+        "let scheduler = scheduler.with_unreviewed_cr_tags(Unreviewed::Pause);",
+        "if rtao_neuron::weights::reviewed_cr_runtime(code).is_some() { follow() }",
+        "if commit_reveal::reviewed_runtime(&code).is_none() { defer() }",
     ] {
         assert!(!violations(bad).is_empty(), "{bad}");
     }

@@ -101,17 +101,21 @@ preserve the affected state, state the concrete blocker, and continue independen
 work without claiming the feature is ready.
 
 The [local adapter](../subnet/README.md) pins rtao
-[`0c128160`](https://github.com/sam0x17/rtao/commit/0c12816009baa65eec3135bac9a9dbcc8eaba77d)
-(immutable tag `snapshot-2026-11-03.2`, November 3), with runtime 486 metadata
+[`fa83052d`](https://github.com/sam0x17/rtao/commit/fa83052d37b39f002f7a4d3cc5c04f25503e1d11)
+(immutable tag `snapshot-2026-11-05.2`, November 5), with runtime 486 metadata
 and schema-3 journal migration. At that pin rtao composes weight calls and reads
 its validator storage by name when its compiled descriptors no longer match,
-follows a changed commit-reveal tag only under reviewed or proven runtime code,
-and lets work opt in to committing an owner burn row
-(`OwnerRowPolicy::Submit`). Journaled MEV-shield dispatch (supported upstream
+follows the stored commit-reveal tag under any runtime code (after an
+unexplained missed reveal it commits at most once per epoch instead of
+pausing), lets work opt in to committing an owner burn row
+(`OwnerRowPolicy::Submit`), and decides that guard from the UIDs at the
+dispatch block, reporting held queued work as `OwnerRowHeld` for the
+application to retire (`retire_pending`). Journaled MEV-shield dispatch (supported upstream
 from per-runtime evidence) and the v482 port are not qualified here, and rtao
 declares no validated runtime range. Ordinary weight commit/reveal ran live on
-testnet subnet 601 at the previous pin, `b5553a76` (October 30); at this pin a
-native validator committed and revealed the burn row there on November 3. A later
+testnet subnet 601 at `b5553a76` (October 30), and a native validator
+committed and revealed the burn row there at `0c128160` on November 3; the
+move to `fa83052d` has not yet run live. A later
 re-pin, such as one adopting rtao's bounded-memory, zero-copy rework, re-runs
 the subnet tests, the journal migration check and the `no_runtime_gates` lint.
 The Workers journal/transport composition remains implementation work. The

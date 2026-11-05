@@ -1319,11 +1319,13 @@ fn a_retained_burn_row_is_joined_or_retired_when_the_limits_change() -> Result<(
     Ok(())
 }
 
-/// A rollback past this pin: the queued burn row (in steady state the next
-/// tempo's, waiting for its epoch's offset) blocks a build at the previous
-/// pin until it is retired for the rollback with the validator stopped.
+/// A rollback to the previous pin: the queued `Submit` burn row (in steady
+/// state the next tempo's, waiting for its epoch's offset) decodes there, so
+/// it blocks nothing. A pending reveal whose reveal period changed (D-112)
+/// does block until it settles; it is checkpoint state, never retired. A
+/// compacted journal is roll-forward only.
 #[test]
-fn the_rollback_check_finds_the_queued_submit_burn_row() -> Result<()> {
+fn the_rollback_check_passes_queued_submit_work_and_holds_a_changed_period() -> Result<()> {
     let root = scratch()?;
     let config = config(root.path())?;
     init_journal(&config, identity())?;
@@ -1334,13 +1336,60 @@ fn the_rollback_check_finds_the_queued_submit_burn_row() -> Result<()> {
         enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?).0
     };
     let (report, safe) = crate::live::rollback_check(&config, false)?;
-    assert!(!safe);
-    assert_eq!(report["blockers"][0]["operation_id"], serde_json::json!(id));
-    assert_eq!(report["blockers"][0]["field"], serde_json::json!("effects.owner_rows"));
-    assert_eq!(report["next"], serde_json::json!("run again with --retire"));
+    assert!(safe, "{report}");
+    assert_eq!(report["blockers"], serde_json::json!([]));
+    assert_eq!(report["previous_pin"], serde_json::json!(slop_ninja_subnet::PREVIOUS_RTAO_PIN));
+    // The burn row is still queued: nothing was retired.
     let (report, safe) = crate::live::rollback_check(&config, true)?;
     assert!(safe, "{report}");
-    assert_eq!(report["retired"], serde_json::json!([id]));
+    assert_eq!(report["retired"], serde_json::json!([]));
+    assert_eq!(
+        slop_ninja_subnet::JournalControls::open_existing(&config.journal_path)?.retired(&id)?,
+        None
+    );
+    // A pending reveal whose period changed, as the current pin checkpoints it.
+    let chain = identity();
+    let scope = format!("weights:{}:{}:{}", hex::encode(chain.genesis.0), chain.netuid, chain.hotkey);
+    OperationJournal::open(&config.journal_path)?.update(|image| {
+        image.checkpoints.insert(
+            scope.clone(),
+            serde_json::json!({
+                "schema": 1,
+                "slots": {},
+                "reveals": {
+                    "pending": [{"netuid": NETUID, "period_changed": true}],
+                    "unlocated": [],
+                    "outcomes": [],
+                    "last_observed_block": 9
+                }
+            }),
+        );
+        Ok(())
+    })?;
+    let (report, safe) = crate::live::rollback_check(&config, true)?;
+    assert!(!safe);
+    assert_eq!(report["retired"], serde_json::json!([]));
+    assert_eq!(report["blockers"][0]["field"], serde_json::json!("checkpoint.reveals.pending.period_changed"));
+    assert_eq!(report["blockers"][0]["retirable"], serde_json::json!(false));
+    assert!(report["next"].as_str().is_some_and(|next| next.contains("until it settles")), "{report}");
+    OperationJournal::open(&config.journal_path)?.update(|image| {
+        image.checkpoints.remove(&scope);
+        Ok(())
+    })?;
+    // A journal schema the previous pin refuses (only a compaction writes one).
+    let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&config.journal_path)?)?;
+    let mut raw = raw;
+    raw["schema_version"] = serde_json::json!(4);
+    std::fs::write(&config.journal_path, serde_json::to_vec(&raw)?)?;
+    let (report, safe) = crate::live::rollback_check(&config, true)?;
+    assert!(!safe);
+    assert_eq!(report["blockers"][0]["field"], serde_json::json!(slop_ninja_subnet::SCHEMA_BLOCKER_FIELD));
+    assert!(report["next"].as_str().is_some_and(|next| next.contains("roll forward only")), "{report}");
+    assert_eq!(report["retired"], serde_json::json!([]));
+    std::fs::write(&config.journal_path, serde_json::to_vec(&{
+        raw["schema_version"] = serde_json::json!(3);
+        raw
+    })?)?;
     // A running validator holds the journal: the check refuses.
     let app = TestApp::open(&config, &bundle())?;
     assert!(crate::live::rollback_check(&config, false).is_err());
@@ -1602,6 +1651,154 @@ fn a_tracked_operation_retired_before_signing_needs_no_read_back() -> Result<()>
     };
     assert_ne!(next, first);
     assert!(app.live.authorized_for_tests().get(&next).is_some(), "the next tempo holds a fresh grant");
+    Ok(())
+}
+
+/// An rtao attempt for mechanism 0 at `best_block` that its self/owner
+/// guard refused as `OwnerRowHeld` (D-098), as `last_attempt` reports it.
+fn owner_row_held_at(best_block: u64) -> rtao_neuron::weights::WeightAttempt {
+    use rtao_neuron::weights::{WeightAttempt, WeightAttemptOutcome, WeightRefusal};
+    // rtao's refusal code is `PolicyViolation`; the catalog crate is not a
+    // dependency here, so take the value from an outcome that carries it.
+    let code = WeightAttemptOutcome::PausedSurface { descriptor: String::new(), detail: String::new() }
+        .code()
+        .expect("a paused surface has a code");
+    WeightAttempt {
+        mechanism: rtao_primitives::MechId(0),
+        best_block,
+        outcome: WeightAttemptOutcome::Refused(WeightRefusal {
+            code,
+            name: crate::live::OWNER_ROW_HELD,
+            remediation: "held at the dispatch block".into(),
+        }),
+    }
+}
+
+/// The operation ID of the launch bundle's burn row at `label`.
+fn launch_operation_at(app: &TestApp, label: u64) -> String {
+    let launch_held = slop_ninja_protocol::ActiveTarget::launch(&chain()).unwrap();
+    let verified = crate::package_v2::verify(&launch_bundle(10), &trusted(), &TESTNET_GENESIS.0, NETUID, &launch_held)
+        .unwrap();
+    let snap = crate::package_v2::snapshot(&registered(), owner().hotkey.0).unwrap();
+    let work = crate::package_v2::derive(std::sync::Arc::new(verified), &snap, validator2().hotkey.0, label)
+        .unwrap()
+        .work;
+    app.live.operation_id(&work).unwrap()
+}
+
+/// D-098 in the dispatch loop's step: queued work rtao refuses as
+/// `OwnerRowHeld` waits until the finalized head reaches the best block of
+/// the first refusal (rtao decides at the best block; the re-derive reads
+/// the finalized head), is then retired through rtao's `retire_pending`,
+/// the run stops `tempo_deferred:row_would_be_held` (exit 75), and the next
+/// start queues the tempo afresh under the next label. The chain-driven loop
+/// around this step is not run offline.
+#[test]
+fn queued_work_rtao_holds_is_retired_once_finalized_and_requeued_under_the_next_label() -> Result<()> {
+    use crate::live::{HeldStep, OWNER_ROW_HELD_STOP};
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let open = || -> Result<TestApp> {
+        let mut app = TestApp::open(&config, &bundle())?;
+        app.bundle = launch_bundle(10);
+        app.epoch = 60;
+        Ok(app)
+    };
+    let mech = rtao_primitives::MechId(0);
+    let first = {
+        let mut app = open()?;
+        let (first, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+        assert!(created);
+        assert_eq!(first, launch_operation_at(&app, 60));
+        let finalized = head().number;
+        let mut since = None;
+        let other = rtao_neuron::weights::WeightAttempt {
+            outcome: rtao_neuron::weights::WeightAttemptOutcome::HoldPrevious,
+            ..owner_row_held_at(finalized + 2)
+        };
+        assert_eq!(app.live.owner_row_held_step(mech, &first, &other, &mut since, finalized + 9)?, HeldStep::NotHeld);
+        assert_eq!(since, None);
+        // Held at best block f+2 while the finalized head is f, then f+1:
+        // the work stays queued and the first refusal's block is kept.
+        for (best, fin) in [(finalized + 2, finalized), (finalized + 3, finalized + 1)] {
+            assert_eq!(
+                app.live.owner_row_held_step(mech, &first, &owner_row_held_at(best), &mut since, fin)?,
+                HeldStep::Waiting { since: finalized + 2 }
+            );
+        }
+        assert_eq!(retired_reason(&app, &first), None);
+        assert!(!app.live.tracked_settled(&first, false)?, "queued work may still land");
+        // Finalized reaches f+2 and rtao still refuses: retired.
+        assert_eq!(
+            app.live.owner_row_held_step(mech, &first, &owner_row_held_at(finalized + 4), &mut since, finalized + 2)?,
+            HeldStep::Retired { reason: "owner_row_held".into() }
+        );
+        assert_eq!(retired_reason(&app, &first).as_deref(), Some("owner_row_held"));
+        assert!(app.live.tracked_settled(&first, false)?, "retired before signing: nothing to read back");
+        assert!(crate::app::stop_retries(OWNER_ROW_HELD_STOP), "the run exits 75");
+        first
+    };
+    // The next start re-derives the same tempo: the retired label is never
+    // joined, so the row is queued under the next label.
+    let mut app = open()?;
+    let (next, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created);
+    assert_ne!(next, first);
+    assert_eq!(next, launch_operation_at(&app, 61));
+    Ok(())
+}
+
+/// The crash window of `retire_pending`: rtao's marks (`scheduler_retired`
+/// with its hand-off, one journal update) are written but our reason (the
+/// second update) is not. In the same run the step's retry is refused by
+/// rtao and still reports the work retired; after a restart the label is
+/// skipped, never joined, so the validator never waits on dead work.
+#[test]
+fn held_work_retired_by_rtao_without_our_reason_is_skipped_after_restart() -> Result<()> {
+    use crate::live::HeldStep;
+    let root = scratch()?;
+    let config = config(root.path())?;
+    init_journal(&config, identity())?;
+    let open = || -> Result<TestApp> {
+        let mut app = TestApp::open(&config, &bundle())?;
+        app.bundle = launch_bundle(10);
+        app.epoch = 60;
+        Ok(app)
+    };
+    let first = {
+        let mut app = open()?;
+        enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?).0
+    };
+    // rtao's half of the retirement only, in the shape it writes.
+    OperationJournal::open(&config.journal_path)?.update(|image| {
+        let record = image.operations.get_mut(&first).expect("operation retained");
+        record.extensions.insert("scheduler_handed_off".into(), serde_json::Value::Bool(true));
+        record.extensions.insert("scheduler_retired".into(), serde_json::Value::Bool(true));
+        Ok(())
+    })?;
+    {
+        let app = open()?;
+        assert_eq!(retired_reason(&app, &first).as_deref(), Some(slop_ninja_subnet::SCHEDULER_RETIRED));
+        assert!(app.live.tracked_settled(&first, false)?);
+        let mut since = Some((first.clone(), head().number));
+        let finalized = head().number;
+        assert_eq!(
+            app.live.owner_row_held_step(
+                rtao_primitives::MechId(0),
+                &first,
+                &owner_row_held_at(finalized + 1),
+                &mut since,
+                finalized
+            )?,
+            HeldStep::Retired { reason: slop_ninja_subnet::SCHEDULER_RETIRED.into() }
+        );
+    }
+    let mut app = open()?;
+    let (next, created) = enqueued(&block_on(apply(&mut app, &head(), Mode::Dispatch, &Faults::none()))?);
+    assert!(created, "the dead operation is not joined");
+    assert_ne!(next, first);
+    assert_eq!(next, launch_operation_at(&app, 61));
     Ok(())
 }
 

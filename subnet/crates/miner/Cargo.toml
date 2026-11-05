@@ -31,15 +31,15 @@ url = "2"
 slop-ninja-admission-wire = { path = "wire" }
 slop-ninja-artifact-check = { path = "../artifact-check" }
 slop-ninja-protocol = { path = "../protocol" }
-rtao-client = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-intents = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d", features = ["serde"] }
-rtao-rpc = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-tx = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
-rtao-wallet = { git = "https://github.com/sam0x17/rtao", rev = "0c12816009baa65eec3135bac9a9dbcc8eaba77d" }
+rtao-client = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-core = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-intents = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-primitives = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11", features = ["serde"] }
+rtao-rpc = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-runtime = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-signer = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-tx = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
+rtao-wallet = { git = "https://github.com/sam0x17/rtao", rev = "fa83052d37b39f002f7a4d3cc5c04f25503e1d11" }
 
 [dev-dependencies]
 tempfile = "3"

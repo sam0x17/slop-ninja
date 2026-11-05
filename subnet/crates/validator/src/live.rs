@@ -840,19 +840,16 @@ impl LivePorts {
             preflight.commit_reveal,
             "commit_reveal_disabled: refusing to prepare direct weights"
         );
-        // The commit tag rtao's scheduler would use (D-086): the stored tag.
-        // Under runtime code this rtao build has not reviewed, the scheduler
-        // follows it only with reveal evidence from its dispatch journal, so
-        // the dry run prepares the tagged commit and reports that basis
-        // (`commit_reveal_tag_basis`) instead of failing.
+        // The commit tag rtao's scheduler uses: the stored tag, followed under
+        // any runtime code (D-122). The dry run reports rtao's basis for it
+        // (`commit_reveal_tag_basis`), an observation that refuses nothing.
         let (tag, tag_basis) =
             payload::dry_run_commit_tag(preflight.commit_reveal_version, preflight.runtime_code);
-        if tag_basis == "unproven_code" {
-            tracing::warn!(
-                event = "commit_reveal_tag_unproven",
+        if tag_basis != "native" {
+            tracing::info!(
+                event = "commit_reveal_tag_followed",
                 commit_reveal_version = tag,
-                alert = true,
-                "the chain stores a non-native commit-reveal version under runtime code this rtao build has not reviewed; rtao's scheduler pauses timelocked commits unless one of its commitments revealed under this code"
+                basis = tag_basis
             );
         }
         // rtao refuses a version key below the runtime's before signing
@@ -1598,6 +1595,11 @@ impl AppPorts for LivePorts {
         // failure a Submit burn row's limits were last re-read for.
         let mut counted_failure: Option<u64> = None;
         let mut limits_checked_for: Option<(String, u64)> = None;
+        // The tracked operation rtao first refused as `OwnerRowHeld`, and
+        // the best block it was refused at ([`LivePorts::owner_row_held_step`]),
+        // and the last retirement error alerted for it.
+        let mut held_since: Option<(String, u64)> = None;
+        let mut held_not_retired: Option<String> = None;
         // The first head at which the tracked operation was seen waiting
         // with its current journal attempt count, that count, and whether a
         // passed commit window was alerted since.
@@ -1777,6 +1779,54 @@ impl AppPorts for LivePorts {
                             }
                             Some(_) => {}
                             None => attempt_alert = None,
+                        }
+                        // rtao's self/owner guard decides from the UIDs at
+                        // the best block each attempt is prepared at (D-098).
+                        // Queued work it holds reports `Refused` named
+                        // `OwnerRowHeld` and stays pending, blocking the
+                        // mechanism at every head. Once the hold has
+                        // persisted past a finalized head ([`HeldStep`]),
+                        // the row was derived against registrations that no
+                        // longer hold (the owner hotkey's UID moved, say), so
+                        // it is retired through rtao's `retire_pending` and
+                        // the run ends; the next start re-derives the tempo
+                        // against the finalized registrations under the next
+                        // label, deferring it while it would still be held
+                        // (`row_would_be_held`, exit 75). Work rtao will not
+                        // retire (an uncertain slot) keeps the alert above.
+                        match self.owner_row_held_step(mechanism, &tracked.0, attempt, &mut held_since, header.number)? {
+                            HeldStep::NotHeld => {}
+                            HeldStep::Waiting { since } => {
+                                tracing::info!(
+                                    event = "owner_row_held_waiting_for_finality",
+                                    operation_id = %tracked.0,
+                                    held_since = since,
+                                    height = header.number
+                                );
+                            }
+                            HeldStep::Retired { reason } => {
+                                tracing::warn!(
+                                    event = "owner_row_held_retired",
+                                    operation_id = %tracked.0,
+                                    tempo = ?tracked.1,
+                                    best_block = attempt.best_block,
+                                    reason = %reason,
+                                    alert = true
+                                );
+                                report.stop = OWNER_ROW_HELD_STOP.into();
+                                return Ok(());
+                            }
+                            HeldStep::NotRetired(error) => {
+                                if held_not_retired.as_deref() != Some(error.as_str()) {
+                                    tracing::warn!(
+                                        event = "owner_row_held_not_retired",
+                                        operation_id = %tracked.0,
+                                        error = %error,
+                                        alert = true
+                                    );
+                                    held_not_retired = Some(error);
+                                }
+                            }
                         }
                         // A Submit burn row that rtao refuses before signing:
                         // the chain limits or permit may have changed since
@@ -2357,11 +2407,45 @@ impl AppPorts for LivePorts {
     }
 }
 
+/// The name of the refusal rtao reports for queued work its self/owner guard
+/// holds at the dispatch block (D-098, `policy_violation`).
+pub const OWNER_ROW_HELD: &str = "OwnerRowHeld";
+
+/// The dispatch report's stop after held work is retired: a deferral, so the
+/// process exits for a retry (75, [`crate::app::stop_retries`]) and the next start
+/// re-derives the tempo under the next label.
+pub const OWNER_ROW_HELD_STOP: &str = "tempo_deferred:row_would_be_held";
+
+/// What the dispatch loop does with the tracked operation's last rtao
+/// attempt ([`LivePorts::owner_row_held_step`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HeldStep {
+    /// The attempt is not an `OwnerRowHeld` refusal.
+    NotHeld,
+    /// Held since best block `since`, which the finalized head has not
+    /// reached: the work stays queued (rtao decides again at every head).
+    Waiting {
+        /// Best block of the first `OwnerRowHeld` refusal seen.
+        since: u64,
+    },
+    /// Retired: the run stops ([`OWNER_ROW_HELD_STOP`]).
+    Retired {
+        /// The recorded reason (`owner_row_held`, or `scheduler_retired`
+        /// when only rtao's half of the retirement was journaled).
+        reason: String,
+    },
+    /// rtao refused the retirement (an uncertain slot, say); the work stays.
+    NotRetired(String),
+}
+
 /// The kind of an rtao outcome that leaves queued work unsigned and needs an
 /// operator's attention, or `None`: `failed` (RPC, preparation or an
 /// unsigned submission failure, including an admission-window overrun),
-/// `refused:<check>` (a certain chain rejection before signing),
-/// `hold_previous` (rtao's owner-row guard held the queued row),
+/// `refused:<check>` (a certain rejection before signing, among them
+/// `refused:OwnerRowHeld` when rtao's owner-row guard holds queued work and
+/// `refused:IncorrectWeightVersionKey` for a weight version below the
+/// subnet's key), `hold_previous` (rtao holds a callback row; queued work
+/// reports `OwnerRowHeld` instead),
 /// `paused_surface` and `skipped`. Scheduling waits, unresolved work (which
 /// recovery classifies) and submissions are `None`. Content-free: the
 /// failure text, which rtao logs itself, is not included.
@@ -2425,6 +2509,62 @@ impl LivePorts {
             .controls()
             .operation(operation_id)?
             .unwrap_or_default())
+    }
+
+    /// The dispatch loop's step for the tracked operation `operation_id`
+    /// whose last rtao attempt is `attempt`, at finalized height `finalized`.
+    ///
+    /// rtao decides `OwnerRowHeld` from the best block each attempt is
+    /// prepared at, while the restart that replaces retired work re-derives
+    /// from the finalized head. Retiring on the first refusal could spend a
+    /// label per restart while best and finalized registrations disagree
+    /// (each moves the label further ahead of its commit epoch), and a
+    /// transient hold at the best block would cost a label for nothing. So
+    /// the first refusal's best block is kept in `held_since` and the work
+    /// is retired only once the finalized head has reached it and rtao still
+    /// refuses: the finalized registrations the re-derive reads then include
+    /// the change. If rtao's retire marks are journaled but our reason is
+    /// not (the second write failed), the work still reads as retired
+    /// ([`slop_ninja_subnet::JournalControls::retired`]) and is reported so.
+    pub(crate) fn owner_row_held_step(
+        &self,
+        mechanism: rtao_primitives::MechId,
+        operation_id: &str,
+        attempt: &rtao_neuron::weights::WeightAttempt,
+        held_since: &mut Option<(String, u64)>,
+        finalized: u64,
+    ) -> Result<HeldStep> {
+        let rtao_neuron::weights::WeightAttemptOutcome::Refused(refusal) = &attempt.outcome else {
+            return Ok(HeldStep::NotHeld);
+        };
+        if refusal.name != OWNER_ROW_HELD || attempt.mechanism != mechanism {
+            return Ok(HeldStep::NotHeld);
+        }
+        let since = match held_since {
+            Some((id, since)) if id == operation_id => *since,
+            _ => {
+                *held_since = Some((operation_id.to_owned(), attempt.best_block));
+                attempt.best_block
+            }
+        };
+        if finalized < since {
+            return Ok(HeldStep::Waiting { since });
+        }
+        let adapter = self.adapter.as_ref().context("journal is not open")?;
+        let outcome = adapter.retire_pending(mechanism, operation_id, "owner_row_held");
+        match (outcome, adapter.controls().retired(operation_id)?) {
+            (Ok(()), Some(reason)) => Ok(HeldStep::Retired { reason }),
+            (Ok(()), None) => bail!("rtao retired {operation_id} but the journal does not show it"),
+            (Err(error), Some(reason)) => {
+                tracing::warn!(
+                    event = "owner_row_held_reason_unrecorded",
+                    operation_id,
+                    error = %format!("{error:#}")
+                );
+                Ok(HeldStep::Retired { reason })
+            }
+            (Err(error), None) => Ok(HeldStep::NotRetired(format!("{error:#}"))),
+        }
     }
 
     /// Whether the per-tempo re-commit may follow the tracked operation:
@@ -3177,10 +3317,12 @@ pub fn rollback_check(config: &ValidatorConfig, retire: bool) -> Result<(serde_j
     let safe = blockers.is_empty();
     let next = if safe {
         "a build at the previous pin can open this journal; install it before starting the unit again"
-    } else if blockers.iter().any(|b| b.operation_id.is_none()) {
-        "the weight checkpoint holds state from a followed non-native commit-reveal tag: roll forward only"
+    } else if blockers.iter().any(|b| b.field == slop_ninja_subnet::SCHEMA_BLOCKER_FIELD) {
+        "the journal schema is newer than the previous pin opens (a compaction): roll forward only"
     } else if blockers.iter().any(slop_ninja_subnet::RollbackBlocker::finalized_failure) {
         "the journal retains a finalized failed weight call; every build before review-failure halts on it and cannot clear it: roll forward only"
+    } else if blockers.iter().any(|b| b.operation_id.is_none()) {
+        "the weight checkpoint holds a pending reveal whose reveal period changed: run this build until it settles, then stop the unit and check again"
     } else if blockers.iter().any(|b| b.retirable) {
         "run again with --retire"
     } else {

@@ -1,8 +1,8 @@
 # Native validator
 
 `slop_ninja_validator` is the native Slop Ninja validator. It builds on the
-journaled adapter in [`subnet/`](../../README.md) and rtao `0c128160`
-(tag `snapshot-2026-11-03.2`). For `reward-v1` it verifies the coordinator's
+journaled adapter in [`subnet/`](../../README.md) and rtao `fa83052d`
+(tag `snapshot-2026-11-05.2`). For `reward-v1` it verifies the coordinator's
 signed row and the authorization it was committed under with the shared
 [protocol crate](../protocol/README.md) and commits exactly that row as a
 timelocked weight commit through rtao's journaled scheduler (the copy model:
@@ -148,7 +148,23 @@ journal and dispatch tests. The live procedure for subnet 601 is
    snapshot maps it to the owner hotkey. A row rtao would still hold (a
    self-only or self-plus-owner row, or an all-zero row) is deferred
    (`row_would_be_held`), so this validator commits nothing that tempo and
-   its previous weights stay on chain. Before a burn row is queued, rtao's
+   its previous weights stay on chain. rtao decides the hold again from the
+   UIDs at the block each attempt is prepared at (D-098). Queued work it
+   holds there, because registrations changed after the row was derived
+   (the owner hotkey moved to another UID, say), reports `Refused` named
+   `OwnerRowHeld` and would block the mechanism at every head. rtao decides
+   at the best block, while the next start re-derives from the finalized
+   head, so the dispatch loop waits until the finalized head reaches the
+   best block of the first refusal (`owner_row_held_waiting_for_finality`)
+   and rtao still refuses. It then retires the work through rtao's
+   `retire_pending` (reason `owner_row_held`, alert `owner_row_held_retired`)
+   and ends the run with `tempo_deferred:row_would_be_held` (exit 75). The
+   next start re-derives the tempo against the finalized registrations under
+   the next label, or defers it while it would still be held. A hold that
+   clears before it is finalized costs no label. rtao journals its retire
+   marks and our reason in two updates; work with only rtao's marks
+   (`scheduler_retired`, a stop between the two) still counts as retired
+   (reason `scheduler_retired`) and is never joined again. Before a burn row is queued, rtao's
    own weight preflight is read at the best head, where its preparation
    reads it (`MinAllowedWeights`, `MaxWeightsLimit`, `SubnetworkN`,
    `SubnetEpochConsensus` and `ValidatorPermit` among its fields; compiled
@@ -419,7 +435,11 @@ minute. The validator uses it this way:
   rtao's last outcome for the mechanism while the tracked operation waits to
   be signed, and logs `weight_attempt_not_submitted` with `alert = true` once
   per distinct outcome kind (`failed`, `refused:<check>`, `hold_previous`,
-  `paused_surface`, `skipped`), resetting when the work signs. It counts
+  `paused_surface`, `skipped`), resetting when the work signs. Queued work
+  rtao's owner-row guard holds reports `refused:OwnerRowHeld` and is retired
+  (step 9); a weight version below the subnet's `WeightsVersionKey` reports
+  `refused:IncorrectWeightVersionKey` until the operator raises
+  `weight_version`. It counts
   unsigned failures (`unsigned_failures` in the run report), and when the
   tracked operation has no new journal attempt two epochs (`Tempo + 1`
   blocks each) after it was first seen waiting, by which time at least one
@@ -634,31 +654,31 @@ launch bundle, fetched or installed by the operator.
 
 ### Rolling back past this rtao pin
 
-A build at rtao `b5553a76` (the previous pin) decodes three things in the
+A build at rtao `0c128160` (the previous pin) decodes three things in the
 journal strictly, and refuses the whole weight scope when it meets a field
-this pin added:
+it does not know: the effects of every weight operation rtao has not handed
+back, the attempt material of such an operation, and the weight
+checkpoint's reveal watcher. This pin writes the same fields there (`Submit`
+work's `"owner_rows":"submit"`, a followed non-native tag's `followed_cr`
+and `revealed_code` included) with one exception: `period_changed` in a
+pending reveal whose subnet reveal period changed while it was pending
+(D-112). It clears when that commitment settles; `rollback-check` lists it
+(`checkpoint.reveals.pending.period_changed`), never retires anything for it
+and exits 3: run this build until the reveal settles, then check again. Work
+rtao retired (`retire_pending`, the `OwnerRowHeld` path) is handed back and
+never decoded there. This pin can also raise the journal to schema 4, which
+`0c128160` refuses, but only through a compaction, and nothing here
+compacts; such a journal is listed (`journal.schema_version`) and is
+roll-forward only.
 
-- the effects of every weight operation rtao has not handed back: `Submit`
-  work carries `"owner_rows":"submit"`. In steady state the next tempo's burn
-  row is almost always queued and not yet attempted, waiting for its epoch's
-  offset, so this is the usual case;
-- the attempt material of such an operation (`followed_cr` in a commit that
-  followed a non-native commit-reveal tag, `call_encoder` from an
-  application call encoder, which this validator does not install);
-- the weight checkpoint's reveal watcher: `followed_cr` in a pending reveal
-  and `revealed_code`, which rtao keeps as evidence once a reveal completes,
-  or is missed, under a non-native commit-reveal tag.
-
-Handed-back and retired operations are never decoded there; the slot's
-`unsigned_retry` is accepted there. One kind of finished work does block: a
-finalized failed weight call. Every build before `review-failure` (at that
-pin, and earlier releases at this pin) counts each finalized failure the
-journal retains, reviewed, settled or not, halts on it with
-`recovery_requires_review` (exit 3), and has no way to review it. rtao keeps
-the attempt as evidence, so it never clears: `rollback-check` lists it
-(`attempt.outcome.finalized_failure`, or
-`extensions.slopninja.failure-review.v1` once reviewed or settled), retires
-nothing, and exits 3. A journal that has held one settled
+One kind of finished work also blocks: a finalized failed weight call. Every
+build before `review-failure` (earlier releases at `0c128160`, such as the
+2026-11-03 AR-3 install) counts each finalized failure the journal retains,
+reviewed, settled or not, halts on it with `recovery_requires_review` (exit
+3), and has no way to review it. rtao keeps the attempt as evidence, so it
+never clears: `rollback-check` lists it (`attempt.outcome.finalized_failure`,
+or `extensions.slopninja.failure-review.v1` once reviewed or settled),
+retires nothing, and exits 3. A journal that has held one settled
 `CommittingWeightsTooFast` or `NotEnoughStakeToSetWeights` refusal is
 roll-forward only, at or after the release that added `review-failure`. To
 roll back:
@@ -671,19 +691,17 @@ slop_ninja_validator --config <config> rollback-check --retire
 
 `rollback-check` holds the journal's lock (it refuses while a run holds the
 journal), reads no chain and loads no key. With `--retire` it first retires
-the blocking work that never signed (`rollback_prepared`), through the same
-journaled retirement as superseded work. It prints the remaining blockers and
-exits 0 when none remain, else 3. Work with a signed attempt awaiting
-recovery, or a landed commit not yet handed back, settles only by running
-this build: start it again and check later. Checkpoint state from a followed
-non-native tag never clears (`revealed_code` is retained evidence), so after
-rtao has followed one the rollback is roll-forward only. 601 uses the native
-tag 4 today. A validator of this build started again queues the retired
-tempo's work afresh under the next label, because a retired label is never
-joined. From then on each label is one epoch ahead of the epoch it commits
-in. Nothing is lost or committed twice. The same shift follows any retirement of a label's never-signed
-work after which the validator restarts in the same epoch
-(`owner_row_policy_changed`, `burn_row_limits_changed`).
+any blocking work that never signed (`rollback_prepared`), through the same
+journaled retirement as superseded work; at this pin no work-level field
+blocks, so it retires nothing. It prints the remaining blockers and the next
+step and exits 0 when none remain, else 3. Work with a signed attempt
+awaiting recovery, or a landed commit not yet handed back, settles only by
+running this build: start it again and check later. A validator restarted
+after any retirement of a label's never-signed work in the same epoch
+(`owner_row_held`, `owner_row_policy_changed`, `burn_row_limits_changed`)
+queues that tempo's work afresh under the next label, because a retired
+label is never joined; from then on each label is one epoch ahead of the
+epoch it commits in. Nothing is lost or committed twice.
 
 ## Fixture packages (T12, retired)
 
@@ -1145,6 +1163,20 @@ a live public host, which is not yet deployed (the authorization pointer is
 not published), and no continuous run has crossed a cohort boundary on
 subnet 601 yet; the persistent unit's live runs are in
 [TESTNET-M2.md](TESTNET-M2.md#10-persistent-unit-2026-11-01).
+
+At rtao `fa83052d` (tag `snapshot-2026-11-05.2`), 109 unit tests and the 4
+sandbox tests passed on 2026-11-05 on the development host, with workspace
+Clippy and the `testnet-drills` build clean under denied warnings. New: the
+dry run's tag basis from rtao's `select_tag` (`native`, `reviewed_code`,
+`unreviewed_code`, `code_unknown`, followed in every case), and the rollback
+check against `0c128160`, which passes with the queued `Submit` burn row,
+holds a pending reveal whose reveal period changed (not retired) and treats
+a compacted journal as roll-forward only. The `OwnerRowHeld` retirement
+through `retire_pending` is covered at the adapter and in the dispatch
+loop's step (wait until finalized, retire, exit 75, the next label; and the
+crash between rtao's marks and our reason). No test drives a held queued
+row through rtao's real scheduler on a chain, and the new pin has not run
+live.
 
 At rtao `0c128160`, 83 tests passed on 2026-11-03 on the development host,
 with workspace Clippy and the `testnet-drills` build clean under denied

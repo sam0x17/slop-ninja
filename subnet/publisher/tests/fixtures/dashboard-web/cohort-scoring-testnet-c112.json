@@ -1,0 +1,128 @@
+{
+ "schema": "slop_ninja.dashboard.cohort/v1",
+ "network": "testnet",
+ "chain": {
+  "genesis": null,
+  "netuid": 601
+ },
+ "generated_at": 1792999920,
+ "sample": true,
+ "mechanism": "a",
+ "cohort": {
+  "cohort": 112,
+  "label": "testnet-c112",
+  "state": "ended",
+  "opened": {
+   "epoch": 2161,
+   "at": 1792352520
+  },
+  "admission_closed": {
+   "epoch": 2177,
+   "at": 1792421820
+  },
+  "published": null,
+  "closed": null,
+  "mode": "no_target",
+  "promoted": null,
+  "entrants": null,
+  "reference_index": 2,
+  "best_score": null,
+  "quantization": {
+   "rule": "sample_grid/v1",
+   "width": "0.01"
+  },
+  "leaderboard": false,
+  "ended_class": "operator_hold"
+ },
+ "phases": [
+  {
+   "stage": "admission_open",
+   "epoch": 2161,
+   "at": 1792352520
+  },
+  {
+   "stage": "admission_closing",
+   "epoch": 2177,
+   "at": 1792421820
+  },
+  {
+   "stage": "generating",
+   "epoch": 2177,
+   "at": 1792421820
+  }
+ ],
+ "plan": {
+  "template": {
+   "k_tempos": 22,
+   "admission_tempos": 16,
+   "transition_tempos": 2,
+   "work_window_tempos": 4
+  },
+  "stages": [
+   {
+    "stage": "admission_open",
+    "kind": "schedule",
+    "expected_tempos": 16,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "admission_closing",
+    "kind": "step",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "generating",
+    "kind": "work",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "sealing",
+    "kind": "step",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "scoring",
+    "kind": "work",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "packaging",
+    "kind": "step",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "transition",
+    "kind": "schedule",
+    "expected_tempos": 2,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "closed",
+    "kind": "end",
+    "expected_tempos": 0,
+    "earliest_epoch": null,
+    "earliest_block": null
+   }
+  ]
+ },
+ "quality": null,
+ "entrants": null,
+ "reference": null,
+ "predecessor": null,
+ "score_better": "higher",
+ "promotion_rule": "testnet_no_canary",
+ "previous": "testnet-c111",
+ "next": "testnet-c113"
+}

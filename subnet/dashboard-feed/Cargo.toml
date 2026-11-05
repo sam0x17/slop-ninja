@@ -1,0 +1,26 @@
+[package]
+name = "slop-ninja-dashboard-feed"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Private read-only Worker that serves the Slop Ninja dashboard/v1 documents to the website through a service binding"
+
+# Independent of the native `subnet/` workspace, the coordinator and the
+# publisher: no dependency at all outside the Workers runtime. The publisher
+# compiles `src/contract.rs` verbatim (by path), so the two share one key
+# grammar and one set of byte bounds.
+[workspace]
+members = ["."]
+resolver = "3"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = "0.8.7"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

@@ -1,0 +1,61 @@
+# Slop Ninja dashboard feed: Wrangler configuration (tracked).
+#
+# A private, read-only Worker that serves the publisher's dashboard/v1
+# documents from a dedicated bucket to the website Worker, which reaches it
+# only through its service binding (DASHBOARD_FEED_TESTNET). It has no route,
+# no custom domain, no workers.dev name and no preview URLs, so that binding
+# is its only way in. Its one binding is the dashboard bucket, which holds
+# nothing but dashboard/v1 objects written by the publisher, so the feed
+# cannot reach any other public or private object even through a bug.
+#
+# Deploy the testnet environment only, after the bucket exists and before
+# the website deploy that carries the service binding (a binding to a Worker
+# that does not exist refuses the deploy):
+#
+#   wrangler r2 bucket create dashboard-bucket-testnet   # no public access
+#
+# Cloudflare adds its default multipart-abort lifecycle rule to a new bucket;
+# it stays (no writer uses multipart uploads), and no other rule is added.
+#   WRANGLER_WRITE_LOGS=false WRANGLER_SEND_METRICS=false wrangler deploy \
+#     --env testnet --tag testnet --message "slop-ninja dashboard feed testnet <sha8>"
+#
+# There are no secrets. The one var is the testnet marker NETWORK, which the
+# code never reads (tests/source.rs). No account ID belongs here. The top
+# level is a local-only shell with no bindings, triggers or route.
+
+name = "slop-ninja-dashboard-feed-local-testnet"
+main = "build/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = false
+
+[triggers]
+crons = []
+
+# ------------------------------------------------------------------ testnet
+
+[env.testnet]
+name = "slop-ninja-dashboard-feed-testnet"
+workers_dev = false
+preview_urls = false
+
+[env.testnet.observability]
+enabled = false
+
+[env.testnet.triggers]
+crons = []
+
+# The testnet marker every testnet Worker carries; never read by the code.
+[env.testnet.vars]
+NETWORK = "testnet"
+
+# Read only: the feed never writes, deletes or lists (tests/source.rs).
+[[env.testnet.r2_buckets]]
+binding = "DASHBOARD_TESTNET"
+bucket_name = "dashboard-bucket-testnet"

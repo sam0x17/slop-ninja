@@ -1,0 +1,371 @@
+{
+ "schema": "slop_ninja.dashboard.cohorts/v1",
+ "network": "testnet",
+ "chain": {
+  "genesis": null,
+  "netuid": 601
+ },
+ "generated_at": 1792999920,
+ "sample": true,
+ "mechanism": "a",
+ "cohorts": [
+  {
+   "cohort": 106,
+   "label": "testnet-c106",
+   "state": "closed",
+   "opened": {
+    "epoch": 2029,
+    "at": 1791780720
+   },
+   "admission_closed": {
+    "epoch": 2045,
+    "at": 1791850020
+   },
+   "published": {
+    "epoch": 2049,
+    "at": 1791867360
+   },
+   "closed": {
+    "epoch": 2051,
+    "at": 1791876000
+   },
+   "mode": "no_target",
+   "promoted": null,
+   "entrants": 5,
+   "reference_index": 0,
+   "best_score": "0.91",
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": true,
+   "ended_class": null
+  },
+  {
+   "cohort": 107,
+   "label": "testnet-c107",
+   "state": "closed",
+   "opened": {
+    "epoch": 2051,
+    "at": 1791876000
+   },
+   "admission_closed": {
+    "epoch": 2067,
+    "at": 1791945300
+   },
+   "published": {
+    "epoch": 2071,
+    "at": 1791962640
+   },
+   "closed": {
+    "epoch": 2073,
+    "at": 1791971340
+   },
+   "mode": "no_target",
+   "promoted": null,
+   "entrants": 5,
+   "reference_index": 0,
+   "best_score": "0.91",
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": true,
+   "ended_class": null
+  },
+  {
+   "cohort": 108,
+   "label": "testnet-c108",
+   "state": "closed",
+   "opened": {
+    "epoch": 2073,
+    "at": 1791971340
+   },
+   "admission_closed": {
+    "epoch": 2089,
+    "at": 1792040640
+   },
+   "published": {
+    "epoch": 2093,
+    "at": 1792057980
+   },
+   "closed": {
+    "epoch": 2095,
+    "at": 1792066620
+   },
+   "mode": "margin",
+   "promoted": {
+    "uid": 111,
+    "hotkey": "5DemoHotkeyBpRuWGziVoYWCPKikEKKXardwHQsRGrKTaXBL"
+   },
+   "entrants": 5,
+   "reference_index": 0,
+   "best_score": "0.91",
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": true,
+   "ended_class": null
+  },
+  {
+   "cohort": 109,
+   "label": "testnet-c109",
+   "state": "retired_unpublished",
+   "opened": {
+    "epoch": 2095,
+    "at": 1792066620
+   },
+   "admission_closed": null,
+   "published": null,
+   "closed": {
+    "epoch": 2117,
+    "at": 1792161900
+   },
+   "mode": "no_target",
+   "promoted": null,
+   "entrants": null,
+   "reference_index": 1,
+   "best_score": null,
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": false,
+   "ended_class": null
+  },
+  {
+   "cohort": 110,
+   "label": "testnet-c110",
+   "state": "closed",
+   "opened": {
+    "epoch": 2117,
+    "at": 1792161900
+   },
+   "admission_closed": {
+    "epoch": 2133,
+    "at": 1792231260
+   },
+   "published": {
+    "epoch": 2137,
+    "at": 1792248540
+   },
+   "closed": {
+    "epoch": 2139,
+    "at": 1792257240
+   },
+   "mode": "no_target",
+   "promoted": null,
+   "entrants": 5,
+   "reference_index": 1,
+   "best_score": "0.91",
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": true,
+   "ended_class": null
+  },
+  {
+   "cohort": 111,
+   "label": "testnet-c111",
+   "state": "closed",
+   "opened": {
+    "epoch": 2139,
+    "at": 1792257240
+   },
+   "admission_closed": {
+    "epoch": 2155,
+    "at": 1792326540
+   },
+   "published": {
+    "epoch": 2159,
+    "at": 1792343880
+   },
+   "closed": {
+    "epoch": 2161,
+    "at": 1792352520
+   },
+   "mode": "margin",
+   "promoted": {
+    "uid": 114,
+    "hotkey": "5DemoHotkeyKRyRUYutWjPjotDKCHBRgxPQtfenmJYNHsayT"
+   },
+   "entrants": 5,
+   "reference_index": 1,
+   "best_score": "0.91",
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": true,
+   "ended_class": null
+  },
+  {
+   "cohort": 112,
+   "label": "testnet-c112",
+   "state": "ended",
+   "opened": {
+    "epoch": 2161,
+    "at": 1792352520
+   },
+   "admission_closed": {
+    "epoch": 2177,
+    "at": 1792421820
+   },
+   "published": null,
+   "closed": null,
+   "mode": "no_target",
+   "promoted": null,
+   "entrants": null,
+   "reference_index": 2,
+   "best_score": null,
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": false,
+   "ended_class": "operator_hold"
+  },
+  {
+   "cohort": 113,
+   "label": "testnet-c113",
+   "state": "closed",
+   "opened": {
+    "epoch": 2183,
+    "at": 1792447860
+   },
+   "admission_closed": {
+    "epoch": 2199,
+    "at": 1792517160
+   },
+   "published": {
+    "epoch": 2203,
+    "at": 1792534500
+   },
+   "closed": {
+    "epoch": 2205,
+    "at": 1792543140
+   },
+   "mode": "no_target",
+   "promoted": null,
+   "entrants": 5,
+   "reference_index": 2,
+   "best_score": "0.91",
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": true,
+   "ended_class": null
+  },
+  {
+   "cohort": 114,
+   "label": "testnet-c114",
+   "state": "closed",
+   "opened": {
+    "epoch": 2205,
+    "at": 1792543140
+   },
+   "admission_closed": {
+    "epoch": 2221,
+    "at": 1792612440
+   },
+   "published": {
+    "epoch": 2225,
+    "at": 1792629780
+   },
+   "closed": {
+    "epoch": 2227,
+    "at": 1792638420
+   },
+   "mode": "margin",
+   "promoted": {
+    "uid": 117,
+    "hotkey": "5DemoHotkeyTsgYkMnDMxPLSMyneXYwZwZkwMRDLRNhSBsHH"
+   },
+   "entrants": 5,
+   "reference_index": 2,
+   "best_score": "0.91",
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": true,
+   "ended_class": null
+  },
+  {
+   "cohort": 116,
+   "label": "testnet-c116",
+   "state": "closed",
+   "opened": {
+    "epoch": 2249,
+    "at": 1792733760
+   },
+   "admission_closed": {
+    "epoch": 2265,
+    "at": 1792803060
+   },
+   "published": {
+    "epoch": 2269,
+    "at": 1792820400
+   },
+   "closed": {
+    "epoch": 2271,
+    "at": 1792829040
+   },
+   "mode": "no_target",
+   "promoted": null,
+   "entrants": 5,
+   "reference_index": 3,
+   "best_score": "0.91",
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": true,
+   "ended_class": null
+  },
+  {
+   "cohort": 117,
+   "label": "testnet-c117",
+   "state": "closed",
+   "opened": {
+    "epoch": 2271,
+    "at": 1792829040
+   },
+   "admission_closed": {
+    "epoch": 2287,
+    "at": 1792898340
+   },
+   "published": {
+    "epoch": 2291,
+    "at": 1792915680
+   },
+   "closed": {
+    "epoch": 2293,
+    "at": 1792924380
+   },
+   "mode": "margin",
+   "promoted": {
+    "uid": 120,
+    "hotkey": "5DemoHotkeybEgfvGbuEJvXAoGNWxRGVMkKZzVpJKQJgEXdT"
+   },
+   "entrants": 5,
+   "reference_index": 3,
+   "best_score": "0.91",
+   "quantization": {
+    "rule": "sample_grid/v1",
+    "width": "0.01"
+   },
+   "leaderboard": true,
+   "ended_class": null
+  }
+ ],
+ "records": [
+  {
+   "first_label": "testnet-rv1-d"
+  }
+ ],
+ "record_prefix": "testnet-c"
+}

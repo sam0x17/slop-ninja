@@ -1,0 +1,270 @@
+{
+ "schema": "slop_ninja.dashboard.cohort/v1",
+ "network": "testnet",
+ "chain": {
+  "genesis": null,
+  "netuid": 601
+ },
+ "generated_at": 1792999920,
+ "sample": true,
+ "mechanism": "a",
+ "cohort": {
+  "cohort": 117,
+  "label": "testnet-c117",
+  "state": "closed",
+  "opened": {
+   "epoch": 2271,
+   "at": 1792829040
+  },
+  "admission_closed": {
+   "epoch": 2287,
+   "at": 1792898340
+  },
+  "published": {
+   "epoch": 2291,
+   "at": 1792915680
+  },
+  "closed": {
+   "epoch": 2293,
+   "at": 1792924380
+  },
+  "mode": "margin",
+  "promoted": {
+   "uid": 120,
+   "hotkey": "5DemoHotkeybEgfvGbuEJvXAoGNWxRGVMkKZzVpJKQJgEXdT"
+  },
+  "entrants": 5,
+  "reference_index": 3,
+  "best_score": null,
+  "quantization": null,
+  "leaderboard": true,
+  "ended_class": null
+ },
+ "phases": [
+  {
+   "stage": "admission_open",
+   "epoch": 2271,
+   "at": 1792829040
+  },
+  {
+   "stage": "admission_closing",
+   "epoch": 2287,
+   "at": 1792898340
+  },
+  {
+   "stage": "generating",
+   "epoch": 2287,
+   "at": 1792898340
+  },
+  {
+   "stage": "sealing",
+   "epoch": 2288,
+   "at": 1792902720
+  },
+  {
+   "stage": "scoring",
+   "epoch": 2288,
+   "at": 1792902720
+  },
+  {
+   "stage": "packaging",
+   "epoch": 2290,
+   "at": 1792911360
+  },
+  {
+   "stage": "transition",
+   "epoch": 2291,
+   "at": 1792915680
+  },
+  {
+   "stage": "closed",
+   "epoch": 2293,
+   "at": 1792924380
+  }
+ ],
+ "plan": {
+  "template": {
+   "k_tempos": 22,
+   "admission_tempos": 16,
+   "transition_tempos": 2,
+   "work_window_tempos": 4
+  },
+  "stages": [
+   {
+    "stage": "admission_open",
+    "kind": "schedule",
+    "expected_tempos": 16,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "admission_closing",
+    "kind": "step",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "generating",
+    "kind": "work",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "sealing",
+    "kind": "step",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "scoring",
+    "kind": "work",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "packaging",
+    "kind": "step",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "transition",
+    "kind": "schedule",
+    "expected_tempos": 2,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "closed",
+    "kind": "end",
+    "expected_tempos": 0,
+    "earliest_epoch": null,
+    "earliest_block": null
+   }
+  ]
+ },
+ "quality": {
+  "cutoff": {
+   "q": null,
+   "rule": "baseline_grace"
+  },
+  "bands": [
+   {
+    "band": 1,
+    "lower": null,
+    "upper": null
+   },
+   {
+    "band": 2,
+    "lower": null,
+    "upper": null
+   },
+   {
+    "band": 3,
+    "lower": null,
+    "upper": null
+   },
+   {
+    "band": 4,
+    "lower": null,
+    "upper": null
+   },
+   {
+    "band": 5,
+    "lower": null,
+    "upper": null
+   }
+  ]
+ },
+ "entrants": [
+  {
+   "uid": 120,
+   "hotkey": "5DemoHotkeybEgfvGbuEJvXAoGNWxRGVMkKZzVpJKQJgEXdT",
+   "score": null,
+   "band": 1,
+   "eligible": true,
+   "row_share_pct": "66.6",
+   "gates_passed": true,
+   "promoted": true,
+   "artifact": {
+    "state": "published",
+    "download": null
+   }
+  },
+  {
+   "uid": 157,
+   "hotkey": "5DemoHotkeytWTKPwTLQGsKGyYfTvDvaXXiMoUmjoDzGVbYH",
+   "score": null,
+   "band": 3,
+   "eligible": true,
+   "row_share_pct": "16.6",
+   "gates_passed": true,
+   "promoted": false,
+   "artifact": {
+    "state": "published",
+    "download": null
+   }
+  },
+  {
+   "uid": 194,
+   "hotkey": "5DemoHotkeyLzzzdghFjZdyEWcizPUMVguRutXiVdsmKyeiN",
+   "score": null,
+   "band": 3,
+   "eligible": true,
+   "row_share_pct": "16.6",
+   "gates_passed": true,
+   "promoted": false,
+   "artifact": {
+    "state": "pending",
+    "download": null
+   }
+  },
+  {
+   "uid": 231,
+   "hotkey": "5DemoHotkeydRmewGFpVWEVbWtdusmUeudcFUGFWcrodMpsf",
+   "score": null,
+   "band": null,
+   "eligible": false,
+   "row_share_pct": "0.0",
+   "gates_passed": true,
+   "promoted": false,
+   "artifact": {
+    "state": "published",
+    "download": null
+   }
+  },
+  {
+   "uid": 12,
+   "hotkey": "5DemoHotkeyhjELVVsFQGSAQZTzgznzFEdaSSLhhWdPdpZaT",
+   "score": null,
+   "band": null,
+   "eligible": false,
+   "row_share_pct": "0.0",
+   "gates_passed": false,
+   "promoted": false,
+   "artifact": {
+    "state": "withheld",
+    "download": null
+   }
+  }
+ ],
+ "reference": {
+  "index": 3,
+  "label": "R3",
+  "score": null
+ },
+ "predecessor": {
+  "index": 2,
+  "label": "R2",
+  "score": null
+ },
+ "score_better": "higher",
+ "promotion_rule": "testnet_no_canary",
+ "previous": "testnet-c116",
+ "next": null
+}

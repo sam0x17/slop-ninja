@@ -1,0 +1,143 @@
+{
+ "schema": "slop_ninja.dashboard.now/v1",
+ "network": "testnet",
+ "chain": {
+  "genesis": null,
+  "netuid": 601
+ },
+ "generated_at": 1792999920,
+ "sample": true,
+ "mechanism": "a",
+ "clock": {
+  "confirmed_block": 8400160,
+  "confirmed_epoch": 2310,
+  "age_secs": 6,
+  "boundary_block": 8400000,
+  "boundary_epoch": 2310,
+  "tempo_blocks": 360,
+  "block_secs_nominal": 12
+ },
+ "pause": {
+  "paused": false,
+  "class": null
+ },
+ "cohort": {
+  "cohort": 119,
+  "label": "testnet-c119",
+  "stage": "queued",
+  "phases": [],
+  "tempos": null,
+  "expected": {
+   "stage_end_epoch": 2311,
+   "stage_end_block": 8400361,
+   "close_epoch": null,
+   "close_block": null,
+   "packaging_deadline_epoch": null
+  },
+  "progress": {
+   "admission": null,
+   "work": null
+  },
+  "plan": {
+   "template": {
+    "k_tempos": 22,
+    "admission_tempos": 16,
+    "transition_tempos": 2,
+    "work_window_tempos": 4
+   },
+   "stages": [
+    {
+     "stage": "admission_open",
+     "kind": "schedule",
+     "expected_tempos": 16,
+     "earliest_epoch": 2311,
+     "earliest_block": 8400361
+    },
+    {
+     "stage": "admission_closing",
+     "kind": "step",
+     "expected_tempos": null,
+     "earliest_epoch": 2327,
+     "earliest_block": 8406137
+    },
+    {
+     "stage": "generating",
+     "kind": "work",
+     "expected_tempos": null,
+     "earliest_epoch": 2327,
+     "earliest_block": 8406137
+    },
+    {
+     "stage": "sealing",
+     "kind": "step",
+     "expected_tempos": null,
+     "earliest_epoch": 2328,
+     "earliest_block": 8406498
+    },
+    {
+     "stage": "scoring",
+     "kind": "work",
+     "expected_tempos": null,
+     "earliest_epoch": 2328,
+     "earliest_block": 8406498
+    },
+    {
+     "stage": "packaging",
+     "kind": "step",
+     "expected_tempos": null,
+     "earliest_epoch": 2330,
+     "earliest_block": 8407220
+    },
+    {
+     "stage": "transition",
+     "kind": "schedule",
+     "expected_tempos": 2,
+     "earliest_epoch": 2331,
+     "earliest_block": 8407581
+    },
+    {
+     "stage": "closed",
+     "kind": "end",
+     "expected_tempos": 0,
+     "earliest_epoch": 2333,
+     "earliest_block": 8408303
+    }
+   ]
+  },
+  "results": false,
+  "mode": "target"
+ },
+ "next": {
+  "cohort": 119,
+  "earliest_open_epoch": 2311,
+  "earliest_open_block": 8400361,
+  "admission_tempos": 16
+ },
+ "best": {
+  "index": 4,
+  "label": "R4",
+  "since_cohort": 117,
+  "since_label": "testnet-c117",
+  "owner": {
+   "uid": 120,
+   "hotkey": "5DemoHotkeybEgfvGbuEJvXAoGNWxRGVMkKZzVpJKQJgEXdT"
+  },
+  "latest_score": "0.91",
+  "latest_score_label": "testnet-c117",
+  "quantization": {
+   "rule": "sample_grid/v1",
+   "width": "0.01"
+  },
+  "artifact": {
+   "state": "published",
+   "download": null
+  },
+  "licence": "CC-BY-SA-4.0"
+ },
+ "latest_cohort": "testnet-c117",
+ "notice": [
+  "testnet"
+ ],
+ "advisory": null,
+ "sources_ok": true
+}

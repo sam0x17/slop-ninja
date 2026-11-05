@@ -1,0 +1,182 @@
+{
+ "schema": "slop_ninja.dashboard.now/v1",
+ "network": "testnet",
+ "chain": {
+  "genesis": null,
+  "netuid": 601
+ },
+ "generated_at": 1792999920,
+ "sample": true,
+ "mechanism": "a",
+ "clock": {
+  "confirmed_block": 8400160,
+  "confirmed_epoch": 2310,
+  "age_secs": 6,
+  "boundary_block": 8400000,
+  "boundary_epoch": 2310,
+  "tempo_blocks": 360,
+  "block_secs_nominal": 12
+ },
+ "pause": {
+  "paused": false,
+  "class": null
+ },
+ "cohort": {
+  "cohort": 118,
+  "label": "testnet-c118",
+  "stage": "transition",
+  "phases": [
+   {
+    "stage": "admission_open",
+    "epoch": 2290,
+    "at": 1792911360
+   },
+   {
+    "stage": "admission_closing",
+    "epoch": 2306,
+    "at": 1792980660
+   },
+   {
+    "stage": "generating",
+    "epoch": 2306,
+    "at": 1792980660
+   },
+   {
+    "stage": "sealing",
+    "epoch": 2307,
+    "at": 1792984980
+   },
+   {
+    "stage": "scoring",
+    "epoch": 2307,
+    "at": 1792984980
+   },
+   {
+    "stage": "packaging",
+    "epoch": 2309,
+    "at": 1792993680
+   },
+   {
+    "stage": "transition",
+    "epoch": 2310,
+    "at": 1792998000
+   }
+  ],
+  "tempos": {
+   "credited": 0,
+   "required": 2
+  },
+  "expected": {
+   "stage_end_epoch": 2312,
+   "stage_end_block": 8400722,
+   "close_epoch": 2312,
+   "close_block": 8400722,
+   "packaging_deadline_epoch": null
+  },
+  "progress": {
+   "admission": null,
+   "work": null
+  },
+  "plan": {
+   "template": {
+    "k_tempos": 22,
+    "admission_tempos": 16,
+    "transition_tempos": 2,
+    "work_window_tempos": 4
+   },
+   "stages": [
+    {
+     "stage": "admission_open",
+     "kind": "schedule",
+     "expected_tempos": 16,
+     "earliest_epoch": null,
+     "earliest_block": null
+    },
+    {
+     "stage": "admission_closing",
+     "kind": "step",
+     "expected_tempos": null,
+     "earliest_epoch": null,
+     "earliest_block": null
+    },
+    {
+     "stage": "generating",
+     "kind": "work",
+     "expected_tempos": null,
+     "earliest_epoch": null,
+     "earliest_block": null
+    },
+    {
+     "stage": "sealing",
+     "kind": "step",
+     "expected_tempos": null,
+     "earliest_epoch": null,
+     "earliest_block": null
+    },
+    {
+     "stage": "scoring",
+     "kind": "work",
+     "expected_tempos": null,
+     "earliest_epoch": null,
+     "earliest_block": null
+    },
+    {
+     "stage": "packaging",
+     "kind": "step",
+     "expected_tempos": null,
+     "earliest_epoch": null,
+     "earliest_block": null
+    },
+    {
+     "stage": "transition",
+     "kind": "schedule",
+     "expected_tempos": 2,
+     "earliest_epoch": null,
+     "earliest_block": null
+    },
+    {
+     "stage": "closed",
+     "kind": "end",
+     "expected_tempos": 0,
+     "earliest_epoch": 2312,
+     "earliest_block": 8400722
+    }
+   ]
+  },
+  "results": true,
+  "mode": "target"
+ },
+ "next": {
+  "cohort": 119,
+  "earliest_open_epoch": 2312,
+  "earliest_open_block": 8400722,
+  "admission_tempos": 16
+ },
+ "best": {
+  "index": 4,
+  "label": "R4",
+  "since_cohort": 117,
+  "since_label": "testnet-c117",
+  "owner": {
+   "uid": 120,
+   "hotkey": "5DemoHotkeybEgfvGbuEJvXAoGNWxRGVMkKZzVpJKQJgEXdT"
+  },
+  "latest_score": "0.91",
+  "latest_score_label": "testnet-c117",
+  "quantization": {
+   "rule": "sample_grid/v1",
+   "width": "0.01"
+  },
+  "artifact": {
+   "state": "published",
+   "download": null
+  },
+  "licence": "CC-BY-SA-4.0"
+ },
+ "latest_cohort": "testnet-c117",
+ "notice": [
+  "testnet"
+ ],
+ "advisory": null,
+ "sources_ok": true
+}

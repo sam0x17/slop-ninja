@@ -491,13 +491,7 @@ fn next_number(sql: &impl Sql, first_cohort: u64) -> R<u64> {
 /// coordinator credits), or the next boundary when it has closed (or there
 /// is none).
 pub fn next(sql: &impl Sql) -> R<Option<NextCohort>> {
-    let last = sql.exec(
-        "SELECT cohort, phase, opened_epoch, packaged_epoch, published_epoch, json_extract(plan, '$.k_tempos'),
-            json_extract(plan, '$.admission_tempos'), json_extract(plan, '$.transition_tempos'),
-            json_extract(plan, '$.reward_v1') IS NOT NULL, opened_active, packaged_active, published_active
-         FROM cohorts ORDER BY seq DESC LIMIT 2",
-        &[],
-    )?;
+    let last = sql.exec(CLOSE_ROW_SELECT_LAST2, &[])?;
     let observed = engine::observed(sql)?;
     let now = observed.epoch.map(|e| e.index);
     let earliest = |row: Option<&crate::sql::Row>| -> Option<u64> {
@@ -505,25 +499,7 @@ pub fn next(sql: &impl Sql) -> R<Option<NextCohort>> {
         let Some(row) = row else { return after_now };
         match text(row, 1).ok()? {
             "closed" | "abandoned" => after_now,
-            phase => {
-                let u = |n: usize| opt_int(row, n).and_then(|v| u64::try_from(v).ok());
-                let shape = CloseShape {
-                    opened: u(2)?,
-                    k: u(5)?,
-                    admission: u(6).unwrap_or(0),
-                    transition: u(7).unwrap_or(0),
-                    v3: opt_int(row, 8) == Some(1),
-                };
-                let transition = phase == "transition";
-                let packaged = if transition { u(3) } else { None };
-                let credited = u(9).map(|opened| Credited {
-                    now: observed.active_tempos,
-                    opened,
-                    packaged: if transition { u(10) } else { None },
-                    published: u(11),
-                });
-                Some(earliest_close(&shape, packaged, u(4), now.unwrap_or(0), credited.as_ref()))
-            }
+            _ => close_bound(row, &observed),
         }
     };
     let tempos = |row: &crate::sql::Row| opt_int(row, 6).and_then(|v| u64::try_from(v).ok());
@@ -548,6 +524,38 @@ pub fn next(sql: &impl Sql) -> R<Option<NextCohort>> {
         }));
     }
     Ok(None)
+}
+
+/// The columns [`close_bound`] reads, for the newest two cohorts.
+const CLOSE_ROW_SELECT_LAST2: &str = "SELECT cohort, phase, opened_epoch, packaged_epoch, published_epoch,
+        json_extract(plan, '$.k_tempos'), json_extract(plan, '$.admission_tempos'),
+        json_extract(plan, '$.transition_tempos'), json_extract(plan, '$.reward_v1') IS NOT NULL, opened_active,
+        packaged_active, published_active
+     FROM cohorts ORDER BY seq DESC LIMIT 2";
+
+/// The earliest close ([`earliest_close`], in the tempos the coordinator
+/// credits) of a cohort that has opened and not closed, from a row of
+/// [`CLOSE_ROW_SELECT_LAST2`]'s columns; `None` before it opened.
+fn close_bound(row: &crate::sql::Row, observed: &engine::Observed) -> Option<u64> {
+    let now = observed.epoch.map(|e| e.index);
+    let phase = text(row, 1).ok()?;
+    let u = |n: usize| opt_int(row, n).and_then(|v| u64::try_from(v).ok());
+    let shape = CloseShape {
+        opened: u(2)?,
+        k: u(5)?,
+        admission: u(6).unwrap_or(0),
+        transition: u(7).unwrap_or(0),
+        v3: opt_int(row, 8) == Some(1),
+    };
+    let transition = phase == "transition";
+    let packaged = if transition { u(3) } else { None };
+    let credited = u(9).map(|opened| Credited {
+        now: observed.active_tempos,
+        opened,
+        packaged: if transition { u(10) } else { None },
+        published: u(11),
+    });
+    Some(earliest_close(&shape, packaged, u(4), now.unwrap_or(0), credited.as_ref()))
 }
 
 /// A cohort's frozen tempo shape, for [`earliest_close`] (epoch indices).
@@ -660,12 +668,47 @@ pub fn view(sql: &impl Sql) -> R<Value> {
         Ok((state.as_deref() == Some("admitting"), closing, wait))
     };
     let (window_open, window_closing, freeze_wait) = window(rows.first().and_then(|r| opt_int(r, 0)))?;
+    // The dashboard's lower bounds (credit-adjusted, in epoch indices), the
+    // opening block and the epoch the coordinator admission window closed at.
+    let observed = engine::observed(sql)?;
+    let now = observed.epoch.map(|e| e.index);
+    let close_rows = sql.exec(CLOSE_ROW_SELECT_LAST2, &[])?;
+    let marks = match rows.first().and_then(|r| opt_int(r, 0)) {
+        Some(c) => sql.exec(
+            "SELECT c.opened_block, c.opened_active,
+                (SELECT closed_at_epoch FROM adm_cohorts a WHERE a.cohort = c.cohort ORDER BY a.seq DESC LIMIT 1)
+             FROM cohorts c WHERE c.cohort = ? ORDER BY c.seq DESC LIMIT 1",
+            &[i(c)],
+        )?,
+        None => Vec::new(),
+    };
     let current = rows.first().map(|r| {
         let opened = opt_int(r, 3);
-        json!({"cohort": int(r, 0).ok(), "label": text(r, 1).ok(), "phase": text(r, 2).ok(), "opened_epoch": opened,
+        let phase = text(r, 2).ok();
+        let mark = |n: usize| marks.first().and_then(|m| opt_int(m, n));
+        let u = |v: Option<i64>| v.and_then(|v| u64::try_from(v).ok());
+        // The earliest boundary the window can close at, while it is open:
+        // `now + max(admission - credited, 1)` on the coordinator's credited
+        // tempos, or the epoch-only bound from coordinators without them.
+        let cutoff = match (phase, now, u(opened), u(opt_int(r, 7))) {
+            (Some("admission"), Some(now), Some(o), Some(a)) if !window_closing => Some(match u(mark(1)) {
+                Some(oa) => now + a.saturating_sub(observed.active_tempos.saturating_sub(oa)).max(1),
+                None => (o + a).max(now + 1),
+            }),
+            _ => None,
+        };
+        let close = match phase {
+            Some("queued" | "closed" | "abandoned") | None => None,
+            Some(_) => close_rows.first().and_then(|row| close_bound(row, &observed)),
+        };
+        json!({"cohort": int(r, 0).ok(), "label": text(r, 1).ok(), "phase": phase, "opened_epoch": opened,
+            "opened_block": mark(0),
             "window_open": window_open, "window_closing": window_closing, "freeze_wait": freeze_wait,
+            "window_closed_epoch": mark(2),
             "planned_cutoff_epoch": opened.zip(opt_int(r, 7)).map(|(o, a)| o + a),
+            "earliest_cutoff_epoch": cutoff,
             "admission_closed_epoch": opt_int(r, 4), "earliest_close_epoch": opened.zip(opt_int(r, 6)).map(|(o, k)| o + k),
+            "earliest_close_epoch_credited": close,
             "closed_epoch": opt_int(r, 5), "k_tempos": opt_int(r, 6), "admission_tempos": opt_int(r, 7),
             "transition_tempos": opt_int(r, 8)})
     });

@@ -1,0 +1,33 @@
+{
+ "schema": "slop_ninja.dashboard.index/v1",
+ "network": "testnet",
+ "chain": {
+  "genesis": null,
+  "netuid": 601
+ },
+ "generated_at": 1792999920,
+ "sample": true,
+ "mechanisms": [
+  {
+   "key": "a",
+   "name": "Detection",
+   "state": "live",
+   "chain_mechanism": 0,
+   "stage_set": "cohort/v1"
+  },
+  {
+   "key": "b",
+   "name": "Rewriting",
+   "state": "planned",
+   "chain_mechanism": null,
+   "stage_set": null
+  },
+  {
+   "key": "c",
+   "name": "Shared grammar",
+   "state": "planned",
+   "chain_mechanism": null,
+   "stage_set": null
+  }
+ ]
+}

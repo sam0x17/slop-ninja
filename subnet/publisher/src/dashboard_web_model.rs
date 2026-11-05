@@ -1,0 +1,448 @@
+//! A copy of the website's dashboard contract types (repository slop_ninja_web,
+//! branch `dashboard`, `src/model.rs`), compiled only into the publisher's
+//! tests: every document the publisher writes must round-trip through these
+//! types unchanged (no field the website drops, none it lacks). Refresh it
+//! verbatim when the website's model changes.
+
+#![allow(dead_code)]
+
+use serde::{Deserialize, Serialize};
+
+pub const NOW_SCHEMA: &str = "slop_ninja.dashboard.now/v1";
+pub const COHORTS_SCHEMA: &str = "slop_ninja.dashboard.cohorts/v1";
+pub const COHORT_SCHEMA: &str = "slop_ninja.dashboard.cohort/v1";
+pub const INDEX_SCHEMA: &str = "slop_ninja.dashboard.index/v1";
+pub const UNAVAILABLE_SCHEMA: &str = "slop_ninja.dashboard.unavailable/v1";
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Chain {
+    pub genesis: Option<String>,
+    pub netuid: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Header {
+    pub schema: String,
+    pub network: String,
+    pub chain: Chain,
+    /// Unix seconds of the publisher run behind the document, to the minute.
+    pub generated_at: Option<u64>,
+    /// Always `false` outside the local sample build.
+    pub sample: bool,
+}
+
+/// How the scores of one document were published: the coordinator's rule id
+/// and grid width `w` (a decimal string). A score is shown only when both
+/// are present and it carries no more decimal places than `w`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Quantization {
+    pub rule: Option<String>,
+    pub width: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Clock {
+    pub confirmed_block: Option<u64>,
+    pub confirmed_epoch: Option<u64>,
+    /// Age of the coordinator's chain observation at `generated_at`.
+    pub age_secs: Option<u64>,
+    /// The block and epoch of the last observed tempo boundary.
+    pub boundary_block: Option<u64>,
+    pub boundary_epoch: Option<u64>,
+    /// Read from the chain by the publisher; never a constant in the page.
+    pub tempo_blocks: Option<u64>,
+    pub block_secs_nominal: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Pause {
+    /// Set only by an explicit pause in the publisher's dashboard tree.
+    pub paused: bool,
+    /// A closed class (`coordinator_silent`, `waiting_on_infrastructure`,
+    /// `operator_hold`, `calendar_paused`, `observation_lag`).
+    pub class: Option<String>,
+}
+
+/// A stage change, dated by the tempo boundary at which it was observed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Phase {
+    pub stage: String,
+    /// The tempo boundary (epoch) at which the stage was first observed.
+    pub epoch: Option<u64>,
+    /// That boundary's observed wall-clock time, to the minute.
+    pub at: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Tempos {
+    pub credited: Option<u64>,
+    pub required: Option<u64>,
+}
+
+/// Every value is the earliest possible epoch or block: a lower bound.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Expected {
+    pub stage_end_epoch: Option<u64>,
+    pub stage_end_block: Option<u64>,
+    pub close_epoch: Option<u64>,
+    pub close_block: Option<u64>,
+    pub packaging_deadline_epoch: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Admission {
+    pub admitted: Option<u64>,
+    pub roster_cap: Option<u64>,
+}
+
+/// The work-stage percent grid: 0, 10, ..., 90. A work stage reaches 100%
+/// by ending, so 100 is never published.
+pub const WORK_GRID: &[u64] = &[0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
+
+/// The current work stage's percent on [`WORK_GRID`], as of the last tempo
+/// boundary. A closed object: any other key refuses the document.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkProgress {
+    pub stage: String,
+    pub pct: u64,
+    #[serde(default)]
+    pub as_of_epoch: Option<u64>,
+}
+
+/// Aggregates for the active stage only: never per kind or per entrant, and
+/// never an exact count for a work stage. A closed object: any other key
+/// (`done`, `total`, a per-entrant map, the old bucket keys) refuses the
+/// document.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Progress {
+    pub admission: Option<Admission>,
+    pub work: Option<WorkProgress>,
+}
+
+/// The cohort's frozen template, in tempos.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Template {
+    pub k_tempos: Option<u64>,
+    pub admission_tempos: Option<u64>,
+    pub transition_tempos: Option<u64>,
+    /// `k_tempos - admission_tempos - transition_tempos`: the tempos left for
+    /// closing, building, sealing, scoring and packaging.
+    pub work_window_tempos: Option<u64>,
+}
+
+/// The bar stages of the `cohort/v1` stage set, in order, with their kind.
+pub const BAR_STAGES: &[(&str, &str)] = &[
+    ("admission_open", "schedule"),
+    ("admission_closing", "step"),
+    ("generating", "work"),
+    ("sealing", "step"),
+    ("scoring", "work"),
+    ("packaging", "step"),
+    ("transition", "schedule"),
+    ("closed", "end"),
+];
+
+/// The kind of a `cohort/v1` bar stage, or `None` for any other code.
+pub fn stage_kind(stage: &str) -> Option<&'static str> {
+    BAR_STAGES
+        .iter()
+        .find(|(s, _)| *s == stage)
+        .map(|(_, k)| *k)
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StagePlan {
+    pub stage: String,
+    /// `schedule`, `work`, `step` or `end`.
+    pub kind: String,
+    /// The template length for schedule stages, `None` for work and step
+    /// stages (they share the work window), 0 for the end.
+    pub expected_tempos: Option<u64>,
+    /// The publisher's credit-adjusted earliest start boundary, only for
+    /// stages after the current one (`now.json` only).
+    pub earliest_epoch: Option<u64>,
+    pub earliest_block: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Plan {
+    pub template: Template,
+    pub stages: Vec<StagePlan>,
+}
+
+/// Reads a boolean, or `false` for anything else (the value is dropped, not
+/// the document).
+fn lenient_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(matches!(
+        serde_json::Value::deserialize(d)?,
+        serde_json::Value::Bool(true)
+    ))
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CohortNow {
+    pub cohort: Option<u64>,
+    pub label: Option<String>,
+    pub stage: String,
+    pub phases: Vec<Phase>,
+    pub tempos: Option<Tempos>,
+    pub expected: Expected,
+    pub progress: Progress,
+    pub plan: Option<Plan>,
+    /// `true` once `cohorts/<label>.json` carries this cohort's results
+    /// (stage 08 and later).
+    #[serde(deserialize_with = "lenient_bool")]
+    pub results: bool,
+    pub mode: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Next {
+    pub cohort: Option<u64>,
+    pub earliest_open_epoch: Option<u64>,
+    pub earliest_open_block: Option<u64>,
+    pub admission_tempos: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Owner {
+    pub uid: Option<u16>,
+    pub hotkey: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Artifact {
+    /// `published`, `pending` or `withheld`.
+    pub state: String,
+    /// A model file on the network's public host: an entrant artifact
+    /// (`v1/artifacts/<sha256>.bin`) or a reference package manifest
+    /// (`v1/reference/packages/<sha256>/package.json`). Nothing else.
+    pub download: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Best {
+    pub index: u64,
+    /// Always `R<index>`; rebuilt by the Worker.
+    pub label: String,
+    pub since_cohort: Option<u64>,
+    pub since_label: Option<String>,
+    /// `None`: an operator reference package, not a miner's model.
+    pub owner: Option<Owner>,
+    pub latest_score: Option<String>,
+    pub latest_score_label: Option<String>,
+    pub quantization: Option<Quantization>,
+    pub artifact: Option<Artifact>,
+    pub licence: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NowDoc {
+    #[serde(flatten)]
+    pub header: Header,
+    pub mechanism: String,
+    pub clock: Clock,
+    pub pause: Pause,
+    pub cohort: CohortNow,
+    pub next: Option<Next>,
+    pub best: Option<Best>,
+    /// The newest listed cohort's label (its document is `cohorts/<label>.json`).
+    pub latest_cohort: Option<String>,
+    /// Notice kinds; the page renders its own fixed wording for each.
+    pub notice: Vec<String>,
+    /// Reserved for validator advisory scores, which never affect rows. Not
+    /// read from the publisher until the page renders them.
+    #[serde(skip_deserializing)]
+    pub advisory: Option<()>,
+    /// `false` when the coordinator's or eval status did not answer the
+    /// publisher's last run.
+    pub sources_ok: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Mark {
+    pub epoch: Option<u64>,
+    /// The boundary's observed time, to the minute.
+    pub at: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CohortRow {
+    pub cohort: u64,
+    pub label: String,
+    /// `closed`, `ended`, `published` (results out, not closed yet; the
+    /// cohort document only), `publishing` or `retired_unpublished`.
+    pub state: String,
+    pub opened: Option<Mark>,
+    pub admission_closed: Option<Mark>,
+    pub published: Option<Mark>,
+    pub closed: Option<Mark>,
+    pub mode: Option<String>,
+    pub promoted: Option<Owner>,
+    pub entrants: Option<u32>,
+    pub reference_index: Option<u64>,
+    pub best_score: Option<String>,
+    /// Applies to `best_score` and, in the cohort document, to every score.
+    pub quantization: Option<Quantization>,
+    /// Whether `cohorts/<label>.json` carries this cohort's leaderboard.
+    pub leaderboard: bool,
+    pub ended_class: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecordRef {
+    pub first_label: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CohortsDoc {
+    #[serde(flatten)]
+    pub header: Header,
+    pub mechanism: String,
+    /// Ascending by cohort number.
+    pub cohorts: Vec<CohortRow>,
+    /// Earlier chain records, oldest first.
+    pub records: Vec<RecordRef>,
+    /// The label prefix of the live record, when one is configured.
+    pub record_prefix: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Entrant {
+    pub uid: u16,
+    pub hotkey: String,
+    pub score: Option<String>,
+    /// `kappa`: 1 for the top occupied band. Set exactly when `eligible`.
+    pub band: Option<u32>,
+    /// Met every gate and the quality cutoff, so it holds a reward band.
+    pub eligible: bool,
+    /// Share of the cohort's weight row, in percent to one decimal place.
+    pub row_share_pct: Option<String>,
+    pub gates_passed: bool,
+    pub promoted: bool,
+    pub artifact: Option<Artifact>,
+}
+
+/// The quality cutoff at grid precision, with its rule code.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Cutoff {
+    pub q: Option<String>,
+    pub rule: Option<String>,
+}
+
+/// A reward band's edges at grid precision. For `higher` scores band 1's
+/// `upper` is open (`None`); for `lower`, its `lower`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Band {
+    pub band: u32,
+    pub lower: Option<String>,
+    pub upper: Option<String>,
+}
+
+/// The reward bands, from the top occupied band (1) down to the band whose
+/// edge is the cutoff.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Quality {
+    pub cutoff: Option<Cutoff>,
+    pub bands: Option<Vec<Band>>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReferenceRow {
+    pub index: u64,
+    /// Always `R<index>`; rebuilt by the Worker.
+    pub label: String,
+    pub score: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CohortDoc {
+    #[serde(flatten)]
+    pub header: Header,
+    pub mechanism: String,
+    pub cohort: CohortRow,
+    pub phases: Vec<Phase>,
+    /// As in `now.json`, without the earliest fields.
+    pub plan: Option<Plan>,
+    /// Only for `published` and `closed` cohorts.
+    pub quality: Option<Quality>,
+    /// `None` when this cohort's leaderboard is not published as data. No
+    /// rank: entrants carry no order.
+    pub entrants: Option<Vec<Entrant>>,
+    pub reference: Option<ReferenceRow>,
+    pub predecessor: Option<ReferenceRow>,
+    /// `higher` or `lower`.
+    pub score_better: Option<String>,
+    /// A promotion rule code; the page owns the wording.
+    pub promotion_rule: Option<String>,
+    pub previous: Option<String>,
+    pub next: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MechanismEntry {
+    pub key: String,
+    pub name: String,
+    /// `live`, `planned`, `paused` or `retired`.
+    pub state: String,
+    pub chain_mechanism: Option<u16>,
+    /// The stage vocabulary, so B and C can define their own later.
+    pub stage_set: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IndexDoc {
+    #[serde(flatten)]
+    pub header: Header,
+    pub mechanisms: Vec<MechanismEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Unavailable {
+    pub schema: &'static str,
+    pub available: bool,
+    /// `not_enabled`, `upstream_unavailable`, `upstream_invalid` or `not_listed`.
+    pub reason: &'static str,
+}
+
+impl Unavailable {
+    pub fn new(reason: &'static str) -> Self {
+        Self {
+            schema: UNAVAILABLE_SCHEMA,
+            available: false,
+            reason,
+        }
+    }
+}

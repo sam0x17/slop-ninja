@@ -133,6 +133,7 @@ client reads and the alert posts the relay reads are the same code.
 | `layout` | every key read or written |
 | `config` | vars and secrets; the compiled trust roots |
 | `store` | the object-store seam, with an in-memory store for tests |
+| `dashboard` | the public dashboard's `dashboard/v1` documents, their allow-list and bounds (the key grammar and bounds are `../dashboard-feed/src/contract.rs`, shared with the feed Worker) |
 | `cf` | Workers entry points (`wasm32` only): cron, R2 adapter, status reads, the `PublisherState` Durable Object |
 
 Everything but `cf` is plain Rust and is tested natively over an in-memory
@@ -553,6 +554,34 @@ once its alert phase has saved its state:
 An external check can still be pinged: `HEARTBEAT_URL`, enabled only by
 `HEARTBEAT_ENABLED = "true"`, is a GET after each run that finished both
 phases.
+
+## Dashboard documents
+
+After the publication pass, each run writes the public dashboard's
+documents (`index.json`, `m/a/now.json`, `m/a/cohorts/index.json` and one
+document per listed or ended cohort) under `dashboard/v1/` into the
+dashboard bucket (binding `DASHBOARD_TESTNET`). That bucket holds nothing
+else, and only the private dashboard feed Worker (`../dashboard-feed`) reads
+it. The website reaches the feed through a service binding. Without the
+binding, no dashboard document is written. The contract, its allow-list,
+bounds and inputs are in
+[`docs/testnet/dashboard-contract.md`](../../docs/testnet/dashboard-contract.md).
+
+Every write passes `dashboard::check`: the key grammar, the kind's byte
+bound, the schema, the kind's path allow-list, the redaction scan,
+`sample: false`, and a work percent only on the 10% grid for the current
+work stage. The stage and its phases are shown as of the last observed
+tempo boundary. The work percent and a cohort fault's pause class are read
+by the first observation of a boundary that follows the saved one in
+sequence, saved to the Durable Object state before any document carries
+them (nothing is written when that save fails), and kept until the next
+boundary; a fresh or lost state, or a jump past several boundaries, leaves
+them out for that tempo. While the coordinator's status is unreadable, only
+`index.json` and `now.json` are written. Cohort documents are rebuilt only
+when their inputs change; a rebuild the wall budget cuts short resumes after
+its last document while its inputs stay the same. Their summary and
+publication reads are reserved from the run's memory budget. A refused write
+is alerted like a refused publication.
 
 ## Configuration
 

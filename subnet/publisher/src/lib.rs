@@ -22,7 +22,10 @@
 //!    linking its staged reference package, when one is staged), the
 //!    current validator authorization and the coordinator's signed row that
 //!    validators commit ([`index`], [`leaderboard`]);
-//! 5. pings an external dead-man URL when one is enabled, after a run that
+//! 5. writes the public dashboard's documents (`dashboard/v1`) into their own
+//!    bucket, read only by the private dashboard feed Worker
+//!    ([`dashboard`]);
+//! 6. pings an external dead-man URL when one is enabled, after a run that
 //!    finished both phases.
 //!
 //! The public host serves those objects directly; the Worker has no request
@@ -34,6 +37,7 @@ pub mod alerts;
 pub mod allowlist;
 pub mod arena;
 pub mod config;
+pub mod dashboard;
 pub mod index;
 pub mod layout;
 pub mod leaderboard;

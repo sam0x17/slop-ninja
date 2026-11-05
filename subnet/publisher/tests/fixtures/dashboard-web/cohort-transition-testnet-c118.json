@@ -1,0 +1,262 @@
+{
+ "schema": "slop_ninja.dashboard.cohort/v1",
+ "network": "testnet",
+ "chain": {
+  "genesis": null,
+  "netuid": 601
+ },
+ "generated_at": 1792999920,
+ "sample": true,
+ "mechanism": "a",
+ "cohort": {
+  "cohort": 118,
+  "label": "testnet-c118",
+  "state": "published",
+  "opened": {
+   "epoch": 2290,
+   "at": 1792911360
+  },
+  "admission_closed": {
+   "epoch": 2306,
+   "at": 1792980660
+  },
+  "published": {
+   "epoch": 2310,
+   "at": 1792998000
+  },
+  "closed": null,
+  "mode": "no_target",
+  "promoted": null,
+  "entrants": 5,
+  "reference_index": 4,
+  "best_score": "0.91",
+  "quantization": {
+   "rule": "sample_grid/v1",
+   "width": "0.01"
+  },
+  "leaderboard": true,
+  "ended_class": null
+ },
+ "phases": [
+  {
+   "stage": "admission_open",
+   "epoch": 2290,
+   "at": 1792911360
+  },
+  {
+   "stage": "admission_closing",
+   "epoch": 2306,
+   "at": 1792980660
+  },
+  {
+   "stage": "generating",
+   "epoch": 2306,
+   "at": 1792980660
+  },
+  {
+   "stage": "sealing",
+   "epoch": 2307,
+   "at": 1792984980
+  },
+  {
+   "stage": "scoring",
+   "epoch": 2307,
+   "at": 1792984980
+  },
+  {
+   "stage": "packaging",
+   "epoch": 2309,
+   "at": 1792993680
+  },
+  {
+   "stage": "transition",
+   "epoch": 2310,
+   "at": 1792998000
+  }
+ ],
+ "plan": {
+  "template": {
+   "k_tempos": 22,
+   "admission_tempos": 16,
+   "transition_tempos": 2,
+   "work_window_tempos": 4
+  },
+  "stages": [
+   {
+    "stage": "admission_open",
+    "kind": "schedule",
+    "expected_tempos": 16,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "admission_closing",
+    "kind": "step",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "generating",
+    "kind": "work",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "sealing",
+    "kind": "step",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "scoring",
+    "kind": "work",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "packaging",
+    "kind": "step",
+    "expected_tempos": null,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "transition",
+    "kind": "schedule",
+    "expected_tempos": 2,
+    "earliest_epoch": null,
+    "earliest_block": null
+   },
+   {
+    "stage": "closed",
+    "kind": "end",
+    "expected_tempos": 0,
+    "earliest_epoch": null,
+    "earliest_block": null
+   }
+  ]
+ },
+ "quality": {
+  "cutoff": {
+   "q": "0.78",
+   "rule": "baseline_grace"
+  },
+  "bands": [
+   {
+    "band": 1,
+    "lower": "0.90",
+    "upper": null
+   },
+   {
+    "band": 2,
+    "lower": "0.87",
+    "upper": "0.90"
+   },
+   {
+    "band": 3,
+    "lower": "0.84",
+    "upper": "0.87"
+   },
+   {
+    "band": 4,
+    "lower": "0.81",
+    "upper": "0.84"
+   },
+   {
+    "band": 5,
+    "lower": "0.78",
+    "upper": "0.81"
+   }
+  ]
+ },
+ "entrants": [
+  {
+   "uid": 121,
+   "hotkey": "5DemoHotkeyvYwEnrBGkzxBgPuSdTygNUgwSjYsnBMCLjYzQ",
+   "score": "0.91",
+   "band": 1,
+   "eligible": true,
+   "row_share_pct": "66.6",
+   "gates_passed": true,
+   "promoted": false,
+   "artifact": {
+    "state": "published",
+    "download": null
+   }
+  },
+  {
+   "uid": 158,
+   "hotkey": "5DemoHotkeyNowykWWvRYfUBeCuLxEzXuJbLfhxmmXzzQZCz",
+   "score": "0.86",
+   "band": 3,
+   "eligible": true,
+   "row_share_pct": "16.6",
+   "gates_passed": true,
+   "promoted": false,
+   "artifact": {
+    "state": "published",
+    "download": null
+   }
+  },
+  {
+   "uid": 195,
+   "hotkey": "5DemoHotkeyfDixUVBreqgbMycWCkAhTrsCAjqoGACwRrsKm",
+   "score": "0.86",
+   "band": 3,
+   "eligible": true,
+   "row_share_pct": "16.6",
+   "gates_passed": true,
+   "promoted": false,
+   "artifact": {
+    "state": "pending",
+    "download": null
+   }
+  },
+  {
+   "uid": 232,
+   "hotkey": "5DemoHotkeyxVVdahnSkHDhyXigfBCkEZDyHPVhitujvtyGB",
+   "score": "0.76",
+   "band": null,
+   "eligible": false,
+   "row_share_pct": "0.0",
+   "gates_passed": true,
+   "promoted": false,
+   "artifact": {
+    "state": "published",
+    "download": null
+   }
+  },
+  {
+   "uid": 13,
+   "hotkey": "5DemoHotkeyBooJxcRaEdQcQZUcUqhcTrxWgNDogbPBEJbMR",
+   "score": null,
+   "band": null,
+   "eligible": false,
+   "row_share_pct": "0.0",
+   "gates_passed": false,
+   "promoted": false,
+   "artifact": {
+    "state": "withheld",
+    "download": null
+   }
+  }
+ ],
+ "reference": {
+  "index": 4,
+  "label": "R4",
+  "score": "0.80"
+ },
+ "predecessor": {
+  "index": 3,
+  "label": "R3",
+  "score": "0.77"
+ },
+ "score_better": "higher",
+ "promotion_rule": "testnet_no_canary",
+ "previous": "testnet-c117",
+ "next": null
+}

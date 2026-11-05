@@ -146,6 +146,16 @@ bucket_name = "eval-bucket-testnet"
 binding = "PUBLIC_TESTNET"
 bucket_name = "public-bucket-testnet"
 
+# The public dashboard's documents (dashboard/v1/ keys only, src/dashboard.rs),
+# in their own bucket: the private dashboard feed Worker (subnet/dashboard-feed)
+# binds only this one, so it can reach nothing else. No public access, no
+# custom domain, no CORS rule. Create it before the deploy that carries this
+# binding (a binding to a missing bucket refuses the deploy):
+#   wrangler r2 bucket create dashboard-bucket-testnet
+[[env.testnet.r2_buckets]]
+binding = "DASHBOARD_TESTNET"
+bucket_name = "dashboard-bucket-testnet"
+
 # Status reads (GET /status and /eval/status, each with its Worker's token).
 [[env.testnet.services]]
 binding = "COORDINATOR_TESTNET"

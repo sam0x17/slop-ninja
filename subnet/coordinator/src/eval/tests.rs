@@ -1623,6 +1623,33 @@ fn infrastructure_failures_past_max_attempts_extend_the_chunk_and_the_same_cohor
     verify(&sim, &b);
 }
 
+/// The dashboard's aggregate work progress (E1) in the authenticated
+/// status: documents ready of those not failed, and scoring chunks done of
+/// those planned, two sums per cohort; complete once the cohort has
+/// packaged. The publisher turns them into a 10% grid percent at tempo
+/// boundaries and never publishes the counts.
+#[test]
+fn status_reports_aggregate_work_progress_for_the_dashboard() {
+    let db = Sqlite::open();
+    sql::migrate(&db, &EVAL_COHORT_SCHEMA).unwrap();
+    let seq = open_cohort(&db, &wide(20, 2), 10, 1_000_000);
+    let st = status(&db, 1_000_000);
+    let c0 = &st["cohorts"][0];
+    assert_eq!(c0["progress"]["scoring"]["done"], 0, "{}", c0["progress"]);
+    let ready = c0["progress"]["generation"]["ready"].as_i64().unwrap();
+    assert!(ready <= c0["progress"]["generation"]["total"].as_i64().unwrap());
+    assert!(c0.get("published_active").is_some() && c0.get("roster_cap").is_some());
+    let mut sim = Sim::new(&db, cfg(), 1_000_010);
+    sim.tick_ms = 5_000;
+    assert_eq!(sim.run(seq, 4_000), "transition");
+    let st = status(&db, sim.now);
+    let p = &st["cohorts"][0]["progress"];
+    assert!(p["generation"]["total"].as_i64().unwrap() > 0, "{p}");
+    assert_eq!(p["generation"]["ready"], p["generation"]["total"], "{p}");
+    assert!(p["scoring"]["total"].as_i64().unwrap() > 0, "{p}");
+    assert_eq!(p["scoring"]["done"], p["scoring"]["total"], "{p}");
+}
+
 #[test]
 fn a_chunk_with_no_further_attempt_faults_alone_and_a_clear_resumes_the_same_cohort() {
     let db = Sqlite::open();

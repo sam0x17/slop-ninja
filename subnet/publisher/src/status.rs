@@ -154,6 +154,58 @@ pub struct CohortView {
     /// Jobs whose attempts no further extension fits under the receipt bound
     /// (`receipt_bound_reached_jobs`).
     pub receipt_bound_reached_jobs: Vec<u64>,
+    /// What the public dashboard reads of the cohort ([`crate::dashboard`]).
+    pub dash: CohortDash,
+}
+
+/// The fields of one `/eval/status` cohort the dashboard reads: the phase
+/// log without its notes, the epochs and credited marks of its boundaries,
+/// and the aggregate work counts (E1). Each is `None` (or empty) from
+/// coordinators that do not report it. The counts are private: the
+/// dashboard publishes only a 10% grid percent of them, read at tempo
+/// boundaries ([`crate::dashboard`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CohortDash {
+    pub opened_block: Option<u64>,
+    pub packaged_epoch: Option<u64>,
+    pub closed_epoch: Option<u64>,
+    /// The cohort runs under reward-v1 (`reward_v1` is not null): its
+    /// results are published in a boundary step after the package commits.
+    pub reward_v1: bool,
+    /// `reward_v1.probe_build`: a probe build, never part of the record.
+    pub probe_build: bool,
+    /// `reward_v1.published_epoch`: the boundary its results were published at.
+    pub published_epoch: Option<u64>,
+    /// The epoch the coordinator admission window of this cohort closed at
+    /// (`window_closed_epoch`, E1).
+    pub window_closed_epoch: Option<u64>,
+    /// The credited-tempo count at publication (`published_active`, E1).
+    pub published_active: Option<u64>,
+    /// The plan's roster cap (`roster_cap`, E1).
+    pub roster_cap: Option<u64>,
+    /// Aggregate work counts (`progress`, E1).
+    pub work: Option<WorkCounts>,
+    /// `self_clearing`: the cohort's fault clears by itself.
+    pub self_clearing: Option<bool>,
+    /// The phase log (`log[]`), in order, without notes.
+    pub log: Vec<PhaseMark>,
+}
+
+/// One `log[]` entry: the phase the cohort was in, the stored epoch and the
+/// commit time. The note is never parsed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PhaseMark {
+    pub phase: String,
+    pub epoch: Option<u64>,
+    pub at_ms: Option<u64>,
+}
+
+/// A cohort's aggregate work counts (`progress`, E1): generation documents
+/// ready of those not failed, scoring chunks done of those planned.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WorkCounts {
+    pub generation: Option<(u64, u64)>,
+    pub scoring: Option<(u64, u64)>,
 }
 
 /// A cohort's failing root step: its code, the stored epoch at its first
@@ -221,6 +273,14 @@ pub struct EvalView {
     pub ledger_threshold_set: Option<bool>,
     /// The coordinator's cohort calendar (`calendar`), when it serves one.
     pub calendar: Option<CalendarView>,
+    /// The block of the last observed tempo boundary
+    /// (`observed.epoch.last_epoch_block`).
+    pub boundary_block: Option<u64>,
+    /// The stored epoch was observed while it was the chain head's epoch
+    /// (`observed.epoch_live`).
+    pub epoch_live: Option<bool>,
+    /// Admitted entrants per cohort (`admission.cohorts[].admitted`).
+    pub admitted: Vec<(u64, u64)>,
 }
 
 /// The coordinator's calendar view (`/eval/status` `calendar`): the current
@@ -234,6 +294,8 @@ pub struct CalendarView {
     /// `earliest_open_epoch`, and `admission_tempos` from coordinators that
     /// report it).
     pub next: Option<NextCohort>,
+    /// The standing template is paused (`template.paused`).
+    pub template_paused: Option<bool>,
 }
 
 /// The calendar's current cohort (`calendar.current`): the window flags
@@ -246,6 +308,15 @@ pub struct CalendarCurrent {
     pub window_open: Option<bool>,
     pub window_closing: Option<bool>,
     pub freeze_wait: Option<String>,
+    /// The epoch the coordinator admission window closed at
+    /// (`window_closed_epoch`, E1).
+    pub window_closed_epoch: Option<u64>,
+    /// The credit-adjusted earliest cutoff while the window is open
+    /// (`earliest_cutoff_epoch`, E1).
+    pub earliest_cutoff_epoch: Option<u64>,
+    /// The credit-adjusted earliest close (`earliest_close_epoch_credited`,
+    /// E1).
+    pub earliest_close_epoch_credited: Option<u64>,
 }
 
 impl EvalView {
@@ -406,6 +477,20 @@ struct EvalJson {
     ledger: Option<LedgerJson>,
     receipt_retention: RetentionJson,
     calendar: Option<CalendarJson>,
+    admission: Option<AdmissionJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct AdmissionJson {
+    cohorts: Vec<AdmissionCohortJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct AdmissionCohortJson {
+    cohort: Option<u64>,
+    admitted: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -420,6 +505,13 @@ struct RetentionJson {
 struct CalendarJson {
     current: Option<CalendarCurrentJson>,
     next: Option<CalendarNextJson>,
+    template: Option<TemplateJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct TemplateJson {
+    paused: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -460,6 +552,9 @@ struct CalendarCurrentJson {
     window_open: Option<bool>,
     window_closing: Option<bool>,
     freeze_wait: Option<String>,
+    window_closed_epoch: Option<u64>,
+    earliest_cutoff_epoch: Option<u64>,
+    earliest_close_epoch_credited: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -476,12 +571,14 @@ struct ObservedJson {
     confirmed: Option<BlockJson>,
     epoch: Option<EpochJson>,
     active_tempos: Option<u64>,
+    epoch_live: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct EpochJson {
     index: Option<u64>,
+    last_epoch_block: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -503,6 +600,53 @@ struct CohortJson {
     fault_cause: Option<String>,
     operator_clear_needed: Option<bool>,
     receipt_bound_reached_jobs: Option<Vec<u64>>,
+    opened_block: Option<u64>,
+    packaged_epoch: Option<u64>,
+    closed_epoch: Option<u64>,
+    published_active: Option<u64>,
+    roster_cap: Option<u64>,
+    progress: Option<ProgressJson>,
+    self_clearing: Option<bool>,
+    reward_v1: Option<CohortRewardJson>,
+    window_closed_epoch: Option<u64>,
+    log: Vec<LogJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ProgressJson {
+    generation: Option<ReadyJson>,
+    scoring: Option<DoneJson>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ReadyJson {
+    ready: Option<u64>,
+    total: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct DoneJson {
+    done: Option<u64>,
+    total: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct CohortRewardJson {
+    published_epoch: Option<u64>,
+    probe_build: Option<bool>,
+}
+
+/// A phase log entry; its `note` is never parsed.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct LogJson {
+    phase: Option<String>,
+    at_ms: Option<u64>,
+    epoch: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -670,6 +814,33 @@ fn eval_view(j: EvalJson) -> EvalView {
                 fault_cause: c.fault_cause,
                 operator_clear_needed: c.operator_clear_needed,
                 receipt_bound_reached_jobs: c.receipt_bound_reached_jobs.unwrap_or_default(),
+                dash: CohortDash {
+                    opened_block: c.opened_block,
+                    packaged_epoch: c.packaged_epoch,
+                    closed_epoch: c.closed_epoch,
+                    reward_v1: c.reward_v1.is_some(),
+                    probe_build: c.reward_v1.as_ref().and_then(|r| r.probe_build) == Some(true),
+                    published_epoch: c.reward_v1.as_ref().and_then(|r| r.published_epoch),
+                    window_closed_epoch: c.window_closed_epoch,
+                    published_active: c.published_active,
+                    roster_cap: c.roster_cap,
+                    work: c.progress.map(|p| WorkCounts {
+                        generation: p.generation.and_then(|g| g.ready.zip(g.total)),
+                        scoring: p.scoring.and_then(|g| g.done.zip(g.total)),
+                    }),
+                    self_clearing: c.self_clearing,
+                    log: c
+                        .log
+                        .into_iter()
+                        .filter_map(|l| {
+                            Some(PhaseMark {
+                                phase: l.phase?,
+                                epoch: l.epoch,
+                                at_ms: l.at_ms,
+                            })
+                        })
+                        .collect(),
+                },
             })
         })
         .collect();
@@ -686,6 +857,17 @@ fn eval_view(j: EvalJson) -> EvalView {
         .map(|s| s.alert_microusd.is_some());
     EvalView {
         confirmed_block: j.observed.confirmed.and_then(|b| b.number),
+        boundary_block: j.observed.epoch.as_ref().and_then(|e| e.last_epoch_block),
+        epoch_live: j.observed.epoch_live,
+        admitted: j
+            .admission
+            .map(|a| {
+                a.cohorts
+                    .into_iter()
+                    .filter_map(|c| c.cohort.zip(c.admitted))
+                    .collect()
+            })
+            .unwrap_or_default(),
         epoch: j.observed.epoch.and_then(|e| e.index),
         watermark_epoch: j.watermark_epoch,
         active_tempos: j.observed.active_tempos,
@@ -711,6 +893,9 @@ fn eval_view(j: EvalJson) -> EvalView {
                     window_open: x.window_open,
                     window_closing: x.window_closing,
                     freeze_wait: x.freeze_wait,
+                    window_closed_epoch: x.window_closed_epoch,
+                    earliest_cutoff_epoch: x.earliest_cutoff_epoch,
+                    earliest_close_epoch_credited: x.earliest_close_epoch_credited,
                 })
             }),
             next: c.next.and_then(|n| {
@@ -721,6 +906,7 @@ fn eval_view(j: EvalJson) -> EvalView {
                     ..Default::default()
                 })
             }),
+            template_paused: c.template.and_then(|t| t.paused),
         }),
     }
 }

@@ -1,0 +1,13 @@
+# Fixed Wasm linear memory: initial memory equals maximum memory, so the
+# module never grows at run time. The feed never holds a document in Wasm
+# memory: an object's body streams from R2 to the response inside the
+# runtime (`ObjectBody::response_body`). Its heap holds only the request
+# path, the parsed key (at most PREFIX plus a 4,096-byte label) and a few
+# headers. 2097152 bytes = 32 pages: Rust's default 1 MiB Wasm stack, the
+# module's static data and that heap; the link fails if the static part
+# does not fit.
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "link-arg=--initial-memory=2097152",
+  "-C", "link-arg=--max-memory=2097152",
+]

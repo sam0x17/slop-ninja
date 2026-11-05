@@ -3880,6 +3880,20 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             .map(|r| int(r, 0))
             .collect::<Result<_, _>>()?;
         let receipts = int(&q("SELECT COUNT(*) FROM receipts WHERE seq = ?")?[0], 0)?;
+        // Aggregate work progress for the publisher's dashboard (two sums,
+        // on this authenticated route only): documents ready of those not
+        // failed, and scoring chunks done of those planned. The publisher
+        // publishes only a 10% grid percent of them, read at tempo
+        // boundaries; the counts never leave the private status.
+        let generated = &q("SELECT COUNT(*), COALESCE(SUM(status = 'ready'), 0) FROM docs WHERE seq = ? AND status != 'failed'")?[0];
+        let scored = &q("SELECT COALESCE(SUM(done_chunks), 0), COALESCE(SUM(chunks), 0) FROM jobs WHERE seq = ?")?[0];
+        let published_active = opt_int(&q("SELECT published_active FROM cohorts WHERE seq = ?")?[0], 0);
+        // The boundary its coordinator admission window closed at (the
+        // dashboard's closing step), for every cohort, not only the
+        // calendar's current one.
+        let window_closed_epoch = q("SELECT closed_at_epoch FROM adm_cohorts WHERE seq = ?")?
+            .first()
+            .and_then(|r| opt_int(r, 0));
         let retention = crate::eval::retention::cohort_status(sql, c.seq, &held)?;
         let v3 = if c.plan.is_v3() {
             let st = crate::eval::v3::state(sql, c.seq)?;
@@ -3897,6 +3911,10 @@ pub fn status(sql: &impl Sql, now_ms: u64) -> R<Value> {
             "opened_epoch": opt_int(row, 11), "opened_block": opt_int(row, 12),
             "packaged_epoch": opt_int(row, 13), "closed_epoch": opt_int(row, 14),
             "opened_active": c.opened_active, "packaged_active": c.packaged_active,
+            "published_active": published_active, "window_closed_epoch": window_closed_epoch,
+            "roster_cap": c.plan.admission.as_ref().map(|a| a.roster_cap),
+            "progress": json!({"generation": {"ready": int(generated, 1)?, "total": int(generated, 0)?},
+                "scoring": {"done": int(scored, 0)?, "total": int(scored, 1)?}}),
             "admission_tempos": c.plan.admission_tempos, "transition_tempos": c.plan.transition_tempos,
             "max_attempts": c.plan.max_attempts, "scorer_failures": c.scorer_failures,
             "counts": opt_text(row, 15).and_then(|d| serde_json::from_str::<Value>(&d).ok()),

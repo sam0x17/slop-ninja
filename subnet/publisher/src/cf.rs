@@ -29,6 +29,9 @@ use slop_ninja_protocol::Digest;
 const RECEIPTS: &str = "RECEIPTS_TESTNET";
 const EVAL: &str = "EVAL_TESTNET";
 const PUBLIC: &str = "PUBLIC_TESTNET";
+/// The dashboard bucket (`dashboard/v1` only), read by the private dashboard
+/// feed Worker. Optional: without the binding no dashboard is written.
+const DASHBOARD: &str = "DASHBOARD_TESTNET";
 const COORDINATOR_SERVICE: &str = "COORDINATOR_TESTNET";
 const EVAL_SERVICE: &str = "EVAL_WORKER_TESTNET";
 const STATE: &str = "PUBLISHER_STATE_TESTNET";
@@ -560,6 +563,9 @@ struct Durable {
     undelivered: u64,
     #[serde(default)]
     undelivered_since_ms: Option<u64>,
+    /// The dashboard's boundary-latched values and rebuild cursor.
+    #[serde(default)]
+    dashboard: crate::dashboard::Memo,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -959,6 +965,51 @@ async fn scheduled(_event: ScheduledEvent, env: Env, ctx: ScheduleContext) {
     };
     if let Some(i) = &index {
         durable.last_published = i.last_cohort();
+    }
+    // Phase 3: the dashboard documents, from the status read in phase 1 and
+    // the index phase 2 left. A refusal is alerted like phase 2's.
+    if let Ok(bucket) = env.bucket(DASHBOARD) {
+        let dash = R2(bucket);
+        let out = crate::dashboard::DashboardStore::new(&dash);
+        let inputs = crate::dashboard::RunInputs {
+            settings: crate::dashboard::Settings {
+                chain: &cfg.chain,
+                tempo_blocks: cfg.tempo_blocks,
+                block_secs: cfg.block_secs,
+                silent_ms: cfg.rules.watermark_stall_ms,
+                operator_notice: cfg.notice.is_some(),
+                record_prefix: cfg.record_label_prefix.as_deref(),
+                publish_from_epoch: cfg.publish_from_epoch,
+            },
+            observed: &observed,
+            index: index.as_ref(),
+            now_ms: now_ms(),
+            budget: &budget,
+        };
+        let budget_ms = cfg.run_wall_budget_ms;
+        let within = move || elapsed() < budget_ms;
+        // The rolled memo is saved before any document carries its
+        // boundary-latched values, so a run that dies (or whose final save
+        // fails) after writing never lets a later run in the same tempo read
+        // them again.
+        let snapshot = durable.clone();
+        let save = async |memo: &crate::dashboard::Memo| -> bool {
+            let mut state = snapshot;
+            state.dashboard = memo.clone();
+            let saved: Option<()> = state_call(
+                &env,
+                "/checkpoint",
+                &Save {
+                    holder: holder.clone(),
+                    now_ms: now_ms(),
+                    state,
+                },
+            )
+            .await;
+            saved.is_some()
+        };
+        let pass = crate::dashboard::publish(&out, &public, &inputs, &mut durable.dashboard, save, &within).await;
+        durable.publisher.refused.extend(pass.refused);
     }
     let ended: Option<()> = state_call(
         &env,

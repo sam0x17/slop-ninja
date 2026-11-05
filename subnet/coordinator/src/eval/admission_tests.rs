@@ -1897,6 +1897,14 @@ fn the_calendar_names_the_next_opening_at_the_earliest_close_before_it() {
     // 13, closed 2 tempos later and at least K after 11.
     let n = next(&db);
     assert_eq!((n.cohort, n.earliest_open_epoch, n.admission_tempos), (2, Some(15), Some(a)));
+    // The dashboard's bounds for the current cohort (E1): the credited
+    // cutoff, the credited close (the next cohort's earliest opening) and
+    // the opening block.
+    let cur = tx(&db, calendar::view).unwrap()["current"].clone();
+    assert_eq!(cur["earliest_cutoff_epoch"], 12);
+    assert_eq!(cur["earliest_close_epoch_credited"], 15);
+    assert_eq!(cur["opened_block"], OPEN_BLOCK);
+    assert!(cur["window_closed_epoch"].is_null(), "still admitting");
     // In its transition: not the next boundary (the earlier display bug).
     tx(&db, |s| {
         s.exec("UPDATE cohorts SET phase = 'transition', packaged_epoch = 12 WHERE cohort = 1", &[]).map(|_| ())
@@ -1913,6 +1921,9 @@ fn the_calendar_names_the_next_opening_at_the_earliest_close_before_it() {
     })
     .unwrap();
     assert_eq!(next(&db).earliest_open_epoch, Some(16));
+    let cur = tx(&db, calendar::view).unwrap()["current"].clone();
+    assert_eq!(cur["earliest_close_epoch_credited"], 16, "the same bound as the next opening");
+    assert!(cur["earliest_cutoff_epoch"].is_null(), "past admission");
     // The next cohort queued: the same opening, from the cohort before it.
     let (_, plan) = tx(&db, |s| calendar::due_any(s, 0)).unwrap().unwrap();
     tx(&db, |s| engine::queue(s, &cfg(), &plan, NOW)).unwrap();
@@ -2727,6 +2738,11 @@ fn the_freeze_waits_for_a_tempo_boundary_once_its_work_is_in_late() {
     .unwrap();
     assert_eq!((c.phase.as_str(), closed), ("generating", 14));
     assert_eq!(wait(&db), (json!(false), json!(null)), "frozen: nothing to wait on");
+    // The status names the boundary the window closed at for the cohort
+    // itself (E1), after the calendar has moved on: the dashboard dates the
+    // closing step by it.
+    let st = tx(&db, |s| engine::status(s, NOW)).unwrap();
+    assert_eq!(st["cohorts"][0]["window_closed_epoch"], 12, "{}", st["cohorts"][0]["window_closed_epoch"]);
     // The measured window: blocks per tempo over its epoch span (11 to 12).
     let measured = |db: &Sqlite| tx(db, crate::eval::calendar::admission_window).unwrap()["last_measured"].clone();
     let m1 = measured(&db);

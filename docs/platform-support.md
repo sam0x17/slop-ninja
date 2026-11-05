@@ -42,7 +42,7 @@ vectors, and runner code. It declares `torch==2.14.0+cpu` under a new artifact
 identity. Run the exported `runner/infer.py` against the platform requests
 described below; preserve package and numerical checks.
 
-The September 13 smoke comparison (omitted from the public copy)
+The September 13 smoke comparison
 recorded successful reference replay on Linux aarch64 and macOS arm64. Two
 nonempty probes differed by at most `1.704829469817426e-7`, below the declared
 `1e-6` tolerance; empty-input rejection agreed. This is limited runtime

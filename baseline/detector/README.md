@@ -1,7 +1,7 @@
 # Reference detector
 
 V6 is the latest experimental binary detector. Download the
-weights and CPU inference bundle (omitted from the public copy)
+weights and CPU inference bundle (release `detector-revision-v0.6.0`, not yet in the public repository)
 and read the [complete results](releases/v0.6.0/RESULTS.md),
 [usage instructions](releases/v0.6.0/README.md) and
 [component notices](releases/v0.6.0/NOTICE.md).
@@ -34,7 +34,7 @@ frozen comparison artifact while these gaps are investigated.
 
 The first trained candidate is a ModernBERT origin classifier. Read the
 [pilot results](PILOT_RESULTS.md) and download the
-experimental release (omitted from the public copy).
+experimental release (`detector-pilot-v0.1.0`, not yet in the public repository).
 It passed inference checks after transfer from the Studio, but has substantial
 generator-transfer and formatting weaknesses. The release includes the selected
 encoder, all three linear controls and all 16 aggregate evaluations.
@@ -55,7 +55,7 @@ weighting and two learning rates, with Development selection fixed before fittin
 Its [completed comparison](ENCODER_EXPANSION_RESULTS.md) improved fresh Test
 accuracy from 52.9% to 78.4% and recovered mixed-class predictions. It remains
 experimental and still trails Pangram on the previously scored Development texts.
-Download the v4 weights and inference bundle (omitted from the public copy).
+Download the v4 weights and inference bundle (release `detector-corpus-v0.4.0`, not yet in the public repository).
 
 The [v5 narrative experiment](ENCODER_NARRATIVE_V5.md) adds 289 admitted historical
 plot summaries and reserves Phi-4 for an unseen-generator Test. Its
@@ -65,7 +65,7 @@ detecting all 25 model-written drafts. Phi-4 log loss also improved, but detecti
 fell from 21/21 to 19/21 at the stricter threshold. The missed drafts used Anti-AI
 and Fix Slop instructions. V5 is the next experimental binary detector; v4 remains
 available for the reported sensitivity comparison.
-Download the v5 weights and CPU inference bundle (omitted from the public copy).
+Download the v5 weights and CPU inference bundle (release `detector-narrative-v0.5.0`, not yet in the public repository).
 The [v5 Pangram follow-up](PANGRAM_V5_RESULTS.md) uses the same 57 previously
 annotated Development texts: v5 detects 32/38 model-involved texts at its stricter
 threshold and 34/38 at its looser threshold, with 1/19 human false positives.

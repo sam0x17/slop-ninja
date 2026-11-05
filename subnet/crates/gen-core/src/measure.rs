@@ -272,7 +272,8 @@ pub fn summarize(obs: &[Observation]) -> BTreeMap<(String, Effort), Measured> {
 /// The measured manifest of `planned`: every cell's figures, the envelope
 /// bound (twice the largest measured envelope, rounded up to a power of two),
 /// unusable cells marked with their reason (recorded, never dropped
-/// silently): no accepted answer, or (frontier) a slowest call past
+/// silently): no accepted answer, or (frontier) a slowest call past the
+/// vendor deadline ([`crate::iface::vendor_deadline_ms`]) of
 /// `call_timeout_ceiling_ms`, the longest call timeout any frontier lease
 /// the lane bounds allow ([`crate::plan::LaneBounds::call_timeout_ceiling_ms`]);
 /// the report digest, and the new version.
@@ -287,7 +288,7 @@ pub fn apply(planned: &Manifest, summary: &BTreeMap<(String, Effort), Measured>,
             let s = summary.get(&(x.id.clone(), *e)).copied().ok_or(Refused("measure (a cell without content observations)"))?;
             let why = if s.accepted == 0 {
                 Some(Unusable::NoAcceptedAnswer)
-            } else if x.lane == crate::vendor::Lane::Frontier && s.latency_ms_max > call_timeout_ceiling_ms {
+            } else if x.lane == crate::vendor::Lane::Frontier && s.latency_ms_max > crate::iface::vendor_deadline_ms(call_timeout_ceiling_ms) {
                 Some(Unusable::SlowerThanLeaseCeiling)
             } else {
                 None

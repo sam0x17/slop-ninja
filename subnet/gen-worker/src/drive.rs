@@ -129,7 +129,9 @@ async fn error_body<B: Body>(b: &mut B, bound: usize) -> Option<Vec<u8>> {
 /// Runs `call` with `key` (the vendor's API key) over `t`.
 pub async fn drive<T: Transport>(t: &mut T, call: &GenCall, key: &str) -> GenReply {
     let t0 = t.now_ms();
-    let deadline = t0.saturating_add(call.timeout_ms);
+    // The vendor's deadline leaves the reply its allowance within the
+    // call's timeout, which the eval Worker enforces on the service call.
+    let deadline = t0.saturating_add(iface::vendor_deadline_ms(call.timeout_ms));
     let first = &call.request;
     let Some(url) = first.vendor.endpoint() else {
         // Workers AI runs in the eval Worker, never here.
@@ -278,6 +280,8 @@ pub mod mock {
     pub struct Mock {
         pub script: std::collections::VecDeque<Result<Answer, Fault>>,
         pub sent: Vec<Sent>,
+        /// Each POST's deadline.
+        pub deadlines: Vec<u64>,
         pub clock: std::cell::Cell<u64>,
         pub step_ms: u64,
         pub admit_ok: bool,
@@ -291,6 +295,7 @@ pub mod mock {
             Mock {
                 script: script.into(),
                 sent: Vec::new(),
+                deadlines: Vec::new(),
                 clock: std::cell::Cell::new(1_000),
                 step_ms: 7,
                 admit_ok: true,
@@ -303,7 +308,8 @@ pub mod mock {
 
     impl Transport for Mock {
         type Body = MockBody;
-        async fn post(&mut self, url: &str, headers: &[(&str, &str)], body: &str, _deadline_ms: u64) -> Result<(Head, MockBody), Fault> {
+        async fn post(&mut self, url: &str, headers: &[(&str, &str)], body: &str, deadline_ms: u64) -> Result<(Head, MockBody), Fault> {
+            self.deadlines.push(deadline_ms);
             let key_header = |n: &str| n == "authorization" || n == "x-api-key";
             self.sent.push(Sent {
                 url: url.to_owned(),
@@ -358,6 +364,20 @@ mod tests {
 
     fn json(g: &GenReply) -> String {
         serde_json::to_string(g).unwrap()
+    }
+
+    /// The vendor deadline leaves the reply its allowance within the call's
+    /// timeout (the eval Worker's bound on the service call), so a vendor
+    /// call that runs to it still answers with its own outcome.
+    #[test]
+    fn the_vendor_deadline_leaves_the_reply_its_allowance() {
+        let c = call("gpt-6-luna", Effort::High, 2);
+        let mut t = Mock::new(vec![Err(Fault::Timeout)]);
+        let g = run(drive(&mut t, &c, KEY));
+        assert_eq!(t.deadlines, vec![1_000 + c.timeout_ms - iface::REPLY_ALLOWANCE_MS]);
+        assert!(t.deadlines[0] < 1_000 + c.timeout_ms);
+        assert_eq!(g.outcome, OutcomeCode::Outage);
+        assert!(g.sent);
     }
 
     #[test]

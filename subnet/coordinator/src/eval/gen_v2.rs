@@ -97,7 +97,7 @@ pub const SCHEMA_V26: &[&str] = &[
 pub const STORED_OBJECT_BYTES: u64 = 2_000_000;
 
 /// The largest generator manifest and voice library together (declared
-/// bytes, `gen_objects_v1`). Every generation claim and commit (the cohort
+/// bytes, `gen_objects_v2`: 131,072). Every generation claim and commit (the cohort
 /// object's fetch, `arena_routes::COHORT_CONTROL_BYTES`) reads both rows
 /// and parses them; the bound gives them half of that footprint (the other
 /// half stays with the route's own control and the claim's items), at
@@ -110,14 +110,20 @@ pub const STORED_OBJECT_BYTES: u64 = 2_000_000;
 pub const GEN_OBJECTS_BYTES: u64 = (crate::arena_routes::COHORT_CONTROL_BYTES as u64 / 2) / (2 * GEN_OBJECTS_PARSE_FACTOR);
 /// The peak bytes of a loaded generation context per declared object byte
 /// (both rows read, parse transients and the parsed structures), rounded
-/// up. Measured natively on 2026-11-05
-/// (`gen_v2_tests::witness::arena_witness_gen_objects_measure`): the
-/// fixture manifest with a library of fixture-length entries peaked at
-/// 208,364 B live for 87,252 declared bytes (2.39 B a byte) and at
-/// 395,681 B for 174,409 (2.27, the bound). The claim and
-/// commit witnesses run at [`GEN_OBJECTS_BYTES`] under the route's exact
-/// footprint, `Strict`.
-pub const GEN_OBJECTS_PARSE_FACTOR: u64 = 3;
+/// up, over the library shapes the schema allows. Measured natively on
+/// 2026-11-05 (`gen_v2_tests::witness::arena_witness_gen_objects_measure`)
+/// at the earlier bound (`gen_objects_v1`, 174,762 declared bytes): a
+/// library of the longest entries (256-byte texts) peaked at 395,681 B
+/// live for 174,409 declared bytes (2.27 B a byte); a library of the
+/// shortest entries the schema allows (one-byte text and source, the
+/// shortest ids, category and kinds: the most per-entry overhead per
+/// declared byte, the worst case) at 534,891 B for 174,633 (3.06 B a
+/// byte), hence 4 (`gen_objects_v2`; `v1` took 3 from the long shape
+/// alone). At this bound the two shapes peak at 318,407 B for 130,831
+/// declared bytes (2.43) and 343,195 B for 130,953 (2.62). The claim, commit and draw witnesses run both shapes at
+/// [`GEN_OBJECTS_BYTES`] under the routes' exact footprints, `Strict`.
+pub const GEN_OBJECTS_PARSE_FACTOR: u64 = 4;
+const _: () = assert!(GEN_OBJECTS_BYTES == 131_072);
 /// What the draw step admits beside its base footprint for a v2 plan: the
 /// two objects read as exact blocks, the manifest parsed once by the Worker
 /// for the library's binding, and both parsed again and stored by the draw
@@ -717,7 +723,9 @@ pub fn apply_one(
         return Ok(out);
     }
     let mut g = decode(text(r, 11)?)?;
-    let current = text(r, 4)? == "pending" && int(r, 6)? == res.claim;
+    // Outside `generating` (a late commit, `engine::late_generation`) no
+    // result is current: its spend is recorded below and nothing applies.
+    let current = c.phase == "generating" && text(r, 4)? == "pending" && int(r, 6)? == res.claim;
     // The cell this call ran on is the result's (its claim's cell: model
     // and effort), which a stale result may no longer share with the
     // document's current cell.

@@ -37,7 +37,8 @@ use super::{error, json, migrate_storage, now_ms, transaction};
 use crate::eval::engine::{self, CallTiming};
 use crate::eval::lane_logic::{self, ChunkCtx, ChunkEnd, CohortError, Fault, LaneIo, RestartFailure, ScoreFailure};
 use crate::eval::lanes::{
-    ArtifactRef, Assignment, BundleReport, ClaimReply, GenClaimReply, LaneKick, LaneRef, LaneReport, Meter, SummaryReport,
+    ArtifactRef, Assignment, BundleReport, ClaimReply, GenClaimReply, GenClassEnd, GenLaneEnd, LaneKick, LaneRef, LaneReport, Meter,
+    SummaryReport,
 };
 use crate::eval::limiter::{Feedback, Grants, Limiter, LimiterConfig};
 use crate::eval::scorer_client::{self as sc, Entry, Ours, Prep, Slot};
@@ -1313,7 +1314,14 @@ impl EvalLane {
             Ok(a) => a,
             Err(e) => return e,
         };
-        let sh = GenShared { wants: RefCell::new(None), last_report: Cell::new(now_ms()), stop: Cell::new(false), active: [Cell::new(true), Cell::new(false)] };
+        let sh = GenShared {
+            wants: RefCell::new(None),
+            last_report: Cell::new(now_ms()),
+            stop: Cell::new(false),
+            active: [Cell::new(true), Cell::new(false)],
+            events: Cell::new(0),
+            wakers: [RefCell::new(None), RefCell::new(None)],
+        };
         let end = if a.gen_frontier_lease_ms == 0 {
             // A v1 cohort: Workers AI only, as before.
             self.gen_class(k, t0, &a, &sh, false).await
@@ -1328,13 +1336,13 @@ impl EvalLane {
             let (w, f) = futures_util::future::join(self.gen_class(k, t0, &a, &sh, false), self.gen_class(k, t0, &a, &sh, true)).await;
             GenClassEnd::combine(w, f)
         };
-        match end {
-            GenClassEnd::Lane(e) => e,
-            GenClassEnd::Terminal(state) => {
+        match end.lane() {
+            GenLaneEnd::Rearm(ms) => LaneEnd::Rearm(ms),
+            GenLaneEnd::Superseded => LaneEnd::Superseded,
+            GenLaneEnd::Terminal(state) => {
                 let _ = self.report(k, state, None).await;
                 LaneEnd::Finished
             }
-            GenClassEnd::Idle => LaneEnd::Rearm(0),
         }
     }
 
@@ -1343,14 +1351,16 @@ impl EvalLane {
     async fn gen_class(&self, k: &LaneKick, t0: u64, a: &Assignment, sh: &GenShared, frontier: bool) -> GenClassEnd {
         let end = self.gen_class_inner(k, t0, a, sh, frontier).await;
         sh.active[usize::from(frontier)].set(false);
-        if matches!(end, GenClassEnd::Terminal(_) | GenClassEnd::Lane(LaneEnd::Superseded)) {
+        if end.stops_lane() {
             sh.stop.set(true);
         }
+        // The other class may be waiting on this one.
+        sh.signal();
         end
     }
 
     async fn gen_class_inner(&self, k: &LaneKick, t0: u64, a: &Assignment, sh: &GenShared, frontier: bool) -> GenClassEnd {
-        use crate::eval::lanes::{frontier_grants, gen_class_models};
+        use crate::eval::lanes::{GenClassWait, frontier_grants, gen_class_models, gen_class_wait};
         let r = lane_ref(k);
         let env = &self.env;
         let other_active = || sh.active[usize::from(!frontier)].get();
@@ -1377,10 +1387,10 @@ impl EvalLane {
             }
             // The plan's lane step budget (with one generation lease it fits the alarm wall).
             if now_ms().saturating_sub(t0) > a.step_budget_ms {
-                return GenClassEnd::Lane(LaneEnd::Rearm(0));
+                return GenClassEnd::Rearm(0);
             }
             if superseded(&self.state, k).await {
-                return GenClassEnd::Lane(LaneEnd::Superseded);
+                return GenClassEnd::Superseded;
             }
             let models: Vec<String> = match &*sh.wants.borrow() {
                 Some(w) if !w.is_empty() => gen_class_models(w, frontier),
@@ -1399,13 +1409,13 @@ impl EvalLane {
                 let fits = now_ms().saturating_sub(t0).saturating_add(a.gen_frontier_lease_ms) <= crate::eval::plan::ALARM_WALL_MS;
                 if !fits {
                     // A fresh invocation has the whole wall for the lease.
-                    return GenClassEnd::Lane(LaneEnd::Rearm(0));
+                    return GenClassEnd::Rearm(0);
                 }
                 round = round.wrapping_add(1);
                 frontier_grants(sh.wants.borrow().as_ref().unwrap_or(&BTreeMap::new()), a.gen_frontier_inflight, round)
             } else {
                 let Some(g) = limiter_post::<Grants>(env, "/acquire", &j!({"models": models, "slots": a.inflight})).await else {
-                    return GenClassEnd::Lane(LaneEnd::Rearm(2_000));
+                    return GenClassEnd::Rearm(2_000);
                 };
                 if g.grants.is_empty() {
                     waiting().await;
@@ -1416,16 +1426,19 @@ impl EvalLane {
                         continue;
                     }
                     // A long wait holds no invocation.
-                    return GenClassEnd::Lane(LaneEnd::Rearm(wait as i64));
+                    return GenClassEnd::Rearm(wait as i64);
                 }
                 wai_grants = g.grants.clone();
                 g.grants
             };
+            // The other class's events up to this claim (one during the
+            // claim may already have moved an item this reply missed).
+            let seen = sh.events.get();
             let reply: GenClaimReply = match cohort_call(env, k, "/gen/claim", &j!({"lane": r, "name": k.name, "grants": grants})).await {
                 Ok(v) => v,
                 Err(_) => {
                     refund(wai_grants).await;
-                    return GenClassEnd::Lane(LaneEnd::Rearm(5_000));
+                    return GenClassEnd::Rearm(5_000);
                 }
             };
             match reply {
@@ -1462,35 +1475,37 @@ impl EvalLane {
                     let results: Vec<_> = done.into_iter().map(|(o, _)| o).collect();
                     let _ = cohort_call::<Value>(env, k, "/gen/commit", &j!({"lane": r, "results": results})).await;
                     sh.last_report.set(now_ms());
+                    // A commit can move items to the other class.
+                    sh.signal();
                 }
                 GenClaimReply::Wait { ms, wants: w } => {
                     refund(wai_grants).await;
-                    let mine = !gen_class_models(&w, frontier).is_empty();
-                    *sh.wants.borrow_mut() = Some(w.clone());
-                    if ms == 0 && mine {
-                        // Work for a model of this class: claim it.
-                        continue;
-                    }
-                    if other_active() {
-                        // Nothing for this class now while the other class
-                        // works: hold the invocation (a short wait) and look
-                        // again, so items moved to this class (a fallback, a
-                        // retry's next model) are not left until the next alarm.
-                        waiting().await;
-                        Delay::from(Duration::from_millis(ms.clamp(500, 5_000))).await;
-                        continue;
-                    }
-                    if ms > 0 || w.is_empty() {
-                        waiting().await;
-                        let ms = ms.max(500);
-                        if ms <= 5_000 {
+                    let step = gen_class_wait(ms, &w, frontier, other_active(), REPORT_EVERY_MS);
+                    *sh.wants.borrow_mut() = Some(w);
+                    match step {
+                        GenClassWait::Claim => continue,
+                        GenClassWait::AwaitOther { ms } => {
+                            // Nothing for this class while the other class
+                            // works: no claim until the other class commits
+                            // or ends (items moved to this class, a fallback
+                            // or a retry's next model, are claimed then),
+                            // or until `ms`, within the step budget.
+                            waiting().await;
+                            let left = a.step_budget_ms.saturating_sub(now_ms().saturating_sub(t0));
+                            let _ = select(Box::pin(sh.changed(frontier, seen)), Box::pin(Delay::from(Duration::from_millis(ms.min(left))))).await;
+                            continue;
+                        }
+                        GenClassWait::Hold { ms } => {
+                            waiting().await;
                             Delay::from(Duration::from_millis(ms)).await;
                             continue;
                         }
-                        return GenClassEnd::Lane(LaneEnd::Rearm(ms as i64));
+                        GenClassWait::Rearm { ms } => {
+                            waiting().await;
+                            return GenClassEnd::Rearm(ms as i64);
+                        }
+                        GenClassWait::Idle => return GenClassEnd::Idle,
                     }
-                    // Work only for the other class, which has ended.
-                    return GenClassEnd::Idle;
                 }
                 GenClaimReply::Done => {
                     refund(wai_grants).await;
@@ -1502,7 +1517,7 @@ impl EvalLane {
                 }
                 GenClaimReply::Fenced => {
                     refund(wai_grants).await;
-                    return GenClassEnd::Lane(LaneEnd::Superseded);
+                    return GenClassEnd::Superseded;
                 }
             }
         }
@@ -1694,30 +1709,44 @@ struct GenShared {
     stop: Cell<bool>,
     /// Whether each class's loop is still running.
     active: [Cell<bool>; 2],
+    /// Counts the events a waiting class wakes on (a commit, a class's end).
+    events: Cell<u64>,
+    /// Each class's waker while it waits on the other ([`GenShared::changed`]).
+    wakers: [RefCell<Option<std::task::Waker>>; 2],
 }
 
-/// How one class loop ended.
-enum GenClassEnd {
-    Lane(LaneEnd),
-    /// The cohort's generation is done or paused (reported once).
-    Terminal(&'static str),
-    /// Nothing for this class, and nothing to decide about the lane.
-    Idle,
-}
-
-impl GenClassEnd {
-    /// The lane's end from both classes': superseded, then a terminal
-    /// state, then the earliest re-arm.
-    fn combine(w: Self, f: Self) -> Self {
-        use GenClassEnd::*;
-        match (w, f) {
-            (Lane(LaneEnd::Superseded), _) | (_, Lane(LaneEnd::Superseded)) => Lane(LaneEnd::Superseded),
-            (Terminal(s), _) | (_, Terminal(s)) => Terminal(s),
-            (Lane(LaneEnd::Rearm(x)), Lane(LaneEnd::Rearm(y))) => Lane(LaneEnd::Rearm(x.min(y))),
-            (Lane(e), Idle) | (Idle, Lane(e)) => Lane(e),
-            (Lane(e), Lane(_)) => Lane(e),
-            (Idle, Idle) => Idle,
+impl GenShared {
+    /// Records an event and wakes a waiting class.
+    fn signal(&self) {
+        self.events.set(self.events.get().wrapping_add(1));
+        for w in &self.wakers {
+            if let Some(w) = w.borrow_mut().take() {
+                w.wake();
+            }
         }
+    }
+
+    /// Resolves at the first event after `seen` (class `frontier` waiting).
+    fn changed(&self, frontier: bool, seen: u64) -> GenChanged<'_> {
+        GenChanged { sh: self, me: usize::from(frontier), seen }
+    }
+}
+
+/// [`GenShared::changed`].
+struct GenChanged<'a> {
+    sh: &'a GenShared,
+    me: usize,
+    seen: u64,
+}
+
+impl std::future::Future for GenChanged<'_> {
+    type Output = ();
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+        if self.sh.events.get() != self.seen {
+            return std::task::Poll::Ready(());
+        }
+        *self.sh.wakers[self.me].borrow_mut() = Some(cx.waker().clone());
+        std::task::Poll::Pending
     }
 }
 

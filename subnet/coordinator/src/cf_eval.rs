@@ -640,7 +640,9 @@ impl DurableObject for EvalCohort {
             return error("not_configured", 503);
         };
         let now = now_ms();
-        if path.starts_with("/lane/") || path.starts_with("/gen/") || path.starts_with("/job/") {
+        // The lanes' routes; the operator's vendor clear, under `/gen/`
+        // too, is answered below (`lanes::lane_route_path`).
+        if lanes::lane_route_path(&path) {
             return self.lane_route(&mut req, &path, cfg, now).await;
         }
         // Admission, the commitment reader and the calendar belong to the
@@ -928,7 +930,7 @@ impl DurableObject for EvalCohort {
                     Err(_) => error("store_unavailable", 503),
                 }
             }
-            (Method::Post, "/gen/vendor-clear") => {
+            (Method::Post, lanes::GEN_VENDOR_CLEAR_PATH) => {
                 // An operator clear of a generation v2 vendor pause: the
                 // vendor is active again from the next draw (and for the
                 // retries and fallbacks of running cohorts). Idempotent.

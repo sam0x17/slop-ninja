@@ -100,6 +100,28 @@ pub fn within(r: &VendorRequest) -> bool {
     version_ok && r.body.len() <= CALL_BODY_BYTES && r.visible_bound as usize <= VISIBLE_BYTES_MAX && r.line_bound as usize <= LINE_BYTES_MAX && r.line_bound >= r.visible_bound
 }
 
+/// What the generation Worker leaves of a call's timeout
+/// ([`crate::outcome::GenCall::timeout_ms`], also the eval Worker's own
+/// bound on the whole service call) for everything around the vendor call:
+/// the service binding's dispatch and return, the message read, the key's
+/// resolution and the reply. The generation Worker's vendor deadline is the
+/// call's timeout less this ([`vendor_deadline_ms`]), so a vendor call that
+/// runs to the deadline ends there with the generation Worker's own outcome
+/// and usage, and that reply reaches the eval Worker before it aborts the
+/// service call. Part of the interface ([`MARKER_VALUE`]) and not yet
+/// measured: the measurement run records each frontier call's service
+/// overhead (`service_ms`: the eval Worker's wall time less the reply's
+/// latency) to qualify it; a larger measured overhead needs a new interface
+/// version, not a silent overrun.
+pub const REPLY_ALLOWANCE_MS: u64 = 2_000;
+
+/// The generation Worker's vendor deadline for a call of `timeout_ms`
+/// ([`REPLY_ALLOWANCE_MS`]). A measured cell is usable only if its slowest
+/// call fits it.
+pub const fn vendor_deadline_ms(timeout_ms: u64) -> u64 {
+    timeout_ms.saturating_sub(REPLY_ALLOWANCE_MS)
+}
+
 /// The read buffer of a body read: one WebAssembly page, the unit the arena
 /// allocates in.
 pub const READ_BUFFER_BYTES: usize = PAGE;

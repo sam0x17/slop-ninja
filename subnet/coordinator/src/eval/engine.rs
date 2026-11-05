@@ -2641,7 +2641,7 @@ pub fn throttle_backoff_ms(idx: i64, throttles: i64) -> u64 {
 pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[GenOutcome], now_ms: u64) -> R<Value> {
     let c = cohort(sql, seq)?;
     if c.phase != "generating" {
-        return Err(EvalError::State("generation outside generating"));
+        return late_generation(sql, cfg, &c, results);
     }
     let gl = &c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?.generation;
     let (max_throttle, pause_after) = (gl.max_throttle_ms, i64::from(gl.failures_before_pause()));
@@ -2832,6 +2832,54 @@ pub fn apply_generation(sql: &impl Sql, cfg: &EvalConfig, seq: i64, results: &[G
     }
     Ok(json!({"accepted": accepted, "rejected": rejected, "outages": outages, "throttled": throttled,
         "fenced": fenced, "cost_microusd": cost_total}))
+}
+
+/// A generation commit after the cohort left `generating`: nothing of it
+/// applies to a document. A generation v2 result is still a vendor call
+/// (one that outlived its claim's lease, whose item another lane finished):
+/// its spend is recorded once (fenced by its claim token, `gen_results`)
+/// on the cell it ran, and added to the cohort's generation cost, while
+/// the cohort's spend is not yet settled (`settled_microusd`, the ledger's
+/// one charge of the cohort). A v1 result (Workers AI, reported with the
+/// cohort's Cloudflare spend), or any result after the settle, is refused
+/// as before: a stale call that returns only after its cohort settled (the
+/// settle runs once the cohort reaches transition, closes or is abandoned)
+/// stays out of the cohort's spend.
+fn late_generation(sql: &impl Sql, cfg: &EvalConfig, c: &Cohort, results: &[GenOutcome]) -> R<Value> {
+    let outside = EvalError::State("generation outside generating");
+    if c.plan.generation.is_none() {
+        return Err(outside);
+    }
+    let settled = sql.exec("SELECT settled_microusd IS NOT NULL FROM cohorts WHERE seq = ?", &[i(c.seq)])?;
+    if settled.first().is_none_or(|r| int(r, 0).unwrap_or(1) != 0) {
+        return Err(outside);
+    }
+    let mut v2: Option<crate::eval::gen_v2::Ctx> = None;
+    let (mut late, mut fenced, mut cost_total) = (0u32, 0u32, 0u64);
+    for g in results {
+        let rows = sql.exec(
+            "SELECT kind, parent, spec, attempts, status, infra_failures, claim_gen, reserved_microusd, throttles,
+                    throttle_since_ms, key, gen_record, domain
+             FROM docs WHERE seq = ? AND idx = ?",
+            &[i(c.seq), i(g.idx)],
+        )?;
+        let Some(r) = rows.first() else { continue };
+        if opt_text(r, 11).is_none() {
+            continue;
+        }
+        if v2.is_none() {
+            v2 = crate::eval::gen_v2::Ctx::load(sql, c, &cfg.private_seed)?;
+        }
+        let ctx = v2.as_ref().ok_or(EvalError::State("generation v2 record in a v1 cohort"))?;
+        // Outside `generating` no result is current: `apply_one` records
+        // the call's spend (or fences a redelivery) and applies nothing.
+        let a = crate::eval::gen_v2::apply_one(sql, ctx, c, 0, i64::MAX, r, g, 0)?;
+        late += 1;
+        fenced += a.fenced;
+        cost_total += a.cost_microusd;
+    }
+    sql.exec("UPDATE cohorts SET gen_cost_microusd = gen_cost_microusd + ? WHERE seq = ?", &[bind_u64(cost_total)?, i(c.seq)])?;
+    Ok(json!({"accepted": 0, "rejected": 0, "outages": 0, "throttled": 0, "fenced": fenced, "late": late, "cost_microusd": cost_total}))
 }
 
 /// Adds one call to the cohort's per-model generation usage: `(accepted,

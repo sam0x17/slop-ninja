@@ -68,10 +68,50 @@ fn failed_reply(call: &GenCall, outcome: OutcomeCode, status: u16) -> GenReply {
 /// the library is padded with entries of the fixture's longest text
 /// (`max_entry_bytes`) until the manifest and the library together reach
 /// `total` declared bytes (within one entry).
-fn put_objects_sized(sim: &mut Sim<'_>, total: Option<u64>) -> (ObjectRef, Manifest) {
+/// How [`put_objects_padded`] pads the voice library to its total: entries
+/// of the longest text the header allows, or the shortest entries the
+/// library schema allows (one-byte text and source, the shortest distinct
+/// ids, the shortest category and kinds), the most entries (and the most
+/// per-entry overhead) per declared byte.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(feature = "arena-witness"), allow(dead_code))]
+enum Pad {
+    Long,
+    Short,
+}
+
+/// The shortest distinct id of entry `n` (radix 36; no fixture id is one).
+fn short_id(mut n: usize) -> String {
+    const DIGITS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let mut out = Vec::new();
+    loop {
+        out.push(DIGITS[n % 36]);
+        n /= 36;
+        if n == 0 {
+            break;
+        }
+    }
+    out.reverse();
+    String::from_utf8(out).unwrap()
+}
+
+fn put_objects_padded(sim: &mut Sim<'_>, total: Option<u64>, pad: Pad) -> (ObjectRef, Manifest) {
     let mut lib = vfx::library();
     if let Some(total) = total {
         let base = lib.entries.clone();
+        let short_base = base
+            .iter()
+            .map(|e| {
+                let mut e = e.clone();
+                e.id = String::new();
+                e.text = "x".into();
+                e.source = "s".into();
+                e.imitated_author = None;
+                e.kinds.truncate(1);
+                e
+            })
+            .min_by_key(|e| serde_json::to_vec(e).unwrap().len())
+            .unwrap();
         let manifest_bytes = {
             let m = mfx::with_voice_library(mfx::measured(mfx::planned()), vfx::reference(&lib));
             serde_json::to_vec(&m).unwrap().len() as u64 + 200
@@ -79,10 +119,20 @@ fn put_objects_sized(sim: &mut Sim<'_>, total: Option<u64>) -> (ObjectRef, Manif
         let mut len = manifest_bytes + vfx::to_jsonl(&lib).len() as u64;
         let mut n = 0usize;
         loop {
-            let mut e = base[n % base.len()].clone();
-            e.id = format!("pad_{n}");
-            let head = format!("TEST voice pad {n} ");
-            e.text = head.clone() + &"x".repeat(lib.header.max_entry_bytes as usize - head.len());
+            let e = match pad {
+                Pad::Long => {
+                    let mut e = base[n % base.len()].clone();
+                    e.id = format!("pad_{n}");
+                    let head = format!("TEST voice pad {n} ");
+                    e.text = head.clone() + &"x".repeat(lib.header.max_entry_bytes as usize - head.len());
+                    e
+                }
+                Pad::Short => {
+                    let mut e = short_base.clone();
+                    e.id = short_id(n);
+                    e
+                }
+            };
             let line = serde_json::to_vec(&e).unwrap().len() as u64 + 1;
             if len + line > total {
                 break;
@@ -156,8 +206,12 @@ fn v2_cohort<'a>(db: &'a Sqlite, label: &str) -> (Sim<'a>, i64, Manifest) {
 }
 
 fn v2_cohort_sized<'a>(db: &'a Sqlite, label: &str, total: Option<u64>) -> (Sim<'a>, i64, Manifest) {
+    v2_cohort_padded(db, label, total, Pad::Long)
+}
+
+fn v2_cohort_padded<'a>(db: &'a Sqlite, label: &str, total: Option<u64>, pad: Pad) -> (Sim<'a>, i64, Manifest) {
     let (mut sim, weak, probe_ref) = probe_built(db);
-    let (r, m) = put_objects_sized(&mut sim, total);
+    let (r, m) = put_objects_padded(&mut sim, total, pad);
     let mut p = plan_v3(2, label, 40, weak);
     p.reward_v1.as_mut().unwrap().probes = vec![probe_ref];
     p.reward_v1.as_mut().unwrap().canary.draw_humans = 16;
@@ -556,6 +610,192 @@ fn frontier_grants_stay_within_the_class_share() {
     assert!(lanes::frontier_grants(&BTreeMap::new(), 3, 0).is_empty());
 }
 
+/// The cohort object's dispatch: the operator's vendor clear, under
+/// `/gen/` like the lanes' claims and commits, is not diverted to the lane
+/// routes (which have no arm for it); the lanes' paths are.
+#[test]
+fn the_vendor_clear_reaches_the_cohort_objects_operator_routes() {
+    assert_eq!(lanes::GEN_VENDOR_CLEAR_PATH, "/gen/vendor-clear");
+    assert!(!lanes::lane_route_path(lanes::GEN_VENDOR_CLEAR_PATH));
+    for p in ["/gen/claim", "/gen/commit", "/lane/report", "/lane/summary", "/job/preds", "/job/objects"] {
+        assert!(lanes::lane_route_path(p), "{p}");
+    }
+    for p in ["/plan", "/clear", "/hold", "/template", "/admission/x", "/gen"] {
+        assert!(!lanes::lane_route_path(p), "{p}");
+    }
+    // The clear itself: idempotent, `false` for a vendor that is not paused.
+    let db = Sqlite::open();
+    tx(&db, |s| crate::sql::migrate(s, &crate::sql::EVAL_COHORT_SCHEMA)).unwrap();
+    let v = gen_v2::pausable_vendor("openai").unwrap();
+    assert!(!tx(&db, |s| gen_v2::resume_vendor(s, v)).unwrap());
+    assert!(gen_v2::pausable_vendor("nobody").is_none());
+}
+
+/// A v2 lane's class ends combine into the lane's: superseded first, then
+/// a terminal state, then the earliest re-arm; an idle class decides
+/// nothing, and an idle lane re-arms at once. Only superseded and terminal
+/// ends stop the other class.
+#[test]
+fn a_v2_lanes_class_ends_combine() {
+    use lanes::{GenClassEnd as E, GenLaneEnd as L};
+    let all = [E::Rearm(0), E::Rearm(7), E::Rearm(30_000), E::Superseded, E::Terminal("done"), E::Terminal("paused"), E::Idle];
+    for a in all {
+        for b in all {
+            let c = E::combine(a, b);
+            if !matches!((a, b), (E::Terminal(_), E::Terminal(_))) {
+                assert_eq!(c, E::combine(b, a), "{a:?} {b:?}");
+            }
+            if a == E::Superseded || b == E::Superseded {
+                assert_eq!(c, E::Superseded);
+            } else if let E::Terminal(_) = a {
+                assert_eq!(c, a);
+            } else if let E::Terminal(_) = b {
+                assert_eq!(c, b);
+            } else {
+                match (a, b) {
+                    (E::Rearm(x), E::Rearm(y)) => assert_eq!(c, E::Rearm(x.min(y))),
+                    (E::Rearm(x), E::Idle) | (E::Idle, E::Rearm(x)) => assert_eq!(c, E::Rearm(x)),
+                    _ => assert_eq!(c, E::Idle),
+                }
+            }
+        }
+        assert_eq!(a.stops_lane(), matches!(a, E::Superseded | E::Terminal(_)));
+    }
+    assert_eq!(E::Idle.lane(), L::Rearm(0));
+    assert_eq!(E::Rearm(9).lane(), L::Rearm(9));
+    assert_eq!(E::Superseded.lane(), L::Superseded);
+    assert_eq!(E::Terminal("paused").lane(), L::Terminal("paused"));
+}
+
+/// A v2 lane class's step on a `Wait` reply: it claims at once only for
+/// work of its own class; while the other class works it waits on that
+/// class (its commits or its end), at most the due time or the report
+/// interval, instead of polling the cohort object.
+#[test]
+fn a_v2_lane_class_waits_on_the_other_class_rather_than_polling() {
+    use lanes::{GEN_HOLD_MAX_MS, GEN_WAIT_MIN_MS, GenClassWait as W, gen_class_wait};
+    let report = 20_000;
+    let w = |pairs: &[(&str, u32)]| -> BTreeMap<String, u32> { pairs.iter().map(|(m, n)| ((*m).to_owned(), *n)).collect() };
+    let wai = w(&[("@cf/meta/llama-3.2-3b-instruct", 3)]);
+    let fr = w(&[("gpt-6-luna", 2)]);
+    let none = BTreeMap::new();
+    // Work of its own class: claim.
+    assert_eq!(gen_class_wait(0, &wai, false, true, report), W::Claim);
+    assert_eq!(gen_class_wait(0, &fr, true, false, report), W::Claim);
+    // Only the other class's work while it runs: wait on it, up to the
+    // report interval (no due time for this class).
+    assert_eq!(gen_class_wait(0, &fr, false, true, report), W::AwaitOther { ms: report });
+    assert_eq!(gen_class_wait(0, &wai, true, true, report), W::AwaitOther { ms: report });
+    // Nothing claimable: wait on the other class up to the due time.
+    assert_eq!(gen_class_wait(1_500, &none, true, true, report), W::AwaitOther { ms: 1_500 });
+    assert_eq!(gen_class_wait(30_000, &none, false, true, report), W::AwaitOther { ms: report });
+    // The other class has ended: hold a short wait, re-arm a long one.
+    assert_eq!(gen_class_wait(GEN_WAIT_MIN_MS, &none, false, false, report), W::Hold { ms: GEN_WAIT_MIN_MS });
+    assert_eq!(gen_class_wait(GEN_HOLD_MAX_MS, &none, false, false, report), W::Hold { ms: GEN_HOLD_MAX_MS });
+    assert_eq!(gen_class_wait(GEN_HOLD_MAX_MS + 1, &none, true, false, report), W::Rearm { ms: GEN_HOLD_MAX_MS + 1 });
+    // Work only for the other class, which has ended: this class is idle.
+    assert_eq!(gen_class_wait(0, &fr, false, false, report), W::Idle);
+    assert_eq!(gen_class_wait(0, &wai, true, false, report), W::Idle);
+}
+
+/// A claim with no grant (an idle lane class refreshing its wants) reads
+/// neither generation object: it still answers while the objects are
+/// unreadable, which a claim with a grant is not.
+#[test]
+fn an_empty_v2_claim_does_not_load_the_generation_objects() {
+    let db = Sqlite::open();
+    let (mut sim, seq, _) = v2_cohort(&db, "testnet-g2-h");
+    sim.frozen = vec!["gen"];
+    let drawn = || -> i64 { db.conn.query_row("SELECT COUNT(*) FROM docs WHERE seq = ?1 AND gen_record IS NOT NULL", [seq], |r| r.get(0)).unwrap() };
+    for _ in 0..20 {
+        if drawn() > 0 {
+            break;
+        }
+        sim.tick();
+    }
+    assert_eq!(phase(&db, seq), "generating");
+    let c2 = cfg();
+    let (lane, generation): (i64, i64) =
+        db.conn.query_row("SELECT lane, gen FROM lanes WHERE seq = ?1 AND kind = 'gen' ORDER BY lane LIMIT 1", [seq], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    let r = LaneRef { seq, kind: "gen".into(), lane, generation };
+    let before = tx(&db, |s| lanes::gen_claim(s, &c2, &r, "a", &BTreeMap::new(), sim.now)).unwrap();
+    let GenClaimReply::Wait { ms: 0, wants } = &before else { panic!("{before:?}") };
+    db.conn.execute("UPDATE gen_objects SET body = 'unreadable' WHERE seq = ?1", [seq]).unwrap();
+    let zero: BTreeMap<String, u32> = wants.keys().map(|m| (m.clone(), 0)).collect();
+    for g in [BTreeMap::new(), zero] {
+        assert_eq!(tx(&db, |s| lanes::gen_claim(s, &c2, &r, "a", &g, sim.now)).unwrap(), before);
+    }
+    let one: BTreeMap<String, u32> = wants.keys().take(1).map(|m| (m.clone(), 1)).collect();
+    assert!(tx(&db, |s| lanes::gen_claim(s, &c2, &r, "a", &one, sim.now)).is_err());
+}
+
+/// A v2 call that commits after its cohort left `generating` (it outlived
+/// its lease; another lane finished the item) applies nothing, but its
+/// vendor spend is recorded once on the cell it ran and added to the
+/// cohort's generation cost, until the cohort's spend is settled.
+#[test]
+fn a_late_v2_commit_outside_generating_records_its_spend_once() {
+    let db = Sqlite::open();
+    let (mut sim, seq, _) = v2_cohort(&db, "testnet-g2-i");
+    sim.frozen = vec!["gen"];
+    let drawn = || -> i64 { db.conn.query_row("SELECT COUNT(*) FROM docs WHERE seq = ?1 AND gen_record IS NOT NULL", [seq], |r| r.get(0)).unwrap() };
+    for _ in 0..20 {
+        if drawn() > 0 {
+            break;
+        }
+        sim.tick();
+    }
+    assert_eq!(phase(&db, seq), "generating");
+    let c2 = cfg();
+    let (lane, generation): (i64, i64) =
+        db.conn.query_row("SELECT lane, gen FROM lanes WHERE seq = ?1 AND kind = 'gen' ORDER BY lane LIMIT 1", [seq], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    let r = LaneRef { seq, kind: "gen".into(), lane, generation };
+    let GenClaimReply::Wait { wants, .. } = tx(&db, |s| lanes::gen_claim(s, &c2, &r, "a", &BTreeMap::new(), sim.now)).unwrap() else { panic!() };
+    let grants = lanes::frontier_grants(&wants, 2, 0);
+    assert!(!grants.is_empty(), "{wants:?}");
+    let GenClaimReply::Items { items, .. } = tx(&db, |s| lanes::gen_claim(s, &c2, &r, "a", &grants, sim.now)).unwrap() else { panic!() };
+    let res: Vec<GenOutcome> = items.iter().map(|it| GenOutcome::from_reply(it, fake_vendor(it, it.call.as_deref().unwrap()))).collect();
+    let docs_before: Vec<(String, i64, String)> = items
+        .iter()
+        .map(|it| {
+            db.conn
+                .query_row("SELECT status, claim_gen, gen_record FROM docs WHERE seq = ?1 AND idx = ?2", rusqlite::params![seq, it.idx], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .unwrap()
+        })
+        .collect();
+    // The cohort leaves generating before the calls commit.
+    db.conn.execute("UPDATE cohorts SET phase = 'scoring' WHERE seq = ?1", [seq]).unwrap();
+    let calls = || -> i64 { db.conn.query_row("SELECT COALESCE(SUM(calls), 0) FROM gen_spend WHERE seq = ?1", [seq], |r| r.get(0)).unwrap() };
+    let cost = || -> i64 { db.conn.query_row("SELECT gen_cost_microusd FROM cohorts WHERE seq = ?1", [seq], |r| r.get(0)).unwrap() };
+    let (calls0, cost0) = (calls(), cost());
+    let v = tx(&db, |s| lanes::gen_commit(s, &c2, &r, &res, sim.now)).unwrap();
+    assert_eq!(v["late"], res.len() as i64);
+    assert_eq!(v["accepted"], 0);
+    assert_eq!(calls(), calls0 + res.len() as i64, "each late call is recorded once");
+    let charged = v["cost_microusd"].as_i64().unwrap();
+    assert!(charged > 0);
+    assert_eq!(cost(), cost0 + charged);
+    for (it, before) in items.iter().zip(&docs_before) {
+        let now: (String, i64, String) = db
+            .conn
+            .query_row("SELECT status, claim_gen, gen_record FROM docs WHERE seq = ?1 AND idx = ?2", rusqlite::params![seq, it.idx], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap();
+        assert_eq!(&now, before, "nothing applies to document {}", it.idx);
+    }
+    // A redelivery records nothing again.
+    let v = tx(&db, |s| lanes::gen_commit(s, &c2, &r, &res, sim.now)).unwrap();
+    assert_eq!(v["fenced"], res.len() as i64);
+    assert_eq!(calls(), calls0 + res.len() as i64);
+    assert_eq!(cost(), cost0 + charged);
+    // After the settle, a late commit is refused (the ledger charged the
+    // cohort once).
+    db.conn.execute("UPDATE cohorts SET settled_microusd = 0 WHERE seq = ?1", [seq]).unwrap();
+    let mut other = res[0].clone();
+    other.claim += 1_000;
+    assert!(tx(&db, |s| lanes::gen_commit(s, &c2, &r, &[other], sim.now)).is_err());
+    assert_eq!(calls(), calls0 + res.len() as i64);
+}
+
 /// A v2 lane's assignment keeps both classes' calls in flight within the
 /// lane's connection limit.
 #[test]
@@ -594,10 +834,10 @@ mod witness {
     use crate::arena_witness::{measure, witness};
     use slop_ninja_arena::{Mode, admit_current_block, set_mode};
 
-    /// A v2 cohort generating, its objects at the bound; returns the
-    /// declared sum.
-    fn at_bound<'a>(db: &'a Sqlite, label: &str) -> (Sim<'a>, i64, u64) {
-        let (mut sim, seq, _) = v2_cohort_sized(db, label, Some(gen_v2::GEN_OBJECTS_BYTES));
+    /// A v2 cohort generating, its objects at the bound (the library
+    /// padded as `pad`); returns the declared sum.
+    fn at_bound<'a>(db: &'a Sqlite, label: &str, pad: Pad) -> (Sim<'a>, i64, u64) {
+        let (mut sim, seq, _) = v2_cohort_padded(db, label, Some(gen_v2::GEN_OBJECTS_BYTES), pad);
         sim.frozen = vec!["gen"];
         let lanes_up = || -> i64 { db.conn.query_row("SELECT COUNT(*) FROM lanes WHERE seq = ?1 AND kind = 'gen'", [seq], |r| r.get(0)).unwrap() };
         for _ in 0..20 {
@@ -613,26 +853,37 @@ mod witness {
         (sim, seq, sum)
     }
 
+    /// Both library shapes at the bound: entries of the longest text, and
+    /// the shortest entries the schema allows (the most per-entry overhead
+    /// per declared byte, the worst case under the spec).
     #[test]
     fn arena_witness_gen_objects_measure() {
         set_mode(Mode::Enforce);
-        let db = Sqlite::open();
-        let (_sim, seq, sum) = at_bound(&db, "testnet-g2-w1");
-        let c = tx(&db, |s| engine::cohort(s, seq)).unwrap();
-        let (_, live) = measure(|| {
-            let ctx = tx(&db, |s| gen_v2::Ctx::load(s, &c, &[5; 32])).unwrap();
-            assert!(ctx.is_some());
-        });
-        let factor = live.div_ceil(sum as usize);
-        eprintln!("arena witness: generation context of {sum} declared B peaks at {live} B live ({factor} B a byte)");
-        assert!(factor as u64 <= gen_v2::GEN_OBJECTS_PARSE_FACTOR, "measured {factor} B a byte");
+        for (pad, label) in [(Pad::Long, "testnet-g2-w1"), (Pad::Short, "testnet-g2-w1s")] {
+            let db = Sqlite::open();
+            let (_sim, seq, sum) = at_bound(&db, label, pad);
+            let c = tx(&db, |s| engine::cohort(s, seq)).unwrap();
+            let (_, live) = measure(|| {
+                let ctx = tx(&db, |s| gen_v2::Ctx::load(s, &c, &[5; 32])).unwrap();
+                assert!(ctx.is_some());
+            });
+            let factor = live.div_ceil(sum as usize);
+            eprintln!("arena witness: generation context ({pad:?} entries) of {sum} declared B peaks at {live} B live ({factor} B a byte)");
+            assert!(factor as u64 <= gen_v2::GEN_OBJECTS_PARSE_FACTOR, "{pad:?}: measured {factor} B a byte");
+        }
     }
 
     #[test]
     fn arena_witness_gen_claim_and_commit_fit_the_cohort_fetch_footprint() {
         set_mode(Mode::Enforce);
+        for (pad, label) in [(Pad::Long, "testnet-g2-w2"), (Pad::Short, "testnet-g2-w2s")] {
+            claim_and_commit_at_bound(pad, label);
+        }
+    }
+
+    fn claim_and_commit_at_bound(pad: Pad, label: &str) {
         let db = Sqlite::open();
-        let (sim, seq, _) = at_bound(&db, "testnet-g2-w2");
+        let (sim, seq, _) = at_bound(&db, label, pad);
         let c2 = cfg();
         let (lane, generation): (i64, i64) =
             db.conn.query_row("SELECT lane, gen FROM lanes WHERE seq = ?1 AND kind = 'gen' ORDER BY lane LIMIT 1", [seq], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
@@ -684,8 +935,14 @@ mod witness {
     #[test]
     fn arena_witness_the_draw_holds_the_generation_objects_within_its_addition() {
         set_mode(Mode::Enforce);
+        for (pad, label) in [(Pad::Long, "testnet-g2-w3"), (Pad::Short, "testnet-g2-w3s")] {
+            draw_at_bound(pad, label);
+        }
+    }
+
+    fn draw_at_bound(pad: Pad, label: &str) {
         let db = Sqlite::open();
-        let (sim, seq, _) = at_bound(&db, "testnet-g2-w3");
+        let (sim, seq, _) = at_bound(&db, label, pad);
         let c = tx(&db, |s| engine::cohort(s, seq)).unwrap();
         let g = c.plan.generation.clone().unwrap();
         let mb = sim.eval[&g.manifest.key].clone();

@@ -2053,7 +2053,7 @@ async fn eval_route(mut req: Request, env: Env) -> Result<Response> {
         (Method::Post, "/plan" | "/clear" | "/abandon" | "/hold") => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         // Generation v2: the operator's clear of a vendor pause (a spend cap
         // or a key failure, `gen_v2::resume_vendor`).
-        (Method::Post, "/gen/vendor-clear") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
+        (Method::Post, crate::eval::lanes::GEN_VENDOR_CLEAR_PATH) if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         // The standing template and the calendar (main instance).
         (Method::Post, "/template" | "/template/pause" | "/session/refuse") if instance == "main" => eval_do::forward(&env, instance, Method::Post, &rest, raw).await,
         (Method::Get, "/calendar") if instance == "main" => eval_do::forward(&env, instance, Method::Get, &rest, None).await,

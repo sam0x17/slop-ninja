@@ -246,8 +246,9 @@ pub fn admit(p: &GenerationPlan, m: &Manifest, pool_domains: &[String], generato
         };
         need(!uses || ok, "generation.keys (a vendor key is missing)")?;
     }
-    // Every usable frontier cell's measured latency fits the call timeout.
-    let timeout = p.frontier_lanes.lease_ms - b.commit_margin_ms;
+    // Every usable frontier cell's measured latency fits the generation
+    // Worker's vendor deadline within the call timeout.
+    let timeout = crate::iface::vendor_deadline_ms(p.frontier_lanes.lease_ms - b.commit_margin_ms);
     let slowest = m
         .lane_models(Lane::Frontier)
         .iter()

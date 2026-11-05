@@ -894,7 +894,7 @@ printf 'Authorization: Bearer %s\n' "$(cat $S/eval_operator_token)" |
 #   under <instance>:<label> as before. A vendor paused by a spend cap or a key failure stays paused
 #   (deployment-wide, across cohorts) until POST /eval/gen/vendor-clear {"vendor": "openai"|"anthropic"}
 #   (answers {"vendor", "cleared"}; idempotent); the self-clearing draw probe is not built yet.
-#   A v2 plan's manifest and voice library together must fit 174,762 declared bytes
+#   A v2 plan's manifest and voice library together must fit 131,072 declared bytes
 #   (gen_v2::GEN_OBJECTS_BYTES, derived from the claim/commit route footprint); the draw refuses more.
 # resume after an outage, platform, unresolved-infrastructure or step_refused fault: /eval/clear {"label": "..."}
 #   (generation, scorer and admission outages also clear by themselves once a probe or the step

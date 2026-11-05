@@ -1048,6 +1048,122 @@ pub fn frontier_grants(wants: &BTreeMap<String, u32>, slots: u32, start: usize) 
     out
 }
 
+/// The cohort object's path of the operator's clear of a generation v2
+/// vendor pause (`POST /eval/gen/vendor-clear` on the eval Worker). It is an
+/// operator route of the cohort object, never a lane's.
+pub const GEN_VENDOR_CLEAR_PATH: &str = "/gen/vendor-clear";
+
+/// Whether the cohort object answers `path` with its lane routes (the lane
+/// and job paths and the lanes' generation claims and commits). The
+/// operator's vendor clear shares the `/gen/` prefix but is not a lane
+/// route ([`GEN_VENDOR_CLEAR_PATH`]).
+pub fn lane_route_path(path: &str) -> bool {
+    path.starts_with("/lane/") || path.starts_with("/job/") || (path.starts_with("/gen/") && path != GEN_VENDOR_CLEAR_PATH)
+}
+
+/// How one class loop of a v2 generation lane ended (the Workers AI and
+/// the frontier class run as two loops of one invocation).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenClassEnd {
+    /// Re-arm the lane after this many ms.
+    Rearm(i64),
+    /// A newer kick replaced the assignment (or the claim was fenced).
+    Superseded,
+    /// The cohort's generation is done or paused (reported once).
+    Terminal(&'static str),
+    /// Nothing for this class, and nothing to decide about the lane.
+    Idle,
+}
+
+/// The lane's end from its classes' ends ([`GenClassEnd::combine`],
+/// [`GenClassEnd::lane`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenLaneEnd {
+    Rearm(i64),
+    Superseded,
+    Terminal(&'static str),
+}
+
+impl GenClassEnd {
+    /// The lane's end from both classes': superseded, then a terminal
+    /// state, then the earliest re-arm; an idle class decides nothing.
+    pub fn combine(w: Self, f: Self) -> Self {
+        use GenClassEnd::*;
+        match (w, f) {
+            (Superseded, _) | (_, Superseded) => Superseded,
+            (Terminal(s), _) | (_, Terminal(s)) => Terminal(s),
+            (Rearm(x), Rearm(y)) => Rearm(x.min(y)),
+            (Rearm(x), Idle) | (Idle, Rearm(x)) => Rearm(x),
+            (Idle, Idle) => Idle,
+        }
+    }
+
+    /// Whether this class's end also ends the other class's loop (the
+    /// lane's work for the assignment is over).
+    pub fn stops_lane(&self) -> bool {
+        matches!(self, GenClassEnd::Superseded | GenClassEnd::Terminal(_))
+    }
+
+    /// The lane's end: an idle lane re-arms at once (its next invocation
+    /// claims again).
+    pub fn lane(self) -> GenLaneEnd {
+        match self {
+            GenClassEnd::Rearm(ms) => GenLaneEnd::Rearm(ms),
+            GenClassEnd::Superseded => GenLaneEnd::Superseded,
+            GenClassEnd::Terminal(s) => GenLaneEnd::Terminal(s),
+            GenClassEnd::Idle => GenLaneEnd::Rearm(0),
+        }
+    }
+}
+
+/// The shortest wait a lane class takes on a `Wait` claim reply (the
+/// claim's own lower bound on its wait, [`gen_claim`]).
+pub const GEN_WAIT_MIN_MS: u64 = 500;
+/// The longest wait a lane class holds its invocation for; a longer one
+/// re-arms the lane (an alarm round trip costs more than a short hold).
+pub const GEN_HOLD_MAX_MS: u64 = 5_000;
+
+/// What a v2 lane class does with a `Wait { ms, wants }` claim reply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenClassWait {
+    /// Work for a model of this class: claim it now.
+    Claim,
+    /// Nothing for this class while the other class works: wait, without
+    /// claiming, for the other class's next commit or end (either can move
+    /// an item to this class: a fallback, a retry's next model), or at most
+    /// `ms`, then claim again.
+    AwaitOther { ms: u64 },
+    /// Hold the invocation `ms`, then claim again.
+    Hold { ms: u64 },
+    /// End the invocation; re-arm after `ms`.
+    Rearm { ms: u64 },
+    /// Work only for the other class, which has ended.
+    Idle,
+}
+
+/// A v2 lane class's step on a `Wait { ms, wants }` claim reply
+/// (`frontier`: which class; `other_active`: whether the other class's
+/// loop still runs). With no due time for this class (`ms` 0: the
+/// claimable work is the other class's), a class that waits on the other
+/// claims again at least every `report_every_ms` (the lanes' report
+/// interval), which also finds this class's items whose other lanes'
+/// leases expired. It never polls the cohort object faster than the
+/// other class commits.
+pub fn gen_class_wait(ms: u64, wants: &BTreeMap<String, u32>, frontier: bool, other_active: bool, report_every_ms: u64) -> GenClassWait {
+    let mine = !gen_class_models(wants, frontier).is_empty();
+    if ms == 0 && mine {
+        return GenClassWait::Claim;
+    }
+    if other_active {
+        return GenClassWait::AwaitOther { ms: if ms > 0 { ms.min(report_every_ms) } else { report_every_ms } };
+    }
+    if ms > 0 || wants.is_empty() {
+        let ms = ms.max(GEN_WAIT_MIN_MS);
+        return if ms <= GEN_HOLD_MAX_MS { GenClassWait::Hold { ms } } else { GenClassWait::Rearm { ms } };
+    }
+    GenClassWait::Idle
+}
+
 /// What a generation lane keeps of its lease to report its answers.
 pub const GEN_REPORT_MS: u64 = 15_000;
 /// The shortest generation call timeout ([`gen_call_timeout_ms`]).
@@ -1966,6 +2082,12 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
     if c.phase != "generating" {
         return Ok(GenClaimReply::Done);
     }
+    if !grants.values().any(|n| *n > 0) {
+        // No grant: nothing to claim, so neither the generation context
+        // nor the reservations are read (an idle lane class's claim only
+        // refreshes its wants).
+        return gen_wait_reply(sql, r.seq, Vec::new(), now);
+    }
     let f = c.plan.fanout().map_err(|e| EvalError::Plan(e.0))?;
     let seed = cohort_seed(&cfg.private_seed, &c.label);
     let reserved_row = &sql.exec("SELECT gen_reserved_microusd, gen_base_microusd FROM cohorts WHERE seq = ?", &[i(r.seq)])?[0];
@@ -2018,11 +2140,19 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
     if over_budget {
         engine::note_budget(sql, r.seq, engine::GENERATION_BUDGET, now)?;
     }
-    let wants = gen_wants(sql, r.seq, now)?;
+    gen_wait_reply(sql, r.seq, items, now)
+}
+
+/// A generation claim's reply once its items (if any) are claimed: the
+/// items, or `Done` with nothing pending, or a `Wait` naming the models
+/// with claimable work (none: the time until the earliest lease or back-off
+/// ends, from [`GEN_WAIT_MIN_MS`]).
+fn gen_wait_reply(sql: &impl Sql, seq: i64, items: Vec<GenItem>, now: u64) -> R<GenClaimReply> {
+    let wants = gen_wants(sql, seq, now)?;
     if !items.is_empty() {
         return Ok(GenClaimReply::Items { items, wants });
     }
-    let pending = int(&sql.exec("SELECT COUNT(*) FROM docs WHERE seq = ? AND status = 'pending'", &[i(r.seq)])?[0], 0)?;
+    let pending = int(&sql.exec("SELECT COUNT(*) FROM docs WHERE seq = ? AND status = 'pending'", &[i(seq)])?[0], 0)?;
     if pending == 0 {
         return Ok(GenClaimReply::Done);
     }
@@ -2032,10 +2162,10 @@ pub fn gen_claim(sql: &impl Sql, cfg: &EvalConfig, r: &LaneRef, name: &str, gran
     }
     let next = sql.exec(
         "SELECT MIN(MAX(claim_until_ms, not_before_ms)) FROM docs WHERE seq = ? AND status = 'pending'",
-        &[i(r.seq)],
+        &[i(seq)],
     )?;
     let at = next.first().and_then(|row| opt_int(row, 0)).unwrap_or(0) as u64;
-    Ok(GenClaimReply::Wait { ms: at.saturating_sub(now).clamp(500, 30_000), wants })
+    Ok(GenClaimReply::Wait { ms: at.saturating_sub(now).clamp(GEN_WAIT_MIN_MS, 30_000), wants })
 }
 
 /// Commits a generation lane's results (fenced per item by its claim token).

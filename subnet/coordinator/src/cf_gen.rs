@@ -93,9 +93,11 @@ pub async fn frontier(env: &Env, call: &GenCall) -> GenReply {
     // The call's own timeout bounds the whole service call, so the reply
     // and the commit fit the rest of the claim lease (`GEN_REPORT_MS`)
     // and no other lane can re-claim the item while its reply is in
-    // flight. The generation Worker's own vendor deadline starts no
-    // earlier, so a vendor slower than both ends here as an outage
-    // charged at its reservation bound (it would be an outage there too).
+    // flight. The generation Worker's own vendor deadline is the timeout
+    // less the reply's allowance (`iface::vendor_deadline_ms`), so a vendor
+    // call that runs to its deadline still answers with its outcome and
+    // usage; only a reply later than the allowance ends here as an outage
+    // charged at its reservation bound.
     let timeout = call.timeout_ms;
     let Some(req) = interface_request(iface::GENERATE_PATH, Method::Post, Some(&body), timeout) else { return unsent(t0) };
     drop(body);
@@ -211,6 +213,7 @@ pub async fn measure(env: &Env, body: &Value) -> (Value, u64, Option<String>) {
         Ok(x) => x,
         Err(e) => return fail(e.0),
     };
+    let t_call = now_ms();
     let reply = match entry.lane {
         Lane::Frontier => {
             let mut accepted_models = vec![entry.id.clone()];
@@ -219,6 +222,14 @@ pub async fn measure(env: &Env, body: &Value) -> (Value, u64, Option<String>) {
         }
         Lane::WorkersAi => workers_ai(env, &request, MEASURE_TIMEOUT_MS).await,
     };
-    let out = gen_measure::assemble(&manifest, entry, effort, &c, &request, &source, &reply, MEASURE_TIMEOUT_MS);
+    let wall_ms = now_ms().saturating_sub(t_call);
+    let mut out = gen_measure::assemble(&manifest, entry, effort, &c, &request, &source, &reply, MEASURE_TIMEOUT_MS);
+    if entry.lane == Lane::Frontier
+        && let Some(a) = out.answer.as_object_mut()
+    {
+        // The service call's overhead beyond the vendor call, the measure
+        // of `iface::REPLY_ALLOWANCE_MS`.
+        a.insert("service_ms".into(), json!(wall_ms.saturating_sub(reply.latency_ms)));
+    }
     (out.answer, out.microusd, Some(out.ledger_key))
 }

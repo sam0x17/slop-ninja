@@ -532,10 +532,18 @@ async fn read_tracker(env: &Env, now: u64) -> tracker::Read {
     .unwrap_or(tracker::Read::Unavailable)
 }
 
+/// The relay's status token for one Worker as it presents it (trimmed), or
+/// `None` when it is not configured.
+fn status_token(env: &Env, token_name: &str) -> Option<String> {
+    var_or_secret(env, token_name)
+        .map(|t| t.trim().to_owned())
+        .filter(|t| !t.is_empty())
+}
+
 /// One coordinator Worker's `/status`, read within the coordinator's route
 /// bound with that Worker's status token.
-async fn read_status(env: &Env, service: &str, token_name: &str) -> status::Read {
-    let Some(token) = var_or_secret(env, token_name).filter(|t| !t.trim().is_empty()) else {
+async fn read_status(env: &Env, service: &str, token: Option<&str>) -> status::Read {
+    let Some(token) = token else {
         return status::Read::NoToken;
     };
     let Ok(fetcher) = env.service(service) else {
@@ -544,7 +552,7 @@ async fn read_status(env: &Env, service: &str, token_name: &str) -> status::Read
     let read = within(STATUS_TIMEOUT_MS, async {
         let headers = Headers::new();
         headers
-            .set("authorization", &format!("Bearer {}", token.trim()))
+            .set("authorization", &format!("Bearer {token}"))
             .ok()?;
         let mut init = RequestInit::new();
         init.with_method(Method::Get).with_headers(headers);
@@ -752,14 +760,33 @@ impl AlertsRelayState {
             kv_get(sql, "heartbeat")?.and_then(|s| serde_json::from_str(&s).ok());
         let intake = intake(sql);
         let watch = st.watch_since_ms.unwrap_or(now);
-        let workers = if rules::publisher_down(heartbeat.as_ref(), watch, now) {
+        let coordinator_token = status_token(&self.env, "COORDINATOR_STATUS_TOKEN");
+        let eval_token = status_token(&self.env, "EVAL_STATUS_TOKEN");
+        // The status check after a token change (`status::CheckState`): read
+        // both Workers once even while the publisher is up, keep the outcome
+        // in the state (`latest.json` `status_check`) and log it. The rules
+        // see the reads only while the publisher is down, as before.
+        let plan = st.status_check.plan(
+            status::token_fingerprint(coordinator_token.as_deref(), eval_token.as_deref()),
+            rules::publisher_down(heartbeat.as_ref(), watch, now),
+        );
+        let read = if plan.read() {
             Some([
-                read_status(&self.env, COORDINATOR_SERVICE, "COORDINATOR_STATUS_TOKEN").await,
-                read_status(&self.env, EVAL_SERVICE, "EVAL_STATUS_TOKEN").await,
+                read_status(&self.env, COORDINATOR_SERVICE, coordinator_token.as_deref()).await,
+                read_status(&self.env, EVAL_SERVICE, eval_token.as_deref()).await,
             ])
         } else {
             None
         };
+        let (workers, check) = st.status_check.conclude(plan, read, now);
+        if let Some(c) = check {
+            let (co, ev) = (c.coordinator, c.eval);
+            if c.settled {
+                console_log!("relay: status check coordinator {co} eval {ev}");
+            } else {
+                console_error!("relay: status check coordinator {co} eval {ev} (again next tick)");
+            }
+        }
         let tracker = read_tracker(&self.env, now).await;
         let mailer = Binding {
             env: &self.env,

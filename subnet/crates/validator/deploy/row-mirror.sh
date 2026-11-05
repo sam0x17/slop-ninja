@@ -20,7 +20,8 @@
 #
 # Reads only, with the operator's own Cloudflare login (`wrangler r2 object
 # get --remote`); writes nothing remote. Objects the pointer no longer names
-# are removed from the mirror after the pointer moved on.
+# are removed from the mirror after the pointer moved on. A failed read
+# exits 1 and copies wrangler's output into this script's standard error.
 #
 # Environment: ROW_MIRROR_BUCKET (default receipts-bucket-testnet),
 # WRANGLER (default wrangler).
@@ -38,11 +39,21 @@ mkdir -p "$dir/authorizations" "$dir/v1/authorizations"
 tmp=$(mktemp -d "$dir/.row-mirror.XXXXXX")
 trap 'rm -rf -- "$tmp"' EXIT
 
+# A failed read reports wrangler's exit status and its whole output (standard
+# output and error, each line prefixed) on standard error, so the timer's log
+# keeps the cause, for example a missing or expired login. A successful
+# read's progress output is dropped.
 get() {
-  "$wrangler" r2 object get "$bucket/$1" --remote --file "$2" >/dev/null 2>"$tmp/err" || {
-    echo "row-mirror: read of $1 failed" >&2
-    return 1
-  }
+  local rc=0
+  "$wrangler" r2 object get "$bucket/$1" --remote --file "$2" >"$tmp/wrangler.log" 2>&1 || rc=$?
+  [ "$rc" -eq 0 ] && return 0
+  echo "row-mirror: read of $1 failed (wrangler exit $rc)" >&2
+  if [ -s "$tmp/wrangler.log" ]; then
+    sed 's/^/row-mirror: wrangler: /' "$tmp/wrangler.log" >&2
+  else
+    echo "row-mirror: wrangler: (no output)" >&2
+  fi
+  return 1
 }
 
 get authorizations/current.json "$tmp/pointer.json"

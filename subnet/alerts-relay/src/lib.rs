@@ -13,9 +13,11 @@
 //!    a heartbeat after every run whose alert phase finished; the relay's own
 //!    one-minute cron alerts when the heartbeats stop for longer than a bound
 //!    derived from the publisher's cron period, lease and hold, and then also
-//!    reads the coordinator Workers' status itself. A crashed publisher, a
-//!    refused configuration that cannot alert, a stopped cron or a broken
-//!    binding are all caught. Each heartbeat also says how the run's alert
+//!    reads the coordinator Workers' status itself (and once after its
+//!    status tokens change, logged and stated in `latest.json`, raising no
+//!    rule: [`status::CheckState`]). A crashed publisher, a refused
+//!    configuration that cannot alert, a stopped cron or a broken binding
+//!    are all caught. Each heartbeat also says how the run's alert
 //!    posts fared, and the relay records the posts it refused, so alerts
 //!    that keep failing while heartbeats arrive are reported too.
 //! 3. **The spend tracker's upload** ([`tracker`]): the operator's spend tracker uploads

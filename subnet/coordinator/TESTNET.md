@@ -185,7 +185,26 @@ each, so each Worker gets one new version per step, not three.
    `EVAL_STATUS_TOKEN`: the publisher's secret names do not change) and the
    relay's on the relay (the same two names), one `wrangler secret bulk` per
    Worker. Check that the publisher's run and the relay's tick read both
-   Workers. From here on, the consumers' secrets named
+   Workers. The relay reads status only while the publisher is silent, and
+   once after its tokens change (alerts relay README, "Status check after a
+   token change"), so deploy a relay build with that check first, in a
+   window of its own: its first tick logs `relay: status check coordinator
+   ok caller=shared eval ok caller=shared`. After the relay's bulk, the
+   next tick must report `ok caller=alerts` for both Workers. Start
+   `wrangler tail` (testnet env) on the relay before the deploy and the
+   bulk and keep it attached across the version change; a line nobody saw
+   is not lost: every `latest.json` states the last check as
+   `status_check` (time, the two outcomes, `settled`) until the next check
+   replaces it, so read it from the puller's `state/latest.json` or the
+   bucket's `feed/v1/latest.json` (never change the tokens again to
+   repeat it). One `unanswered` (a timeout, a broken binding or a non-200
+   answer; logged as an error, `settled` false, checked again the next
+   tick) followed by `ok caller=alerts` is fine. A repeated `unanswered`,
+   or any caller other than `alerts` (`shared`: the bulk did not take;
+   `publisher`: the publisher's value is on the relay; `other`), means the
+   relay's values do not match that Worker's `STATUS_TOKEN_ALERTS`: put the
+   shared token back on the relay and find the mismatch before step 5.
+   From here on, the consumers' secrets named
    `COORDINATOR_STATUS_TOKEN` hold their own values, not the shared token.
 5. Delete `COORDINATOR_STATUS_TOKEN` from the coordinator and the eval Worker
    only, each in its Worker's window (above; the coordinator's schema wait
@@ -194,7 +213,9 @@ each, so each Worker gets one new version per step, not three.
    consumer's own token, and deleting it silently stops the publisher's
    status reads or the relay's dead-man reads. After each delete,
    `access.shared_status_token` turns false on that Worker; check again that
-   the publisher's next run and the relay's next tick read both Workers.
+   the publisher's next run reads both Workers. The relay's tokens do not
+   change in this step, so it logs no new status check: its step-4 check
+   (`caller=alerts`) already showed that it does not use the shared token.
    Then drop the readers' shared-token fallback. Until this step, the
    publisher's `status_access_warning` alert fires once the shared token has
    stayed a tempo beside both consumer tokens. It also fires at once if two

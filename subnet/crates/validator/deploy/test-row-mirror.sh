@@ -16,6 +16,11 @@ cat > "$root/bin/wrangler" <<EOF
 [ "\$1 \$2 \$3" = "r2 object get" ] || exit 9
 key=\${4#*/}
 [ "\$5" = "--remote" ] && [ "\$6" = "--file" ] || exit 9
+if [ -e "$root/no-login" ]; then
+  echo "stub-stdout: not logged in"
+  echo "stub-stderr: no OAuth token in the config" >&2
+  exit 3
+fi
 [ -f "$root/bucket/\$key" ] || exit 1
 cp "$root/bucket/\$key" "\$7"
 echo "\$key" >> "$root/reads"
@@ -63,6 +68,22 @@ if bash "$here/row-mirror.sh" "$m" >/dev/null 2>&1; then fail "a tampered object
 pointer "$a" "$(printf '%064d' 7)"
 if bash "$here/row-mirror.sh" "$m" >/dev/null 2>&1; then fail "a missing object was accepted"; fi
 [ "$(cat "$m/v1/authorizations/current.json")" = "$before" ] || fail "the pointer moved past a missing object"; ok
+# A failed read keeps wrangler's exit status and whole output in the log.
+: > "$root/no-login"
+if bash "$here/row-mirror.sh" "$m" >/dev/null 2>"$root/stderr"; then fail "a failed read was accepted"; fi
+grep -qx 'row-mirror: read of authorizations/current.json failed (wrangler exit 3)' "$root/stderr" || fail "exit status logged"; ok
+grep -qx 'row-mirror: wrangler: stub-stderr: no OAuth token in the config' "$root/stderr" || fail "wrangler stderr logged"; ok
+grep -qx 'row-mirror: wrangler: stub-stdout: not logged in' "$root/stderr" || fail "wrangler stdout logged"; ok
+[ "$(cat "$m/v1/authorizations/current.json")" = "$before" ] || fail "the pointer moved after a failed read"; ok
+rm -f "$root/no-login"
+# A failure without output still names the read.
+if bash "$here/row-mirror.sh" "$m" >/dev/null 2>"$root/stderr"; then fail "a missing object was accepted"; fi
+grep -qx 'row-mirror: read of authorizations/0*7.signed failed (wrangler exit 1)' "$root/stderr" || fail "silent failure named"; ok
+grep -qx 'row-mirror: wrangler: (no output)' "$root/stderr" || fail "silent failure marked"; ok
+# A successful run prints no wrangler output.
+pointer "$a" "$r2"
+out=$(bash "$here/row-mirror.sh" "$m" 2>&1)
+[ "$out" = "row-mirror: 2 objects, pointer current" ] || fail "a successful run printed: $out"; ok
 # Relative directories are refused.
 if bash "$here/row-mirror.sh" relative >/dev/null 2>&1; then fail "a relative directory was accepted"; fi; ok
 [ -z "$(ls -A "$m" | grep '^\.row-mirror' || true)" ] || fail "temporary directory left"; ok

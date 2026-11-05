@@ -404,6 +404,11 @@ pub struct TickState {
     /// The last drill id written to the alert feed: never written again.
     #[serde(default)]
     pub drill_fed: Option<String>,
+    /// The status check after a token change ([`status::CheckState`]): the
+    /// fingerprint of the tokens whose check settled, and the last check's
+    /// outcome (stated in `latest.json` as `status_check`).
+    #[serde(default)]
+    pub status_check: status::CheckState,
     /// Ticks run (stated in `latest.json`).
     #[serde(default)]
     pub ticks: u64,
@@ -743,6 +748,7 @@ async fn latest(
         undelivered: report.undelivered as u64,
         config_warnings: cfg.warnings.len() as u64,
         last_write: table.feed_last_note()?,
+        status_check: st.status_check.last.as_ref().map(feed::CheckNote::new),
         ..feed::Latest::default()
     };
     l.fill(entries, total);
@@ -753,8 +759,9 @@ async fn latest(
     })
 }
 
-/// A tick's reads before it evaluates: at most two status reads (only while
-/// the publisher is down) and the tracker object, each within the status
+/// A tick's reads before it evaluates: at most two status reads (while the
+/// publisher is down, or for the status check after a token change) and the
+/// tracker object, each within the status
 /// read bound. The tick takes its lease for that long, then renews it
 /// before each step by that step's bound ([`RELAY_ANSWER_MS`]), so the lease
 /// always covers the step under way, whatever the number of batches.

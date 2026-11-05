@@ -56,6 +56,29 @@ feed build described here is not deployed yet.
      `/status` embeds for the other callers, and no arena or liveness
      record. The relay does not read `/eval/status`, so it stands in for
      part of the publisher's rules only (see [On call](#on-call)).
+   - **Status check after a token change.** The relay's state keeps a
+     fingerprint (SHA-256, domain-separated) of the two status tokens whose
+     last check answered. On the first tick after a deploy whose tokens
+     differ (put, changed or deleted), and on the first tick of a build
+     without a stored fingerprint, the relay reads both Workers' `/status`
+     once even while the publisher is up and logs
+     `relay: status check coordinator <outcome> eval <outcome>`. Each
+     outcome is `no_token`, `unanswered` or `ok caller=<caller>`, the caller
+     that Worker recognized (`access.caller`: `alerts` for the relay's own
+     token, `shared` for the pre-split shared token, `none` before the
+     status gate). An `unanswered` read is logged as an error and checked
+     again at the next tick, at most two reads a tick, as the dead-man
+     check reads while the publisher is silent. The check raises no rule
+     and the rules see the reads only while the publisher is down. It
+     verifies a token change (coordinator `TESTNET.md`, "Status token
+     split", steps 4 and 5) without stopping the publisher. The relay's
+     state also keeps the last check's outcome (content-free: its time and
+     the two outcomes, `settled` false while a read was unanswered), and
+     every `latest.json` states it as `status_check` until the next check
+     replaces it, so a check whose log line nobody saw is read after the
+     fact: the puller's copy (`state/latest.json` in its inbox) or the
+     bucket's `feed/v1/latest.json`. A live `wrangler tail` (testnet env)
+     started before the deploy shows the same line as it happens.
    - A crashed publisher, a stopped publisher cron, a state object that does
      not answer and a broken binding all stop the heartbeat. The relay is a
      separate Worker, so none of those stops it.
@@ -208,7 +231,9 @@ as one JSON object, once per event id ([`src/feed.rs`](src/feed.rs)):
   row retention, past which no object, firing-set row or ledger row names an
   older event; a reader archives by it), email on or off, the tick's
   counts, whether its deliveries work (`delivery_ok`), the last write's
-  result and the firing set (the
+  result, the last status check after a token change (`status_check`:
+  `utc`, `utc_ms`, `coordinator`, `eval`, `settled`; absent before the
+  first) and the firing set (the
   conditions whose last object was a firing or a reminder). The firing set
   is listed within one post's events bound and counted in full
   (`firing_count`, `firing_omitted`). Conditions that fired before the feed
@@ -371,8 +396,9 @@ rules below hold for each:
 
 Relay ticks run one at a time behind a tick lease:
 
-- A tick takes the lease for its reads (two status reads and the tracker
-  object, each within its bound).
+- A tick takes the lease for its reads (two status reads, while the
+  publisher is down or for the status check after a token change, and the
+  tracker object, each within its bound).
 - It renews the lease before each batch, the drill, the feed's retention
   sweep and `latest.json` by that step's bound, so the lease covers the
   step under way whatever the number of batches.

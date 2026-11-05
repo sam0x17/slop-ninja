@@ -900,6 +900,7 @@ pub(crate) mod tests {
             confirmed_age_ms: Some(1),
             fault: Some("gap".into()),
             signing_fault: true,
+            caller: None,
         };
         let reads = [status::Read::Ok(faulty), status::Read::Unanswered];
         let c = conditions(

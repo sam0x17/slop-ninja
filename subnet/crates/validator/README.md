@@ -773,7 +773,10 @@ before the pointer, each through a temporary name renamed into place. Point
 the validator at it with `[fetch] base_url = "file://<mirror dir>/"` and run
 the script on a timer (every few minutes is enough: a row changes at most
 once a tempo). Every object is verified by the validator as from the
-public host.
+public host. A failed read exits 1 and writes wrangler's exit status and
+its whole output (each line prefixed `row-mirror: wrangler:`) to standard
+error, so the timer's journal keeps the cause, for example a missing or
+expired Cloudflare login.
 
 To upgrade an instance, run the installer with `--from`. Every check that
 can refuse runs with the new build before anything is replaced:

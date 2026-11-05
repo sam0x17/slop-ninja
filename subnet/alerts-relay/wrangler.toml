@@ -37,7 +37,9 @@
 #                             that Worker's shared COORDINATOR_STATUS_TOKEN.
 #                             Both are accepted only through the binding,
 #                             for /status's liveness fields only, and used
-#                             only while the publisher is silent. Never
+#                             while the publisher is silent, and once after
+#                             the relay's status tokens change (README,
+#                             "Status check after a token change"). Never
 #                             delete them in the split's step 5 (TESTNET.md).
 #   HEARTBEAT_URL             optional external dead-man check (https, no
 #                             credentials), pinged after each tick that
@@ -93,8 +95,10 @@ crons = ["* * * * *"]
 [env.testnet.vars]
 # The build refuses any other value.
 NETWORK = "testnet"
-# Fallbacks only. The relay's coordinator check (only while the publisher is
-# silent) uses the watermark bound the publisher's last heartbeat carried;
+# Fallbacks only. The relay's coordinator check (its rules read status only
+# while the publisher is silent; the status check once after the relay's
+# status tokens change, README, "Status check after a token change", raises
+# no rule) uses the watermark bound the publisher's last heartbeat carried;
 # this silence (plus two cron periods) applies only before the first one.
 WATCHDOG_SILENCE_SECS = "300"
 # The tracker's uploads state its own schedule period (its output is stale
@@ -116,8 +120,9 @@ name = "ALERT_EMAIL_TESTNET"
 binding = "ALERTS_TESTNET"
 bucket_name = "alerts-bucket-testnet"
 
-# Status reads while the publisher is silent (GET /status with each Worker's
-# token).
+# Status reads while the publisher is silent, and once after the relay's
+# status tokens change (README, "Status check after a token change"): GET
+# /status with each Worker's token.
 [[env.testnet.services]]
 binding = "COORDINATOR_TESTNET"
 service = "slop-ninja-coordinator-testnet"

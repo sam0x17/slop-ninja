@@ -328,6 +328,40 @@ pub struct WriteNote {
     pub code: String,
 }
 
+/// `latest.json`'s `status_check`: the relay's last status check after a
+/// token change, with its time (`settled` false: checked again next tick).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckNote {
+    pub utc: String,
+    pub utc_ms: u64,
+    /// Each Worker's outcome (`no_token`, `unanswered`, `ok caller=<caller>`),
+    /// within [`crate::status::OUTCOME_MAX_BYTES`].
+    pub coordinator: String,
+    pub eval: String,
+    pub settled: bool,
+}
+
+impl CheckNote {
+    pub fn new(r: &crate::status::CheckRecord) -> Self {
+        // Outcomes come from `status::Read::outcome` only; the state row is
+        // still held to their alphabet and bound so the body stays within
+        // `LATEST_BYTES` whatever it holds.
+        let outcome = |o: &str| {
+            o.chars()
+                .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ' ' | '='))
+                .take(crate::status::OUTCOME_MAX_BYTES)
+                .collect::<String>()
+        };
+        Self {
+            utc: rfc3339(r.at_ms),
+            utc_ms: r.at_ms,
+            coordinator: outcome(&r.coordinator),
+            eval: outcome(&r.eval),
+            settled: r.settled,
+        }
+    }
+}
+
 impl WriteNote {
     fn new(at_ms: u64, result: &str, code: &str) -> Self {
         let mut code = code_text(code);
@@ -511,6 +545,9 @@ pub struct Latest {
     /// them).
     pub config_warnings: u64,
     pub last_write: Option<WriteNote>,
+    /// The relay's last status check after a token change
+    /// ([`crate::status::CheckState`]); absent before its first.
+    pub status_check: Option<CheckNote>,
     /// Conditions whose last object was a firing or a reminder.
     pub firing_count: u64,
     /// Entries of the firing set not listed (past [`LATEST_BYTES`]).
@@ -520,22 +557,24 @@ pub struct Latest {
 
 /// `latest.json` with empty strings, no numbers and no firing entries, in
 /// serde's field order (a test checks it).
-const LATEST_SKELETON: &str = r#"{"schema":"","network":"","utc":"","utc_ms":,"tick":,"cron_period_s":,"pull_period_s":,"tick_reads_s":,"write_gap_s":,"retention_s":,"retained_from_ms":,"horizon_s":,"object_bytes":,"email":"","delivery_ok":,"due":,"written":,"emailed":,"undelivered":,"config_warnings":,"last_write":{"utc":"","utc_ms":,"result":"","code":""},"firing_count":,"firing_omitted":,"firing":[]}"#;
+const LATEST_SKELETON: &str = r#"{"schema":"","network":"","utc":"","utc_ms":,"tick":,"cron_period_s":,"pull_period_s":,"tick_reads_s":,"write_gap_s":,"retention_s":,"retained_from_ms":,"horizon_s":,"object_bytes":,"email":"","delivery_ok":,"due":,"written":,"emailed":,"undelivered":,"config_warnings":,"last_write":{"utc":"","utc_ms":,"result":"","code":""},"status_check":{"utc":"","utc_ms":,"coordinator":"","eval":"","settled":},"firing_count":,"firing_omitted":,"firing":[]}"#;
 
 /// `latest.json` without firing entries at its widest: the skeleton, the
-/// schema, the network the configuration admits, two times, the longer
+/// schema, the network the configuration admits, three times, the longer
 /// email state and write result, a refusal code at the contract's string
-/// bound (code text needs no escaping), eighteen numbers and the longer
+/// bound (code text needs no escaping), two status check outcomes at their
+/// bound (no escaping either), nineteen numbers and two of the longer
 /// boolean.
 pub const LATEST_FIXED_BYTES: usize = LATEST_SKELETON.len()
     + LATEST_SCHEMA.len()
     + crate::config::NETWORK.len()
-    + 2 * RFC3339_MAX_BYTES
+    + 3 * RFC3339_MAX_BYTES
     + "off".len()
     + "refused".len()
     + MAX_STRING_BYTES
-    + 18 * U64_DIGITS
-    + "false".len();
+    + 2 * crate::status::OUTCOME_MAX_BYTES
+    + 19 * U64_DIGITS
+    + 2 * "false".len();
 /// `latest.json`'s bound: the fixed part and the firing entries within one
 /// post's events bound (the same splitter bound every alert batch has).
 pub const LATEST_BYTES: usize = LATEST_FIXED_BYTES + POST_EVENTS_BYTES;
@@ -704,6 +743,7 @@ pub(crate) mod tests {
         };
         let empty = Latest {
             last_write: Some(WriteNote::default()),
+            status_check: Some(CheckNote::default()),
             ..Latest::default()
         };
         let json = String::from_utf8(empty.body()).unwrap();
@@ -739,6 +779,12 @@ pub(crate) mod tests {
                 "refused",
                 &"E".repeat(2 * MAX_STRING_BYTES),
             )),
+            status_check: Some(CheckNote::new(&crate::status::CheckRecord {
+                at_ms: u64::MAX,
+                coordinator: "ok caller=publisher".into(),
+                eval: format!("{}x", "ok caller=publisher"),
+                settled: false,
+            })),
             firing_count: u64::MAX,
             firing_omitted: u64::MAX,
             ..Latest::default()
